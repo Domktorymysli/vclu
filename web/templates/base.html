@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="{{.lang}}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{block "title" .}}Virtual CLU{{end}}</title>
+    <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/vendor/bootstrap-icons/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="/static/css/dark-theme.css">
+    <meta name="csrf-token" content="{{.csrfToken}}">
+    {{block "head" .}}{{end}}
+</head>
+<body>
+    <div class="app-container">
+        {{template "sidebar" .}}
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Top Bar -->
+            <header class="topbar">
+                <button class="hamburger" id="hamburgerBtn">
+                    <i class="bi bi-list"></i>
+                </button>
+                <h1 class="page-title">{{block "page_title" .}}Dashboard{{end}}</h1>
+                <div class="topbar-actions">
+                    {{block "topbar_actions" .}}
+                    <div class="dropdown">
+                        <button class="btn-icon dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-globe"></i>
+                            <span class="lang-label">{{if eq .lang "pl"}}PL{{else}}EN{{end}}</span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item {{if eq .lang "pl"}}active{{end}}" href="?lang=pl">Polski</a></li>
+                            <li><a class="dropdown-item {{if eq .lang "en"}}active{{end}}" href="?lang=en">English</a></li>
+                        </ul>
+                    </div>
+                    {{end}}
+                </div>
+            </header>
+
+            <!-- Page Content -->
+            <div class="page-content">
+                <div class="content-wrapper {{block "content_class" .}}{{end}}">
+                    {{block "content" .}}
+                    <p>No content defined.</p>
+                    {{end}}
+                </div>
+
+                <!-- Right Panel (optional) -->
+                {{block "right_panel" .}}{{end}}
+            </div>
+
+
+        </main>
+    </div>
+
+    <!-- Mobile Overlay -->
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/utils.js"></script>
+    <script src="/static/js/csrf.js"></script>
+    <script src="/static/js/sidebar.js"></script>
+    {{block "scripts" .}}{{end}}
+</body>
+</html>

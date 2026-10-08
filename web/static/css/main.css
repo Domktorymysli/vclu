@@ -1,0 +1,172 @@
+/* Virtual CLU - Main Stylesheet (Login & Standalone pages) */
+
+/* Body & Layout */
+body {
+    min-height: 100vh;
+    background: #141A21;
+}
+
+.main-container {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+/* Content Card */
+.content-card {
+    background: #1B2430;
+    border-radius: 15px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+    border: 1px solid #2A3441;
+    max-width: 800px;
+    width: 100%;
+    color: #E6EDF3;
+}
+
+/* Wider card for tools page */
+.content-card.wide {
+    max-width: 1200px;
+}
+
+/* Navbar in card (login) */
+.content-card .navbar {
+    background: #1E2833 !important;
+    border-bottom: 1px solid #2A3441 !important;
+    border-radius: 15px 15px 0 0 !important;
+}
+
+.content-card .navbar-brand {
+    color: #E6EDF3 !important;
+    font-weight: 600;
+}
+
+.content-card .btn-outline-secondary {
+    color: #9DA7B3;
+    border-color: #2A3441;
+}
+
+.content-card .btn-outline-secondary:hover {
+    background: #2A3441;
+    color: #E6EDF3;
+}
+
+.content-card .dropdown-menu {
+    background: #1B2430;
+    border-color: #2A3441;
+}
+
+.content-card .dropdown-item {
+    color: #E6EDF3;
+}
+
+.content-card .dropdown-item:hover {
+    background: #1E2833;
+}
+
+.content-card .dropdown-item.active {
+    background: #27C2A8;
+}
+
+/* Status Badge */
+.status-badge {
+    font-size: 0.9rem;
+    padding: 0.5rem 1rem;
+}
+
+/* Forms */
+.form-label {
+    font-weight: 500;
+    margin-bottom: 0.5rem;
+    color: #E6EDF3;
+}
+
+.content-card .form-control {
+    background: #1E2833;
+    border-color: #2A3441;
+    color: #E6EDF3;
+}
+
+.content-card .form-control:focus {
+    border-color: #27C2A8;
+    box-shadow: 0 0 0 0.25rem rgba(39, 194, 168, 0.25);
+}
+
+.content-card .form-control::placeholder {
+    color: #5A6370;
+}
+
+.content-card .input-group-text {
+    background: #1E2833;
+    border-color: #2A3441;
+    color: #9DA7B3;
+}
+
+.content-card .text-muted {
+    color: #9DA7B3 !important;
+}
+
+.content-card .btn-primary {
+    background: #27C2A8;
+    border-color: #27C2A8;
+    color: #fff;
+}
+
+.content-card .btn-primary:hover {
+    background: #22AD96;
+    border-color: #1F9F89;
+}
+
+.readonly-field {
+    background-color: #1E2833;
+    cursor: not-allowed;
+}
+
+/* Shield icon on login page */
+.content-card .bi-shield-lock {
+    color: #27C2A8 !important;
+}
+
+/* Alert overrides in card */
+.content-card .alert-danger {
+    background: rgba(220, 53, 69, 0.15);
+    border-color: rgba(220, 53, 69, 0.3);
+    color: #ff6b7a;
+}
+
+/* Terminal Styles */
+.terminal {
+    background: #141A21;
+    color: #E6EDF3;
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    padding: 15px;
+    border-radius: 5px;
+    border: 1px solid #2A3441;
+    height: 300px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+.terminal-output {
+    margin-bottom: 10px;
+}
+
+.terminal-prompt {
+    color: #27C2A8;
+}
+
+.terminal-result {
+    color: #FF7A45;
+}
+
+.terminal-error {
+    color: #dc3545;
+}
+
+.code-editor {
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+}

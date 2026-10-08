@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="{{.lang}}" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Satel - Virtual CLU</title>
+    <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/vendor/bootstrap-icons/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="/static/css/dark-theme.css">
+    <link rel="stylesheet" href="/static/css/wizard.css">
+    <meta name="csrf-token" content="{{.csrfToken}}">
+</head>
+<body>
+    <div class="app-container">
+        {{template "sidebar" .}}
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="topbar">
+                <button class="hamburger" id="hamburgerBtn"><i class="bi bi-list"></i></button>
+                <h1 class="page-title">Satel Integra</h1>
+                <div class="topbar-actions">
+                    <button class="theme-toggle" id="themeToggle" title="Toggle theme">
+                        <i class="bi bi-moon-fill"></i>
+                        <i class="bi bi-sun-fill"></i>
+                    </button>
+                    <div class="dropdown">
+                        <button class="btn-icon dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-globe"></i>
+                            <span class="lang-label">{{if eq .lang "pl"}}PL{{else}}EN{{end}}</span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item {{if eq .lang "pl"}}active{{end}}" href="?lang=pl">Polski</a></li>
+                            <li><a class="dropdown-item {{if eq .lang "en"}}active{{end}}" href="?lang=en">English</a></li>
+                        </ul>
+                    </div>
+                </div>
+            </header>
+
+            <div class="page-content">
+                <div class="content-wrapper wide">
+
+                    <!-- Status Card -->
+                    <div class="card mb-3">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span><i class="bi bi-shield-exclamation"></i> Satel Integra (ETHM-1 Plus)</span>
+                            <span id="satelStatusBadge" class="badge {{if .connected}}bg-success{{else if .satelEnabled}}bg-warning{{else}}bg-secondary{{end}}">
+                                {{if .connected}}{{index .t "satel.status_connected"}}{{else if .running}}{{index .t "satel.status_connecting"}}{{else if .satelEnabled}}{{index .t "satel.status_restart"}}{{else}}{{index .t "satel.status_disabled"}}{{end}}
+                            </span>
+                        </div>
+                        <div class="card-body">
+                            <div class="row text-center">
+                                <div class="col-3">
+                                    <div class="fs-6 fw-bold" id="satelPanelType">{{if .panelType}}{{.panelType}}{{else}}—{{end}}</div>
+                                    <small class="text-muted">{{index .t "satel.panel"}}</small>
+                                </div>
+                                <div class="col-3">
+                                    <div class="fs-4 fw-bold" id="satelZoneCount">—</div>
+                                    <small class="text-muted">{{index .t "satel.zones"}}</small>
+                                </div>
+                                <div class="col-3">
+                                    <div class="fs-4 fw-bold" id="satelPartitionCount">—</div>
+                                    <small class="text-muted">{{index .t "satel.partitions"}}</small>
+                                </div>
+                                <div class="col-3">
+                                    <div class="fs-4 fw-bold" id="satelOutputCount">—</div>
+                                    <small class="text-muted">{{index .t "satel.outputs"}}</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="satelRestartBanner" class="alert alert-warning" style="display: none;">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        {{index .t "satel.restart_required"}}
+                        <button class="btn btn-sm btn-warning ms-2" id="satelRestartBtn">{{index .t "satel.restart_now"}}</button>
+                    </div>
+
+                    <!-- Tabs -->
+                    <div class="nav nav-segmented" role="tablist">
+                        <button class="nav-link {{if eq .activeTab "connection"}}active{{end}}" id="tab-connection" data-bs-toggle="tab" data-bs-target="#pane-connection" type="button" role="tab">
+                            <i class="bi bi-ethernet"></i> {{index .t "satel.tab_connection"}}
+                        </button>
+                        <button class="nav-link {{if eq .activeTab "objects"}}active{{end}}" id="tab-objects" data-bs-toggle="tab" data-bs-target="#pane-objects" type="button" role="tab">
+                            <i class="bi bi-list-check"></i> {{index .t "satel.tab_objects"}}
+                        </button>
+                        <button class="nav-link {{if eq .activeTab "state"}}active{{end}}" id="tab-state" data-bs-toggle="tab" data-bs-target="#pane-state" type="button" role="tab">
+                            <i class="bi bi-activity"></i> {{index .t "satel.tab_state"}}
+                        </button>
+                    </div>
+
+                    <div class="tab-content">
+
+                        <!-- ==================== CONNECTION TAB ==================== -->
+                        <div class="tab-pane fade {{if eq .activeTab "connection"}}show active{{end}}" id="pane-connection" role="tabpanel">
+                            <div class="card mb-3">
+                                <div class="card-header"><i class="bi bi-gear"></i> {{index .t "satel.configuration"}}</div>
+                                <div class="card-body">
+                                    <div class="form-check form-switch mb-3">
+                                        <input class="form-check-input" type="checkbox" id="satelEnabled" {{if .satelEnabled}}checked{{end}}>
+                                        <label class="form-check-label" for="satelEnabled">{{index .t "satel.enable"}}</label>
+                                    </div>
+
+                                    <div class="row">
+                                        <div class="col-md-8 mb-3">
+                                            <label for="satelHost" class="form-label">{{index .t "satel.host"}}</label>
+                                            <input type="text" class="form-control" id="satelHost" placeholder="192.168.1.100" value="{{.host}}">
+                                        </div>
+                                        <div class="col-md-4 mb-3">
+                                            <label for="satelPort" class="form-label">{{index .t "satel.port"}}</label>
+                                            <input type="number" class="form-control" id="satelPort" min="1" max="65535" value="{{if .port}}{{.port}}{{else}}7094{{end}}">
+                                        </div>
+                                    </div>
+
+                                    <div class="row">
+                                        <div class="col-md-6 mb-3">
+                                            <label for="satelUserCode" class="form-label">{{index .t "satel.user_code"}}</label>
+                                            <input type="password" class="form-control" id="satelUserCode" autocomplete="new-password"
+                                                   placeholder="{{if .hasUserCode}}{{index .t "satel.unchanged"}}{{else}}{{index .t "satel.user_code_ph"}}{{end}}">
+                                            <small class="text-muted">{{index .t "satel.user_code_hint"}}</small>
+                                        </div>
+                                        <div class="col-md-6 mb-3">
+                                            <label for="satelEncryptionKey" class="form-label">{{index .t "satel.enc_key"}}</label>
+                                            <input type="password" class="form-control" id="satelEncryptionKey" autocomplete="new-password"
+                                                   placeholder="{{if .hasEncryptionKey}}{{index .t "satel.unchanged"}}{{else}}{{index .t "satel.enc_key_ph"}}{{end}}">
+                                            <div class="form-check mt-1">
+                                                <input class="form-check-input" type="checkbox" id="satelClearKey">
+                                                <label class="form-check-label small text-muted" for="satelClearKey">{{index .t "satel.clear_key"}}</label>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="row">
+                                        <div class="col-md-4 mb-3">
+                                            <label for="satelPollInterval" class="form-label">{{index .t "satel.poll_interval"}}</label>
+                                            <input type="number" class="form-control" id="satelPollInterval" min="250" max="10000" step="50"
+                                                   value="{{if .pollInterval}}{{.pollInterval}}{{else}}1000{{end}}">
+                                        </div>
+                                        <div class="col-md-4 mb-3">
+                                            <label for="satelArmMode" class="form-label">{{index .t "satel.arm_mode"}}</label>
+                                            <select class="form-select" id="satelArmMode">
+                                                <option value="0" {{if eq .armMode 0}}selected{{end}}>{{index .t "satel.arm_mode_0"}}</option>
+                                                <option value="1" {{if eq .armMode 1}}selected{{end}}>{{index .t "satel.arm_mode_1"}}</option>
+                                                <option value="2" {{if eq .armMode 2}}selected{{end}}>{{index .t "satel.arm_mode_2"}}</option>
+                                                <option value="3" {{if eq .armMode 3}}selected{{end}}>{{index .t "satel.arm_mode_3"}}</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4 mb-3 d-flex flex-column justify-content-end">
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="checkbox" id="satelAllowDisarm" {{if .allowDisarm}}checked{{end}}>
+                                                <label class="form-check-label" for="satelAllowDisarm">{{index .t "satel.allow_disarm"}}</label>
+                                                <i class="bi bi-info-circle text-muted ms-1" role="button" tabindex="0" data-bs-toggle="tooltip" data-bs-html="true" data-bs-placement="right" title="{{index .t "satel.allow_disarm_tip"}}"></i>
+                                            </div>
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="checkbox" id="satelAllowForceArm" {{if .allowForceArm}}checked{{end}}>
+                                                <label class="form-check-label" for="satelAllowForceArm">{{index .t "satel.allow_force_arm"}}</label>
+                                                <i class="bi bi-info-circle text-muted ms-1" role="button" tabindex="0" data-bs-toggle="tooltip" data-bs-html="true" data-bs-placement="right" title="{{index .t "satel.allow_force_arm_tip"}}"></i>
+                                            </div>
+                                            <small class="text-muted">{{index .t "satel.force_arm_hint"}}</small>
+                                        </div>
+                                    </div>
+                                    <div id="satelDisarmWarning" class="alert alert-danger {{if not .allowDisarm}}d-none{{end}}">
+                                        <i class="bi bi-exclamation-octagon"></i>
+                                        <strong>{{index .t "satel.disarm_warning_title"}}</strong>
+                                        {{index .t "satel.disarm_warning"}}
+                                    </div>
+
+                                    <div class="d-flex gap-2 align-items-center flex-wrap">
+                                        <button class="btn btn-outline-secondary" id="satelTestBtn">
+                                            <i class="bi bi-plug"></i> {{index .t "satel.test_btn"}}
+                                        </button>
+                                        <button class="btn btn-primary" id="satelSaveBtn">
+                                            <i class="bi bi-save"></i> {{index .t "satel.save"}}
+                                        </button>
+                                        <span id="satelFormStatus" class="ms-2 small"></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ==================== OBJECTS TAB ==================== -->
+                        <div class="tab-pane fade {{if eq .activeTab "objects"}}show active{{end}}" id="pane-objects" role="tabpanel">
+                            <div class="card mb-3">
+                                <div class="card-header d-flex justify-content-between align-items-center">
+                                    <span><i class="bi bi-search"></i> {{index .t "satel.scan_header"}}</span>
+                                    <span class="text-muted small" id="scanInfo"></span>
+                                </div>
+                                <div class="card-body">
+                                    <p class="text-muted mb-2">{{index .t "satel.scan_desc"}}</p>
+                                    <button class="btn btn-outline-primary" id="scanBtn" {{if not .connected}}disabled{{end}}>
+                                        <i class="bi bi-search"></i> {{index .t "satel.scan_btn"}}
+                                    </button>
+                                    {{if not .connected}}
+                                    <span class="text-muted small ms-2">{{index .t "satel.scan_requires"}}</span>
+                                    {{end}}
+                                    <div id="scanSpinner" class="mt-3" style="display:none;">
+                                        <div class="spinner-border spinner-border-sm"></div>
+                                        <span class="ms-2 text-muted">{{index .t "satel.scanning"}}</span>
+                                        <div class="progress mt-2" style="height: 6px;">
+                                            <div id="scanProgressBar" class="progress-bar" role="progressbar" style="width: 0%;"></div>
+                                        </div>
+                                        <div id="scanProgressText" class="text-muted small mt-1"></div>
+                                    </div>
+                                    <div id="scanError" class="alert alert-danger mt-3" style="display:none;"></div>
+                                </div>
+                            </div>
+
+                            <div id="scanResults" style="display:none;">
+                                <div class="card mb-3" id="cardZones">
+                                    <div class="card-header d-flex justify-content-between align-items-center">
+                                        <span><i class="bi bi-record-circle"></i> {{index .t "satel.zones"}}</span>
+                                        <span>
+                                            <button class="btn btn-sm btn-outline-secondary" data-selgroup="zones" data-sel="all">{{index .t "satel.select_all"}}</button>
+                                            <button class="btn btn-sm btn-outline-secondary" data-selgroup="zones" data-sel="named">{{index .t "satel.select_named"}}</button>
+                                            <button class="btn btn-sm btn-outline-secondary" data-selgroup="zones" data-sel="none">{{index .t "satel.select_none"}}</button>
+                                        </span>
+                                    </div>
+                                    <div class="card-body p-0">
+                                        <table class="table table-sm table-hover mb-0">
+                                            <thead><tr><th style="width:3rem"></th><th style="width:5rem">#</th><th>{{index .t "satel.col_name"}}</th></tr></thead>
+                                            <tbody id="zonesBody"></tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                <div class="card mb-3" id="cardPartitions">
+                                    <div class="card-header d-flex justify-content-between align-items-center">
+                                        <span><i class="bi bi-shield-lock"></i> {{index .t "satel.partitions"}}</span>
+                                        <span>
+                                            <button class="btn btn-sm btn-outline-secondary" data-selgroup="partitions" data-sel="all">{{index .t "satel.select_all"}}</button>
+                                            <button class="btn btn-sm btn-outline-secondary" data-selgroup="partitions" data-sel="named">{{index .t "satel.select_named"}}</button>
+                                            <button class="btn btn-sm btn-outline-secondary" data-selgroup="partitions" data-sel="none">{{index .t "satel.select_none"}}</button>
+                                        </span>
+                                    </div>
+                                    <div class="card-body p-0">
+                                        <table class="table table-sm table-hover mb-0">
+                                            <thead><tr><th style="width:3rem"></th><th style="width:5rem">#</th><th>{{index .t "satel.col_name"}}</th></tr></thead>
+                                            <tbody id="partitionsBody"></tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                <div class="card mb-3" id="cardOutputs">
+                                    <div class="card-header d-flex justify-content-between align-items-center">
+                                        <span><i class="bi bi-toggle-on"></i> {{index .t "satel.outputs"}}</span>
+                                        <span>
+                                            <button class="btn btn-sm btn-outline-secondary" data-selgroup="outputs" data-sel="all">{{index .t "satel.select_all"}}</button>
+                                            <button class="btn btn-sm btn-outline-secondary" data-selgroup="outputs" data-sel="named">{{index .t "satel.select_named"}}</button>
+                                            <button class="btn btn-sm btn-outline-secondary" data-selgroup="outputs" data-sel="none">{{index .t "satel.select_none"}}</button>
+                                        </span>
+                                    </div>
+                                    <div class="card-body p-0">
+                                        <table class="table table-sm table-hover mb-0">
+                                            <thead><tr><th style="width:3rem"></th><th style="width:5rem">#</th><th>{{index .t "satel.col_name"}}</th></tr></thead>
+                                            <tbody id="outputsBody"></tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                <div class="card mb-3">
+                                    <div class="card-body d-flex gap-2 align-items-center flex-wrap">
+                                        <button class="btn btn-primary" id="objectsSaveBtn">
+                                            <i class="bi bi-save"></i> {{index .t "satel.save_selection"}}
+                                        </button>
+                                        <span class="text-muted small">{{index .t "satel.save_selection_hint"}}</span>
+                                        <span id="objectsSaveStatus" class="small"></span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="card mb-3">
+                                <div class="card-header" role="button" data-bs-toggle="collapse" data-bs-target="#manualRanges" aria-expanded="false" aria-controls="manualRanges">
+                                    <i class="bi bi-sliders"></i> {{index .t "satel.manual_ranges"}}
+                                    <i class="bi bi-chevron-down float-end"></i>
+                                </div>
+                                <div class="card-body collapse" id="manualRanges">
+                                    <p class="text-muted small mb-2">{{index .t "satel.manual_ranges_hint"}}</p>
+                                    <div class="row">
+                                        <div class="col-md-3 mb-2">
+                                            <label for="satelZones" class="form-label">{{index .t "satel.zones"}}</label>
+                                            <input type="text" class="form-control" id="satelZones" value="{{.zones}}" placeholder="1-32">
+                                        </div>
+                                        <div class="col-md-3 mb-2">
+                                            <label for="satelPartitions" class="form-label">{{index .t "satel.partitions"}}</label>
+                                            <input type="text" class="form-control" id="satelPartitions" value="{{.partitions}}" placeholder="1-4">
+                                        </div>
+                                        <div class="col-md-3 mb-2">
+                                            <label for="satelOutputs" class="form-label">{{index .t "satel.outputs"}}</label>
+                                            <input type="text" class="form-control" id="satelOutputs" value="{{.outputs}}" placeholder="1-16">
+                                        </div>
+                                        <div class="col-md-3 mb-2">
+                                            <label for="satelTempZones" class="form-label">{{index .t "satel.temp_zones"}}</label>
+                                            <input type="text" class="form-control" id="satelTempZones" value="{{.tempZones}}" placeholder="—">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ==================== STATE TAB ==================== -->
+                        <div class="tab-pane fade {{if eq .activeTab "state"}}show active{{end}}" id="pane-state" role="tabpanel">
+                            <div class="card mb-3">
+                                <div class="card-header d-flex justify-content-between align-items-center">
+                                    <span><i class="bi bi-activity"></i> {{index .t "satel.live_state"}}</span>
+                                    <span class="text-muted small" id="stateUpdated"></span>
+                                </div>
+                                <div class="card-body">
+                                    <div id="stateUnavailable" class="alert alert-secondary" style="display:none;">
+                                        {{index .t "satel.state_unavailable"}}
+                                    </div>
+                                    <div id="stateContent" style="display:none;">
+                                        <h6 class="text-muted">{{index .t "satel.partitions"}}</h6>
+                                        <div class="d-flex gap-2 flex-wrap mb-3" id="statePartitions"></div>
+                                        <h6 class="text-muted">{{index .t "satel.zones"}}</h6>
+                                        <div class="d-flex gap-2 flex-wrap mb-3" id="stateZones"></div>
+                                        <h6 class="text-muted">{{index .t "satel.outputs"}}</h6>
+                                        <div class="d-flex gap-2 flex-wrap mb-3" id="stateOutputs"></div>
+                                        <div id="stateTempsWrap" style="display:none;">
+                                            <h6 class="text-muted">{{index .t "satel.temps"}}</h6>
+                                            <div class="d-flex gap-2 flex-wrap" id="stateTemps"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/sidebar.js"></script>
+    <script src="/static/js/theme.js"></script>
+    <script src="/static/js/utils.js"></script>
+    <script src="/static/js/csrf.js"></script>
+    <script src="/static/js/restart-overlay.js"></script>
+    <script>window.SATEL_PAGE = { i18n: {{.satelI18n}} };</script>
+    <script src="/static/js/satel.js"></script>
+</body>
+</html>

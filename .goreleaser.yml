@@ -1,0 +1,85 @@
+version: 2
+
+project_name: vclu
+
+before:
+  hooks:
+    - go mod tidy
+    - go vet ./...
+    # Prepare flat layout for archive (install.sh expects these paths)
+    - mkdir -p dist/extra/runtime
+    - cp -r pkg/lua/runtime/* dist/extra/runtime/
+    - mkdir -p dist/extra/docs/ai
+    - cp docs/ai/*.md dist/extra/docs/ai/ 2>/dev/null || true
+
+builds:
+  - main: ./cmd/vclu
+    binary: vclu
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w
+      - -X main.version={{ .Version }}
+      - -X main.commit={{ .ShortCommit }}
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    goarm:
+      - "6"
+      - "7"
+    ignore:
+      - goos: darwin
+        goarch: arm
+      - goos: darwin
+        goarch: amd64
+
+archives:
+  - format: tar.gz
+    name_template: "{{ .ProjectName }}-{{ .Os }}-{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
+    files:
+      - src: web/**/*
+        strip_parent: false
+      - src: dist/extra/runtime/**/*
+        dst: runtime
+        strip_parent: true
+      - src: dist/extra/docs/ai/*
+        dst: docs/ai
+        strip_parent: true
+      - src: deploy/install.sh
+        dst: .
+        strip_parent: true
+      - src: deploy/vclu.service
+        dst: .
+        strip_parent: true
+      - src: LICENSE
+        dst: .
+        strip_parent: true
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^chore:"
+
+dockers:
+  - image_templates:
+      - "ghcr.io/domktorymysli/vclu:{{ .Version }}"
+      - "ghcr.io/domktorymysli/vclu:latest"
+    dockerfile: Dockerfile
+    build_flag_templates:
+      - "--build-arg=VERSION={{ .Version }}"
+      - "--build-arg=COMMIT={{ .ShortCommit }}"
+    extra_files:
+      - web
+      - pkg/lua/runtime
+      - docs/ai

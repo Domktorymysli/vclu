@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="{{.lang}}" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{index .t "app.tools"}} - Virtual CLU</title>
+    <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/vendor/bootstrap-icons/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="/static/css/dark-theme.css">
+    <link rel="stylesheet" href="/static/css/tools.css">
+    <meta name="csrf-token" content="{{.csrfToken}}">
+    <style>
+        .page-content { overflow: hidden; padding: 0; }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        {{template "sidebar" .}}
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="topbar">
+                <button class="hamburger" id="hamburgerBtn"><i class="bi bi-list"></i></button>
+                <h1 class="page-title">{{index .t "app.tools"}}</h1>
+                <div class="topbar-actions">
+                    <button class="theme-toggle" id="themeToggle" title="Toggle theme">
+                        <i class="bi bi-moon-fill"></i>
+                        <i class="bi bi-sun-fill"></i>
+                    </button>
+                    <div class="dropdown">
+                        <button class="btn-icon dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-globe"></i>
+                            <span class="lang-label">{{if eq .lang "pl"}}PL{{else}}EN{{end}}</span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item {{if eq .lang "pl"}}active{{end}}" href="?lang=pl">Polski</a></li>
+                            <li><a class="dropdown-item {{if eq .lang "en"}}active{{end}}" href="?lang=en">English</a></li>
+                        </ul>
+                    </div>
+                </div>
+            </header>
+
+            <div class="page-content">
+                <div class="console-container">
+                    <!-- Toolbar -->
+                    <div class="console-toolbar">
+                        <div class="btn-group" id="targetToggle">
+                            <button type="button" class="btn active" data-target="local">Local vCLU</button>
+                            <button type="button" class="btn" data-target="clu">Remote CLU</button>
+                        </div>
+                        <select id="cluSelect" class="form-select clu-select" style="display:none">
+                            <option value="">{{index .t "tools.loading_clus"}}</option>
+                        </select>
+                        <div class="toolbar-spacer"></div>
+                        <button id="clearBtn" class="btn btn-outline-secondary btn-clear" title="{{index .t "tools.clear"}}">
+                            <i class="bi bi-trash3"></i> {{index .t "tools.clear"}}
+                        </button>
+                    </div>
+
+                    <!-- Scrollable output log -->
+                    <div class="console-log" id="consoleLog">
+                        <div class="console-empty-hint" id="emptyHint">
+                            <i class="bi bi-terminal"></i>
+                            <p>{{index .t "tools.empty_hint"}}</p>
+                        </div>
+                    </div>
+
+                    <!-- Bottom input area -->
+                    <div class="console-input-area">
+                        <div class="console-editor-wrapper">
+                            <div id="monacoContainer" style="width:100%; height:60px;"></div>
+                        </div>
+                        <div class="console-input-actions">
+                            <button id="runBtn" class="btn btn-primary btn-run" title="{{index .t "tools.execute"}}">
+                                <i class="bi bi-play-fill"></i> {{index .t "tools.execute"}}
+                            </button>
+                            <span class="console-shortcut-hint">{{index .t "tools.shortcut_hint"}}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/utils.js"></script>
+    <script src="/static/js/csrf.js"></script>
+    <script src="/static/js/theme.js"></script>
+    <script src="/static/js/sidebar.js"></script>
+    <script src="/static/vendor/monaco/vs/loader.js"></script>
+    <script>
+        window.toolsTranslations = {
+            execute: {{json (index .t "tools.execute")}},
+            executing: {{json (index .t "tools.executing")}},
+            clear: {{json (index .t "tools.clear")}},
+            empty_hint: {{json (index .t "tools.empty_hint")}},
+            shortcut_hint: {{json (index .t "tools.shortcut_hint")}},
+            copy_success: {{json (index .t "tools.copy_success")}},
+            show_more: {{json (index .t "tools.show_more")}},
+            show_less: {{json (index .t "tools.show_less")}},
+            error_prefix: {{json (index .t "tools.error_prefix")}},
+            network_error: {{json (index .t "tools.network_error")}},
+            no_target: {{json (index .t "tools.no_target")}},
+            empty_script: {{json (index .t "tools.empty_script")}},
+            nil_result: {{json (index .t "tools.nil_result")}},
+            loading_clus: {{json (index .t "tools.loading_clus")}},
+            no_clus: {{json (index .t "tools.no_clus")}},
+            target_local: {{json (index .t "tools.target_local")}},
+            target_clu: {{json (index .t "tools.target_clu")}}
+        };
+    </script>
+    <script src="/static/js/tools.js"></script>
+</body>
+</html>

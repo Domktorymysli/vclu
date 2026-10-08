@@ -1,0 +1,52 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+/vclu
+/vclu-pi
+/vclu-bin
+
+# Go workspace
+go.work
+go.work.sum
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Runtime data (generated at startup, user-specific)
+/runtime/
+/clu/
+data/clu/
+# data dir of a local run from cmd/vclu (keys, configs)
+/cmd/vclu/data/
+data_backup/
+
+# Config files with secrets
+.vclu.json
+.mcp.json
+*.json.bak
+
+# Build artifacts
+deploy-tmp/
+dist/
+
+# Generated docs (LDoc HTML output, regenerate via `task docs`)
+docs/lua-api/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Coverage
+coverage.out
+
+# Built tool binaries
+tools/generate-api-reference/generate-api-reference
+tools/generate-completions/generate-completions

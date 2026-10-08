@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="{{.lang}}" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HomeKit - Virtual CLU</title>
+    <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/vendor/bootstrap-icons/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="/static/css/dark-theme.css">
+    <meta name="csrf-token" content="{{.csrfToken}}">
+</head>
+<body>
+    <div class="app-container">
+        {{template "sidebar" .}}
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="topbar">
+                <button class="hamburger" id="hamburgerBtn"><i class="bi bi-list"></i></button>
+                <h1 class="page-title">HomeKit</h1>
+                <div class="topbar-actions">
+                    <button class="theme-toggle" id="themeToggle" title="Toggle theme">
+                        <i class="bi bi-moon-fill"></i>
+                        <i class="bi bi-sun-fill"></i>
+                    </button>
+                    <div class="dropdown">
+                        <button class="btn-icon dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-globe"></i>
+                            <span class="lang-label">{{if eq .lang "pl"}}PL{{else}}EN{{end}}</span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item {{if eq .lang "pl"}}active{{end}}" href="?lang=pl">Polski</a></li>
+                            <li><a class="dropdown-item {{if eq .lang "en"}}active{{end}}" href="?lang=en">English</a></li>
+                        </ul>
+                    </div>
+                </div>
+            </header>
+
+            <div class="page-content">
+                <div class="content-wrapper wide">
+                    {{if .error}}
+                    <div class="alert alert-danger mb-3">
+                        <i class="bi bi-exclamation-triangle"></i> {{.error}}
+                    </div>
+                    {{end}}
+
+                    <!-- HomeKit Status Card -->
+                    <div class="card mb-3">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span><i class="bi bi-apple"></i> {{index .t "homekit.bridge_title"}}</span>
+                            <span id="statusBadge" class="badge {{if .status.running}}bg-success{{else}}bg-secondary{{end}}">
+                                {{if .status.running}}
+                                <i class="bi bi-check-circle"></i> {{index .t "homekit.running"}}
+                                {{else}}
+                                <i class="bi bi-stop-circle"></i> {{index .t "homekit.stopped"}}
+                                {{end}}
+                            </span>
+                        </div>
+                        <div class="card-body">
+                            <div class="row text-center">
+                                <div class="col-4">
+                                    <div class="fs-4 fw-bold" id="statAccessories">{{if .status.accessoryCount}}{{.status.accessoryCount}}{{else}}0{{end}}</div>
+                                    <small class="text-muted">{{index .t "homekit.accessories"}}</small>
+                                </div>
+                                <div class="col-4">
+                                    <div class="fs-4 fw-bold" id="statPairing">
+                                        {{if .status.pairingAvailable}}
+                                        <i class="bi bi-qr-code text-success"></i>
+                                        {{else}}
+                                        <i class="bi bi-lock-fill text-warning"></i>
+                                        {{end}}
+                                    </div>
+                                    <small class="text-muted">{{if .status.pairingAvailable}}{{index .t "homekit.ready_to_pair"}}{{else}}{{index .t "homekit.paired"}}{{end}}</small>
+                                </div>
+                                <div class="col-4">
+                                    <div class="fs-4 fw-bold" id="statPort">{{.homekit.port}}</div>
+                                    <small class="text-muted">{{index .t "homekit.port"}}</small>
+                                </div>
+                            </div>
+
+                            {{if and .status.running .status.pairingAvailable}}
+                            <div class="alert alert-info mt-3 mb-0">
+                                <i class="bi bi-info-circle"></i>
+                                <strong>{{index .t "homekit.pairing_pin"}}</strong>
+                                <code class="fs-5 ms-2">{{.homekit.pin}}</code>
+                                <br>
+                                <small class="text-muted">{{index .t "homekit.pairing_hint"}}</small>
+                            </div>
+                            {{end}}
+                        </div>
+                    </div>
+
+                    <!-- HomeKit Configuration Card -->
+                    <div class="card mb-3">
+                        <div class="card-header"><i class="bi bi-gear"></i> {{index .t "homekit.config_title"}}</div>
+                        <div class="card-body">
+                            <div class="form-check form-switch mb-3">
+                                <input class="form-check-input" type="checkbox" id="homekitEnabled"
+                                       {{if .homekit.enabled}}checked{{end}}>
+                                <label class="form-check-label" for="homekitEnabled">
+                                    {{index .t "homekit.enable"}}
+                                </label>
+                            </div>
+
+                            <div id="configFields" style="{{if not .homekit.enabled}}display: none;{{end}}">
+                                <div class="row">
+                                    <div class="col-md-6 mb-3">
+                                        <label for="bridgeName" class="form-label">{{index .t "homekit.bridge_name"}}</label>
+                                        <input type="text" class="form-control" id="bridgeName"
+                                               value="{{.homekit.bridgeName}}" placeholder="vCLU Bridge">
+                                        <div class="form-text">{{index .t "homekit.bridge_name_hint"}}</div>
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <label for="serialNumber" class="form-label">{{index .t "homekit.serial_number"}}</label>
+                                        <input type="text" class="form-control" id="serialNumber"
+                                               value="{{.homekit.serialNumber}}" placeholder="VCLU-001">
+                                    </div>
+                                </div>
+
+                                <div class="row">
+                                    <div class="col-md-6 mb-3">
+                                        <label for="pin" class="form-label">{{index .t "homekit.pin_code"}}</label>
+                                        <input type="text" class="form-control" id="pin"
+                                               value="{{.homekit.pin}}" pattern="[0-9]{8}" maxlength="8"
+                                               placeholder="12345678">
+                                        <div class="form-text">{{index .t "homekit.pin_hint"}}</div>
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <label for="port" class="form-label">{{index .t "homekit.port"}}</label>
+                                        <input type="number" class="form-control" id="port"
+                                               value="{{.homekit.port}}" min="1024" max="65535">
+                                        <div class="form-text">{{index .t "homekit.port_hint"}}</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="d-flex gap-2">
+                                <button type="button" class="btn btn-success" id="saveHomekitBtn" onclick="saveHomeKitConfig()">
+                                    <i class="bi bi-save"></i> {{index .t "homekit.save"}}
+                                </button>
+                                {{if .homekit.enabled}}
+                                <button type="button" class="btn btn-warning" onclick="restartHomeKit()">
+                                    <i class="bi bi-arrow-clockwise"></i> {{index .t "homekit.restart"}}
+                                </button>
+                                {{end}}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- How to Use Card -->
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            <i class="bi bi-question-circle"></i> {{index .t "homekit.howto_title"}}
+                        </div>
+                        <div class="card-body">
+                            <ol class="mb-0">
+                                <li class="mb-2">
+                                    <strong>{{index .t "homekit.howto_1_b"}}</strong> {{index .t "homekit.howto_1_t"}}
+                                </li>
+                                <li class="mb-2">
+                                    <strong>{{index .t "homekit.howto_2_b"}}</strong> {{index .t "homekit.howto_2_pre"}} <a href="/grenton?tab=omfiles">{{index .t "homekit.howto_2_link"}}</a> {{index .t "homekit.howto_2_post"}}
+                                </li>
+                                <li class="mb-2">
+                                    <strong>{{index .t "homekit.howto_3_b"}}</strong>
+                                    <ul>
+                                        <li>{{index .t "homekit.howto_3_1"}}</li>
+                                        <li>{{index .t "homekit.howto_3_2a"}} <strong>+</strong> &rarr; <strong>{{index .t "homekit.howto_3_2b"}}</strong></li>
+                                        <li>{{index .t "homekit.howto_3_3"}}</li>
+                                        <li>{{index .t "homekit.howto_3_4"}}</li>
+                                    </ul>
+                                </li>
+                                <li>
+                                    <strong>{{index .t "homekit.howto_4_b"}}</strong> {{index .t "homekit.howto_4_pre"}} <a href="/access">{{index .t "homekit.howto_4_link"}}</a> {{index .t "homekit.howto_4_post"}}
+                                </li>
+                            </ol>
+                            <div class="alert alert-info mt-3 mb-0">
+                                <i class="bi bi-shield-lock"></i> {{index .t "homekit.info_pre"}} <a href="/access"><strong>{{index .t "homekit.info_link"}}</strong></a> {{index .t "homekit.info_post"}}
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/utils.js"></script>
+    <script src="/static/js/csrf.js"></script>
+    <script src="/static/js/theme.js"></script>
+    <script src="/static/js/sidebar.js"></script>
+    <script src="/static/js/homekit.js"></script>
+</body>
+</html>

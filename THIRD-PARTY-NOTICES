@@ -1,0 +1,159 @@
+Third-Party Software Notices
+============================
+
+Virtual CLU (vCLU) incorporates third-party software components listed below.
+Each component is used under the terms of its respective license.
+
+This product includes software developed by third parties.
+Full license texts for third-party components can be found
+in the respective repositories linked below.
+
+Direct Dependencies
+-------------------
+
+github.com/brutella/hap v0.0.35
+  License: Apache-2.0
+  Copyright (c) Matthias Hochgatterer
+  https://github.com/brutella/hap
+
+github.com/eclipse/paho.mqtt.golang v1.5.1
+  License: EDL-1.0 (Eclipse Distribution License v1.0, BSD-3-Clause equivalent)
+  Dual-licensed under EPL-2.0 and EDL-1.0. This project elects EDL-1.0.
+  Copyright (c) Eclipse Foundation
+  https://github.com/eclipse/paho.mqtt.golang
+
+github.com/gin-gonic/gin v1.11.0
+  License: MIT
+  Copyright (c) Manu Martinez-Almeida
+  https://github.com/gin-gonic/gin
+
+github.com/google/uuid v1.6.0
+  License: BSD-3-Clause
+  Copyright (c) Google Inc.
+  https://github.com/google/uuid
+
+github.com/mark3labs/mcp-go v0.44.0
+  License: MIT
+  Copyright (c) Mark3 Labs
+  https://github.com/mark3labs/mcp-go
+
+github.com/mochi-mqtt/server/v2 v2.7.9
+  License: MIT
+  Copyright (c) Mochi MQTT
+  https://github.com/mochi-mqtt/server
+
+github.com/pin/tftp/v3 v3.1.0
+  License: MIT
+  Copyright (c) Dmitri Popov
+  https://github.com/pin/tftp
+
+github.com/stianeikeland/go-rpio/v4 v4.6.0
+  License: MIT
+  Copyright (c) Stian Eikeland
+  https://github.com/stianeikeland/go-rpio
+
+github.com/yuin/gopher-lua v1.1.1
+  License: MIT
+  Copyright (c) Yusuke Inuzuka
+  https://github.com/yuin/gopher-lua
+
+golang.org/x/crypto v0.45.0
+  License: BSD-3-Clause
+  Copyright (c) The Go Authors
+  https://github.com/golang/crypto
+
+gopkg.in/yaml.v3 v3.0.1
+  License: MIT + Apache-2.0
+  Copyright (c) Kirill Simonov (libyaml), Go-YAML authors
+  https://github.com/go-yaml/yaml
+
+Indirect Dependencies
+---------------------
+
+github.com/brutella/dnssd v1.2.14
+  License: MIT
+  https://github.com/brutella/dnssd
+
+github.com/miekg/dns v1.1.61
+  License: BSD-3-Clause
+  https://github.com/miekg/dns
+
+github.com/gorilla/websocket v1.5.3
+  License: BSD-2-Clause
+  https://github.com/gorilla/websocket
+
+github.com/go-chi/chi v1.5.4
+  License: MIT
+  https://github.com/go-chi/chi
+
+github.com/bytedance/sonic v1.14.2
+  License: Apache-2.0
+  https://github.com/bytedance/sonic
+
+github.com/cloudwego/base64x v0.1.6
+  License: Apache-2.0
+  https://github.com/cloudwego/base64x
+
+github.com/json-iterator/go v1.1.12
+  License: MIT
+  https://github.com/json-iterator/go
+
+github.com/go-playground/validator/v10 v10.28.0
+  License: MIT
+  https://github.com/go-playground/validator
+
+github.com/invopop/jsonschema v0.13.0
+  License: MIT
+  https://github.com/invopop/jsonschema
+
+github.com/goccy/go-json v0.10.5
+  License: MIT
+  https://github.com/goccy/go-json
+
+github.com/goccy/go-yaml v1.18.0
+  License: MIT
+  https://github.com/goccy/go-yaml
+
+github.com/quic-go/quic-go v0.57.0
+  License: MIT
+  https://github.com/quic-go/quic-go
+
+github.com/gin-contrib/sse v1.1.0
+  License: MIT
+  https://github.com/gin-contrib/sse
+
+github.com/go-playground/locales v0.14.1
+  License: MIT
+  https://github.com/go-playground/locales
+
+github.com/go-playground/universal-translator v0.18.1
+  License: MIT
+  https://github.com/go-playground/universal-translator
+
+github.com/goccy/go-json v0.10.5
+  License: MIT
+  https://github.com/goccy/go-json
+
+github.com/klauspost/cpuid/v2 v2.3.0
+  License: MIT
+  https://github.com/klauspost/cpuid
+
+github.com/leodido/go-urn v1.4.0
+  License: MIT
+  https://github.com/leodido/go-urn
+
+github.com/mattn/go-isatty v0.0.20
+  License: MIT
+  https://github.com/mattn/go-isatty
+
+github.com/pelletier/go-toml/v2 v2.2.4
+  License: MIT
+  https://github.com/pelletier/go-toml
+
+github.com/vishvananda/netlink v1.2.1-beta.2
+  License: Apache-2.0
+  https://github.com/vishvananda/netlink
+
+github.com/vishvananda/netns v0.0.0
+  License: Apache-2.0
+  https://github.com/vishvananda/netns

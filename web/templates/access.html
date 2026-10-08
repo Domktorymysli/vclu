@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="{{.lang}}" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{index .t "access.title"}} - Virtual CLU</title>
+    <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/vendor/bootstrap-icons/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="/static/css/dark-theme.css">
+    <meta name="csrf-token" content="{{.csrfToken}}">
+</head>
+<body>
+    <div class="app-container">
+        {{template "sidebar" .}}
+
+        <main class="main-content">
+            <header class="topbar">
+                <button class="hamburger" id="hamburgerBtn"><i class="bi bi-list"></i></button>
+                <h1 class="page-title">{{index .t "access.title"}}</h1>
+                <div class="topbar-actions">
+                    <button class="theme-toggle" id="themeToggle" title="Toggle theme">
+                        <i class="bi bi-moon-fill"></i>
+                        <i class="bi bi-sun-fill"></i>
+                    </button>
+                    <div class="dropdown">
+                        <button class="btn-icon dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-globe"></i>
+                            <span class="lang-label">{{if eq .lang "pl"}}PL{{else}}EN{{end}}</span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item {{if eq .lang "pl"}}active{{end}}" href="?lang=pl">Polski</a></li>
+                            <li><a class="dropdown-item {{if eq .lang "en"}}active{{end}}" href="?lang=en">English</a></li>
+                        </ul>
+                    </div>
+                </div>
+            </header>
+
+            <div class="page-content">
+                <div class="content-wrapper wide">
+
+                    <!-- Info Card -->
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            <i class="bi bi-info-circle"></i> {{index .t "access.about"}}
+                        </div>
+                        <div class="card-body">
+                            <p class="mb-2">{{index .t "access.about_desc"}}</p>
+                            <table class="table table-sm mb-0">
+                                <tr>
+                                    <td><span class="badge bg-success">{{index .t "access.level_full"}}</span></td>
+                                    <td>{{index .t "access.full_desc"}}</td>
+                                </tr>
+                                <tr>
+                                    <td><span class="badge bg-warning">{{index .t "access.level_readonly"}}</span></td>
+                                    <td>{{index .t "access.readonly_desc"}}</td>
+                                </tr>
+                                <tr>
+                                    <td><span class="badge bg-secondary">{{index .t "access.level_hidden"}}</span></td>
+                                    <td>{{index .t "access.hidden_desc"}}</td>
+                                </tr>
+                            </table>
+                            <div class="alert alert-info mt-3 mb-0">
+                                <i class="bi bi-apple"></i> <strong>HomeKit:</strong> {{index .t "access.homekit_note"}}
+                                <span id="mcpBotLink" style="display:none;">
+                                    &nbsp;&bull;&nbsp; <i class="bi bi-robot"></i> <strong>MCP Bots:</strong> {{index .t "access.mcp_bots_note"}} <a href="/mcp-dashboard">{{index .t "access.mcp_dashboard"}}</a>.
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Objects Card -->
+                    <div class="card mb-3">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span><i class="bi bi-shield-lock"></i> {{index .t "access.object_access"}}</span>
+                            <div class="d-flex align-items-center gap-2">
+                                <span id="objectCount" class="badge bg-secondary">...</span>
+                                <a href="/access/profiles" class="text-muted small text-nowrap"><i class="bi bi-gear"></i> {{index .t "access.profiles_link"}}</a>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <!-- Search & Filter -->
+                            <div class="row mb-3 g-2">
+                                <div class="col-md-5">
+                                    <div class="input-group input-group-sm">
+                                        <span class="input-group-text"><i class="bi bi-search"></i></span>
+                                        <input type="text" class="form-control" id="searchFilter"
+                                               placeholder="{{index .t "access.search_placeholder"}}">
+                                    </div>
+                                </div>
+                                <div class="col-md-2">
+                                    <select class="form-select form-select-sm" id="typeFilter">
+                                        <option value="">{{index .t "access.all_types"}}</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-5 text-end">
+                                    <button class="btn btn-sm btn-outline-secondary" onclick="accessControl.loadObjects()" title="Refresh">
+                                        <i class="bi bi-arrow-clockwise"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Bulk Actions (shown when items selected) -->
+                            <div class="d-flex mb-3 gap-2 align-items-center flex-wrap" id="bulkActions" style="display: none;">
+                                <span class="text-muted small"><strong id="selectedCount">0</strong> sel.</span>
+                                <div class="btn-group btn-group-sm">
+                                    <button type="button" class="btn btn-outline-primary dropdown-toggle" data-bs-toggle="dropdown">
+                                        {{index .t "access.set_all"}}
+                                    </button>
+                                    <ul class="dropdown-menu" id="bulkMenu">
+                                        <li><h6 class="dropdown-header"><i class="bi bi-house-heart"></i> MQTT</h6></li>
+                                        <li><a class="dropdown-item" href="#" onclick="accessControl.bulkSetAccess('mqtt', 'full'); return false;"><span class="badge bg-success">F</span> {{index .t "access.level_full"}}</a></li>
+                                        <li><a class="dropdown-item" href="#" onclick="accessControl.bulkSetAccess('mqtt', 'readonly'); return false;"><span class="badge bg-warning">R</span> {{index .t "access.level_readonly"}}</a></li>
+                                        <li><a class="dropdown-item" href="#" onclick="accessControl.bulkSetAccess('mqtt', 'hidden'); return false;"><span class="badge bg-secondary">H</span> {{index .t "access.level_hidden"}}</a></li>
+                                        <li><hr class="dropdown-divider"></li>
+                                        <li><h6 class="dropdown-header"><i class="bi bi-apple"></i> HomeKit</h6></li>
+                                        <li><a class="dropdown-item" href="#" onclick="accessControl.bulkSetAccess('homekit', 'full'); return false;"><span class="badge bg-success">F</span> {{index .t "access.level_full"}}</a></li>
+                                        <li><a class="dropdown-item" href="#" onclick="accessControl.bulkSetAccess('homekit', 'readonly'); return false;"><span class="badge bg-warning">R</span> {{index .t "access.level_readonly"}}</a></li>
+                                        <li><a class="dropdown-item" href="#" onclick="accessControl.bulkSetAccess('homekit', 'hidden'); return false;"><span class="badge bg-secondary">H</span> {{index .t "access.level_hidden"}}</a></li>
+                                        <!-- Bot sections appended dynamically by JS -->
+                                    </ul>
+                                </div>
+                                <button class="btn btn-sm btn-outline-secondary" onclick="accessControl.clearSelection()">
+                                    <i class="bi bi-x"></i>
+                                </button>
+                                <span id="bulkProgress" style="display: none;">
+                                    <span class="spinner-border spinner-border-sm text-primary me-1"></span>
+                                    <span class="small text-muted" id="bulkProgressText">0/0</span>
+                                </span>
+                            </div>
+
+                            <div id="objectsLoading" class="text-center py-3">
+                                <div class="spinner-border spinner-border-sm text-primary" role="status">
+                                    <span class="visually-hidden">Loading...</span>
+                                </div>
+                            </div>
+
+                            <div id="objectsEmpty" class="alert alert-secondary" style="display: none;">
+                                <i class="bi bi-info-circle"></i> {{index .t "access.no_objects"}}
+                                {{index .t "access.import_hint"}} <a href="/grenton?tab=omfiles">{{index .t "access.om_files_page"}}</a> {{index .t "access.page_first"}}
+                            </div>
+
+                            <div id="objectsTable" style="display: none;">
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-hover">
+                                        <thead>
+                                            <tr id="accessTableHead">
+                                                <th style="width: 30px;">
+                                                    <input type="checkbox" class="form-check-input" id="selectAll" title="Select all visible">
+                                                </th>
+                                                <th>{{index .t "access.name"}}</th>
+                                                <th>{{index .t "access.type"}}</th>
+                                                <th class="text-center">
+                                                    <i class="bi bi-house-heart"></i> MQTT/HA
+                                                </th>
+                                                <th class="text-center">
+                                                    <i class="bi bi-apple"></i> HomeKit
+                                                </th>
+                                                <!-- Bot columns rendered dynamically by JS -->
+                                            </tr>
+                                        </thead>
+                                        <tbody id="objectsTableBody">
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/utils.js"></script>
+    <script src="/static/js/csrf.js"></script>
+    <script src="/static/js/theme.js"></script>
+    <script src="/static/js/sidebar.js"></script>
+    <script src="/static/js/access.js"></script>
+</body>
+</html>

@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="{{.lang}}" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MCP - Virtual CLU</title>
+    <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/vendor/bootstrap-icons/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="/static/css/dark-theme.css">
+    <meta name="csrf-token" content="{{.csrfToken}}">
+</head>
+<body>
+    <div class="app-container">
+        {{template "sidebar" .}}
+
+        <main class="main-content">
+            <header class="topbar">
+                <button class="hamburger" id="hamburgerBtn"><i class="bi bi-list"></i></button>
+                <h1 class="page-title"><i class="bi bi-robot"></i> {{index .t "mcp.title"}}</h1>
+                <div class="topbar-actions">
+                    <button class="theme-toggle" id="themeToggle" title="Toggle theme">
+                        <i class="bi bi-moon-fill"></i>
+                        <i class="bi bi-sun-fill"></i>
+                    </button>
+                    <div class="dropdown">
+                        <button class="btn-icon dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-globe"></i>
+                            <span class="lang-label">{{if eq .lang "pl"}}PL{{else}}EN{{end}}</span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item {{if eq .lang "pl"}}active{{end}}" href="?lang=pl">Polski</a></li>
+                            <li><a class="dropdown-item {{if eq .lang "en"}}active{{end}}" href="?lang=en">English</a></li>
+                        </ul>
+                    </div>
+                </div>
+            </header>
+
+            <div class="page-content">
+                <div class="content-wrapper wide">
+
+                    <!-- Status Card -->
+                    <div class="card mb-3">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span><i class="bi bi-robot"></i> {{index .t "mcp.status"}}</span>
+                            <span id="mcpStatusBadge" class="badge bg-secondary">--</span>
+                        </div>
+                        <div class="card-body">
+                            <div class="row text-center">
+                                <div class="col-4">
+                                    <div class="fs-4 fw-bold" id="mcpTotalRequests">0</div>
+                                    <small class="text-muted">{{index .t "mcp.total_requests"}}</small>
+                                </div>
+                                <div class="col-4">
+                                    <div class="fs-4 fw-bold" id="mcpTotalErrors">0</div>
+                                    <small class="text-muted">{{index .t "mcp.errors"}}</small>
+                                </div>
+                                <div class="col-4">
+                                    <div class="fs-4 fw-bold" id="mcpActiveSessions">0</div>
+                                    <small class="text-muted">{{index .t "mcp.in_flight"}}</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Configuration Card -->
+                    <div class="card mb-3">
+                        <div class="card-header"><i class="bi bi-gear"></i> {{index .t "mcp.configuration"}}</div>
+                        <div class="card-body">
+                            <div class="form-check form-switch mb-2">
+                                <input class="form-check-input" type="checkbox" id="mcpEnabled" {{if .mcpEnabled}}checked{{end}}>
+                                <label class="form-check-label" for="mcpEnabled">{{index .t "mcp.enable_mcp"}}</label>
+                            </div>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="mcpDevMode" {{if .devModeEnabled}}checked{{end}}>
+                                <label class="form-check-label" for="mcpDevMode">{{index .t "mcp.enable_dev_mode"}}</label>
+                            </div>
+                            <small class="text-muted">{{index .t "mcp.dev_mode_hint"}}</small>
+                        </div>
+                    </div>
+
+                    <!-- Bots Card -->
+                    <div class="card mb-3">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span><i class="bi bi-people"></i> {{index .t "mcp.bots"}}</span>
+                            <button class="btn btn-sm btn-primary" id="btnAddBot"><i class="bi bi-plus-lg"></i> {{index .t "mcp.add_bot"}}</button>
+                        </div>
+                        <div class="card-body">
+                            <p class="text-muted small mb-3">{{index .t "mcp.bots_desc"}}</p>
+                            <div id="mcpBotsList"></div>
+                        </div>
+                    </div>
+
+                    <!-- Connection Guide Card -->
+                    <div class="card mb-3">
+                        <div class="card-header"><i class="bi bi-plug"></i> {{index .t "mcp.connection_guide"}}</div>
+                        <div class="card-body">
+                            <ul class="nav nav-tabs" id="mcpGuideTabs" role="tablist">
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link active" id="tab-claude" data-bs-toggle="tab" data-bs-target="#guide-claude" type="button" role="tab">Claude Code</button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link" id="tab-codex" data-bs-toggle="tab" data-bs-target="#guide-codex" type="button" role="tab">Codex CLI</button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link" id="tab-gemini" data-bs-toggle="tab" data-bs-target="#guide-gemini" type="button" role="tab">Gemini CLI</button>
+                                </li>
+                            </ul>
+                            <div class="tab-content pt-3" id="mcpGuideContent">
+                                <!-- Agent instructions template (shared by all tabs) -->
+                                {{define "agent-instructions"}}
+<div class="position-relative">
+<button class="btn btn-sm btn-outline-light position-absolute top-0 end-0 m-2 copy-btn" onclick="navigator.clipboard.writeText(this.closest('.position-relative').querySelector('code').textContent).then(()=>{this.textContent='Copied!';setTimeout(()=>this.innerHTML='<i class=\'bi bi-clipboard\'></i> Copy',1500)})"><i class="bi bi-clipboard"></i> Copy</button>
+<pre class="bg-dark p-3 rounded mb-0" style="white-space: pre-wrap;"><code># vCLU Smart Home
+
+You are connected to a vCLU smart home controller via MCP.
+
+## First steps (every session)
+1. vclu_context_read() — persistent notes and quickstart guide
+2. vclu_registry() — discover all devices with areas and tags
+3. vclu_read_file("ai/house.md") — house layout and rules
+4. vclu_read_file("ai/examples.md") — code cookbook
+
+## Writing Lua code — use sandbox pipeline
+vclu_draft_write → vclu_draft_validate → vclu_draft_test → vclu_draft_promote
+Never modify a/user.lua or a/om.lua (auto-generated).
+
+## Don't
+- Don't use vclu_exec (requires ExecMode)
+- Don't use shell commands — use vclu_read_file, vclu_grep, vclu_list_files</code></pre>
+</div>
+                                {{end}}
+                                <!-- Claude Code -->
+                                <div class="tab-pane fade show active" id="guide-claude" role="tabpanel">
+                                    <h6>1. {{index .t "mcp.step_connect"}}</h6>
+                                    <p class="text-muted mb-2">{{index .t "mcp.add_hint_claude"}}</p>
+                                    <pre class="bg-dark p-3 rounded mb-3"><code>{
+  "mcpServers": {
+    "vclu": {
+      "type": "http",
+      "url": "<span class="mcp-url">http://&lt;vclu-ip&gt;:&lt;port&gt;</span>/mcp",
+      "headers": {
+        "Authorization": "Bearer &lt;your-api-key&gt;"
+      }
+    }
+  }
+}</code></pre>
+                                    <h6>2. {{index .t "mcp.step_instructions"}}</h6>
+                                    <p class="text-muted mb-2">{{index .t "mcp.claude_instructions_hint"}}</p>
+                                    {{template "agent-instructions"}}
+                                </div>
+                                <!-- Codex CLI -->
+                                <div class="tab-pane fade" id="guide-codex" role="tabpanel">
+                                    <h6>1. {{index .t "mcp.step_connect"}}</h6>
+                                    <p class="text-muted mb-2">{{index .t "mcp.add_hint_codex"}}</p>
+                                    <pre class="bg-dark p-3 rounded mb-2"><code>[mcp_servers.vclu]
+url = "<span class="mcp-url">http://&lt;vclu-ip&gt;:&lt;port&gt;</span>/mcp"
+bearer_token_env_var = "VCLU_MCP_KEY"</code></pre>
+                                    <p class="text-muted mb-3"><small>{{index .t "mcp.codex_env_hint"}} <code>export VCLU_MCP_KEY="&lt;your-api-key&gt;"</code></small></p>
+                                    <h6>2. {{index .t "mcp.step_instructions"}}</h6>
+                                    <p class="text-muted mb-2">{{index .t "mcp.codex_instructions_hint"}}</p>
+                                    {{template "agent-instructions"}}
+                                </div>
+                                <!-- Gemini CLI -->
+                                <div class="tab-pane fade" id="guide-gemini" role="tabpanel">
+                                    <h6>1. {{index .t "mcp.step_connect"}}</h6>
+                                    <p class="text-muted mb-2">{{index .t "mcp.add_hint_gemini"}}</p>
+                                    <pre class="bg-dark p-3 rounded mb-3"><code>{
+  "mcpServers": {
+    "vclu": {
+      "httpUrl": "<span class="mcp-url">http://&lt;vclu-ip&gt;:&lt;port&gt;</span>/mcp",
+      "headers": {
+        "Authorization": "Bearer &lt;your-api-key&gt;"
+      }
+    }
+  }
+}</code></pre>
+                                    <h6>2. {{index .t "mcp.step_instructions"}}</h6>
+                                    <p class="text-muted mb-2">{{index .t "mcp.gemini_instructions_hint"}}</p>
+                                    {{template "agent-instructions"}}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Audit Log Card -->
+                    <div class="card mb-3" id="auditCard">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span><i class="bi bi-journal-text"></i> {{index .t "mcp.audit_log"}}</span>
+                            <button class="btn btn-sm btn-outline-secondary" id="btnRefreshAudit">
+                                <i class="bi bi-arrow-clockwise"></i>
+                            </button>
+                        </div>
+                        <div class="card-body p-0">
+                            <div id="auditEmpty" class="text-center text-muted p-3" style="display:none;">
+                                {{index .t "mcp.no_audit"}}
+                            </div>
+                            <div class="table-responsive">
+                                <table class="table table-sm table-hover mb-0" id="auditTable" style="display:none;">
+                                    <thead>
+                                        <tr>
+                                            <th class="ps-3">{{index .t "mcp.time"}}</th>
+                                            <th>{{index .t "mcp.tool"}}</th>
+                                            <th>{{index .t "mcp.path"}}</th>
+                                            <th>{{index .t "mcp.ws_bot"}}</th>
+                                            <th>{{index .t "mcp.status_col"}}</th>
+                                            <th class="pe-3">{{index .t "mcp.ws_details"}}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="auditBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Incidents Card -->
+                    <div class="card mb-3" id="incidentsCard">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span><i class="bi bi-exclamation-triangle"></i> {{index .t "mcp.incidents"}}</span>
+                            <button class="btn btn-sm btn-outline-secondary" id="btnRefreshIncidents">
+                                <i class="bi bi-arrow-clockwise"></i>
+                            </button>
+                        </div>
+                        <div class="card-body p-0">
+                            <div id="incidentsEmpty" class="text-center text-muted p-3" style="display:none;">
+                                {{index .t "mcp.no_incidents"}}
+                            </div>
+                            <div class="table-responsive">
+                                <table class="table table-sm table-hover mb-0" id="incidentsTable" style="display:none;">
+                                    <thead>
+                                        <tr>
+                                            <th class="ps-3">{{index .t "mcp.time"}}</th>
+                                            <th>{{index .t "mcp.ws_trigger"}}</th>
+                                            <th>{{index .t "mcp.ws_error"}}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="incidentsBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Agent Context Card -->
+                    <div class="card mb-3" id="agentContextCard">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span><i class="bi bi-brain"></i> {{index .t "mcp.agent_context"}}</span>
+                            <button class="btn btn-sm btn-outline-danger" id="btnClearAgentContext" title="Clear">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
+                        <div class="card-body">
+                            <div id="agentContextEmpty" class="text-center text-muted" style="display:none;">
+                                {{index .t "mcp.no_agent_context"}}
+                            </div>
+                            <pre id="agentContextContent" class="mb-0" style="font-size:0.85rem; max-height:300px; overflow-y:auto; white-space:pre-wrap; display:none;"></pre>
+                        </div>
+                    </div>
+
+                    <!-- Activity Log Card -->
+                    <div class="card mb-3">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span><i class="bi bi-clock-history"></i> {{index .t "mcp.activity_log"}}</span>
+                            <button class="btn btn-sm btn-outline-secondary" id="btnRefreshActivity">
+                                <i class="bi bi-arrow-clockwise"></i>
+                            </button>
+                        </div>
+                        <div class="card-body p-0">
+                            <div class="table-responsive">
+                                <table class="table table-sm table-hover mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th class="text-nowrap ps-3">{{index .t "mcp.time"}}</th>
+                                            <th class="text-nowrap">{{index .t "mcp.tool"}}</th>
+                                            <th class="text-nowrap">{{index .t "mcp.path"}}</th>
+                                            <th class="text-nowrap">{{index .t "mcp.status_col"}}</th>
+                                            <th class="text-nowrap">{{index .t "mcp.latency"}}</th>
+                                            <th class="text-nowrap pe-3">{{index .t "mcp.ip"}}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="mcpActivityBody">
+                                        <tr><td colspan="6" class="text-center text-muted">{{index .t "mcp.no_activity"}}</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Stats Card -->
+                    <div class="card mb-3">
+                        <div class="card-header"><i class="bi bi-graph-up"></i> {{index .t "mcp.latency_distribution"}}</div>
+                        <div class="card-body">
+                            <div class="row" id="mcpLatencyBuckets">
+                                <div class="col-2 text-center"><div class="fw-bold" data-bucket="0">0</div><small>&lt;10ms</small></div>
+                                <div class="col-2 text-center"><div class="fw-bold" data-bucket="1">0</div><small>&lt;50ms</small></div>
+                                <div class="col-2 text-center"><div class="fw-bold" data-bucket="2">0</div><small>&lt;100ms</small></div>
+                                <div class="col-2 text-center"><div class="fw-bold" data-bucket="3">0</div><small>&lt;500ms</small></div>
+                                <div class="col-2 text-center"><div class="fw-bold" data-bucket="4">0</div><small>&lt;1s</small></div>
+                                <div class="col-2 text-center"><div class="fw-bold" data-bucket="5">0</div><small>&gt;1s</small></div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/utils.js"></script>
+    <script src="/static/js/csrf.js"></script>
+    <script src="/static/js/theme.js"></script>
+    <script src="/static/js/sidebar.js"></script>
+
+    <!-- i18n for JS -->
+    <script>
+    var MCP_I18N = {
+        enabled: '{{index .t "mcp.enabled"}}',
+        disabled: '{{index .t "mcp.disabled"}}',
+        no_activity: '{{index .t "mcp.no_activity"}}',
+        no_bots: '{{index .t "mcp.no_bots"}}',
+        profiles_label: '{{index .t "mcp.profiles_label"}}',
+        created_label: '{{index .t "mcp.created_label"}}',
+        add_bot: '{{index .t "mcp.add_bot"}}',
+        edit_bot: '{{index .t "mcp.edit_bot"}}',
+        create_bot: '{{index .t "mcp.create_bot"}}',
+        save_changes: '{{index .t "mcp.save_changes"}}',
+        bot_name: '{{index .t "mcp.bot_name"}}',
+        bot_name_placeholder: '{{index .t "mcp.bot_name_placeholder"}}',
+        access_profiles: '{{index .t "mcp.access_profiles"}}',
+        copy_key_warning: '{{index .t "mcp.copy_key_warning"}}',
+        copy: '{{index .t "mcp.copy"}}',
+        copied: '{{index .t "mcp.copied"}}',
+        close: '{{index .t "mcp.close"}}',
+        bot_name_required: '{{index .t "mcp.bot_name_required"}}',
+        delete_bot_confirm: '{{index .t "mcp.delete_bot_confirm"}}',
+        regen_key_confirm: '{{index .t "mcp.regen_key_confirm"}}',
+        regen_key_prompt: '{{index .t "mcp.regen_key_prompt"}}',
+        loading_profiles: '{{index .t "mcp.loading_profiles"}}'
+    };
+    </script>
+
+    <script>
+    var WS_I18N = {
+        no_audit: '{{index .t "mcp.no_audit"}}'
+    };
+    </script>
+
+    <script src="/static/js/mcp.js"></script>
+    <script src="/static/js/mcp-bots.js"></script>
+    <script src="/static/js/mcp-workspace.js"></script>
+
+    <!-- Add/Edit Bot Modal -->
+    <div class="modal fade" id="botModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="botModalTitle">{{index .t "mcp.add_bot"}}</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">{{index .t "mcp.bot_name"}}</label>
+                        <input type="text" class="form-control" id="botName" placeholder="{{index .t "mcp.bot_name_placeholder"}}">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">{{index .t "mcp.access_profiles"}}</label>
+                        <div id="botProfilesCheckboxes"></div>
+                    </div>
+                    <div class="mb-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="botDevMode">
+                            <label class="form-check-label" for="botDevMode">{{index .t "mcp.bot_dev_mode"}}</label>
+                        </div>
+                        <small class="text-muted">{{index .t "mcp.bot_dev_mode_hint"}}</small>
+                    </div>
+                    <div class="mb-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="botExecMode">
+                            <label class="form-check-label" for="botExecMode">Exec Mode (live Lua execution)</label>
+                        </div>
+                        <small class="text-warning">&#9888; Allows executing arbitrary Lua on the live runtime</small>
+                    </div>
+                    <div id="botKeyResult" style="display:none;">
+                        <div class="alert alert-warning">
+                            <i class="bi bi-exclamation-triangle"></i> <strong>{{index .t "mcp.copy_key_warning"}}</strong>
+                        </div>
+                        <div class="input-group mb-2">
+                            <input type="text" class="form-control font-monospace" id="botKeyDisplay" readonly>
+                            <button class="btn btn-outline-primary" id="btnCopyBotKey">{{index .t "mcp.copy"}}</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{index .t "mcp.close"}}</button>
+                    <button type="button" class="btn btn-primary" id="btnSaveBot">{{index .t "mcp.create_bot"}}</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

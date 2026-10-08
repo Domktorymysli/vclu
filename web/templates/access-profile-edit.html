@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="{{.lang}}" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{index .t "access.edit_profile"}} - Virtual CLU</title>
+    <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/vendor/bootstrap-icons/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="/static/css/dark-theme.css">
+    <meta name="csrf-token" content="{{.csrfToken}}">
+</head>
+<body>
+    <div class="app-container">
+        {{template "sidebar" .}}
+
+        <main class="main-content">
+            <header class="topbar">
+                <button class="hamburger" id="hamburgerBtn"><i class="bi bi-list"></i></button>
+                <h1 class="page-title" id="pageTitle">{{index .t "access.edit_profile"}}</h1>
+                <div class="topbar-actions">
+                    <button class="theme-toggle" id="themeToggle" title="Toggle theme">
+                        <i class="bi bi-moon-fill"></i>
+                        <i class="bi bi-sun-fill"></i>
+                    </button>
+                    <div class="dropdown">
+                        <button class="btn-icon dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-globe"></i>
+                            <span class="lang-label">{{if eq .lang "pl"}}PL{{else}}EN{{end}}</span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item {{if eq .lang "pl"}}active{{end}}" href="?lang=pl">Polski</a></li>
+                            <li><a class="dropdown-item {{if eq .lang "en"}}active{{end}}" href="?lang=en">English</a></li>
+                        </ul>
+                    </div>
+                </div>
+            </header>
+
+            <div class="page-content">
+                <div class="content-wrapper wide">
+
+                    <div class="mb-3">
+                        <a href="/access/profiles" class="text-muted small" id="backLink"><i class="bi bi-arrow-left"></i> {{index .t "access.back_to_profiles"}}</a>
+                    </div>
+
+                    <!-- Profile settings card -->
+                    <div class="card mb-3">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span><i class="bi bi-person-badge"></i> <span id="cardTitle">{{index .t "access.profile_settings"}}</span></span>
+                            <div>
+                                <span id="changeCount" class="badge bg-warning me-2" style="display:none;">0</span>
+                                <button class="btn btn-sm btn-primary" id="btnSave" disabled>
+                                    <i class="bi bi-check-lg"></i> {{index .t "access.save"}}
+                                </button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="row g-3 align-items-end">
+                                <div class="col-md-4">
+                                    <label class="form-label">{{index .t "access.profile_name"}}</label>
+                                    <input type="text" class="form-control" id="profileName" placeholder="{{index .t "access.profile_name_placeholder"}}">
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">{{index .t "access.default_level"}}</label>
+                                    <select class="form-select" id="profileDefault">
+                                        <option value="full">{{index .t "access.level_full"}}</option>
+                                        <option value="hidden" selected>{{index .t "access.level_hidden"}}</option>
+                                        <option value="readonly">{{index .t "access.level_readonly"}}</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-5">
+                                    <p class="text-muted small mb-0">{{index .t "access.default_hint"}}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Objects matrix card -->
+                    <div class="card mb-3">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span><i class="bi bi-shield-lock"></i> {{index .t "access.object_access"}}</span>
+                            <span id="objectCount" class="badge bg-secondary">...</span>
+                        </div>
+                        <div class="card-body">
+                            <!-- Search & Filter -->
+                            <div class="row mb-3 g-2">
+                                <div class="col-md-5">
+                                    <div class="input-group input-group-sm">
+                                        <span class="input-group-text"><i class="bi bi-search"></i></span>
+                                        <input type="text" class="form-control" id="searchFilter"
+                                               placeholder="{{index .t "access.search_placeholder"}}">
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <select class="form-select form-select-sm" id="typeFilter">
+                                        <option value="">{{index .t "access.all_types"}}</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-4 text-end">
+                                    <div class="btn-group btn-group-sm">
+                                        <button class="btn btn-outline-success" id="btnSetAllFull">{{index .t "access.all_full"}}</button>
+                                        <button class="btn btn-outline-warning" id="btnSetAllReadonly">{{index .t "access.all_ro"}}</button>
+                                        <button class="btn btn-outline-secondary" id="btnSetAllHidden">{{index .t "access.all_hidden"}}</button>
+                                        <button class="btn btn-outline-primary" id="btnSetAllDefault">{{index .t "access.all_default"}}</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div id="objectsLoading" class="text-center py-3">
+                                <div class="spinner-border spinner-border-sm text-primary" role="status">
+                                    <span class="visually-hidden">Loading...</span>
+                                </div>
+                            </div>
+
+                            <div id="objectsEmpty" class="alert alert-secondary" style="display: none;">
+                                <i class="bi bi-info-circle"></i> {{index .t "access.no_objects"}}
+                            </div>
+
+                            <div id="objectsTable" style="display: none;">
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-hover">
+                                        <thead>
+                                            <tr>
+                                                <th>{{index .t "access.name"}}</th>
+                                                <th>{{index .t "access.type"}}</th>
+                                                <th class="text-center" style="width: 140px;">{{index .t "access.access_col"}}</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="objectsTableBody">
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/utils.js"></script>
+    <script src="/static/js/csrf.js"></script>
+    <script src="/static/js/theme.js"></script>
+    <script src="/static/js/sidebar.js"></script>
+    <script>
+        var PROFILE_EDIT_NAME = '{{.profileName}}';
+        var ACCESS_I18N = {
+            edit_profile: '{{index .t "access.edit_profile"}}',
+            new_profile: '{{index .t "access.new_profile"}}',
+            profile_settings: '{{index .t "access.profile_settings"}}',
+            save: '{{index .t "access.save"}}',
+            all_types: '{{index .t "access.all_types"}}',
+            level_full: '{{index .t "access.level_full"}}',
+            level_readonly: '{{index .t "access.level_readonly"}}',
+            level_hidden: '{{index .t "access.level_hidden"}}',
+            profile_name_required: '{{if eq .lang "pl"}}Nazwa profilu jest wymagana.{{else}}Profile name is required.{{end}}',
+            saving: '{{if eq .lang "pl"}}Zapisywanie...{{else}}Saving...{{end}}',
+            saved: '{{if eq .lang "pl"}}Zapisano!{{else}}Saved!{{end}}',
+            not_found: '{{if eq .lang "pl"}}Profil nie znaleziony.{{else}}Profile not found.{{end}}',
+            default_label: '{{if eq .lang "pl"}}Domyślny{{else}}Default{{end}}',
+            objects_label: '{{if eq .lang "pl"}}obiektów{{else}}objects{{end}}',
+            change: '{{if eq .lang "pl"}}zmiana{{else}}change{{end}}',
+            changes: '{{if eq .lang "pl"}}zmian(y){{else}}change(s){{end}}',
+            new_label: '{{if eq .lang "pl"}}nowy{{else}}new{{end}}'
+        };
+    </script>
+    <script src="/static/js/access-profile-edit.js"></script>
+</body>
+</html>

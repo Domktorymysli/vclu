@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="{{.lang}}" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{index .t "backup.title"}} - Virtual CLU</title>
+    <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/vendor/bootstrap-icons/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="/static/css/dark-theme.css">
+    <meta name="csrf-token" content="{{.csrfToken}}">
+</head>
+<body>
+    <div class="app-container">
+        {{template "sidebar" .}}
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="topbar">
+                <button class="hamburger" id="hamburgerBtn"><i class="bi bi-list"></i></button>
+                <h1 class="page-title">{{index .t "backup.title"}}</h1>
+                <div class="topbar-actions">
+                    <button class="theme-toggle" id="themeToggle" title="Toggle theme">
+                        <i class="bi bi-moon-fill"></i>
+                        <i class="bi bi-sun-fill"></i>
+                    </button>
+                    <div class="dropdown">
+                        <button class="btn-icon dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-globe"></i>
+                            <span class="lang-label">{{if eq .lang "pl"}}PL{{else}}EN{{end}}</span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item {{if eq .lang "pl"}}active{{end}}" href="?lang=pl">Polski</a></li>
+                            <li><a class="dropdown-item {{if eq .lang "en"}}active{{end}}" href="?lang=en">English</a></li>
+                        </ul>
+                    </div>
+                </div>
+            </header>
+
+            <div class="page-content">
+                <div class="content-wrapper wide">
+                    <!-- Auto-Backup Settings -->
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            <i class="bi bi-clock-history"></i> {{index .t "backup.auto_section"}}
+                        </div>
+                        <div class="card-body">
+                            <form id="backupSettingsForm" class="row g-3 align-items-end" onsubmit="return false;">
+                                <div class="col-auto">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="autoBackupEnabled">
+                                        <label class="form-check-label" for="autoBackupEnabled">{{index .t "backup.auto_enable"}}</label>
+                                    </div>
+                                </div>
+                                <div class="col-auto">
+                                    <label for="backupInterval" class="form-label mb-0 small">{{index .t "backup.auto_interval"}}</label>
+                                    <div class="input-group input-group-sm" style="width: 120px;">
+                                        <input type="number" class="form-control" id="backupInterval" min="1" max="168" value="24">
+                                        <span class="input-group-text">h</span>
+                                    </div>
+                                </div>
+                                <div class="col-auto">
+                                    <label for="backupMaxKeep" class="form-label mb-0 small">{{index .t "backup.auto_keep"}}</label>
+                                    <div class="input-group input-group-sm" style="width: 150px;">
+                                        <input type="number" class="form-control" id="backupMaxKeep" min="0" max="100" value="7">
+                                        <span class="input-group-text">{{index .t "backup.auto_backups"}}</span>
+                                    </div>
+                                </div>
+                                <div class="col-auto">
+                                    <button type="button" class="btn btn-sm btn-success" id="saveBackupSettingsBtn" onclick="saveBackupSettings()">
+                                        <i class="bi bi-save"></i> {{index .t "backup.auto_save"}}
+                                    </button>
+                                </div>
+                            </form>
+                            <div class="form-text mt-2">{{index .t "backup.auto_info"}}</div>
+                        </div>
+                    </div>
+
+                    <!-- Create Backup Section -->
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            <i class="bi bi-plus-circle"></i> {{index .t "backup.create_section"}}
+                        </div>
+                        <div class="card-body">
+                            <p class="small text-muted mb-3">{{index .t "backup.create_info"}}</p>
+                            <button type="button" class="btn btn-primary" id="createBackupBtn" onclick="createBackup()">
+                                <i class="bi bi-archive"></i> {{index .t "backup.create_button"}}
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Backup List Section -->
+                    <div class="card mb-3">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span><i class="bi bi-list-ul"></i> {{index .t "backup.list_section"}}</span>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="loadBackups()">
+                                <i class="bi bi-arrow-clockwise"></i> {{index .t "backup.refresh"}}
+                            </button>
+                        </div>
+                        <div class="card-body">
+                            <div id="backupListLoading" class="text-center py-4">
+                                <div class="spinner-border text-primary" role="status">
+                                    <span class="visually-hidden">Loading...</span>
+                                </div>
+                            </div>
+                            <div id="backupListEmpty" class="alert alert-info" style="display: none;">
+                                <i class="bi bi-info-circle"></i> {{index .t "backup.no_backups"}}
+                            </div>
+                            <div id="backupListError" class="alert alert-danger" style="display: none;"></div>
+                            <table class="table table-sm" id="backupTable" style="display: none;">
+                                <thead>
+                                    <tr>
+                                        <th>{{index .t "backup.filename"}}</th>
+                                        <th>{{index .t "backup.size"}}</th>
+                                        <th>{{index .t "backup.created"}}</th>
+                                        <th class="text-end">{{index .t "backup.actions"}}</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="backupTableBody">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Info Section -->
+                    <div class="alert alert-secondary">
+                        <h6><i class="bi bi-info-circle"></i> {{index .t "backup.info_title"}}</h6>
+                        <p class="mb-2 small">{{index .t "backup.info_content"}}</p>
+                        <ul class="mb-2 small">
+                            <li>{{index .t "backup.info_item1"}}</li>
+                            <li>{{index .t "backup.info_item2"}}</li>
+                            <li>{{index .t "backup.info_item3"}}</li>
+                        </ul>
+                        <p class="mb-2 small"><i class="bi bi-folder2-open"></i> {{index .t "backup.info_location"}}</p>
+                        <p class="mb-0 small"><i class="bi bi-git"></i> {{index .t "backup.info_git"}}</p>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/utils.js"></script>
+    <script src="/static/js/csrf.js"></script>
+    <script src="/static/js/theme.js"></script>
+    <script src="/static/js/sidebar.js"></script>
+    <script>
+        window.backupTranslations = {
+            creating: {{json (index .t "backup.creating")}},
+            createdSuccess: {{json (index .t "backup.created_success")}},
+            download: {{json (index .t "backup.download")}},
+            restore: {{json (index .t "backup.restore")}},
+            restoreConfirm: {{json (index .t "backup.restore_confirm")}},
+            restoreWarning: {{json (index .t "backup.restore_warning")}},
+            restoreSuccess: {{json (index .t "backup.restore_success")}},
+            deleteConfirm: {{json (index .t "backup.delete_confirm")}},
+            settingsSaved: {{json (index .t "backup.settings_saved")}}
+        };
+    </script>
+    <script src="/static/js/backup.js"></script>
+</body>
+</html>

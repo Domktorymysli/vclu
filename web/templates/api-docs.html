@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="{{.lang}}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Docs - Virtual CLU</title>
+    <style>
+        body { margin: 0; padding: 0; }
+        .api-topbar {
+            display: flex; align-items: center; gap: 1rem;
+            padding: 0.5rem 1rem; background: #1a1a2e; color: #eee;
+            font-family: system-ui, sans-serif; font-size: 0.9rem;
+        }
+        .api-topbar a { color: #8ab4f8; text-decoration: none; }
+    </style>
+</head>
+<body>
+    <div class="api-topbar">
+        <a href="/stats">&larr; vCLU</a>
+        <strong>vCLU HTTP API</strong>
+        <a href="/api/openapi.json" download="vclu-openapi.json">openapi.json</a>
+    </div>
+    <redoc spec-url="/api/openapi.json" hide-download-button></redoc>
+    <script src="/static/vendor/redoc/redoc.standalone.js"></script>
+</body>
+</html>

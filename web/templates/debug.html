@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="{{.lang}}" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug - Virtual CLU</title>
+    <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/vendor/bootstrap-icons/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="/static/css/dark-theme.css">
+    <link rel="stylesheet" href="/static/css/debug.css">
+    <meta name="csrf-token" content="{{.csrfToken}}">
+</head>
+<body>
+    <div class="app-container">
+        {{template "sidebar" .}}
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="topbar">
+                <button class="hamburger" id="hamburgerBtn"><i class="bi bi-list"></i></button>
+                <h1 class="page-title">Debug</h1>
+                <div class="topbar-actions">
+                    <span id="connectionStatus" class="badge bg-secondary">
+                        <i class="bi bi-hourglass-split"></i> Connecting...
+                    </span>
+                    <button class="theme-toggle" id="themeToggle" title="Toggle theme">
+                        <i class="bi bi-moon-fill"></i>
+                        <i class="bi bi-sun-fill"></i>
+                    </button>
+                    <div class="dropdown">
+                        <button class="btn-icon dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-globe"></i>
+                            <span class="lang-label">{{if eq .lang "pl"}}PL{{else}}EN{{end}}</span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item {{if eq .lang "pl"}}active{{end}}" href="?lang=pl">Polski</a></li>
+                            <li><a class="dropdown-item {{if eq .lang "en"}}active{{end}}" href="?lang=en">English</a></li>
+                        </ul>
+                    </div>
+                </div>
+            </header>
+
+            <div class="page-content" style="padding: 0; overflow: hidden; display: flex; flex-direction: column;">
+            <!-- Tabs -->
+            <div class="debug-tabs">
+                <button class="debug-tab active" data-tab="logs">
+                    <i class="bi bi-terminal"></i> Logs
+                </button>
+                <button class="debug-tab" data-tab="registry">
+                    <i class="bi bi-collection"></i> Registry
+                </button>
+            </div>
+
+            <!-- Logs Tab Content -->
+            <div class="debug-container" id="logsTab">
+                <!-- Toolbar -->
+                <div class="debug-toolbar">
+                    <input type="text" class="form-control form-control-search" id="searchFilter"
+                           placeholder="Search logs...">
+
+                    <select class="form-select" id="levelFilter">
+                        <option value="">All Levels</option>
+                        <option value="info">Info</option>
+                        <option value="warning">Warning</option>
+                        <option value="error">Error</option>
+                    </select>
+
+                    <select class="form-select" id="sourceFilter">
+                        <option value="">All Sources</option>
+                        <!-- Populated dynamically -->
+                    </select>
+
+                    <div class="toolbar-divider"></div>
+
+                    <div class="btn-toolbar-group">
+                        <button type="button" class="btn btn-sm btn-secondary" id="pauseBtn">
+                            <i class="bi bi-pause-fill"></i> Pause
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="clearBtn">
+                            <i class="bi bi-trash"></i> Clear
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="downloadBtn">
+                            <i class="bi bi-download"></i> Download
+                        </button>
+                    </div>
+
+                    <div class="toolbar-divider"></div>
+
+                    <div class="form-check form-check-toolbar">
+                        <input class="form-check-input" type="checkbox" id="autoScrollCb" checked>
+                        <label class="form-check-label" for="autoScrollCb">Auto-scroll</label>
+                    </div>
+
+                    <div class="ms-auto">
+                        <span class="badge bg-secondary" id="logCount">0</span>
+                    </div>
+                </div>
+
+                <!-- Log Container -->
+                <div id="logContainer">
+                    <div class="text-center text-muted py-5">
+                        <i class="bi bi-hourglass-split"></i> Loading logs...
+                    </div>
+                </div>
+            </div>
+
+            <!-- Registry Tab Content -->
+            <div class="debug-container" id="registryTab" style="display: none;">
+                <!-- Toolbar -->
+                <div class="debug-toolbar">
+                    <input type="text" class="form-control form-control-search" id="registrySearchFilter"
+                           placeholder="{{if eq .lang "pl"}}Szukaj obiektow...{{else}}Search objects...{{end}}">
+
+                    <select class="form-select" id="registryTypeFilter">
+                        <option value="">{{if eq .lang "pl"}}Wszystkie typy{{else}}All types{{end}}</option>
+                        <option value="DOUT">DOUT (Switch)</option>
+                        <option value="DIN">DIN (Sensor)</option>
+                        <option value="DIMMER">DIMMER (Light)</option>
+                        <option value="LEDRGB">LEDRGB</option>
+                        <option value="ROLLER">ROLLER (Cover)</option>
+                        <option value="AnalogIN">AnalogIN</option>
+                        <option value="AnalogOUT">AnalogOUT</option>
+                        <option value="plugin">Plugin</option>
+                    </select>
+
+                    <select class="form-select" id="registryStateFilter">
+                        <option value="">{{if eq .lang "pl"}}Wszystkie stany{{else}}All states{{end}}</option>
+                        <option value="on">{{if eq .lang "pl"}}Wlaczone{{else}}On{{end}}</option>
+                        <option value="off">{{if eq .lang "pl"}}Wylaczone{{else}}Off{{end}}</option>
+                        <option value="unknown">{{if eq .lang "pl"}}Nieznany{{else}}Unknown{{end}}</option>
+                    </select>
+
+                    <div class="toolbar-divider"></div>
+
+                    <div class="btn-toolbar-group">
+                        <button type="button" class="btn btn-sm btn-success" id="syncBtn">
+                            <i class="bi bi-arrow-repeat"></i> Sync
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="refreshRegistryBtn">
+                            <i class="bi bi-arrow-clockwise"></i> {{if eq .lang "pl"}}Odswiez{{else}}Refresh{{end}}
+                        </button>
+                    </div>
+
+                </div>
+
+                <!-- Registry Content -->
+                <div id="registryContainer">
+                    <div id="registryLoading" class="text-center py-5 text-muted">
+                        <div class="spinner-border text-primary mb-2" role="status"></div>
+                        <div>{{if eq .lang "pl"}}Ladowanie obiektow...{{else}}Loading objects...{{end}}</div>
+                    </div>
+                    <div id="registryEmpty" class="text-center py-5 text-muted" style="display: none;">
+                        <i class="bi bi-inbox" style="font-size: 3rem;"></i>
+                        <p class="mt-2">{{if eq .lang "pl"}}Brak obiektow w registry. Zaladuj pliki OM.{{else}}No objects in registry. Load OM files.{{end}}</p>
+                        <a href="/grenton?tab=omfiles" class="btn btn-outline-primary btn-sm">
+                            <i class="bi bi-file-earmark-code"></i> {{if eq .lang "pl"}}Idz do OM Files{{else}}Go to OM Files{{end}}
+                        </a>
+                    </div>
+                    <div id="registryError" class="alert alert-danger m-3" style="display: none;"></div>
+                    <div id="registryList"></div>
+                </div>
+            </div>
+            </div>
+        </main>
+    </div>
+
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/utils.js"></script>
+    <script src="/static/js/csrf.js"></script>
+    <script src="/static/js/theme.js"></script>
+    <script src="/static/js/sidebar.js"></script>
+    <script src="/static/js/debug.js"></script>
+</body>
+</html>

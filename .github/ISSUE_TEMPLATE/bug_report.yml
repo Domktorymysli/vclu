@@ -1,0 +1,61 @@
+name: Bug report
+description: Something does not work as described
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Security problem? Do not open an issue, see the [security policy](https://github.com/Domktorymysli/vclu/security/policy).
+  - type: input
+    id: version
+    attributes:
+      label: vCLU version
+      description: Output of `vclu --version`
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: How it runs
+      options:
+        - Binary on Raspberry Pi (arm64)
+        - Binary on Linux x86_64
+        - Docker
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - Grenton (CLU, OM import)
+        - Lua runtime / modules
+        - Plugins
+        - Home Assistant / MQTT
+        - HomeKit
+        - Satel
+        - Modbus
+        - MCP / AI agents
+        - History
+        - Web UI
+        - Install / update
+        - Other
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened and what you expected
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: The smallest Lua module, `vclu_draft_test` scenario or sequence of clicks that shows it, if you have one.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant lines from the vCLU log. Remove passwords, tokens and PINs.
+      render: text

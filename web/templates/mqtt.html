@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="{{.lang}}" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MQTT - Virtual CLU</title>
+    <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/vendor/bootstrap-icons/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="/static/css/dark-theme.css">
+    <meta name="csrf-token" content="{{.csrfToken}}">
+</head>
+<body>
+    <div class="app-container">
+        {{template "sidebar" .}}
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="topbar">
+                <button class="hamburger" id="hamburgerBtn"><i class="bi bi-list"></i></button>
+                <h1 class="page-title">MQTT</h1>
+                <div class="topbar-actions">
+                    <button class="theme-toggle" id="themeToggle" title="Toggle theme">
+                        <i class="bi bi-moon-fill"></i>
+                        <i class="bi bi-sun-fill"></i>
+                    </button>
+                    <div class="dropdown">
+                        <button class="btn-icon dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-globe"></i>
+                            <span class="lang-label">{{if eq .lang "pl"}}PL{{else}}EN{{end}}</span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item {{if eq .lang "pl"}}active{{end}}" href="?lang=pl">Polski</a></li>
+                            <li><a class="dropdown-item {{if eq .lang "en"}}active{{end}}" href="?lang=en">English</a></li>
+                        </ul>
+                    </div>
+                </div>
+            </header>
+
+            <div class="page-content">
+                <div class="content-wrapper wide">
+
+                    <!-- Tabs -->
+                    <div class="nav nav-segmented" role="tablist">
+                        <button class="nav-link {{if eq .activeTab "broker"}}active{{end}}" id="tab-broker" data-bs-toggle="tab" data-bs-target="#pane-broker" type="button" role="tab">
+                            <i class="bi bi-hdd-rack"></i> Broker
+                        </button>
+                        <button class="nav-link {{if eq .activeTab "client"}}active{{end}}" id="tab-client" data-bs-toggle="tab" data-bs-target="#pane-client" type="button" role="tab">
+                            <i class="bi bi-plug"></i> Client
+                        </button>
+                    </div>
+
+                    <div class="tab-content">
+
+                        <!-- ==================== BROKER TAB ==================== -->
+                        <div class="tab-pane fade {{if eq .activeTab "broker"}}show active{{end}}" id="pane-broker" role="tabpanel">
+
+                            <!-- Broker Status Card -->
+                            <div class="card mb-3">
+                                <div class="card-header d-flex justify-content-between align-items-center">
+                                    <span><i class="bi bi-hdd-rack"></i> Embedded Broker</span>
+                                    <span id="brokerStatusBadge" class="badge bg-secondary">Loading...</span>
+                                </div>
+                                <div class="card-body">
+                                    <div class="row text-center">
+                                        <div class="col-3">
+                                            <div class="fs-4 fw-bold" id="statClients">-</div>
+                                            <small class="text-muted">Connected Clients</small>
+                                        </div>
+                                        <div class="col-3">
+                                            <div class="fs-4 fw-bold" id="statMessages">-</div>
+                                            <small class="text-muted">Messages (In/Out)</small>
+                                        </div>
+                                        <div class="col-3">
+                                            <div class="fs-4 fw-bold" id="statSubscriptions">-</div>
+                                            <small class="text-muted">Subscriptions</small>
+                                        </div>
+                                        <div class="col-3">
+                                            <div class="fs-4 fw-bold" id="statRetained">-</div>
+                                            <small class="text-muted">Retained Messages</small>
+                                        </div>
+                                    </div>
+                                    <div id="brokerError" class="alert alert-danger mt-3 mb-0" style="display: none;">
+                                        <i class="bi bi-exclamation-triangle"></i> <span id="brokerErrorText"></span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Broker Configuration Card -->
+                            <div class="card mb-3">
+                                <div class="card-header"><i class="bi bi-gear"></i> Broker Configuration</div>
+                                <div class="card-body">
+                                    <div class="form-check form-switch mb-3">
+                                        <input class="form-check-input" type="checkbox" id="brokerEnabled"
+                                               {{if .broker.enabled}}checked{{end}}>
+                                        <label class="form-check-label" for="brokerEnabled">
+                                            Enable Embedded MQTT Broker
+                                        </label>
+                                    </div>
+                                    <div id="brokerConfigFields" style="{{if not .broker.enabled}}display: none;{{end}}">
+                                        <div class="row">
+                                            <div class="col-md-6 mb-3">
+                                                <label for="brokerPort" class="form-label">TCP Port</label>
+                                                <input type="number" class="form-control" id="brokerPort"
+                                                       value="{{if .broker.port}}{{.broker.port}}{{else}}1883{{end}}" min="1" max="65535">
+                                                <div class="form-text">Default: 1883</div>
+                                            </div>
+                                            <div class="col-md-6 mb-3">
+                                                <label for="brokerWSPort" class="form-label">WebSocket Port</label>
+                                                <input type="number" class="form-control" id="brokerWSPort"
+                                                       value="{{.broker.wsPort}}" min="0" max="65535">
+                                                <div class="form-text">0 = disabled</div>
+                                            </div>
+                                        </div>
+                                        <div class="row">
+                                            <div class="col-md-6 mb-3">
+                                                <label for="brokerUsername" class="form-label">Username (optional)</label>
+                                                <input type="text" class="form-control" id="brokerUsername"
+                                                       value="{{.broker.username}}" placeholder="Leave empty for anonymous">
+                                            </div>
+                                            <div class="col-md-6 mb-3">
+                                                <label for="brokerPassword" class="form-label">Password (optional)</label>
+                                                <input type="password" class="form-control" id="brokerPassword"
+                                                       value="{{.broker.password}}" placeholder="Leave empty for anonymous">
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <button type="button" class="btn btn-success" id="saveBrokerBtn" onclick="saveBrokerConfig()">
+                                        <i class="bi bi-save"></i> Save Broker Settings
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Broker Connected Clients Card -->
+                            <div class="card mb-3">
+                                <div class="card-header"><i class="bi bi-pc-display-horizontal"></i> Broker Clients</div>
+                                <div class="card-body">
+                                    <p class="text-muted small">External devices connected to the embedded MQTT broker (Tasmota, Shelly, etc.)</p>
+                                    <div id="brokerClientsLoading" class="text-center py-3">
+                                        <div class="spinner-border spinner-border-sm text-primary" role="status">
+                                            <span class="visually-hidden">Loading...</span>
+                                        </div>
+                                    </div>
+                                    <div id="brokerClientsEmpty" class="alert alert-secondary" style="display: none;">
+                                        <i class="bi bi-info-circle"></i> No external clients connected to the broker
+                                    </div>
+                                    <div id="brokerClientsTable" style="display: none;">
+                                        <div class="table-responsive">
+                                            <table class="table table-sm">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Client ID</th>
+                                                        <th>Remote Address</th>
+                                                        <th>Username</th>
+                                                        <th>Subscriptions</th>
+                                                        <th>Status</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody id="brokerClientsTableBody"></tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                        </div>
+
+                        <!-- ==================== CLIENT TAB ==================== -->
+                        <div class="tab-pane fade {{if eq .activeTab "client"}}show active{{end}}" id="pane-client" role="tabpanel">
+
+                            <!-- Client Configuration -->
+                            <div class="card mb-3">
+                                <div class="card-header d-flex justify-content-between align-items-center">
+                                    <span><i class="bi bi-plug"></i> Client Configuration</span>
+                                    <span id="clientStatusBadge" class="badge {{if .client.enabled}}bg-secondary{{else}}bg-secondary{{end}}">{{if .client.enabled}}Connecting...{{else}}Disabled{{end}}</span>
+                                </div>
+                                <div class="card-body">
+                                    <div id="clientStatusError" class="alert alert-danger mb-3" style="display: none;">
+                                        <i class="bi bi-exclamation-triangle"></i> <span id="clientStatusErrorText"></span>
+                                    </div>
+
+                                    <div class="form-check form-switch mb-3">
+                                        <input class="form-check-input" type="checkbox" id="clientEnabled"
+                                               {{if .client.enabled}}checked{{end}}>
+                                        <label class="form-check-label" for="clientEnabled">
+                                            Enable MQTT Client
+                                        </label>
+                                    </div>
+                                    <div class="row">
+                                        <div class="col-md-6 mb-3">
+                                            <label for="clientHost" class="form-label">Host</label>
+                                            <input type="text" class="form-control" id="clientHost"
+                                                   value="{{.client.host}}" placeholder="localhost">
+                                        </div>
+                                        <div class="col-md-6 mb-3">
+                                            <label for="clientPort" class="form-label">Port</label>
+                                            <input type="number" class="form-control" id="clientPort"
+                                                   value="{{if .client.port}}{{.client.port}}{{else}}1883{{end}}" min="1" max="65535">
+                                            <div class="form-text">Default: 1883</div>
+                                        </div>
+                                    </div>
+                                    <div class="row">
+                                        <div class="col-md-6 mb-3">
+                                            <label for="clientClientId" class="form-label">Client ID</label>
+                                            <input type="text" class="form-control" id="clientClientId"
+                                                   value="{{.client.clientId}}" placeholder="vclu_internal">
+                                        </div>
+                                        <div class="col-md-6 mb-3">
+                                            <!-- spacer -->
+                                        </div>
+                                    </div>
+                                    <div class="row">
+                                        <div class="col-md-6 mb-3">
+                                            <label for="clientUsername" class="form-label">Username (optional)</label>
+                                            <input type="text" class="form-control" id="clientUsername"
+                                                   value="{{.client.username}}" placeholder="Leave empty for anonymous">
+                                        </div>
+                                        <div class="col-md-6 mb-3">
+                                            <label for="clientPassword" class="form-label">Password (optional)</label>
+                                            <input type="password" class="form-control" id="clientPassword"
+                                                   value="" placeholder="Leave empty to keep current">
+                                        </div>
+                                    </div>
+                                    <div class="form-check form-switch mb-3">
+                                        <input class="form-check-input" type="checkbox" id="clientHAIntegration"
+                                               {{if .client.haIntegration}}checked{{end}}>
+                                        <label class="form-check-label" for="clientHAIntegration">
+                                            Enable Home Assistant Integration
+                                        </label>
+                                        <div class="form-text">Auto-setup HA discovery and command handling on connect</div>
+                                    </div>
+                                    <div class="d-flex gap-2">
+                                        <button type="button" class="btn btn-success" id="saveClientBtn" onclick="saveClientConfig()">
+                                            <i class="bi bi-save"></i> Save
+                                        </button>
+                                        <button type="button" class="btn btn-outline-primary" id="testClientBtn" onclick="testClientConnection()">
+                                            <i class="bi bi-lightning"></i> Test Connection
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Lua Clients Table -->
+                            <div class="card mb-3">
+                                <div class="card-header"><i class="bi bi-diagram-3"></i> MQTT Clients (Lua)</div>
+                                <div class="card-body">
+                                    <p class="text-muted small">MQTT client instances created in Lua runtime</p>
+                                    <div id="clientsLoading" class="text-center py-4">
+                                        <div class="spinner-border text-primary" role="status">
+                                            <span class="visually-hidden">Loading...</span>
+                                        </div>
+                                    </div>
+                                    <div id="clientsEmpty" class="alert alert-secondary" style="display: none;">
+                                        <i class="bi bi-info-circle"></i> No MQTT clients configured in Lua
+                                    </div>
+                                    <div id="clientsTable" style="display: none;">
+                                        <div class="table-responsive">
+                                            <table class="table table-sm">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Instance ID</th>
+                                                        <th>Broker URL</th>
+                                                        <th>Client ID</th>
+                                                        <th>Status</th>
+                                                        <th>Messages</th>
+                                                        <th>Subscriptions</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody id="clientsTableBody"></tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                    <div class="row mt-3">
+                                        <div class="col-md-4 mb-2">
+                                            <div class="stat-card">
+                                                <div class="stat-value" id="clientStatTotal">-</div>
+                                                <div class="stat-label">Total Clients</div>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-4 mb-2">
+                                            <div class="stat-card">
+                                                <div class="stat-value" id="clientStatConnected">-</div>
+                                                <div class="stat-label">Connected</div>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-4 mb-2">
+                                            <div class="stat-card">
+                                                <div class="stat-value" id="clientStatDropped">-</div>
+                                                <div class="stat-label">Dropped Messages</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Quick Test Card -->
+                            <div class="card mb-3">
+                                <div class="card-header"><i class="bi bi-lightning"></i> Quick Test</div>
+                                <div class="card-body">
+                                    <p class="text-muted small">Test MQTT publish from Lua console</p>
+                                    <div class="row">
+                                        <div class="col-md-4 mb-3">
+                                            <label for="testTopic" class="form-label">Topic</label>
+                                            <input type="text" class="form-control" id="testTopic" value="test/vclu" placeholder="test/topic">
+                                        </div>
+                                        <div class="col-md-4 mb-3">
+                                            <label for="testPayload" class="form-label">Payload</label>
+                                            <input type="text" class="form-control" id="testPayload" value="Hello from vCLU!" placeholder="message">
+                                        </div>
+                                        <div class="col-md-4 mb-3">
+                                            <label class="form-label">&nbsp;</label>
+                                            <button type="button" class="btn btn-warning d-block w-100" onclick="testPublish()">
+                                                <i class="bi bi-send"></i> Publish
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div id="testResult" class="alert" style="display: none;"></div>
+                                    <hr>
+                                    <p class="text-muted small mb-0">
+                                        <i class="bi bi-book"></i> See the <a href="https://docs.vclu.pl/docs/integrations/mqtt/" target="_blank" rel="noopener">MQTT documentation</a> for Lua API examples and usage.
+                                    </p>
+                                </div>
+                            </div>
+
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/utils.js"></script>
+    <script src="/static/js/csrf.js"></script>
+    <script src="/static/js/theme.js"></script>
+    <script src="/static/js/sidebar.js"></script>
+    <script src="/static/js/mqtt.js"></script>
+</body>
+</html>

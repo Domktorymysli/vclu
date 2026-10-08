@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="{{.lang}}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{index .t "login.title"}} - Virtual CLU</title>
+    <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/vendor/bootstrap-icons/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="/static/css/main.css">
+    <meta name="csrf-token" content="{{.csrfToken}}">
+</head>
+<body>
+    <div class="main-container">
+        <div class="content-card" style="max-width: 450px;">
+            <nav class="navbar border-bottom" style="border-radius: 15px 15px 0 0;">
+                <div class="container-fluid">
+                    <span class="navbar-brand mb-0 h1">
+                        <i class="bi bi-hdd-network"></i> {{index .t "app.name"}}
+                    </span>
+                    <div class="dropdown">
+                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-globe"></i> {{if eq .lang "pl"}}PL{{else}}EN{{end}}
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item {{if eq .lang "pl"}}active{{end}}" href="?lang=pl">Polski</a></li>
+                            <li><a class="dropdown-item {{if eq .lang "en"}}active{{end}}" href="?lang=en">English</a></li>
+                        </ul>
+                    </div>
+                </div>
+            </nav>
+
+            <div class="p-4">
+                <div class="text-center mb-4">
+                    <div class="mb-3">
+                        <i class="bi bi-shield-lock" style="font-size: 3rem; color: #27C2A8;"></i>
+                    </div>
+                    <h2>{{index .t "login.title"}}</h2>
+                    <p class="text-muted">{{index .t "login.subtitle"}}</p>
+                </div>
+
+                {{if .error}}
+                <div class="alert alert-danger" role="alert">
+                    <i class="bi bi-exclamation-triangle"></i> {{index .t "login.error"}}
+                </div>
+                {{end}}
+
+                <form method="POST" action="/login">
+                    <input type="hidden" name="_csrf" value="{{.csrfToken}}">
+                    <div class="mb-3">
+                        <label for="username" class="form-label">{{index .t "login.username"}}</label>
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="bi bi-person"></i></span>
+                            <input type="text" class="form-control" id="username" name="username"
+                                   placeholder="{{index .t "login.username_placeholder"}}" required autofocus>
+                        </div>
+                    </div>
+
+                    <div class="mb-4">
+                        <label for="password" class="form-label">{{index .t "login.password"}}</label>
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="bi bi-key"></i></span>
+                            <input type="password" class="form-control" id="password" name="password"
+                                   placeholder="{{index .t "login.password_placeholder"}}" required>
+                        </div>
+                    </div>
+
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary btn-lg">
+                            <i class="bi bi-box-arrow-in-right"></i> {{index .t "login.submit"}}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="{{.lang}}" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{index .t "status.title"}} - Virtual CLU</title>
+    <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/vendor/bootstrap-icons/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="/static/css/dark-theme.css">
+    <meta name="csrf-token" content="{{.csrfToken}}">
+</head>
+<body>
+    <div class="app-container">
+        {{template "sidebar" .}}
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="topbar">
+                <button class="hamburger" id="hamburgerBtn"><i class="bi bi-list"></i></button>
+                <h1 class="page-title">{{index .t "status.title"}}</h1>
+                <div class="topbar-actions">
+                    <button class="theme-toggle" id="themeToggle" title="Toggle theme">
+                        <i class="bi bi-moon-fill"></i>
+                        <i class="bi bi-sun-fill"></i>
+                    </button>
+                    <div class="dropdown">
+                        <button class="btn-icon dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-globe"></i>
+                            <span class="lang-label">{{if eq .lang "pl"}}PL{{else}}EN{{end}}</span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item {{if eq .lang "pl"}}active{{end}}" href="?lang=pl">Polski</a></li>
+                            <li><a class="dropdown-item {{if eq .lang "en"}}active{{end}}" href="?lang=en">English</a></li>
+                        </ul>
+                    </div>
+                </div>
+            </header>
+
+            <div class="page-content">
+                <div class="content-wrapper wide">
+                    <!-- Status Header -->
+                    <div class="text-center mb-4">
+                        <div class="mb-3">
+                            {{if .configured}}
+                            <i class="bi bi-check-circle-fill text-success" style="font-size: 3rem;"></i>
+                            {{else}}
+                            <i class="bi bi-exclamation-triangle-fill text-warning" style="font-size: 3rem;"></i>
+                            {{end}}
+                        </div>
+                        {{if .configured}}
+                        <span class="badge bg-success">
+                            <i class="bi bi-check-circle"></i> {{index .t "status.configured_running"}}
+                        </span>
+                        {{else}}
+                        <span class="badge bg-warning">
+                            <i class="bi bi-exclamation-triangle"></i> {{index .t "status.not_configured"}}
+                        </span>
+                        {{end}}
+                    </div>
+
+                    {{if .setupComplete}}
+                    <div class="alert alert-success">
+                        <i class="bi bi-check-circle"></i> {{index .t "status.setup_complete"}}
+                    </div>
+                    {{end}}
+
+                    {{if not .configured}}
+                    <div class="alert alert-warning">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        <strong>{{index .t "status.config_required"}}</strong><br>
+                        {{index .t "status.config_required_text"}} <a href="/setup">{{index .t "status.initial_setup"}}</a>.
+                    </div>
+                    {{end}}
+
+                    <!-- Services -->
+                    <div class="card mb-3">
+                        <div class="card-header"><i class="bi bi-activity"></i> {{index .t "status.services"}}</div>
+                        <div class="card-body p-0">
+                            <div class="list-group list-group-flush">
+                                <div class="list-group-item d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <strong>{{index .t "status.udp_server"}}</strong>
+                                        <span class="text-muted small ms-2">Port 1234</span>
+                                    </div>
+                                    <span class="badge bg-success">{{index .t "status.running"}}</span>
+                                </div>
+                                <div class="list-group-item d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <strong>{{index .t "status.tftp_server"}}</strong>
+                                        <span class="text-muted small ms-2">Port 69</span>
+                                    </div>
+                                    <span class="badge bg-success">{{index .t "status.running"}}</span>
+                                </div>
+                                <div class="list-group-item d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <strong>{{index .t "status.web_interface"}}</strong>
+                                        <span class="text-muted small ms-2">Port 8080</span>
+                                    </div>
+                                    <span class="badge bg-success">{{index .t "status.running"}}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- MQTT -->
+                    <div class="row">
+                        {{if .mqttBroker}}
+                        <div class="col-md-6 mb-3">
+                            <div class="card h-100">
+                                <div class="card-header">
+                                    <i class="bi bi-broadcast {{if .mqttBroker.Running}}text-success{{end}}"></i> MQTT Broker
+                                </div>
+                                <div class="card-body">
+                                    {{if .mqttBroker.Running}}
+                                    <div class="d-flex justify-content-between align-items-center mb-3">
+                                        <span>Port {{.mqttBroker.Port}}{{if gt .mqttBroker.WSPort 0}} <small class="text-muted">(WS: {{.mqttBroker.WSPort}})</small>{{end}}</span>
+                                        <span class="badge bg-success">Running</span>
+                                    </div>
+                                    <div class="stats-grid">
+                                        <div class="stat-card">
+                                            <div class="stat-value">{{.mqttBroker.ClientsConnected}}</div>
+                                            <div class="stat-label">Clients</div>
+                                        </div>
+                                        <div class="stat-card">
+                                            <div class="stat-value">{{.mqttBroker.Subscriptions}}</div>
+                                            <div class="stat-label">Subs</div>
+                                        </div>
+                                        <div class="stat-card">
+                                            <div class="stat-value">{{.mqttBroker.MessagesReceived}}</div>
+                                            <div class="stat-label">Msgs</div>
+                                        </div>
+                                    </div>
+                                    {{else}}
+                                    <p class="mb-0 text-muted"><i class="bi bi-info-circle"></i> Disabled. <a href="/settings">Enable</a></p>
+                                    {{end}}
+                                </div>
+                            </div>
+                        </div>
+                        {{end}}
+                        <div class="{{if .mqttBroker}}col-md-6{{else}}col-12{{end}} mb-3">
+                            <div class="card h-100">
+                                <div class="card-header">
+                                    <i class="bi bi-box-arrow-right {{if and .mqtt (gt .mqtt.ConnectedClients 0)}}text-info{{end}}"></i> MQTT Clients
+                                </div>
+                                <div class="card-body">
+                                    {{if and .mqtt (gt .mqtt.TotalClients 0)}}
+                                    <div class="mb-2">
+                                        <span class="badge bg-info">{{.mqtt.ConnectedClients}}/{{.mqtt.TotalClients}} connected</span>
+                                    </div>
+                                    {{range .mqtt.Clients}}
+                                    <div class="d-flex justify-content-between align-items-center py-1 border-bottom">
+                                        <div class="small">
+                                            <strong>{{.InstanceID}}</strong>
+                                            <span class="text-muted">{{.URL}}:{{.Port}}</span>
+                                        </div>
+                                        {{if .Connected}}<span class="badge bg-success">OK</span>{{else}}<span class="badge bg-danger">Off</span>{{end}}
+                                    </div>
+                                    {{end}}
+                                    {{else}}
+                                    <p class="mb-0 text-muted"><i class="bi bi-info-circle"></i> No MQTT connections</p>
+                                    {{end}}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/utils.js"></script>
+    <script src="/static/js/csrf.js"></script>
+    <script src="/static/js/theme.js"></script>
+    <script src="/static/js/sidebar.js"></script>
+</body>
+</html>

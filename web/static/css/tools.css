@@ -1,0 +1,450 @@
+/* ============================================
+   Tools Console - Terminal-style interactive console
+   ============================================ */
+
+/* Container fills remaining page height */
+.console-container {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - var(--topbar-height) - 2px);
+    padding: 0;
+    overflow: hidden;
+}
+
+/* Toolbar row */
+.console-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+    background: var(--bg-secondary);
+}
+
+.console-toolbar .btn-group .btn {
+    font-size: 0.8rem;
+    padding: 4px 14px;
+}
+
+.console-toolbar .btn-group .btn.active {
+    background: var(--accent-color);
+    border-color: var(--accent-color);
+    color: #fff;
+}
+
+.console-toolbar .btn-group .btn:not(.active) {
+    background: var(--bg-tertiary);
+    border-color: var(--border-color);
+    color: var(--text-muted);
+}
+
+.console-toolbar .btn-group .btn:not(.active):hover {
+    background: var(--border-color);
+    color: var(--text-primary);
+}
+
+.console-toolbar .clu-select {
+    width: 220px;
+    font-size: 0.8rem;
+    padding: 4px 8px;
+    background: var(--bg-tertiary);
+    border-color: var(--border-color);
+    color: var(--text-primary);
+}
+
+.console-toolbar .toolbar-spacer {
+    flex: 1;
+}
+
+.console-toolbar .btn-clear {
+    font-size: 0.8rem;
+    padding: 4px 12px;
+    color: var(--text-muted);
+    border-color: var(--border-color);
+}
+
+.console-toolbar .btn-clear:hover {
+    color: var(--text-primary);
+    border-color: var(--text-muted);
+}
+
+/* Scrollable output log */
+.console-log {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 16px;
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 0.85rem;
+    line-height: 1.5;
+}
+
+/* Empty state hint */
+.console-empty-hint {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-muted);
+    gap: 8px;
+    opacity: 0.6;
+}
+
+.console-empty-hint i {
+    font-size: 2.5rem;
+}
+
+.console-empty-hint p {
+    margin: 0;
+    font-size: 0.9rem;
+}
+
+/* Individual command/result cell */
+.console-cell {
+    margin-bottom: 16px;
+    border-left: 3px solid var(--border-color);
+    padding-left: 12px;
+}
+
+.console-cell:last-child {
+    margin-bottom: 8px;
+}
+
+/* Cell header: timestamp + target */
+.cell-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.cell-timestamp {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    opacity: 0.7;
+}
+
+.cell-target {
+    font-size: 0.65rem;
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+    border: 1px solid var(--border-color);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Command text */
+.cell-command {
+    color: var(--accent-color);
+    margin-bottom: 6px;
+    display: flex;
+    gap: 6px;
+}
+
+.cell-prompt {
+    color: var(--accent-color);
+    opacity: 0.6;
+    flex-shrink: 0;
+    user-select: none;
+}
+
+.cell-command pre {
+    margin: 0;
+    font-family: inherit;
+    font-size: inherit;
+    color: inherit;
+    background: none;
+    border: none;
+    padding: 0;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+/* Result area */
+.cell-result {
+    position: relative;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 8px 12px;
+    margin-top: 4px;
+}
+
+.cell-result pre {
+    margin: 0;
+    font-family: inherit;
+    font-size: inherit;
+    color: var(--text-primary);
+    background: none;
+    border: none;
+    padding: 0;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.cell-result.result-error {
+    border-color: #cc7832;
+    background: rgba(204, 120, 50, 0.08);
+}
+
+.cell-result.result-error pre {
+    color: #cc7832;
+}
+
+.cell-result.result-success {
+    border-color: rgba(39, 194, 168, 0.3);
+}
+
+.cell-result.result-nil {
+    opacity: 0.5;
+}
+
+/* Copy button on hover */
+.cell-result .result-copy-btn {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 3px;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    padding: 2px 6px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.cell-result:hover .result-copy-btn {
+    opacity: 1;
+}
+
+.cell-result .result-copy-btn:hover {
+    color: var(--text-primary);
+    border-color: var(--text-muted);
+}
+
+.cell-result .result-copy-btn.copied {
+    color: var(--accent-color);
+    border-color: var(--accent-color);
+}
+
+/* Collapsed long output */
+.result-collapsed {
+    max-height: 200px;
+    overflow: hidden;
+    position: relative;
+}
+
+.result-collapsed::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 40px;
+    background: linear-gradient(transparent, var(--bg-tertiary));
+    pointer-events: none;
+}
+
+.result-toggle {
+    display: block;
+    text-align: center;
+    padding: 4px;
+    font-size: 0.75rem;
+    color: var(--accent-color);
+    cursor: pointer;
+    user-select: none;
+    border-top: 1px solid var(--border-color);
+    margin-top: 4px;
+}
+
+.result-toggle:hover {
+    text-decoration: underline;
+}
+
+/* Loading spinner in result */
+.cell-result .result-loading {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-muted);
+}
+
+.cell-result .result-loading .spinner-border {
+    width: 14px;
+    height: 14px;
+    border-width: 2px;
+}
+
+/* ============================================
+   JSON Tree
+   ============================================ */
+.json-tree {
+    font-family: inherit;
+    font-size: inherit;
+    line-height: 1.6;
+}
+
+.json-tree .json-item {
+    padding-left: 18px;
+    position: relative;
+}
+
+.json-tree .json-item.json-root {
+    padding-left: 0;
+}
+
+.json-tree .json-toggle {
+    display: inline-block;
+    width: 14px;
+    cursor: pointer;
+    color: var(--text-muted);
+    user-select: none;
+    font-size: 0.7rem;
+    text-align: center;
+    vertical-align: middle;
+}
+
+.json-tree .json-toggle:hover {
+    color: var(--text-primary);
+}
+
+.json-tree .json-toggle.json-collapsed::before {
+    content: '\25B6';
+}
+
+.json-tree .json-toggle.json-expanded::before {
+    content: '\25BC';
+}
+
+.json-tree .json-key {
+    color: #6FB3D2;
+}
+
+.json-tree .json-string {
+    color: #CC7832;
+}
+
+.json-tree .json-number {
+    color: #6A8759;
+}
+
+.json-tree .json-boolean {
+    color: #6FB3D2;
+    font-weight: bold;
+}
+
+.json-tree .json-null {
+    color: #808080;
+    font-style: italic;
+}
+
+.json-tree .json-bracket {
+    color: var(--text-muted);
+}
+
+.json-tree .json-children {
+    display: block;
+}
+
+.json-tree .json-children.json-hidden {
+    display: none;
+}
+
+.json-tree .json-preview {
+    color: var(--text-muted);
+    font-style: italic;
+    font-size: 0.8em;
+}
+
+/* ============================================
+   Bottom Input Area
+   ============================================ */
+.console-input-area {
+    flex-shrink: 0;
+    border-top: 1px solid var(--border-color);
+    padding: 10px 16px;
+    background: var(--bg-secondary);
+    display: flex;
+    gap: 10px;
+    align-items: flex-end;
+}
+
+.console-editor-wrapper {
+    flex: 1;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    overflow: hidden;
+    min-height: 60px;
+    max-height: 200px;
+}
+
+.console-editor-wrapper:focus-within {
+    border-color: var(--accent-color);
+}
+
+.console-input-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+    align-self: flex-end;
+}
+
+.console-input-area .btn-run {
+    padding: 6px 20px;
+    font-size: 0.85rem;
+    flex-shrink: 0;
+    height: 36px;
+}
+
+.console-shortcut-hint {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    opacity: 0.6;
+    white-space: nowrap;
+}
+
+/* ============================================
+   Light theme overrides
+   ============================================ */
+[data-bs-theme="light"] .console-toolbar {
+    background: #f8f9fa;
+}
+
+[data-bs-theme="light"] .console-input-area {
+    background: #f8f9fa;
+}
+
+[data-bs-theme="light"] .cell-result {
+    background: #f5f5f5;
+}
+
+[data-bs-theme="light"] .result-collapsed::after {
+    background: linear-gradient(transparent, #f5f5f5);
+}
+
+[data-bs-theme="light"] .console-toolbar .btn-group .btn:not(.active) {
+    background: #fff;
+}
+
+[data-bs-theme="light"] .json-tree .json-key {
+    color: #0451a5;
+}
+
+[data-bs-theme="light"] .json-tree .json-string {
+    color: #a31515;
+}
+
+[data-bs-theme="light"] .json-tree .json-number {
+    color: #098658;
+}
+
+[data-bs-theme="light"] .json-tree .json-boolean {
+    color: #0451a5;
+}

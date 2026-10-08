@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="{{.lang}}" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lua Editor - Virtual CLU</title>
+    <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/vendor/bootstrap-icons/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="/static/css/dark-theme.css">
+    <link rel="stylesheet" href="/static/css/lua-editor.css">
+    <meta name="csrf-token" content="{{.csrfToken}}">
+</head>
+<body>
+    <div class="app-container">
+        {{template "sidebar" .}}
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="topbar">
+                <button class="hamburger" id="hamburgerBtn"><i class="bi bi-list"></i></button>
+                <h1 class="page-title">Lua Editor</h1>
+                <div class="topbar-actions">
+                    <button class="theme-toggle" id="themeToggle" title="Toggle theme">
+                        <i class="bi bi-moon-fill"></i>
+                        <i class="bi bi-sun-fill"></i>
+                    </button>
+                    <div class="dropdown">
+                        <button class="btn-icon dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-globe"></i>
+                            <span class="lang-label">{{if eq .lang "pl"}}PL{{else}}EN{{end}}</span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item {{if eq .lang "pl"}}active{{end}}" href="?lang=pl">Polski</a></li>
+                            <li><a class="dropdown-item {{if eq .lang "en"}}active{{end}}" href="?lang=en">English</a></li>
+                        </ul>
+                    </div>
+                </div>
+            </header>
+
+            <div class="page-content" style="padding: 0; overflow: hidden;">
+                <div class="editor-layout">
+                    <!-- File Explorer -->
+                    <div class="file-explorer">
+                        <div class="file-explorer-header">
+                            <i class="bi bi-folder2-open"></i>
+                            Files
+                        </div>
+                        <div class="file-explorer-content" id="fileTree">
+                            <!-- File tree will be rendered here -->
+                        </div>
+                        <div class="file-explorer-actions">
+                            <button class="btn btn-sm btn-outline-primary" id="btnNewFile" title="New File">
+                                <i class="bi bi-file-plus"></i> File
+                            </button>
+                            <button class="btn btn-sm btn-outline-primary" id="btnNewFolder" title="New Folder">
+                                <i class="bi bi-folder-plus"></i> Folder
+                            </button>
+                            <button class="btn btn-sm btn-outline-secondary" id="btnSearchFiles" title="Search in files (Ctrl+Shift+F)">
+                                <i class="bi bi-search"></i>
+                            </button>
+                        </div>
+                        <div class="search-panel" id="searchPanel">
+                            <div class="search-input-wrap">
+                                <input type="text" class="form-control form-control-sm" id="searchInput" placeholder="Search in files...">
+                                <button class="btn btn-sm btn-outline-secondary" id="btnSearchClose" title="Close"><i class="bi bi-x"></i></button>
+                            </div>
+                            <div class="search-results" id="searchResults"></div>
+                        </div>
+                    </div>
+
+                    <!-- Editor -->
+                    <div class="editor-container">
+                        <div id="tabsBar" class="editor-tabs"></div>
+                        <div class="editor-toolbar">
+                            <div id="breadcrumbs" class="editor-breadcrumbs">
+                                <span class="breadcrumb-segment" style="opacity:0.5">Select a file</span>
+                            </div>
+                            <div class="ms-auto d-flex gap-2">
+                                <button class="btn btn-sm btn-outline-success" id="saveBtn" disabled title="Save (Ctrl+S)">
+                                    <i class="bi bi-check-lg"></i> Save
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary" id="saveAllBtn" title="Save All">
+                                    <i class="bi bi-check-all"></i> Save All
+                                </button>
+                                <button class="btn btn-sm btn-outline-warning" id="btnReload" title="Reload Lua Runtime">
+                                    <i class="bi bi-arrow-clockwise"></i> Reload
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary" id="historyBtn" title="Draft History">
+                                    <i class="bi bi-clock-history"></i> History
+                                </button>
+                                <button class="btn btn-sm btn-outline-info" id="validateDraftBtn" style="display:none" title="Validate draft syntax">
+                                    <i class="bi bi-check2-circle"></i> Validate
+                                </button>
+                                <button class="btn btn-sm btn-outline-primary" id="testDraftBtn" style="display:none" title="Test draft in sandbox">
+                                    <i class="bi bi-play-circle"></i> Test
+                                </button>
+                                <button class="btn btn-sm btn-success" id="promoteBtn" style="display:none" title="Promote draft to production">
+                                    <i class="bi bi-check-lg"></i> Promote
+                                </button>
+                                <button class="btn btn-sm btn-outline-danger" id="deleteDraftBtn" style="display:none" title="Delete draft">
+                                    <i class="bi bi-x-lg"></i> Delete Draft
+                                </button>
+                                <button class="btn btn-sm btn-warning" id="restoreBackupBtn" style="display:none" title="Restore backup to production">
+                                    <i class="bi bi-arrow-counterclockwise"></i> Restore
+                                </button>
+                            </div>
+                        </div>
+                        <div id="monacoContainer" style="position: relative;">
+                            <div class="no-files-message" id="noFilesMessage">
+                                <i class="bi bi-file-earmark-code"></i>
+                                <p>Select a file to edit</p>
+                            </div>
+                        </div>
+                        <div id="monacoDiffContainer" style="display: none;"></div>
+                        <div id="historyContainer" style="display: none;">
+                            <div class="history-toolbar">
+                                <div class="btn-group btn-group-sm" id="historyViewToggle">
+                                    <button class="btn btn-outline-secondary active" data-view="timeline">
+                                        <i class="bi bi-clock-history"></i> Timeline
+                                    </button>
+                                    <button class="btn btn-outline-secondary" data-view="files">
+                                        <i class="bi bi-files"></i> Files
+                                    </button>
+                                </div>
+                                <select id="historyFileFilter" class="form-select form-select-sm">
+                                    <option value="">All files</option>
+                                </select>
+                                <select id="historyActorFilter" class="form-select form-select-sm">
+                                    <option value="">All actors</option>
+                                </select>
+                            </div>
+                            <div id="historyTimeline" class="history-timeline"></div>
+                        </div>
+                        <div id="outputPanel" class="editor-output collapsed">
+                            <div class="editor-output-resize" id="outputResize"></div>
+                            <div class="editor-output-header">
+                                <div class="output-tabs">
+                                    <button class="output-tab active" data-output-tab="output"><i class="bi bi-terminal"></i> Output</button>
+                                    <button class="output-tab" data-output-tab="logs"><i class="bi bi-journal-text"></i> Lua Logs</button>
+                                </div>
+                                <div class="d-flex align-items-center gap-1">
+                                    <button class="btn btn-sm btn-link" id="btnClearOutput" title="Clear"><i class="bi bi-trash"></i></button>
+                                    <button class="btn btn-sm btn-link" id="btnCloseOutput" title="Toggle panel"><i class="bi bi-chevron-down"></i></button>
+                                </div>
+                            </div>
+                            <pre id="outputContent" class="editor-output-content"></pre>
+                            <pre id="logsContent" class="editor-output-content" style="display:none"></pre>
+                        </div>
+                        <div class="editor-status">
+                            <span id="editorStatus">Ready</span>
+                            <span id="editorInfo">Lua</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <!-- Create File Modal -->
+    <div class="modal fade" id="createFileModal" tabindex="-1">
+        <div class="modal-dialog modal-sm">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">New File</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="text" class="form-control" id="newFileName" placeholder="filename.lua">
+                    <small class="text-muted">File will be created in <span id="newFileFolder">modules</span>/</small>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="btnSubmitFile">Create</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Folder Modal -->
+    <div class="modal fade" id="createFolderModal" tabindex="-1">
+        <div class="modal-dialog modal-sm">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">New Folder</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="text" class="form-control" id="newFolderName" placeholder="foldername">
+                    <small class="text-muted">Folder will be created in <span id="newFolderParent">modules</span>/</small>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="btnSubmitFolder">Create</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Rename File Modal -->
+    <div class="modal fade" id="renameFileModal" tabindex="-1">
+        <div class="modal-dialog modal-sm">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Rename File</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="text" class="form-control" id="renameFileName" placeholder="newname.lua">
+                    <input type="hidden" id="renameFileOldPath">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="btnSubmitRename">Rename</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/utils.js"></script>
+    <script src="/static/js/csrf.js"></script>
+    <script src="/static/js/theme.js"></script>
+    <script src="/static/js/sidebar.js"></script>
+    <script src="/static/vendor/monaco/vs/loader.js"></script>
+    <script src="/static/js/lua-editor.js?v=2"></script>
+    <script>
+        (function() {
+            var luaEditor = new LuaEditor({
+                containerId: 'monacoContainer',
+                treeId: 'fileTree'
+            });
+
+            // Initialize when DOM is ready
+            luaEditor.init();
+
+            // Bind UI buttons
+            document.getElementById('btnNewFile').addEventListener('click', function() {
+                document.getElementById('newFileName').value = '';
+                document.getElementById('newFileFolder').textContent = luaEditor.getSelectedFolder();
+                new bootstrap.Modal(document.getElementById('createFileModal')).show();
+            });
+
+            document.getElementById('btnNewFolder').addEventListener('click', function() {
+                document.getElementById('newFolderName').value = '';
+                document.getElementById('newFolderParent').textContent = luaEditor.getSelectedFolder();
+                new bootstrap.Modal(document.getElementById('createFolderModal')).show();
+            });
+
+            document.getElementById('btnSubmitFile').addEventListener('click', function() {
+                var name = document.getElementById('newFileName').value.trim();
+                if (!name) {
+                    alert('Please enter a filename');
+                    return;
+                }
+                bootstrap.Modal.getInstance(document.getElementById('createFileModal')).hide();
+                luaEditor.createFile(name);
+            });
+
+            document.getElementById('btnSubmitFolder').addEventListener('click', function() {
+                var name = document.getElementById('newFolderName').value.trim();
+                if (!name) {
+                    alert('Please enter a folder name');
+                    return;
+                }
+                bootstrap.Modal.getInstance(document.getElementById('createFolderModal')).hide();
+                luaEditor.createFolder(name);
+            });
+
+            document.getElementById('saveBtn').addEventListener('click', function() {
+                luaEditor.saveFile();
+            });
+
+            document.getElementById('saveAllBtn').addEventListener('click', function() {
+                luaEditor.saveAll();
+            });
+
+            document.getElementById('btnReload').addEventListener('click', function() {
+                luaEditor.reloadLua();
+            });
+
+            // Delegate tree actions
+            document.getElementById('fileTree').addEventListener('click', function(e) {
+                luaEditor.handleTreeAction(e);
+            });
+
+            // Search in files toggle
+            document.getElementById('btnSearchFiles').addEventListener('click', function() {
+                luaEditor.toggleSearchPanel();
+            });
+
+            document.getElementById('btnSearchClose').addEventListener('click', function() {
+                luaEditor.toggleSearchPanel(false);
+            });
+
+            // Output panel: close, clear, tab switching
+            document.getElementById('btnCloseOutput').addEventListener('click', function() {
+                luaEditor.closeOutputPanel();
+            });
+            document.getElementById('btnClearOutput').addEventListener('click', function() {
+                luaEditor.clearOutputTab();
+            });
+            document.querySelectorAll('[data-output-tab]').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    luaEditor.switchOutputTab(btn.dataset.outputTab);
+                });
+            });
+
+            // History
+            document.getElementById('historyBtn').addEventListener('click', function() {
+                luaEditor.openHistory();
+            });
+
+            // Draft actions
+            document.getElementById('validateDraftBtn').addEventListener('click', function() {
+                luaEditor.validateDraft();
+            });
+            document.getElementById('testDraftBtn').addEventListener('click', function() {
+                luaEditor.testDraft();
+            });
+            document.getElementById('promoteBtn').addEventListener('click', function() {
+                luaEditor.promoteDraft();
+            });
+            document.getElementById('deleteDraftBtn').addEventListener('click', function() {
+                luaEditor.deleteDraft();
+            });
+
+            // Restore backup
+            document.getElementById('restoreBackupBtn').addEventListener('click', function() {
+                luaEditor.restoreBackup();
+            });
+
+            // Rename file submit
+            document.getElementById('btnSubmitRename').addEventListener('click', function() {
+                var oldPath = document.getElementById('renameFileOldPath').value;
+                var newName = document.getElementById('renameFileName').value.trim();
+                if (!newName) { alert('Please enter a filename'); return; }
+                bootstrap.Modal.getInstance(document.getElementById('renameFileModal')).hide();
+                luaEditor.renameFile(oldPath, newName);
+            });
+        })();
+    </script>
+</body>
+</html>

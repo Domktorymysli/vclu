@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>{{.name}} - vCLU</title>
+    <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/vendor/bootstrap-icons/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="/static/css/dashboard.css">
+    <link rel="stylesheet" href="/d/{{.id}}/custom.css">
+    {{if .theme}}<style>{{.theme}}</style>{{end}}
+</head>
+<body>
+    <div id="dashboardApp" data-id="{{.id}}">
+        <div class="dash-header">
+            <h1><i class="bi bi-{{.icon}}"></i> {{.name}}</h1>
+        </div>
+        <div id="dashboardContent" class="dash-loading">
+            <div class="spinner-border text-light" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+    </div>
+    <div id="dashboardOverlay" class="dash-overlay" style="display:none;">
+        <div class="dash-overlay-content">
+            <i class="bi bi-arrow-repeat dash-spin"></i>
+            <p>Dashboard reloading...</p>
+        </div>
+    </div>
+    <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/vendor/chartjs/chart.js"></script>
+    <script src="/static/js/utils.js"></script>
+    <script src="/static/js/dashboard.js"></script>
+</body>
+</html>

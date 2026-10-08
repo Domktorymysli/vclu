@@ -1,0 +1,1009 @@
+<!DOCTYPE html>
+<html lang="{{.lang}}" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Grenton - Virtual CLU</title>
+    <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/vendor/bootstrap-icons/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="/static/css/dark-theme.css">
+    <link rel="stylesheet" href="/static/css/wizard.css">
+    <meta name="csrf-token" content="{{.csrfToken}}">
+</head>
+<body>
+    <div class="app-container">
+        {{template "sidebar" .}}
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="topbar">
+                <button class="hamburger" id="hamburgerBtn"><i class="bi bi-list"></i></button>
+                <h1 class="page-title">Grenton</h1>
+                <div class="topbar-actions">
+                    <button class="theme-toggle" id="themeToggle" title="Toggle theme">
+                        <i class="bi bi-moon-fill"></i>
+                        <i class="bi bi-sun-fill"></i>
+                    </button>
+                    <div class="dropdown">
+                        <button class="btn-icon dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-globe"></i>
+                            <span class="lang-label">{{if eq .lang "pl"}}PL{{else}}EN{{end}}</span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item {{if eq .lang "pl"}}active{{end}}" href="?lang=pl">Polski</a></li>
+                            <li><a class="dropdown-item {{if eq .lang "en"}}active{{end}}" href="?lang=en">English</a></li>
+                        </ul>
+                    </div>
+                </div>
+            </header>
+
+            <div class="page-content">
+                <div class="content-wrapper wide">
+
+                    <!-- Status Card -->
+                    <div class="card mb-3">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span><i class="bi bi-hdd-network"></i> Grenton Integration</span>
+                            <span id="grentonStatusBadge" class="badge {{if .grentonEnabled}}bg-success{{else}}bg-secondary{{end}}">
+                                {{if .isStandalone}}Standalone{{else if .grentonEnabled}}Enabled{{else}}Disabled{{end}}
+                            </span>
+                        </div>
+                        <div class="card-body">
+                            <div class="row text-center">
+                                <div class="col-4">
+                                    <div class="fs-4 fw-bold" id="grentonModules">{{.moduleCount}}</div>
+                                    <small class="text-muted">Modules</small>
+                                </div>
+                                <div class="col-4">
+                                    <div class="fs-4 fw-bold" id="grentonIOObjects">{{.ioObjectCount}}</div>
+                                    <small class="text-muted">I/O Objects</small>
+                                </div>
+                                <div class="col-4">
+                                    <div class="fs-4 fw-bold">UDP:1234</div>
+                                    <small class="text-muted">Protocol</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Configuration Card -->
+                    <div class="card mb-3">
+                        <div class="card-header"><i class="bi bi-gear"></i> Configuration</div>
+                        <div class="card-body">
+                            <div class="form-check form-switch mb-3">
+                                <input class="form-check-input" type="checkbox" id="grentonEnabled"
+                                       {{if .grentonEnabled}}checked{{end}}
+                                       {{if .isStandalone}}disabled title="Re-run wizard to change device type"{{end}}>
+                                <label class="form-check-label" for="grentonEnabled">
+                                    Enable Grenton Integration
+                                </label>
+                            </div>
+                            {{if .isStandalone}}
+                            <div class="alert alert-secondary mb-0">
+                                <i class="bi bi-info-circle"></i>
+                                Standalone mode — Grenton integration is not available. Re-run the setup wizard and select <strong>CLU</strong> or <strong>Gate</strong> to enable.
+                            </div>
+                            {{end}}
+                            <div id="grentonRestartBanner" class="alert alert-warning mb-0" style="display: none;">
+                                <i class="bi bi-exclamation-triangle"></i>
+                                Restart required for changes to take effect.
+                                <button class="btn btn-sm btn-warning ms-2" onclick="restartVCLU()">Restart Now</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    {{if not .isStandalone}}
+                    <!-- Tabs: Device Info, OM Files, Modules -->
+                    <div class="nav nav-segmented" role="tablist">
+                        <button class="nav-link {{if eq .activeTab "device"}}active{{end}}" id="tab-device" data-bs-toggle="tab" data-bs-target="#pane-device" type="button" role="tab">
+                            <i class="bi bi-hdd-network"></i> {{index .t "status.device_info"}}
+                        </button>
+                        <button class="nav-link {{if eq .activeTab "omfiles"}}active{{end}}" id="tab-omfiles" data-bs-toggle="tab" data-bs-target="#pane-omfiles" type="button" role="tab">
+                            <i class="bi bi-file-earmark-code"></i> OM Files
+                        </button>
+                        {{if .hasModules}}
+                        <button class="nav-link {{if eq .activeTab "modules"}}active{{end}}" id="tab-modules" data-bs-toggle="tab" data-bs-target="#pane-modules" type="button" role="tab">
+                            <i class="bi bi-puzzle"></i> Modules
+                        </button>
+                        {{end}}
+                        <button class="nav-link {{if eq .activeTab "sync"}}active{{end}}" id="tab-sync" data-bs-toggle="tab" data-bs-target="#pane-sync" type="button" role="tab">
+                            <i class="bi bi-arrow-repeat"></i> Sync
+                        </button>
+                    </div>
+
+                    <div class="tab-content">
+                        <!-- ==================== DEVICE TAB ==================== -->
+                        <div class="tab-pane fade {{if eq .activeTab "device"}}show active{{end}}" id="pane-device" role="tabpanel">
+                            {{if .device}}
+                            <div class="card mb-3">
+                                <div class="card-header">
+                                    <i class="bi bi-hdd-network"></i> {{index .t "status.device_info"}}
+                                </div>
+                                <div class="card-body">
+                                    <div class="row">
+                                        {{if .device.deviceTypeName}}
+                                        <div class="col-md-6 mb-3">
+                                            <label class="form-label text-muted">{{index .t "status.device_type"}}</label>
+                                            <div class="fw-bold">{{.device.deviceTypeName}}</div>
+                                        </div>
+                                        {{end}}
+                                        <div class="col-md-6 mb-3">
+                                            <label class="form-label text-muted">{{index .t "status.serial"}}</label>
+                                            <div class="fw-bold font-monospace">{{.device.serialNumber}}</div>
+                                        </div>
+                                        <div class="col-md-6 mb-3">
+                                            <label class="form-label text-muted">{{index .t "status.mac"}}</label>
+                                            <div class="fw-bold font-monospace">{{.device.macAddress}}</div>
+                                        </div>
+                                        <div class="col-md-6 mb-3">
+                                            <label class="form-label text-muted">{{index .t "status.hw_type"}}</label>
+                                            <div class="fw-bold">{{.device.hardwareType}} (0x{{printf "%02x" .device.hardwareType}})</div>
+                                        </div>
+                                        <div class="col-md-6 mb-3">
+                                            <label class="form-label text-muted">{{index .t "status.hw_version"}}</label>
+                                            <div class="fw-bold">{{.device.hardwareVersion}}</div>
+                                        </div>
+                                        <div class="col-md-6 mb-3">
+                                            <label class="form-label text-muted">{{index .t "status.fw_type"}}</label>
+                                            <div class="fw-bold">{{.device.firmwareType}}</div>
+                                        </div>
+                                        <div class="col-md-6 mb-3">
+                                            <label class="form-label text-muted">{{index .t "status.fw_version"}}</label>
+                                            <div class="fw-bold">{{.device.firmwareVersion}}</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            {{end}}
+
+                            <!-- Grenton Integration & Pairing -->
+                            <div class="row">
+                                {{if .hasKeys}}
+                                <div class="col-md-6 mb-3">
+                                    <div class="card h-100">
+                                        <div class="card-header">
+                                            <i class="bi bi-hdd-network text-success"></i> {{index .t "status.security_status"}}
+                                        </div>
+                                        <div class="card-body">
+                                            <p class="mb-1">
+                                                <i class="bi bi-check-circle-fill text-success"></i>
+                                                <strong>{{index .t "status.keys_yes"}}</strong>
+                                            </p>
+                                            <p class="mb-0 text-muted small">{{index .t "status.encrypted_comm"}}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                {{end}}
+                                <div class="{{if .hasKeys}}col-md-6{{else}}col-12{{end}} mb-3">
+                                    <div class="card h-100">
+                                        <div class="card-header">
+                                            <i class="bi bi-link-45deg {{if .paired}}text-success{{end}}"></i> {{index .t "status.pairing_status"}}
+                                        </div>
+                                        <div class="card-body">
+                                            {{if .paired}}
+                                            <p class="mb-2"><i class="bi bi-check-circle-fill text-success"></i> <strong>{{index .t "status.paired_yes"}}</strong></p>
+                                            <div class="small">
+                                                <span class="text-muted">{{index .t "status.project_name"}}:</span> {{.projectName}}<br>
+                                                <span class="text-muted">{{index .t "status.paired_at"}}:</span> {{.pairedAt}}
+                                            </div>
+                                            {{else}}
+                                            <p class="mb-1"><i class="bi bi-x-circle text-muted"></i> <strong>{{index .t "status.paired_no"}}</strong></p>
+                                            <p class="mb-0 text-muted small">{{index .t "status.paired_hint"}}</p>
+                                            {{end}}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ==================== OM FILES TAB ==================== -->
+                        <div class="tab-pane fade {{if eq .activeTab "omfiles"}}show active{{end}}" id="pane-omfiles" role="tabpanel">
+                            <!-- Upload Section -->
+                            <div class="card mb-3">
+                                <div class="card-header">
+                                    <i class="bi bi-upload"></i> {{if eq .lang "pl"}}Upload plików OM{{else}}Upload OM Files{{end}}
+                                </div>
+                                <div class="card-body">
+                                    <p class="text-muted small mb-3">{{if eq .lang "pl"}}Wybierz plik OM.lua lub paczkę diagnostyczną (.zip) z Object Managera.{{else}}Select an OM.lua file or diagnostic pack (.zip) from Object Manager.{{end}}</p>
+                                    <form id="uploadForm" enctype="multipart/form-data">
+                                        <div class="mb-3">
+                                            <input type="file" class="form-control" id="omFile" name="file" accept=".lua,.zip" required>
+                                            <div class="form-text">{{if eq .lang "pl"}}Obsługiwane formaty: .lua (pojedynczy plik) lub .zip (paczka diagnostyczna){{else}}Supported formats: .lua (single file) or .zip (diagnostic pack){{end}}</div>
+                                        </div>
+                                        <button type="submit" class="btn btn-primary" id="uploadBtn">
+                                            <i class="bi bi-upload"></i> {{if eq .lang "pl"}}Upload i waliduj{{else}}Upload & Validate{{end}}
+                                        </button>
+                                    </form>
+                                    <div id="uploadResult" class="mt-3" style="display: none;"></div>
+                                </div>
+                            </div>
+
+                            <!-- Files List Section -->
+                            <div class="card mb-3">
+                                <div class="card-header d-flex justify-content-between align-items-center">
+                                    <span><i class="bi bi-list-ul"></i> {{if eq .lang "pl"}}Lista plików OM{{else}}OM Files List{{end}}</span>
+                                    <button class="btn btn-sm btn-outline-secondary" onclick="loadFiles()">
+                                        <i class="bi bi-arrow-clockwise"></i> {{if eq .lang "pl"}}Odśwież{{else}}Refresh{{end}}
+                                    </button>
+                                </div>
+                                <div class="card-body">
+                                    <div id="filesListLoading" class="text-center py-4">
+                                        <div class="spinner-border text-primary" role="status">
+                                            <span class="visually-hidden">Loading...</span>
+                                        </div>
+                                    </div>
+                                    <div id="filesListEmpty" class="alert alert-info" style="display: none;">
+                                        <i class="bi bi-info-circle"></i> {{if eq .lang "pl"}}Brak plików OM. Upload pliku aby dodać urządzenia do rejestru.{{else}}No OM files. Upload a file to add devices to the registry.{{end}}
+                                    </div>
+                                    <div id="filesListError" class="alert alert-danger" style="display: none;"></div>
+                                    <table class="table table-sm" id="filesTable" style="display: none;">
+                                        <thead>
+                                            <tr>
+                                                <th>CLU</th>
+                                                <th>IP</th>
+                                                <th>{{if eq .lang "pl"}}Obiekty{{else}}Objects{{end}}</th>
+                                                <th>{{if eq .lang "pl"}}Moduły{{else}}Modules{{end}}</th>
+                                                <th>{{if eq .lang "pl"}}Data{{else}}Date{{end}}</th>
+                                                <th class="text-end">{{if eq .lang "pl"}}Akcje{{else}}Actions{{end}}</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="filesTableBody">
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <!-- Info Section -->
+                            <div class="alert alert-secondary">
+                                <h6><i class="bi bi-info-circle"></i> {{if eq .lang "pl"}}Informacja{{else}}Information{{end}}</h6>
+                                <p class="mb-2 small">{{if eq .lang "pl"}}Pliki OM pozwalają na budowanie rejestru urządzeń z wielu CLU:{{else}}OM files allow building a device registry from multiple CLUs:{{end}}</p>
+                                <ul class="mb-0 small">
+                                    <li>{{if eq .lang "pl"}}Upload plików OM.lua z innych CLU{{else}}Upload OM.lua files from other CLUs{{end}}</li>
+                                    <li>{{if eq .lang "pl"}}Parser waliduje poprawność pliku{{else}}Parser validates file correctness{{end}}</li>
+                                    <li>{{if eq .lang "pl"}}Rejestr urządzeń jest automatycznie budowany{{else}}Device registry is built automatically{{end}}</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <!-- ==================== MODULES TAB ==================== -->
+                        {{if .hasModules}}
+                        <div class="tab-pane fade {{if eq .activeTab "modules"}}show active{{end}}" id="pane-modules" role="tabpanel">
+                            <!-- Alert container -->
+                            <div id="alertContainer"></div>
+
+                            <!-- Modules Card -->
+                            <div class="card">
+                                <div class="card-header d-flex justify-content-between align-items-center">
+                                    <span><i class="bi bi-puzzle"></i> I/O Modules</span>
+                                    <button class="btn btn-sm btn-success" id="addModuleBtn">
+                                        <i class="bi bi-plus-circle"></i> Add Module
+                                    </button>
+                                </div>
+                                <div class="card-body">
+                                    <div id="noModulesMsg" class="text-center py-5 {{if .modulesData}}d-none{{end}}">
+                                        <i class="bi bi-puzzle" style="font-size: 3rem; color: var(--text-muted);"></i>
+                                        <p class="text-muted mt-3">No modules configured yet.</p>
+                                        <button class="btn btn-outline-primary" id="addFirstModuleBtn">
+                                            <i class="bi bi-plus-circle"></i> Add your first module
+                                        </button>
+                                    </div>
+
+                                    <div id="modulesList" class="{{if not .modulesData}}d-none{{end}}">
+                                        <!-- Modules will be rendered here by JavaScript -->
+                                    </div>
+                                </div>
+                                <div class="card-footer">
+                                    <span class="text-muted">
+                                        <span id="moduleCount">{{if .modulesData}}{{len .modulesData}}{{else}}0{{end}}</span> module(s),
+                                        <span id="ioCount">{{if .ioObjects}}{{len .ioObjects}}{{else}}0{{end}}</span> I/O object(s)
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                        {{end}}
+
+                        <!-- ==================== SYNC TAB ==================== -->
+                        <div class="tab-pane fade {{if eq .activeTab "sync"}}show active{{end}}" id="pane-sync" role="tabpanel">
+
+                            <!-- Sync Settings -->
+                            <div class="card mb-3">
+                                <div class="card-header"><i class="bi bi-gear"></i> Sync Settings</div>
+                                <div class="card-body">
+                                    <div class="form-check form-switch mb-3">
+                                        <input class="form-check-input" type="checkbox" id="syncEnabled">
+                                        <label class="form-check-label" for="syncEnabled">Enable sync</label>
+                                    </div>
+                                    <div class="row g-3">
+                                        <div class="col-md-4">
+                                            <label for="syncTTL" class="form-label">TTL (seconds)</label>
+                                            <input type="number" class="form-control" id="syncTTL" min="10" value="60">
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label for="syncBatchSize" class="form-label">Batch size (2-8)</label>
+                                            <input type="number" class="form-control" id="syncBatchSize" min="2" max="8" value="4">
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label for="syncBatchDelay" class="form-label">Batch delay ms (30-100)</label>
+                                            <input type="number" class="form-control" id="syncBatchDelay" min="30" max="100" value="50">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Objects to sync -->
+                            <div class="card mb-3">
+                                <div class="card-header d-flex justify-content-between align-items-center">
+                                    <span><i class="bi bi-list-check"></i> Objects to sync</span>
+                                    <span class="text-muted" id="syncSelectedCount">0/0 selected</span>
+                                </div>
+                                <div class="card-body">
+                                    <!-- Search & Filter -->
+                                    <div class="row mb-3 g-2">
+                                        <div class="col-md-5">
+                                            <div class="input-group input-group-sm">
+                                                <span class="input-group-text"><i class="bi bi-search"></i></span>
+                                                <input type="text" class="form-control" id="syncSearch" placeholder="Search name or path...">
+                                            </div>
+                                        </div>
+                                        <div class="col-md-2">
+                                            <select class="form-select form-select-sm" id="syncTypeFilter">
+                                                <option value="">All types</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-5 text-end">
+                                            <button class="btn btn-sm btn-outline-secondary" id="syncRefreshBtn" title="Refresh">
+                                                <i class="bi bi-arrow-clockwise"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <!-- Quick select buttons -->
+                                    <div class="d-flex mb-3 gap-1 align-items-center flex-wrap" id="syncQuickSelect">
+                                        <small class="text-muted me-1">Quick:</small>
+                                        <button class="btn btn-sm btn-outline-primary" data-type="DOUT">DOUT</button>
+                                        <button class="btn btn-sm btn-outline-primary" data-type="DIN">DIN</button>
+                                        <button class="btn btn-sm btn-outline-primary" data-type="DIMM">DIMM</button>
+                                        <button class="btn btn-sm btn-outline-primary" data-type="AnalogIN">AnalogIN</button>
+                                        <button class="btn btn-sm btn-outline-primary" data-type="ONE_WIRE">Temp</button>
+                                        <span class="mx-1"></span>
+                                        <button class="btn btn-sm btn-outline-secondary" id="syncSelectAll">All</button>
+                                        <button class="btn btn-sm btn-outline-secondary" id="syncDeselectAll">None</button>
+                                    </div>
+
+                                    <!-- Objects table -->
+                                    <div id="syncObjectsLoading" class="text-center py-3">
+                                        <div class="spinner-border spinner-border-sm text-primary" role="status">
+                                            <span class="visually-hidden">Loading...</span>
+                                        </div>
+                                    </div>
+                                    <div id="syncObjectsEmpty" class="alert alert-secondary" style="display:none;">
+                                        <i class="bi bi-info-circle"></i> No remote objects found. Upload OM files on the <strong>OM Files</strong> tab first.
+                                    </div>
+                                    <div id="syncObjectsTable" style="display:none;">
+                                        <div class="table-responsive">
+                                            <table class="table table-sm table-hover">
+                                                <thead>
+                                                    <tr>
+                                                        <th style="width:30px;"></th>
+                                                        <th>Name</th>
+                                                        <th>Type</th>
+                                                        <th class="text-center">State</th>
+                                                        <th class="text-end">Last Event</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody id="syncObjectsBody"></tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+
+                                    <div class="mt-3">
+                                        <button class="btn btn-primary" id="syncSaveBtn">
+                                            <i class="bi bi-check-lg"></i> Save
+                                        </button>
+                                        <span id="syncSaveStatus" class="ms-2 text-muted small"></span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Sync Status -->
+                            <div class="card mb-3">
+                                <div class="card-header"><i class="bi bi-activity"></i> Sync Status</div>
+                                <div class="card-body">
+                                    <div class="row text-center">
+                                        <div class="col-4">
+                                            <div class="fs-4 fw-bold" id="syncSubCount">—</div>
+                                            <small class="text-muted">Subscriptions</small>
+                                        </div>
+                                        <div class="col-4">
+                                            <div class="fs-4 fw-bold" id="syncObjCount">—</div>
+                                            <small class="text-muted">Objects</small>
+                                        </div>
+                                        <div class="col-4">
+                                            <div class="fs-4 fw-bold" id="syncLastSync">—</div>
+                                            <small class="text-muted">Last sync</small>
+                                        </div>
+                                    </div>
+                                    <div class="text-center mt-3">
+                                        <button class="btn btn-sm btn-outline-primary" id="syncNowBtn">
+                                            <i class="bi bi-arrow-repeat"></i> Sync Now
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {{end}}
+
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <!-- OM Files Details Modal -->
+    <div class="modal fade" id="detailsModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-file-earmark-code"></i> <span id="modalTitle"></span></h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="modalLoading" class="text-center py-4">
+                        <div class="spinner-border text-primary" role="status"></div>
+                    </div>
+                    <div id="modalContent" style="display: none;">
+                        <h6>{{if eq .lang "pl"}}Moduły{{else}}Modules{{end}}</h6>
+                        <table class="table table-sm" id="modulesTable">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Serial</th>
+                                    <th>Type</th>
+                                </tr>
+                            </thead>
+                            <tbody id="modulesBody"></tbody>
+                        </table>
+                        <h6 class="mt-3">{{if eq .lang "pl"}}Obiekty{{else}}Objects{{end}}</h6>
+                        <table class="table table-sm" id="objectsTable">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>{{if eq .lang "pl"}}Nazwa{{else}}Name{{end}}</th>
+                                    <th>{{if eq .lang "pl"}}Typ{{else}}Type{{end}}</th>
+                                    <th>{{if eq .lang "pl"}}Moduł{{else}}Module{{end}}</th>
+                                </tr>
+                            </thead>
+                            <tbody id="objectsBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {{if .hasModules}}
+    <!-- Add Module Modal -->
+    <div class="modal fade" id="addModuleModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-plus-circle"></i> Add Module</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="moduleType" class="form-label">Module Type</label>
+                        <select class="form-select" id="moduleType">
+                            {{range .moduleTypes}}
+                            <option value="{{.ID}}" data-description="{{.Description}}" data-icon="{{.Icon}}">
+                                {{.Name}} - {{.Description}}
+                            </option>
+                            {{end}}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="moduleName" class="form-label">Name (optional)</label>
+                        <input type="text" class="form-control" id="moduleName" placeholder="e.g., Kitchen Lights">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="confirmAddModule">Add Module</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {{end}}
+
+    <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/sidebar.js"></script>
+    <script src="/static/js/theme.js"></script>
+    <script src="/static/js/utils.js"></script>
+    <script src="/static/js/csrf.js"></script>
+    <script src="/static/js/om-files.js"></script>
+    {{if .hasModules}}
+    <script>
+        const MODULES_STATE = {
+            modules: {{json .modulesData}},
+            ioObjects: {{json .ioObjects}},
+            deviceTypeId: '{{.deviceTypeID}}',
+            moduleTypes: {{json .moduleTypes}}
+        };
+    </script>
+    <script src="/static/js/modules.js"></script>
+    {{end}}
+    <script>
+        // Grenton toggle logic
+        (function() {
+            var toggle = document.getElementById('grentonEnabled');
+            var banner = document.getElementById('grentonRestartBanner');
+            var badge = document.getElementById('grentonStatusBadge');
+            if (!toggle || toggle.disabled) return;
+
+            var csrfToken = document.querySelector('meta[name="csrf-token"]');
+            csrfToken = csrfToken ? csrfToken.content : '';
+
+            toggle.addEventListener('change', function() {
+                var enabled = toggle.checked;
+                fetch('/api/grenton/save', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': csrfToken
+                    },
+                    body: JSON.stringify({ enabled: enabled })
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.success) {
+                        badge.className = 'badge ' + (enabled ? 'bg-success' : 'bg-secondary');
+                        badge.textContent = enabled ? 'Enabled' : 'Disabled';
+                        if (data.restartRequired) {
+                            banner.style.display = 'block';
+                        }
+                    }
+                })
+                .catch(function(err) {
+                    alert('Error saving: ' + err.message);
+                    toggle.checked = !enabled;
+                });
+            });
+        })();
+
+        function restartVCLU() {
+            if (!confirm('Restart vCLU? This will briefly interrupt all services.')) return;
+            var csrfToken = document.querySelector('meta[name="csrf-token"]');
+            csrfToken = csrfToken ? csrfToken.content : '';
+            fetch('/api/restart', {
+                method: 'POST',
+                headers: { 'X-CSRF-Token': csrfToken }
+            }).then(function() {
+                setTimeout(function() { location.reload(); }, 3000);
+            });
+        }
+
+        // Update URL when tab changes (without reload)
+        document.querySelectorAll('[data-bs-toggle="tab"]').forEach(function(tab) {
+            tab.addEventListener('shown.bs.tab', function(e) {
+                var tabId = e.target.id.replace('tab-', '');
+                var url = new URL(window.location);
+                url.searchParams.set('tab', tabId);
+                history.replaceState(null, '', url);
+                // Load sync data when sync tab is shown
+                if (tabId === 'sync') {
+                    if (!window._syncLoaded) {
+                        window._syncLoaded = true;
+                        SyncTab.init();
+                    } else {
+                        SyncTab.resume();
+                    }
+                } else if (window._syncLoaded) {
+                    SyncTab.pause();
+                }
+            });
+        });
+
+        // If sync tab is active on page load, init immediately
+        if (document.getElementById('tab-sync') && document.getElementById('tab-sync').classList.contains('active')) {
+            window._syncLoaded = true;
+            document.addEventListener('DOMContentLoaded', function() { SyncTab.init(); });
+        }
+    </script>
+
+    <script>
+    // ==================== SYNC TAB ====================
+    var SyncTab = (function() {
+        var csrfToken = '';
+        var allObjects = [];       // from registry
+        var whitelist = {};        // path -> true
+        var lastEvents = {};       // path -> unix timestamp
+        var liveStates = {};       // path -> value (from status poll)
+        var syncConfig = null;
+        var refreshTimer = null;
+        var REFRESH_INTERVAL = 5000; // 5 seconds
+
+        function getCSRF() {
+            var meta = document.querySelector('meta[name="csrf-token"]');
+            return meta ? meta.content : '';
+        }
+
+        function relativeTime(ts) {
+            if (!ts) return '—';
+            var diff = Math.floor(Date.now() / 1000) - ts;
+            if (diff < 60) return diff + 's ago';
+            if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+            if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+            return Math.floor(diff / 86400) + 'd ago';
+        }
+
+        function init() {
+            csrfToken = getCSRF();
+            loadConfig().then(function() {
+                return loadObjects();
+            }).then(function() {
+                loadStatus();
+                bindEvents();
+                startRefresh();
+            });
+        }
+
+        function startRefresh() {
+            stopRefresh();
+            refreshTimer = setInterval(function() {
+                // Only poll when sync tab is visible
+                var pane = document.getElementById('pane-sync');
+                if (pane && pane.classList.contains('active')) {
+                    pollStatus();
+                }
+            }, REFRESH_INTERVAL);
+        }
+
+        function stopRefresh() {
+            if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+        }
+
+        // Lightweight poll — only status endpoint, update cells in-place
+        function pollStatus() {
+            fetch('/api/grenton/sync/status').then(function(r) { return r.json(); }).then(function(data) {
+                // Update status card
+                document.getElementById('syncSubCount').textContent = data.subscriptions || 0;
+                document.getElementById('syncObjCount').textContent = data.objects || 0;
+                document.getElementById('syncLastSync').textContent = data.lastSync ? relativeTime(data.lastSync) : '—';
+
+                lastEvents = data.lastEvents || {};
+                liveStates = data.states || {};
+
+                // Update state & last event cells in-place
+                var rows = document.querySelectorAll('#syncObjectsBody tr:not(.clu-header)');
+                rows.forEach(function(row) {
+                    var path = row.getAttribute('data-path');
+                    if (!path || !whitelist[path]) return;
+
+                    var cells = row.querySelectorAll('td');
+                    // cells: [0]=checkbox, [1]=name, [2]=type, [3]=state, [4]=lastEvent
+                    if (cells.length < 5) return;
+
+                    var val = liveStates[path];
+                    if (val !== undefined && val !== null) {
+                        cells[3].innerHTML = '<span class="text-success me-1">&#9679;</span>' + val;
+                    }
+
+                    var evt = lastEvents[path];
+                    cells[4].textContent = evt ? relativeTime(evt) : '—';
+                });
+            }).catch(function() {});
+        }
+
+        function loadConfig() {
+            return fetch('/api/grenton/sync').then(function(r) { return r.json(); }).then(function(cfg) {
+                syncConfig = cfg;
+                document.getElementById('syncEnabled').checked = cfg.enabled;
+                document.getElementById('syncTTL').value = cfg.ttl || 60;
+                document.getElementById('syncBatchSize').value = cfg.batchSize || 4;
+                document.getElementById('syncBatchDelay').value = cfg.batchDelay || 50;
+                whitelist = {};
+                (cfg.objects || []).forEach(function(p) { whitelist[p] = true; });
+            });
+        }
+
+        function loadObjects() {
+            var loading = document.getElementById('syncObjectsLoading');
+            var empty = document.getElementById('syncObjectsEmpty');
+            var table = document.getElementById('syncObjectsTable');
+            loading.style.display = '';
+            empty.style.display = 'none';
+            table.style.display = 'none';
+
+            return fetch('/api/registry/list').then(function(r) { return r.json(); }).then(function(data) {
+                loading.style.display = 'none';
+                // Filter to remote objects only (path contains CLU serial prefix)
+                allObjects = (data || []).filter(function(obj) {
+                    return obj.path && obj.path.match(/^CLU\d+\./);
+                });
+                if (allObjects.length === 0) {
+                    empty.style.display = '';
+                    return;
+                }
+                table.style.display = '';
+                renderObjects();
+                populateTypeFilter();
+                updateSelectedCount();
+            }).catch(function() {
+                loading.style.display = 'none';
+                empty.style.display = '';
+                empty.innerHTML = '<i class="bi bi-exclamation-triangle"></i> Failed to load registry.';
+            });
+        }
+
+        function escapeHtml(s) {
+            var d = document.createElement('div'); d.textContent = s; return d.innerHTML;
+        }
+
+        function getTypeIcon(type) {
+            var icons = { DOUT: 'bi-toggle-on', DIN: 'bi-toggle-off', DIMM: 'bi-brightness-high',
+                AnalogIN: 'bi-speedometer', AnalogOUT: 'bi-sliders', ROLLER: 'bi-arrows-expand',
+                ONE_WIRE: 'bi-thermometer-half' };
+            return icons[type] || 'bi-circle';
+        }
+
+        function renderObjects() {
+            var tbody = document.getElementById('syncObjectsBody');
+            // Group by CLU
+            var groups = {};
+            var cluOrder = [];
+            allObjects.forEach(function(obj) {
+                var parts = obj.path.split('.');
+                var cluId = parts[0];
+                if (!groups[cluId]) {
+                    groups[cluId] = { objects: [], ip: '' };
+                    cluOrder.push(cluId);
+                }
+                groups[cluId].objects.push(obj);
+                if (obj.cluIP) groups[cluId].ip = obj.cluIP;
+            });
+
+            // Check for stale whitelist entries
+            var registryPaths = {};
+            allObjects.forEach(function(o) { registryPaths[o.path] = true; });
+            var staleEntries = [];
+            Object.keys(whitelist).forEach(function(p) {
+                if (!registryPaths[p]) staleEntries.push(p);
+            });
+
+            var html = '';
+
+            // Stale entries first
+            staleEntries.forEach(function(path) {
+                var parts = path.split('.');
+                html += '<tr data-path="' + path + '" data-name="" data-type="" data-clu="' + parts[0] + '">';
+                html += '<td><input type="checkbox" class="form-check-input sync-cb" data-path="' + path + '" checked></td>';
+                html += '<td><i class="bi bi-exclamation-triangle text-warning"></i> ' + escapeHtml(parts[1]);
+                html += '<br><code class="small text-muted">' + escapeHtml(path) + '</code>';
+                html += ' <span class="text-warning small">(stale)</span></td>';
+                html += '<td>—</td><td class="text-center">—</td><td class="text-end">—</td>';
+                html += '</tr>';
+            });
+
+            cluOrder.forEach(function(cluId) {
+                var g = groups[cluId];
+                var ipStr = g.ip ? ' <span class="text-muted">' + g.ip + '</span>' : '';
+                // Subtle CLU separator — just a thin label row, not a full colored bar
+                html += '<tr class="clu-header" data-clu="' + cluId + '">';
+                html += '<td colspan="5" class="pt-3 pb-1 border-0"><small class="text-muted">' + cluId + ipStr + ' &middot; ' + g.objects.length + ' objects</small></td>';
+                html += '</tr>';
+
+                g.objects.forEach(function(obj) {
+                    var checked = whitelist[obj.path] ? ' checked' : '';
+                    var displayName = obj.name || obj.path.split('.').pop();
+                    var type = obj.type || '';
+                    var stateVal = '—';
+                    var lastEvt = '—';
+
+                    if (whitelist[obj.path]) {
+                        // Prefer live state from status poll, fallback to registry
+                        var val = liveStates[obj.path] !== undefined ? liveStates[obj.path] : obj.state;
+                        if (val !== undefined && val !== null) {
+                            stateVal = '<span class="text-success me-1">&#9679;</span>' + val;
+                        }
+                        if (lastEvents[obj.path]) {
+                            lastEvt = relativeTime(lastEvents[obj.path]);
+                        }
+                    }
+
+                    html += '<tr data-path="' + obj.path + '" data-name="' + escapeHtml(displayName).toLowerCase() + '" data-type="' + type + '" data-clu="' + cluId + '">';
+                    html += '<td><input type="checkbox" class="form-check-input sync-cb" data-path="' + obj.path + '"' + checked + '></td>';
+                    html += '<td><i class="bi ' + getTypeIcon(type) + '"></i> ' + escapeHtml(displayName);
+                    html += '<br><code class="small text-muted">' + escapeHtml(obj.path) + '</code></td>';
+                    html += '<td><small>' + escapeHtml(type) + '</small></td>';
+                    html += '<td class="text-center">' + stateVal + '</td>';
+                    html += '<td class="text-end text-muted small">' + lastEvt + '</td>';
+                    html += '</tr>';
+                });
+            });
+
+            tbody.innerHTML = html;
+        }
+
+        function populateTypeFilter() {
+            var sel = document.getElementById('syncTypeFilter');
+            var types = {};
+            allObjects.forEach(function(o) {
+                if (o.type) types[o.type] = (types[o.type] || 0) + 1;
+            });
+            var html = '<option value="">All types</option>';
+            Object.keys(types).sort().forEach(function(t) {
+                html += '<option value="' + t + '">' + t + ' (' + types[t] + ')</option>';
+            });
+            sel.innerHTML = html;
+        }
+
+        function updateSelectedCount() {
+            var total = allObjects.length;
+            var selected = Object.keys(whitelist).length;
+            document.getElementById('syncSelectedCount').textContent = selected + '/' + total + ' selected';
+        }
+
+        function applyFilters() {
+            var search = document.getElementById('syncSearch').value.toLowerCase();
+            var typeFilter = document.getElementById('syncTypeFilter').value;
+            var rows = document.querySelectorAll('#syncObjectsBody tr:not(.clu-header)');
+            var cluVisible = {};
+
+            rows.forEach(function(row) {
+                var name = row.getAttribute('data-name') || '';
+                var path = row.getAttribute('data-path') || '';
+                var type = row.getAttribute('data-type') || '';
+                var clu = row.getAttribute('data-clu') || '';
+
+                var matchSearch = !search || name.indexOf(search) !== -1 || path.toLowerCase().indexOf(search) !== -1;
+                var matchType = !typeFilter || type === typeFilter;
+                var show = matchSearch && matchType;
+                row.style.display = show ? '' : 'none';
+                if (show) cluVisible[clu] = true;
+            });
+
+            // Show/hide CLU headers
+            document.querySelectorAll('#syncObjectsBody .clu-header').forEach(function(row) {
+                var clu = row.getAttribute('data-clu');
+                row.style.display = cluVisible[clu] ? '' : 'none';
+            });
+        }
+
+        function bindEvents() {
+            // Checkbox changes
+            document.getElementById('syncObjectsBody').addEventListener('change', function(e) {
+                if (e.target.classList.contains('sync-cb')) {
+                    var path = e.target.getAttribute('data-path');
+                    if (e.target.checked) {
+                        whitelist[path] = true;
+                    } else {
+                        delete whitelist[path];
+                    }
+                    updateSelectedCount();
+                }
+            });
+
+            // Filters
+            document.getElementById('syncSearch').addEventListener('input', applyFilters);
+            document.getElementById('syncTypeFilter').addEventListener('change', applyFilters);
+
+            // Quick select by type
+            document.querySelectorAll('#syncQuickSelect button[data-type]').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    var type = btn.getAttribute('data-type');
+                    document.querySelectorAll('#syncObjectsBody .sync-cb').forEach(function(cb) {
+                        var row = cb.closest('tr');
+                        if (row && row.getAttribute('data-type') === type) {
+                            cb.checked = true;
+                            whitelist[cb.getAttribute('data-path')] = true;
+                        }
+                    });
+                    updateSelectedCount();
+                });
+            });
+
+            // Select all / deselect all
+            document.getElementById('syncSelectAll').addEventListener('click', function() {
+                document.querySelectorAll('#syncObjectsBody .sync-cb').forEach(function(cb) {
+                    cb.checked = true;
+                    whitelist[cb.getAttribute('data-path')] = true;
+                });
+                updateSelectedCount();
+            });
+            document.getElementById('syncDeselectAll').addEventListener('click', function() {
+                document.querySelectorAll('#syncObjectsBody .sync-cb').forEach(function(cb) {
+                    cb.checked = false;
+                });
+                whitelist = {};
+                updateSelectedCount();
+            });
+
+            // Refresh
+            document.getElementById('syncRefreshBtn').addEventListener('click', function() {
+                loadObjects().then(function() { loadStatus(); });
+            });
+
+            // Save
+            document.getElementById('syncSaveBtn').addEventListener('click', save);
+
+            // Sync Now
+            document.getElementById('syncNowBtn').addEventListener('click', syncNow);
+        }
+
+        function save() {
+            var status = document.getElementById('syncSaveStatus');
+            status.textContent = 'Saving...';
+
+            var payload = {
+                enabled: document.getElementById('syncEnabled').checked,
+                ttl: parseInt(document.getElementById('syncTTL').value) || 60,
+                batchSize: parseInt(document.getElementById('syncBatchSize').value) || 4,
+                batchDelay: parseInt(document.getElementById('syncBatchDelay').value) || 50,
+                objects: Object.keys(whitelist)
+            };
+
+            fetch('/api/grenton/sync', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+                body: JSON.stringify(payload)
+            }).then(function(r) { return r.json(); }).then(function(data) {
+                if (data.success) {
+                    status.textContent = 'Saved (' + data.objects + ' objects)';
+                    if (data.staleRemoved && data.staleRemoved.length) {
+                        status.textContent += ', ' + data.staleRemoved.length + ' stale removed';
+                        // Remove stale from local whitelist
+                        data.staleRemoved.forEach(function(p) { delete whitelist[p]; });
+                        renderObjects();
+                        updateSelectedCount();
+                    }
+                    setTimeout(function() { status.textContent = ''; }, 3000);
+                } else {
+                    status.textContent = 'Error: ' + (data.error || 'unknown');
+                }
+            }).catch(function(err) {
+                status.textContent = 'Error: ' + err.message;
+            });
+        }
+
+        function syncNow() {
+            var btn = document.getElementById('syncNowBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Syncing...';
+
+            fetch('/api/grenton/sync/now', {
+                method: 'POST',
+                headers: { 'X-CSRF-Token': csrfToken }
+            }).then(function(r) { return r.json(); }).then(function() {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Sync Now';
+                // Refresh status and objects
+                loadStatus();
+                loadObjects();
+            }).catch(function() {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Sync Now';
+            });
+        }
+
+        function loadStatus() {
+            // Full status load — updates card + caches states for render
+            fetch('/api/grenton/sync/status').then(function(r) { return r.json(); }).then(function(data) {
+                document.getElementById('syncSubCount').textContent = data.subscriptions || 0;
+                document.getElementById('syncObjCount').textContent = data.objects || 0;
+                document.getElementById('syncLastSync').textContent = data.lastSync ? relativeTime(data.lastSync) : '—';
+                lastEvents = data.lastEvents || {};
+                liveStates = data.states || {};
+            }).catch(function() {});
+        }
+
+        return {
+            init: init,
+            pause: stopRefresh,
+            resume: startRefresh
+        };
+    })();
+    </script>
+</body>
+</html>

@@ -1,0 +1,294 @@
+.wizard-progress {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+    background: var(--bg-secondary);
+    border-radius: 0.5rem;
+    border: 1px solid var(--border-color);
+}
+
+.wizard-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    position: relative;
+}
+
+.wizard-step .step-number {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+    border: 2px solid var(--border-color);
+    transition: all 0.3s ease;
+}
+
+.wizard-step.active .step-number {
+    background: var(--accent-color, #27C2A8);
+    color: white;
+    border-color: var(--accent-color, #27C2A8);
+}
+
+.wizard-step.completed .step-number {
+    background: var(--success-color, #27C2A8);
+    color: white;
+    border-color: var(--success-color, #27C2A8);
+}
+
+.wizard-step .step-label {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    text-align: center;
+}
+
+.wizard-step.active .step-label {
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.wizard-step-line {
+    flex: 1;
+    height: 2px;
+    background: var(--border-color);
+    margin: 0 1rem;
+    max-width: 100px;
+}
+
+.wizard-step-line.completed {
+    background: var(--success-color, #27C2A8);
+}
+
+.device-type-grid {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 1.5rem;
+}
+
+.device-type-card {
+    flex: 0 1 280px;
+    background: var(--bg-secondary);
+    border: 2px solid var(--border-color);
+    border-radius: 0.75rem;
+    padding: 1.5rem;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.device-type-card:hover:not(.disabled) {
+    border-color: var(--accent-color, #27C2A8);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.device-type-card.selected {
+    border-color: var(--accent-color, #27C2A8);
+    background: rgba(39, 194, 168, 0.08);
+}
+
+.device-type-card.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.device-type-card .device-icon {
+    font-size: 3rem;
+    color: var(--accent-color, #27C2A8);
+    margin-bottom: 1rem;
+}
+
+.device-type-card h4 {
+    margin-bottom: 0.5rem;
+    color: var(--text-primary);
+}
+
+.device-type-card .description {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    margin-bottom: 1rem;
+}
+
+.device-type-card .device-meta {
+    margin-top: 0.5rem;
+}
+
+/* Module cards */
+.module-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-left: 4px solid var(--accent-color, #27C2A8);
+    border-radius: 0.5rem;
+    margin-bottom: 1rem;
+    overflow: hidden;
+    transition: box-shadow 0.2s ease;
+}
+
+.module-card:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* Category border colors */
+.module-card.output { border-left-color: #27C2A8; }
+.module-card.input { border-left-color: #4DA6E8; }
+.module-card.dimmer { border-left-color: #D97ABA; }
+.module-card.motor { border-left-color: #FF7A45; }
+.module-card.analog { border-left-color: #FFB84D; }
+
+.module-card-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.module-card-header .module-icon {
+    font-size: 1.25rem;
+    color: var(--accent-color, #27C2A8);
+    flex-shrink: 0;
+}
+
+.module-card.output .module-icon { color: #27C2A8; }
+.module-card.input .module-icon { color: #4DA6E8; }
+.module-card.dimmer .module-icon { color: #D97ABA; }
+.module-card.motor .module-icon { color: #FF7A45; }
+.module-card.analog .module-icon { color: #FFB84D; }
+
+.module-card-header .module-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.module-card-header .module-name {
+    font-weight: 600;
+    color: var(--text-primary);
+    line-height: 1.3;
+}
+
+.module-card-header .module-type {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.module-card-header .io-count-badge {
+    font-size: 0.75rem;
+    flex-shrink: 0;
+}
+
+.module-card-header .module-serial {
+    font-family: monospace;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+
+.module-card-header .module-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-shrink: 0;
+}
+
+.module-card-body {
+    padding: 0.75rem 1rem;
+}
+
+/* I/O summary line */
+.io-summary {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+}
+
+/* I/O chips container */
+.io-chips-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+}
+
+/* I/O chip style */
+.io-chip {
+    display: inline-block;
+    font-family: monospace;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.2rem 0.5rem;
+    border-radius: 1rem;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    line-height: 1.3;
+}
+
+.io-chip.dout {
+    background: rgba(39, 194, 168, 0.12);
+    border-color: rgba(39, 194, 168, 0.35);
+    color: #5AD8C4;
+}
+
+.io-chip.din {
+    background: rgba(77, 166, 232, 0.12);
+    border-color: rgba(77, 166, 232, 0.35);
+    color: #7DC0F0;
+}
+
+.io-chip.analog {
+    background: rgba(255, 184, 77, 0.12);
+    border-color: rgba(255, 184, 77, 0.35);
+    color: #FFD07A;
+}
+
+.wizard-panel {
+    animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+#omPreview {
+    background: var(--bg-tertiary) !important;
+    color: var(--text-primary);
+    font-family: 'Monaco', 'Consolas', 'Courier New', monospace;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+#omPreview code {
+    color: inherit;
+    font-family: inherit;
+}
+
+@media (max-width: 768px) {
+    .wizard-progress {
+        flex-wrap: wrap;
+        gap: 1rem;
+    }
+
+    .wizard-step-line {
+        display: none;
+    }
+
+    .device-type-card {
+        flex: 1 1 100%;
+    }
+
+    .io-chips-container {
+        gap: 0.25rem;
+    }
+
+    .module-card-header {
+        flex-wrap: wrap;
+    }
+}

@@ -1,0 +1,169 @@
+# Changelog
+
+## v1.2.0 (2026-10-08)
+
+### Security
+
+- **Access control enforced where commands execute** - readonly/hidden set on the Access page was honoured only when entities were advertised, so a device marked readonly could still be switched from HA. Commands to exposed objects now check access, authorization uses the object's real registry path (not one rebuilt from the MQTT topic; the `_G` fallback is gone), readonly from the panel remaps HA discovery to read-only components, and an unreadable `access_control.yaml` denies instead of falling back to full access.
+- **Draft tests cannot start processes or write files** - `vclu_draft_test` had the full Lua `os` and `io` libraries, so a draft could run a shell command or write any file as the vCLU user during a test (the name check in validation is bypassed by building the name at runtime). In the sandbox `os.execute`, `os.exit`, `os.remove`, `os.rename`, `os.tmpname`, `os.setenv`, `io.popen`, `io.tmpfile`, `io.output(file)` and `io.open` for writing are now stubs listed in `blocked_calls`; reading files works as in production.
+- **MCP file tools do not follow symlinks** - reading, searching, listing and deleting files, drafts, diffs, backups, promote and rollback refuse a path when it or a directory on the way is a symlink, so a link in `modules/` cannot expose or overwrite a file outside the data directory; a `modules/` directory that is itself a symlink is no longer visible to these tools (the data directory may still be one). `vclu_draft_test` accepts only draft paths (`modules/...`), and rollback rejects backup names that would restore outside `modules/`.
+
+### Integrations
+
+- **Modbus TCP gateway** - read RS485 devices (e.g. energy meters) through a Modbus TCP gateway; async, one transaction at a time per gateway, sockets pooled across reloads. A reply with a bogus MBAP length, a non-zero protocol id or only stale frames drops the socket, so later replies are not read shifted (previously the socket stayed desynchronised until restart).
+- **Plugins without configuration load** - factory plugins driven from user modules were skipped because their config was empty; only plugins whose manifest asks for configuration are skipped now. `Plugin.get("@vclu/x")` (dot instead of colon) now raises and points to `Plugin.getPlugin`.
+- **HA discovery: device_class and state_class from expose()** - so e.g. an energy meter can be exposed in a form the HA Energy dashboard accepts.
+- **Satel: panel scan no longer times out** - reading ~300 device names takes over a minute on a real ETHM-1 (~275 ms per name), past the 60 s request limit, so the scan failed with `satel: scan timeout`. The limit is now 5 min and the page shows a progress bar (zones / partitions / outputs, done/total). The page now says that the alarm state is not refreshed during the scan and control commands (arm, outputs) wait until it ends (polling the panel mid-scan made the ETHM-1 stop answering). A second scan while one is queued or running is refused (HTTP 409); stopping the integration interrupts a running scan. Each scan logs a one-line summary of reply times and result codes.
+- **Satel: last scan is kept** - a successful scan is saved (`satel_scan.json` in the data dir, `GET /api/satel/scan`) and shown again when the page opens, with the current configuration pre-checked, so the selection can be changed later without rescanning. Factory names (`Wyjście 12`, `Wejście 3`, `Output 12`) count as unnamed for the "Named" quick select. Manual ranges are collapsed under "Advanced" and explained as the configuration the scan selection fills in.
+- **Satel: Polish letters in names** - zone/partition/output names read from the panel are decoded as Windows-1250 (as in openHAB's Satel binding); previously letters like Ł, Ż showed as `�` in the UI and in Home Assistant entity names.
+- **Satel: errors name the stalled command** - a panel that stops answering now reports which command it choked on (e.g. `no response to 0xEE 0149`) instead of a bare `i/o timeout`. Data is shown only for short queries; control commands carry the user code, which never appears in errors.
+
+### Lua runtime
+
+- **`datetime.setTimezone(name)` / `datetime.timezone()`** - the server clock is often UTC, so automations reading `datetime.now().hour` got the wrong local time. Call `datetime.setTimezone("Europe/Warsaw")` as the first line of `modules/init.lua`; `now`, `fromTimestamp`, `parse` (strings without an offset), `format`, `add` and `diff` then work in that zone, DST included, and tables carry `tz` (e.g. `CEST`). Without the call nothing changes. The zone database is built into the binary. `os.date` stays server time.
+- **`filter` for noisy sensors in `expose()`** - `expose(t, "temperature", { filter = { delta = 0.2, heartbeat = 600 } })`: a change is reported (history, HA/MQTT, HomeKit, `onChange`) only when it differs by at least `delta` from the last reported value, or after `heartbeat` seconds (checked on the next reading). `getValue()` keeps the raw value. Read-only numeric sensors only (a filter on a control would swallow commands); on plugin objects it covers history and HA, not the plugin's own `onChange`. A wrong option is rejected before the object is exposed.
+- **`history = false` in `expose()`** - keeps an object's changes out of the history store (computed or technical values you do not want logged); events still reach HA/MQTT, HomeKit and watchers. `lastChange()`/`since()`/`history()` then return nothing. Can be switched with `handle:update({ history = true })`.
+- **History on disk and Tools -> History and audit** - every state change is written to daily files (`data/clu/history/<UTC day>.jsonl`, in batches every 5 min and at shutdown; 90 days / 1 GB by default) and the last 24 h are read back at startup, so history and the last known values survive a restart (no more fake `0 -> value` entries after a deploy). The new page under Tools browses changes by object, origin, who (actor), text or correlation id and time range, shows memory/disk status and write errors, and edits the limits (applied live; turning history or the disk off needs a restart); writing now, clearing memory and deleting the files need a web session and a confirmation, never an API key. REST: `GET /api/history`, `/api/history/status`, `GET/PUT /api/history/settings`, `POST /api/history/flush|clear-memory|clear-disk`. `vclu_device_history` reads the same store with these filters and pages, no longer needs Dev Mode, and leaves out objects the bot may not read.
+- **Virtual objects: `initial` and `persist` in every constructor** - `VirtualSwitch:new("tryb_nocny", { initial = 1, persist = true })`; `VirtualSensor`, `VirtualDimmer`, `VirtualCover`, `VirtualNumber` and `VirtualText` take the same options. With `persist` (true = the object's name, or a string key) the object starts from its last value after a reload or restart instead of `initial`; restoring is not a state change, a restored number is clamped to the current bounds and a value of another type is ignored. All persisted objects share one KV namespace (`virtual-objects`).
+- **`persist(name, defaults)` - automation state that survives a reload and a restart** - `local st = persist("wiatrolap", { pauseUntil = 0 })`, then `st.pauseUntil = ...` is saved to KV (namespace `module:<name>`) a second later; pending writes are flushed before a Lua reload and at shutdown. A flat map of JSON values; replace nested tables as a whole or call `st:save()`. `st:get/set/save/toTable` are methods, so those names cannot be keys; keys must be strings and values cannot be functions; names are case-insensitive, and a second `persist()` with the same name adds its missing defaults. A corrupt saved state gives the defaults and an error in the log. Each save rewrites the namespace's KV file, at most once a second per namespace. In `vclu_draft_test` the state lives in the scenario's in-memory KV and survives a `reload` step.
+- **Who changed it: `origin`, `actor`, `correlationId` on every change** - in events, history and `vclu_device_history`. Entry points set a trusted actor: MCP (`agent:<bot>`), web (`user:<login>`, `dashboard:<id>`, `service:web-api` for an API key), HomeKit (`service:homekit`), MQTT (`service:mqtt`, HA command topics `service:home-assistant`), CLU reports (`grenton`, `device:<CLU>`), Satel (`physical`, `device:satel`); modules act as `lua`/`automation:module:<file>`, plugins start as `plugin:<id>`, plain Lua is `automation:unknown`, HTTP requests to Lua endpoints `api`/`service:http`, scripts sent by a CLU `device:<CLU name>`. `StateContext.with(ctx, fn)` sets a context in Lua and timers keep the one they were created in. `StateBus:watch(path, fn, {runAs = "automation:<id>"})` makes the reaction act as that automation. `switchOn(ms)` on a CLU switch: the CLU's own switch-off at the end (from 2 s before to 15 s after) is attributed to the command, so an automation can tell its own switch-off from a person's; any other change of the light or another command in between drops that expectation. Known limits: `switchOff(ms)`, dimmers and lights with a time are not attributed this way, a GPIO button object reports as Lua, and Lua code can set any actor for itself.
+- **Per-object history: `obj:lastChange()`, `obj:since()`, `obj:history(n)`** - every state change is kept in memory in Go (24 h, 10 000 per object, 50 000 in total, set in `.vclu.json` under `history`) and survives Lua reloads. It is recorded before `StateBus` listeners and watchers run, so they already see it; `obj:onChange` handlers run earlier, before the record. A first reading after startup or reload is not a change. `vclu_device_history` reads the same store. About 11 MB at the full limit.
+- **`StateBus:watch(path, fn, {from, to, origin, actor})`** - calls `fn(event)` for changes of one object (path, name or `*`), also for objects created later; returns an unsubscribe function, and a failing watcher does not stop the others.
+- **Commands from automations are state changes** - `switchOn()` and other optimistic updates on objects that are not exposed published nothing, and the CLU echo with the same value did not either, so such changes never reached history, HA or watchers.
+- **KV returns numbers as numbers** - a whole number stored with KV came back as a string until restart.
+- **`datetime.between(from, to[, at])`** - whether the local time of day is in `[from, to)`, e.g. `datetime.between("21:00", "06:00")` for a night window across midnight; `"HH:MM"` or `"HH:MM:SS"`, equal ends mean the whole day. Uses the `setTimezone` zone, so the window follows DST; the optional third argument checks a datetime table or timestamp (seconds or milliseconds) instead of now. Wall-clock semantics: on the spring DST day a window inside the skipped hour never matches, in autumn the repeated hour matches twice. The end of the day is `"00:00"`, not `"24:00"`.
+- **vCLU's own CLU date/time features follow `datetime.setTimezone`** - `FEATURE_HOUR`, `FEATURE_TIME`, `FEATURE_DATE`, `FEATURE_DAY_OF_WEEK` etc. read by Grenton scripts used the server clock (UTC, 1-2 h off in Poland). Also fixed: `FEATURE_MINUTE` always returned nil, `FEATURE_DAY_OF_WEEK` was off by one (now 0 = Sunday as documented), `FEATURE_UNIX_TIME` was wrong on servers not running in UTC.
+- **One `state_changed` per real change** - a `_:sync` or `setValue` on an exposed object emitted the event twice (HomeKit notified twice, history entries doubled), and `vclu_device_history` never filled `old`. All producers now go through `StateChange.publish`: one event per change, none for the same value, with `{id, path, old, value, atMs, type, origin, actor, correlationId, obj}`. History entries carry `old` (plus `new`/`time` as before). An exposed object always publishes under its expose path (a `_:sync` by registry path used to emit under both paths), an exposed CLU object now also publishes its first value after startup, and `setValue` with the current value no longer re-publishes. `setValue` on objects readable only through `getValue()`/`get(0)` publishes the state actually reached (a clamped or rejected write no longer reports the requested value); only write-only controls report the requested value. `oldValue` stays as an alias of `old`.
+- **Plugin sensors and controls emit `OnChange`** - plugins call `sensor:_notify()` after updating state, but the method never existed, so `onChange` on a plugin sensor never fired and an exposed plugin control with an async setter (e.g. Salda fan speed) never reported its new value. `_notify()` now emits `OnChange(value, old)` when the value changed.
+- **A failing Lua command runs once** - `Execute` and `ExecuteWithTimeout` (CLU commands, the web console, plugin loading, `vclu_exec`) retried a script that failed at runtime in up to three wrappers, repeating every side effect before the error, such as a command already sent to a CLU. The wrapper is now chosen at compile time and the script runs exactly once.
+- **A cyclic table no longer crashes vCLU** - `json.encode(t)` or storing `t` in KV where `t` refers to itself overflowed the Go stack and killed the whole process; it now returns an error. Nesting over 64 levels or more than a million elements is refused the same way, and a sparse table like `{[1e9] = x}` encodes as an object instead of allocating a billion-element array.
+
+### Core
+
+- **`.vclu.json` is written atomically** - the config is written to a temporary file, synced and renamed over the old one, so a crash or power cut mid-write can no longer leave a truncated config.
+
+### Web
+
+- **Links to the OM files page work again** - links on the HomeKit, Access and Debug pages pointed to `/om-files`, a route that no longer exists (404); they now open the OM Files tab on the Grenton page.
+
+### Build
+
+- **Linux builds find the a/ templates** - the code asked for `MAIN.LUA`, `OM.LUA`, `USER.LUA` while git has them lowercase; macOS hid the mismatch, CI and goreleaser on Linux failed.
+- **CI enforces formatting and runs the race detector** - `gofmt` check, a separate `go test -race` job, and a 5 min limit on the regular test run. A GPIO test that failed about 1 run in 8 (fixed 50 ms sleep) now waits for the event.
+- **LDoc generation works again** - `task docs` failed: `Taskfile.yml` did not parse and LDoc aborted on doc comments inside a local table.
+
+### Docs
+
+- **README rewritten** from the code: real API examples, AI agents, history, integrations, measured footprint.
+- **Contracts for contributors** - `CONTRIBUTING.md` lists the behaviours covered by contract tests (state changes, history, access control, sandbox, ...) and the rules for changing them.
+- **Agent docs in English** - `docs/ai/examples.md` and the `house.md` template.
+
+### MCP
+
+- **Scenario tests in `vclu_draft_test`** - a draft can now be tested end to end without the house: time is virtual (`at` sets the start, `os.time`, `os.date`, `datetime.now` and timers follow it) and moves only on `{"advance": seconds}`; `{"set": path, "value": v}` feeds a value the way a CLU report does; `{"reload": true}` starts a fresh Lua state keeping the clock and KV; `expect_state`, `expect_clu_calls` and `expect_history` check the outcome and failures land in `errors`. Commands to CLUs are recorded in `clu_calls` (exact transport script, e.g. `DOU4992:execute(1, 60000)`) instead of vanishing. CLU objects from `imports/proxy_*.lua` now exist in the sandbox (they were missing, so `_:get("CLU….DOU…")` returned nil), and Satel zones come from the live runtime or from `fixtures`, and the `datetime` zone from the live runtime (or `timezone`); looking up an object the sandbox lacks logs a warning. Timers follow the production limits (1000 timers, 24 h max), user.lua loads before om.lua as in production, and `state_changes` are sorted by path. Logger lines appear once in `logs` (they were doubled). An error that the runtime only logs, such as a failing EventBus or StateBus handler, now fails the scenario step or injected event that caused it (it used to pass silently).
+- **Sandbox has the production libraries** - `json`, `xml`, `datetime` and `color` were missing in `vclu_draft_test`, so any draft using them (e.g. `datetime.setTimezone` in `init.lua`) failed in the sandbox while working in production.
+- **`vclu_grep` searches subdirectories** - the default glob matched only files one level deep, so modules in `modules/<dir>/` were never searched. `**` in a glob now spans directories (`modules/**/*.lua`).
+- **Rollback restores the right file** - backup names stored `/` as `_`, so a module with `_` in its name (`modules/foo_bar.lua`) was restored to `modules/foo/bar.lua` and the broken version stayed in place while the promote reported a rollback. New backups use `~` for `/` (older ones still read as before), a rollback after a failed multi-file promote (and, in the web editor, after a failed reload) restores each file to the path it was promoted to and removes files the promote created, rollback failures are reported instead of ignored, promote writes the module atomically (a failed write, e.g. a full SD card, keeps the old version instead of a truncated file), and two promotes of one file within a second no longer share a backup.
+- **Draft pipeline reports failures** - sandbox `package.path` mirrors production; module load results are reported per module on reload/promote; promote separates failures it caused from pre-existing ones; `vclu_logs` gains a level filter.
+
+## v1.1.0 (2026-10-04)
+
+### API
+
+- **OpenAPI/Swagger documentation** - 60 core REST endpoints annotated with swaggo (`system`, `settings`, `satel`, `grenton`, `mqtt`, `homekit`, `access`, `backup`, `stats`, `registry`). Spec generated to `web/api/swagger.json` (`go generate ./pkg/web`), served at `/api/openapi.json` and rendered with Redoc at `/api-docs` (both behind auth; Redoc vendored, no CDN).
+
+### Grenton Integration
+
+- **Fix: remote sync sessions silently dying on the CLU** - the periodic renew sent all `clientRegister` packets back-to-back; the CLU drops packets in such a burst, so sessions further down the list were never renewed, expired after TTL and stopped reporting (state in vCLU/HA stayed wrong for days, e.g. lights shown on, frozen temperatures). Renew now sends them one at a time, each scheduled by a timer after the previous one (gap = `batchDelay`, at least 50 ms), so the runtime never waits and a stalled runtime can't release them as a burst. Affects v1.0.0 (regression since the switch to fire-and-forget renew).
+
+### Security
+
+- **Secret files are now 0600** - `.vclu.json` (auth hashes, MQTT credentials, Satel PIN, HomeKit PIN) and the plugin `kvstore.json` (API tokens stored by plugins) are written with mode 0600 instead of 0644. Existing installations are tightened automatically on the next config write (`chmod` for `.vclu.json`, atomic rename for `kvstore.json`). `keys.json` was already 0600.
+
+### Integrations
+
+- **Satel: force arm blocked by default** - `ForceArm` now requires `allowForceArm: true` (it arms despite violated zones, weakening protection). Enforced in Go like the disarm guard.
+- **Satel web panel** - new "Satel" page under Integrations: connection form (host/port/PIN/integration key, poll interval, arm mode, allowDisarm with warning) with **Test connection** (`satel.TestConnection` — dials ETHM-1, reads panel model/version via 0x7E, validates the encryption key), **panel scan** (`Panel.Scan` reads names of all zones/partitions/outputs via 0xEE in the session goroutine) with checkbox tables that compile back to range strings, and a **live state** tab (partitions/zones/outputs/temperatures from the Go cache, 3s refresh). API: `/api/satel/{status,config,test,scan,state}`. Secrets are write-only (empty form field keeps the stored value).
+- **Satel Integra** - first non-Grenton native integration. New `pkg/satel/` implements the ETHM-1 Plus integration protocol (TCP :7094): frame encoding with CRC + byte stuffing, optional AES-192 encryption, panel identification (0x7E/0x7C), state polling with delta detection, device name reading (0xEE) and control commands (arm/disarm/clear alarm/outputs). All I/O runs in a dedicated goroutine — Lua reads cached state and drains events via `__go_satel_poll_event` (work-queue safe, no RunLoop blocking). Lua objects `SatelZone`/`SatelOutput`/`SatelPartition`/`SatelThermometer` inherit Virtual\* classes, register as `satel.zone.N` etc. and expose to MQTT/HA/HomeKit/MCP out of the box. Configured via `satel` section in `.vclu.json`; `disarm`/`clearAlarm` are **blocked by default** (`allowDisarm: false`). Covered by protocol test vectors (CRC, AES from public reference implementations) and an in-process fake Integra TCP server (plain + encrypted).
+
+## v1.0.0 (2026-06-08)
+
+First public release.
+
+### Core
+
+- **Lua runtime engine** - sandboxed Lua 5.1 via gopher-lua with hot-reload, EventBus, StateBus, timers (`setInterval`, `setTimeout`, cron)
+- **Object registry** - unified `_registry` with type mapping (DOUT, DIMMER, ROLLER, DIN, AnalogOUT), `expose()` auto-registration, `onChange()` subscriptions
+- **Virtual devices** - VirtualSwitch, VirtualDimmer, VirtualRoller, VirtualNumber, VirtualText with full state management
+- **Remote devices** - RemoteSwitch, RemoteLight, RemoteDimmer, RemoteCover, RemoteSensor proxying real Grenton CLU via encrypted UDP
+- **Module system** - auto-loaded `modules/*.lua` scripts for user automation, scenes, schedules
+- **Plugin system** - sandboxed Lua plugins with KV store, lifecycle hooks, permission model, hot-loading
+- **Channel-based work queue** - replaced engine mutex with fast/slow queues and an `engineState` state machine; per-item panic recovery (one crash no longer kills the run loop)
+- **Async MQTT I/O** - fire-and-forget publish, async connect/subscribe, non-blocking event polling
+
+### Grenton Integration
+
+- **Full protocol compatibility** - UDP discovery, AES-128-CBC encryption, TFTP server, client reporting
+- **Object Manager pairing** - TFTP-based config exchange, `config.txt` + `CONFIG.JSON` generation
+- **Remote subscriptions** - optimistic updates, fire-and-forget commands (`__go_send_command_noreply`), periodic `clientRegister` re-registration instead of destroy+recreate
+- **Multi-CLU** - execute Lua on any registered CLU from web console
+- **Sensor import from OM** - ONE_WIRE, PANELSENSTEMP, PANELSENSLIGHT, HUMIDITY_SENSOR parsing; `RemoteThermometer` + parametrized `RemoteValueSensor` with temperature/illuminance/humidity mappings
+
+### Integrations
+
+- **MQTT** - embedded broker (mochi-mqtt) + client, per-object access control
+- **Home Assistant** - MQTT auto-discovery with device classes, availability topics
+- **HomeKit** - native Apple HomeKit bridge (brutella/hap), accessory protocol
+- **Prometheus** - time-series metrics collection, `/metrics` endpoint, custom `metric()` API
+- **HTTP client** - GET/POST/PUT/DELETE from Lua for webhooks and external APIs
+
+### AI / MCP
+
+- **MCP server** - 36+ tools for AI agents (Claude, Codex, Gemini)
+- **Layer 1** - device control, scenes, registry, logs, metrics, dashboards
+- **Layer 2 (Dev Mode)** - code read, draft write, sandbox test, promote-to-production pipeline
+- **Per-bot access control** - API keys, profile assignments, `botCanRead`/`botCanControl` filtering
+- **Agent memory** - persistent context between sessions via `vclu_context_save`
+
+### Web UI
+
+- **16+ pages** - Status, Settings, Wizard, Editor, Tools Console, Dashboards, Backup, Debug, MQTT, HomeKit, MCP, Access Control, Plugins, OM Files
+- **Lua editor** - Monaco-based with syntax highlighting, autocompletion, validation, search, diff view, draft management
+- **Interactive console** - terminal-style command/result log with JSON tree rendering, command history, local + remote execution
+- **Dashboard builder** - tab groups, widget registry, real-time state updates
+- **5-step setup wizard** - device type, modules, Grenton keys, security, finish
+- **i18n** - English + Polish
+
+### Security
+
+- **Authentication** - bcrypt passwords, 12h sessions, SameSite=Strict cookies
+- **CSRF protection** - token-based, auto-injected in all templates
+- **API keys** - SHA-256 hashed, per-bot MCP authentication
+- **Profile-based access control** - named profiles with per-object overrides, `full-access` built-in, auto-migration from legacy format
+
+### Hardware
+
+- **GPIO** - Raspberry Pi (ARM64) support with `GPIO_DOUT` (relay), `GPIO_DIN` (button), pin registry, input polling with debounce
+- **Mock controller** - GPIO simulation for development on non-Pi platforms
+
+### Infrastructure
+
+- **Single binary** - ~13 MB on ARM64, ~12.8 MB RAM on Raspberry Pi
+- **Docker** - multi-stage Alpine image (~45 MB), docker-compose with host networking
+- **Systemd** - service file with security hardening (NoNewPrivileges, ProtectSystem)
+- **Backup/Restore** - ZIP-based with auto-backup scheduling, restore with safety backup
+- **CI/CD** - GitHub Actions: test + vet + lint, GoReleaser multi-arch releases (linux/amd64, arm64, armv7, armv6, darwin/arm64)
+- **One-line install** - `curl -sSL https://vclu.pl/install.sh | sudo bash`
+- **API naming standardization** - `HttpRequest`/`HttpListener` → `HTTPRequest`/`HTTPListener`, removed legacy OM compatibility shims
+
+### License
+
+Business Source License 1.1 (BSL)
+
+---
+
+## Roadmap
+
+Items considered for future releases:
+
+- **Plugin marketplace** - community plugin registry with install/update from UI

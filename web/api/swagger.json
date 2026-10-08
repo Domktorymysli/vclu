@@ -1,0 +1,3494 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "REST API of the vCLU smart home controller (Grenton CLU emulator, MQTT/HomeKit/Satel integrations, Lua runtime).\n\nAuthentication: a session cookie (`vclu_session`, created via `POST /login`)\nor the `X-API-Key` header (key configured in vCLU settings). When authentication\nis not configured, all endpoints are open.",
+        "title": "vCLU HTTP API",
+        "contact": {},
+        "version": "1.0"
+    },
+    "basePath": "/",
+    "paths": {
+        "/api/access": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Returns all exposed objects from the Lua registry together with their per-integration access levels (mqtt, homekit) and the resolved access level for each MCP bot. Returns an empty object list when the Lua engine is unavailable.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "access"
+                ],
+                "summary": "List objects with access levels",
+                "responses": {
+                    "200": {
+                        "description": "objects [{path, name, type, cluId, access {mqtt, homekit}, botAccess {botId: level}}], integrations []string, bots [{id, name}]",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Sets the access level (full, readonly or hidden) for a single object path and integration (mqtt, homekit or mcp). Persists the change to the access control file and syncs it to the Lua runtime.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "access"
+                ],
+                "summary": "Set object access level",
+                "parameters": [
+                    {
+                        "description": "Access change: {path, integration, access}",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "success, path, integration, access",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/access/assignments": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Returns the integration to profile-name assignments for all integrations.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "access"
+                ],
+                "summary": "List profile assignments",
+                "responses": {
+                    "200": {
+                        "description": "assignments {integration: []profileName}",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Replaces the profile assignments for the given integrations. Assigned profiles must exist; the change is persisted and synced to the Lua runtime.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "access"
+                ],
+                "summary": "Save profile assignments",
+                "parameters": [
+                    {
+                        "description": "Assignments: {assignments {integration: []profileName}}",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIOK"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/access/bot": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Sets the access level (full, readonly or hidden) for one object path of a specific MCP bot. Auto-creates a dedicated \"_{botId}\" profile when needed, assigns it to the bot (replacing full-access) and drops overrides that match the profile default.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "access"
+                ],
+                "summary": "Set per-bot access level",
+                "parameters": [
+                    {
+                        "description": "Bot access change: {botId, path, access}",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "success, botId, path, access",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/access/integrations": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Returns the static list of integrations that support access control (mqtt, homekit, mcp) with display names and icons.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "access"
+                ],
+                "summary": "List available integrations",
+                "responses": {
+                    "200": {
+                        "description": "integrations [{id, name, icon}]",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/access/profiles": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Returns all access profiles with their default level, per-object overrides and usage info (which integrations and MCP bots use each profile). The built-in full-access profile is flagged with builtin=true.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "access"
+                ],
+                "summary": "List access profiles",
+                "responses": {
+                    "200": {
+                        "description": "profiles [{name, default, objects, builtin, usedByIntegrations, usedByBots}]",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Creates or updates a named access profile with a default level (full, readonly or hidden) and per-object overrides. The built-in full-access profile cannot be modified.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "access"
+                ],
+                "summary": "Create or update a profile",
+                "parameters": [
+                    {
+                        "description": "Profile: {name, default, objects {path: level}}",
+                        "name": "profile",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "success, name",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/access/profiles/{name}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Deletes an access profile and removes it from all MCP bot assignments (bots left without profiles fall back to full-access). The built-in full-access profile cannot be deleted.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "access"
+                ],
+                "summary": "Delete a profile",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Profile name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIOK"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/access/reset": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Resets all profiles and assignments to defaults and reassigns every MCP bot to the built-in full-access profile.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "access"
+                ],
+                "summary": "Reset access control",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIOK"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/backup/create": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Creates a timestamped ZIP archive of the data directory in the sibling backup directory. When a backup with the same minute timestamp already exists, seconds are appended to keep the filename unique.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "backup"
+                ],
+                "summary": "Create a backup",
+                "responses": {
+                    "200": {
+                        "description": "success, filename, size, sizeHuman",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/backup/download/{filename}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Streams a backup ZIP file as an attachment. The filename must be a plain .zip name without path separators.",
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "backup"
+                ],
+                "summary": "Download a backup",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Backup filename (.zip)",
+                        "name": "filename",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/backup/list": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Returns all ZIP backups in the backup directory with size and creation time, sorted newest first. Returns an empty list when the directory does not exist yet.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "backup"
+                ],
+                "summary": "List backups",
+                "responses": {
+                    "200": {
+                        "description": "backups []web.BackupInfo {filename, size, sizeHuman, created, createdAt}",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/backup/restore": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Restores a backup ZIP into the data directory. A safety backup (pre_restore_*.zip) of the current state is created first, then the archive is extracted and the Lua runtime is reloaded to pick up the restored files.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "backup"
+                ],
+                "summary": "Restore a backup",
+                "parameters": [
+                    {
+                        "description": "Restore request: {filename}",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "success, restoredFrom, safetyBackup",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/backup/settings": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Returns the current auto-backup scheduler settings from .vclu.json, or the defaults when none are stored.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "backup"
+                ],
+                "summary": "Backup scheduler settings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/config.VCLUBackupConfig"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Validates and stores the auto-backup scheduler settings (interval clamped to 1-168 hours, maxBackups to \u003e= 0) in .vclu.json, then restarts the scheduler with the new settings. No vCLU restart is required.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "backup"
+                ],
+                "summary": "Save backup scheduler settings",
+                "parameters": [
+                    {
+                        "description": "Backup scheduler settings",
+                        "name": "settings",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/config.VCLUBackupConfig"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIOK"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/backup/{filename}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Deletes a backup ZIP file from the backup directory. The filename must be a plain .zip name without path separators.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "backup"
+                ],
+                "summary": "Delete a backup",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Backup filename (.zip)",
+                        "name": "filename",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIOK"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/clu/execute": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Sends a Lua script over the encrypted Grenton UDP protocol to the CLU at the given IP and returns the textual response. Blocks until the CLU replies or the command times out.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "registry"
+                ],
+                "summary": "Execute script on a CLU",
+                "parameters": [
+                    {
+                        "description": "Target CLU IP and script to execute",
+                        "name": "command",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/web.CLUExecuteRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "result: CLU response string",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/clus": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Returns all CLUs known to the CLU commander, both the local virtual CLU and discovered remote CLUs.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "registry"
+                ],
+                "summary": "List registered CLUs",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/server.CLUInfo"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/device": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Returns the current CLU device configuration. Responds 404 when the device has not been configured yet.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "Device configuration",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/config.CLUDeviceConfig"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/devices": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Returns the static list of device types vCLU can emulate.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "Predefined device types",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/config.DeviceType"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/diagnostic": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Builds a diagnostic ZIP (info.json, stats.json, metrics.json, logs.txt, devices.json always; Lua modules, om.lua/user.lua, proxy imports and redacted config optionally per the posted options) and streams it as an attachment named vclu-diag-\u003ctimestamp\u003e.zip.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "stats"
+                ],
+                "summary": "Create diagnostic archive",
+                "parameters": [
+                    {
+                        "description": "Flags selecting optional ZIP contents",
+                        "name": "options",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/web.DiagnosticOptions"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "ZIP archive (application/zip)",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/grenton/save": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Persists the Grenton enabled flag to .vclu.json. A restart is required for the change to take effect.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "grenton"
+                ],
+                "summary": "Enable or disable Grenton integration",
+                "parameters": [
+                    {
+                        "description": "Toggle: {enabled bool}",
+                        "name": "toggle",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/web.APISaveResult"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/grenton/status": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Whether the Grenton integration is enabled, whether the device runs in standalone mode, pairing state and the configured module/IO object counts. Read from .vclu.json.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "grenton"
+                ],
+                "summary": "Grenton integration status",
+                "responses": {
+                    "200": {
+                        "description": "enabled, standalone, paired, modules, ioObjects",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/grenton/sync": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Returns the remote-object sync configuration from .vclu.json, or the defaults when none is stored.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "grenton"
+                ],
+                "summary": "Get sync configuration",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/config.VCLUSyncConfig"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Clamps TTL/batch values to valid ranges, removes object paths no longer present in the Lua registry, persists the result to .vclu.json and pushes it to the Lua runtime immediately (no restart needed).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "grenton"
+                ],
+                "summary": "Save sync configuration",
+                "parameters": [
+                    {
+                        "description": "Sync configuration",
+                        "name": "config",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/config.VCLUSyncConfig"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "success, objects (count kept), staleRemoved (paths dropped)",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/grenton/sync/now": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Runs LuaAPI.autoSubscribe() in the Lua runtime, immediately re-subscribing to all configured remote CLU objects.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "grenton"
+                ],
+                "summary": "Trigger sync now",
+                "responses": {
+                    "200": {
+                        "description": "status, result",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/grenton/sync/status": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Returns the current remote-object sync status as reported by LuaAPI.getSyncStatus(); the JSON is passed through from the Lua runtime verbatim.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "grenton"
+                ],
+                "summary": "Sync status",
+                "responses": {
+                    "200": {
+                        "description": "subscriptions, objects (shape defined by the Lua runtime)",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/ha/commands/enable": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Runs LuaAPI.setupHAIntegration() in the Lua engine, enabling Home Assistant command handling and state publishing over MQTT.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "mqtt"
+                ],
+                "summary": "Enable Home Assistant integration",
+                "responses": {
+                    "200": {
+                        "description": "success bool, message string",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/ha/discovery/publish": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Parses all stored OM files and publishes Home Assistant MQTT discovery messages plus initial states to the embedded broker. Objects hidden by access control are skipped. Per-file errors are collected and returned alongside the counters.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "mqtt"
+                ],
+                "summary": "Publish Home Assistant discovery",
+                "responses": {
+                    "200": {
+                        "description": "success bool, published int, states int, files int, errors []string (or message string when there are no OM files)",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/health": {
+            "get": {
+                "description": "Liveness probe. Always returns {\"status\": \"ok\"} when the web server is up. Public — no authentication required.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "Health check",
+                "responses": {
+                    "200": {
+                        "description": "status: \\\"ok\\",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/homekit/restart": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Reloads the HomeKit bridge with the stored configuration, re-publishing all accessories.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "homekit"
+                ],
+                "summary": "Restart HomeKit server",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIOK"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/homekit/save": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Stores the HomeKit section of .vclu.json and reloads the running HomeKit server so changes apply immediately. A PIN that is not 8 digits is replaced with the default, port 0 with 5123. If the reload fails the configuration is still saved and a warning is returned.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "homekit"
+                ],
+                "summary": "Save HomeKit configuration",
+                "parameters": [
+                    {
+                        "description": "HomeKit configuration: {enabled, pin, port, bridgeName, serialNumber}",
+                        "name": "config",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "success bool, warning string (when saved but reload failed)",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/homekit/status": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Live status of the HomeKit bridge (accessory count, PIN, pairing availability). When the server is not initialized, only {\"running\": false} is returned.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "homekit"
+                ],
+                "summary": "HomeKit server status",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/homekit.ServerStatus"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/keys": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Reports whether a project key and IV are configured (booleans only — key material is never returned) plus the device PIN. Responds 404 when keys are not configured.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "Key status",
+                "responses": {
+                    "200": {
+                        "description": "hasProjectKey: bool, hasIV: bool, pin: string",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/lua/reload": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Tears down and re-initializes the embedded Lua runtime, re-reading om.lua, user.lua and modules from disk. Returns 503 when no Lua reloader is wired into the server.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "Reload Lua runtime",
+                "responses": {
+                    "200": {
+                        "description": "success: true, message: \\\"Lua runtime reloaded\\",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/metrics/data": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Returns recorded samples of one dashboard metric over the requested time range as [timestamp, value] pairs (Unix seconds).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "stats"
+                ],
+                "summary": "Metric samples",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Metric path, e.g. salda:outsideAir",
+                        "name": "path",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Time range, e.g. 30m, 2h, 7d (default 2h)",
+                        "name": "range",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Array of [timestamp, value] pairs",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "array",
+                                "items": {
+                                    "type": "number"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/metrics/list": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Lists all registered dashboard metrics with their latest values. Returns an empty array (still 200) when the metrics collector is not available.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "stats"
+                ],
+                "summary": "List dashboard metrics",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/metrics.MetricInfo"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/mqtt/broker/clients": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Lists clients currently known to the embedded MQTT broker. Returns an empty list when the broker is not running.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "mqtt"
+                ],
+                "summary": "Connected broker clients",
+                "responses": {
+                    "200": {
+                        "description": "clients: []broker.ClientInfo",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/mqtt/broker/save": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Stores the embedded MQTT broker section of .vclu.json and immediately reconfigures the running broker — no vCLU restart required.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "mqtt"
+                ],
+                "summary": "Save broker configuration",
+                "parameters": [
+                    {
+                        "description": "Broker configuration: {enabled, port, wsPort, username, password}",
+                        "name": "config",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIOK"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/mqtt/broker/stats": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Live statistics of the embedded MQTT broker (clients, messages, bytes, subscriptions, memory). When the broker is not running, only {\"running\": false} is returned.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "mqtt"
+                ],
+                "summary": "Embedded MQTT broker statistics",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/broker.Stats"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/mqtt/client/config": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Returns the stored MQTT client configuration (password masked as hasPassword) together with the live connection status of the default client instance.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "mqtt"
+                ],
+                "summary": "MQTT client configuration",
+                "responses": {
+                    "200": {
+                        "description": "enabled, host, port, clientId, username, hasPassword, haIntegration, defaultAccess, status {connected, lastError, host, port}",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/mqtt/client/save": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Stores the MQTT client section of .vclu.json and applies it immediately: reconnects the default client instance (or disconnects it when disabled) and sets up Home Assistant integration when enabled. An empty password keeps the stored one.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "mqtt"
+                ],
+                "summary": "Save MQTT client configuration",
+                "parameters": [
+                    {
+                        "description": "Client configuration: {enabled, host, port, clientId, username, password, haIntegration}",
+                        "name": "config",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "success bool, connected bool, error string (connect error, empty on success)",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/mqtt/client/test": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Connects to the given broker and disconnects, without touching the running client. An empty password falls back to the stored one. Connection failures are reported with HTTP 200 and success=false.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "mqtt"
+                ],
+                "summary": "Test MQTT broker connection",
+                "parameters": [
+                    {
+                        "description": "Connection target: {host, port, username, password}",
+                        "name": "target",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "success bool, error string (on failure)",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/mqtt/clients/stats": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Aggregated statistics of all MQTT client instances managed by the Go MQTT manager. Returns zeroed counters when the manager is not available.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "mqtt"
+                ],
+                "summary": "MQTT client statistics",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/lua.MQTTStats"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/mqtt/test/publish": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Publishes a message on the default MQTT client instance (QoS 0, not retained) to verify connectivity.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "mqtt"
+                ],
+                "summary": "Publish a test MQTT message",
+                "parameters": [
+                    {
+                        "description": "Message: {topic, payload}",
+                        "name": "message",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIOK"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/om/list": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Returns all imported OM files registered in .vclu.json with their serial, CLU name/IP and object/module counts.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "grenton"
+                ],
+                "summary": "List OM files",
+                "responses": {
+                    "200": {
+                        "description": "files: array of OM file entries",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/om/regenerate": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Re-parses every imported OM file, rewrites its proxy_\u003cserial\u003e.lua and executes the proxy in the Lua runtime to re-register the remote devices. Per-file failures are collected and reported; the call always returns 200.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "grenton"
+                ],
+                "summary": "Regenerate proxy files",
+                "responses": {
+                    "200": {
+                        "description": "success, regenerated, errors",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/om/upload": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Accepts a single om.lua file or a diagnostic-pack ZIP containing CLU*/om.lua entries (the vCLU's own serial is skipped). Each file is parsed, stored as om_\u003cserial\u003e.lua, a proxy_\u003cserial\u003e.lua is generated and executed in the Lua runtime to register the remote devices, and an entry is added to .vclu.json.",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "grenton"
+                ],
+                "summary": "Upload OM file",
+                "parameters": [
+                    {
+                        "type": "file",
+                        "description": "om.lua file or diagnostic-pack ZIP",
+                        "name": "file",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "single file: success, filename, originalName, cluName, cluIP, objectCount, moduleCount; ZIP: success, isZip, originalName, imported, skipped, results, skippedList, errors",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/om/{serial}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Re-reads and parses the stored OM file for the given CLU serial and returns its metadata together with the parsed CLU info, modules and objects.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "grenton"
+                ],
+                "summary": "OM file details",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "CLU serial number",
+                        "name": "serial",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "file, clu, modules, objects",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Deletes the stored OM file and its generated proxy file, removes the entry (and any stale sync object paths) from .vclu.json, and unregisters the CLU's objects from the Lua registry.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "grenton"
+                ],
+                "summary": "Delete OM file",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "CLU serial number",
+                        "name": "serial",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIOK"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/registry/list": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Returns all objects registered in the Lua _registry as the raw JSON produced by _registry:toJSON(). Returns an empty array when the registry is empty.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "registry"
+                ],
+                "summary": "List registry objects",
+                "responses": {
+                    "200": {
+                        "description": "Registry objects as serialized by _registry:toJSON()",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": true
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/registry/subscribe": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Runs LuaAPI.autoSubscribe() in the Lua runtime to re-register state subscriptions on all remote CLUs and pull fresh object states.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "registry"
+                ],
+                "summary": "Trigger auto-subscribe",
+                "responses": {
+                    "200": {
+                        "description": "status: \\\"ok\\\", result: Lua return value",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/reset": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Irreversibly wipes the entire server data directory (configuration, keys, scripts), recreates it empty, then exits the process after 500 ms so the service manager restarts vCLU into the setup wizard.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "Factory reset",
+                "responses": {
+                    "200": {
+                        "description": "message: confirmation text, redirect: \\\"/wizard\\",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/restart": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Acknowledges the request, then exits the process after 500 ms so the service manager (e.g. systemd) restarts vCLU. All in-memory state is lost; configuration on disk is untouched.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "Restart vCLU",
+                "responses": {
+                    "200": {
+                        "description": "message: \\\"Restarting...\\",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/satel/config": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Validates and stores the Satel section of .vclu.json. Secrets are write-only: send null to keep the stored value, an empty string to clear it. A restart is required for changes to take effect.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "satel"
+                ],
+                "summary": "Save Satel configuration",
+                "parameters": [
+                    {
+                        "description": "Satel configuration",
+                        "name": "config",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/web.satelSaveRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/web.APISaveResult"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/satel/scan": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "The last successful scan result saved by POST /api/satel/scan, so devices can be re-selected without rescanning. 404 if no scan was saved yet.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "satel"
+                ],
+                "summary": "Last panel scan",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/satel.SavedScan"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Reads names of all zones, partitions and outputs from the connected panel (cmd 0xEE). Takes over a minute on ETHM-1 (~300 queries); progress is reported by /api/satel/status. Requires a connected panel. The result is saved and available from GET /api/satel/scan.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "satel"
+                ],
+                "summary": "Scan panel devices",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/satel.ScanResult"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/satel/state": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Cached states of all monitored zones, partitions, outputs and temperatures. Served from the Go-side cache — never blocks on panel I/O.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "satel"
+                ],
+                "summary": "Live panel state",
+                "responses": {
+                    "200": {
+                        "description": "connected, panelType, zones []ZoneState, partitions []PartitionState, outputs []OutputState, temps map[zone]°C",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/satel/status": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Whether the integration is enabled, running and connected, plus the detected panel model and monitored object counts.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "satel"
+                ],
+                "summary": "Satel integration status",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/web.SatelStatusResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/satel/test": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Dials the ETHM-1 module, reads the panel model/version (cmd 0x7E) and disconnects. Validates host, port and the integration (encryption) key. Send encryptionKey null to test with the stored key.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "satel"
+                ],
+                "summary": "Test ETHM-1 connection",
+                "parameters": [
+                    {
+                        "description": "Connection target: {host, port, encryptionKey}",
+                        "name": "target",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/web.SatelTestResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/settings/api-key": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Clears the stored API key hash so the current API key stops working immediately. Responds 400 when no auth configuration exists.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "Revoke API key",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIOK"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/settings/generate-api-key": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Generates a new API key, stores its hash in the auth configuration and returns the plaintext key once — it cannot be retrieved later. Replaces any previous key. Requires session authentication; requests authenticated with an API key are rejected with 403. Authentication must already be enabled.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "Generate API key",
+                "responses": {
+                    "200": {
+                        "description": "apiKey: the plaintext key (shown only once)",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/settings/save": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Replaces the in-memory CLU device configuration with the posted one and persists it to disk. Takes effect immediately for the web server; no restart is triggered.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "Save device settings",
+                "parameters": [
+                    {
+                        "description": "Device configuration",
+                        "name": "settings",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/config.CLUDeviceConfig"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "message: \\\"Settings saved successfully\\",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/stats": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Current application metrics snapshot (uptime, HTTP, Lua, MQTT, HomeKit, protocol sections), enriched with live MQTT broker counters, HomeKit status and Lua runtime busy/lag gauges when available.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "stats"
+                ],
+                "summary": "Metrics snapshot",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/stats.AppMetricsSnapshot"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/stats/timeseries": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Time series data for the statistics charts, keyed by metric name. Pass \"since\" (Unix milliseconds) to receive only data points recorded after that moment, for incremental chart updates.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "stats"
+                ],
+                "summary": "Metrics time series",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Unix timestamp in milliseconds; return only newer data points",
+                        "name": "since",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/definitions/stats.DataPoint"
+                                }
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/metrics": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Application metrics in Prometheus text exposition format (version 0.0.4), for scraping. Returns a comment line with status 503 when metrics are not available.",
+                "produces": [
+                    "text/plain"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "Prometheus metrics",
+                "responses": {
+                    "200": {
+                        "description": "Prometheus text exposition format",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "503": {
+                        "description": "# Metrics not available",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "broker.Stats": {
+            "type": "object",
+            "properties": {
+                "authEnabled": {
+                    "type": "boolean"
+                },
+                "bytesReceived": {
+                    "type": "integer"
+                },
+                "bytesSent": {
+                    "type": "integer"
+                },
+                "clientsConnected": {
+                    "type": "integer"
+                },
+                "clientsTotal": {
+                    "type": "integer"
+                },
+                "inflight": {
+                    "type": "integer"
+                },
+                "inflightDropped": {
+                    "type": "integer"
+                },
+                "lastError": {
+                    "type": "string"
+                },
+                "memoryAlloc": {
+                    "type": "integer"
+                },
+                "messagesReceived": {
+                    "type": "integer"
+                },
+                "messagesSent": {
+                    "type": "integer"
+                },
+                "port": {
+                    "type": "integer"
+                },
+                "retainedMessages": {
+                    "type": "integer"
+                },
+                "running": {
+                    "type": "boolean"
+                },
+                "subscriptions": {
+                    "type": "integer"
+                },
+                "wsPort": {
+                    "type": "integer"
+                }
+            }
+        },
+        "config.CLUDeviceConfig": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "$ref": "#/definitions/config.DeviceCategory"
+                },
+                "firmwareType": {
+                    "type": "integer"
+                },
+                "firmwareVersion": {
+                    "type": "integer"
+                },
+                "firmwareVersionString": {
+                    "type": "string"
+                },
+                "hardwareType": {
+                    "type": "integer"
+                },
+                "hardwareVersion": {
+                    "type": "integer"
+                },
+                "macAddress": {
+                    "type": "string"
+                },
+                "serialNumber": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "tfBusDevices": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "config.DeviceCategory": {
+            "type": "string",
+            "enum": [
+                "GATE",
+                "CLU",
+                "STANDALONE"
+            ],
+            "x-enum-varnames": [
+                "DeviceCategoryGate",
+                "DeviceCategoryCLU",
+                "DeviceCategoryStandalone"
+            ]
+        },
+        "config.DeviceType": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "$ref": "#/definitions/config.DeviceCategory"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "firmwareType": {
+                    "type": "integer"
+                },
+                "firmwareVersion": {
+                    "type": "integer"
+                },
+                "firmwareVersionStr": {
+                    "type": "string"
+                },
+                "hardwareType": {
+                    "type": "integer"
+                },
+                "hardwareVersion": {
+                    "type": "integer"
+                },
+                "icon": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "serialPrefix": {
+                    "type": "integer"
+                },
+                "supportsModules": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "config.VCLUBackupConfig": {
+            "type": "object",
+            "properties": {
+                "autoEnabled": {
+                    "description": "Whether auto-backup is enabled (default: false)",
+                    "type": "boolean"
+                },
+                "intervalH": {
+                    "description": "Hours between backups (default: 24)",
+                    "type": "integer"
+                },
+                "maxBackups": {
+                    "description": "Max auto-backups to keep (default: 7, 0=unlimited)",
+                    "type": "integer"
+                }
+            }
+        },
+        "config.VCLUSyncConfig": {
+            "type": "object",
+            "properties": {
+                "batchDelay": {
+                    "description": "Milliseconds delay between batches (default: 50, min: 30, max: 100)",
+                    "type": "integer"
+                },
+                "batchSize": {
+                    "description": "Objects per subscription request (default: 4, min: 2, max: 8)",
+                    "type": "integer"
+                },
+                "enabled": {
+                    "description": "Master on/off switch (default: false)",
+                    "type": "boolean"
+                },
+                "objects": {
+                    "description": "Whitelist of object paths to sync",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "ttl": {
+                    "description": "Subscription TTL in seconds (default: 60)",
+                    "type": "integer"
+                }
+            }
+        },
+        "homekit.ServerStatus": {
+            "type": "object",
+            "properties": {
+                "accessoryCount": {
+                    "type": "integer"
+                },
+                "bridgeName": {
+                    "type": "string"
+                },
+                "pairingAvailable": {
+                    "type": "boolean"
+                },
+                "pin": {
+                    "type": "string"
+                },
+                "port": {
+                    "type": "integer"
+                },
+                "running": {
+                    "type": "boolean"
+                },
+                "setupUri": {
+                    "type": "string"
+                }
+            }
+        },
+        "lua.MQTTClientStatus": {
+            "type": "object",
+            "properties": {
+                "clientId": {
+                    "type": "string"
+                },
+                "connected": {
+                    "type": "boolean"
+                },
+                "connectedAt": {
+                    "type": "string"
+                },
+                "instanceId": {
+                    "type": "string"
+                },
+                "lastError": {
+                    "type": "string"
+                },
+                "messageCount": {
+                    "type": "integer"
+                },
+                "port": {
+                    "type": "integer"
+                },
+                "subscriptions": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "lua.MQTTStats": {
+            "type": "object",
+            "properties": {
+                "bufferSize": {
+                    "type": "integer"
+                },
+                "bufferUsed": {
+                    "type": "integer"
+                },
+                "clients": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/lua.MQTTClientStatus"
+                    }
+                },
+                "connectedClients": {
+                    "type": "integer"
+                },
+                "droppedMessages": {
+                    "type": "integer"
+                },
+                "totalClients": {
+                    "type": "integer"
+                }
+            }
+        },
+        "metrics.MetricInfo": {
+            "type": "object",
+            "properties": {
+                "interval": {
+                    "type": "integer"
+                },
+                "latest": {
+                    "type": "number"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "samples": {
+                    "type": "integer"
+                },
+                "unit": {
+                    "type": "string"
+                }
+            }
+        },
+        "satel.SavedScan": {
+            "type": "object",
+            "properties": {
+                "result": {
+                    "$ref": "#/definitions/satel.ScanResult"
+                },
+                "scannedAt": {
+                    "type": "string"
+                }
+            }
+        },
+        "satel.ScanDevice": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "description": "raw type byte: zone reaction / output function / partition type",
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "number": {
+                    "type": "integer"
+                }
+            }
+        },
+        "satel.ScanProgress": {
+            "type": "object",
+            "properties": {
+                "done": {
+                    "type": "integer"
+                },
+                "phase": {
+                    "description": "\"zones\", \"partitions\" or \"outputs\"",
+                    "type": "string"
+                },
+                "running": {
+                    "type": "boolean"
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "satel.ScanResult": {
+            "type": "object",
+            "properties": {
+                "outputs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/satel.ScanDevice"
+                    }
+                },
+                "panelType": {
+                    "type": "string"
+                },
+                "partitions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/satel.ScanDevice"
+                    }
+                },
+                "zones": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/satel.ScanDevice"
+                    }
+                }
+            }
+        },
+        "server.CLUInfo": {
+            "type": "object",
+            "properties": {
+                "ip": {
+                    "type": "string"
+                },
+                "isLocal": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "stats.AppMetricsSnapshot": {
+            "type": "object",
+            "properties": {
+                "homekit": {
+                    "$ref": "#/definitions/stats.HomeKitSnapshot"
+                },
+                "http": {
+                    "$ref": "#/definitions/stats.HTTPSnapshot"
+                },
+                "lua": {
+                    "$ref": "#/definitions/stats.LuaSnapshot"
+                },
+                "mcp": {
+                    "$ref": "#/definitions/stats.MCPSnapshot"
+                },
+                "mqtt": {
+                    "$ref": "#/definitions/stats.MQTTSnapshot"
+                },
+                "plugins": {
+                    "$ref": "#/definitions/stats.PluginsSnapshot"
+                },
+                "protocol": {
+                    "$ref": "#/definitions/stats.ProtocolSnapshot"
+                },
+                "system": {
+                    "$ref": "#/definitions/stats.SystemSnapshot"
+                },
+                "timestamp": {
+                    "type": "string"
+                },
+                "uptime": {
+                    "$ref": "#/definitions/time.Duration"
+                }
+            }
+        },
+        "stats.DataPoint": {
+            "type": "object",
+            "properties": {
+                "t": {
+                    "type": "string"
+                },
+                "v": {
+                    "type": "number"
+                }
+            }
+        },
+        "stats.HTTPSnapshot": {
+            "type": "object",
+            "properties": {
+                "api_requests": {
+                    "type": "integer"
+                },
+                "errors_4xx": {
+                    "type": "integer"
+                },
+                "errors_5xx": {
+                    "type": "integer"
+                },
+                "requests": {
+                    "type": "integer"
+                },
+                "web_requests": {
+                    "type": "integer"
+                }
+            }
+        },
+        "stats.HomeKitSnapshot": {
+            "type": "object",
+            "properties": {
+                "accessories": {
+                    "type": "integer"
+                },
+                "events": {
+                    "type": "integer"
+                },
+                "get": {
+                    "type": "integer"
+                },
+                "paired": {
+                    "type": "integer"
+                },
+                "requests": {
+                    "type": "integer"
+                },
+                "running": {
+                    "type": "boolean"
+                },
+                "set": {
+                    "type": "integer"
+                }
+            }
+        },
+        "stats.LuaSnapshot": {
+            "type": "object",
+            "properties": {
+                "busy_percent": {
+                    "type": "number"
+                },
+                "errors": {
+                    "type": "integer"
+                },
+                "executions": {
+                    "type": "integer"
+                },
+                "loop_lag_ms": {
+                    "type": "number"
+                },
+                "timers_active": {
+                    "type": "integer"
+                },
+                "timers_fired": {
+                    "type": "integer"
+                }
+            }
+        },
+        "stats.MCPSnapshot": {
+            "type": "object",
+            "properties": {
+                "active_sessions": {
+                    "type": "integer"
+                },
+                "errors": {
+                    "type": "integer"
+                },
+                "latency_buckets": {
+                    "description": "\u003c10ms, \u003c50ms, \u003c100ms, \u003c500ms, \u003c1s, \u003e1s",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "requests": {
+                    "type": "integer"
+                }
+            }
+        },
+        "stats.MQTTSnapshot": {
+            "type": "object",
+            "properties": {
+                "connected": {
+                    "type": "boolean"
+                },
+                "published": {
+                    "type": "integer"
+                },
+                "received": {
+                    "type": "integer"
+                },
+                "reconnects": {
+                    "type": "integer"
+                }
+            }
+        },
+        "stats.PluginDetailSnapshot": {
+            "type": "object",
+            "properties": {
+                "controls": {
+                    "type": "integer"
+                },
+                "exposed": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "sensors": {
+                    "type": "integer"
+                },
+                "subscriptions": {
+                    "type": "integer"
+                },
+                "timers": {
+                    "type": "integer"
+                },
+                "version": {
+                    "type": "string"
+                }
+            }
+        },
+        "stats.PluginsSnapshot": {
+            "type": "object",
+            "properties": {
+                "active": {
+                    "type": "integer"
+                },
+                "controls": {
+                    "type": "integer"
+                },
+                "details": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/stats.PluginDetailSnapshot"
+                    }
+                },
+                "exposed": {
+                    "type": "integer"
+                },
+                "http_errors": {
+                    "type": "integer"
+                },
+                "http_requests": {
+                    "type": "integer"
+                },
+                "lua_memory_kb": {
+                    "type": "number"
+                },
+                "sensors": {
+                    "type": "integer"
+                },
+                "subscriptions": {
+                    "type": "integer"
+                },
+                "timers": {
+                    "type": "integer"
+                }
+            }
+        },
+        "stats.ProtocolSnapshot": {
+            "type": "object",
+            "properties": {
+                "commands_executed": {
+                    "type": "integer"
+                },
+                "commands_received": {
+                    "type": "integer"
+                },
+                "errors": {
+                    "type": "integer"
+                },
+                "running": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "stats.SystemSnapshot": {
+            "type": "object",
+            "properties": {
+                "gc_runs": {
+                    "type": "integer"
+                },
+                "goroutines": {
+                    "type": "integer"
+                },
+                "memory_mb": {
+                    "type": "number"
+                }
+            }
+        },
+        "time.Duration": {
+            "type": "integer",
+            "enum": [
+                -9223372036854775808,
+                9223372036854775807,
+                1,
+                1000,
+                1000000,
+                1000000000,
+                60000000000,
+                3600000000000
+            ],
+            "x-enum-varnames": [
+                "minDuration",
+                "maxDuration",
+                "Nanosecond",
+                "Microsecond",
+                "Millisecond",
+                "Second",
+                "Minute",
+                "Hour"
+            ]
+        },
+        "web.APIError": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string",
+                    "example": "Invalid request"
+                }
+            }
+        },
+        "web.APIOK": {
+            "type": "object",
+            "properties": {
+                "success": {
+                    "type": "boolean",
+                    "example": true
+                }
+            }
+        },
+        "web.APISaveResult": {
+            "type": "object",
+            "properties": {
+                "restartRequired": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "success": {
+                    "type": "boolean",
+                    "example": true
+                }
+            }
+        },
+        "web.CLUExecuteRequest": {
+            "type": "object",
+            "required": [
+                "script",
+                "targetIP"
+            ],
+            "properties": {
+                "script": {
+                    "type": "string"
+                },
+                "targetIP": {
+                    "type": "string"
+                }
+            }
+        },
+        "web.DiagnosticOptions": {
+            "type": "object",
+            "properties": {
+                "include_config": {
+                    "type": "boolean"
+                },
+                "include_device_names": {
+                    "type": "boolean"
+                },
+                "include_modules": {
+                    "type": "boolean"
+                },
+                "include_om_user": {
+                    "type": "boolean"
+                },
+                "include_proxy": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "web.SatelStatusResponse": {
+            "type": "object",
+            "properties": {
+                "connected": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "enabled": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "outputs": {
+                    "type": "integer",
+                    "example": 16
+                },
+                "panelType": {
+                    "type": "string",
+                    "example": "INTEGRA 128"
+                },
+                "partitions": {
+                    "type": "integer",
+                    "example": 4
+                },
+                "running": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "scan": {
+                    "description": "Progress of a running panel scan (running=false when idle)",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/satel.ScanProgress"
+                        }
+                    ]
+                },
+                "zones": {
+                    "type": "integer",
+                    "example": 32
+                }
+            }
+        },
+        "web.SatelTestResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                },
+                "panel": {
+                    "type": "string",
+                    "example": "INTEGRA 128 v1.23 (2012-05-27)"
+                },
+                "success": {
+                    "type": "boolean",
+                    "example": true
+                }
+            }
+        },
+        "web.satelSaveRequest": {
+            "type": "object",
+            "properties": {
+                "allowDisarm": {
+                    "type": "boolean"
+                },
+                "allowForceArm": {
+                    "type": "boolean"
+                },
+                "armMode": {
+                    "type": "integer"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "encryptionKey": {
+                    "type": "string"
+                },
+                "host": {
+                    "type": "string"
+                },
+                "outputs": {
+                    "type": "string"
+                },
+                "partitions": {
+                    "type": "string"
+                },
+                "pollInterval": {
+                    "type": "integer"
+                },
+                "port": {
+                    "type": "integer"
+                },
+                "tempZones": {
+                    "type": "string"
+                },
+                "userCode": {
+                    "type": "string"
+                },
+                "zones": {
+                    "type": "string"
+                }
+            }
+        }
+    },
+    "securityDefinitions": {
+        "ApiKeyAuth": {
+            "type": "apiKey",
+            "name": "X-API-Key",
+            "in": "header"
+        }
+    }
+}

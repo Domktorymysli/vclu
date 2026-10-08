@@ -1,0 +1,102 @@
+{{define "sidebar"}}
+<aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+        <span class="sidebar-logo"><i class="bi bi-hdd-network"></i></span>
+        <span class="sidebar-title">vCLU</span>
+    </div>
+    <nav class="sidebar-nav">
+        <a href="/stats" class="nav-item {{if eq .currentPage "stats"}}active{{end}}" data-tooltip="Stats">
+            <i class="bi bi-graph-up"></i>
+            <span class="nav-label">Stats</span>
+        </a>
+        <div class="nav-group {{if or (eq .currentPage "grenton") (eq .currentPage "satel") (eq .currentPage "mqtt") (eq .currentPage "homekit") (eq .currentPage "mcp")}}open{{end}}" id="navGroupIntegrations">
+            <div class="nav-group-header" data-tooltip="Integracje">
+                <i class="bi bi-stack"></i>
+                <span class="nav-label">Integracje</span>
+                <i class="bi bi-chevron-down nav-label nav-group-chevron"></i>
+            </div>
+            <div class="nav-group-items">
+                <a href="/grenton" class="nav-item nav-sub-item {{if eq .currentPage "grenton"}}active{{end}}" data-tooltip="Grenton">
+                    <i class="bi bi-cpu"></i>
+                    <span class="nav-label">Grenton</span>
+                </a>
+                <a href="/satel" class="nav-item nav-sub-item {{if eq .currentPage "satel"}}active{{end}}" data-tooltip="Satel">
+                    <i class="bi bi-shield-exclamation"></i>
+                    <span class="nav-label">Satel</span>
+                </a>
+                <a href="/mqtt" class="nav-item nav-sub-item {{if eq .currentPage "mqtt"}}active{{end}}" data-tooltip="MQTT">
+                    <i class="bi bi-broadcast"></i>
+                    <span class="nav-label">MQTT</span>
+                </a>
+                <a href="/homekit" class="nav-item nav-sub-item {{if eq .currentPage "homekit"}}active{{end}}" data-tooltip="HomeKit">
+                    <i class="bi bi-apple"></i>
+                    <span class="nav-label">HomeKit</span>
+                </a>
+                <a href="/mcp-dashboard" class="nav-item nav-sub-item {{if eq .currentPage "mcp"}}active{{end}}" data-tooltip="MCP">
+                    <i class="bi bi-robot"></i>
+                    <span class="nav-label">MCP</span>
+                </a>
+            </div>
+        </div>
+        <a href="/access" class="nav-item {{if eq .currentPage "access"}}active{{end}}" data-tooltip="Access Control">
+            <i class="bi bi-shield-lock"></i>
+            <span class="nav-label">Access</span>
+        </a>
+        <a href="/editor" class="nav-item {{if eq .currentPage "editor"}}active{{end}}" data-tooltip="Lua Editor">
+            <i class="bi bi-code-slash"></i>
+            <span class="nav-label">Editor</span>
+        </a>
+        <a href="/dashboards" class="nav-item {{if eq .currentPage "dashboards"}}active{{end}}" data-tooltip="Dashboards">
+            <i class="bi bi-grid"></i>
+            <span class="nav-label">Dashboards</span>
+        </a>
+        <a href="/plugins" class="nav-item {{if eq .currentPage "plugins"}}active{{end}}" data-tooltip="Plugins">
+            <i class="bi bi-plug"></i>
+            <span class="nav-label">Plugins</span>
+        </a>
+        <div class="nav-group {{if or (eq .currentPage "tools") (eq .currentPage "backup") (eq .currentPage "debug") (eq .currentPage "history")}}open{{end}}" id="navGroupTools">
+            <div class="nav-group-header" data-tooltip="{{index .t "app.tools"}}">
+                <i class="bi bi-wrench-adjustable"></i>
+                <span class="nav-label">{{index .t "app.tools"}}</span>
+                <i class="bi bi-chevron-down nav-label nav-group-chevron"></i>
+            </div>
+            <div class="nav-group-items">
+                <a href="/tools" class="nav-item nav-sub-item {{if eq .currentPage "tools"}}active{{end}}" data-tooltip="Console">
+                    <i class="bi bi-terminal"></i>
+                    <span class="nav-label">Console</span>
+                </a>
+                <a href="/backup" class="nav-item nav-sub-item {{if eq .currentPage "backup"}}active{{end}}" data-tooltip="{{index .t "backup.title"}}">
+                    <i class="bi bi-archive"></i>
+                    <span class="nav-label">{{index .t "backup.title"}}</span>
+                </a>
+                <a href="/history" class="nav-item nav-sub-item {{if eq .currentPage "history"}}active{{end}}" data-tooltip="{{index .t "history.title"}}">
+                    <i class="bi bi-clock-history"></i>
+                    <span class="nav-label">{{index .t "history.title"}}</span>
+                </a>
+                <a href="/debug" class="nav-item nav-sub-item {{if eq .currentPage "debug"}}active{{end}}" data-tooltip="Debug">
+                    <i class="bi bi-bug"></i>
+                    <span class="nav-label">Debug</span>
+                </a>
+                <a href="/api-docs" class="nav-item nav-sub-item" data-tooltip="API Docs">
+                    <i class="bi bi-filetype-json"></i>
+                    <span class="nav-label">API Docs</span>
+                </a>
+            </div>
+        </div>
+        <div class="nav-divider"></div>
+        <a href="/settings" class="nav-item {{if eq .currentPage "settings"}}active{{end}}" data-tooltip="{{index .t "app.settings"}}">
+            <i class="bi bi-gear"></i>
+            <span class="nav-label">{{index .t "app.settings"}}</span>
+        </a>
+    </nav>
+    <div class="sidebar-footer">
+        <div class="sidebar-status">
+            <span class="status-dot {{if .configured}}online{{else}}offline{{end}}"></span>
+            <span class="status-text">{{if .configured}}Online{{else}}Offline{{end}}</span>
+        </div>
+        <button class="sidebar-toggle" id="sidebarToggle" data-tooltip="Toggle sidebar">
+            <i class="bi bi-chevron-left"></i>
+        </button>
+    </div>
+</aside>
+{{end}}

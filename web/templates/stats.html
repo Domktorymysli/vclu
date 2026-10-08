@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="{{.lang}}" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Statistics - Virtual CLU</title>
+    <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/vendor/bootstrap-icons/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="/static/css/dark-theme.css">
+    <script src="/static/vendor/chartjs/chart.js"></script>
+    <style>
+        .stat-card {
+            background: var(--bs-body-bg);
+            border: 1px solid var(--bs-border-color);
+            border-radius: 8px;
+            padding: 1rem;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 1.75rem;
+            font-weight: 600;
+            color: var(--bs-primary);
+        }
+        .stat-label {
+            font-size: 0.75rem;
+            color: var(--bs-secondary);
+            text-transform: uppercase;
+        }
+        .chart-container {
+            position: relative;
+            height: 200px;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+            gap: 0.75rem;
+        }
+        .section-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid var(--bs-border-color);
+        }
+        .section-header i {
+            font-size: 1.25rem;
+        }
+    </style>
+    <meta name="csrf-token" content="{{.csrfToken}}">
+</head>
+<body>
+    <div class="app-container">
+        {{template "sidebar" .}}
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="topbar">
+                <button class="hamburger" id="hamburgerBtn"><i class="bi bi-list"></i></button>
+                <h1 class="page-title"><i class="bi bi-graph-up"></i> Statistics</h1>
+                <div class="topbar-actions">
+                    <button class="btn btn-sm btn-outline-secondary" id="refreshBtn" title="Refresh">
+                        <i class="bi bi-arrow-clockwise"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-primary" id="diagnosticBtn" title="Download Diagnostic">
+                        <i class="bi bi-download"></i> Diagnostic
+                    </button>
+                    <button class="theme-toggle" id="themeToggle" title="Toggle theme">
+                        <i class="bi bi-moon-fill"></i>
+                        <i class="bi bi-sun-fill"></i>
+                    </button>
+                </div>
+            </header>
+
+            <div class="page-content">
+                <div class="content-wrapper wide">
+                    <!-- Uptime & System Overview -->
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            <div class="section-header mb-0 pb-0 border-0">
+                                <i class="bi bi-clock-history text-primary"></i>
+                                <span>System Overview</span>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="stats-grid">
+                                <div class="stat-card">
+                                    <div class="stat-value" id="uptime">--</div>
+                                    <div class="stat-label">Uptime</div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-value" id="memory">--</div>
+                                    <div class="stat-label">Memory (MB)</div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-value" id="goroutines">--</div>
+                                    <div class="stat-label">Goroutines</div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-value" id="gcRuns">--</div>
+                                    <div class="stat-label">GC Runs</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <!-- Lua Stats -->
+                        <div class="col-md-6 mb-3">
+                            <div class="card h-100">
+                                <div class="card-header">
+                                    <div class="section-header mb-0 pb-0 border-0">
+                                        <i class="bi bi-code-square text-info"></i>
+                                        <span>Lua Runtime</span>
+                                    </div>
+                                </div>
+                                <div class="card-body">
+                                    <div class="stats-grid mb-3">
+                                        <div class="stat-card">
+                                            <div class="stat-value" id="luaExec">--</div>
+                                            <div class="stat-label">Executions</div>
+                                        </div>
+                                        <div class="stat-card">
+                                            <div class="stat-value" id="luaErrors">--</div>
+                                            <div class="stat-label">Errors</div>
+                                        </div>
+                                        <div class="stat-card">
+                                            <div class="stat-value" id="timersActive">--</div>
+                                            <div class="stat-label">Timers</div>
+                                        </div>
+                                        <div class="stat-card">
+                                            <div class="stat-value" id="timersFired">--</div>
+                                            <div class="stat-label">Fired</div>
+                                        </div>
+                                        <div class="stat-card">
+                                            <div class="stat-value" id="busyPercent">--</div>
+                                            <div class="stat-label">Busy %</div>
+                                        </div>
+                                        <div class="stat-card">
+                                            <div class="stat-value" id="loopLag">--</div>
+                                            <div class="stat-label">Loop Lag (ms)</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Protocol Stats -->
+                        <div class="col-md-6 mb-3">
+                            <div class="card h-100">
+                                <div class="card-header">
+                                    <div class="section-header mb-0 pb-0 border-0">
+                                        <i class="bi bi-broadcast-pin text-warning"></i>
+                                        <span>CLU Protocol</span>
+                                    </div>
+                                </div>
+                                <div class="card-body">
+                                    <div class="stats-grid">
+                                        <div class="stat-card">
+                                            <div class="stat-value text-danger" id="cluStatus">OFF</div>
+                                            <div class="stat-label">Status</div>
+                                        </div>
+                                        <div class="stat-card">
+                                            <div class="stat-value" id="cmdReceived">--</div>
+                                            <div class="stat-label">Received</div>
+                                        </div>
+                                        <div class="stat-card">
+                                            <div class="stat-value" id="cmdExecuted">--</div>
+                                            <div class="stat-label">Executed</div>
+                                        </div>
+                                        <div class="stat-card">
+                                            <div class="stat-value" id="cmdErrors">--</div>
+                                            <div class="stat-label">Errors</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <!-- HTTP Stats -->
+                        <div class="col-md-6 mb-3">
+                            <div class="card h-100">
+                                <div class="card-header">
+                                    <div class="section-header mb-0 pb-0 border-0">
+                                        <i class="bi bi-globe text-success"></i>
+                                        <span>HTTP Server</span>
+                                    </div>
+                                </div>
+                                <div class="card-body">
+                                    <div class="stats-grid">
+                                        <div class="stat-card">
+                                            <div class="stat-value" id="httpRequests">--</div>
+                                            <div class="stat-label">Requests</div>
+                                        </div>
+                                        <div class="stat-card">
+                                            <div class="stat-value" id="httpAPI">--</div>
+                                            <div class="stat-label">API</div>
+                                        </div>
+                                        <div class="stat-card">
+                                            <div class="stat-value" id="httpWeb">--</div>
+                                            <div class="stat-label">Web</div>
+                                        </div>
+                                        <div class="stat-card">
+                                            <div class="stat-value" id="httpErrors">--</div>
+                                            <div class="stat-label">Errors</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Plugins Stats -->
+                        <div class="col-md-6 mb-3">
+                            <div class="card h-100">
+                                <div class="card-header">
+                                    <div class="section-header mb-0 pb-0 border-0">
+                                        <i class="bi bi-plug text-purple"></i>
+                                        <span>Plugins</span>
+                                    </div>
+                                </div>
+                                <div class="card-body">
+                                    <div class="stats-grid">
+                                        <div class="stat-card">
+                                            <div class="stat-value" id="pluginsActive">--</div>
+                                            <div class="stat-label">Active</div>
+                                        </div>
+                                        <div class="stat-card">
+                                            <div class="stat-value" id="pluginTimers">--</div>
+                                            <div class="stat-label">Timers</div>
+                                        </div>
+                                        <div class="stat-card">
+                                            <div class="stat-value" id="pluginHTTP">--</div>
+                                            <div class="stat-label">HTTP Reqs</div>
+                                        </div>
+                                        <div class="stat-card">
+                                            <div class="stat-value" id="luaMemory">--</div>
+                                            <div class="stat-label">Lua Mem (KB)</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <!-- MQTT Stats -->
+                        <div class="col-md-6 mb-3">
+                            <div class="card h-100">
+                                <div class="card-header">
+                                    <div class="section-header mb-0 pb-0 border-0">
+                                        <i class="bi bi-broadcast text-info"></i>
+                                        <span>MQTT</span>
+                                    </div>
+                                </div>
+                                <div class="card-body">
+                                    <div class="mb-2 small text-muted fw-medium">Broker</div>
+                                    <div class="stats-grid mb-3">
+                                        <div class="stat-card">
+                                            <div class="stat-value" id="mqttBrokerStatus">--</div>
+                                            <div class="stat-label">Status</div>
+                                        </div>
+                                        <div class="stat-card">
+                                            <div class="stat-value" id="mqttBrokerClients">--</div>
+                                            <div class="stat-label">Clients</div>
+                                        </div>
+                                        <div class="stat-card">
+                                            <div class="stat-value" id="mqttBrokerMsgs">--</div>
+                                            <div class="stat-label">Messages</div>
+                                        </div>
+                                        <div class="stat-card">
+                                            <div class="stat-value" id="mqttBrokerRetained">--</div>
+                                            <div class="stat-label">Retained</div>
+                                        </div>
+                                    </div>
+                                    <div class="mb-2 small text-muted fw-medium">Client</div>
+                                    <div class="stats-grid">
+                                        <div class="stat-card">
+                                            <div class="stat-value" id="mqttClientStatus">--</div>
+                                            <div class="stat-label">Status</div>
+                                        </div>
+                                        <div class="stat-card">
+                                            <div class="stat-value" id="mqttPublished">--</div>
+                                            <div class="stat-label">Published</div>
+                                        </div>
+                                        <div class="stat-card">
+                                            <div class="stat-value" id="mqttReceived">--</div>
+                                            <div class="stat-label">Received</div>
+                                        </div>
+                                        <div class="stat-card">
+                                            <div class="stat-value" id="mqttSubs">--</div>
+                                            <div class="stat-label">Subs</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- HomeKit Stats -->
+                        <div class="col-md-6 mb-3">
+                            <div class="card h-100">
+                                <div class="card-header">
+                                    <div class="section-header mb-0 pb-0 border-0">
+                                        <i class="bi bi-apple text-light"></i>
+                                        <span>HomeKit</span>
+                                    </div>
+                                </div>
+                                <div class="card-body">
+                                    <div class="stats-grid">
+                                        <div class="stat-card">
+                                            <div class="stat-value text-danger" id="hkStatus">OFF</div>
+                                            <div class="stat-label">Status</div>
+                                        </div>
+                                        <div class="stat-card">
+                                            <div class="stat-value" id="hkAccessories">--</div>
+                                            <div class="stat-label">Accessories</div>
+                                        </div>
+                                        <div class="stat-card">
+                                            <div class="stat-value" id="hkRequests">--</div>
+                                            <div class="stat-label">Requests</div>
+                                        </div>
+                                        <div class="stat-card">
+                                            <div class="stat-value" id="hkEvents">--</div>
+                                            <div class="stat-label">Events</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Plugin Details -->
+                    <div class="card mb-3" id="pluginDetailsCard" style="display: none;">
+                        <div class="card-header">
+                            <div class="section-header mb-0 pb-0 border-0">
+                                <i class="bi bi-puzzle text-info"></i>
+                                <span>Plugin Details</span>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table table-sm table-hover mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th>Plugin</th>
+                                            <th>Version</th>
+                                            <th class="text-center">Timers</th>
+                                            <th class="text-center">Sensors</th>
+                                            <th class="text-center">Controls</th>
+                                            <th class="text-center">Subs</th>
+                                            <th class="text-center">Exposed</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="pluginDetailsBody">
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Charts -->
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            <div class="section-header mb-0 pb-0 border-0">
+                                <i class="bi bi-graph-up text-primary"></i>
+                                <span>Memory Usage (24h)</span>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="chart-container">
+                                <canvas id="memoryChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <div class="card h-100">
+                                <div class="card-header">
+                                    <div class="section-header mb-0 pb-0 border-0">
+                                        <i class="bi bi-activity text-warning"></i>
+                                        <span>Command Rate (24h)</span>
+                                    </div>
+                                </div>
+                                <div class="card-body">
+                                    <div class="chart-container">
+                                        <canvas id="cmdRateChart"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <div class="card h-100">
+                                <div class="card-header">
+                                    <div class="section-header mb-0 pb-0 border-0">
+                                        <i class="bi bi-globe text-success"></i>
+                                        <span>HTTP Rate (24h)</span>
+                                    </div>
+                                </div>
+                                <div class="card-body">
+                                    <div class="chart-container">
+                                        <canvas id="httpRateChart"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <div class="card h-100">
+                                <div class="card-header">
+                                    <div class="section-header mb-0 pb-0 border-0">
+                                        <i class="bi bi-cpu text-danger"></i>
+                                        <span>Lua Busy % (24h)</span>
+                                    </div>
+                                </div>
+                                <div class="card-body">
+                                    <div class="chart-container">
+                                        <canvas id="busyPercentChart"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <div class="card h-100">
+                                <div class="card-header">
+                                    <div class="section-header mb-0 pb-0 border-0">
+                                        <i class="bi bi-clock-history text-info"></i>
+                                        <span>Loop Lag (24h)</span>
+                                    </div>
+                                </div>
+                                <div class="card-body">
+                                    <div class="chart-container">
+                                        <canvas id="loopLagChart"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <!-- Diagnostic Modal -->
+    <div class="modal fade" id="diagnosticModal" tabindex="-1" aria-labelledby="diagnosticModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="diagnosticModalLabel"><i class="bi bi-download"></i> Diagnostic Package</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small mb-3">Always included: runtime logs, stats, metrics, version info, device types.</p>
+                    <div class="mb-2 fw-medium">Optional:</div>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="diagModules" checked>
+                        <label class="form-check-label" for="diagModules">Lua modules (modules/*.lua)</label>
+                    </div>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="diagOmUser" checked>
+                        <label class="form-check-label" for="diagOmUser">om.lua &amp; user.lua</label>
+                    </div>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="diagProxy" checked>
+                        <label class="form-check-label" for="diagProxy">Proxy files (imports/proxy_*)</label>
+                    </div>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="diagDeviceNames">
+                        <label class="form-check-label" for="diagDeviceNames">Device names &amp; areas</label>
+                    </div>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="diagConfig">
+                        <label class="form-check-label" for="diagConfig">Config (.vclu.json, secrets redacted)</label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="diagnosticDownloadBtn">
+                        <i class="bi bi-download"></i> Download
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/utils.js"></script>
+    <script src="/static/js/csrf.js"></script>
+    <script src="/static/js/theme.js"></script>
+    <script src="/static/js/sidebar.js"></script>
+    <script src="/static/js/stats.js?v=5"></script>
+</body>
+</html>

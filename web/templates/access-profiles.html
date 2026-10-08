@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="{{.lang}}" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{index .t "access.profiles_title"}} - Virtual CLU</title>
+    <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/vendor/bootstrap-icons/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="/static/css/dark-theme.css">
+    <meta name="csrf-token" content="{{.csrfToken}}">
+</head>
+<body>
+    <div class="app-container">
+        {{template "sidebar" .}}
+
+        <main class="main-content">
+            <header class="topbar">
+                <button class="hamburger" id="hamburgerBtn"><i class="bi bi-list"></i></button>
+                <h1 class="page-title">{{index .t "access.profiles_title"}}</h1>
+                <div class="topbar-actions">
+                    <button class="theme-toggle" id="themeToggle" title="Toggle theme">
+                        <i class="bi bi-moon-fill"></i>
+                        <i class="bi bi-sun-fill"></i>
+                    </button>
+                    <div class="dropdown">
+                        <button class="btn-icon dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-globe"></i>
+                            <span class="lang-label">{{if eq .lang "pl"}}PL{{else}}EN{{end}}</span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item {{if eq .lang "pl"}}active{{end}}" href="?lang=pl">Polski</a></li>
+                            <li><a class="dropdown-item {{if eq .lang "en"}}active{{end}}" href="?lang=en">English</a></li>
+                        </ul>
+                    </div>
+                </div>
+            </header>
+
+            <div class="page-content">
+                <div class="content-wrapper">
+
+                    <div class="mb-3">
+                        <a href="/access" class="text-muted small"><i class="bi bi-arrow-left"></i> {{index .t "access.back_to_access"}}</a>
+                    </div>
+
+                    <!-- Profiles -->
+                    <div class="card mb-3">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span><i class="bi bi-person-badge"></i> {{index .t "access.profiles_header"}}</span>
+                            <button class="btn btn-sm btn-outline-primary" onclick="profileManager.showAddPage()">
+                                <i class="bi bi-plus-lg"></i> {{index .t "access.add_profile"}}
+                            </button>
+                        </div>
+                        <div class="card-body">
+                            <p class="text-muted small mb-3">{{index .t "access.profiles_desc"}}</p>
+                            <div id="profilesList">
+                                <div class="text-center py-3">
+                                    <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Reset -->
+                    <div class="card mb-3">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div>
+                                    <h6 class="mb-1"><i class="bi bi-arrow-counterclockwise"></i> {{index .t "access.reset_title"}}</h6>
+                                    <ul class="text-muted small mb-0">
+                                        <li>{{index .t "access.reset_item1"}}</li>
+                                        <li>{{index .t "access.reset_item2"}}</li>
+                                        <li>{{index .t "access.reset_item3"}}</li>
+                                        <li>{{index .t "access.reset_item4"}}</li>
+                                        <li>{{index .t "access.reset_item5"}}</li>
+                                    </ul>
+                                </div>
+                                <button class="btn btn-sm btn-outline-danger ms-3 text-nowrap" onclick="profileManager.resetToDefaults()">
+                                    <i class="bi bi-arrow-counterclockwise"></i> {{index .t "access.reset_btn"}}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/utils.js"></script>
+    <script src="/static/js/csrf.js"></script>
+    <script src="/static/js/theme.js"></script>
+    <script src="/static/js/sidebar.js"></script>
+    <script src="/static/js/access-profiles.js"></script>
+
+</body>
+</html>

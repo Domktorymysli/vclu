@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="{{.lang}}" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plugins - Virtual CLU</title>
+    <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/vendor/bootstrap-icons/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="/static/css/dark-theme.css">
+    <script src="/static/vendor/marked/marked.min.js"></script>
+    <style>
+        .markdown-body { line-height: 1.6; }
+        .markdown-body h1, .markdown-body h2, .markdown-body h3 { margin-top: 1rem; margin-bottom: 0.5rem; }
+        .markdown-body pre { background: var(--bg-tertiary); padding: 1rem; border-radius: 4px; overflow-x: auto; }
+        .markdown-body code { background: var(--bg-secondary); padding: 0.2em 0.4em; border-radius: 3px; }
+        .markdown-body pre code { background: none; padding: 0; }
+        .markdown-body table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+        .markdown-body th, .markdown-body td { border: 1px solid var(--border-color); padding: 0.5rem; text-align: left; }
+        .markdown-body th { background: var(--bg-secondary); }
+
+        /* Plugin tabs - matching debug page style */
+        .plugins-tabs {
+            display: flex;
+            gap: 0;
+            background: var(--bg-secondary);
+            border-radius: 0.5rem 0.5rem 0 0;
+            border: 1px solid var(--border-color);
+            border-bottom: none;
+            padding: 0 0.75rem;
+        }
+        .plugins-tab {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.75rem 1.25rem;
+            background: none;
+            border: none;
+            border-bottom: 2px solid transparent;
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+        .plugins-tab:hover {
+            color: var(--text-primary);
+            background: var(--bg-tertiary);
+        }
+        .plugins-tab.active {
+            color: var(--accent-color, #27C2A8);
+            border-bottom-color: var(--accent-color, #27C2A8);
+        }
+        .plugins-tab i { font-size: 1rem; }
+        .plugins-tab-spacer { flex: 1; }
+        .plugins-tab-action {
+            display: flex;
+            align-items: center;
+            padding: 0.75rem 1rem;
+        }
+        .plugins-content {
+            border: 1px solid var(--border-color);
+            border-top: none;
+            border-radius: 0 0 0.5rem 0.5rem;
+            background: var(--bg-primary);
+            min-height: 300px;
+        }
+        .plugins-content-inner {
+            padding: 1rem;
+        }
+    </style>
+    <meta name="csrf-token" content="{{.csrfToken}}">
+</head>
+<body>
+    <div class="app-container">
+        {{template "sidebar" .}}
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="topbar">
+                <button class="hamburger" id="hamburgerBtn"><i class="bi bi-list"></i></button>
+                <h1 class="page-title">Plugins</h1>
+                <div class="topbar-actions">
+                    <button class="theme-toggle" id="themeToggle" title="Toggle theme">
+                        <i class="bi bi-moon-fill"></i>
+                        <i class="bi bi-sun-fill"></i>
+                    </button>
+                    <div class="dropdown">
+                        <button class="btn-icon dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-globe"></i>
+                            <span class="lang-label">{{if eq .lang "pl"}}PL{{else}}EN{{end}}</span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item {{if eq .lang "pl"}}active{{end}}" href="?lang=pl">Polski</a></li>
+                            <li><a class="dropdown-item {{if eq .lang "en"}}active{{end}}" href="?lang=en">English</a></li>
+                        </ul>
+                    </div>
+                </div>
+            </header>
+
+            <div class="page-content">
+                <div class="content-wrapper wide">
+                    <!-- Repositories -->
+                    <div class="card mb-3">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span><i class="bi bi-collection"></i> Repositories</span>
+                            <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#addRepoModal">
+                                <i class="bi bi-plus"></i> Add
+                            </button>
+                        </div>
+                        <div class="card-body">
+                            <table class="table table-sm mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>URL</th>
+                                        <th>Status</th>
+                                        <th></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="reposList">
+                                    {{range .repositories}}
+                                    <tr>
+                                        <td>
+                                            {{.Name}}
+                                            {{if .Default}}<span class="badge bg-primary">default</span>{{end}}
+                                        </td>
+                                        <td><code class="small">{{.URL}}</code></td>
+                                        <td>
+                                            {{if .Enabled}}
+                                            <span class="badge bg-success">enabled</span>
+                                            {{else}}
+                                            <span class="badge bg-secondary">disabled</span>
+                                            {{end}}
+                                        </td>
+                                        <td class="text-end">
+                                            {{if not .Default}}
+                                            <button class="btn btn-sm btn-outline-danger" onclick="removeRepo('{{.Name}}')">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                            {{end}}
+                                        </td>
+                                    </tr>
+                                    {{else}}
+                                    <tr>
+                                        <td colspan="4" class="text-muted text-center">No repositories configured</td>
+                                    </tr>
+                                    {{end}}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Plugins Tabs -->
+                    <div class="plugins-tabs" id="pluginsTabs">
+                        <button class="plugins-tab active" id="available-tab" data-tab="available">
+                            <i class="bi bi-cloud-download"></i> Available
+                        </button>
+                        <button class="plugins-tab" id="installed-tab" data-tab="installed">
+                            <i class="bi bi-check-circle"></i> Installed
+                            <span class="badge bg-primary ms-1" id="installedCount">{{len .installed}}</span>
+                        </button>
+                        <div class="plugins-tab-spacer"></div>
+                        <div class="plugins-tab-action">
+                            <button class="btn btn-sm btn-outline-secondary" id="refreshBtn" onclick="refreshAvailable();" title="Refresh available plugins">
+                                <i class="bi bi-arrow-clockwise"></i> Refresh
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="plugins-content">
+                        <!-- Available Plugins Tab -->
+                        <div class="plugins-content-inner" id="availableTab">
+                            <div id="availableLoading" class="text-center py-4">
+                                <div class="spinner-border text-info" role="status"></div>
+                                <p class="text-muted mt-2">Loading plugins from repositories...</p>
+                            </div>
+                            <div id="availableError" class="alert alert-warning" style="display: none;"></div>
+                            <div id="availableList" style="display: none;"></div>
+                        </div>
+
+                        <!-- Installed Plugins Tab -->
+                        <div class="plugins-content-inner" id="installedTab" style="display: none;">
+                            <div id="installedList"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <!-- Add Repository Modal -->
+    <div class="modal fade" id="addRepoModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Add Repository</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Name</label>
+                        <input type="text" class="form-control" id="repoName" placeholder="My Plugins">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">GitHub URL</label>
+                        <input type="text" class="form-control" id="repoUrl" placeholder="https://github.com/user/repo">
+                        <div class="form-text">Repository must contain plugins.json file</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="addRepository()">Add</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Configure Plugin Modal -->
+    <div class="modal fade" id="configModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Configure Plugin: <span id="configPluginId"></span></h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="configFields"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="savePluginConfig()">Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Documentation Modal -->
+    <div class="modal fade" id="docModal" tabindex="-1">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-book"></i> <span id="docTitle">Documentation</span></h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="docLoading" class="text-center py-4">
+                        <div class="spinner-border text-info" role="status"></div>
+                        <p class="text-muted mt-2">Loading documentation...</p>
+                    </div>
+                    <div id="docContent" class="markdown-body" style="display: none;"></div>
+                    <div id="docError" class="alert alert-warning" style="display: none;"></div>
+                </div>
+                <div class="modal-footer">
+                    <div id="docNav" class="me-auto" style="display: none;"></div>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/utils.js"></script>
+    <script src="/static/js/csrf.js"></script>
+    <script src="/static/js/theme.js"></script>
+    <script src="/static/js/sidebar.js"></script>
+    <script src="/static/js/plugins.js"></script>
+    <script>
+        // Pass installed plugins data to PluginsManager
+        {{range .installed}}
+        if (window.pluginsManager) {
+            window.pluginsManager.installedPlugins['{{.ID}}'] = {
+                id: '{{.ID}}',
+                version: '{{.Version}}',
+                enabled: {{.Enabled}},
+                repository: '{{.Repository}}',
+                config: {{if .Config}}{{.Config | json}}{{else}}{}{{end}}
+            };
+        }
+        {{end}}
+    </script>
+</body>
+</html>

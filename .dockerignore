@@ -1,0 +1,24 @@
+.git
+.github
+.idea
+.claude
+.mcp.json
+.DS_Store
+
+# Build artifacts
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vclu
+vclu-pi
+deploy-tmp/
+
+# Documentation site source (not needed in image)
+docs/*.md
+# Keep docs/ai/ — used by MCP read_file at runtime
+
+# Backups
+cmd/vclu/data_backup/

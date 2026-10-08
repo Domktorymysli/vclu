@@ -1,0 +1,40 @@
+[Unit]
+Description=Virtual CLU - Grenton CLU Emulator
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+
+# Working directory
+WorkingDirectory=@DATA_DIR@
+
+# Binary location
+ExecStart=@INSTALL_DIR@/vclu --auto --data-dir . --web-port @WEB_PORT@
+
+# Restart policy
+Restart=always
+RestartSec=10
+
+# Limits
+LimitNOFILE=65536
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=vclu
+
+# Security hardening (optional - comment out if you have issues)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=@DATA_DIR@
+
+# Network capabilities (required for broadcast and binding to ports < 1024)
+AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_NET_BROADCAST
+
+[Install]
+WantedBy=multi-user.target

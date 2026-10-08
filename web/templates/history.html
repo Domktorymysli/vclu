@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="{{.lang}}" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{index .t "history.title"}} - Virtual CLU</title>
+    <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/vendor/bootstrap-icons/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="/static/css/dark-theme.css">
+    <meta name="csrf-token" content="{{.csrfToken}}">
+</head>
+<body>
+    <div class="app-container">
+        {{template "sidebar" .}}
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="topbar">
+                <button class="hamburger" id="hamburgerBtn"><i class="bi bi-list"></i></button>
+                <h1 class="page-title">{{index .t "history.title"}}</h1>
+                <div class="topbar-actions">
+                    <button class="theme-toggle" id="themeToggle" title="Toggle theme">
+                        <i class="bi bi-moon-fill"></i>
+                        <i class="bi bi-sun-fill"></i>
+                    </button>
+                    <div class="dropdown">
+                        <button class="btn-icon dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-globe"></i>
+                            <span class="lang-label">{{if eq .lang "pl"}}PL{{else}}EN{{end}}</span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item {{if eq .lang "pl"}}active{{end}}" href="?lang=pl">Polski</a></li>
+                            <li><a class="dropdown-item {{if eq .lang "en"}}active{{end}}" href="?lang=en">English</a></li>
+                        </ul>
+                    </div>
+                </div>
+            </header>
+
+            <div class="page-content">
+                <div class="content-wrapper wide">
+                    <!-- Changes -->
+                    <div class="card mb-3">
+                        <div class="card-header"><i class="bi bi-clock-history"></i> {{index .t "history.browser"}}</div>
+                        <div class="card-body">
+                            <form id="historyFilters" class="row g-2 align-items-end mb-3" onsubmit="return false;">
+                                <div class="col-md-3">
+                                    <label class="form-label mb-0 small" for="fPath">{{index .t "history.filter_object"}}</label>
+                                    <input class="form-control form-control-sm" id="fPath" placeholder="CLU220000592.DOU4992">
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label mb-0 small" for="fOrigin">{{index .t "history.filter_origin"}}</label>
+                                    <select class="form-select form-select-sm" id="fOrigin">
+                                        <option value=""></option>
+                                        <option>grenton</option><option>physical</option><option>lua</option><option>web</option>
+                                        <option>api</option><option>mcp</option><option>mqtt</option><option>homekit</option>
+                                        <option>system</option><option>unknown</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label mb-0 small" for="fActor">{{index .t "history.filter_actor"}}</label>
+                                    <input class="form-control form-control-sm" id="fActor" placeholder="automation:wiatrolap">
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label mb-0 small" for="fText">{{index .t "history.filter_text"}}</label>
+                                    <input class="form-control form-control-sm" id="fText">
+                                </div>
+                                <div class="col-md-1">
+                                    <label class="form-label mb-0 small" for="fSince">{{index .t "history.filter_since"}}</label>
+                                    <input type="datetime-local" class="form-control form-control-sm" id="fSince">
+                                </div>
+                                <div class="col-md-1">
+                                    <label class="form-label mb-0 small" for="fUntil">{{index .t "history.filter_until"}}</label>
+                                    <input type="datetime-local" class="form-control form-control-sm" id="fUntil">
+                                </div>
+                                <div class="col-md-1">
+                                    <button type="submit" class="btn btn-sm btn-primary w-100" id="historySearchBtn"><i class="bi bi-search"></i> {{index .t "history.search"}}</button>
+                                </div>
+                            </form>
+                            <div id="historyError" class="alert alert-danger" style="display:none;"></div>
+                            <div id="historyEmpty" class="alert alert-info" style="display:none;">{{index .t "history.empty"}}</div>
+                            <div class="table-responsive">
+                                <table class="table table-sm" id="historyTable" style="display:none;">
+                                    <thead><tr>
+                                        <th>{{index .t "history.col_time"}}</th>
+                                        <th>{{index .t "history.col_object"}}</th>
+                                        <th>{{index .t "history.col_change"}}</th>
+                                        <th>{{index .t "history.col_origin"}}</th>
+                                        <th>{{index .t "history.col_actor"}}</th>
+                                    </tr></thead>
+                                    <tbody id="historyBody"></tbody>
+                                </table>
+                            </div>
+                            <button class="btn btn-sm btn-outline-secondary" id="historyMore" style="display:none;"><i class="bi bi-chevron-down"></i> {{index .t "history.more"}}</button>
+                        </div>
+                    </div>
+
+                    <!-- Status -->
+                    <div class="card mb-3">
+                        <div class="card-header"><i class="bi bi-activity"></i> {{index .t "history.status"}}</div>
+                        <div class="card-body small" id="historyStatus"></div>
+                    </div>
+
+                    <!-- Settings -->
+                    <div class="card mb-3">
+                        <div class="card-header"><i class="bi bi-sliders"></i> {{index .t "history.settings"}}</div>
+                        <div class="card-body">
+                            <form id="historySettings" class="row g-3 align-items-end" onsubmit="return false;">
+                                <div class="col-auto"><div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="sEnabled">
+                                    <label class="form-check-label" for="sEnabled">{{index .t "history.enabled"}}</label>
+                                </div></div>
+                                <div class="col-auto"><div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="sDiskEnabled">
+                                    <label class="form-check-label" for="sDiskEnabled">{{index .t "history.disk_enabled"}}</label>
+                                </div></div>
+                                <div class="col-auto"><label class="form-label mb-0 small" for="sMemoryHours">{{index .t "history.memory_hours"}}</label>
+                                    <input type="number" class="form-control form-control-sm" id="sMemoryHours" min="1" max="168" style="width:110px"></div>
+                                <div class="col-auto"><label class="form-label mb-0 small" for="sPerObject">{{index .t "history.per_object"}}</label>
+                                    <input type="number" class="form-control form-control-sm" id="sPerObject" min="100" max="100000" style="width:120px"></div>
+                                <div class="col-auto"><label class="form-label mb-0 small" for="sTotal">{{index .t "history.total"}}</label>
+                                    <input type="number" class="form-control form-control-sm" id="sTotal" min="100" max="1000000" style="width:130px"></div>
+                                <div class="col-auto"><label class="form-label mb-0 small" for="sRetention">{{index .t "history.retention"}}</label>
+                                    <input type="number" class="form-control form-control-sm" id="sRetention" min="1" max="3650" style="width:110px"></div>
+                                <div class="col-auto"><label class="form-label mb-0 small" for="sMaxDisk">{{index .t "history.max_disk"}}</label>
+                                    <input type="number" class="form-control form-control-sm" id="sMaxDisk" min="16" max="102400" style="width:120px"></div>
+                                <div class="col-auto"><label class="form-label mb-0 small" for="sFlush">{{index .t "history.flush"}}</label>
+                                    <input type="number" class="form-control form-control-sm" id="sFlush" min="10" max="3600" style="width:110px"></div>
+                                <div class="col-auto">
+                                    <button type="button" class="btn btn-sm btn-success" id="historySave"><i class="bi bi-save"></i> {{index .t "history.save"}}</button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="historyDefaults">{{index .t "history.defaults"}}</button>
+                                </div>
+                            </form>
+                            <div class="form-text mt-2">{{index .t "history.admin_only"}}</div>
+                        </div>
+                    </div>
+
+                    <!-- Actions -->
+                    <div class="card mb-3">
+                        <div class="card-header"><i class="bi bi-tools"></i> {{index .t "history.actions"}}</div>
+                        <div class="card-body">
+                            <button class="btn btn-sm btn-outline-primary mb-2" id="historyFlush"><i class="bi bi-hdd"></i> {{index .t "history.flush_now"}}</button>
+                            <div class="d-flex align-items-start gap-2 mb-2">
+                                <button class="btn btn-sm btn-outline-warning" id="historyClearMemory"><i class="bi bi-eraser"></i> {{index .t "history.clear_memory"}}</button>
+                                <span class="small text-muted">{{index .t "history.clear_memory_info"}}</span>
+                            </div>
+                            <div class="d-flex align-items-start gap-2">
+                                <button class="btn btn-sm btn-outline-danger" id="historyClearDisk"><i class="bi bi-trash"></i> {{index .t "history.clear_disk"}}</button>
+                                <span class="small text-muted">{{index .t "history.clear_disk_info"}}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/utils.js"></script>
+    <script src="/static/js/csrf.js"></script>
+    <script src="/static/js/theme.js"></script>
+    <script src="/static/js/sidebar.js"></script>
+    <script>
+        window.historyT = {{json .historyT}};
+    </script>
+    <script src="/static/js/history.js"></script>
+</body>
+</html>

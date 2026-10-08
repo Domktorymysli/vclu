@@ -1,0 +1,18 @@
+services:
+  vclu:
+    build:
+      context: .
+      args:
+        VERSION: ${VERSION:-dev}
+        COMMIT: ${COMMIT:-unknown}
+    image: vclu:latest
+    container_name: vclu
+    restart: unless-stopped
+    network_mode: host          # required for UDP broadcast discovery
+    volumes:
+      - vclu-data:/data
+    environment:
+      - TZ=${TZ:-Europe/Warsaw}
+
+volumes:
+  vclu-data:

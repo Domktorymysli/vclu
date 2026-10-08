@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>{{.name}} - PIN</title>
+    <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/vendor/bootstrap-icons/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="/static/css/dashboard.css">
+</head>
+<body>
+    <div class="dash-pin-container">
+        <div class="dash-pin-card">
+            <div class="dash-pin-icon">
+                <i class="bi bi-{{.icon}}"></i>
+            </div>
+            <h2>{{.name}}</h2>
+            <p class="text-muted">Enter PIN to access this dashboard</p>
+            <div id="pinError" class="alert alert-danger" style="display:none;"></div>
+            <div class="dash-pin-dots" id="pinDots">
+                <span class="pin-dot"></span>
+                <span class="pin-dot"></span>
+                <span class="pin-dot"></span>
+                <span class="pin-dot"></span>
+            </div>
+            <div class="dash-pin-pad">
+                <button class="pin-btn" data-digit="1">1</button>
+                <button class="pin-btn" data-digit="2">2</button>
+                <button class="pin-btn" data-digit="3">3</button>
+                <button class="pin-btn" data-digit="4">4</button>
+                <button class="pin-btn" data-digit="5">5</button>
+                <button class="pin-btn" data-digit="6">6</button>
+                <button class="pin-btn" data-digit="7">7</button>
+                <button class="pin-btn" data-digit="8">8</button>
+                <button class="pin-btn" data-digit="9">9</button>
+                <button class="pin-btn pin-btn-empty"></button>
+                <button class="pin-btn" data-digit="0">0</button>
+                <button class="pin-btn pin-btn-back" id="pinBack"><i class="bi bi-backspace"></i></button>
+            </div>
+        </div>
+    </div>
+    <script>
+    (function() {
+        var dashId = '{{.id}}';
+        var pin = '';
+        var dots = document.querySelectorAll('.pin-dot');
+        var errorEl = document.getElementById('pinError');
+
+        function updateDots() {
+            for (var i = 0; i < dots.length; i++) {
+                dots[i].classList.toggle('filled', i < pin.length);
+            }
+        }
+
+        function submitPin() {
+            fetch('/api/dashboard/' + dashId + '/auth', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({pin: pin})
+            }).then(function(r) {
+                if (r.ok) {
+                    window.location.reload();
+                } else {
+                    errorEl.textContent = 'Invalid PIN';
+                    errorEl.style.display = 'block';
+                    pin = '';
+                    updateDots();
+                }
+            });
+        }
+
+        document.querySelectorAll('.pin-btn[data-digit]').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                if (pin.length >= 4) return;
+                pin += btn.dataset.digit;
+                updateDots();
+                errorEl.style.display = 'none';
+                if (pin.length === 4) {
+                    setTimeout(submitPin, 200);
+                }
+            });
+        });
+
+        document.getElementById('pinBack').addEventListener('click', function() {
+            pin = pin.slice(0, -1);
+            updateDots();
+        });
+    })();
+    </script>
+</body>
+</html>

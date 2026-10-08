@@ -1,0 +1,1 @@
+{"sn":{{SERIAL_NUMBER}},"mac":"{{MAC_ADDRESS}}","hwType":{{HARDWARE_TYPE}},"hwVer":{{HARDWARE_VERSION}},"fwType":{{FIRMWARE_TYPE}},"fwApiVer":{{FIRMWARE_API_VERSION}},"fwVer":"{{FIRMWARE_VERSION_STRING}}","tfbusDevices":[],"zwaveDevices":[]}

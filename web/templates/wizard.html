@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="{{.lang}}" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{index .t "wizard.title"}} - Virtual CLU</title>
+    <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/vendor/bootstrap-icons/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="/static/css/dark-theme.css">
+    <link rel="stylesheet" href="/static/css/wizard.css">
+    <meta name="csrf-token" content="{{.csrfToken}}">
+</head>
+<body>
+    <div class="app-container" style="grid-template-columns: 1fr;">
+        <!-- Main Content -->
+        <main class="main-content" style="margin-left: 0;">
+            <header class="topbar">
+                <h1 class="page-title">{{index .t "wizard.title"}}</h1>
+                <div class="topbar-actions">
+                    <div class="dropdown">
+                        <button class="btn-icon dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-globe"></i>
+                            <span class="lang-label">{{if eq .lang "pl"}}PL{{else}}EN{{end}}</span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item {{if eq .lang "pl"}}active{{end}}" href="?lang=pl">Polski</a></li>
+                            <li><a class="dropdown-item {{if eq .lang "en"}}active{{end}}" href="?lang=en">English</a></li>
+                        </ul>
+                    </div>
+                </div>
+            </header>
+
+            <div class="page-content">
+                <div class="content-wrapper">
+                    <!-- Progress Steps (rendered dynamically by JS) -->
+                    <div class="wizard-progress mb-4" id="wizardProgressBar"></div>
+
+                    <!-- Alert container -->
+                    <div id="alertContainer"></div>
+
+                    <!-- Step: Device Type Selection -->
+                    <div class="wizard-panel" id="step-device-type">
+                        <div class="card">
+                            <div class="card-header">
+                                <i class="bi bi-cpu"></i> {{index .t "wizard.select_device_type"}}
+                            </div>
+                            <div class="card-body">
+                                {{if .wizardState.DeviceTypeLocked}}
+                                <div class="alert alert-warning">
+                                    <i class="bi bi-lock"></i>
+                                    <strong>{{index .t "wizard.device_type_locked"}}</strong>
+                                    {{index .t "wizard.current_device"}}: <strong>{{.wizardState.DeviceTypeName}}</strong> ({{.wizardState.Category}})
+                                </div>
+                                {{else}}
+                                <p class="text-muted mb-4">
+                                    {{index .t "wizard.select_device_desc"}}
+                                    <strong>{{index .t "wizard.cannot_change"}}</strong>
+                                </p>
+                                {{end}}
+
+                                <div class="device-type-grid">
+                                    {{range .deviceTypes}}
+                                    <div class="device-type-card {{if eq $.wizardState.DeviceTypeID .ID}}selected{{end}} {{if $.wizardState.DeviceTypeLocked}}{{if ne $.wizardState.DeviceTypeID .ID}}disabled{{end}}{{end}}"
+                                         data-device-id="{{.ID}}"
+                                         data-supports-modules="{{.SupportsModules}}"
+                                         data-category="{{.Category}}">
+                                        <div class="device-icon">
+                                            <i class="bi {{.Icon}}"></i>
+                                        </div>
+                                        <h4>{{.Name}}</h4>
+                                        <p class="description">{{.Description}}</p>
+                                        <div class="device-meta">
+                                            <span class="badge bg-{{if .SupportsModules}}success{{else}}secondary{{end}}">
+                                                {{if .SupportsModules}}{{index $.t "wizard.supports_modules"}}{{else}}{{index $.t "wizard.no_modules_badge"}}{{end}}
+                                            </span>
+                                        </div>
+                                        <div class="device-features text-muted mt-2" style="font-size: 0.8rem;">
+                                            Lua · MQTT · HomeKit · MCP
+                                        </div>
+                                    </div>
+                                    {{end}}
+                                </div>
+                            </div>
+                            <div class="card-footer d-flex justify-content-end">
+                                <button class="btn btn-primary wizard-next" disabled>
+                                    {{index .t "wizard.next"}} <i class="bi bi-arrow-right"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Step: Module Configuration -->
+                    <div class="wizard-panel" id="step-modules" style="display: none;">
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-puzzle"></i> {{index .t "wizard.configure_modules"}}</span>
+                                <button class="btn btn-sm btn-success" id="addModuleBtn">
+                                    <i class="bi bi-plus-circle"></i> {{index .t "wizard.add_module"}}
+                                </button>
+                            </div>
+                            <div class="card-body">
+                                <div id="noModulesMsg" class="text-center py-5 {{if .wizardState.Modules}}d-none{{end}}">
+                                    <i class="bi bi-puzzle" style="font-size: 3rem; color: var(--text-muted);"></i>
+                                    <p class="text-muted mt-3">{{index .t "wizard.no_modules_yet"}}</p>
+                                    <button class="btn btn-outline-primary" id="addFirstModuleBtn">
+                                        <i class="bi bi-plus-circle"></i> {{index .t "wizard.add_first_module"}}
+                                    </button>
+                                </div>
+
+                                <div id="modulesList" class="{{if not .wizardState.Modules}}d-none{{end}}">
+                                    <!-- Modules will be rendered here by JavaScript -->
+                                </div>
+                            </div>
+                            <div class="card-footer d-flex justify-content-between">
+                                <button class="btn btn-outline-secondary wizard-back">
+                                    <i class="bi bi-arrow-left"></i> {{index .t "wizard.back"}}
+                                </button>
+                                <button class="btn btn-primary wizard-next">
+                                    {{index .t "wizard.next"}} <i class="bi bi-arrow-right"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Step: Grenton Integration (Keys & PIN) -->
+                    <div class="wizard-panel" id="step-grenton" style="display: none;">
+                        <div class="card">
+                            <div class="card-header">
+                                <i class="bi bi-hdd-network"></i> {{index .t "wizard.keys_pin"}}
+                            </div>
+                            <div class="card-body">
+                                <p class="text-muted mb-4">
+                                    {{index .t "wizard.keys_desc"}}
+                                </p>
+
+                                <div class="mb-3">
+                                    <label for="wizardPIN" class="form-label">{{index .t "wizard.pin_label"}}</label>
+                                    <input type="text" class="form-control" id="wizardPIN" maxlength="8" minlength="8"
+                                           placeholder="00000000" style="max-width: 300px;">
+                                    <div class="form-text">{{index .t "wizard.pin_help"}}</div>
+                                </div>
+
+                                <input type="hidden" id="broadcastEnabled" value="true">
+
+                                <input type="hidden" id="broadcastKey" value="hd5SHpxl0N5+WEXTXlPQmw==">
+                                <input type="hidden" id="defaultIV" value="ua/jh/kZo9Og15rejhGhFg==">
+                                <input type="hidden" id="broadcastIV" value="BwYFBAMCAQAEAgkDBAEFBw==">
+                            </div>
+                            <div class="card-footer d-flex justify-content-between">
+                                <button class="btn btn-outline-secondary wizard-back">
+                                    <i class="bi bi-arrow-left"></i> {{index .t "wizard.back"}}
+                                </button>
+                                <button class="btn btn-primary wizard-next">
+                                    {{index .t "wizard.next"}} <i class="bi bi-arrow-right"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Step: Security -->
+                    <div class="wizard-panel" id="step-security" style="display: none;">
+                        <div class="card">
+                            <div class="card-header">
+                                <i class="bi bi-shield-lock"></i> {{index .t "wizard.security_title"}}
+                            </div>
+                            <div class="card-body">
+                                <p class="text-muted mb-4">
+                                    {{index .t "wizard.security_desc"}}
+                                </p>
+
+                                <div class="alert alert-info mb-3">
+                                    <i class="bi bi-info-circle"></i> {{index .t "wizard.password_required"}}
+                                </div>
+
+                                <div id="authFields">
+                                    <div class="mb-3">
+                                        <label for="authUsername" class="form-label">{{index .t "wizard.username_label"}}</label>
+                                        <input type="text" class="form-control" id="authUsername"
+                                               minlength="3" placeholder="admin" style="max-width: 300px;">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="authPassword" class="form-label">{{index .t "wizard.password_label"}}</label>
+                                        <input type="password" class="form-control" id="authPassword"
+                                               minlength="8" style="max-width: 300px;">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="authPasswordConfirm" class="form-label">{{index .t "wizard.password_confirm"}}</label>
+                                        <input type="password" class="form-control" id="authPasswordConfirm"
+                                               minlength="8" style="max-width: 300px;">
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card-footer d-flex justify-content-between">
+                                <button class="btn btn-outline-secondary wizard-back">
+                                    <i class="bi bi-arrow-left"></i> {{index .t "wizard.back"}}
+                                </button>
+                                <button class="btn btn-primary wizard-next">
+                                    {{index .t "wizard.next"}} <i class="bi bi-arrow-right"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Step: Preview and Finish -->
+                    <div class="wizard-panel" id="step-finish" style="display: none;">
+                        <div class="card">
+                            <div class="card-header">
+                                <i class="bi bi-check2-circle"></i> {{index .t "wizard.config_summary"}}
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <h5>{{index .t "wizard.device_info"}}</h5>
+                                        <table class="table table-sm">
+                                            <tr>
+                                                <th>{{index .t "wizard.device_type_col"}}</th>
+                                                <td id="summaryDeviceType">-</td>
+                                            </tr>
+                                            <tr>
+                                                <th>{{index .t "wizard.category"}}</th>
+                                                <td id="summaryCategory">-</td>
+                                            </tr>
+                                            <tr id="summaryModulesRow">
+                                                <th>{{index .t "wizard.total_modules"}}</th>
+                                                <td id="summaryModules">0</td>
+                                            </tr>
+                                            <tr id="summaryIORow">
+                                                <th>{{index .t "wizard.total_io"}}</th>
+                                                <td id="summaryIO">0</td>
+                                            </tr>
+                                            <tr id="summaryPINRow">
+                                                <th>{{index .t "wizard.pin"}}</th>
+                                                <td id="summaryPIN">-</td>
+                                            </tr>
+                                            <tr id="summaryBroadcastRow">
+                                                <th>{{index .t "wizard.broadcast"}}</th>
+                                                <td id="summaryBroadcast">-</td>
+                                            </tr>
+                                            <tr>
+                                                <th>{{index .t "wizard.authentication"}}</th>
+                                                <td id="summaryAuth">-</td>
+                                            </tr>
+                                        </table>
+                                    </div>
+                                    <div class="col-md-6" id="omPreviewSection">
+                                        <h5>{{index .t "wizard.om_preview"}}</h5>
+                                        <div class="position-relative">
+                                            <button class="btn btn-sm btn-outline-secondary position-absolute" style="top: 5px; right: 5px;" id="refreshPreviewBtn">
+                                                <i class="bi bi-arrow-clockwise"></i>
+                                            </button>
+                                            <pre id="omPreview" class="bg-dark p-3 rounded" style="max-height: 300px; overflow-y: auto; font-size: 0.85rem;">
+<code>{{index .t "wizard.loading"}}</code>
+                                            </pre>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="alert alert-info mt-4" id="finishNoteAlert">
+                                    <i class="bi bi-info-circle"></i>
+                                    <strong>{{index .t "wizard.note"}}</strong> {{index .t "wizard.finish_note"}}
+                                </div>
+                            </div>
+                            <div class="card-footer d-flex justify-content-between">
+                                <button class="btn btn-outline-secondary wizard-back">
+                                    <i class="bi bi-arrow-left"></i> {{index .t "wizard.back"}}
+                                </button>
+                                <button class="btn btn-success" id="finishBtn">
+                                    <i class="bi bi-check-circle"></i> {{index .t "wizard.finish_btn"}}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Add Module Modal -->
+    <div class="modal fade" id="addModuleModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-plus-circle"></i> {{index .t "wizard.add_module"}}</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="moduleType" class="form-label">{{index .t "wizard.module_type"}}</label>
+                        <select class="form-select" id="moduleType">
+                            {{range .moduleTypes}}
+                            <option value="{{.ID}}" data-description="{{.Description}}" data-icon="{{.Icon}}">
+                                {{.Name}} - {{.Description}}
+                            </option>
+                            {{end}}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="moduleName" class="form-label">{{index .t "wizard.module_name"}}</label>
+                        <input type="text" class="form-control" id="moduleName" placeholder="{{index .t "wizard.module_name_placeholder"}}">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{index .t "wizard.cancel"}}</button>
+                    <button type="button" class="btn btn-primary" id="confirmAddModule">{{index .t "wizard.add_module"}}</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/utils.js"></script>
+    <script src="/static/js/csrf.js"></script>
+    <script>
+        // Pass initial state from server
+        const WIZARD_STATE = {
+            deviceTypeId: '{{.wizardState.DeviceTypeID}}',
+            deviceTypeName: '{{.wizardState.DeviceTypeName}}',
+            category: '{{.wizardState.Category}}',
+            deviceTypeLocked: {{if .wizardState.DeviceTypeLocked}}true{{else}}false{{end}},
+            supportsModules: {{if .wizardState.SupportsModules}}true{{else}}false{{end}},
+            modules: {{json .wizardState.Modules}},
+            ioObjects: {{json .wizardState.IOObjects}},
+            moduleTypes: {{json .moduleTypes}},
+            pin: '{{.wizardState.PIN}}',
+            broadcastEnabled: {{if .wizardState.BroadcastEnabled}}true{{else}}false{{end}},
+            authUsername: '{{.wizardState.AuthUsername}}'
+        };
+        // Pass translations for JavaScript
+        const WIZARD_I18N = {
+            err_save_device: '{{index .t "wizard.err_save_device"}}',
+            err_network: '{{index .t "wizard.err_network"}}',
+            err_pin_length: '{{index .t "wizard.err_pin_length"}}',
+            err_save_keys: '{{index .t "wizard.err_save_keys"}}',
+            err_username_min: '{{index .t "wizard.err_username_min"}}',
+            err_password_min: '{{index .t "wizard.err_password_min"}}',
+            err_password_match: '{{index .t "wizard.err_password_match"}}',
+            err_save_security: '{{index .t "wizard.err_save_security"}}',
+            err_add_module: '{{index .t "wizard.err_add_module"}}',
+            module_added: '{{index .t "wizard.module_added"}}',
+            confirm_remove: '{{index .t "wizard.confirm_remove"}}',
+            err_remove_module: '{{index .t "wizard.err_remove_module"}}',
+            module_removed: '{{index .t "wizard.module_removed"}}',
+            loading: '{{index .t "wizard.loading"}}',
+            err_load_preview: '{{index .t "wizard.err_load_preview"}}',
+            saving: '{{index .t "wizard.saving"}}',
+            err_save_config: '{{index .t "wizard.err_save_config"}}',
+            config_saved: '{{index .t "wizard.config_saved"}}',
+            done: '{{index .t "wizard.done"}}',
+            finish_btn: '{{index .t "wizard.finish_btn"}}',
+            enabled: '{{index .t "wizard.enabled"}}',
+            disabled: '{{index .t "wizard.disabled"}}',
+            enabled_user: '{{index .t "wizard.enabled_user"}}',
+            restarting: '{{index .t "wizard.restarting"}}',
+            please_wait: '{{index .t "wizard.please_wait"}}',
+            step_device_type: '{{index .t "wizard.step_device_type"}}',
+            step_modules: '{{index .t "wizard.step_modules"}}',
+            step_keys: '{{index .t "wizard.step_keys"}}',
+            step_security: '{{index .t "wizard.step_security"}}',
+            step_finish: '{{index .t "wizard.step_finish"}}'
+        };
+    </script>
+    <script src="/static/js/restart-overlay.js"></script>
+    <script src="/static/js/wizard.js"></script>
+</body>
+</html>

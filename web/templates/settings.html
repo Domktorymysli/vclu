@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="{{.lang}}" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{index .t "app.settings"}} - Virtual CLU</title>
+    <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/vendor/bootstrap-icons/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="/static/css/dark-theme.css">
+    <meta name="csrf-token" content="{{.csrfToken}}">
+</head>
+<body>
+    <div class="app-container">
+        {{template "sidebar" .}}
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="topbar">
+                <button class="hamburger" id="hamburgerBtn"><i class="bi bi-list"></i></button>
+                <h1 class="page-title">{{index .t "app.settings"}}</h1>
+                <div class="topbar-actions">
+                    <button class="theme-toggle" id="themeToggle" title="Toggle theme">
+                        <i class="bi bi-moon-fill"></i>
+                        <i class="bi bi-sun-fill"></i>
+                    </button>
+                    <div class="dropdown">
+                        <button class="btn-icon dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-globe"></i>
+                            <span class="lang-label">{{if eq .lang "pl"}}PL{{else}}EN{{end}}</span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item {{if eq .lang "pl"}}active{{end}}" href="?lang=pl">Polski</a></li>
+                            <li><a class="dropdown-item {{if eq .lang "en"}}active{{end}}" href="?lang=en">English</a></li>
+                        </ul>
+                    </div>
+                </div>
+            </header>
+
+            <div class="page-content">
+                <div class="content-wrapper wide">
+                    {{if .error}}
+                    <div class="alert alert-danger" role="alert">
+                        <i class="bi bi-exclamation-triangle"></i> {{.error}}
+                    </div>
+                    {{end}}
+
+                    {{if .success}}
+                    <div class="alert alert-success" role="alert">
+                        <i class="bi bi-check-circle"></i> {{.success}}
+                    </div>
+                    {{end}}
+
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            <i class="bi bi-shield-lock"></i> {{index .t "settings.security"}}
+                        </div>
+                        <div class="card-body">
+                            {{if .authEnabled}}
+                            <div class="alert alert-success mb-3">
+                                <i class="bi bi-check-circle"></i> {{index .t "settings.auth_enabled_for"}} <strong>{{.authUsername}}</strong>
+                            </div>
+                            {{else}}
+                            <div class="alert alert-secondary mb-3">
+                                <i class="bi bi-unlock"></i> {{index .t "settings.auth_disabled"}}
+                            </div>
+                            {{end}}
+
+                            <form method="POST" action="/settings/security" id="securityForm">
+                                <input type="hidden" name="_csrf" value="{{.csrfToken}}">
+                                <div class="form-check mb-3">
+                                    <input class="form-check-input" type="checkbox" id="authEnabled" name="authEnabled"
+                                           {{if .authEnabled}}checked{{end}}>
+                                    <label class="form-check-label" for="authEnabled">
+                                        <strong>{{index .t "settings.enable_auth"}}</strong>
+                                    </label>
+                                </div>
+
+                                <div id="authFields" style="{{if not .authEnabled}}display: none;{{end}}">
+                                    <div class="mb-3">
+                                        <label for="authUsername" class="form-label">{{index .t "settings.username"}}</label>
+                                        <input type="text" class="form-control" id="authUsername" name="authUsername"
+                                               value="{{.authUsername}}" minlength="3" maxlength="32">
+                                        <div class="form-text">{{index .t "settings.username_min"}}</div>
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <label for="authPassword" class="form-label">{{index .t "settings.new_password"}}</label>
+                                        <input type="password" class="form-control" id="authPassword" name="authPassword"
+                                               minlength="8" maxlength="64">
+                                        <div class="form-text">{{index .t "settings.password_hint"}}</div>
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <label for="authPasswordConfirm" class="form-label">{{index .t "settings.confirm_password"}}</label>
+                                        <input type="password" class="form-control" id="authPasswordConfirm" name="authPasswordConfirm"
+                                               minlength="8" maxlength="64">
+                                    </div>
+                                </div>
+
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="bi bi-save"></i> {{index .t "settings.save_security"}}
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            <i class="bi bi-key-fill"></i> {{index .t "settings.api_key"}}
+                        </div>
+                        <div class="card-body">
+                            <p class="text-muted small">
+                                {{index .t "settings.api_key_desc"}}
+                                {{index .t "settings.api_key_header_hint"}} <code>X-API-Key</code> {{index .t "settings.api_key_header_hint2"}}
+                            </p>
+                            {{if .hasAPIKey}}
+                            <div class="alert alert-success mb-3">
+                                <i class="bi bi-check-circle"></i> {{index .t "settings.api_key_configured"}}
+                            </div>
+                            <button type="button" class="btn btn-outline-danger" id="revokeAPIKeyBtn">
+                                <i class="bi bi-trash"></i> {{index .t "settings.revoke_key"}}
+                            </button>
+                            {{else}}
+                            <div class="alert alert-secondary mb-3">
+                                <i class="bi bi-info-circle"></i> {{index .t "settings.no_api_key"}}
+                            </div>
+                            {{end}}
+                            <button type="button" class="btn btn-primary ms-2" id="generateAPIKeyBtn">
+                                <i class="bi bi-plus-circle"></i> {{index .t "settings.generate_key"}}
+                            </button>
+                            <div id="apiKeyResult" class="mt-3" style="display: none;">
+                                <div class="alert alert-warning">
+                                    <i class="bi bi-exclamation-triangle"></i> <strong>{{index .t "settings.copy_key_warning"}}</strong>
+                                    <div class="mt-2">
+                                        <code id="apiKeyValue" class="fs-6 user-select-all"></code>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            <i class="bi bi-arrow-clockwise"></i> {{index .t "settings.restart"}}
+                        </div>
+                        <div class="card-body">
+                            <p class="card-text text-muted small">
+                                {{index .t "settings.restart_desc"}}
+                            </p>
+                            <button type="button" class="btn btn-warning" id="restartBtn">
+                                <i class="bi bi-arrow-clockwise"></i> {{index .t "settings.restart_btn"}}
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="card mb-3">
+                        <div class="card-header text-bg-danger">
+                            <i class="bi bi-exclamation-octagon"></i> {{index .t "settings.danger_zone"}}
+                        </div>
+                        <div class="card-body">
+                            <h6 class="card-title">{{index .t "settings.reset_title"}}</h6>
+                            <p class="card-text text-muted small">
+                                {{index .t "settings.reset_desc"}}
+                            </p>
+                            <p class="text-danger mb-3">
+                                <strong><i class="bi bi-exclamation-triangle"></i> {{index .t "settings.reset_warning"}}</strong>
+                            </p>
+                            <button type="button" class="btn btn-danger" id="resetBtn">
+                                <i class="bi bi-trash"></i> {{index .t "settings.reset_btn"}}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/utils.js"></script>
+    <script src="/static/js/csrf.js"></script>
+    <script src="/static/js/theme.js"></script>
+    <script src="/static/js/sidebar.js"></script>
+    <script src="/static/js/restart-overlay.js"></script>
+    <script>
+        window.SETTINGS_T = {
+            username_min: {{json (index .t "settings.js_username_min")}},
+            password_mismatch: {{json (index .t "settings.js_password_mismatch")}},
+            password_min: {{json (index .t "settings.js_password_min")}},
+            confirm_restart: {{json (index .t "settings.js_confirm_restart")}},
+            restarting: {{json (index .t "settings.js_restarting")}},
+            restarting_title: {{json (index .t "settings.js_restarting_title")}},
+            please_wait: {{json (index .t "settings.js_please_wait")}},
+            confirm_reset: {{json (index .t "settings.js_confirm_reset")}},
+            confirm_reset_final: {{json (index .t "settings.js_confirm_reset_final")}},
+            resetting: {{json (index .t "settings.js_resetting")}},
+            resetting_title: {{json (index .t "settings.js_resetting_title")}},
+            reset_subtitle: {{json (index .t "settings.js_reset_subtitle")}},
+            reset_btn: {{json (index .t "settings.reset_btn")}},
+            confirm_generate: {{json (index .t "settings.js_confirm_generate")}},
+            confirm_revoke: {{json (index .t "settings.js_confirm_revoke")}}
+        };
+    </script>
+    <script src="/static/js/settings.js"></script>
+</body>
+</html>
