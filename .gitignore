@@ -36,6 +36,7 @@ data_backup/
 # Build artifacts
 deploy-tmp/
 dist/
+.release/
 
 # Generated docs (LDoc HTML output, regenerate via `task docs`)
 docs/lua-api/

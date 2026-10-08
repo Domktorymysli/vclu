@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.2.0 (2026-10-08)
+## v1.2.0 (2026-10-09)
 
 ### Security
 
@@ -52,6 +52,7 @@
 - **Linux builds find the a/ templates** - the code asked for `MAIN.LUA`, `OM.LUA`, `USER.LUA` while git has them lowercase; macOS hid the mismatch, CI and goreleaser on Linux failed.
 - **CI enforces formatting and runs the race detector** - `gofmt` check, a separate `go test -race` job, and a 5 min limit on the regular test run. A GPIO test that failed about 1 run in 8 (fixed 50 ms sleep) now waits for the event.
 - **LDoc generation works again** - `task docs` failed: `Taskfile.yml` did not parse and LDoc aborted on doc comments inside a local table.
+- **Release archives keep the Lua runtime tree** - archives put every runtime file flat in `runtime/`, so a fresh install from a release archive could not load its modules. The Docker image is now built for amd64 and arm64.
 
 ### Docs
 

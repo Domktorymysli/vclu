@@ -6,11 +6,13 @@ before:
   hooks:
     - go mod tidy
     - go vet ./...
-    # Prepare flat layout for archive (install.sh expects these paths)
-    - mkdir -p dist/extra/runtime
-    - cp -r pkg/lua/runtime/* dist/extra/runtime/
-    - mkdir -p dist/extra/docs/ai
-    - cp docs/ai/*.md dist/extra/docs/ai/ 2>/dev/null || true
+    # Prepare flat layout for archive (install.sh expects these paths).
+    # Hooks run without a shell: no globs or redirects outside sh -c.
+    - rm -rf .release
+    - mkdir -p .release/runtime
+    - cp -r pkg/lua/runtime/. .release/runtime/
+    - mkdir -p .release/docs/ai
+    - sh -c 'cp docs/ai/*.md .release/docs/ai/ 2>/dev/null || true'
 
 builds:
   - main: ./cmd/vclu
@@ -43,10 +45,9 @@ archives:
     files:
       - src: web/**/*
         strip_parent: false
-      - src: dist/extra/runtime/**/*
+      - src: .release/runtime
         dst: runtime
-        strip_parent: true
-      - src: dist/extra/docs/ai/*
+      - src: .release/docs/ai/*
         dst: docs/ai
         strip_parent: true
       - src: deploy/install.sh
@@ -72,14 +73,36 @@ changelog:
       - "^chore:"
 
 dockers:
-  - image_templates:
-      - "ghcr.io/domktorymysli/vclu:{{ .Version }}"
-      - "ghcr.io/domktorymysli/vclu:latest"
-    dockerfile: Dockerfile
+  - id: amd64
+    goarch: amd64
+    use: buildx
+    dockerfile: Dockerfile.release
+    image_templates:
+      - "ghcr.io/domktorymysli/vclu:{{ .Version }}-amd64"
     build_flag_templates:
-      - "--build-arg=VERSION={{ .Version }}"
-      - "--build-arg=COMMIT={{ .ShortCommit }}"
-    extra_files:
+      - "--platform=linux/amd64"
+      - "--provenance=false"
+      - "--sbom=false"
+    extra_files: &docker_files
       - web
       - pkg/lua/runtime
       - docs/ai
+  - id: arm64
+    goarch: arm64
+    use: buildx
+    dockerfile: Dockerfile.release
+    image_templates:
+      - "ghcr.io/domktorymysli/vclu:{{ .Version }}-arm64"
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--provenance=false"
+      - "--sbom=false"
+    extra_files: *docker_files
+
+docker_manifests:
+  - name_template: "ghcr.io/domktorymysli/vclu:{{ .Version }}"
+    image_templates: &docker_images
+      - "ghcr.io/domktorymysli/vclu:{{ .Version }}-amd64"
+      - "ghcr.io/domktorymysli/vclu:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/domktorymysli/vclu:latest"
+    image_templates: *docker_images

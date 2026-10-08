@@ -1,0 +1,24 @@
+# Release image: GoReleaser puts the prebuilt binary in the build context.
+# For a local build from source use Dockerfile.
+FROM alpine:3.21
+
+RUN apk add --no-cache ca-certificates tzdata
+
+WORKDIR /opt/vclu
+
+COPY vclu ./vclu
+COPY web/ ./web/
+COPY pkg/lua/runtime/ ./runtime/
+COPY docs/ai/ ./docs/ai/
+
+VOLUME /data
+
+# Web UI
+EXPOSE 8080
+# UDP command server
+EXPOSE 1234/udp
+# TFTP server
+EXPOSE 69/udp
+
+ENTRYPOINT ["/opt/vclu/vclu"]
+CMD ["--auto", "--data-dir", "/data", "--web-port", "8080"]
