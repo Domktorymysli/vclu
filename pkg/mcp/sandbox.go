@@ -3,11 +3,18 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
+	"runtime"
+	"runtime/debug"
+	"runtime/metrics"
 	"sort"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/Domktorymysli/vclu/pkg/config"
@@ -20,6 +27,94 @@ import (
 
 // sandboxTimeout is a var so tests can shorten it.
 var sandboxTimeout = 5 * time.Second
+
+// sandboxMemoryLimit stops a draft test whose heap grows by more than this:
+// the sandbox shares the process with production, and a runaway loop would
+// otherwise get vCLU killed by the OOM killer within seconds. A single Go call
+// (e.g. table.concat of huge strings) can still overshoot it.
+var sandboxMemoryLimit = defaultSandboxMemoryLimit()
+
+// defaultSandboxMemoryLimit is 256 MB, or 15% of RAM on smaller machines
+// (the peak can reach about twice the limit), but not below 64 MB.
+func defaultSandboxMemoryLimit() uint64 {
+	limit := uint64(256 << 20)
+	if total := totalRAM(); total > 0 && total*15/100 < limit {
+		limit = max(total*15/100, 64<<20)
+	}
+	return limit
+}
+
+// totalRAM reads MemTotal from /proc/meminfo; 0 when unknown.
+func totalRAM() uint64 {
+	data, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		return 0
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if f := strings.Fields(line); len(f) >= 2 && f[0] == "MemTotal:" {
+			kb, err := strconv.ParseUint(f[1], 10, 64)
+			if err == nil {
+				return kb << 10
+			}
+		}
+	}
+	return 0
+}
+
+var errSandboxMemory = errors.New("sandbox memory limit exceeded")
+
+// heapBytes reads the heap size (garbage included) without stopping the world.
+func heapBytes() uint64 { return readMetric("/memory/classes/heap/objects:bytes") }
+
+// liveBytes is the heap the last GC found alive; allocations made during or
+// after that GC do not count.
+func liveBytes() uint64 { return readMetric("/gc/heap/live:bytes") }
+
+func readMetric(name string) uint64 {
+	s := []metrics.Sample{{Name: name}}
+	metrics.Read(s)
+	if s[0].Value.Kind() != metrics.KindUint64 {
+		return 0
+	}
+	return s[0].Value.Uint64()
+}
+
+func memoryError(limit uint64) error {
+	return fmt.Errorf("%w (%d MB): the draft allocates without bound", errSandboxMemory, limit>>20)
+}
+
+// guardForcedGCs counts GCs forced by guardMemory (for tests).
+var guardForcedGCs atomic.Int64
+
+// guardMemory cancels ctx when the heap grows past limit over base (live
+// bytes after a GC, see RunScenario). The heap metric counts garbage, so a
+// crossing is confirmed with the live heap after a GC; after a false alarm
+// the next forced GC waits 250 ms unless the heap passes twice the limit,
+// which the normal GC cycle (heap up to about 2x live) does not reach.
+func guardMemory(ctx context.Context, cancel context.CancelCauseFunc, limit, base uint64) {
+	over := func(h uint64) bool { return h > base && h-base > limit }
+	var quietUntil time.Time
+	t := time.NewTicker(20 * time.Millisecond)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-t.C:
+			h := heapBytes()
+			if !over(h) || now.Before(quietUntil) && h-base < 2*limit {
+				continue
+			}
+			runtime.GC()
+			guardForcedGCs.Add(1)
+			if over(liveBytes()) {
+				cancel(errSandboxMemory)
+				return
+			}
+			quietUntil = time.Now().Add(250 * time.Millisecond)
+		}
+	}
+}
 
 const (
 	maxStateChanges    = 1000
@@ -78,18 +173,27 @@ func (se *SandboxEngine) RunScenario(draftPaths []string, sc SandboxScenario) (*
 		Errors:       []string{},
 	}
 
-	// Run with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), sandboxTimeout)
-	defer cancel()
+	// Run with timeout and a memory guard
+	tctx, cancelTimeout := context.WithTimeout(context.Background(), sandboxTimeout)
+	defer cancelTimeout()
+	ctx, cancel := context.WithCancelCause(tctx)
+	defer cancel(nil)
+	memLimit := sandboxMemoryLimit
+	runtime.GC() // a base without leftover garbage, the same every run
+	go guardMemory(ctx, cancel, memLimit, liveBytes())
 
 	done := make(chan error, 1)
 	go func() {
-		done <- se.runScenario(ctx, draftPaths, sc, result)
+		done <- se.runScenario(ctx, draftPaths, sc, result, memLimit)
 	}()
 
 	select {
 	case err := <-done:
 		result.DurationMs = time.Since(start).Milliseconds()
+		if errors.Is(context.Cause(ctx), errSandboxMemory) {
+			err = memoryError(memLimit)
+			debug.FreeOSMemory()
+		}
 		if err != nil {
 			result.Errors = append(result.Errors, err.Error())
 		} else {
@@ -101,6 +205,10 @@ func (se *SandboxEngine) RunScenario(draftPaths []string, sc SandboxScenario) (*
 		// The context aborts Lua and advance; result is only safe to read once
 		// the goroutine has returned.
 		timeoutErr := fmt.Sprintf("sandbox timeout (%s)", sandboxTimeout)
+		if errors.Is(context.Cause(ctx), errSandboxMemory) {
+			timeoutErr = memoryError(memLimit).Error()
+			defer debug.FreeOSMemory()
+		}
 		select {
 		case <-done:
 			result.Errors = append(result.Errors, timeoutErr)
@@ -116,6 +224,7 @@ func (se *SandboxEngine) RunScenario(draftPaths []string, sc SandboxScenario) (*
 // sandboxRun is one scenario: the virtual clock, KV and recorded calls outlive
 // a reload step, the Lua state and its timers do not.
 type sandboxRun struct {
+	memLimit uint64 // heap growth that stops the scenario
 	ctx      context.Context
 	se       *SandboxEngine
 	drafts   []string
@@ -134,19 +243,20 @@ type sandboxRun struct {
 }
 
 // runScenario does the actual sandbox execution (called in goroutine).
-func (se *SandboxEngine) runScenario(ctx context.Context, draftPaths []string, sc SandboxScenario, result *SandboxResult) error {
+func (se *SandboxEngine) runScenario(ctx context.Context, draftPaths []string, sc SandboxScenario, result *SandboxResult, memLimit uint64) error {
 	at := time.Now()
 	if !sc.At.IsZero() {
 		at = sc.At
 	}
 	run := &sandboxRun{
-		ctx:    ctx,
-		budget: maxCallbacksPerScenario,
-		se:     se,
-		drafts: draftPaths,
-		result: result,
-		clock:  &sandboxClock{now: at},
-		kv:     newSandboxKV(),
+		memLimit: memLimit,
+		ctx:      ctx,
+		budget:   maxCallbacksPerScenario,
+		se:       se,
+		drafts:   draftPaths,
+		result:   result,
+		clock:    &sandboxClock{now: at},
+		kv:       newSandboxKV(),
 	}
 	run.history = history.New(history.DefaultConfig(), run.clock.Now)
 	if err := run.resolveObjects(sc.Fixtures); err != nil {
@@ -228,7 +338,7 @@ func (run *sandboxRun) load() (*lua.LState, error) {
 	vclulua.RegisterHistoryFunctions(L, run.history)
 
 	// 4. Register blocked stubs for side-effect systems
-	se.registerBlockedStubs(L, result)
+	se.registerBlockedStubs(L, result, run.memLimit)
 
 	// 5. In-memory KV, shared by every load of this scenario
 	run.kv.install(L)
@@ -384,7 +494,7 @@ func (run *sandboxRun) load() (*lua.LState, error) {
 }
 
 // registerBlockedStubs registers __go_* stubs that log blocked calls.
-func (se *SandboxEngine) registerBlockedStubs(L *lua.LState, result *SandboxResult) {
+func (se *SandboxEngine) registerBlockedStubs(L *lua.LState, result *SandboxResult, memLimit uint64) {
 	blocked := func(callType string) *lua.LFunction {
 		return L.NewFunction(func(L *lua.LState) int {
 			if len(result.BlockedCalls) < maxBlockedCalls {
@@ -498,6 +608,20 @@ func (se *SandboxEngine) registerBlockedStubs(L *lua.LState, result *SandboxResu
 	L.SetGlobal("__go_client_push_notify", L.NewFunction(func(L *lua.LState) int {
 		return 0
 	}))
+
+	// One string.rep can allocate gigabytes before the memory guard looks;
+	// a quarter of the budget leaves room for the next concatenation
+	if strT, ok := L.GetGlobal("string").(*lua.LTable); ok {
+		rep := strT.RawGetString("rep")
+		strT.RawSetString("rep", L.NewFunction(func(L *lua.LState) int {
+			if n := L.OptInt64(2, 0); n > 0 && int64(len(L.CheckString(1)))*n > int64(memLimit/4) {
+				L.RaiseError("%v: string.rep of %d bytes", errSandboxMemory, int64(len(L.CheckString(1)))*n)
+			}
+			L.Insert(rep, 1)
+			L.Call(L.GetTop()-1, lua.MultRet)
+			return L.GetTop()
+		}))
+	}
 
 	// Processes and file writes; reading files stays as in production
 	if osT, ok := L.GetGlobal("os").(*lua.LTable); ok {

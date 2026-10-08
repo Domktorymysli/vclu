@@ -206,9 +206,13 @@ func withStateContext(L *lua.LState, origin, actor, correlationID string) func()
 	t.RawSetString("correlationId", lua.LString(correlationID))
 	call("push", t)
 	return func() {
-		// a timed-out script leaves a cancelled context; restore needs a live one
-		L.RemoveContext()
+		// a timed-out script leaves a cancelled context; restore needs a live
+		// one, then the caller's context goes back (the sandbox relies on it)
+		ctx := L.RemoveContext()
 		call("truncate", depth)
+		if ctx != nil {
+			L.SetContext(ctx)
+		}
 	}
 }
 
