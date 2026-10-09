@@ -27,7 +27,7 @@ func (r *recLua) Execute(script string) (string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.scripts = append(r.scripts, script)
-	if strings.Contains(script, "tostring(h:getValue()") {
+	if isStateRead(script) {
 		return r.state, nil
 	}
 	return "", nil
@@ -396,7 +396,7 @@ func TestWriteToMissingObjectReverts(t *testing.T) {
 type missingLua struct{}
 
 func (missingLua) Execute(script string) (string, error) {
-	if strings.Contains(script, "tostring(h:getValue()") {
+	if isStateRead(script) {
 		return "0", nil
 	}
 	return "missing", nil
@@ -412,3 +412,6 @@ func TestRecoveryIgnoresDigitsInPaths(t *testing.T) {
 		t.Errorf("numbering from %d, want %d", id, recoveredAID)
 	}
 }
+
+// isStateRead tells GetCurrentState's script from a write.
+func isStateRead(script string) bool { return strings.Contains(script, "return tostring(v)") }

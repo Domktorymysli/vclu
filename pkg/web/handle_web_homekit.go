@@ -1,7 +1,10 @@
 package web
 
 import (
+	"github.com/Domktorymysli/vclu/pkg/homekit"
+	"log"
 	"net/http"
+	"strings"
 
 	"github.com/Domktorymysli/vclu/pkg/config"
 	"github.com/gin-gonic/gin"
@@ -83,33 +86,29 @@ func (s *Server) handleHomeKitPost(c *gin.Context) {
 		portNum = 5123
 	}
 
-	// Validate PIN (must be 8 digits)
-	if len(pin) != 8 {
-		pin = "00102003" // Default PIN
+	// Same rules as the API: a wrong PIN is refused, not replaced
+	if pin == "" {
+		pin = "00102003"
+	}
+	if err := homekit.ValidatePin(pin); err != nil {
+		s.renderHTML(c, http.StatusBadRequest, "homekit.html", gin.H{"error": err.Error()})
+		return
 	}
 
-	// Load and update master config
 	masterConfig, err := config.ReadMasterConfig(s.serverDir)
-	if err != nil {
+	if err != nil || masterConfig == nil {
 		masterConfig = &config.VCLUConfig{}
 	}
-	if masterConfig == nil {
-		masterConfig = &config.VCLUConfig{}
-	}
-
-	masterConfig.HomeKit = &config.VCLUHomeKitConfig{
-		Enabled:      enabled,
-		Pin:          pin,
-		Port:         portNum,
-		BridgeName:   bridgeName,
-		SerialNumber: serialNumber,
-	}
+	masterConfig.HomeKit = homeKitConfig(masterConfig.HomeKit, enabled, pin, portNum, bridgeName, serialNumber)
 
 	if err := config.WriteMasterConfig(s.serverDir, masterConfig); err != nil {
 		s.renderHTML(c, http.StatusInternalServerError, "homekit.html", gin.H{
 			"error": "Failed to save configuration",
 		})
 		return
+	}
+	if warning := s.applyHomeKitConfig(masterConfig.HomeKit); warning != "" {
+		log.Printf("[HomeKit] %s", warning)
 	}
 
 	// Redirect back to HomeKit page
@@ -119,7 +118,7 @@ func (s *Server) handleHomeKitPost(c *gin.Context) {
 // handleAPIHomeKitSave saves HomeKit configuration via JSON API
 //
 //	@Summary		Save HomeKit configuration
-//	@Description	Stores the HomeKit section of .vclu.json and reloads the running HomeKit server so changes apply immediately. A PIN that is not 8 digits is replaced with the default, port 0 with 5123. If the reload fails the configuration is still saved and a warning is returned.
+//	@Description	Stores the HomeKit section of .vclu.json and reloads the running HomeKit server so changes apply immediately. An empty PIN means the default 00102003; a PIN that is not 8 digits or that HomeKit refuses as insecure is rejected with 400; port 0 means 5123. Disabling stops the bridge; enabling a bridge that was off at startup needs a restart of vCLU. If the reload fails the configuration is still saved and a warning is returned.
 //	@Tags			homekit
 //	@Accept			json
 //	@Produce		json
@@ -142,9 +141,14 @@ func (s *Server) handleAPIHomeKitSave(c *gin.Context) {
 		return
 	}
 
-	// Validate PIN (must be 8 digits)
-	if len(req.Pin) != 8 {
+	// An empty PIN keeps the default; a wrong one is refused, not replaced
+	// (the Home app would ask for a code the user never set)
+	if req.Pin == "" {
 		req.Pin = "00102003"
+	}
+	if err := homekit.ValidatePin(req.Pin); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
 	}
 	if req.Port == 0 {
 		req.Port = 5123
@@ -156,35 +160,60 @@ func (s *Server) handleAPIHomeKitSave(c *gin.Context) {
 		masterConfig = &config.VCLUConfig{}
 	}
 
-	// Preserve RefreshInterval if it was set
-	refreshInterval := 300
-	if masterConfig.HomeKit != nil && masterConfig.HomeKit.RefreshInterval > 0 {
-		refreshInterval = masterConfig.HomeKit.RefreshInterval
-	}
-
-	masterConfig.HomeKit = &config.VCLUHomeKitConfig{
-		Enabled:         req.Enabled,
-		Pin:             req.Pin,
-		Port:            req.Port,
-		BridgeName:      req.BridgeName,
-		SerialNumber:    req.SerialNumber,
-		RefreshInterval: refreshInterval,
-	}
+	masterConfig.HomeKit = homeKitConfig(masterConfig.HomeKit, req.Enabled, req.Pin, req.Port, req.BridgeName, req.SerialNumber)
 
 	if err := config.WriteMasterConfig(s.serverDir, masterConfig); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save configuration"})
 		return
 	}
 
-	// Restart HomeKit server if available (applies config changes immediately)
-	if s.homekitServer != nil {
-		if err := s.homekitServer.Reload(); err != nil {
-			c.JSON(http.StatusOK, gin.H{"success": true, "warning": "Saved but restart failed: " + err.Error()})
-			return
-		}
+	if warning := s.applyHomeKitConfig(masterConfig.HomeKit); warning != "" {
+		c.JSON(http.StatusOK, gin.H{"success": true, "warning": warning})
+		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// homeKitConfig builds the saved HomeKit section: refresh interval kept, an
+// empty bridge name gets the default (hap refuses an accessory without a name).
+func homeKitConfig(old *config.VCLUHomeKitConfig, enabled bool, pin string, port int, name, serial string) *config.VCLUHomeKitConfig {
+	refresh := 300
+	if old != nil && old.RefreshInterval > 0 {
+		refresh = old.RefreshInterval
+	}
+	if strings.TrimSpace(name) == "" {
+		name = "vCLU Bridge"
+	}
+	return &config.VCLUHomeKitConfig{
+		Enabled:         enabled,
+		Pin:             pin,
+		Port:            port,
+		BridgeName:      name,
+		SerialNumber:    serial,
+		RefreshInterval: refresh,
+	}
+}
+
+// applyHomeKitConfig applies saved settings to the running bridge; returns a
+// warning for the user, or "".
+func (s *Server) applyHomeKitConfig(cfg *config.VCLUHomeKitConfig) string {
+	if s.homekitServer == nil {
+		if cfg.Enabled {
+			return "Saved; restart vCLU to start HomeKit"
+		}
+		return ""
+	}
+	// The running server keeps its own config pointer: hand it the new one
+	s.homekitServer.SetConfig(cfg)
+	if !cfg.Enabled {
+		s.homekitServer.Stop()
+		return ""
+	}
+	if err := s.homekitServer.Reload(); err != nil {
+		return "Saved but restart failed: " + err.Error()
+	}
+	return ""
 }
 
 // handleAPIHomeKitStatus returns HomeKit server status

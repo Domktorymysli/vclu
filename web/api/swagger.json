@@ -1265,6 +1265,26 @@
                 }
             }
         },
+        "/api/history": {
+            "get": {
+                "description": "Changes of all objects, newest first, from memory and the daily files. Filters: path, origin, actor, q (text), since/until (RFC 3339 or Unix ms). Pass next as cursor for the following page.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "history"
+                ],
+                "summary": "State change history",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/history.SearchResult"
+                        }
+                    }
+                }
+            }
+        },
         "/api/homekit/restart": {
             "post": {
                 "security": [
@@ -1309,7 +1329,7 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Stores the HomeKit section of .vclu.json and reloads the running HomeKit server so changes apply immediately. A PIN that is not 8 digits is replaced with the default, port 0 with 5123. If the reload fails the configuration is still saved and a warning is returned.",
+                "description": "Stores the HomeKit section of .vclu.json and reloads the running HomeKit server so changes apply immediately. An empty PIN means the default 00102003; a PIN that is not 8 digits or that HomeKit refuses as insecure is rejected with 400; port 0 means 5123. Disabling stops the bridge; enabling a bridge that was off at startup needs a restart of vCLU. If the reload fails the configuration is still saved and a warning is returned.",
                 "consumes": [
                     "application/json"
                 ],
@@ -2848,6 +2868,49 @@
                 }
             }
         },
+        "history.Entry": {
+            "type": "object",
+            "properties": {
+                "actor": {
+                    "type": "string"
+                },
+                "atMs": {
+                    "description": "UTC Unix milliseconds",
+                    "type": "integer"
+                },
+                "correlationId": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "old": {},
+                "origin": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "schema": {
+                    "type": "integer"
+                },
+                "value": {}
+            }
+        },
+        "history.SearchResult": {
+            "type": "object",
+            "properties": {
+                "entries": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/history.Entry"
+                    }
+                },
+                "next": {
+                    "type": "string"
+                }
+            }
+        },
         "homekit.ServerStatus": {
             "type": "object",
             "properties": {
@@ -3303,9 +3366,41 @@
                 1000000,
                 1000000000,
                 60000000000,
+                3600000000000,
+                -9223372036854775808,
+                9223372036854775807,
+                1,
+                1000,
+                1000000,
+                1000000000,
+                60000000000,
+                3600000000000,
+                -9223372036854775808,
+                9223372036854775807,
+                1,
+                1000,
+                1000000,
+                1000000000,
+                60000000000,
                 3600000000000
             ],
             "x-enum-varnames": [
+                "minDuration",
+                "maxDuration",
+                "Nanosecond",
+                "Microsecond",
+                "Millisecond",
+                "Second",
+                "Minute",
+                "Hour",
+                "minDuration",
+                "maxDuration",
+                "Nanosecond",
+                "Microsecond",
+                "Millisecond",
+                "Second",
+                "Minute",
+                "Hour",
                 "minDuration",
                 "maxDuration",
                 "Nanosecond",

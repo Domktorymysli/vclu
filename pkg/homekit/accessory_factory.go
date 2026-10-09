@@ -116,6 +116,7 @@ func (s *Server) createExposedAccessory(obj ExposedObject, readonly bool) *Acces
 			Type:       obj.Type,
 			Readonly:   readonly,
 			UpdateFunc: updateFunc,
+			Refetch:    obj.Type == "cover",
 		}
 	}
 
@@ -160,73 +161,111 @@ func (s *Server) createExposedSwitch(info accessory.Info, obj ExposedObject, rea
 	return sw.A, updateFunc
 }
 
-// createExposedLightbulb creates a Lightbulb for an ExposedObject
+// createExposedLightbulb creates a Lightbulb. An on/off light (a DOUT exposed
+// as "light") is switched with 1/0; a dimmable one (value 0..1) also gets a
+// Brightness slider and is switched with its switchOn/switchOff, which keep
+// the last brightness.
 func (s *Server) createExposedLightbulb(info accessory.Info, obj ExposedObject, readonly bool) (*accessory.A, func(float64)) {
 	light := accessory.NewLightbulb(info)
+	on := light.Lightbulb.On
 
-	// Get initial state
-	if state, ok := obj.Value.(float64); ok {
-		light.Lightbulb.On.SetValue(state > 0)
-	}
-
-	if !readonly {
-		light.Lightbulb.On.OnValueRemoteUpdate(func(on bool) {
-			if s.paused(obj.Path, func(v float64) { light.Lightbulb.On.SetValue(v > 0) }) {
-				return
-			}
-			currentState, ok := s.GetCurrentState(obj.Path)
-			currentOn := currentState > 0
-			if ok && currentOn == on {
-				return
-			}
-			val := 0
-			if on {
-				val = 100
-			}
-			s.command(obj.Path, fmt.Sprintf("h:setValue(%d)", val), func(v float64) { light.Lightbulb.On.SetValue(v > 0) })
-		})
-	} else {
-		light.Lightbulb.On.Permissions = readonlyPerms
+	var brightness *characteristic.Brightness
+	if obj.Dimmable {
+		brightness = characteristic.NewBrightness()
+		light.Lightbulb.AddC(brightness.C)
 	}
 
 	updateFunc := func(value float64) {
-		light.Lightbulb.On.SetValue(value > 0)
+		on.SetValue(value > 0)
+		if brightness != nil && value > 0 {
+			brightness.SetValue(int(math.Max(1, math.Min(100, math.Round(value*100)))))
+		}
+	}
+	if state, ok := obj.Value.(float64); ok {
+		updateFunc(state)
+	}
+
+	if readonly {
+		on.Permissions = readonlyPerms
+		if brightness != nil {
+			brightness.Permissions = readonlyPerms
+		}
+		return light.A, updateFunc
+	}
+
+	on.OnValueRemoteUpdate(func(want bool) {
+		if s.paused(obj.Path, updateFunc) {
+			return
+		}
+		if current, ok := s.GetCurrentState(obj.Path); ok && (current > 0) == want {
+			return // with a brightness change the Home app also sends On
+		}
+		call := "h:setValue(0)"
+		switch {
+		case want && obj.Dimmable:
+			call = "if h.object.switchOn then h.object:switchOn() else h:setValue(1) end"
+		case want:
+			call = "h:setValue(1)"
+		case obj.Dimmable:
+			call = "if h.object.switchOff then h.object:switchOff() else h:setValue(0) end"
+		}
+		s.command(obj.Path, call, updateFunc)
+	})
+	if brightness != nil {
+		brightness.OnValueRemoteUpdate(func(pct int) {
+			if s.paused(obj.Path, updateFunc) {
+				return
+			}
+			if s.command(obj.Path, fmt.Sprintf(
+				"if h.object.setBrightness then h.object:setBrightness(%d) else h:setValue(%g) end", pct, float64(pct)/100), updateFunc) {
+				on.SetValue(pct > 0) // the slider also switches the light
+			}
+		})
 	}
 
 	return light.A, updateFunc
 }
 
-// createExposedCover creates a WindowCovering for an ExposedObject
+// createExposedCover creates a WindowCovering. vCLU counts 0 = open,
+// 100 = closed; HomeKit the other way round. A Grenton roller's value is its
+// movement, so the shown position is read with getPosition (Refetch).
 func (s *Server) createExposedCover(info accessory.Info, obj ExposedObject, readonly bool) (*accessory.A, func(float64)) {
 	cover := accessory.NewWindowCovering(info)
+	wc := cover.WindowCovering
 
-	// Get initial position
-	if state, ok := obj.Value.(float64); ok {
-		cover.WindowCovering.CurrentPosition.SetValue(int(state))
-		cover.WindowCovering.TargetPosition.SetValue(int(state))
+	toHomeKit := func(pos float64) int { return int(math.Max(0, math.Min(100, math.Round(100-pos)))) }
+	updateFunc := func(pos float64) {
+		wc.CurrentPosition.SetValue(toHomeKit(pos))
+		wc.TargetPosition.SetValue(toHomeKit(pos))
+	}
+	if obj.Position != nil {
+		updateFunc(*obj.Position)
+	} else if state, ok := obj.Value.(float64); ok && !obj.HasPos {
+		updateFunc(state) // position unknown (not reported yet): leave the default
 	}
 
-	if !readonly {
-		cover.WindowCovering.TargetPosition.OnValueRemoteUpdate(func(position int) {
-			if s.paused(obj.Path, func(v float64) { cover.WindowCovering.TargetPosition.SetValue(int(v)) }) {
-				return
+	if readonly {
+		wc.TargetPosition.Permissions = readonlyPerms
+		return cover.A, updateFunc
+	}
+
+	wc.TargetPosition.OnValueRemoteUpdate(func(target int) {
+		if s.paused(obj.Path, updateFunc) {
+			return
+		}
+		pos := 100 - target
+		if current, ok := s.GetCurrentState(obj.Path); ok && int(math.Round(current)) == pos {
+			return
+		}
+		if s.command(obj.Path, fmt.Sprintf(
+			"if h.object.setPosition then h.object:setPosition(%d) else h:setValue(%d) end", pos, pos), updateFunc) && obj.HasPos {
+			// position never reported (Grenton roller): show the target, or
+			// the Home app waits for the cover to arrive forever
+			if _, ok := s.GetCurrentState(obj.Path); !ok {
+				wc.CurrentPosition.SetValue(target)
 			}
-			currentState, ok := s.GetCurrentState(obj.Path)
-			if ok && int(currentState) == position {
-				return
-			}
-			s.command(obj.Path, fmt.Sprintf("h:setValue(%d)", position), func(v float64) {
-				cover.WindowCovering.TargetPosition.SetValue(int(v))
-			})
-		})
-	} else {
-		cover.WindowCovering.TargetPosition.Permissions = readonlyPerms
-	}
-
-	updateFunc := func(value float64) {
-		cover.WindowCovering.CurrentPosition.SetValue(int(value))
-		cover.WindowCovering.TargetPosition.SetValue(int(value))
-	}
+		}
+	})
 
 	return cover.A, updateFunc
 }

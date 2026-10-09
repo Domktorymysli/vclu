@@ -626,6 +626,20 @@ function ExposedObjects:toJSON(filter)
             if handle.object and handle.object._satel then
                 table.insert(fields, '"satel":true')
             end
+            -- HomeKit: brightness only for objects that have it (a DOUT
+            -- exposed as "light" is on/off); covers report their position
+            local o = handle.object
+            if type(o) == "table" and type(o.getBrightness) == "function" then
+                table.insert(fields, '"dimmable":true')
+            end
+            if handle.type == "cover" and type(o) == "table" and type(o.getPosition) == "function" then
+                -- a Grenton roller's value is its movement, not a position
+                table.insert(fields, '"hasPosition":true')
+                local ok, pos = pcall(o.getPosition, o)
+                if ok and type(pos) == "number" then
+                    table.insert(fields, '"position":' .. JSON.encode(pos))
+                end
+            end
             for _, k in ipairs({ "area", "group", "description" }) do
                 if handle.options[k] then
                     table.insert(fields, JSON._encodeString(k) .. ":" .. JSON._encodeString(tostring(handle.options[k])))

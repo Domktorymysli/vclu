@@ -20,6 +20,9 @@ func (s *Server) reloadLuaEngine() {
 		return
 	}
 
+	// Pause HomeKit writes during the reload, as a manual reload does
+	s.callOnLuaPreReset()
+
 	if err := s.luaEngine.Reinitialize("VCLU"); err != nil {
 		log.Printf("[RESET] failed to reinitialize Lua engine: %v", err)
 		return

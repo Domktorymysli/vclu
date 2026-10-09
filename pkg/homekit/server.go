@@ -3,11 +3,14 @@ package homekit
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
+	"net"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/brutella/hap"
@@ -42,7 +45,10 @@ type ExposedObject struct {
 	Area     string      `json:"area"`
 	Value    any         `json:"value"`
 	Readonly bool        `json:"readonly"`
-	Satel    bool        `json:"satel,omitempty"` // alarm objects: read-only in HomeKit
+	Satel    bool        `json:"satel,omitempty"`       // alarm objects: read-only in HomeKit
+	Dimmable bool        `json:"dimmable,omitempty"`    // has brightness (value 0..1)
+	Position *float64    `json:"position,omitempty"`    // covers: 0 = open, 100 = closed
+	HasPos   bool        `json:"hasPosition,omitempty"` // cover with getPosition (value is not a position)
 	Caps     ExposedCaps `json:"caps"`
 }
 
@@ -96,6 +102,11 @@ type Server struct {
 	built         []ExposedObject // objects the running bridge was built from
 	initGen       uint64          // bumped by SetInitializing(true)
 	stopped       bool            // Stop called: no automatic (re)start
+	retrying      atomic.Bool     // a retryStart loop is running
+
+	pendingMu sync.Mutex
+	pending   map[string]float64 // state changes waiting for the notifier
+	wake      chan struct{}
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -111,6 +122,7 @@ type AccessoryWrapper struct {
 	Type           string
 	Readonly       bool
 	UpdateFunc     func(value float64) // Function to update accessory state
+	Refetch        bool                // state events do not carry the shown value (covers): read it
 	LastKnownState float64             // Last known state for comparison
 }
 
@@ -196,11 +208,26 @@ func (s *Server) Start() error {
 		go s.retryStart()
 		return fmt.Errorf("exposed objects not read, retrying: %w", err)
 	}
-	return s.start(objs)
+	return s.startOrRetry(objs)
+}
+
+// startOrRetry starts the bridge; if that fails (busy port, bad PIN...) it
+// keeps retrying in the background, so the house is not left without one.
+// Call with syncMu held.
+func (s *Server) startOrRetry(objs []ExposedObject) error {
+	err := s.start(objs)
+	if err != nil && !s.stopped && !errors.Is(err, ErrInvalidPin) {
+		go s.retryStart()
+	}
+	return err
 }
 
 // retryStart retries a failed Start with backoff until it succeeds or Stop.
 func (s *Server) retryStart() {
+	if !s.retrying.CompareAndSwap(false, true) {
+		return // one retry loop is enough
+	}
+	defer s.retrying.Store(false)
 	for delay := 5 * time.Second; ; delay = min(2*delay, time.Minute) {
 		time.Sleep(delay)
 		s.syncMu.Lock()
@@ -217,6 +244,10 @@ func (s *Server) retryStart() {
 		}
 		s.syncMu.Unlock()
 		if err == nil {
+			return
+		}
+		if errors.Is(err, ErrInvalidPin) {
+			log.Printf("[HomeKit] bridge not started: %v", err)
 			return
 		}
 		log.Printf("[HomeKit] bridge start failed, retrying: %v", err)
@@ -257,7 +288,7 @@ func (s *Server) Sync() error {
 		return nil
 	}
 	s.stop()
-	return s.start(objs)
+	return s.startOrRetry(objs)
 }
 
 // missingPaths lists paths of previous that current lacks.
@@ -301,7 +332,21 @@ func (s *Server) start(objs []ExposedObject) error {
 		s.mu.Unlock()
 		return fmt.Errorf("HomeKit server already running")
 	}
+	cfg := s.config
 	s.mu.Unlock()
+
+	// hap reports a bad PIN or a busy port only from its goroutine, after
+	// the status already says "running": check them here. Empty PIN and
+	// name get hap's defaults, as before (older configs lack them).
+	pin, name := bridgeIdentity(cfg)
+	if err := ValidatePin(pin); err != nil {
+		return err
+	}
+	if ln, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.Port)); err != nil {
+		return fmt.Errorf("HomeKit port %d: %w", cfg.Port, err)
+	} else {
+		ln.Close()
+	}
 
 	accessories := s.buildAccessories(objs)
 	if err := s.aidStore().save(); err != nil {
@@ -316,8 +361,8 @@ func (s *Server) start(objs []ExposedObject) error {
 	sort.Slice(all, func(i, j int) bool { return all[i].Id < all[j].Id })
 
 	bridge := accessory.NewBridge(accessory.Info{
-		Name:         s.config.BridgeName,
-		SerialNumber: s.config.SerialNumber,
+		Name:         name,
+		SerialNumber: cfg.SerialNumber,
 		Manufacturer: "vCLU",
 		Model:        "HomeKit Bridge",
 		Firmware:     "1.0.0",
@@ -328,8 +373,8 @@ func (s *Server) start(objs []ExposedObject) error {
 	if err != nil {
 		return fmt.Errorf("failed to create HAP server: %w", err)
 	}
-	hapServer.Pin = s.config.Pin
-	hapServer.Addr = fmt.Sprintf(":%d", s.config.Port)
+	hapServer.Pin = pin
+	hapServer.Addr = fmt.Sprintf(":%d", cfg.Port)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	s.mu.Lock()
@@ -344,7 +389,7 @@ func (s *Server) start(objs []ExposedObject) error {
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		log.Printf("[HomeKit] Starting server on port %d with %d accessories", s.config.Port, len(accessories))
+		log.Printf("[HomeKit] Starting server on port %d with %d accessories", cfg.Port, len(accessories))
 		if err := hapServer.ListenAndServe(ctx); err != nil {
 			if ctx.Err() == nil {
 				log.Printf("[HomeKit] Server error: %v", err)
@@ -356,7 +401,18 @@ func (s *Server) start(objs []ExposedObject) error {
 	s.SetInitializing(true)
 	s.ResumeAfter(5 * time.Second)
 
-	s.startPeriodicRefresh(ctx)
+	wake := make(chan struct{}, 1)
+	wake <- struct{}{} // changes queued while no bridge was running
+	s.pendingMu.Lock()
+	s.wake = wake
+	s.pendingMu.Unlock()
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		s.runNotifier(ctx, wake)
+	}()
+
+	s.startPeriodicRefresh(ctx, cfg.RefreshInterval)
 	s.startDnssdWatchdog(ctx)
 	return nil
 }
@@ -419,8 +475,48 @@ func (s *Server) reloadLocked() error {
 		return fmt.Errorf("bridge kept, exposed objects not read: %w", err)
 	}
 	s.stop()
-	return s.start(objs)
+	return s.startOrRetry(objs)
 }
+
+// bridgeIdentity returns the PIN and bridge name, with hap's defaults for
+// empty values (older configs lack them).
+func bridgeIdentity(cfg *config.VCLUHomeKitConfig) (pin, name string) {
+	pin, name = cfg.Pin, cfg.BridgeName
+	if pin == "" {
+		pin = "00102003"
+	}
+	if strings.TrimSpace(name) == "" {
+		name = "vCLU Bridge"
+	}
+	return pin, name
+}
+
+// SetConfig replaces the configuration; it applies at the next (re)start.
+func (s *Server) SetConfig(cfg *config.VCLUHomeKitConfig) {
+	s.mu.Lock()
+	s.config = cfg
+	s.mu.Unlock()
+}
+
+// ValidatePin checks a HomeKit setup code: 8 digits, not one of the codes
+// HomeKit refuses as insecure (00000000, 12345678...).
+func ValidatePin(pin string) error {
+	if len(pin) != 8 {
+		return fmt.Errorf("%w: it must have 8 digits", ErrInvalidPin)
+	}
+	for _, c := range pin {
+		if c < '0' || c > '9' {
+			return fmt.Errorf("%w: it must have 8 digits", ErrInvalidPin)
+		}
+	}
+	if hap.InvalidPins[pin] {
+		return fmt.Errorf("%w: HomeKit refuses %s as insecure, choose another", ErrInvalidPin, pin)
+	}
+	return nil
+}
+
+// ErrInvalidPin: retrying does not help, the PIN has to be changed.
+var ErrInvalidPin = errors.New("invalid HomeKit PIN")
 
 // GetStatus returns the current server status
 func (s *Server) GetStatus() ServerStatus {
@@ -519,23 +615,63 @@ func (s *Server) RestartBridge() error {
 	return s.Reload()
 }
 
-// NotifyStateChange is called when a state changes in Lua (via __go_homekit_notify)
+// NotifyStateChange is called on the Lua loop when a state changes (via
+// __go_homekit_notify). It only queues the value: sending it to the Home app
+// is network I/O, and a slow or half-open iPhone connection must not stall
+// the Lua loop. Only the latest value per object is kept.
 func (s *Server) NotifyStateChange(path string, value float64, objType string) {
+	s.pendingMu.Lock()
+	if s.pending == nil {
+		s.pending = make(map[string]float64)
+	}
+	s.pending[path] = value
+	wake := s.wake
+	s.pendingMu.Unlock()
+	if wake != nil {
+		select {
+		case wake <- struct{}{}:
+		default: // already signalled
+		}
+	}
+}
+
+// runNotifier sends queued state changes to the accessories until ctx ends.
+func (s *Server) runNotifier(ctx context.Context, wake <-chan struct{}) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-wake:
+		}
+		s.pendingMu.Lock()
+		batch := s.pending
+		s.pending = make(map[string]float64)
+		s.pendingMu.Unlock()
+		for path, value := range batch {
+			s.deliver(path, value)
+		}
+	}
+}
+
+// deliver shows a state change on the accessory of path.
+func (s *Server) deliver(path string, value float64) {
 	s.mu.RLock()
 	wrapper, ok := s.accessories[path]
 	metrics := s.metrics
 	s.mu.RUnlock()
-
-	if !ok {
-		return // Accessory not found (might be hidden or not loaded)
+	if !ok || wrapper.UpdateFunc == nil {
+		return // hidden, not a HomeKit object, or not loaded
 	}
-
-	if wrapper.UpdateFunc != nil {
-		wrapper.UpdateFunc(value)
-		// Record HomeKit event (state change sent to HomeKit)
-		if metrics != nil {
-			metrics.RecordHomeKitEvent()
+	if wrapper.Refetch {
+		v, ok := s.GetCurrentState(path)
+		if !ok {
+			return
 		}
+		value = v
+	}
+	wrapper.UpdateFunc(value)
+	if metrics != nil {
+		metrics.RecordHomeKitEvent()
 	}
 }
 
@@ -557,17 +693,23 @@ func (s *Server) GetAccessories() []map[string]interface{} {
 	return result
 }
 
-// GetCurrentState fetches current state from Lua for a given path
-// Returns the state value and true if successful, or 0 and false if failed
+// GetCurrentState fetches current state from Lua for a given path: the
+// position for covers, the value otherwise. false when unknown (an object
+// that has not reported yet is not shown as off).
 func (s *Server) GetCurrentState(path string) (float64, bool) {
-	p := luaString(path)
 	script := fmt.Sprintf(`
 		local h = ExposedObjects:get(%s)
-		if h then return tostring(h:getValue() or 0) end
-		local r = _.get(%s)
-		if r then return tostring(r:getValue() or 0) end
-		return "nil"
-	`, p, p)
+		if not h then return "nil" end
+		local o, v = h.object, nil
+		if h.type == "cover" and type(o) == "table" and type(o.getPosition) == "function" then
+			v = o:getPosition()
+		else
+			v = h:getValue()
+		end
+		if type(v) == "boolean" then v = v and 1 or 0 end
+		if type(v) ~= "number" then return "nil" end
+		return tostring(v)
+	`, luaString(path))
 
 	result, err := s.luaExecutor.Execute(script)
 	if err != nil {
@@ -621,8 +763,7 @@ func (s *Server) refreshAllStates(ctx context.Context) {
 }
 
 // startPeriodicRefresh starts a goroutine that periodically refreshes all accessory states
-func (s *Server) startPeriodicRefresh(ctx context.Context) {
-	interval := s.config.RefreshInterval
+func (s *Server) startPeriodicRefresh(ctx context.Context, interval int) {
 	if interval <= 0 {
 		return
 	}
