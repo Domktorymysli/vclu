@@ -602,57 +602,43 @@ function ExposedObjects:toJSON(filter)
 
         if include then
             local value = handle:getValue()
-            local valueStr = "null"
-            if value ~= nil then
-                if type(value) == "string" then
-                    valueStr = '"' .. tostring(value):gsub('"', '\\"') .. '"'
-                elseif type(value) == "boolean" then
-                    valueStr = value and "true" or "false"
-                else
-                    valueStr = tostring(value)
-                end
+            if type(value) ~= "string" and type(value) ~= "boolean" and type(value) ~= "number" then
+                value = nil
             end
 
             local caps = capabilities[handle.type] or {}
-            -- Build caps JSON properly (avoid leading comma issue)
+            -- caps stays a JSON object even when empty (Go decodes it into a struct)
             local capsList = {}
-            if caps.binary then table.insert(capsList, '"binary":true') end
-            if caps.brightness then table.insert(capsList, '"brightness":true') end
-            if caps.position then table.insert(capsList, '"position":true') end
-            if caps.execute then table.insert(capsList, '"execute":true') end
-            if caps.stateless then table.insert(capsList, '"stateless":true') end
-            local capsJson = table.concat(capsList, ",")
-
-            -- Build optional metadata fields
-            local meta = ""
-            if handle.options.area then
-                meta = meta .. string.format(',"area":"%s"', handle.options.area:gsub('"', '\\"'))
+            for _, k in ipairs({ "binary", "brightness", "position", "execute", "stateless" }) do
+                if caps[k] then table.insert(capsList, JSON._encodeString(k) .. ":true") end
             end
-            if handle.options.group then
-                meta = meta .. string.format(',"group":"%s"', handle.options.group:gsub('"', '\\"'))
+
+            -- JSON.encode escapes strings and turns NaN/inf into null, so one
+            -- odd name or reading cannot break the whole list
+            local fields = {
+                '"path":' .. JSON._encodeString(path),
+                '"type":' .. JSON._encodeString(tostring(handle.type)),
+                '"name":' .. JSON._encodeString(tostring(handle.options.name or path)),
+                '"value":' .. JSON.encode(value),
+                '"readonly":' .. (handle.options.readonly and "true" or "false"),
+                '"caps":{' .. table.concat(capsList, ",") .. '}',
+            }
+            if handle.object and handle.object._satel then
+                table.insert(fields, '"satel":true')
+            end
+            for _, k in ipairs({ "area", "group", "description" }) do
+                if handle.options[k] then
+                    table.insert(fields, JSON._encodeString(k) .. ":" .. JSON._encodeString(tostring(handle.options[k])))
+                end
             end
             if handle.options.tags and #handle.options.tags > 0 then
                 local tagParts = {}
                 for _, t in ipairs(handle.options.tags) do
-                    table.insert(tagParts, '"' .. tostring(t):gsub('"', '\\"') .. '"')
+                    table.insert(tagParts, JSON._encodeString(tostring(t)))
                 end
-                meta = meta .. ',"tags":[' .. table.concat(tagParts, ",") .. ']'
+                table.insert(fields, '"tags":[' .. table.concat(tagParts, ",") .. ']')
             end
-            if handle.options.description then
-                meta = meta .. string.format(',"description":"%s"', handle.options.description:gsub('"', '\\"'))
-            end
-
-            local entry = string.format(
-                '{"path":"%s","type":"%s","name":"%s","value":%s,"readonly":%s,"caps":{%s}%s}',
-                path,
-                handle.type,
-                (handle.options.name or path):gsub('"', '\\"'),
-                valueStr,
-                handle.options.readonly and "true" or "false",
-                capsJson,
-                meta
-            )
-            table.insert(results, entry)
+            table.insert(results, "{" .. table.concat(fields, ",") .. "}")
         end
     end
 

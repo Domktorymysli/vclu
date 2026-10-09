@@ -218,7 +218,7 @@ func (s *Server) handleAPIAccessSet(c *gin.Context) {
 	}
 
 	// Sync to Lua
-	s.syncAccessControlToLua()
+	s.applyAccessChange()
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":     true,
@@ -379,6 +379,9 @@ func (s *Server) handleAPIAccessProfileSave(c *gin.Context) {
 		return
 	}
 
+	// Rules of an assigned profile changed: apply them now, not at the next restart
+	s.applyAccessChange()
+
 	c.JSON(http.StatusOK, gin.H{"success": true, "name": req.Name})
 }
 
@@ -441,7 +444,7 @@ func (s *Server) handleAPIAccessProfileDelete(c *gin.Context) {
 		}
 	}
 
-	s.syncAccessControlToLua()
+	s.applyAccessChange()
 
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
@@ -509,7 +512,7 @@ func (s *Server) handleAPIAccessAssignmentsSave(c *gin.Context) {
 	}
 
 	// Sync to Lua
-	s.syncAccessControlToLua()
+	s.applyAccessChange()
 
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
@@ -547,7 +550,7 @@ func (s *Server) handleAPIAccessReset(c *gin.Context) {
 		_ = config.WriteMasterConfig(s.serverDir, masterConfig)
 	}
 
-	s.syncAccessControlToLua()
+	s.applyAccessChange()
 
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
@@ -675,7 +678,7 @@ func (s *Server) handleAPIAccessBotSet(c *gin.Context) {
 	}
 
 	// Sync to Lua
-	s.syncAccessControlToLua()
+	s.applyAccessChange()
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,

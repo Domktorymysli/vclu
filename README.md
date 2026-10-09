@@ -144,14 +144,14 @@ require("dashboards/home")
 Gniazdko Tasmota jako przełącznik, widoczny w interfejsie web, Home Assistant i Apple Home:
 
 ```lua
--- modules/tasmota_desk.lua  (MQTT_CLIENT jest tworzony w user.lua)
+-- modules/tasmota_desk.lua  (MQTT = domyślny klient, Integracje → MQTT → Client)
 local lamp = VirtualSwitch:new("Desk lamp")
 
-MQTT_CLIENT:subscribe("stat/tasmota_desk/POWER", function(topic, payload)
+MQTT:subscribe("stat/tasmota_desk/POWER", function(topic, payload)
     lamp:updateState(payload == "ON" and 1 or 0)
 end)
-lamp:onSwitchOn(function()  MQTT_CLIENT:publish("cmnd/tasmota_desk/Power", "ON")  end)
-lamp:onSwitchOff(function() MQTT_CLIENT:publish("cmnd/tasmota_desk/Power", "OFF") end)
+lamp:onSwitchOn(function()  MQTT:publish("cmnd/tasmota_desk/Power", "ON")  end)
+lamp:onSwitchOff(function() MQTT:publish("cmnd/tasmota_desk/Power", "OFF") end)
 
 expose(lamp, "switch", { name = "Lampka na biurku", path = "tasmota:desk", area = "Gabinet" })
 ```

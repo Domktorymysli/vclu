@@ -149,6 +149,7 @@ function Satel.setup()
 
             -- Companion read-only alarm sensor
             local alarm = VirtualSensor:new("Satel Partition " .. n .. " Alarm")
+            alarm._satel = true
             Satel._objects.partitionAlarm[n] = alarm
             if registerObject then registerObject("satel.partition." .. n .. ".alarm", alarm) end
         end

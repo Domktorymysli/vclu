@@ -20,7 +20,7 @@ const (
 // IncidentSnapshot captures the system state at the time of an incident.
 type IncidentSnapshot struct {
 	Timestamp    time.Time      `json:"timestamp"`
-	Trigger      string         `json:"trigger"` // "rollback", "watchdog", "guardrail"
+	Trigger      string         `json:"trigger"` // "promote" (modules failed to load); older files: "rollback", "watchdog"
 	ErrorMsg     string         `json:"error_msg"`
 	CodeDiff     string         `json:"code_diff,omitempty"`
 	Paths        []string       `json:"paths,omitempty"`

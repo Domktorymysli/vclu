@@ -224,14 +224,11 @@ type AuditEntry struct {
 
 // PromoteResult is the detailed result of a promote operation.
 type PromoteResult struct {
-	OK             bool     `json:"ok"`
-	Paths          []string `json:"paths"`
-	Backups        []string `json:"backups,omitempty"`
-	Warnings       []string `json:"warnings,omitempty"`
-	RolledBack     bool     `json:"rolled_back,omitempty"`
-	RollbackReason string   `json:"rollback_reason,omitempty"`
-	RollbackErrors []string `json:"rollback_errors,omitempty"`
-	WatchdogMs     int64    `json:"watchdog_ms,omitempty"`
+	OK       bool     `json:"ok"`
+	Paths    []string `json:"paths"`
+	Backups  []string `json:"backups,omitempty"`
+	Warnings []string `json:"warnings,omitempty"`
+	Incident string   `json:"incident,omitempty"` // resource with logs and diff of a failed promote
 	// ModuleErrors lists user modules that failed to load during the post-promote
 	// reload and are attributable to THIS promote. Non-empty means the promoted
 	// code is on disk but NOT running, and drives OK=false.

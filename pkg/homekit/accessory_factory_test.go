@@ -90,9 +90,11 @@ func TestHiddenWinsOverReadonly(t *testing.T) {
 		accessManager: mgr,
 		accessories:   make(map[string]*AccessoryWrapper),
 	}
-	if err := s.loadExposedAccessories(); err != nil {
-		t.Fatalf("loadExposedAccessories: %v", err)
+	objs, err := s.fetchExposed()
+	if err != nil {
+		t.Fatalf("fetchExposed: %v", err)
 	}
+	s.accessories = s.buildAccessories(objs)
 
 	if _, ok := s.accessories["t:hidden"]; ok {
 		t.Error("readonly+hidden object must NOT become an accessory")

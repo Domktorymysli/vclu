@@ -286,6 +286,19 @@ func (s *Server) syncAccessControlToLua() {
 	log.Println("Synced access control profiles to Lua")
 }
 
+// applyAccessChange applies an access change made in the panel: Lua, HA and
+// the HomeKit bridge (a hidden object leaves it, a visible one joins).
+func (s *Server) applyAccessChange() {
+	s.syncAccessControlToLua()
+	if s.homekitServer != nil {
+		go func() {
+			if err := s.homekitServer.Sync(); err != nil {
+				log.Printf("[HomeKit] bridge not updated after access change: %v", err)
+			}
+		}()
+	}
+}
+
 // syncProfilesToLua sends profile and assignment data to the Lua AccessControl module.
 func (s *Server) syncProfilesToLua() {
 	if s.luaExecutor == nil || s.accessManager == nil {

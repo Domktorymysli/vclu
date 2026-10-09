@@ -329,7 +329,7 @@
     "ws_trigger": "Trigger",
     "ws_error": "Error",
     "incidents": "Incidents",
-    "no_incidents": "No incidents recorded. Incidents are auto-captured on rollback or watchdog trigger.",
+    "no_incidents": "No incidents recorded. An incident is saved when modules fail to load after an agent promote.",
     "agent_context": "Agent Memory",
     "no_agent_context": "No agent notes yet. Agents save observations via vclu_context_save."
   },

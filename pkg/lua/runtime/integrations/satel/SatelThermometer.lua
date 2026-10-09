@@ -14,6 +14,7 @@ SatelThermometer.__index = SatelThermometer
 -- @param name string Optional custom name (otherwise panel name is used)
 function SatelThermometer:new(number, name)
     local obj = VirtualObject.new(self, name or ("Satel Temp " .. number))
+    obj._satel = true  -- HomeKit shows Satel objects read-only
     obj._type = "ONE_WIRE"
     obj._state = nil
     obj.number = number

@@ -78,7 +78,8 @@
                 var html = '';
                 for (var i = 0; i < incidents.length; i++) {
                     var inc = incidents[i];
-                    var triggerBadge = inc.trigger === 'rollback'
+                    // promote: modules failed to load; rollback/watchdog: older files
+                    var triggerBadge = (inc.trigger === 'promote' || inc.trigger === 'rollback')
                         ? '<span class="badge bg-danger">' + VCLU.esc(inc.trigger) + '</span>'
                         : inc.trigger === 'watchdog'
                         ? '<span class="badge bg-warning text-dark">' + VCLU.esc(inc.trigger) + '</span>'

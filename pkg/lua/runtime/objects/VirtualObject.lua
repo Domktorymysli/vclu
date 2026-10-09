@@ -19,7 +19,8 @@ local RESERVED_KEYS = { get = true, set = true, save = true, toTable = true }
 -- NaN/Inf cannot be saved as JSON: one such value would fail every write
 -- of the shared namespace
 local function storable(v)
-    return type(v) ~= "number" or (v == v and v ~= math.huge and v ~= -math.huge)
+    -- v - v is 0 only for finite numbers (gopher-lua's math.huge is not inf)
+    return type(v) ~= "number" or v - v == 0
 end
 
 --- Applies the constructor options shared by all virtual objects.

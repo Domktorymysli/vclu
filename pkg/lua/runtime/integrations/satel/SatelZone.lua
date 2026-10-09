@@ -14,6 +14,7 @@ SatelZone.__index = SatelZone
 -- @param name string Optional custom name (otherwise panel name is used)
 function SatelZone:new(number, name)
     local obj = VirtualSensor.new(self, name or ("Satel Zone " .. number))
+    obj._satel = true  -- HomeKit shows Satel objects read-only
     obj.number = number
     obj._customName = name ~= nil
     obj._tamper = false

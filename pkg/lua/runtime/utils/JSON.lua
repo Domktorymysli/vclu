@@ -22,9 +22,9 @@ function JSON.encode(selfOrValue, valueIfMethod)
     elseif t == "boolean" then
         return value and "true" or "false"
     elseif t == "number" then
-        if value ~= value then -- NaN
-            return "null"
-        elseif value == math.huge or value == -math.huge then
+        -- NaN and ±inf have no JSON form; v - v is 0 only for finite numbers
+        -- (gopher-lua's math.huge is the largest float, not inf)
+        if value ~= value or value - value ~= 0 then
             return "null"
         else
             return tostring(value)
@@ -45,7 +45,8 @@ function JSON._encodeString(s)
     if s == nil then
         return '""'
     end
-    local escaped = s:gsub('[\\"\b\f\n\r\t]', function(c)
+    -- %c: every control character, JSON allows none of them raw
+    local escaped = s:gsub('[%c\\"]', function(c)
         local replacements = {
             ['\\'] = '\\\\',
             ['"'] = '\\"',
@@ -55,7 +56,7 @@ function JSON._encodeString(s)
             ['\r'] = '\\r',
             ['\t'] = '\\t',
         }
-        return replacements[c] or c
+        return replacements[c] or string.format("\\u%04x", c:byte())
     end)
     return '"' .. escaped .. '"'
 end

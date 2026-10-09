@@ -15,6 +15,7 @@ SatelOutput.__index = SatelOutput
 -- @param name string Optional custom name (otherwise panel name is used)
 function SatelOutput:new(number, name)
     local obj = VirtualSwitch.new(self, name or ("Satel Output " .. number))
+    obj._satel = true  -- HomeKit shows Satel objects read-only
     obj.number = number
     obj._customName = name ~= nil
     return obj

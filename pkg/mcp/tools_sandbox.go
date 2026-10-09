@@ -575,9 +575,19 @@ func (s *MCPServer) handleDraftPromote(ctx context.Context, req mcplib.CallToolR
 		auditMsg = fmt.Sprintf("%d files promoted but %d module(s) failed to load", len(paths), len(moduleErrors))
 	}
 	s.addAudit(ctx, "promote", "", paths, "runtime", promoteOK, auditMsg)
+	// No automatic rollback: the agent fixes the module; the incident keeps
+	// the logs and audit trail of the failed load for it
+	if !promoteOK {
+		s.collectIncident("promote", strings.Join(moduleErrors, "; "), promoted)
+	}
 	promotePathStr := strings.Join(paths, ", ")
 	s.recordActivity("vclu_draft_promote", promotePathStr, promoteOK, start, strings.Join(moduleErrors, "; "), ctx)
+	incident := ""
+	if !promoteOK && s.incidents != nil {
+		incident = "vclu://incidents/latest"
+	}
 	return toolJSON(PromoteResult{
+		Incident:          incident,
 		OK:                promoteOK,
 		Paths:             paths,
 		Backups:           backupNames,
@@ -739,73 +749,17 @@ func (s *MCPServer) handleAuditLog(ctx context.Context, req mcplib.CallToolReque
 	})
 }
 
-// --- Watchdog ---
-
-const watchdogDuration = 15 * time.Second
-
-// runWatchdog monitors error logs for 15s after promote.
-// Returns a PromoteResult (may include rollback info).
-func (s *MCPServer) runWatchdog(_ context.Context, paths []string, backupNames []string, promoted []workspace.Promoted) PromoteResult {
-	if s.logs == nil {
-		return PromoteResult{OK: true, Paths: paths, Backups: backupNames}
-	}
-
-	start := time.Now()
-	// Count errors before promote (baseline)
-	errorsBefore := countLogErrors(s.logs)
-
-	// Wait for watchdog period
-	time.Sleep(watchdogDuration)
-
-	elapsed := time.Since(start).Milliseconds()
-
-	// Count errors after
-	errorsAfter := countLogErrors(s.logs)
-	newErrors := errorsAfter - errorsBefore
-
-	// Threshold: more than 3 new errors in 15s → rollback
-	if newErrors > 3 {
-		reason := fmt.Sprintf("%d new Lua errors in %dms watchdog period", newErrors, elapsed)
-		undoErrs := s.workspace.Undo(promoted)
-		if s.reloader != nil {
-			s.reloader.Reload()
-		}
-		s.collectIncident("watchdog", reason, paths)
-		return PromoteResult{
-			Paths:          paths,
-			Backups:        backupNames,
-			RolledBack:     len(undoErrs) == 0,
-			RollbackReason: reason,
-			RollbackErrors: undoErrs,
-			WatchdogMs:     elapsed,
-		}
-	}
-
-	return PromoteResult{
-		OK:         true,
-		Paths:      paths,
-		Backups:    backupNames,
-		WatchdogMs: elapsed,
-	}
-}
-
-// countLogErrors counts error-level entries in the log history.
-func countLogErrors(lp LogProvider) int {
-	count := 0
-	for _, entry := range lp.GetHistory() {
-		if entry.Level == "error" || entry.Level == "ERROR" {
-			count++
-		}
-	}
-	return count
-}
-
 // --- Incident helper ---
 
-// collectIncident gathers system state and saves an incident snapshot.
-func (s *MCPServer) collectIncident(trigger, errorMsg string, paths []string) {
+// collectIncident saves an incident snapshot of a promote: recent logs, the
+// audit trail and what the promote changed (backup -> production).
+func (s *MCPServer) collectIncident(trigger, errorMsg string, promoted []workspace.Promoted) {
 	if s.incidents == nil {
 		return
+	}
+	paths := make([]string, len(promoted))
+	for i, p := range promoted {
+		paths[i] = p.Path
 	}
 
 	snap := IncidentSnapshot{
@@ -829,24 +783,28 @@ func (s *MCPServer) collectIncident(trigger, errorMsg string, paths []string) {
 	}
 
 	// Collect audit trail (last 20)
-	auditEntries := s.audit.GetRecent(20)
-	snap.AuditTrail = auditEntries
+	snap.AuditTrail = s.audit.GetRecent(20)
 
-	// Collect code diff for each path
-	if s.workspace != nil && len(paths) > 0 {
+	// The drafts are gone after promote: diff the backup (or nothing, for a
+	// new file) against what is in production now
+	if s.workspace != nil {
 		var diffs []string
-		for _, p := range paths {
-			draftContent, err := s.workspace.GetDraft(p)
+		for _, p := range promoted {
+			before := ""
+			if p.Backup != "" {
+				if c, _, err := s.workspace.GetBackup(p.Backup); err == nil {
+					before = c
+				}
+			}
+			after, err := s.workspace.GetProductionContent(p.Path)
 			if err != nil {
 				continue
 			}
-			prodContent, _ := s.workspace.GetProductionContent(p)
-			diff := unifiedDiff(
-				fmt.Sprintf("a/%s (production)", p),
-				fmt.Sprintf("b/%s (draft)", p),
-				prodContent, draftContent,
-			)
-			if diff != "" {
+			if diff := unifiedDiff(
+				fmt.Sprintf("a/%s (before)", p.Path),
+				fmt.Sprintf("b/%s (promoted)", p.Path),
+				before, after,
+			); diff != "" {
 				diffs = append(diffs, diff)
 			}
 		}

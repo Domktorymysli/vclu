@@ -329,7 +329,7 @@
     "ws_trigger": "Wyzwalacz",
     "ws_error": "Błąd",
     "incidents": "Incydenty",
-    "no_incidents": "Brak incydentów. Incydenty są automatycznie zapisywane przy rollbacku lub wyzwoleniu watchdoga.",
+    "no_incidents": "Brak incydentów. Incydent zapisuje się, gdy moduły po wdrożeniu przez agenta (promote) nie załadują się.",
     "agent_context": "Pamięć agenta",
     "no_agent_context": "Brak notatek agenta. Agenci zapisują obserwacje przez vclu_context_save."
   },

@@ -1,6 +1,7 @@
 package homekit
 
 import (
+	"context"
 	"log"
 	"strings"
 	"sync"
@@ -98,8 +99,7 @@ func installDnssdLogFilter() {
 }
 
 // allowDnssdRecovery reports whether a bridge restart may be triggered now,
-// enforcing dnssdRecoverCooldown. It uses an atomic rather than s.mu because
-// Stop() holds s.mu while waiting on s.wg, and the watchdog is part of s.wg.
+// enforcing dnssdRecoverCooldown. It uses an atomic so it never waits on s.mu.
 func allowDnssdRecovery(now time.Time) bool {
 	prev := lastDnssdRecovery.Load()
 	if prev != 0 && now.Sub(time.Unix(0, prev)) < dnssdRecoverCooldown {
@@ -110,7 +110,7 @@ func allowDnssdRecovery(now time.Time) bool {
 
 // startDnssdWatchdog samples the spin counter and restarts the bridge when the
 // rate indicates a loop.
-func (s *Server) startDnssdWatchdog() {
+func (s *Server) startDnssdWatchdog(ctx context.Context) {
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
@@ -121,7 +121,7 @@ func (s *Server) startDnssdWatchdog() {
 		last := dnssdWriter.spins.Load()
 		for {
 			select {
-			case <-s.ctx.Done():
+			case <-ctx.Done():
 				return
 			case <-ticker.C:
 				current := dnssdWriter.spins.Load()
@@ -140,7 +140,7 @@ func (s *Server) startDnssdWatchdog() {
 				// Detached: Reload() -> Stop() waits on s.wg, which this
 				// goroutine is part of, so it must return first.
 				go func() {
-					if err := s.Reload(); err != nil {
+					if err := s.reloadUnlessStopped(); err != nil {
 						log.Printf("[HomeKit] bridge restart after dnssd loop failed: %v", err)
 					}
 				}()

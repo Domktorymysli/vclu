@@ -72,7 +72,7 @@ func (s *MCPServer) registerResources() {
 		mcplib.Resource{
 			URI:         "vclu://incidents/latest",
 			Name:        "Latest Incident",
-			Description: "Most recent incident snapshot (rollback, watchdog trigger, or guardrail block)",
+			Description: "Most recent incident snapshot (a promote whose modules failed to load)",
 			MIMEType:    "text/markdown",
 		},
 		s.handleIncidentLatestResource,

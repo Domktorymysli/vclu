@@ -111,7 +111,7 @@ expose(pump, "switch", {
 
 ## MQTT Tasmota
 
-Controlling a Tasmota device over MQTT. `MQTT_CLIENT` is a global created in `user.lua`.
+Controlling a Tasmota device over MQTT. `MQTT` is the default client, set up in the web UI (Integrations → MQTT → Client); a client for another broker is `MQTT:new()` with `:setHost(...)`, `:connect()`.
 Subscribe callback: `function(topic, payload, qos, retain)`.
 Use `VirtualSwitch` instead of hand-building a table with `_cbs`, `get()`, `set()`.
 
@@ -120,13 +120,13 @@ Use `VirtualSwitch` instead of hand-building a table with `_cbs`, `get()`, `set(
 local lamp = VirtualSwitch:new("Lampka biurko")
 
 -- State feedback from Tasmota
-MQTT_CLIENT:subscribe("stat/tasmota_desk/POWER", function(topic, payload)
+MQTT:subscribe("stat/tasmota_desk/POWER", function(topic, payload)
     lamp:updateState(payload == "ON" and 1 or 0)
 end)
 
 -- Commands to Tasmota
-lamp:onSwitchOn(function() MQTT_CLIENT:publish("cmnd/tasmota_desk/Power", "ON") end)
-lamp:onSwitchOff(function() MQTT_CLIENT:publish("cmnd/tasmota_desk/Power", "OFF") end)
+lamp:onSwitchOn(function() MQTT:publish("cmnd/tasmota_desk/Power", "ON") end)
+lamp:onSwitchOff(function() MQTT:publish("cmnd/tasmota_desk/Power", "OFF") end)
 
 expose(lamp, "switch", { name = "Lampka biurko", path = "tasmota:desk", area = "Biuro" })
 ```
@@ -152,7 +152,7 @@ Every `Virtual*:new(name, opts)` takes `initial` and `persist`: with `persist = 
 --- Dimmer: Zigbee lamp via MQTT
 local lamp = VirtualDimmer:new("Lampa salon")
 
-MQTT_CLIENT:subscribe("zigbee2mqtt/lampa_salon", function(topic, payload)
+MQTT:subscribe("zigbee2mqtt/lampa_salon", function(topic, payload)
     local data = JSON.decode(payload)
     if data and data.brightness then
         lamp:updateState(data.brightness / 254)  -- Zigbee 0-254 -> 0.0-1.0
@@ -160,7 +160,7 @@ MQTT_CLIENT:subscribe("zigbee2mqtt/lampa_salon", function(topic, payload)
 end)
 
 lamp:onEvent("OnChange", function(val)
-    MQTT_CLIENT:publish("zigbee2mqtt/lampa_salon/set", JSON.encode({
+    MQTT:publish("zigbee2mqtt/lampa_salon/set", JSON.encode({
         brightness = math.floor(val * 254)
     }))
 end)
@@ -180,7 +180,7 @@ target:expose()
 
 target:onChange(function(val, old)
     Logger:getShared():info("[TEMP] changed " .. old .. " -> " .. val)
-    MQTT_CLIENT:publish("heating/target", tostring(val))
+    MQTT:publish("heating/target", tostring(val))
 end)
 
 -- On the dashboard: slider with a range

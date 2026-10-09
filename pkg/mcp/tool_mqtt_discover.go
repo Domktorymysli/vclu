@@ -27,6 +27,8 @@ type DiscoveredDevice struct {
 	Topics       map[string]string `json:"topics,omitempty"`
 	Exposed      bool              `json:"exposed"`
 	SuggestedLua string            `json:"suggestedLua,omitempty"`
+
+	stateKey string // z2m payload key of the on/off state ("state", "state_l1", ...)
 }
 
 // BrokerResult holds discovery results from a single MQTT broker.
@@ -108,15 +110,16 @@ func (s *MCPServer) handleMQTTDiscover(ctx context.Context, req mcplib.CallToolR
 	if (source == "all" || source == "broker") && s.broker != nil && s.broker.IsRunning() {
 		devices := s.discoverFromBroker()
 		s.markExposedDevices(ctx, devices)
-		for i := range devices {
-			devices[i].SuggestedLua = generateSnippet(devices[i])
-		}
 		brokerCfg := s.broker.GetConfig()
-		result.Brokers = append(result.Brokers, BrokerResult{
+		br := BrokerResult{
 			ID:      "embedded",
 			URL:     fmt.Sprintf("tcp://localhost:%d", brokerCfg.Port),
 			Devices: devices,
-		})
+		}
+		for i := range devices {
+			devices[i].SuggestedLua = generateSnippet(devices[i], br)
+		}
+		result.Brokers = append(result.Brokers, br)
 	}
 
 	// --- External MQTT clients ---
@@ -136,14 +139,15 @@ func (s *MCPServer) handleMQTTDiscover(ctx context.Context, req mcplib.CallToolR
 			}
 			devices := s.discoverFromExternalBroker(creds.URL, creds.Port, creds.Username, creds.Password)
 			s.markExposedDevices(ctx, devices)
-			for i := range devices {
-				devices[i].SuggestedLua = generateSnippet(devices[i])
-			}
-			result.Brokers = append(result.Brokers, BrokerResult{
+			br := BrokerResult{
 				ID:      client.InstanceID,
 				URL:     fmt.Sprintf("%s:%d", creds.URL, creds.Port),
 				Devices: devices,
-			})
+			}
+			for i := range devices {
+				devices[i].SuggestedLua = generateSnippet(devices[i], br)
+			}
+			result.Brokers = append(result.Brokers, br)
 		}
 	}
 
@@ -293,9 +297,11 @@ func parseZigbee2MQTTDevices(payload string) []DiscoveredDevice {
 			Exposes     []struct {
 				Type     string `json:"type"`
 				Name     string `json:"name,omitempty"`
+				Property string `json:"property,omitempty"`
 				Features []struct {
-					Name string `json:"name,omitempty"`
-					Type string `json:"type,omitempty"`
+					Name     string `json:"name,omitempty"`
+					Type     string `json:"type,omitempty"`
+					Property string `json:"property,omitempty"`
 				} `json:"features,omitempty"`
 			} `json:"exposes"`
 		} `json:"definition"`
@@ -320,13 +326,19 @@ func parseZigbee2MQTTDevices(payload string) []DiscoveredDevice {
 
 		if d.Definition != nil {
 			dev.Model = d.Definition.Model
+			// Features are payload keys: property differs from name on
+			// multi-endpoint devices (state_l1, temperature_l2)
 			for _, e := range d.Definition.Exposes {
-				if e.Name != "" {
-					dev.Features = append(dev.Features, e.Name)
+				if k := z2mKey(e.Name, e.Property); k != "" {
+					dev.Features = append(dev.Features, k)
 				}
 				for _, f := range e.Features {
-					if f.Name != "" {
-						dev.Features = append(dev.Features, f.Name)
+					k := z2mKey(f.Name, f.Property)
+					if k != "" {
+						dev.Features = append(dev.Features, k)
+					}
+					if f.Name == "state" && dev.stateKey == "" {
+						dev.stateKey = k
 					}
 				}
 			}
@@ -345,12 +357,22 @@ func parseZigbee2MQTTDevices(payload string) []DiscoveredDevice {
 	return result
 }
 
+// z2mKey is the payload key of an expose: its property, or its name.
+func z2mKey(name, property string) string {
+	if property != "" {
+		return property
+	}
+	return name
+}
+
 func inferZ2MDeviceType(exposes []struct {
 	Type     string `json:"type"`
 	Name     string `json:"name,omitempty"`
+	Property string `json:"property,omitempty"`
 	Features []struct {
-		Name string `json:"name,omitempty"`
-		Type string `json:"type,omitempty"`
+		Name     string `json:"name,omitempty"`
+		Type     string `json:"type,omitempty"`
+		Property string `json:"property,omitempty"`
 	} `json:"features,omitempty"`
 }) string {
 	for _, e := range exposes {
@@ -633,18 +655,67 @@ func (s *MCPServer) markExposedDevices(ctx context.Context, devices []Discovered
 }
 
 // --- Snippet generators ---
+//
+// Snippets follow the Tasmota pattern from docs/ai/examples.md: updateState on
+// reports, onSwitchOn/Off sends commands (skipped for the device's own reports,
+// so a wall switch does not echo a command back). A type without a reliable
+// mapping gets no snippet rather than code that only looks right.
 
-func generateSnippet(d DiscoveredDevice) string {
+func generateSnippet(d DiscoveredDevice, broker BrokerResult) string {
+	var body string
 	switch d.Source {
 	case "zigbee2mqtt":
-		return generateZigbee2MQTTSnippet(d)
+		body = generateZigbee2MQTTSnippet(d)
 	case "tasmota":
-		return generateTasmotaSnippet(d)
+		body = generateTasmotaSnippet(d)
 	case "esphome":
-		return generateESPHomeSnippet(d)
-	default:
+		body = generateESPHomeSnippet(d)
+	}
+	if body == "" {
 		return ""
 	}
+	return fmt.Sprintf("-- Auto-generated: %s (%s)\n", luaComment(d.Name), luaComment(d.Model)) + snippetClient(broker) + body
+}
+
+// snippetClient picks the Lua client for the broker the device was found on.
+func snippetClient(b BrokerResult) string {
+	switch b.ID {
+	case "", "MQTT":
+		return "-- MQTT = default client (Integrations -> MQTT -> Client)\n"
+	case "embedded":
+		return fmt.Sprintf("-- Found on the embedded broker (%s): the default client MQTT must connect to it\n-- (Integrations -> MQTT -> Client: localhost)\n", luaComment(b.URL))
+	default:
+		return fmt.Sprintf("local MQTT = assert(MQTT.getInstance(%[1]s), \"MQTT client \" .. %[1]s .. \" not found\")\n", luaQuote(b.ID))
+	}
+}
+
+// luaComment keeps s on one comment line.
+func luaComment(s string) string {
+	return strings.NewReplacer("\n", " ", "\r", " ").Replace(s)
+}
+
+// luaQuote returns s as a Lua string literal.
+func luaQuote(s string) string {
+	r := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`, "\r", `\r`, "\x00", `\000`)
+	return `"` + r.Replace(s) + `"`
+}
+
+// z2mSensorFeature maps a Zigbee2MQTT payload key to a vCLU object and expose type.
+type z2mSensorFeature struct {
+	key, class, exposeType, unit string
+	activeWhen                   string // binary sensors: Lua expression on v that means 1
+}
+
+// HomeKit has no matching accessory for binary_sensor and illuminance (they
+// would show up as switches), so those stay out of HomeKit.
+var z2mSensorFeatures = []z2mSensorFeature{
+	{key: "temperature", class: "VirtualNumber", exposeType: "temperature", unit: "°C"},
+	{key: "humidity", class: "VirtualNumber", exposeType: "humidity", unit: "%"},
+	{key: "illuminance_lux", class: "VirtualNumber", exposeType: "illuminance", unit: "lx"},
+	{key: "illuminance", class: "VirtualNumber", exposeType: "illuminance", unit: "lx"}, // z2m 2.x: already lux
+	{key: "occupancy", class: "VirtualSensor", exposeType: "motion", activeWhen: "v == true"},
+	{key: "contact", class: "VirtualSensor", exposeType: "binary_sensor", activeWhen: "v == false"},
+	{key: "water_leak", class: "VirtualSensor", exposeType: "binary_sensor", activeWhen: "v == true"},
 }
 
 func generateZigbee2MQTTSnippet(d DiscoveredDevice) string {
@@ -654,32 +725,69 @@ func generateZigbee2MQTTSnippet(d DiscoveredDevice) string {
 	}
 
 	if d.Type == "switch" || d.Type == "light" {
-		return fmt.Sprintf(`-- Auto-generated: %s (%s)
-local dev = VirtualSwitch()
-MQTT_CLIENT:subscribe("%s", function(topic, payload)
-    local data = JSON.parse(payload)
-    if data and data.state then
-        if data.state == "ON" then dev:switchOn()
-        else dev:switchOff() end
+		if d.stateKey != "" && d.stateKey != "state" {
+			return "" // multi-endpoint: one object per endpoint, write it by hand
+		}
+		// A light is exposed as a switch: on/off only, brightness by hand
+		return fmt.Sprintf(`local dev = VirtualSwitch:new(%[1]s)
+local guard = { fromDevice = false }
+MQTT:subscribe(%[2]s, function(topic, payload)
+    local data = JSON.decode(payload)
+    if type(data) == "table" and data.state then
+        guard.fromDevice = true
+        local ok, err = pcall(dev.updateState, dev, data.state == "ON" and 1 or 0)
+        guard.fromDevice = false
+        if not ok then error(err, 0) end
     end
 end)
-dev:onChange(function()
-    MQTT_CLIENT:publish("%s/set", JSON.stringify({state = dev:getValue() == 1 and "ON" or "OFF"}))
-end)
-expose(dev, "%s", { name = "%s", path = "z2m:%s" })`,
-			d.Name, d.Model, stateTopic, stateTopic,
-			d.Type, d.Name, d.ID)
+dev:onSwitchOn(function()  if not guard.fromDevice then MQTT:publish(%[3]s, JSON.encode({ state = "ON" })) end end)
+dev:onSwitchOff(function() if not guard.fromDevice then MQTT:publish(%[3]s, JSON.encode({ state = "OFF" })) end end)
+expose(dev, "switch", { name = %[1]s, path = %[4]s })`,
+			luaQuote(d.Name), luaQuote(stateTopic), luaQuote(stateTopic+"/set"), luaQuote("z2m:"+d.ID))
+	}
+	if d.Type != "sensor" {
+		return "" // cover, lock, fan, climate: write it by hand
 	}
 
-	// sensor (read-only)
-	return fmt.Sprintf(`-- Auto-generated: %s (%s)
-local dev = VirtualSensor()
-MQTT_CLIENT:subscribe("%s", function(topic, payload)
-    local data = JSON.parse(payload)
-    if data then dev:setValue(data) end
-end)
-expose(dev, "sensor", { name = "%s", path = "z2m:%s" })`,
-		d.Name, d.Model, stateTopic, d.Name, d.ID)
+	has := make(map[string]bool, len(d.Features))
+	for _, f := range d.Features {
+		has[f] = true
+	}
+	if has["illuminance_lux"] {
+		delete(has, "illuminance") // older z2m: raw value next to lux
+	}
+	var objs, reads []string
+	for _, sf := range z2mSensorFeatures {
+		if !has[sf.key] {
+			continue
+		}
+		v := "dev_" + sf.key
+		name := d.Name + " " + sf.key
+		opts := fmt.Sprintf("{ name = %s, path = %s, readonly = true", luaQuote(name), luaQuote("z2m:"+d.ID+":"+sf.key))
+		if sf.unit != "" {
+			opts += ", unit = " + luaQuote(sf.unit)
+		}
+		if sf.exposeType == "binary_sensor" || sf.exposeType == "illuminance" {
+			opts += ", homekit = false"
+		}
+		opts += " }"
+		objs = append(objs, fmt.Sprintf("local %s = %s:new(%s)\nexpose(%s, %s, %s)", v, sf.class, luaQuote(name), v, luaQuote(sf.exposeType), opts))
+		if sf.activeWhen != "" {
+			reads = append(reads, fmt.Sprintf("    v = data[%s]; if v ~= nil then %s:updateState((%s) and 1 or 0) end", luaQuote(sf.key), v, sf.activeWhen))
+		} else {
+			reads = append(reads, fmt.Sprintf("    v = data[%s]; if type(v) == \"number\" then %s:setValue(v) end", luaQuote(sf.key), v))
+		}
+	}
+	if len(objs) == 0 {
+		return ""
+	}
+	return strings.Join(objs, "\n") + fmt.Sprintf(`
+MQTT:subscribe(%s, function(topic, payload)
+    local data = JSON.decode(payload)
+    if type(data) ~= "table" then return end
+    local v
+%s
+end)`, luaQuote(stateTopic), strings.Join(reads, "\n"))
 }
 
 func generateTasmotaSnippet(d DiscoveredDevice) string {
@@ -692,26 +800,36 @@ func generateTasmotaSnippet(d DiscoveredDevice) string {
 		cmdTopic = "cmnd/" + d.ID + "/POWER"
 	}
 
-	return fmt.Sprintf(`-- Auto-generated: %s (%s, IP: %s)
-local dev = VirtualSwitch()
-MQTT_CLIENT:subscribe("%s", function(topic, payload)
-    if payload == "ON" then dev:switchOn()
-    else dev:switchOff() end
+	return fmt.Sprintf(`-- Tasmota IP: %[1]s
+local dev = VirtualSwitch:new(%[2]s)
+local guard = { fromDevice = false }
+MQTT:subscribe(%[3]s, function(topic, payload)
+    guard.fromDevice = true
+    local ok, err = pcall(dev.updateState, dev, payload == "ON" and 1 or 0)
+    guard.fromDevice = false
+    if not ok then error(err, 0) end
 end)
-dev:onChange(function()
-    MQTT_CLIENT:publish("%s", dev:getValue() == 1 and "ON" or "OFF")
-end)
-expose(dev, "switch", { name = "%s", path = "tasmota:%s" })`,
-		d.Name, d.Model, d.IP, stateTopic, cmdTopic,
-		d.Name, d.ID)
+dev:onSwitchOn(function()  if not guard.fromDevice then MQTT:publish(%[4]s, "ON") end end)
+dev:onSwitchOff(function() if not guard.fromDevice then MQTT:publish(%[4]s, "OFF") end end)
+expose(dev, "switch", { name = %[2]s, path = %[5]s })`,
+		luaComment(d.IP), luaQuote(d.Name), luaQuote(stateTopic), luaQuote(cmdTopic), luaQuote("tasmota:"+d.ID))
 }
 
+// generateESPHomeSnippet gives a template for one sensor: the discovery
+// config does not say which sensors the node publishes.
 func generateESPHomeSnippet(d DiscoveredDevice) string {
-	return fmt.Sprintf(`-- Auto-generated: %s (ESPHome, IP: %s)
-local dev = VirtualSensor()
-MQTT_CLIENT:subscribe("esphome/%s/sensor/+/state", function(topic, payload)
-    dev:setValue(tonumber(payload) or payload)
+	base := strings.TrimSuffix(d.Topics["state"], "/sensor/+/state")
+	if base == "" {
+		base = "esphome/" + d.Name
+	}
+	return fmt.Sprintf(`-- ESPHome IP: %[1]s. SENSOR: the sensor id from %[2]s/sensor/<id>/state;
+-- set the expose type and unit to match it
+local SENSOR = "temperature"
+local dev = VirtualNumber:new(%[3]s .. " " .. SENSOR)
+MQTT:subscribe(%[4]s .. SENSOR .. "/state", function(topic, payload)
+    local v = tonumber(payload)
+    if v then dev:setValue(v) end
 end)
-expose(dev, "sensor", { name = "%s", path = "esphome:%s" })`,
-		d.Name, d.IP, d.ID, d.Name, d.ID)
+expose(dev, "temperature", { name = %[3]s .. " " .. SENSOR, path = %[5]s .. SENSOR, readonly = true, unit = "°C" })`,
+		luaComment(d.IP), luaComment(base), luaQuote(d.Name), luaQuote(base+"/sensor/"), luaQuote("esphome:"+d.ID+":"))
 }

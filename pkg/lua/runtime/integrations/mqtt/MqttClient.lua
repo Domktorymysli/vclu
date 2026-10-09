@@ -635,9 +635,8 @@ function MQTT:_jsonValue(v)
         return v and "true" or "false"
     elseif t == "number" then
         -- Handle special float values
-        if v ~= v then  -- NaN
-            return "null"
-        elseif v == math.huge or v == -math.huge then
+        -- NaN and ±inf: v - v is 0 only for finite numbers
+        if v ~= v or v - v ~= 0 then
             return "null"
         end
         return tostring(v)

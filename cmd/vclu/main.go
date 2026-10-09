@@ -222,7 +222,8 @@ func main() {
 		})
 	}
 
-	// Start HomeKit server if enabled (must be before SetOnLuaReset so we can reference it)
+	// Create the HomeKit server if enabled; it starts after the first Lua load,
+	// when the exposed objects exist (see below)
 	var homekitSrv *homekit.Server
 	masterConfig, _ := config.ReadMasterConfig(cluDir)
 	if masterConfig != nil && masterConfig.HomeKit != nil && masterConfig.HomeKit.Enabled {
@@ -231,11 +232,6 @@ func main() {
 		homekitSrv.SetMetrics(srv.GetMetrics())
 		// Wire up event-driven state notifications (StateBus → HomeKit)
 		luaEngine.SetHomeKitStateHandler(homekitSrv.NotifyStateChange)
-		if err := homekitSrv.Start(); err != nil {
-			log.Printf("Warning: Failed to start HomeKit server: %v", err)
-		} else {
-			log.Printf("HomeKit bridge started on port %d", masterConfig.HomeKit.Port)
-		}
 		// Set up HomeKit metrics provider functions
 		if metrics := srv.GetMetrics(); metrics != nil {
 			metrics.SetHomeKitFuncs(
@@ -308,17 +304,30 @@ func main() {
 		if _, err := luaEngine.Execute("exposeRegistry()"); err != nil {
 			log.Printf("   ⚠️  Failed to auto-expose registry: %v", err)
 		}
-		// Clear HomeKit initialization mode after a delay (allow state to stabilize)
+		// Rebuild the bridge if the exposed objects changed, then let Home app
+		// writes through again once the state has settled
 		if homekitSrv != nil {
+			gen := homekitSrv.InitGen() // this reload's pause, taken before Sync can wait
 			go func() {
-				time.Sleep(3 * time.Second)
-				homekitSrv.SetInitializing(false)
+				if err := homekitSrv.Sync(); err != nil {
+					log.Printf("[HomeKit] bridge not updated after Lua reload: %v", err)
+				}
+				homekitSrv.ResumeGen(gen, 3*time.Second)
 			}()
 		}
 	})
 
 	// Load CLU data (plugins → user.lua → om.lua → MQTT → expose)
 	srv.LoadInitialData()
+
+	// HomeKit after the first load: started earlier it published an empty bridge
+	if homekitSrv != nil {
+		if err := homekitSrv.Start(); err != nil {
+			log.Printf("Warning: Failed to start HomeKit server: %v", err)
+		} else {
+			log.Printf("HomeKit bridge started on port %d", masterConfig.HomeKit.Port)
+		}
+	}
 
 	if err := webSrv.Start(); err != nil {
 		log.Fatalf("Failed to start web server: %v", err)

@@ -17,6 +17,7 @@ SatelPartition.__index = SatelPartition
 -- @param opts table Optional: { armMode = 0-3 } (default arm mode)
 function SatelPartition:new(number, name, opts)
     local obj = VirtualSwitch.new(self, name or ("Satel Partition " .. number))
+    obj._satel = true  -- HomeKit shows Satel objects read-only
     obj.number = number
     obj._customName = name ~= nil
     obj._armMode = (opts and opts.armMode) or 0

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Domktorymysli/vclu/pkg/lua"
@@ -197,5 +198,39 @@ func TestPromote_NoFailuresReportsOK(t *testing.T) {
 	}
 	if len(got.ModuleErrors) != 0 || len(got.PreexistingErrors) != 0 {
 		t.Errorf("unexpected errors: %v / %v", got.ModuleErrors, got.PreexistingErrors)
+	}
+}
+
+// A failed promote is not rolled back: the module stays and an incident keeps
+// the evidence for the agent that fixes it. A clean promote records nothing.
+func TestPromote_FailureRecordsIncidentNoRollback(t *testing.T) {
+	rel := &scriptedReloader{reloadErr: fmt.Errorf("syntax error near 'end'")}
+	srv := newPromoteHarness(t, rel)
+
+	got := promote(t, srv, "modules/init.lua", `_x = 2`)
+	if got.OK {
+		t.Fatal("promote reported OK")
+	}
+	prod, err := srv.workspace.GetProductionContent("modules/init.lua")
+	if err != nil || prod != `_x = 2` {
+		t.Fatalf("promoted module rolled back or missing: %q %v", prod, err)
+	}
+	list := srv.incidents.List()
+	if len(list) != 1 {
+		t.Fatalf("incidents: %v", list)
+	}
+	latest, err := srv.incidents.GetLatest()
+	if err != nil || !strings.Contains(latest, "# Incident: promote") || !strings.Contains(latest, "syntax error") ||
+		!strings.Contains(latest, "+_x = 2") {
+		t.Fatalf("incident (trigger, error, diff): %v %s", err, latest)
+	}
+	if got.Incident != "vclu://incidents/latest" {
+		t.Errorf("result does not point to the incident: %q", got.Incident)
+	}
+
+	clean := newPromoteHarness(t, &scriptedReloader{})
+	promote(t, clean, "modules/init.lua", `_x = 1`)
+	if n := len(clean.incidents.List()); n != 0 {
+		t.Errorf("clean promote recorded %d incidents", n)
 	}
 }

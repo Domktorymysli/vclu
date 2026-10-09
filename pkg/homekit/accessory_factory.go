@@ -8,12 +8,64 @@ import (
 	"github.com/brutella/hap/accessory"
 	"github.com/brutella/hap/characteristic"
 	"github.com/brutella/hap/service"
+
+	"github.com/Domktorymysli/vclu/pkg/accesscontrol"
 )
 
 // readonlyPerms drops PairedWrite from a characteristic so the Home app renders the
 // accessory as a read-only status tile instead of a control the user can (uselessly)
 // toggle. Applied to the control characteristic of readonly accessories.
 var readonlyPerms = []string{characteristic.PermissionRead, characteristic.PermissionEvents}
+
+// command runs a write from the Home app on the exposed object at path:
+// luaCall is a method call on the handle h. The HomeKit access level is read
+// again here (the profile may have changed since the bridge was built); a
+// refused or failed write puts the tile back to the real state.
+func (s *Server) command(path, luaCall string, update func(float64)) bool {
+	if s.paused(path, update) {
+		return false
+	}
+	if s.accessManager != nil && (s.accessManager.IsHidden(accesscontrol.IntegrationHomeKit, path) ||
+		s.accessManager.IsReadonly(accesscontrol.IntegrationHomeKit, path)) {
+		log.Printf("[HomeKit] write to %s refused: read-only or hidden for HomeKit", path)
+		s.revert(path, update)
+		return false
+	}
+	if s.metrics != nil {
+		s.metrics.RecordHomeKitRequest(false)
+	}
+	script := fmt.Sprintf(`local h = ExposedObjects:get(%s); if not h then return "missing" end; %s; return "ok"`, luaString(path), luaCall)
+	res, err := s.executeCommand(script)
+	if err == nil && res == "missing" {
+		err = fmt.Errorf("object no longer exposed")
+	}
+	if err != nil {
+		log.Printf("[HomeKit] Error executing command on %s: %v", path, err)
+		s.revert(path, update)
+		return false
+	}
+	return true
+}
+
+// paused reports a write that arrived while Home app writes are paused (Lua
+// reload); the tile shows the real state again once Lua answers.
+func (s *Server) paused(path string, update func(float64)) bool {
+	if !s.IsInitializing() {
+		return false
+	}
+	go s.revert(path, update)
+	return true
+}
+
+// revert shows the object's real state again after a refused write.
+func (s *Server) revert(path string, update func(float64)) {
+	if update == nil {
+		return
+	}
+	if v, ok := s.GetCurrentState(path); ok {
+		update(v)
+	}
+}
 
 // createExposedAccessory creates a HomeKit accessory for an ExposedObject
 func (s *Server) createExposedAccessory(obj ExposedObject, readonly bool) *AccessoryWrapper {
@@ -43,13 +95,17 @@ func (s *Server) createExposedAccessory(obj ExposedObject, readonly bool) *Acces
 	case "fan":
 		acc, updateFunc = s.createExposedFan(info, obj, readonly)
 	case "scene":
-		acc, updateFunc = s.createExposedScene(info, obj)
-	case "number":
-		// Numbers don't have a good HomeKit equivalent, use switch
-		acc, updateFunc = s.createExposedSwitch(info, obj, readonly)
+		acc, updateFunc = s.createExposedScene(info, obj, readonly)
+	case "illuminance":
+		acc, updateFunc = s.createExposedLightSensor(info, obj)
+	case "binary_sensor":
+		acc, updateFunc = s.createExposedContactSensor(info, obj)
 	default:
-		log.Printf("[HomeKit] unknown type %s for %s, using switch", obj.Type, obj.Path)
-		acc, updateFunc = s.createExposedSwitch(info, obj, readonly)
+		// number, button, lock, garage_door, climate...: a plain switch would
+		// let the Home app (and "turn everything off") write 0/1 into them, and
+		// a lock or gate as a switch skips the unlock HomeKit requires.
+		log.Printf("[HomeKit] %s (%s) has no HomeKit accessory, left out", obj.Path, obj.Type)
+		return nil
 	}
 
 	var wrapper *AccessoryWrapper
@@ -79,7 +135,7 @@ func (s *Server) createExposedSwitch(info accessory.Info, obj ExposedObject, rea
 
 	if !readonly {
 		sw.Switch.On.OnValueRemoteUpdate(func(on bool) {
-			if s.IsInitializing() {
+			if s.paused(obj.Path, func(v float64) { sw.Switch.On.SetValue(v > 0) }) {
 				return
 			}
 			currentState, ok := s.GetCurrentState(obj.Path)
@@ -91,13 +147,7 @@ func (s *Server) createExposedSwitch(info accessory.Info, obj ExposedObject, rea
 			if on {
 				val = 1
 			}
-			script := fmt.Sprintf(`local h = ExposedObjects:get("%s"); if h then h:setValue(%d) end`, obj.Path, val)
-			if s.metrics != nil {
-				s.metrics.RecordHomeKitRequest(false)
-			}
-			if _, err := s.executeCommand(script); err != nil {
-				log.Printf("[HomeKit] Error executing exposed command: %v", err)
-			}
+			s.command(obj.Path, fmt.Sprintf("h:setValue(%d)", val), func(v float64) { sw.Switch.On.SetValue(v > 0) })
 		})
 	} else {
 		sw.Switch.On.Permissions = readonlyPerms
@@ -121,7 +171,7 @@ func (s *Server) createExposedLightbulb(info accessory.Info, obj ExposedObject, 
 
 	if !readonly {
 		light.Lightbulb.On.OnValueRemoteUpdate(func(on bool) {
-			if s.IsInitializing() {
+			if s.paused(obj.Path, func(v float64) { light.Lightbulb.On.SetValue(v > 0) }) {
 				return
 			}
 			currentState, ok := s.GetCurrentState(obj.Path)
@@ -133,13 +183,7 @@ func (s *Server) createExposedLightbulb(info accessory.Info, obj ExposedObject, 
 			if on {
 				val = 100
 			}
-			script := fmt.Sprintf(`local h = ExposedObjects:get("%s"); if h then h:setValue(%d) end`, obj.Path, val)
-			if s.metrics != nil {
-				s.metrics.RecordHomeKitRequest(false)
-			}
-			if _, err := s.executeCommand(script); err != nil {
-				log.Printf("[HomeKit] Error executing exposed command: %v", err)
-			}
+			s.command(obj.Path, fmt.Sprintf("h:setValue(%d)", val), func(v float64) { light.Lightbulb.On.SetValue(v > 0) })
 		})
 	} else {
 		light.Lightbulb.On.Permissions = readonlyPerms
@@ -164,20 +208,16 @@ func (s *Server) createExposedCover(info accessory.Info, obj ExposedObject, read
 
 	if !readonly {
 		cover.WindowCovering.TargetPosition.OnValueRemoteUpdate(func(position int) {
-			if s.IsInitializing() {
+			if s.paused(obj.Path, func(v float64) { cover.WindowCovering.TargetPosition.SetValue(int(v)) }) {
 				return
 			}
 			currentState, ok := s.GetCurrentState(obj.Path)
 			if ok && int(currentState) == position {
 				return
 			}
-			script := fmt.Sprintf(`local h = ExposedObjects:get("%s"); if h then h:setValue(%d) end`, obj.Path, position)
-			if s.metrics != nil {
-				s.metrics.RecordHomeKitRequest(false)
-			}
-			if _, err := s.executeCommand(script); err != nil {
-				log.Printf("[HomeKit] Error executing exposed command: %v", err)
-			}
+			s.command(obj.Path, fmt.Sprintf("h:setValue(%d)", position), func(v float64) {
+				cover.WindowCovering.TargetPosition.SetValue(int(v))
+			})
 		})
 	} else {
 		cover.WindowCovering.TargetPosition.Permissions = readonlyPerms
@@ -211,6 +251,9 @@ func (s *Server) createExposedMotionSensor(info accessory.Info, obj ExposedObjec
 // createExposedThermometer creates a TemperatureSensor for an ExposedObject
 func (s *Server) createExposedThermometer(info accessory.Info, obj ExposedObject) (*accessory.A, func(float64)) {
 	therm := accessory.NewTemperatureSensor(info)
+	// hap defaults to 0..100 and clamps; outdoor sensors go below zero
+	therm.TempSensor.CurrentTemperature.SetMinValue(-270)
+	therm.TempSensor.CurrentTemperature.SetMaxValue(100)
 
 	if state, ok := obj.Value.(float64); ok {
 		therm.TempSensor.CurrentTemperature.SetValue(state)
@@ -243,25 +286,23 @@ func (s *Server) createExposedHumiditySensor(info accessory.Info, obj ExposedObj
 
 // createExposedScene creates a stateless Switch for a scene
 // The switch triggers the scene when turned ON and immediately returns to OFF
-func (s *Server) createExposedScene(info accessory.Info, obj ExposedObject) (*accessory.A, func(float64)) {
+func (s *Server) createExposedScene(info accessory.Info, obj ExposedObject, readonly bool) (*accessory.A, func(float64)) {
 	sw := accessory.NewSwitch(info)
 
 	// Scenes always start OFF
 	sw.Switch.On.SetValue(false)
+	if readonly {
+		sw.Switch.On.Permissions = readonlyPerms
+		return sw.A, func(float64) {}
+	}
 
 	sw.Switch.On.OnValueRemoteUpdate(func(on bool) {
-		if s.IsInitializing() {
+		if s.paused(obj.Path, func(float64) { sw.Switch.On.SetValue(false) }) {
 			return
 		}
 		if on {
-			script := fmt.Sprintf(`local h = ExposedObjects:get("%s"); if h then h:executeScene() end`, obj.Path)
-			if s.metrics != nil {
-				s.metrics.RecordHomeKitRequest(false)
-			}
-			if _, err := s.executeCommand(script); err != nil {
-				log.Printf("[HomeKit] Error executing scene: %v", err)
-			}
-			// Reset switch to OFF after a short delay
+			s.command(obj.Path, "h:executeScene()", nil)
+			// A scene tile always returns to OFF
 			sw.Switch.On.SetValue(false)
 		}
 	})
@@ -305,36 +346,36 @@ func (s *Server) createExposedFan(info accessory.Info, obj ExposedObject, readon
 		speed.SetValue(levelToPercent(state))
 	}
 
+	fanUpdate := func(value float64) {
+		if value > 0 {
+			fanSvc.Active.SetValue(1)
+		} else {
+			fanSvc.Active.SetValue(0)
+		}
+		speed.SetValue(levelToPercent(value))
+	}
+
 	if !readonly {
 		fanSvc.Active.OnValueRemoteUpdate(func(active int) {
-			if s.IsInitializing() {
+			if s.paused(obj.Path, fanUpdate) {
 				return
 			}
 			level := 0
 			if active > 0 {
 				level = 1 // turn on at level 1
 			}
-			script := fmt.Sprintf(`local h = ExposedObjects:get("%s"); if h then h:setValue(%d) end`, obj.Path, level)
-			if s.metrics != nil {
-				s.metrics.RecordHomeKitRequest(false)
+			if s.command(obj.Path, fmt.Sprintf("h:setValue(%d)", level), fanUpdate) {
+				speed.SetValue(levelToPercent(float64(level)))
 			}
-			if _, err := s.executeCommand(script); err != nil {
-				log.Printf("[HomeKit] Error setting fan active: %v", err)
-			}
-			speed.SetValue(levelToPercent(float64(level)))
 		})
 
 		speed.OnValueRemoteUpdate(func(pct float64) {
-			if s.IsInitializing() {
+			if s.paused(obj.Path, fanUpdate) {
 				return
 			}
 			level := percentToLevel(pct)
-			script := fmt.Sprintf(`local h = ExposedObjects:get("%s"); if h then h:setValue(%d) end`, obj.Path, level)
-			if s.metrics != nil {
-				s.metrics.RecordHomeKitRequest(false)
-			}
-			if _, err := s.executeCommand(script); err != nil {
-				log.Printf("[HomeKit] Error setting fan speed: %v", err)
+			if !s.command(obj.Path, fmt.Sprintf("h:setValue(%d)", level), fanUpdate) {
+				return
 			}
 			// Update active state based on level
 			if level == 0 {
@@ -348,14 +389,43 @@ func (s *Server) createExposedFan(info accessory.Info, obj ExposedObject, readon
 		speed.Permissions = readonlyPerms
 	}
 
+	return a, fanUpdate
+}
+
+// createExposedLightSensor creates a LightSensor (lux) for an ExposedObject.
+func (s *Server) createExposedLightSensor(info accessory.Info, obj ExposedObject) (*accessory.A, func(float64)) {
+	a := accessory.New(info, accessory.TypeSensor)
+	svc := service.NewLightSensor()
+	a.AddS(svc.S)
+
+	// HAP range is 0.0001..100000 lux
+	updateFunc := func(value float64) {
+		svc.CurrentAmbientLightLevel.SetValue(math.Min(100000, math.Max(0.0001, value)))
+	}
+	if state, ok := obj.Value.(float64); ok {
+		updateFunc(state)
+	}
+	return a, updateFunc
+}
+
+// createExposedContactSensor creates a ContactSensor: value 1 (active) is
+// open, 0 is closed.
+func (s *Server) createExposedContactSensor(info accessory.Info, obj ExposedObject) (*accessory.A, func(float64)) {
+	a := accessory.New(info, accessory.TypeSensor)
+	svc := service.NewContactSensor()
+	a.AddS(svc.S)
+
 	updateFunc := func(value float64) {
 		if value > 0 {
-			fanSvc.Active.SetValue(1)
+			svc.ContactSensorState.SetValue(characteristic.ContactSensorStateContactNotDetected)
 		} else {
-			fanSvc.Active.SetValue(0)
+			svc.ContactSensorState.SetValue(characteristic.ContactSensorStateContactDetected)
 		}
-		speed.SetValue(levelToPercent(value))
 	}
-
+	if state, ok := obj.Value.(float64); ok {
+		updateFunc(state)
+	} else if state, ok := obj.Value.(bool); ok && state {
+		updateFunc(1)
+	}
 	return a, updateFunc
 }
