@@ -2,8 +2,8 @@
 set -e
 
 # Virtual CLU - Web Installer
-# Usage: curl -sSL https://vclu.pl/install.sh | bash
-#    or: curl -sSL https://vclu.pl/install.sh | bash -s -- --version v1.0.0
+# Usage: curl -sSL https://vclu.pl/install.sh | sudo bash
+#    or: curl -sSL https://vclu.pl/install.sh | sudo bash -s -- --version v1.0.0
 
 REPO="Domktorymysli/vclu"
 INSTALL_DIR="/opt/vclu"
@@ -17,7 +17,7 @@ while [[ $# -gt 0 ]]; do
     --install-dir) INSTALL_DIR="$2"; shift 2 ;;
     --data-dir) DATA_DIR="$2"; shift 2 ;;
     --help)
-      echo "Usage: curl -sSL https://vclu.pl/install.sh | bash -s -- [OPTIONS]"
+      echo "Usage: curl -sSL https://vclu.pl/install.sh | sudo bash -s -- [OPTIONS]"
       echo ""
       echo "Options:"
       echo "  --version VERSION    Install specific version (default: latest)"

@@ -3,3 +3,6 @@ contact_links:
   - name: Documentation
     url: https://docs.vclu.pl
     about: Guides and Lua API reference
+  - name: Discord
+    url: https://discord.gg/9cgrnXkVP
+    about: Questions and help ("how do I...?") - not bugs
