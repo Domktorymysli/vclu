@@ -4,7 +4,7 @@ License text copyright (c) 2020 MariaDB Corporation Ab, All Rights Reserved.
 Parameters
 
 Licensor:             Tytus Ciunelis-Maciak
-Licensed Work:        Virtual CLU (vCLU). The Licensed Work is (c) 2025
+Licensed Work:        Virtual CLU (vCLU). The Licensed Work is (c) 2025-2026
                       Tytus Ciunelis-Maciak.
 Additional Use Grant: You may make production use of the Licensed Work,
                       provided Your use complies with the restrictions below.
@@ -71,3 +71,37 @@ AN "AS IS" BASIS. LICENSOR HEREBY DISCLAIMS ALL WARRANTIES AND CONDITIONS,
 EXPRESS OR IMPLIED, INCLUDING (WITHOUT LIMITATION) WARRANTIES OF
 MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, NON-INFRINGEMENT, AND
 TITLE.
+
+-----------------------------------------------------------------------------
+
+Additional Terms of the Licensor (not part of the Business Source License text)
+
+Limitation of Liability
+
+TO THE EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL THE LICENSOR OR
+ANY CONTRIBUTOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+EXEMPLARY OR CONSEQUENTIAL DAMAGES ARISING IN ANY WAY OUT OF THE USE OF, OR
+THE INABILITY TO USE, THE LICENSED WORK, EVEN IF ADVISED OF THE POSSIBILITY OF
+SUCH DAMAGE. THIS INCLUDES, WITHOUT LIMITATION:
+
+- damage to or malfunction of hardware connected to or controlled by the
+  Licensed Work, including building automation controllers (for example a
+  controller entering a recovery or emergency mode or requiring
+  reconfiguration), modules, alarm panels, sensors and actuators;
+- loss or corruption of configuration, projects or other data;
+- failure of automations, alarm functions, notifications or remote access;
+- damage to property or persons resulting from any of the above.
+
+The Licensed Work communicates with and controls physical installations. You
+use it at your own risk and are responsible for testing changes, keeping
+backups of your installation's configuration and keeping independent means of
+control. The Licensed Work is not designed or certified for life-safety or
+security-critical use and must not be relied upon as the sole means of
+intrusion, fire or other alarm protection.
+
+Trademarks
+
+Virtual CLU (vCLU) is an independent project. It is not affiliated with,
+endorsed or supported by the manufacturers of the devices it works with.
+Names of third-party products are used only to describe compatibility and
+remain the property of their respective owners.
