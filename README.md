@@ -11,7 +11,7 @@
 
 vCLU działa obok Twoich CLU Grenton i centrali alarmowej Satel, na Raspberry Pi albo dowolnym małym komputerze z Linuksem. Rozmawia protokołem Grentona, czyta alarm i daje jedno miejsce, w którym piszesz automatyki w Lua, widzisz, co działo się w domu i kto to zrobił, oraz pozwalasz agentowi AI wprowadzać zmiany — przez sandbox, z testami i kopią zapasową każdej zmiany.
 
-Jest dla osób, które mają przewodowy inteligentny dom i nie chcą stawiać dużej instalacji Home Assistant, żeby go „uinteligentnić”. Home Assistant, HomeKit i MQTT są obsługiwane jako odbiorcy, ale nie są wymagane.
+Jest dla osób z przewodowym inteligentnym domem, które chcą pisać automatyki w kodzie bez stawiania dużej instalacji Home Assistant. Home Assistant, HomeKit i MQTT są obsługiwane jako odbiorcy, ale nie są wymagane.
 
 <!-- TODO: screenshots
 ![History and audit](docs/images/history.png)

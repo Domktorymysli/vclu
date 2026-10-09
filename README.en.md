@@ -11,7 +11,7 @@
 
 vCLU runs next to your Grenton CLUs and your Satel alarm panel, on a Raspberry Pi or any small Linux box. It talks the Grenton protocol, reads the alarm, and gives you one place to write automations in Lua, see what happened in the house and who did it, and let an AI agent change things — through a sandbox, with tests and a backup of every change.
 
-It is for people who have a wired smart home and do not want to run a large Home Assistant install to make it smart. Home Assistant, HomeKit and MQTT are supported as consumers, not required.
+It is for people with a wired smart home who want to write automations in code without running a large Home Assistant install. Home Assistant, HomeKit and MQTT are supported as consumers, not required.
 
 <!-- TODO: screenshots
 ![History and audit](docs/images/history.png)
