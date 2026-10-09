@@ -222,10 +222,15 @@ end
 --- Applies a panel name to an object (unless the user renamed it).
 local function applyName(obj, name)
     if not obj or obj._customName or not name or name == "" then return end
+    local prev = obj._name
     obj._name = name
     if obj.isExposed and obj:isExposed() then
         local handle = obj:getExposeHandle()
-        if handle and handle.update then handle:update({ name = name }) end
+        -- a name given in expose() or rename() wins over the panel's
+        local cur = handle and handle.options and handle.options.name
+        if handle and handle.update and (cur == nil or cur == handle.path or cur == prev) then
+            handle:update({ name = name })
+        end
     end
 end
 

@@ -1,7 +1,9 @@
 package homekit
 
 import (
+	"bytes"
 	"context"
+	"crypto/md5"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -103,6 +105,8 @@ type Server struct {
 	initGen       uint64          // bumped by SetInitializing(true)
 	stopped       bool            // Stop called: no automatic (re)start
 	retrying      atomic.Bool     // a retryStart loop is running
+	syncing       atomic.Bool     // a change-watch Sync is running
+	lastRebuild   atomic.Int64    // unix ns of the last change-watch Sync
 
 	pendingMu sync.Mutex
 	pending   map[string]float64 // state changes waiting for the notifier
@@ -369,6 +373,7 @@ func (s *Server) start(objs []ExposedObject) error {
 	})
 
 	store := hap.NewFsStore(s.dataDir + "/homekit-db")
+	bumpOnRename(store, objs)
 	hapServer, err := hap.NewServer(store, bridge.A, all...)
 	if err != nil {
 		return fmt.Errorf("failed to create HAP server: %w", err)
@@ -414,7 +419,83 @@ func (s *Server) start(objs []ExposedObject) error {
 
 	s.startPeriodicRefresh(ctx, cfg.RefreshInterval)
 	s.startDnssdWatchdog(ctx)
+	s.startChangeWatch(ctx)
 	return nil
+}
+
+// bumpOnRename makes hap raise the config number (c#) when only names
+// changed: its config hash skips values, and a name is a value, so without
+// this the Home app would not fetch the new names.
+func bumpOnRename(store hap.Store, objs []ExposedObject) {
+	names := make([]string, 0, len(objs))
+	for _, o := range objs {
+		names = append(names, o.Path+"\x00"+o.displayName())
+	}
+	sort.Strings(names)
+	sum := md5.Sum([]byte(strings.Join(names, "\n")))
+	if old, err := store.Get("vclu-names"); err == nil && bytes.Equal(old, sum[:]) {
+		return
+	}
+	store.Delete("configHash")
+	store.Set("vclu-names", sum[:])
+}
+
+// changeWatchInterval: how often the bridge checks for changed names, new
+// objects or access (e.g. Satel names read from the panel after start).
+var changeWatchInterval = 30 * time.Second
+
+// changeWatchGap: minimum time between rebuilds started by the watch (each
+// one makes accessories briefly unavailable).
+var changeWatchGap = 2 * time.Minute
+
+// exposedChanged reports whether a Sync would rebuild the bridge.
+func (s *Server) exposedChanged() bool {
+	objs, err := s.fetchExposed()
+	if err != nil {
+		return false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.signatureOf(mergeExposed(objs, s.built)) != s.signature
+}
+
+// startChangeWatch rebuilds the bridge (via Sync) when the exposed set
+// differs from the one it was built from.
+func (s *Server) startChangeWatch(ctx context.Context) {
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		ticker := time.NewTicker(changeWatchInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if s.IsInitializing() {
+					continue
+				}
+				if time.Since(time.Unix(0, s.lastRebuild.Load())) < changeWatchGap || s.syncing.Load() {
+					continue
+				}
+				if !s.exposedChanged() || ctx.Err() != nil {
+					continue
+				}
+				log.Printf("[HomeKit] exposed objects changed, rebuilding the bridge")
+				s.lastRebuild.Store(time.Now().UnixNano())
+				s.syncing.Store(true)
+				// Detached: Sync stops the bridge and waits on s.wg, which
+				// this goroutine is part of. If Sync rebuilds, ctx ends this
+				// loop; if not (a failed read), the loop tries again later.
+				go func() {
+					defer s.syncing.Store(false)
+					if err := s.Sync(); err != nil {
+						log.Printf("[HomeKit] rebuild after change failed: %v", err)
+					}
+				}()
+			}
+		}
+	}()
 }
 
 // Stop stops the HomeKit server

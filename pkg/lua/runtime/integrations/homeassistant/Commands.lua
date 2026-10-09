@@ -367,6 +367,17 @@ function HACommands.handleExposedMessage(topic, payload)
             handle:setValue(0)
             return true
         end
+    elseif (exposedType == "light" or exposedType == "dimmer") and not ExposedObjects.hasBrightness(handle) then
+        -- on/off light (DOUT): 1/0, a brightness write is refused
+        if parsed.subpath == "brightness" then
+            return false, "light has no brightness"
+        elseif payload == "ON" then
+            handle:setValue(1)
+            return true
+        elseif payload == "OFF" then
+            handle:setValue(0)
+            return true
+        end
     elseif exposedType == "light" or exposedType == "dimmer" then
         if parsed.subpath == "brightness" then
             local brightness = tonumber(payload)

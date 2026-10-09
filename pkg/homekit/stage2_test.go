@@ -229,3 +229,31 @@ func TestInvalidPinIsNotRetried(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 }
+
+type jsonLua struct{ out string }
+
+func (j *jsonLua) Execute(string) (string, error) { return j.out, nil }
+
+// Satel names come from the panel after the bridge started: a changed name
+// must rebuild the bridge, an unchanged set must not.
+func TestNameChangeRebuildsBridge(t *testing.T) {
+	lua := &jsonLua{out: `[{"path":"satel.zone.1","type":"sensor","name":"satel.zone.1","satel":true}]`}
+	s := &Server{luaExecutor: lua}
+	objs, err := s.fetchExposed()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.built = objs
+	s.signature = s.signatureOf(objs)
+	if s.exposedChanged() {
+		t.Fatal("unchanged set reported as changed")
+	}
+	lua.out = `[{"path":"satel.zone.1","type":"sensor","name":"PIR HOL","satel":true}]`
+	if !s.exposedChanged() {
+		t.Fatal("a new name did not trigger a rebuild")
+	}
+	lua.out = `[]` // a read mid-reload keeps the built set
+	if s.exposedChanged() {
+		t.Fatal("an empty read triggered a rebuild")
+	}
+}

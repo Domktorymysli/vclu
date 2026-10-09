@@ -700,7 +700,7 @@ func TestExposeCapabilities(t *testing.T) {
 		hasCap  string
 	}{
 		{"switch", "binary"},
-		{"light", "brightness"},
+		{"light", "write"}, // brightness comes from the object, see getHandleCapabilities
 		{"dimmer", "brightness"},
 		{"cover", "position"},
 		{"scene", "execute"},

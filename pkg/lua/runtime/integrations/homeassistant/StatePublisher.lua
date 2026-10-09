@@ -346,7 +346,7 @@ local function publishExposedState(handle)
     end
 
     -- Publish brightness for dimmers/lights
-    if handle.type == "dimmer" or handle.type == "light" then
+    if ExposedObjects.hasBrightness(handle) then
         local brightnessTopic = buildExposedBrightnessTopic(handle.path, handle.type)
         if brightnessTopic then
             local numVal = tonumber(value) or 0
@@ -535,11 +535,18 @@ local function onObjectExposed(data)
     end
 
     -- Add brightness for dimmers/lights (not when remapped to a read-only component)
-    if not readonlyRemapped and (exposedType == "dimmer" or exposedType == "light") then
+    local handle = ExposedObjects and ExposedObjects:get(path)
+    if not readonlyRemapped and handle and ExposedObjects.hasBrightness(handle) then
         local brightnessTopic = buildExposedBrightnessTopic(path, exposedType)
         discoveryPayload.brightness_state_topic = brightnessTopic
         discoveryPayload.brightness_command_topic = brightnessTopic .. "/set"
         discoveryPayload.brightness_scale = 100
+    elseif handle and (exposedType == "light" or exposedType == "dimmer") and not ExposedObjects.hasBrightness(handle) then
+        -- on/off light: drop a brightness value retained by older versions
+        local brightnessTopic = buildExposedBrightnessTopic(path, exposedType)
+        if brightnessTopic then
+            HAStatePublisher.mqttInstance:publish(brightnessTopic, "", 0, true)
+        end
     end
 
     -- Add position for covers

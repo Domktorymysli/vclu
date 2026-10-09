@@ -215,6 +215,23 @@ func TestSatelNameAndTemperatureEvents(t *testing.T) {
 	expectLua(t, engine, `Satel.temp(7):getValue()`, "21.5")
 }
 
+// A panel name fills an auto-exposed object, but a name the user gave in
+// expose() stays (names come again on every reconnect).
+func TestSatelPanelNameKeepsUserName(t *testing.T) {
+	engine := newSatelTestEngine(t)
+	if _, err := engine.Execute(`
+		Satel.zone(1):expose({ path = "satel.zone.1", name = "satel.zone.1" })
+		Satel.zone(2):expose({ path = "satel.zone.2", name = "Hol" })
+		table.insert(__satel_events, '{"type":"name","kind":"zone","number":1,"message":"PIR HOL"}')
+		table.insert(__satel_events, '{"type":"name","kind":"zone","number":2,"message":"PIR WIATROLAP"}')
+		Satel.pollEvents()
+	`); err != nil {
+		t.Fatalf("events failed: %v", err)
+	}
+	expectLua(t, engine, `Satel.zone(1):getExposeHandle().options.name`, "PIR HOL")
+	expectLua(t, engine, `Satel.zone(2):getExposeHandle().options.name`, "Hol")
+}
+
 // TestSatelManagerBridge wires a real SatelManager (panel not started, so no
 // network I/O) and verifies the Go bridge: object creation via SetSatelManager,
 // JSON shapes of the Go getters, and the disconnected-control guard.

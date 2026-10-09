@@ -160,7 +160,7 @@ function MCP.get_device(path)
         end
     end
 
-    local caps = ExposedObjects:getCapabilities(handle.type) or {}
+    local caps = ExposedObjects:getHandleCapabilities(handle)
 
     local result = {
         path = path,

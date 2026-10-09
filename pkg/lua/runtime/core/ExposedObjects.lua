@@ -257,7 +257,8 @@ end
 
 local capabilities = {
     switch = { read = true, write = true, binary = true },
-    light = { read = true, write = true, brightness = true },
+    -- brightness per object: a DOUT exposed as a light is on/off only
+    light = { read = true, write = true },
     dimmer = { read = true, write = true, brightness = true, range = {0, 100} },
     sensor = { read = true, write = false, binary = true },
     binary_sensor = { read = true, write = false, binary = true },
@@ -582,6 +583,27 @@ function ExposedObjects:getCapabilities(objType)
     return capabilities[objType]
 end
 
+--- True when the handle has a brightness: a dimmer, or a light whose object can dim
+-- @param handle ExposedHandle
+-- @return boolean
+function ExposedObjects.hasBrightness(handle)
+    if handle.type == "dimmer" then return true end
+    local o = handle.object
+    return handle.type == "light" and type(o) == "table" and type(o.getBrightness) == "function"
+end
+
+--- Capabilities of one exposed object (the type's, with brightness from the object)
+-- @param handle ExposedHandle
+-- @return table Capabilities (a copy)
+function ExposedObjects:getHandleCapabilities(handle)
+    local caps = {}
+    for k, v in pairs(capabilities[handle.type] or {}) do caps[k] = v end
+    if ExposedObjects.hasBrightness(handle) then
+        caps.brightness = true
+    end
+    return caps
+end
+
 --- Convert exposed objects to JSON for HomeKit/MQTT
 -- @param filter table Optional filter: { mqtt = true/false, homekit = true/false }
 -- @return string JSON array
@@ -606,7 +628,7 @@ function ExposedObjects:toJSON(filter)
                 value = nil
             end
 
-            local caps = capabilities[handle.type] or {}
+            local caps = self:getHandleCapabilities(handle)
             -- caps stays a JSON object even when empty (Go decodes it into a struct)
             local capsList = {}
             for _, k in ipairs({ "binary", "brightness", "position", "execute", "stateless" }) do
