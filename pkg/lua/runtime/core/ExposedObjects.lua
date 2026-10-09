@@ -259,7 +259,7 @@ local capabilities = {
     switch = { read = true, write = true, binary = true },
     -- brightness per object: a DOUT exposed as a light is on/off only
     light = { read = true, write = true },
-    dimmer = { read = true, write = true, brightness = true, range = {0, 100} },
+    dimmer = { read = true, write = true, brightness = true, range = {0, 1} },
     sensor = { read = true, write = false, binary = true },
     binary_sensor = { read = true, write = false, binary = true },
     motion = { read = true, write = false, binary = true, event = true },

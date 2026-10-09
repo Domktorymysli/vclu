@@ -5,7 +5,7 @@
 **A programmable controller for Grenton and Satel homes — written in code, safe for AI agents to change.**
 
 [![Build](https://img.shields.io/github/actions/workflow/status/Domktorymysli/vclu/test.yml?branch=main)](https://github.com/Domktorymysli/vclu/actions)
-[![Go Version](https://img.shields.io/badge/go-1.24+-00ADD8.svg)](https://go.dev)
+[![Go Version](https://img.shields.io/badge/go-1.26+-00ADD8.svg)](https://go.dev)
 [![License](https://img.shields.io/badge/license-BSL%201.1-blue.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-900+-brightgreen.svg)](#tests-and-contracts)
 

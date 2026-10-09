@@ -379,17 +379,26 @@ function HACommands.handleExposedMessage(topic, payload)
             return true
         end
     elseif exposedType == "light" or exposedType == "dimmer" then
+        -- value is 0..1, HA sends brightness as 0..100 (brightness_scale)
+        local obj = handle.object
         if parsed.subpath == "brightness" then
-            local brightness = tonumber(payload)
-            if brightness then
-                handle:setValue(brightness)
+            local pct = tonumber(payload)
+            if pct then
+                pct = math.max(0, math.min(100, pct))
+                if obj.setBrightness then obj:setBrightness(pct) else handle:setValue(pct / 100) end
+                handle._haBrightnessAt = os.time()
                 return true
             end
         elseif payload == "ON" then
-            handle:setValue(100)
+            -- HA sends ON right after a brightness change: keep that brightness
+            local at = handle._haBrightnessAt
+            handle._haBrightnessAt = nil
+            if at and os.time() - at <= 2 then return true end
+            if obj.switchOn then obj:switchOn() else handle:setValue(1) end
             return true
         elseif payload == "OFF" then
-            handle:setValue(0)
+            handle._haBrightnessAt = nil
+            if obj.switchOff then obj:switchOff() else handle:setValue(0) end
             return true
         end
     elseif exposedType == "cover" then

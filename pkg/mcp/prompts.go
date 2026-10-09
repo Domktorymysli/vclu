@@ -109,7 +109,7 @@ func (s *MCPServer) handleCreateScenePrompt(ctx context.Context, req mcplib.GetP
 	code.WriteString("\n")
 	for _, d := range devices {
 		if d.devType == "dimmer" {
-			code.WriteString(fmt.Sprintf("    %s:set(0, VALUE) -- 0-100\n", d.varName))
+			code.WriteString(fmt.Sprintf("    %s:set(0, VALUE) -- 0/1, dimmer 0..1\n", d.varName))
 		} else if d.devType == "cover" {
 			code.WriteString(fmt.Sprintf("    %s:set(0, VALUE) -- 0=closed, 100=open\n", d.varName))
 		} else {
@@ -133,7 +133,7 @@ func (s *MCPServer) handleCreateScenePrompt(ctx context.Context, req mcplib.GetP
 	msg.WriteString(code.String())
 	msg.WriteString("```\n\n")
 	msg.WriteString("### Checklist\n")
-	msg.WriteString("- [ ] Replace VALUE with actual values (0-100 for dimmers, 0/1 for switches)\n")
+	msg.WriteString("- [ ] Replace VALUE with actual values (0..1 for dimmers, 0/1 for switches)\n")
 	msg.WriteString("- [ ] Add description explaining what the scene does\n")
 	msg.WriteString("- [ ] Check if devices are not readonly\n")
 	msg.WriteString("- [ ] Consider adding a reverse scene (e.g., scene:normal)\n")

@@ -6,7 +6,7 @@ Thanks for your interest in contributing! vCLU is an AI-native smart home runtim
 
 ### Prerequisites
 
-- Go 1.24+
+- Go 1.26+
 - Git
 
 ### Build

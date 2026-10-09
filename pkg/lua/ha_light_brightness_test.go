@@ -92,3 +92,66 @@ func TestExposedLightBrightnessOnlyWhenDimmable(t *testing.T) {
 		t.Errorf("ON / brightness on a DOUT light = %s, want 1,false,1", got)
 	}
 }
+
+// A dimmer's value is 0..1 and HA sends brightness as 0..100: ON keeps the
+// last brightness (switchOn), the slider goes through setBrightness, and an
+// object without those methods gets value/100.
+func TestHADimmerScale(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+
+	setup := `
+		_pub = {}
+		_fake = {
+			publish = function(self, topic, payload) table.insert(_pub, { topic = topic, payload = payload }) end,
+			subscribe = function() end, unsubscribe = function() end,
+		}
+		HAStatePublisher.setup(_fake)
+		_calls = {}
+		local function mk(methods)
+			local o = {
+				_type = "DIMMER", _lastState = 0,
+				get = function(s) return s._lastState end,
+				set = function(s, i, v) table.insert(_calls, "set " .. v); s._lastState = v end,
+				onChange = function(s, cb) return function() end end,
+				getBrightness = function(s) return s._lastState * 100 end,
+			}
+			if methods then
+				o.setBrightness = function(s, p) table.insert(_calls, "bri " .. p); s._lastState = p / 100 end
+				o.switchOn = function(s) table.insert(_calls, "on"); s._lastState = 0.4 end
+				o.switchOff = function(s) table.insert(_calls, "off"); s._lastState = 0 end
+			end
+			return o
+		end
+		_dim = mk(true)
+		_plain = mk(false)
+		expose(_dim, "dimmer", { name = "Dim", path = "t:dim" })
+		expose(_plain, "light", { name = "Plain", path = "t:plain" })
+		function _topic(id)
+			for _, p in ipairs(_pub) do
+				if p.topic:find(id, 1, true) and p.topic:find("/config", 1, true) then
+					return (p.payload:match('"command_topic":"([^"]+)"'):gsub("\\/", "/"))
+				end
+			end
+		end
+	`
+	if _, err := engine.Execute(setup); err != nil {
+		t.Fatalf("setup failed: %v", err)
+	}
+
+	got := mustExec(t, engine, `(function()
+		local d, p = _topic("t_dim"), _topic("t_plain")
+		local bd, bp = d:gsub("/set$", "/brightness/set"), p:gsub("/set$", "/brightness/set")
+		HACommands.handleExposedMessage(d, "ON")
+		HACommands.handleExposedMessage(bd, "37")
+		HACommands.handleExposedMessage(d, "ON")  -- HA repeats ON after a brightness change
+		HACommands.handleExposedMessage(d, "OFF")
+		HACommands.handleExposedMessage(bp, "50")
+		HACommands.handleExposedMessage(p, "OFF")
+		HACommands.handleExposedMessage(p, "ON")
+		return table.concat(_calls, ",")
+	end)()`)
+	if got != "on,bri 37,off,set 0.5,set 0,set 1" {
+		t.Errorf("calls = %s", got)
+	}
+}

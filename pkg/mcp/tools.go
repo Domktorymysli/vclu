@@ -39,7 +39,7 @@ func (s *MCPServer) registerTools() {
 				"description": "Device path",
 			},
 			"value": map[string]any{
-				"description": "Value to set (1/0 for switches, 0-100 for dimmers, etc.)",
+				"description": "Value to set (1/0 for switches, 0..1 for dimmers, 0-100 for cover position, etc.)",
 			},
 		}, []string{"path", "value"})
 

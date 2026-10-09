@@ -19,7 +19,21 @@
 - An object that has not reported yet is no longer shown as off, and a Lua reload started by Object Manager pauses Home app writes like a manual reload does.
 - More than 149 accessories (the HomeKit bridge limit) are logged and the newest objects left out instead of failing the pairing; objects that already have an id stay.
 - **A pause of Home app writes always ends** - writes are ignored during a Lua reload; a reload that failed before its end kept them ignored until the next good reload, and an earlier reload could end a later one's pause. A pause now belongs to its reload and ends after 60 s at the latest.
+- **Names changed after start reach the bridge** - Satel zone names come from the panel some seconds after start, when the bridge was already built, so HomeKit showed `satel.zone.1` until the next reload. The bridge now checks every 30 s whether names, objects or access changed and rebuilds (at most every 2 minutes; accessory ids stay), and a rename raises the configuration number so the Home app fetches the new names. Accessories already renamed in the Home app keep the name given there.
 - Persisted virtual objects and MQTT JSON payloads also turn infinity into nothing/`null` (same `math.huge` mistake): an infinite value could fail every write of the shared KV namespace.
+
+### Home Assistant
+
+- **On/off lights have no brightness slider** - every object exposed as `light` was announced with brightness, so a Grenton output (DOUT) got a slider, "on" wrote 100 and the slider 0..100 to an output where on is 1. Brightness is now announced only for objects that have it (`getBrightness`); an on/off light writes 1/0 and refuses a brightness command, and the brightness value retained on the broker by earlier versions is cleared. MCP `get_device` reports the same per-object capabilities.
+- **Dimmers get the right scale** - a dimmer's value is 0..1, but "on" from HA wrote 100 and the slider wrote 0..100, so any brightness meant full power. The slider now goes through `setBrightness` (or value/100), "on" through `switchOn` (a virtual dimmer restores its last brightness; a Grenton dimmer gets the module's own SwitchOn), "off" through `switchOff`, and the "on" HA sends right after a brightness change no longer overrides that brightness. The `dimmer` range reported to agents and the MCP tool descriptions now say 0..1. Not tested on Grenton dimmer hardware.
+
+### Satel
+
+- **A name given in `expose()` stays** - names read from the panel replaced the name given in `expose()` or `rename()` on every connection to the panel. A panel name now fills only objects nobody named; to name zones yourself, expose them with their path, e.g. `expose(_:get("satel.zone.1"), "sensor", { path = "satel.zone.1", name = "Motion", area = "Hall" })`.
+
+### Build
+
+- **Go 1.26** - release binaries, the Docker image and CI were built with Go 1.24, which no longer gets security fixes; govulncheck reported 22 reachable issues in the standard library (HTTP/2 server, TLS, `html/template`) and in `golang.org/x/net`, `golang.org/x/text` and `quic-go`. Builds now use Go 1.26 (toolchain 1.26.9) and updated modules. One known issue remains in `go-chi/chi` v1 (open redirect in its `RedirectSlashes` middleware, no fixed version), pulled in by the HomeKit library, which does not use that middleware. Building from source needs Go 1.26.
 
 ### MCP
 
