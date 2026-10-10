@@ -55,6 +55,15 @@ if [ -d "$SCRIPT_DIR/docs/ai" ]; then
   cp "$SCRIPT_DIR/docs/ai/"*.md "$DATA_DIR/clu/docs/ai/"
 fi
 
+# Without systemd (container, WSL): installed, start by hand
+if ! command -v systemctl >/dev/null 2>&1 || [ ! -d /run/systemd/system ]; then
+  echo ""
+  echo "Virtual CLU installed. systemd not found, start it by hand:"
+  echo ""
+  echo "  cd $DATA_DIR && $INSTALL_DIR/vclu --auto --data-dir . --web-port $WEB_PORT"
+  exit 0
+fi
+
 # Systemd service
 echo "Installing systemd service..."
 sed "s|@INSTALL_DIR@|$INSTALL_DIR|g; s|@DATA_DIR@|$DATA_DIR|g; s|@WEB_PORT@|$WEB_PORT|g" \
@@ -68,7 +77,9 @@ systemctl start vclu
 sleep 2
 
 if systemctl is-active --quiet vclu; then
-  LOCAL_IP=$(ip -4 route get 1 2>/dev/null | awk '{print $7; exit}' || hostname -I | awk '{print $1}')
+  LOCAL_IP=$(ip -4 route get 1 2>/dev/null | awk '{print $7; exit}')
+  [ -n "$LOCAL_IP" ] || LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+  [ -n "$LOCAL_IP" ] || LOCAL_IP=localhost
   echo ""
   echo "Virtual CLU installed and running!"
   echo ""
