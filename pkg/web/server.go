@@ -888,6 +888,7 @@ func (s *Server) setupRoutes() {
 		api.GET("/dashboards", s.handleAPIDashboards)
 		api.GET("/dashboard/:id", s.handleAPIDashboardDef)
 		api.GET("/dashboard/:id/values", s.handleAPIDashboardValues)
+		api.GET("/dashboard/:id/metrics", s.handleAPIDashboardMetrics)
 		api.POST("/dashboard/:id/action", s.handleAPIDashboardAction)
 		api.POST("/dashboard/:id/auth", s.handleAPIDashboardAuth)
 

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -18,9 +19,10 @@ import (
 
 // dashboardCache provides Go-side TTL caching to reduce Lua mutex contention.
 type dashboardCache struct {
-	mu     sync.RWMutex
-	values map[string]*cacheEntry // dashId → cached getValues JSON
-	defs   map[string]*cacheEntry // dashId → cached getDefinition JSON
+	mu      sync.RWMutex
+	values  map[string]*cacheEntry // dashId → cached getValues JSON
+	defs    map[string]*cacheEntry // dashId → cached getDefinition JSON
+	metrics map[string]*cacheEntry // dashId\x00path → usesMetric JSON (drawn metrics only)
 }
 
 type cacheEntry struct {
@@ -30,9 +32,26 @@ type cacheEntry struct {
 
 func newDashboardCache() *dashboardCache {
 	return &dashboardCache{
-		values: make(map[string]*cacheEntry),
-		defs:   make(map[string]*cacheEntry),
+		values:  make(map[string]*cacheEntry),
+		defs:    make(map[string]*cacheEntry),
+		metrics: make(map[string]*cacheEntry),
 	}
+}
+
+func (dc *dashboardCache) getMetric(key string) (string, bool) {
+	dc.mu.RLock()
+	defer dc.mu.RUnlock()
+	e, ok := dc.metrics[key]
+	if !ok || time.Now().After(e.expiresAt) {
+		return "", false
+	}
+	return e.data, true
+}
+
+func (dc *dashboardCache) setMetric(key, data string) {
+	dc.mu.Lock()
+	defer dc.mu.Unlock()
+	dc.metrics[key] = &cacheEntry{data: data, expiresAt: time.Now().Add(30 * time.Second)}
 }
 
 func (dc *dashboardCache) getValues(id string) (string, bool) {
@@ -73,6 +92,7 @@ func (dc *dashboardCache) Invalidate() {
 	defer dc.mu.Unlock()
 	dc.values = make(map[string]*cacheEntry)
 	dc.defs = make(map[string]*cacheEntry)
+	dc.metrics = make(map[string]*cacheEntry)
 }
 
 // dashCache is the singleton cache instance, initialized lazily.
@@ -327,6 +347,65 @@ func (s *Server) handleAPIDashboardValues(c *gin.Context) {
 	c.Data(http.StatusOK, "application/json", []byte(result))
 }
 
+// handleAPIDashboardMetrics returns samples of a metric the dashboard draws,
+// under the dashboard's own auth (a public page needs no login for its charts)
+func (s *Server) handleAPIDashboardMetrics(c *gin.Context) {
+	id := c.Param("id")
+	if s.luaExecutor == nil || s.metricsCollector == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "metrics not available"})
+		return
+	}
+	if !s.checkDashboardAuth(c, id) {
+		return
+	}
+	path := c.Query("path")
+	if path == "" || len(path) > 256 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "path is required (max 256 chars)"})
+		return
+	}
+	key := id + "\x00" + path
+	result, ok := dashCache.getMetric(key)
+	if !ok {
+		var err error
+		result, err = s.luaExecutor.Execute(fmt.Sprintf(`Dashboard.API.usesMetric("%s", "%s")`, luaEscape(id), luaEscape(path)))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+	}
+	var r struct {
+		Used   bool     `json:"used"`
+		Ranges []string `json:"ranges"`
+	}
+	json.Unmarshal([]byte(result), &r)
+	if !r.Used {
+		c.JSON(http.StatusForbidden, gin.H{"error": "metric not on this dashboard"})
+		return
+	}
+	if !ok {
+		dashCache.setMetric(key, result)
+	}
+	if rg := capRange(c.DefaultQuery("range", "2h"), r.Ranges); rg != "" {
+		q := c.Request.URL.Query()
+		q.Set("range", rg)
+		c.Request.URL.RawQuery = q.Encode()
+	}
+	s.writeMetricSamples(c, path)
+}
+
+// capRange returns the widest drawn range when the requested one is wider
+// (no more history than the dashboard shows), "" when it fits.
+func capRange(requested string, drawn []string) string {
+	var widest time.Duration
+	for _, rg := range drawn {
+		widest = max(widest, parseRange(rg))
+	}
+	if parseRange(requested) <= widest {
+		return ""
+	}
+	return widest.String()
+}
+
 // handleAPIDashboardAction executes a widget action
 func (s *Server) handleAPIDashboardAction(c *gin.Context) {
 	id := c.Param("id")
@@ -513,20 +592,21 @@ func (s *Server) getDashHMACKey() []byte {
 
 // luaEscape escapes a string for safe embedding in Lua string literals
 func luaEscape(s string) string {
-	result := ""
+	var b strings.Builder
+	b.Grow(len(s))
 	for _, c := range s {
 		switch c {
 		case '"':
-			result += `\"`
+			b.WriteString(`\"`)
 		case '\\':
-			result += `\\`
+			b.WriteString(`\\`)
 		case '\n':
-			result += `\n`
+			b.WriteString(`\n`)
 		case '\r':
-			result += `\r`
+			b.WriteString(`\r`)
 		default:
-			result += string(c)
+			b.WriteRune(c)
 		}
 	}
-	return result
+	return b.String()
 }

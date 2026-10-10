@@ -106,7 +106,6 @@ func (p *Panel) execScan(conn *connection, ch chan scanReply) error {
 		p.scanQueued = false
 		*sp = ScanProgress{Running: true, Phase: "zones", Total: zoneCount + 32 + zoneCount}
 	})
-	defer p.setScanProgress(func(sp *ScanProgress) { sp.Running = false })
 	stats := newScanStats(conn)
 
 	scanKind := func(devType byte, count int, phase string) ([]ScanDevice, error) {
@@ -150,6 +149,8 @@ func (p *Panel) execScan(conn *connection, ch chan scanReply) error {
 		}
 	}
 	stats.log()
+	// done before replying: the caller may start the next scan right away
+	p.setScanProgress(func(sp *ScanProgress) { sp.Running = false })
 	if err != nil {
 		ch <- scanReply{err: err}
 		return err

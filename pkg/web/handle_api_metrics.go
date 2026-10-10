@@ -34,6 +34,11 @@ func (s *Server) handleAPIMetricsData(c *gin.Context) {
 		return
 	}
 
+	s.writeMetricSamples(c, path)
+}
+
+// writeMetricSamples answers with the path's samples over ?range= (default 2h).
+func (s *Server) writeMetricSamples(c *gin.Context, path string) {
 	rangeStr := c.DefaultQuery("range", "2h")
 	duration := parseRange(rangeStr)
 	since := time.Now().Add(-duration).Unix()

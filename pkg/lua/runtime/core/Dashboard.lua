@@ -703,6 +703,27 @@ function DashboardAPI.getAuth(id)
     return JSON.encode({ auth = dash._auth })
 end
 
+--- Whether the dashboard draws this metric (chart or status sparkline)
+-- @return string JSON {used=bool, ranges=[...]} or {error=...}
+function DashboardAPI.usesMetric(id, path)
+    local dash = resolveDashboard(id)
+    if not dash then
+        return JSON.encode({ error = 'Dashboard not found' })
+    end
+    local ranges = {}
+    for _, sec in ipairs(dash._sections) do
+        for _, w in ipairs(sec.widgets) do
+            if w.type == 'chart' and w.metricPath == path then
+                table.insert(ranges, w.opts.range or '2h')
+            elseif w.type == 'status' and w.opts and w.opts.spark == path then
+                table.insert(ranges, w.opts.sparkRange or '2h')
+            end
+        end
+    end
+    if #ranges == 0 then return JSON.encode({ used = false }) end
+    return JSON.encode({ used = true, ranges = ranges })
+end
+
 --- List all dashboards with widget details
 -- @return string JSON array of dashboard summaries including widgets array
 function DashboardAPI.list()

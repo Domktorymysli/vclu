@@ -777,7 +777,7 @@
 
     function fetchChartData(w, canvas) {
         var range = w.range || '2h';
-        fetch('/api/metrics/data?path=' + encodeURIComponent(w.metricPath) + '&range=' + range)
+        fetch('/api/dashboard/' + dashId + '/metrics?path=' + encodeURIComponent(w.metricPath) + '&range=' + range)
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 // Downsample long ranges
@@ -874,7 +874,7 @@
 
     function fetchSparkline(w, canvas) {
         var range = w.sparkRange || '2h';
-        fetch('/api/metrics/data?path=' + encodeURIComponent(w.spark) + '&range=' + range)
+        fetch('/api/dashboard/' + dashId + '/metrics?path=' + encodeURIComponent(w.spark) + '&range=' + range)
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 data = downsample(data, 60);
