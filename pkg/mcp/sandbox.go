@@ -70,6 +70,9 @@ func heapBytes() uint64 { return readMetric("/memory/classes/heap/objects:bytes"
 // after that GC do not count.
 func liveBytes() uint64 { return readMetric("/gc/heap/live:bytes") }
 
+// allocatedBytes is the total ever allocated on the heap.
+func allocatedBytes() uint64 { return readMetric("/gc/heap/allocs:bytes") }
+
 func readMetric(name string) uint64 {
 	s := []metrics.Sample{{Name: name}}
 	metrics.Read(s)
@@ -105,9 +108,15 @@ func guardMemory(ctx context.Context, cancel context.CancelCauseFunc, limit, bas
 			if !over(h) || now.Before(quietUntil) && h-base < 2*limit {
 				continue
 			}
+			// the draft keeps allocating during the GC and that counts as live:
+			// subtract it, a real leak was over the limit before the GC
+			a0 := allocatedBytes()
 			runtime.GC()
 			guardForcedGCs.Add(1)
-			if over(liveBytes()) {
+			live, during := liveBytes(), allocatedBytes()-a0
+			// during also counts the sweep and other goroutines; past 3x the
+			// limit live alone decides
+			if live > during && over(live-during) || live > base && live-base > 3*limit {
 				cancel(errSandboxMemory)
 				return
 			}

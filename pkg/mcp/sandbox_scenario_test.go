@@ -223,12 +223,6 @@ func TestParseSteps_Validation(t *testing.T) {
 }
 
 func TestScenario_LongAdvanceWithInterval(t *testing.T) {
-	if raceEnabled {
-		// 86400 ticks under the race detector can pass the 5 s sandbox limit
-		old := sandboxTimeout
-		sandboxTimeout = 20 * time.Second
-		defer func() { sandboxTimeout = old }()
-	}
 	se, ws, _ := newTestSandbox(t)
 	writeDraft(t, ws, "modules/probe.lua", `
 		ticks = 0

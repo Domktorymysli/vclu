@@ -90,6 +90,7 @@ func TestHttpModuleLua(t *testing.T) {
 // ==================== HTTP Go Backend Tests ====================
 
 func TestHTTPGoBackendSync(t *testing.T) {
+	bin := newFakeHTTPBin(t)
 	engine := NewLuaEngine()
 	defer engine.Close()
 
@@ -102,8 +103,8 @@ func TestHTTPGoBackendSync(t *testing.T) {
 		t.Errorf("Expected __go_http_request to be function, got %s", result)
 	}
 
-	// Test 2: Real HTTP GET request to httpbin.org
-	_, err = engine.Execute(`
+	// Test 2: HTTP GET request to the local httpbin
+	_, err = engine.Execute(bin.lua(`
 		status, body, headers, err = __go_http_request(
 			"test_instance",
 			"GET",
@@ -114,7 +115,7 @@ func TestHTTPGoBackendSync(t *testing.T) {
 			true,
 			true
 		)
-	`)
+	`))
 	if err != nil {
 		t.Fatalf("Failed to make HTTP request: %v", err)
 	}
@@ -129,21 +130,21 @@ func TestHTTPGoBackendSync(t *testing.T) {
 		t.Errorf("Expected no error, got '%s'", result)
 	}
 
-	// Body should contain httpbin.org response
 	result, _ = engine.Execute("body")
-	if !strings.Contains(result, "httpbin.org") {
-		t.Errorf("Expected body to contain 'httpbin.org', got '%s'", result)
+	if !strings.Contains(result, bin.url+"/get") {
+		t.Errorf("Expected body to contain the request URL, got '%s'", result)
 	}
 
 	t.Log("HTTP Go backend sync test passed!")
 }
 
 func TestHTTPGoBackendPost(t *testing.T) {
+	bin := newFakeHTTPBin(t)
 	engine := NewLuaEngine()
 	defer engine.Close()
 
-	// POST JSON to httpbin.org
-	_, err := engine.Execute(`
+	// POST JSON to the local httpbin
+	_, err := engine.Execute(bin.lua(`
 		status, body, headers, err = __go_http_request(
 			"test_post",
 			"POST",
@@ -154,7 +155,7 @@ func TestHTTPGoBackendPost(t *testing.T) {
 			true,
 			true
 		)
-	`)
+	`))
 	if err != nil {
 		t.Fatalf("Failed to make POST request: %v", err)
 	}
@@ -174,6 +175,7 @@ func TestHTTPGoBackendPost(t *testing.T) {
 }
 
 func TestHTTPGoBackendAsync(t *testing.T) {
+	bin := newFakeHTTPBin(t)
 	engine := NewLuaEngine()
 	defer engine.Close()
 
@@ -187,7 +189,7 @@ func TestHTTPGoBackendAsync(t *testing.T) {
 	}
 
 	// Start async request
-	_, err = engine.Execute(`
+	_, err = engine.Execute(bin.lua(`
 		__go_http_async_request(
 			"async_test",
 			"request_1",
@@ -199,7 +201,7 @@ func TestHTTPGoBackendAsync(t *testing.T) {
 			true,
 			true
 		)
-	`)
+	`))
 	if err != nil {
 		t.Fatalf("Failed to start async request: %v", err)
 	}
@@ -235,8 +237,8 @@ func TestHTTPGoBackendAsync(t *testing.T) {
 	}
 
 	result, _ = engine.Execute("asyncBody")
-	if !strings.Contains(result, "httpbin.org") {
-		t.Errorf("Expected async body to contain 'httpbin.org', got '%s'", result)
+	if !strings.Contains(result, bin.url+"/get") {
+		t.Errorf("Expected async body to contain the request URL, got '%s'", result)
 	}
 
 	t.Log("HTTP Go backend async test passed!")
@@ -280,6 +282,7 @@ func TestHTTPGoBackendError(t *testing.T) {
 }
 
 func TestHTTPManagerUnit(t *testing.T) {
+	bin := newFakeHTTPBin(t)
 	// Unit test for HTTPManager directly (without Lua)
 	hm := NewHTTPManager()
 
@@ -287,7 +290,7 @@ func TestHTTPManagerUnit(t *testing.T) {
 	status, body, headers, err := hm.Request(
 		"unit_test",
 		"GET",
-		"https://httpbin.org/headers",
+		bin.url+"/headers",
 		map[string]string{"X-Test-Header": "test-value"},
 		"",
 		10000,
@@ -317,6 +320,7 @@ func TestHTTPManagerUnit(t *testing.T) {
 
 // TestHTTPRequestGrentonStyle tests the Grenton-compatible HTTPRequest object
 func TestHTTPRequestGrentonStyle(t *testing.T) {
+	bin := newFakeHTTPBin(t)
 	engine := NewLuaEngine()
 	defer engine.Close()
 
@@ -333,21 +337,21 @@ func TestHTTPRequestGrentonStyle(t *testing.T) {
 	}
 
 	// Test 2: Set properties using Grenton-style set()
-	_, err = engine.Execute(`
+	_, err = engine.Execute(bin.lua(`
 		req:set(HTTPRequest.FEATURE_HOST, "httpbin.org")
 		req:set(HTTPRequest.FEATURE_PATH, "/get")
 		req:set(HTTPRequest.FEATURE_METHOD, "GET")
 		req:set(HTTPRequest.FEATURE_TIMEOUT, 10)
 		req:set(HTTPRequest.FEATURE_RESPONSE_TYPE, HTTPRequest.RESPONSE_TYPE_JSON)
-	`)
+	`))
 	if err != nil {
 		t.Fatalf("Failed to set HTTPRequest properties: %v", err)
 	}
 
 	// Test 3: Verify properties
 	result, _ := engine.Execute(`req:get(HTTPRequest.FEATURE_HOST)`)
-	if result != "httpbin.org" {
-		t.Errorf("Expected host 'httpbin.org', got '%s'", result)
+	if result != bin.host {
+		t.Errorf("Expected host %q, got '%s'", bin.host, result)
 	}
 
 	// Test 4: Test URL building
@@ -355,8 +359,8 @@ func TestHTTPRequestGrentonStyle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to build URL: %v", err)
 	}
-	if result != "http://httpbin.org/get" {
-		t.Errorf("Expected URL 'http://httpbin.org/get', got '%s'", result)
+	if result != bin.url+"/get" {
+		t.Errorf("Expected URL %q, got '%s'", bin.url+"/get", result)
 	}
 
 	// Test 5: Test headers building
@@ -422,8 +426,8 @@ func TestHTTPRequestGrentonStyle(t *testing.T) {
 
 	// Check response contains expected data
 	result, _ = engine.Execute(`req:get(HTTPRequest.FEATURE_RESPONSE_BODY).url`)
-	if result != "https://httpbin.org/get" {
-		t.Logf("Response URL: '%s'", result)
+	if result != bin.url+"/get" {
+		t.Errorf("Response URL: %q, want %q", result, bin.url+"/get")
 	}
 
 	t.Log("HTTPRequest Grenton-style test passed!")
@@ -478,13 +482,14 @@ func TestHttpContentTypeViaSetContentType(t *testing.T) {
 
 // TestHttpPostFormUrlEncoded tests POST with form-urlencoded body (the Telegram API use case)
 func TestHttpPostFormUrlEncoded(t *testing.T) {
+	bin := newFakeHTTPBin(t)
 	engine := NewLuaEngine()
 	defer engine.Close()
 	engine.StartTimers()
 	defer engine.StopTimers()
 
 	// This simulates how PluginSandbox.httpRequest now works after the fix
-	_, err := engine.Execute(`
+	_, err := engine.Execute(bin.lua(`
 		client = HTTP:new("form-test")
 		client:setTimeout(10000)
 		client:setContentType("application/x-www-form-urlencoded")
@@ -500,7 +505,7 @@ func TestHttpPostFormUrlEncoded(t *testing.T) {
 				responseBody = response.body
 			end
 		end)
-	`)
+	`))
 	if err != nil {
 		t.Fatalf("Failed to setup POST request: %v", err)
 	}
@@ -546,6 +551,7 @@ func TestHttpPostFormUrlEncoded(t *testing.T) {
 
 // TestHTTPRequestPost tests POST request with JSON body
 func TestHTTPRequestPost(t *testing.T) {
+	bin := newFakeHTTPBin(t)
 	engine := NewLuaEngine()
 	defer engine.Close()
 
@@ -553,7 +559,7 @@ func TestHTTPRequestPost(t *testing.T) {
 	engine.StartTimers()
 	defer engine.StopTimers()
 
-	_, err := engine.Execute(`
+	_, err := engine.Execute(bin.lua(`
 		req = HTTPRequest:new("postReq", nil, EventBus:getShared())
 		req:set(HTTPRequest.FEATURE_HOST, "httpbin.org")
 		req:set(HTTPRequest.FEATURE_PATH, "/post")
@@ -569,7 +575,7 @@ func TestHTTPRequestPost(t *testing.T) {
 		end)
 
 		req:execute(HTTPRequest.METHOD_SEND_REQUEST)
-	`)
+	`))
 	if err != nil {
 		t.Fatalf("Failed to send POST request: %v", err)
 	}
@@ -594,7 +600,7 @@ func TestHTTPRequestPost(t *testing.T) {
 	// Check JSON payload was received
 	result, _ = engine.Execute(`req:get(HTTPRequest.FEATURE_RESPONSE_BODY).json.name`)
 	if result != "test" {
-		t.Logf("Response json.name: '%s'", result)
+		t.Errorf("Response json.name: %q, want \"test\"", result)
 	}
 
 	t.Log("HTTPRequest POST test passed!")

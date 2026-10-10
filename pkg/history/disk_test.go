@@ -305,11 +305,22 @@ func TestDisk_TornLineDoesNotSwallowNextRecord(t *testing.T) {
 // Close is bounded even when the writer is stuck in a flush.
 func TestDisk_CloseBoundedWhenWriterStuck(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.Dir = t.TempDir()
+	// not t.TempDir: the released writer may still be writing while it is removed
+	dir, err := os.MkdirTemp("", "history-stuck")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Dir = dir
 	s := New(cfg, nil)
 	s.Start()
 	s.flushMu.Lock() // the worker's flush blocks as on a hung SD card
-	defer s.flushMu.Unlock()
+	t.Cleanup(func() {
+		s.flushMu.Unlock()
+		s.Close(5 * time.Second)
+		for i := 0; i < 50 && os.RemoveAll(dir) != nil; i++ {
+			time.Sleep(20 * time.Millisecond)
+		}
+	})
 	s.Record(Entry{Path: "a", Old: 0, Value: 1})
 	start := time.Now()
 	if err := s.Close(100 * time.Millisecond); err == nil {

@@ -1283,7 +1283,18 @@ function DashboardAPI.verifyPin(id, pin)
     if dash._auth ~= 'pin' or not dash._pin then
         return JSON.encode({ valid = false })
     end
-    return JSON.encode({ valid = (pin == dash._pin) })
+    -- :pin(1234) is a number, the typed PIN a string
+    return JSON.encode({ valid = (tostring(pin) == tostring(dash._pin)) })
+end
+
+--- PIN of a 'pin' dashboard, for checking cookies server-side (never sent to pages)
+-- @return string JSON {pin=...} or {}
+function DashboardAPI.getPin(id)
+    local dash = resolveDashboard(id)
+    if not dash or dash._auth ~= 'pin' or not dash._pin then
+        return JSON.encode({})
+    end
+    return JSON.encode({ pin = tostring(dash._pin) })
 end
 
 -- ==========================================================================

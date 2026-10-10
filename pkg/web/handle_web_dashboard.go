@@ -2,6 +2,7 @@ package web
 
 import (
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -10,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -111,6 +113,8 @@ func GetDashboardCacheInvalidator() func() {
 type rateLimiter struct {
 	mu      sync.Mutex
 	buckets map[string]*bucket
+	rate    float64 // tokens per second
+	burst   float64
 }
 
 type bucket struct {
@@ -118,12 +122,10 @@ type bucket struct {
 	lastCheck time.Time
 }
 
-var actionLimiter = &rateLimiter{buckets: make(map[string]*bucket)}
+var actionLimiter = &rateLimiter{buckets: make(map[string]*bucket), rate: 10, burst: 10}
 
-const (
-	rateLimit = 10.0 // tokens per second
-	rateBurst = 10.0 // max burst
-)
+// pinLimiter: 5 PIN tries at once, then one per 6 s (a 4-digit PIN takes hours)
+var pinLimiter = &rateLimiter{buckets: make(map[string]*bucket), rate: 1.0 / 6, burst: 5}
 
 func (rl *rateLimiter) allow(ip string) bool {
 	rl.mu.Lock()
@@ -131,14 +133,14 @@ func (rl *rateLimiter) allow(ip string) bool {
 	now := time.Now()
 	b, ok := rl.buckets[ip]
 	if !ok {
-		b = &bucket{tokens: rateBurst, lastCheck: now}
+		b = &bucket{tokens: rl.burst, lastCheck: now}
 		rl.buckets[ip] = b
 	}
 	elapsed := now.Sub(b.lastCheck).Seconds()
 	b.lastCheck = now
-	b.tokens += elapsed * rateLimit
-	if b.tokens > rateBurst {
-		b.tokens = rateBurst
+	b.tokens += elapsed * rl.rate
+	if b.tokens > rl.burst {
+		b.tokens = rl.burst
 	}
 	if b.tokens < 1 {
 		return false
@@ -473,6 +475,11 @@ func (s *Server) handleAPIDashboardAuth(c *gin.Context) {
 		return
 	}
 
+	if !pinLimiter.allow(c.ClientIP()) {
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "Too many PIN attempts, try again later"})
+		return
+	}
+
 	var req struct {
 		Pin string `json:"pin"`
 	}
@@ -500,7 +507,7 @@ func (s *Server) handleAPIDashboardAuth(c *gin.Context) {
 
 	// Set PIN cookie
 	cookieName := "vclu_dash_" + id
-	cookieValue := s.makeDashPinCookie(id, req.Pin)
+	cookieValue := s.makeDashPinCookie(id, req.Pin, time.Now().Add(24*time.Hour).Unix())
 	http.SetCookie(c.Writer, &http.Cookie{
 		Name:     cookieName,
 		Value:    cookieValue,
@@ -559,35 +566,72 @@ func (s *Server) checkDashboardAuth(c *gin.Context, id string) bool {
 	return true
 }
 
-// makeDashPinCookie generates HMAC for dashboard PIN cookie
-func (s *Server) makeDashPinCookie(id, pin string) string {
-	key := s.getDashHMACKey()
+// makeDashPinCookie returns "<expiry>.<hmac>": the HMAC binds the dashboard,
+// its current PIN and the expiry, so a changed PIN ends old cookies
+func (s *Server) makeDashPinCookie(id, pin string, exp int64) string {
+	e := strconv.FormatInt(exp, 10)
+	return e + "." + hex.EncodeToString(dashPinMAC(s.getDashHMACKey(), id, pin, e))
+}
+
+func dashPinMAC(key []byte, id, pin, exp string) []byte {
 	mac := hmac.New(sha256.New, key)
-	mac.Write([]byte(id + ":" + pin))
-	return hex.EncodeToString(mac.Sum(nil))
+	mac.Write([]byte(id + "\x00" + pin + "\x00" + exp))
+	return mac.Sum(nil)
 }
 
-// validateDashPinCookie validates a dashboard PIN cookie
+// validateDashPinCookie checks the cookie against the dashboard's current PIN.
 func (s *Server) validateDashPinCookie(id, cookieValue string) bool {
-	if cookieValue == "" {
+	e, sig, ok := strings.Cut(cookieValue, ".")
+	if !ok {
 		return false
 	}
-	// We can't reconstruct the exact PIN, but the cookie was set by us
-	// Validate by checking it's a valid hex HMAC (64 chars)
-	if len(cookieValue) != 64 {
+	exp, err := strconv.ParseInt(e, 10, 64)
+	if err != nil || time.Now().Unix() > exp {
 		return false
 	}
-	_, err := hex.DecodeString(cookieValue)
-	return err == nil
+	got, err := hex.DecodeString(sig)
+	if err != nil {
+		return false
+	}
+	result, err := s.luaExecutor.Execute(fmt.Sprintf(`Dashboard.API.getPin("%s")`, luaEscape(id)))
+	if err != nil {
+		return false
+	}
+	var r struct {
+		Pin string `json:"pin"`
+	}
+	if json.Unmarshal([]byte(result), &r) != nil || r.Pin == "" {
+		return false
+	}
+	return hmac.Equal(got, dashPinMAC(s.getDashHMACKey(), id, r.Pin, e))
 }
 
-// getDashHMACKey returns a key for dashboard PIN HMAC
+var (
+	dashKey     []byte
+	dashKeyOnce sync.Once
+)
+
+// getDashHMACKey returns the key for dashboard PIN cookies: random, kept in
+// dashboard-pin.key (not the CLU key, which every OM project file holds)
 func (s *Server) getDashHMACKey() []byte {
-	if s.keys != nil && len(s.keys.Key) > 0 {
-		return s.keys.Key
-	}
-	// Fallback key (not ideal, but works when keys aren't configured)
-	return []byte("vclu-dashboard-default-key")
+	dashKeyOnce.Do(func() {
+		dashKey = make([]byte, 32)
+		if _, err := rand.Read(dashKey); err != nil {
+			panic(err)
+		}
+		if s.serverDir == "" {
+			return
+		}
+		file := filepath.Join(s.serverDir, "dashboard-pin.key")
+		if b, err := os.ReadFile(file); err == nil && len(b) == 32 {
+			dashKey = b
+			return
+		}
+		if err := os.WriteFile(file, dashKey, 0o600); err != nil {
+			log.Printf("[DASHBOARD] PIN key not saved (%v): PIN cookies end on restart", err)
+		}
+	})
+	return dashKey
 }
 
 // luaEscape escapes a string for safe embedding in Lua string literals

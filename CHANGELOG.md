@@ -30,6 +30,12 @@
 ### Satel
 
 - **A name given in `expose()` stays** - names read from the panel replaced the name given in `expose()` or `rename()` on every connection to the panel. A panel name now fills only objects nobody named; to name zones yourself, expose them with their path, e.g. `expose(_:get("satel.zone.1"), "sensor", { path = "satel.zone.1", name = "Motion", area = "Hall" })`.
+- **A scan right after another is accepted** - a scan returned its result before marking itself finished, so a scan started right after it was refused as "already running".
+
+### Dashboards
+
+- **Charts on public dashboards** - charts and status sparklines read `/api/metrics/data`, which needs a login, so on a dashboard with `:auth('public')` they stayed empty. A dashboard now serves its own metrics under its own auth (`/api/dashboard/<id>/metrics`): only metrics it draws and no further back than the range it draws.
+- **The PIN of a dashboard is checked** - any cookie of 64 hex characters opened a `:auth('pin')` dashboard without the PIN. The cookie now carries an expiry and a signature over the dashboard, its current PIN and the expiry (changing the PIN ends old cookies), with a random key kept in `dashboard-pin.key`; PIN tries are limited (5, then one per 6 s; behind a reverse proxy the limit is shared by everyone coming through it). A PIN given as a number (`:pin(1234)`) is accepted. Devices already unlocked ask for the PIN once more.
 
 ### Build
 
@@ -37,6 +43,7 @@
 
 ### MCP
 
+- **The sandbox no longer stops a draft for memory it does not keep** - to confirm a draft over the memory limit the guard runs a GC, and what the draft allocated during that GC counted as kept: under CPU load a draft churning large strings was stopped as "allocates without bound". That memory is now subtracted; past three times the limit the draft is stopped regardless.
 - **`vclu_mqtt_discover` suggests code that runs** - the suggested Lua used `MQTT_CLIENT` (not defined unless `user.lua` creates it), `JSON.parse`/`JSON.stringify` (the functions are `JSON.decode`/`JSON.encode`), `VirtualSwitch()` instead of `VirtualSwitch:new(name)` and `setValue` on a binary sensor, so it failed on the first line. Snippets now use the client of the broker the device was found on (`MQTT`, or `MQTT.getInstance(id)` for another Lua client; a note for the embedded broker), follow the Tasmota pattern from the agent examples without sending a device's own report back to it, and expose Zigbee lights as switches (on/off). Zigbee2MQTT sensors get one object per known payload key (temperature, humidity, illuminance, occupancy, contact, water leak; multi-endpoint keys like `temperature_l1` are read from `property`), contact and water-leak sensors and illuminance stay out of HomeKit, where they would show up as switches. ESPHome gets a template for one sensor. Covers, locks, fans, climate, multi-endpoint switches and sensors without a known key get no snippet instead of wrong code. Each snippet is run in the Lua runtime in tests, names and IDs from the broker are quoted so they cannot change the code.
 - **Agents are no longer told promote rolls back on its own** - the server instructions promised an automatic rollback that promote does not do; promote reports modules that failed to load. The never-called 15 s error-count watchdog behind that promise is removed: there is no automatic rollback by design, the agent fixes the module. A promote whose modules fail to load now records an incident (`vclu://incidents/latest`: recent logs, audit trail, the diff backup → promoted) and its result points to it; before, nothing produced incidents. The web panel no longer says incidents come from a rollback or watchdog.
 
