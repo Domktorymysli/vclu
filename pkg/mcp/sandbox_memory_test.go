@@ -83,7 +83,8 @@ func TestSandbox_MemoryGuardBacksOff(t *testing.T) {
 // timers run later and still have to stop on timeout and on the memory limit.
 func TestSandbox_LimitsApplyAfterLoad(t *testing.T) {
 	oldLimit, oldTimeout := sandboxMemoryLimit, sandboxTimeout
-	sandboxMemoryLimit, sandboxTimeout = 64<<20, 500*time.Millisecond
+	// the race detector slows allocation: give "grow" time to hit the limit
+	sandboxMemoryLimit, sandboxTimeout = 64<<20, 3*time.Second
 	defer func() { sandboxMemoryLimit, sandboxTimeout = oldLimit, oldTimeout }()
 
 	se, ws, _ := newTestSandbox(t)

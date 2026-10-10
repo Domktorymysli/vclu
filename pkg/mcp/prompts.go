@@ -109,11 +109,11 @@ func (s *MCPServer) handleCreateScenePrompt(ctx context.Context, req mcplib.GetP
 	code.WriteString("\n")
 	for _, d := range devices {
 		if d.devType == "dimmer" {
-			code.WriteString(fmt.Sprintf("    %s:set(0, VALUE) -- 0/1, dimmer 0..1\n", d.varName))
+			fmt.Fprintf(&code, "    %s:set(0, VALUE) -- 0/1, dimmer 0..1\n", d.varName)
 		} else if d.devType == "cover" {
-			code.WriteString(fmt.Sprintf("    %s:set(0, VALUE) -- 0=closed, 100=open\n", d.varName))
+			fmt.Fprintf(&code, "    %s:set(0, VALUE) -- 0=closed, 100=open\n", d.varName)
 		} else {
-			code.WriteString(fmt.Sprintf("    %s:set(0, VALUE) -- 0/1 or specific value\n", d.varName))
+			fmt.Fprintf(&code, "    %s:set(0, VALUE) -- 0/1 or specific value\n", d.varName)
 		}
 	}
 	code.WriteString("end\n\n")

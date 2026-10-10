@@ -121,6 +121,12 @@ func startSlowScan(t *testing.T, fake *fakeIntegra, wait time.Duration) (*Panel,
 	}()
 	deadline := time.Now().Add(2 * time.Second)
 	for !p.ScanProgress().Running {
+		select {
+		case r := <-done: // a fast scan can finish before the first check
+			done <- r
+			return p, done
+		default:
+		}
 		if time.Now().After(deadline) {
 			t.Fatal("scan did not start")
 		}
