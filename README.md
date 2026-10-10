@@ -2,16 +2,18 @@
 
 **Polski** | [English](README.en.md)
 
-**Programowalny sterownik do domów z Grenton i Satel — automatyki pisane w kodzie, które agent AI może bezpiecznie zmieniać.**
+**Runtime inteligentnego domu dla agentów AI. Automatyki w kodzie, które agent pisze, testuje w sandboxie i dopiero potem wdraża.**
 
 [![Build](https://img.shields.io/github/actions/workflow/status/Domktorymysli/vclu/test.yml?branch=main)](https://github.com/Domktorymysli/vclu/actions)
 [![Go Version](https://img.shields.io/badge/go-1.26+-00ADD8.svg)](https://go.dev)
 [![License](https://img.shields.io/badge/license-BSL%201.1-blue.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-900+-brightgreen.svg)](#testy-i-kontrakty)
 
-vCLU działa obok Twoich CLU Grenton i centrali alarmowej Satel, na Raspberry Pi albo dowolnym małym komputerze z Linuksem. Rozmawia protokołem Grentona, czyta alarm i daje jedno miejsce, w którym piszesz automatyki w Lua, widzisz, co działo się w domu i kto to zrobił, oraz pozwalasz agentowi AI wprowadzać zmiany — przez sandbox, z testami i kopią zapasową każdej zmiany.
+vCLU to runtime inteligentnego domu dedykowany agentom AI. Działa na Raspberry Pi albo dowolnym małym komputerze z Linuksem. Automatyki są kodem w Lua, a agent pracuje na nich przez MCP: pisze szkic, sprawdza go w sandboxie bez wpływu na dom i dopiero wtedy wdraża, z kopią zapasową każdej zmiany. Dzięki temu całą pracę możesz zlecić agentom, bo ich kod przechodzi testy w sandboxie, zanim trafi do domu.
 
-Jest dla osób z przewodowym inteligentnym domem, które chcą pisać automatyki w kodzie bez stawiania dużej instalacji Home Assistant. Home Assistant, HomeKit i MQTT są obsługiwane jako odbiorcy, ale nie są wymagane.
+vCLU ma podstawowe integracje, a kolejne agent dodaje w trakcie pracy, tymi samymi narzędziami MCP. Home Assistant, HomeKit i MQTT są obsługiwane, ale nie są wymagane.
+
+To prototyp pomysłu, w którym framework pomaga agentom programować: daje im kontrakty, testy i bezpieczną drogę do wdrożenia.
 
 <!-- TODO: screenshots
 ![History and audit](docs/images/history.png)
@@ -46,7 +48,7 @@ StateBus:watch("CLU220000592.DOU4992", function(e)
 end, { from = 1, to = 0 })
 ```
 
-A to test, który agent uruchamia, zanim ta zmiana trafi na produkcję — na wirtualnym zegarze, z komendą do Grentona nagraną zamiast wysłanej:
+A to test, który agent uruchamia, zanim ta zmiana trafi na produkcję. Działa na wirtualnym zegarze, z komendą do Grentona nagraną zamiast wysłanej:
 
 ```json
 {
@@ -63,11 +65,11 @@ A to test, który agent uruchamia, zanim ta zmiana trafi na produkcję — na wi
 
 ## Dlaczego vCLU
 
-**Kod, nie konfiguracja.** Automatyki, sceny, dashboardy i wirtualne urządzenia to pliki Lua. Można je czytać, porównywać, recenzować, testować i generować — Ty albo agent.
+**Kod, nie konfiguracja.** Automatyki, sceny, dashboardy i wirtualne urządzenia to pliki Lua. Można je czytać, porównywać, recenzować, testować i generować, zarówno Ty, jak i agent.
 
 **Bezpieczny dla agentów AI w działającym domu.** Wbudowany serwer MCP nie ogranicza się do „zapal światło”. Agent pisze draft, testuje go w izolowanym sandboxie z wirtualnym zegarem, widzi diff względem produkcji i wdraża z kopią zapasową. Po wdrożeniu vCLU sprawdza, czy moduły się załadowały, i zgłasza agentowi błędy; poprzednią wersję przywraca się z kopii jednym kliknięciem. Każdy bot ma własny token i własny widok domu: obiekty mogą być dla niego `full`, `readonly` albo `hidden`.
 
-**Wie, kto co zmienił.** Każda zmiana stanu niesie `origin` i `actor` — włącznik ścienny (`grenton`), alarm (`physical`, `device:satel`), osoba w interfejsie web (`user:<login>`), agent (`agent:<bot>`), Home Assistant (`service:home-assistant`) albo Twoja automatyka (`automation:<id>`). Historia jest zapisywana na dysku i można ją przeglądać, więc pytanie „czemu światło zapaliło się o 3 w nocy?” ma odpowiedź.
+**Wie, kto co zmienił.** Każda zmiana stanu niesie `origin` i `actor`: włącznik ścienny (`grenton`), alarm (`physical`, `device:satel`), osoba w interfejsie web (`user:<login>`), agent (`agent:<bot>`), Home Assistant (`service:home-assistant`) albo Twoja automatyka (`automation:<id>`). Historia jest zapisywana na dysku i można ją przeglądać, więc pytanie „czemu światło zapaliło się o 3 w nocy?” ma odpowiedź.
 
 **Działa z tym, co masz.** CLU Grenton, Satel ETHM-1, liczniki energii przez Modbus TCP, urządzenia MQTT (Zigbee2MQTT, Tasmota, Shelly, ESPHome), GPIO Raspberry Pi, kamery IP. Home Assistant i Apple Home są opcjonalnymi odbiorcami.
 
@@ -190,7 +192,7 @@ Więcej wzorców: [`docs/ai/examples.md`](docs/ai/examples.md). Pełne API: [`do
 
 ## Agenci AI
 
-Utwórz bota w interfejsie web (strona MCP) i podłącz dowolnego klienta MCP — Claude Code, Codex CLI, Gemini CLI i inne:
+Utwórz bota w interfejsie web (strona MCP) i podłącz dowolnego klienta MCP, np. Claude Code, Codex CLI, Gemini CLI i inne:
 
 ```json
 {
@@ -208,7 +210,7 @@ To, co bot może zrobić, zależy od jego ustawień:
 
 | Poziom | Narzędzia |
 |---|---|
-| **Sterowanie** (każdy bot) | lista urządzeń, odczyt i ustawianie stanu, wywoływanie metod, uruchamianie scen, odczyt historii zmian — tylko dla obiektów, na które pozwala jego profil dostępu |
+| **Sterowanie** (każdy bot) | lista urządzeń, odczyt i ustawianie stanu, wywoływanie metod, uruchamianie scen, odczyt historii zmian (tylko dla obiektów, na które pozwala jego profil dostępu) |
 | **Tryb Dev** | odczyt i przeszukiwanie plików, logi, konfiguracja (bez sekretów), rejestr, metryki, dashboardy, konfiguracja pluginów, schemat runtime, przeładowanie; drafty: zapis, walidacja, testy scenariuszy, diff, wdrożenie, usuwanie; log audytu; wykrywanie MQTT; pamięć agenta |
 | **Tryb Exec** | uruchomienie fragmentu Lua na działającym runtime (maks. 8 KB) |
 
@@ -254,7 +256,7 @@ deploy/              unit systemd i instalator
 grafana/             dashboardy Grafany dla metryk Prometheusa
 ```
 
-Go zajmuje się siecią, szyfrowaniem, współbieżnością i plikami. Lua zajmuje się domem: obiektami, automatykami, scenami, dashboardami — wszystkim, co edytujesz Ty albo agent. Cały kod Lua działa w jednej pętli zdarzeń, więc automatyki nigdy się ze sobą nie ścigają.
+Go zajmuje się siecią, szyfrowaniem, współbieżnością i plikami. Lua zajmuje się domem: obiektami, automatykami, scenami, dashboardami, czyli wszystkim, co edytujesz Ty albo agent. Cały kod Lua działa w jednej pętli zdarzeń, więc automatyki nigdy się ze sobą nie ścigają.
 
 ## Testy i kontrakty
 
@@ -263,7 +265,7 @@ go test ./...          # ponad 900 testów, bez sprzętu i sieci
 go test -race ./...    # CI uruchamia to przy każdym pushu
 ```
 
-Zachowanie, na którym polegają automatyki, pluginy i integracje — jedna zmiana daje dokładnie jedno zdarzenie, informacja o sprawcy, kontrola dostępu, bezpieczne przeładowanie, trwałość stanu, historia, sandbox i protokół Grentona — jest przypięte testami kontraktowymi. Lista i zasady: [CONTRIBUTING.md](CONTRIBUTING.md#contracts) (po angielsku).
+Zachowanie, na którym polegają automatyki, pluginy i integracje, jest przypięte testami kontraktowymi: jedna zmiana daje dokładnie jedno zdarzenie, informacja o sprawcy, kontrola dostępu, bezpieczne przeładowanie, trwałość stanu, historia, sandbox i protokół Grentona. Lista i zasady: [CONTRIBUTING.md](CONTRIBUTING.md#contracts) (po angielsku).
 
 ## Instalacja produkcyjna
 
@@ -278,21 +280,21 @@ Wszystko konfiguruje się w interfejsie web. Ustawienia są w pliku `.vclu.json`
 
 ## Współtworzenie
 
-Zmiany są mile widziane, także te pisane z pomocą agentów AI — po to są testy kontraktowe. Szczegóły w [CONTRIBUTING.md](CONTRIBUTING.md).
+Zmiany są mile widziane, także te pisane z pomocą agentów AI. Po to są testy kontraktowe. Szczegóły w [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Demo
 
-[![vCLU — wprowadzenie](https://img.youtube.com/vi/POgNGuUyhSU/maxresdefault.jpg)](https://www.youtube.com/watch?v=POgNGuUyhSU)
+[![vCLU: wprowadzenie](https://img.youtube.com/vi/POgNGuUyhSU/maxresdefault.jpg)](https://www.youtube.com/watch?v=POgNGuUyhSU)
 
 Wprowadzenie do vCLU: instalacja na Raspberry Pi, GPIO, MQTT, integracja z Home Assistant.
 
 ## Linki
 
-- [vclu.pl](https://vclu.pl/) — strona projektu
-- [docs.vclu.pl](https://docs.vclu.pl) — dokumentacja
-- [domktorymysli.org](https://domktorymysli.org/) — blog autora: Dom który myśli
+- [vclu.pl](https://vclu.pl/): strona projektu
+- [docs.vclu.pl](https://docs.vclu.pl): dokumentacja
+- [domktorymysli.org](https://domktorymysli.org/): blog autora: Dom który myśli
 - [Facebook: Dom który myśli](https://www.facebook.com/domktorymysli)
-- [Discord](https://discord.gg/9cgrnXkVP) — społeczność vCLU: pytania i pomoc
+- [Discord](https://discord.gg/9cgrnXkVP): społeczność vCLU: pytania i pomoc
 
 ## Dokumentacja
 

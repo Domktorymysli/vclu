@@ -2,16 +2,18 @@
 
 [Polski](README.md) | **English**
 
-**A programmable controller for Grenton and Satel homes — written in code, safe for AI agents to change.**
+**A smart home runtime for AI agents. Automations in code that an agent writes, tests in a sandbox and only then deploys.**
 
 [![Build](https://img.shields.io/github/actions/workflow/status/Domktorymysli/vclu/test.yml?branch=main)](https://github.com/Domktorymysli/vclu/actions)
 [![Go Version](https://img.shields.io/badge/go-1.26+-00ADD8.svg)](https://go.dev)
 [![License](https://img.shields.io/badge/license-BSL%201.1-blue.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-900+-brightgreen.svg)](#tests-and-contracts)
 
-vCLU runs next to your Grenton CLUs and your Satel alarm panel, on a Raspberry Pi or any small Linux box. It talks the Grenton protocol, reads the alarm, and gives you one place to write automations in Lua, see what happened in the house and who did it, and let an AI agent change things — through a sandbox, with tests and a backup of every change.
+vCLU is a smart home runtime built for AI agents. It runs on a Raspberry Pi or any small Linux box. Automations are Lua code, and an agent works on them over MCP: it writes a draft, checks it in a sandbox without touching the house, and only then deploys it, with a backup of every change. So you can hand the whole job to agents, because their code passes sandbox tests before it reaches the house.
 
-It is for people with a wired smart home who want to write automations in code without running a large Home Assistant install. Home Assistant, HomeKit and MQTT are supported as consumers, not required.
+vCLU comes with basic integrations, and an agent adds new ones as it works, with the same MCP tools. Home Assistant, HomeKit and MQTT are supported, not required.
+
+It is a prototype of an idea: a framework that helps agents program, by giving them contracts, tests and a safe way to deploy.
 
 <!-- TODO: screenshots
 ![History and audit](docs/images/history.png)
@@ -46,7 +48,7 @@ StateBus:watch("CLU220000592.DOU4992", function(e)
 end, { from = 1, to = 0 })
 ```
 
-And the test an agent runs before this goes live — on a virtual clock, with the Grenton command recorded instead of sent:
+And the test an agent runs before this goes live. It runs on a virtual clock, with the Grenton command recorded instead of sent:
 
 ```json
 {
@@ -63,11 +65,11 @@ And the test an agent runs before this goes live — on a virtual clock, with th
 
 ## Why vCLU
 
-**Code, not configuration.** Automations, scenes, dashboards and virtual devices are Lua files. They can be read, diffed, reviewed, tested and generated — by you or by an agent.
+**Code, not configuration.** Automations, scenes, dashboards and virtual devices are Lua files. They can be read, diffed, reviewed, tested and generated, by you or by an agent.
 
 **Safe for AI agents on a live house.** The built-in MCP server does not just expose "turn on the light". Agents write drafts, test them in an isolated sandbox with a virtual clock, see a diff against production, and promote with a backup. After a promote vCLU checks that the modules loaded and reports errors to the agent; the previous version is one click away in the backups. Each bot has its own token and its own view of the house: objects can be `full`, `readonly` or `hidden` per bot.
 
-**It knows who changed what.** Every state change carries `origin` and `actor` — a wall switch (`grenton`), the alarm (`physical`, `device:satel`), a person in the web UI (`user:<login>`), an agent (`agent:<bot>`), Home Assistant (`service:home-assistant`) or your own automation (`automation:<id>`). History is kept on disk and browsable, so "why did the light turn on at 3 a.m.?" has an answer.
+**It knows who changed what.** Every state change carries `origin` and `actor`: a wall switch (`grenton`), the alarm (`physical`, `device:satel`), a person in the web UI (`user:<login>`), an agent (`agent:<bot>`), Home Assistant (`service:home-assistant`) or your own automation (`automation:<id>`). History is kept on disk and browsable, so "why did the light turn on at 3 a.m.?" has an answer.
 
 **Works with what you have.** Grenton CLUs, Satel ETHM-1, Modbus TCP energy meters, MQTT devices (Zigbee2MQTT, Tasmota, Shelly, ESPHome), Raspberry Pi GPIO, IP cameras. Home Assistant and Apple Home are optional consumers.
 
@@ -190,7 +192,7 @@ More patterns: [`docs/ai/examples.md`](docs/ai/examples.md). Full API: [`docs/ai
 
 ## AI agents
 
-Create a bot in the web UI (MCP page) and connect any MCP client — Claude Code, Codex CLI, Gemini CLI and others:
+Create a bot in the web UI (MCP page) and connect any MCP client, such as Claude Code, Codex CLI, Gemini CLI and others:
 
 ```json
 {
@@ -208,7 +210,7 @@ What a bot can do depends on its settings:
 
 | Level | Tools |
 |---|---|
-| **Control** (every bot) | list devices, read and set state, call methods, run scenes, read change history — limited to objects its access profile allows |
+| **Control** (every bot) | list devices, read and set state, call methods, run scenes, read change history (limited to objects its access profile allows) |
 | **Dev mode** | read and search files, logs, configuration (no secrets), registry, metrics, dashboards, plugin config, runtime schema, reload; drafts: write, validate, test with scenarios, diff, promote, delete; audit log; MQTT discovery; agent memory |
 | **Exec mode** | run a Lua snippet on the live runtime (max 8 KB) |
 
@@ -254,7 +256,7 @@ deploy/              systemd unit and installer
 grafana/             Grafana dashboards for the Prometheus metrics
 ```
 
-Go handles the network, encryption, concurrency and files. Lua handles the house: objects, automations, scenes, dashboards — everything you or an agent edit. All Lua runs on one event loop, so automations never race each other.
+Go handles the network, encryption, concurrency and files. Lua handles the house: objects, automations, scenes, dashboards, everything you or an agent edit. All Lua runs on one event loop, so automations never race each other.
 
 ## Tests and contracts
 
@@ -263,7 +265,7 @@ go test ./...          # 900+ tests, no hardware or network needed
 go test -race ./...    # CI runs this on every push
 ```
 
-The behaviour that automations, plugins and integrations depend on — one change gives exactly one event, who-changed-it, access control, reload safety, persistence, history, the sandbox and the Grenton protocol — is pinned by contract tests. See [CONTRIBUTING.md](CONTRIBUTING.md#contracts) for the list and the rules.
+The behaviour that automations, plugins and integrations depend on is pinned by contract tests: one change gives exactly one event, who-changed-it, access control, reload safety, persistence, history, the sandbox and the Grenton protocol. See [CONTRIBUTING.md](CONTRIBUTING.md#contracts) for the list and the rules.
 
 ## Deploy
 
@@ -278,7 +280,7 @@ Everything is configured in the web UI. Settings live in `.vclu.json` in the dat
 
 ## Contributing
 
-Contributions are welcome, including ones written with AI agents — that is what the contract tests are for. See [CONTRIBUTING.md](CONTRIBUTING.md).
+Contributions are welcome, including ones written with AI agents. That is what the contract tests are for. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Demo
 
@@ -288,11 +290,11 @@ Introduction to vCLU: installation on a Raspberry Pi, GPIO, MQTT, Home Assistant
 
 ## Links
 
-- [vclu.pl](https://vclu.pl/) — project website
-- [docs.vclu.pl](https://docs.vclu.pl) — documentation
-- [domktorymysli.org](https://domktorymysli.org/) — the author's blog, Dom który myśli (Polish)
+- [vclu.pl](https://vclu.pl/): project website
+- [docs.vclu.pl](https://docs.vclu.pl): documentation
+- [domktorymysli.org](https://domktorymysli.org/): the author's blog, Dom który myśli (Polish)
 - [Facebook: Dom który myśli](https://www.facebook.com/domktorymysli)
-- [Discord](https://discord.gg/9cgrnXkVP) — vCLU community: questions and help (mostly Polish)
+- [Discord](https://discord.gg/9cgrnXkVP): vCLU community: questions and help (mostly Polish)
 
 ## Documentation
 
