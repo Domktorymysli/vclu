@@ -51,7 +51,7 @@ func newFakeHTTPBin(t *testing.T) fakeHTTPBin {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(out)
+		_ = json.NewEncoder(w).Encode(out)
 	}))
 	t.Cleanup(srv.Close)
 	return fakeHTTPBin{url: srv.URL, host: strings.TrimPrefix(srv.URL, "http://")}

@@ -316,7 +316,7 @@ func TestDisk_CloseBoundedWhenWriterStuck(t *testing.T) {
 	s.flushMu.Lock() // the worker's flush blocks as on a hung SD card
 	t.Cleanup(func() {
 		s.flushMu.Unlock()
-		s.Close(5 * time.Second)
+		_ = s.Close(5 * time.Second)
 		for i := 0; i < 50 && os.RemoveAll(dir) != nil; i++ {
 			time.Sleep(20 * time.Millisecond)
 		}
