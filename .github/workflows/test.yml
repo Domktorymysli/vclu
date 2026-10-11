@@ -30,10 +30,20 @@ jobs:
         run: go vet ./...
 
       - name: Test
-        run: go test ./... -timeout 5m -coverprofile=coverage.out
+        # -coverpkg: Lua harness tests in pkg/lua run code of other packages too
+        run: go test ./... -timeout 5m -coverpkg=./... -coverprofile=coverage.out
 
       - name: Coverage summary
         run: go tool cover -func=coverage.out | tail -1
+
+      # The token exists only in the public repository
+      - name: Upload coverage
+        if: github.repository == 'Domktorymysli/vclu'
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage.out
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
 
   # The Lua runtime runs timers, MQTT and the history writer on goroutines;
   # races there showed up only under -race
