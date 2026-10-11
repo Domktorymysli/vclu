@@ -242,6 +242,50 @@ func TestContract_VirtualNumber_Clamp(t *testing.T) {
 	assertLua(t, engine, "_v3", "22.5")
 }
 
+// Contract: a VirtualNumber with a fractional step holds the value on the step
+// without floating-point noise, so scripts and integrations read 53.9 and not
+// 53.900000000000006.
+func TestContract_VirtualNumber_FractionalStep(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+
+	_, err := engine.Execute(`
+		hum = VirtualNumber:new("HUM", {step = 0.1})
+		hum:setValue(53.9)
+		_s1 = tostring(hum:getValue())
+
+		capped = VirtualNumber:new("CAPPED", {min = 16, step = 0.1})
+		capped:setValue(22.9)
+		_s2 = tostring(capped:getValue())
+
+		half = VirtualNumber:new("HALF", {step = 0.5})
+		half:setValue(0.3)
+		_s3 = tostring(half:getValue())
+
+		quarter = VirtualNumber:new("QUARTER", {step = 0.25})
+		quarter:setValue(2.3)
+		_s4 = tostring(quarter:getValue())
+
+		whole = VirtualNumber:new("WHOLE", {step = 1})
+		whole:setValue(2.4)
+		_s5 = tostring(whole:getValue())
+
+		neg = VirtualNumber:new("NEG", {step = 0.1})
+		neg:setValue(-12.3)
+		_s6 = tostring(neg:getValue())
+	`)
+	if err != nil {
+		t.Fatalf("execute failed: %v", err)
+	}
+
+	assertLua(t, engine, "_s1", "53.9")
+	assertLua(t, engine, "_s2", "22.9")
+	assertLua(t, engine, "_s3", "0.5")
+	assertLua(t, engine, "_s4", "2.25")
+	assertLua(t, engine, "_s5", "2")
+	assertLua(t, engine, "_s6", "-12.3")
+}
+
 // =============================================================================
 // expose() Contracts
 // =============================================================================
