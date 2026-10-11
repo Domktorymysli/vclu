@@ -1,6 +1,6 @@
 name: Feature request
 description: An idea for vCLU
-labels: [enhancement]
+labels: [enhancement, triage]
 body:
   - type: textarea
     id: problem

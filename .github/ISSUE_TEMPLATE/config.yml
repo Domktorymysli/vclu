@@ -6,3 +6,6 @@ contact_links:
   - name: Discord
     url: https://discord.gg/9cgrnXkVP
     about: Questions and help ("how do I...?") - not bugs
+  - name: Security problem
+    url: https://github.com/Domktorymysli/vclu/security/advisories/new
+    about: Report privately, never in a public issue
