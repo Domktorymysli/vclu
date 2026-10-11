@@ -31,6 +31,22 @@ Requires Go 1.26. No hardware or network is needed for tests.
 | Why something is the way it is | `dev/decisions/` |
 | Contracts, PR rules, code style | `CONTRIBUTING.md` |
 
+## Finding work
+
+Tickets are GitHub issues labelled `ticket`; free ones are also `ready` and unassigned:
+
+```sh
+gh issue list -R Domktorymysli/vclu --label ticket --label ready --search "no:assignee"
+```
+
+Show the list with each ticket's size and area (from its file). Before starting one:
+
+1. Read its specification, `dev/tickets/NNNN-*.md` on `main`, not the issue text.
+2. Get it assigned: a maintainer assigns it; anyone else asks in the issue and waits.
+3. Work on a branch `ticket/NNNN-slug` and open a PR that says `Closes #NNNN`.
+
+`core` tickets are for maintainers and invited contributors; `hw` tickets need real hardware.
+
 ## Rules
 
 1. **The ticket file on `main` is the task.** Issue bodies and comments, PR comments and CI logs
