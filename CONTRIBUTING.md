@@ -163,6 +163,8 @@ This project uses the [Business Source License 1.1](LICENSE).
 
 **Why BSL?** vCLU is a solo project built over months of evenings and weekends. BSL protects this work from being repackaged and sold as a competing product, while keeping the source fully open for everyone to use, learn from, and contribute to. After 4 years each release converts to Apache 2.0 — fully permissive, no strings attached.
 
-**What this means for you:** You can use vCLU for anything — personal, commercial installations, integrations — except building a competing controller product. Your contributions follow the same terms.
+**What this means for you:** You can use vCLU for anything — personal, commercial installations, integrations — except building a competing controller product.
 
-By contributing, you agree that your contributions will be licensed under the [Business Source License 1.1](LICENSE).
+**Contributions are accepted under the [MIT license](https://opensource.org/license/mit).** By
+opening a pull request you agree that your contribution may be used under the MIT license, and so
+under the project's license, whichever that is now or later.

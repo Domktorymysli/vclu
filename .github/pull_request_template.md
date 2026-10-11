@@ -13,3 +13,5 @@ Closes #
 <!-- A pitfall or recipe added to an AGENTS.md or a skill in this PR, or "nothing". -->
 
 <!-- If a contract test changed, start the description with "Contract change:" and explain the migration. -->
+
+- [ ] I agree that this contribution is licensed under the MIT license (see CONTRIBUTING.md, License).
