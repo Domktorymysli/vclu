@@ -39,13 +39,18 @@ HACommands.handlers = {
         if not obj then return false, "object not found" end
 
         -- Check if it's brightness command
-        if subpath == "brightness/set" then
+        if subpath == "brightness" then
             local brightness = tonumber(payload)
             if brightness then
-                if obj.SetValue then
-                    obj:SetValue(brightness)
+                -- HA sends brightness on the 0..100 scale it was told to use
+                -- (brightness_scale); the object's value is 0..1.
+                brightness = math.max(0, math.min(100, brightness))
+                if obj.setBrightness then
+                    obj:setBrightness(brightness)
+                elseif obj.SetValue then
+                    obj:SetValue(brightness / 100)
                 elseif obj.set then
-                    obj:set(0, brightness) -- Value property
+                    obj:set(0, brightness / 100) -- Value property
                 end
                 return true
             end
