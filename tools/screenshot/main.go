@@ -54,7 +54,7 @@ func capture(url string, steps []string, width, height int, dpr float64, wait ti
 	if err != nil {
 		return nil, err
 	}
-	defer os.RemoveAll(profile)
+	defer func() { _ = os.RemoveAll(profile) }()
 
 	cmd := exec.Command(chromeBinary(), "--headless=new", fmt.Sprintf("--remote-debugging-port=%d", port),
 		"--user-data-dir="+profile, "--hide-scrollbars", "about:blank")
@@ -71,7 +71,7 @@ func capture(url string, steps []string, width, height int, dpr float64, wait ti
 	if err != nil {
 		return nil, err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	c := &cdp{conn: conn}
 
 	if _, err := c.call("Emulation.setDeviceMetricsOverride", map[string]any{
@@ -161,7 +161,7 @@ func pageSocket(port int) (string, error) {
 		}
 		var targets []struct{ Type, WebSocketDebuggerURL string }
 		err = json.NewDecoder(resp.Body).Decode(&targets)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if err != nil {
 			continue
 		}
@@ -179,7 +179,7 @@ func freePort() (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	return l.Addr().(*net.TCPAddr).Port, nil
 }
 
