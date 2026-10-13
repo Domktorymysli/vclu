@@ -4,8 +4,9 @@
 
 local PluginHelpers = {}
 
--- Async HTTP request ids must be unique across the runtime: two requests started
--- in the same second must not share one. A table, not a local: see pkg/lua/AGENTS.md (pcall).
+-- Async HTTP request ids must be unique across the runtime: two requests started in the
+-- same second must not share one, and the "plugin_" prefix keeps them apart from HTTP
+-- clients ("client_") and HTTPRequest objects ("http_"). A table, not a local: see pkg/lua/AGENTS.md (pcall).
 local httpIds = { seq = 0 }
 
 -- ============================================
@@ -748,7 +749,7 @@ function PluginHelpers.httpRequest(pluginId, opts, callback)
         end
 
         httpIds.seq = httpIds.seq + 1
-        local requestId = pluginId .. "_" .. httpIds.seq
+        local requestId = "plugin_" .. pluginId .. "_" .. httpIds.seq
 
         __go_http_async_request(
             pluginId,

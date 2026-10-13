@@ -140,3 +140,47 @@ func TestAsyncHTTPUncollectedResponsesExpire(t *testing.T) {
 		t.Error("a response older than asyncResponseTTL was not removed")
 	}
 }
+
+// Request ids of plugins, HTTP clients and HTTPRequest objects never meet, whatever a plugin
+// is called: the first request of a plugin named "client" and of an HTTP client both used
+// to get the id client_1, and each callback got the other's response.
+func TestAsyncHTTPPluginIdsDoNotCollideWithClients(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		parts := strings.SplitN(strings.TrimPrefix(r.URL.Path, "/"), "/", 2)
+		ms, _ := strconv.Atoi(parts[0])
+		time.Sleep(time.Duration(ms) * time.Millisecond)
+		_, _ = fmt.Fprint(w, parts[1])
+	}))
+	defer srv.Close()
+
+	engine := NewLuaEngine()
+	defer engine.Close()
+	engine.StartTimers()
+	defer engine.StopTimers()
+
+	_, err := engine.Execute(`
+		results = {}
+		local PluginHelpers = require("PluginHelpers")
+		PluginHelpers.httpRequest("client", { url = "` + srv.URL + `/300/plugin", timeout = 5000 },
+			function(resp, err) results.plugin = tostring(resp and resp.body) end)
+		local c = HTTP:new("contract-collide")
+		c:setTimeout(5000)
+		c:asyncGet("` + srv.URL + `/50/client", function(resp, err) results.client = tostring(resp.body) end)
+	`)
+	if err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	got := map[string]string{}
+	for i := 0; i < 300 && len(got) < 2; i++ {
+		time.Sleep(20 * time.Millisecond)
+		engine.ProcessTimers()
+		for _, k := range []string{"plugin", "client"} {
+			if v, _ := engine.Execute(`results.` + k); v != "" && v != "nil" {
+				got[k] = v
+			}
+		}
+	}
+	if got["plugin"] != "plugin" || got["client"] != "client" {
+		t.Errorf("plugin got %q, client got %q; want each its own body", got["plugin"], got["client"])
+	}
+}
