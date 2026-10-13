@@ -8,7 +8,6 @@
 [![Go Version](https://img.shields.io/badge/go-1.26+-00ADD8.svg)](https://go.dev)
 [![codecov](https://codecov.io/gh/Domktorymysli/vclu/graph/badge.svg)](https://codecov.io/gh/Domktorymysli/vclu)
 [![License](https://img.shields.io/badge/license-BSL%201.1-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-900+-brightgreen.svg)](#testy-i-kontrakty)
 
 vCLU to runtime inteligentnego domu dedykowany agentom AI. Działa na Raspberry Pi albo dowolnym małym komputerze z Linuksem. Automatyki są kodem w Lua, a agent pracuje na nich przez MCP: pisze szkic, sprawdza go w sandboxie bez wpływu na dom i dopiero wtedy wdraża, z kopią zapasową każdej zmiany. Dzięki temu całą pracę możesz zlecić agentom, bo ich kod przechodzi testy w sandboxie, zanim trafi do domu.
 
@@ -16,10 +15,11 @@ vCLU ma podstawowe integracje, a kolejne agent dodaje w trakcie pracy, tymi samy
 
 To prototyp pomysłu, w którym framework pomaga agentom programować: daje im kontrakty, testy i bezpieczną drogę do wdrożenia.
 
-<!-- TODO: screenshots
-![History and audit](docs/images/history.png)
-![Editor](docs/images/editor.png)
--->
+<p align="center">
+  <img src="docs/images/dashboard.png" alt="Dashboard zbudowany w Lua" width="32%">
+  <img src="docs/images/editor.png" alt="Edytor modułów Lua" width="32%">
+  <img src="docs/images/history.png" alt="Historia i audyt: kto i co zmienił" width="32%">
+</p>
 
 ## Jak to wygląda
 
