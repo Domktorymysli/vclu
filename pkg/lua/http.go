@@ -19,10 +19,14 @@ type HTTPManager struct {
 	mu             sync.RWMutex
 	clients        map[string]*http.Client
 	asyncResponses map[string]*asyncHTTPResponse
+	asyncInFlight  map[string]bool
 	asyncMu        sync.Mutex
-	pendingAsync   chan string         // channel for completed async request IDs
 	onRequest      func(hasError bool) // callback for metrics
 }
+
+// asyncResponseTTL bounds how long a response nobody collected (the waiter timed out or was
+// aborted) stays in memory.
+const asyncResponseTTL = 5 * time.Minute
 
 // asyncHTTPResponse holds the response from an async HTTP request
 type asyncHTTPResponse struct {
@@ -30,6 +34,7 @@ type asyncHTTPResponse struct {
 	Body    string
 	Headers map[string]string
 	Error   string
+	doneAt  time.Time
 }
 
 // NewHTTPManager creates a new HTTP manager
@@ -37,7 +42,7 @@ func NewHTTPManager() *HTTPManager {
 	return &HTTPManager{
 		clients:        make(map[string]*http.Client),
 		asyncResponses: make(map[string]*asyncHTTPResponse),
-		pendingAsync:   make(chan string, 100),
+		asyncInFlight:  make(map[string]bool),
 	}
 }
 
@@ -143,36 +148,37 @@ func (hm *HTTPManager) recordRequest(hasError bool) {
 	}
 }
 
-// AsyncRequest performs an asynchronous HTTP request
+// AsyncRequest performs an asynchronous HTTP request. Its response is collected by requestID
+// with GetAsyncResponse, so concurrent requests never see each other's results.
 func (hm *HTTPManager) AsyncRequest(instanceID, requestID, method, url string, headers map[string]string, body string, timeout int, verifySSL, followRedirects bool) {
+	hm.asyncMu.Lock()
+	if _, done := hm.asyncResponses[requestID]; hm.asyncInFlight[requestID] || done {
+		log.Printf("[HTTP] Warning: async request id %s reused before its response was collected", requestID)
+	}
+	hm.asyncInFlight[requestID] = true
+	hm.asyncMu.Unlock()
+
 	go func() {
 		status, respBody, respHeaders, err := hm.Request(instanceID, method, url, headers, body, timeout, verifySSL, followRedirects)
 
-		hm.asyncMu.Lock()
+		resp := &asyncHTTPResponse{Status: status, Body: respBody, Headers: respHeaders, doneAt: time.Now()}
 		if err != nil {
-			hm.asyncResponses[requestID] = &asyncHTTPResponse{
-				Status: 0,
-				Error:  err.Error(),
-			}
-		} else {
-			hm.asyncResponses[requestID] = &asyncHTTPResponse{
-				Status:  status,
-				Body:    respBody,
-				Headers: respHeaders,
-			}
+			resp = &asyncHTTPResponse{Error: err.Error(), doneAt: resp.doneAt}
 		}
-		hm.asyncMu.Unlock()
 
-		// Signal completion
-		select {
-		case hm.pendingAsync <- requestID:
-		default:
-			log.Printf("[HTTP] Warning: async response channel full, dropping request %s", requestID)
+		hm.asyncMu.Lock()
+		delete(hm.asyncInFlight, requestID)
+		for id, r := range hm.asyncResponses {
+			if resp.doneAt.Sub(r.doneAt) > asyncResponseTTL {
+				delete(hm.asyncResponses, id)
+			}
 		}
+		hm.asyncResponses[requestID] = resp
+		hm.asyncMu.Unlock()
 	}()
 }
 
-// GetAsyncResponse retrieves and removes an async response
+// GetAsyncResponse retrieves and removes an async response; nil while it is not ready
 func (hm *HTTPManager) GetAsyncResponse(requestID string) *asyncHTTPResponse {
 	hm.asyncMu.Lock()
 	defer hm.asyncMu.Unlock()
@@ -182,16 +188,6 @@ func (hm *HTTPManager) GetAsyncResponse(requestID string) *asyncHTTPResponse {
 		delete(hm.asyncResponses, requestID)
 	}
 	return resp
-}
-
-// GetPendingAsyncID returns a pending async request ID (non-blocking)
-func (hm *HTTPManager) GetPendingAsyncID() string {
-	select {
-	case id := <-hm.pendingAsync:
-		return id
-	default:
-		return ""
-	}
 }
 
 // registerHTTPFunctions registers Go HTTP functions in Lua
@@ -280,16 +276,5 @@ func registerHTTPFunctions(L *lua.LState, hm *HTTPManager) {
 		}
 
 		return 4
-	}))
-
-	// __go_http_poll_async() - returns requestId of completed async request (or nil)
-	L.SetGlobal("__go_http_poll_async", L.NewFunction(func(L *lua.LState) int {
-		id := hm.GetPendingAsyncID()
-		if id == "" {
-			L.Push(lua.LNil)
-		} else {
-			L.Push(lua.LString(id))
-		}
-		return 1
 	}))
 }

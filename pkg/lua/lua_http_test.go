@@ -213,9 +213,9 @@ func TestHTTPGoBackendAsync(t *testing.T) {
 
 		// Check if response is ready
 		_, err = engine.Execute(`
-			local requestId = __go_http_poll_async()
-			if requestId then
-				asyncStatus, asyncBody, asyncHeaders, asyncErr = __go_http_get_async_response(requestId)
+			local status, body, headers, err = __go_http_get_async_response("request_1")
+			if status then
+				asyncStatus, asyncBody, asyncHeaders, asyncErr = status, body, headers, err
 				asyncDone = true
 			else
 				asyncDone = false

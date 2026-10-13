@@ -4,6 +4,11 @@
 
 local PluginHelpers = {}
 
+-- Async HTTP request ids must be unique across the runtime: two requests started in the
+-- same second must not share one, and the "plugin_" prefix keeps them apart from HTTP
+-- clients ("client_") and HTTPRequest objects ("http_"). A table, not a local: see pkg/lua/AGENTS.md (pcall).
+local httpIds = { seq = 0 }
+
 -- ============================================
 -- CONSTANTS
 -- ============================================
@@ -743,7 +748,8 @@ function PluginHelpers.httpRequest(pluginId, opts, callback)
             return
         end
 
-        local requestId = pluginId .. "_" .. tostring(os.time()) .. "_" .. tostring(attempt)
+        httpIds.seq = httpIds.seq + 1
+        local requestId = "plugin_" .. pluginId .. "_" .. httpIds.seq
 
         __go_http_async_request(
             pluginId,
@@ -764,93 +770,90 @@ function PluginHelpers.httpRequest(pluginId, opts, callback)
         local function pollResponse()
             pollCount = pollCount + 1
 
-            if type(__go_http_poll_async) == "function" then
-                local completedId = __go_http_poll_async()
-                if completedId == requestId then
-                    if type(__go_http_get_async_response) == "function" then
-                        local status, respBody, respHeadersJson, err = __go_http_get_async_response(requestId)
+            -- Ask for this request's own response: nil until it is ready.
+            if type(__go_http_get_async_response) == "function" then
+                local status, respBody, respHeadersJson, err = __go_http_get_async_response(requestId)
+                if status ~= nil then
+                    local attemptElapsed = (os.clock() * 1000) - attemptStart
+                    totalElapsed = (os.clock() * 1000) - startTime
 
-                        local attemptElapsed = (os.clock() * 1000) - attemptStart
-                        totalElapsed = (os.clock() * 1000) - startTime
-
-                        -- Parse response headers
-                        local respHeaders = {}
-                        if respHeadersJson and respHeadersJson ~= "" then
-                            local decoded = PluginHelpers.decodeJson(respHeadersJson)
-                            if decoded then
-                                -- Lowercase header keys
-                                for k, v in pairs(decoded) do
-                                    respHeaders[k:lower()] = v
-                                end
+                    -- Parse response headers
+                    local respHeaders = {}
+                    if respHeadersJson and respHeadersJson ~= "" then
+                        local decoded = PluginHelpers.decodeJson(respHeadersJson)
+                        if decoded then
+                            -- Lowercase header keys
+                            for k, v in pairs(decoded) do
+                                respHeaders[k:lower()] = v
                             end
                         end
+                    end
 
-                        -- Record retry info
-                        table.insert(retries, {
-                            attempt = attempt,
-                            elapsed = attemptElapsed,
-                            errCode = PluginHelpers.classifyError(err, status)
-                        })
+                    -- Record retry info
+                    table.insert(retries, {
+                        attempt = attempt,
+                        elapsed = attemptElapsed,
+                        errCode = PluginHelpers.classifyError(err, status)
+                    })
 
-                        -- Check if we should retry
-                        local shouldRetry = false
-                        local backoffMs = nil
+                    -- Check if we should retry
+                    local shouldRetry = false
+                    local backoffMs = nil
 
-                        if attempt < retryAttempts and (err or (status and status >= 400)) then
-                            local response = buildResponse(status, respBody, respHeaders, attemptElapsed, attempt, err)
+                    if attempt < retryAttempts and (err or (status and status >= 400)) then
+                        local response = buildResponse(status, respBody, respHeaders, attemptElapsed, attempt, err)
 
-                            if retryShouldRetry then
-                                -- Custom retry logic
-                                local retryResult, customBackoff = retryShouldRetry(response, attempt, err)
-                                if retryResult == nil then
-                                    -- Fallback to default
-                                    shouldRetry = defaultShouldRetry(response, attempt, err)
-                                    backoffMs = calculateBackoff(attempt)
-                                else
-                                    shouldRetry = retryResult
-                                    backoffMs = customBackoff or calculateBackoff(attempt)
-                                end
-                            else
-                                -- Default retry logic
+                        if retryShouldRetry then
+                            -- Custom retry logic
+                            local retryResult, customBackoff = retryShouldRetry(response, attempt, err)
+                            if retryResult == nil then
+                                -- Fallback to default
                                 shouldRetry = defaultShouldRetry(response, attempt, err)
                                 backoffMs = calculateBackoff(attempt)
-                            end
-                        end
-
-                        if shouldRetry and attempt < retryAttempts then
-                            logRequest("Retry in " .. backoffMs .. "ms (attempt " .. (attempt + 1) .. "/" .. retryAttempts .. ")", nil)
-
-                            -- Schedule retry after backoff
-                            if type(__go_setTimeout) == "function" then
-                                __go_setTimeout(function()
-                                    doRequest(attempt + 1)
-                                end, backoffMs)
-                                totalElapsed = totalElapsed + backoffMs
+                            else
+                                shouldRetry = retryResult
+                                backoffMs = customBackoff or calculateBackoff(attempt)
                             end
                         else
-                            -- Final response
-                            local response = buildResponse(status, respBody, respHeaders, attemptElapsed, attempt, err)
-
-                            if attempt > 1 and (err or not response.ok) then
-                                response.errCode = PluginHelpers.ERR_CODES.RETRY_EXHAUSTED
-                            end
-
-                            local errMsg = nil
-                            if err then
-                                errMsg = err
-                            elseif not response.ok then
-                                errMsg = "HTTP " .. status
-                            end
-
-                            if retryAttempts > 1 and errMsg then
-                                errMsg = "all " .. attempt .. " retry attempts failed, last: " .. errMsg
-                            end
-
-                            logRequest("HTTP " .. (status or 0) .. " in " .. math.floor(totalElapsed) .. "ms", nil)
-                            callback(response, errMsg)
+                            -- Default retry logic
+                            shouldRetry = defaultShouldRetry(response, attempt, err)
+                            backoffMs = calculateBackoff(attempt)
                         end
-                        return
                     end
+
+                    if shouldRetry and attempt < retryAttempts then
+                        logRequest("Retry in " .. backoffMs .. "ms (attempt " .. (attempt + 1) .. "/" .. retryAttempts .. ")", nil)
+
+                        -- Schedule retry after backoff
+                        if type(__go_setTimeout) == "function" then
+                            __go_setTimeout(function()
+                                doRequest(attempt + 1)
+                            end, backoffMs)
+                            totalElapsed = totalElapsed + backoffMs
+                        end
+                    else
+                        -- Final response
+                        local response = buildResponse(status, respBody, respHeaders, attemptElapsed, attempt, err)
+
+                        if attempt > 1 and (err or not response.ok) then
+                            response.errCode = PluginHelpers.ERR_CODES.RETRY_EXHAUSTED
+                        end
+
+                        local errMsg = nil
+                        if err then
+                            errMsg = err
+                        elseif not response.ok then
+                            errMsg = "HTTP " .. status
+                        end
+
+                        if retryAttempts > 1 and errMsg then
+                            errMsg = "all " .. attempt .. " retry attempts failed, last: " .. errMsg
+                        end
+
+                        logRequest("HTTP " .. (status or 0) .. " in " .. math.floor(totalElapsed) .. "ms", nil)
+                        callback(response, errMsg)
+                    end
+                    return
                 end
             end
 

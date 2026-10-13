@@ -114,6 +114,7 @@ contract tests. A change that breaks one of them breaks someone's house.
 | Lua runtime | Timers, GPIO polling, MQTT subscriptions and Go functions survive a Lua reload; pending state is flushed at shutdown | `pkg/lua/lua_contract_test.go`, `pkg/lua/lua_timers_test.go`, `pkg/lua/shutdown_test.go` |
 | Persistent state | `persist()` and `persist = true` on virtual objects survive reload and restart | `pkg/lua/persist_test.go`, `pkg/lua/virtual_persist_test.go` |
 | History | Changes survive a restart without fake entries; a torn file loses at most its last line; deleting data needs a web session | `pkg/history/`, `pkg/lua/history_test.go`, `pkg/web/handlers_history_test.go` |
+| Async HTTP | Every async HTTP request from Lua (plugins, `HTTP:async*`, `HTTPRequest`) gets its own response and the transport error, however many are in flight | `pkg/lua/http_async_contract_test.go` |
 | Sandbox | `vclu_draft_test` has no real side effects and runs on a virtual clock | `pkg/mcp/sandbox_*_test.go` |
 | Grenton protocol | Discovery encryption stays compatible with real CLUs; CLU state subscriptions are kept and renewed | `pkg/cipher/`, `pkg/server/` |
 

@@ -567,10 +567,6 @@ func (se *SandboxEngine) registerBlockedStubs(L *lua.LState, result *SandboxResu
 		L.Push(lua.LNil)
 		return 1
 	}))
-	L.SetGlobal("__go_http_poll_async", L.NewFunction(func(L *lua.LState) int {
-		L.Push(lua.LNil)
-		return 1
-	}))
 
 	// HTTP server stubs
 	L.SetGlobal("__go_http_server_start", blocked("http_server.start"))
