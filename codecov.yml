@@ -1,0 +1,15 @@
+# Coverage is shown, never fails a commit: small swings come from timing-dependent
+# branches in tests, not from the change. Tighten "patch" once outside PRs arrive.
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1%
+        informational: true
+    patch:
+      default:
+        informational: true
+comment:
+  layout: "condensed_header, diff, files"
+  require_changes: true
