@@ -93,7 +93,7 @@ A to test, który agent uruchamia, zanim ta zmiana trafi na produkcję. Działa 
 | **Więcej sprzętu** | Wejścia i wyjścia GPIO Raspberry Pi z eliminacją drgań styków i zdarzeniami wciśnięcia/przytrzymania; klient i serwer HTTP w Lua; proxy zdjęć z kamer IP (dane logowania nie trafiają do przeglądarki) |
 | **Dashboardy** | Definiowane w Lua, serwowane pod `/d/<id>` dla tabletów ściennych: przełączniki, suwaki, przyciski, listy wyboru, kafelki statusu z wykresikami, wykresy, obrazy, ściemniacze, rolety, kolory; motywy, grupy zakładek, dashboardy zmieniające się z porą dnia; dostęp publiczny, przez sesję albo PIN |
 | **Metryki** | Szeregi czasowe z Lua (`metric(...)`) do wykresów; Prometheus `/metrics` z ponad 30 seriami i gotowe dashboardy Grafany w `grafana/` |
-| **Pluginy** | Pluginy Lua w sandboxie, z repozytorium GitHub, z własnym magazynem KV, timerami, HTTP i MQTT; pisane jako fabryki, więc jeden plugin obsłuży wiele urządzeń |
+| **Pluginy** | Pluginy Lua w sandboxie, z [repozytorium GitHub](https://github.com/Domktorymysli/vclu-plugins), z własnym magazynem KV, timerami, HTTP i MQTT; pisane jako fabryki, więc jeden plugin obsłuży wiele urządzeń |
 | **Interfejs web** | Kreator konfiguracji, status, edytor kodu Monaco z walidacją i wyszukiwaniem, import Grenton/OM, MQTT, Satel, HomeKit, profile dostępu, boty MCP i drafty, pluginy, kopie zapasowe z harmonogramem, historia i audyt, podgląd logów na żywo, statystyki, dokumentacja REST API (ReDoc); po polsku i angielsku |
 | **Bezpieczeństwo** | Hasła bcrypt, 12-godzinne sesje z ciasteczkami SameSite=Strict i tokenami CSRF, klucze API i tokeny botów przechowywane jako skróty SHA-256, profile dostępu per obiekt dla MQTT, HomeKit i MCP |
 
@@ -293,6 +293,7 @@ Wprowadzenie do vCLU: instalacja na Raspberry Pi, GPIO, MQTT, integracja z Home 
 
 - [vclu.pl](https://vclu.pl/): strona projektu
 - [docs.vclu.pl](https://docs.vclu.pl): dokumentacja
+- [vclu-plugins](https://github.com/Domktorymysli/vclu-plugins): repozytorium pluginów (Salda, SolaX, Supla, Modbus, Frigate, Telegram i inne)
 - [domktorymysli.org](https://domktorymysli.org/): blog autora: Dom który myśli
 - [Facebook: Dom który myśli](https://www.facebook.com/domktorymysli)
 - [Discord](https://discord.gg/9cgrnXkVP): społeczność vCLU: pytania i pomoc

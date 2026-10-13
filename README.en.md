@@ -93,7 +93,7 @@ And the test an agent runs before this goes live. It runs on a virtual clock, wi
 | **More hardware** | Raspberry Pi GPIO inputs and outputs with debounce and press/hold events; HTTP client and HTTP server in Lua; IP camera snapshot proxy (credentials never reach the browser) |
 | **Dashboards** | Defined in Lua, served at `/d/<id>` for wall tablets: toggles, sliders, buttons, selects, status tiles with sparklines, charts, images, dimmers, covers, colors; themes, tab groups, dashboards that change with the time of day; public, session or PIN access |
 | **Metrics** | Time series from Lua (`metric(...)`) for charts; Prometheus `/metrics` with 30+ series and ready Grafana dashboards in `grafana/` |
-| **Plugins** | Sandboxed Lua plugins from a GitHub repository, with their own KV storage, timers, HTTP and MQTT; written as factories so one plugin can drive many devices |
+| **Plugins** | Sandboxed Lua plugins from a [GitHub repository](https://github.com/Domktorymysli/vclu-plugins), with their own KV storage, timers, HTTP and MQTT; written as factories so one plugin can drive many devices |
 | **Web UI** | Setup wizard, status, Monaco code editor with validation and search, Grenton/OM import, MQTT, Satel, HomeKit, access profiles, MCP bots and drafts, plugins, backups with schedule, history and audit, live log stream, statistics, REST API docs (ReDoc); English and Polish |
 | **Security** | bcrypt passwords, 12 h sessions with SameSite=Strict cookies and CSRF tokens, API keys and bot tokens stored as SHA-256 hashes, per-object access profiles for MQTT, HomeKit and MCP |
 
@@ -293,6 +293,7 @@ Introduction to vCLU: installation on a Raspberry Pi, GPIO, MQTT, Home Assistant
 
 - [vclu.pl](https://vclu.pl/): project website
 - [docs.vclu.pl](https://docs.vclu.pl): documentation
+- [vclu-plugins](https://github.com/Domktorymysli/vclu-plugins): plugin repository (Salda, SolaX, Supla, Modbus, Frigate, Telegram and more)
 - [domktorymysli.org](https://domktorymysli.org/): the author's blog, Dom który myśli (Polish)
 - [Facebook: Dom który myśli](https://www.facebook.com/domktorymysli)
 - [Discord](https://discord.gg/9cgrnXkVP): vCLU community: questions and help (mostly Polish)
