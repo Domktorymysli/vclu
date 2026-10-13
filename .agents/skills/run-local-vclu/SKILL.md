@@ -24,10 +24,10 @@ the MQTT/HA layer seen from outside, or screenshots. No Grenton CLU, no MQTT bro
 4. Read what happened: `GET /api/history` (newest first, with `origin` and `actor`).
    Start from a clean history: `POST /api/history/clear-memory` and `/api/history/clear-disk`,
    each with the body `{"confirm":true}`.
-5. Screenshots: `node tools/demo/shot.mjs <url> <out.png> [w] [h] [js-step ...]` (Node 22+,
-   Chrome; `CHROME=` for another binary). Add `?lang=en` to the URL for the English UI. Pages:
-   `/d/home`, `/history`, `/editor`. JS steps run in the page in order, e.g. clicking a file in
-   the editor tree:
+5. Screenshots: `go run ./tools/screenshot [-w 1280] [-h 800] <url> <out.png> [js-step ...]`
+   (needs Chrome; `CHROME=` for another binary). Add `?lang=en` to the URL for the English UI.
+   Pages: `/d/home`, `/history`, `/editor`. JS steps run in the page in order, e.g. clicking a
+   file in the editor tree:
    `"[...document.querySelectorAll('#fileTree *')].find(e => e.textContent.trim() === 'demo').click()"`.
 6. Stop the process when done. Do not leave it running.
 
@@ -44,7 +44,7 @@ the MQTT/HA layer seen from outside, or screenshots. No Grenton CLU, no MQTT bro
 - `require()` of a module that returns `nil` gives `true`: guard with
   `if type(m) ~= "table" then return end` in dashboards.
 - Screenshots for the repository: demo data only, no real names, addresses, IPs, serials or tokens.
-  PNG at DPR 1.25 keeps a 1280×800 page under 300 KB; downscaling a DPR 2 image makes it larger.
+  The default `-dpr 1.25` keeps a 1280×800 page under 300 KB; downscaling a `-dpr 2` image makes it larger.
 
 ## Check
 
