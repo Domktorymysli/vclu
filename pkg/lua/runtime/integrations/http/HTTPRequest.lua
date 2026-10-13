@@ -353,18 +353,11 @@ function HTTPRequest:_startResponsePolling()
 
         pollCount = pollCount + 1
 
-        -- Use __go_http_poll_async to check if any request completed
-        local completedId = __go_http_poll_async()
-        if completedId == requestId then
-            -- Our request completed, get the response
-            local status, body, headersJson, err = __go_http_get_async_response(requestId)
-            if status ~= nil then
-                self_ref:_handleResponse(status, body, headersJson, err)
-                return
-            end
-        elseif completedId then
-            -- Some other request completed, ignore it (put it back? No, it's gone)
-            Logger:getShared():debug("[HTTPRequest] %s: ignoring completed request %s", self_ref.id, completedId)
+        -- Ask for this request's own response: nil until it is ready.
+        local status, body, headersJson, err = __go_http_get_async_response(requestId)
+        if status ~= nil then
+            self_ref:_handleResponse(status, body, headersJson, err)
+            return
         end
 
         if pollCount >= maxPolls then

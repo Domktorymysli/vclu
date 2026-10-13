@@ -331,7 +331,7 @@ function HTTP:asyncRequest(method, url, body, headers, callback)
     if type(__go_http_async_request) == "function" then
         __go_http_async_request(
             self._instanceId,
-            tostring(requestId),
+            "client_" .. requestId,
             method,
             fullUrl,
             self:_encodeHeaders(requestHeaders),
@@ -349,28 +349,23 @@ function HTTP:asyncRequest(method, url, body, headers, callback)
         local function pollForResponse()
             pollCount = pollCount + 1
 
-            -- Check if any request completed (defensive type checks)
-            if type(__go_http_poll_async) == "function" then
-                local completedId = __go_http_poll_async()
-                if completedId == tostring(requestId) then
-                    -- Our request completed
-                    if type(__go_http_get_async_response) == "function" then
-                        local status, body, headersJson, err = __go_http_get_async_response(tostring(requestId))
-                        if status ~= nil then
-                            local respHeaders = {}
-                            if headersJson and headersJson ~= "" then
-                                pcall(function() respHeaders = JSON:decode(headersJson) or {} end)
-                            end
-                            selfRef:_handleAsyncResponse(requestId, status, body, respHeaders)
-                            return
-                        end
+            -- Ask for this request's own response: nil until it is ready.
+            if type(__go_http_get_async_response) == "function" then
+                local status, body, headersJson, err = __go_http_get_async_response("client_" .. requestId)
+                if status ~= nil then
+                    local respHeaders = {}
+                    if headersJson and headersJson ~= "" then
+                        pcall(function() respHeaders = JSON:decode(headersJson) or {} end)
                     end
+                    selfRef:_handleAsyncResponse(requestId, status, body, respHeaders, err)
+                    return
                 end
             end
 
             -- Timeout check
             if pollCount >= maxPolls then
-                selfRef:_handleAsyncResponse(requestId, 0, "", {})
+                selfRef:_handleAsyncResponse(requestId, 0, "", {},
+                    "timeout after " .. tostring(selfRef._props.timeout or 30000) .. "ms")
                 return
             end
 
@@ -403,12 +398,13 @@ function HTTP:asyncRequest(method, url, body, headers, callback)
     return requestId
 end
 
---- Handle async response (called from Go)
+--- Handle async response (called by the response poller)
 -- @param requestId number Request ID
 -- @param status number HTTP status code
 -- @param body string Response body
 -- @param headers table Response headers
-function HTTP:_handleAsyncResponse(requestId, status, body, headers)
+-- @param transportErr string|nil Error from the transport (connection, timeout); nil on a response
+function HTTP:_handleAsyncResponse(requestId, status, body, headers, transportErr)
     local request = self._pendingRequests[requestId]
     if not request then return end
 
@@ -422,8 +418,8 @@ function HTTP:_handleAsyncResponse(requestId, status, body, headers)
     }
 
     if request.callback then
-        local err = nil
-        if not response.ok then
+        local err = transportErr
+        if not err and not response.ok then
             err = "HTTP " .. status
         end
         pcall(request.callback, response, err)
