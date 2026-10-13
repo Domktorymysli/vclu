@@ -1,4 +1,4 @@
-# #15: Contract test for the MCP device and scene tools
+# #16: Contract test for the MCP device and scene tools
 
 - **Type:** test
 - **Area:** mcp

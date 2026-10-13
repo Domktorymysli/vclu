@@ -1,4 +1,4 @@
-# #19: Promote warns that `modules/<dir>/init.lua` will not load when `require("<dir>")` loads it
+# #20: Promote warns that `modules/<dir>/init.lua` will not load when `require("<dir>")` loads it
 
 - **Type:** bug
 - **Area:** mcp

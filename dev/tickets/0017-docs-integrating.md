@@ -1,4 +1,4 @@
-# #16: Docs: connecting another system to vCLU (MQTT or MCP)
+# #17: Docs: connecting another system to vCLU (MQTT or MCP)
 
 - **Type:** docs
 - **Area:** mqtt

@@ -1,4 +1,4 @@
-# #18: Concurrent async HTTP requests lose each other's responses
+# #19: Concurrent async HTTP requests lose each other's responses
 
 - **Type:** bug
 - **Area:** lua-runtime

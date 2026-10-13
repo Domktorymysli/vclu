@@ -1,4 +1,4 @@
-# #17: README: screenshots and a tests badge that is not hard-coded
+# #18: README: screenshots and a tests badge that is not hard-coded
 
 - **Type:** docs
 - **Area:** web
