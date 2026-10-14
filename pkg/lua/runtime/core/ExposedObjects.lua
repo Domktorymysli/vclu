@@ -326,10 +326,12 @@ ExposedObjects = {
     _objects = {},        -- path -> ExposedHandle
     _objectToPath = {},   -- weak table: object_ref -> path (stability after restart)
     _pluginContext = nil, -- current plugin ID (set by plugin sandbox)
+    _noUnsubscribeWarned = {}, -- weak set: objects already warned about onChange()
 }
 
 -- Make _objectToPath a weak table (keys are garbage collected)
 setmetatable(ExposedObjects._objectToPath, { __mode = "k" })
+setmetatable(ExposedObjects._noUnsubscribeWarned, { __mode = "k" })
 
 --- Generate a stable path for an object
 -- @param obj table Object to expose
@@ -500,6 +502,12 @@ function ExposedObjects:expose(obj, objType, options)
         -- Store unsubscribe if returned (required by Best Practices)
         if type(unsubscribe) == "function" then
             handle._unsubscribe = unsubscribe
+        elseif not self._noUnsubscribeWarned[obj] then
+            self._noUnsubscribeWarned[obj] = true
+            if Logger then
+                Logger:getShared():warn("[ExposedObjects] %s: onChange() returned no unsubscribe function; " ..
+                    "its callback stays registered after unexpose()", path)
+            end
         end
     end
 
@@ -882,7 +890,9 @@ end
 -- Global functions
 -- ==========================================================================
 
---- Global function to expose an object
+--- Global function to expose an object.
+-- A custom object's onChange(cb) must return a function that removes cb: unexpose() calls it,
+-- otherwise the callback stays registered and expose() logs a warning.
 -- @api public
 -- @param obj table Object to expose
 -- @param objType string Type (switch, light, sensor, etc.)
