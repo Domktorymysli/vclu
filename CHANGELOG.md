@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Lua runtime
+
+- **EventBus warns when callbacks for one event pile up** - code that calls `EventBus:on` in a timer or on every re-create without `off` adds callbacks for ever and every `emit` runs them all. At 100 callbacks for one event name `on` logs a warning with the name and the count, and again at 200, 400...; the callbacks are still added ([#7](https://github.com/Domktorymysli/vclu/issues/7)).
+
 ### Plugins and HTTP
 
 - **Plugins see the request error in `resp.err`** - the plugin docs describe `resp = { status, body, headers, json, err, errCode }` and plugins check `if resp.err then`, but the runtime only passed the error as the callback's second argument, so `resp.err` was always nil: a refused connection reached plugins as a parse error and SolaX logged `HTTP 0`. `resp.err` now carries the same text as the second argument ([vclu-plugins#3](https://github.com/Domktorymysli/vclu-plugins/issues/3)).
