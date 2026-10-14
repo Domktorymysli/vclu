@@ -9,6 +9,9 @@ MQTT.__index = MQTT
 MQTT._instances = {}
 MQTT._nextInstanceId = 1
 
+-- The built-in client (global MQTT, used by the Home Assistant integration)
+local DEFAULT_ID = "MQTT"
+
 --- Create new MQTT instance (an id already in use destroys the old instance, with a warning).
 -- @api public
 function MQTT:new(id)
@@ -18,6 +21,9 @@ function MQTT:new(id)
 
     -- An id in use: release the old client so it does not stay half alive
     local old = MQTT._instances[instanceId]
+    if old and instanceId == DEFAULT_ID then
+        error("MQTT:new: id '" .. DEFAULT_ID .. "' is the built-in client, choose another id", 2)
+    end
     if old then
         if Logger then
             Logger:warn("MQTT:new(%s): id already in use, destroying the old client", instanceId)
@@ -295,6 +301,10 @@ end
 function MQTT:destroy()
     if self._destroyed then
         return true
+    end
+    if self._instanceId == DEFAULT_ID then
+        if Logger then Logger:warn("MQTT:destroy(): the built-in client cannot be destroyed") end
+        return false
     end
     self._destroyed = true
 

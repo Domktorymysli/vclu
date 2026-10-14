@@ -227,7 +227,7 @@ func waitMQTT(t *testing.T, engine *LuaEngine, what string, cond func() bool) {
 		if time.Now().After(deadline) {
 			t.Fatalf("timeout waiting for %s", what)
 		}
-		engine.Execute(`MQTT.pollEvents(); MQTT.pollMessages()`)
+		_, _ = engine.Execute(`MQTT.pollEvents(); MQTT.pollMessages()`)
 		time.Sleep(20 * time.Millisecond)
 	}
 }
@@ -258,10 +258,10 @@ func TestContract_MQTT_Destroy(t *testing.T) {
 	b, port := startTestBroker(t)
 	engine := NewLuaEngine()
 	defer engine.Close()
-	engine.Execute(`_c = {}`)
+	_, _ = engine.Execute(`_c = {}`)
 
 	connectTestClient(t, engine, b, port, "cli", "destroy_t", "t/destroy")
-	b.Publish("t/destroy", []byte("1"), false)
+	_ = b.Publish("t/destroy", []byte("1"), false)
 	waitMQTT(t, engine, "first message", func() bool {
 		got, _ := engine.Execute(`return tostring(_c.cli)`)
 		return got == "1"
@@ -283,9 +283,9 @@ func TestContract_MQTT_Destroy(t *testing.T) {
 	}
 
 	// Neither a broker message nor one handed to the old object reaches a callback.
-	b.Publish("t/destroy", []byte("2"), false)
+	_ = b.Publish("t/destroy", []byte("2"), false)
 	for i := 0; i < 10; i++ {
-		engine.Execute(`MQTT.pollEvents(); MQTT.pollMessages()`)
+		_, _ = engine.Execute(`MQTT.pollEvents(); MQTT.pollMessages()`)
 		time.Sleep(20 * time.Millisecond)
 	}
 	got, _ = engine.Execute(`
@@ -302,7 +302,7 @@ func TestContract_MQTT_NewWithIdInUse(t *testing.T) {
 	b, port := startTestBroker(t)
 	engine := NewLuaEngine()
 	defer engine.Close()
-	engine.Execute(`_c = {}`)
+	_, _ = engine.Execute(`_c = {}`)
 
 	connectTestClient(t, engine, b, port, "old", "dup_t", "t/old")
 
@@ -339,8 +339,8 @@ func TestContract_MQTT_NewWithIdInUse(t *testing.T) {
 	waitMQTT(t, engine, "new client's subscription", func() bool {
 		return slices.Contains(brokerSubs(b, "vclu_dup_t"), "t/new")
 	})
-	b.Publish("t/old", []byte("x"), false)
-	b.Publish("t/new", []byte("y"), false)
+	_ = b.Publish("t/old", []byte("x"), false)
+	_ = b.Publish("t/new", []byte("y"), false)
 	waitMQTT(t, engine, "message for the new client", func() bool {
 		got, _ := engine.Execute(`return tostring(_c.nw)`)
 		return got == "1"

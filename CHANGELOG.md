@@ -23,7 +23,7 @@
 
 ### MQTT
 
-- **`MQTT:destroy()` releases a client, and `MQTT:new(id)` with an id in use no longer leaves the old one half alive** - `new` overwrote the registry entry while the old client stayed connected and subscribed, and `disconnect()` kept its subscriptions and handlers, so a module or plugin that re-created its client leaked connections. `destroy()` unsubscribes on the broker, disconnects, clears subscriptions and event handlers and removes the client from Lua and Go; `new(id)` with an id in use destroys the old client first and logs a warning with the id. A Lua reload starts with an empty registry, so it does not trigger the warning ([#4](https://github.com/Domktorymysli/vclu/issues/4)).
+- **`MQTT:destroy()` releases a client, and `MQTT:new(id)` with an id in use no longer leaves the old one half alive** - `new` overwrote the registry entry while the old client stayed connected and subscribed, and `disconnect()` kept its subscriptions and handlers, so a module or plugin that re-created its client leaked connections. `destroy()` unsubscribes on the broker, disconnects, clears subscriptions and event handlers and removes the client from Lua and Go; `new(id)` with an id in use destroys the old client first and logs a warning with the id. Messages and connection events still arriving from the old client are dropped instead of reaching the new one. The built-in client (global `MQTT`, used by the Home Assistant integration) cannot be destroyed or re-created. A Lua reload starts with an empty registry, so it does not trigger the warning ([#4](https://github.com/Domktorymysli/vclu/issues/4)).
 
 ## v1.3.0 (2026-10-10)
 

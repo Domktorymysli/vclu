@@ -53,6 +53,7 @@ type MQTTClientCredentials struct {
 // mqttMessage represents an incoming MQTT message
 type mqttMessage struct {
 	InstanceID string
+	from       *mqttClientWrapper // dropped when this client was destroyed or replaced
 	Topic      string
 	Payload    string
 	QoS        byte
@@ -160,11 +161,13 @@ func (mm *MQTTManager) Connect(instanceID, url string, port int, clientID, usern
 	// Set connection handlers
 	opts.SetOnConnectHandler(func(c mqtt.Client) {
 		mm.mu.Lock()
-		if w, ok := mm.clients[instanceID]; ok {
-			w.connected = true
-			w.connectedAt = time.Now()
-			w.lastError = ""
+		if mm.clients[instanceID] != wrapper {
+			mm.mu.Unlock() // destroyed or replaced: its events belong to no instance
+			return
 		}
+		wrapper.connected = true
+		wrapper.connectedAt = time.Now()
+		wrapper.lastError = ""
 		mm.mu.Unlock()
 		if mm.metrics != nil {
 			mm.metrics.SetMQTTConnected(true)
@@ -179,10 +182,12 @@ func (mm *MQTTManager) Connect(instanceID, url string, port int, clientID, usern
 	opts.SetConnectionLostHandler(func(c mqtt.Client, err error) {
 		log.Printf("[MQTT] %s connection lost: %v", instanceID, err)
 		mm.mu.Lock()
-		if w, ok := mm.clients[instanceID]; ok {
-			w.connected = false
-			w.lastError = err.Error()
+		if mm.clients[instanceID] != wrapper {
+			mm.mu.Unlock()
+			return
 		}
+		wrapper.connected = false
+		wrapper.lastError = err.Error()
 		mm.mu.Unlock()
 		if mm.metrics != nil {
 			mm.metrics.SetMQTTConnected(false)
@@ -210,6 +215,7 @@ func (mm *MQTTManager) Connect(instanceID, url string, port int, clientID, usern
 		}
 		msg := &mqttMessage{
 			InstanceID: instanceID,
+			from:       wrapper,
 			Topic:      m.Topic(),
 			Payload:    string(m.Payload()),
 			QoS:        m.Qos(),
@@ -448,11 +454,21 @@ func (mm *MQTTManager) Unsubscribe(instanceID, topic string) error {
 
 // GetPendingMessage returns next pending incoming message (non-blocking)
 func (mm *MQTTManager) GetPendingMessage() *mqttMessage {
-	select {
-	case msg := <-mm.incoming:
-		return msg
-	default:
-		return nil
+	for {
+		select {
+		case msg := <-mm.incoming:
+			if msg.from != nil {
+				mm.mu.RLock()
+				current := mm.clients[msg.InstanceID] == msg.from
+				mm.mu.RUnlock()
+				if !current {
+					continue // queued by a client that was destroyed or replaced since
+				}
+			}
+			return msg
+		default:
+			return nil
+		}
 	}
 }
 
@@ -610,10 +626,12 @@ func (mm *MQTTManager) Reconnect(instanceID, host string, port int, clientID, us
 	opts.SetConnectionLostHandler(func(c mqtt.Client, err error) {
 		log.Printf("[MQTT] %s connection lost: %v", instanceID, err)
 		mm.mu.Lock()
-		if w, ok := mm.clients[instanceID]; ok {
-			w.connected = false
-			w.lastError = err.Error()
+		if mm.clients[instanceID] != wrapper {
+			mm.mu.Unlock()
+			return
 		}
+		wrapper.connected = false
+		wrapper.lastError = err.Error()
 		mm.mu.Unlock()
 		if mm.metrics != nil {
 			mm.metrics.SetMQTTConnected(false)
@@ -641,6 +659,7 @@ func (mm *MQTTManager) Reconnect(instanceID, host string, port int, clientID, us
 		}
 		msg := &mqttMessage{
 			InstanceID: instanceID,
+			from:       wrapper,
 			Topic:      m.Topic(),
 			Payload:    string(m.Payload()),
 			QoS:        m.Qos(),
