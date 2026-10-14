@@ -344,7 +344,7 @@ PluginsManager.prototype._renderInstalledPlugins = function() {
             version: p.version,
             description: available.description || '',
             author: available.author || '',
-            repository: p.repository,
+            repository: p.repository || available.repository,
             repoUrl: available.repoUrl || '',
             tags: available.tags || [],
             enabled: p.enabled,
