@@ -9,10 +9,14 @@
 
 EventBus = {}
 EventBus.callbacks = {}
+EventBus.callbackWarnAt = {}
 EventBus.timers = {}
 EventBus.nextTimerId = 1
 
 local shared = nil
+
+-- Callbacks for one event name at which `on` warns; again at each doubling.
+local CALLBACK_WARN_THRESHOLD = 100
 
 --- Create a new EventBus instance
 -- @return EventBus A new EventBus object with empty callbacks and timers
@@ -20,6 +24,7 @@ function EventBus:new()
     local o = {
         id = "EventBus",
         callbacks = {},
+        callbackWarnAt = {}, -- eventName -> count of the next pile-up warning
         timers = {},
         pendingTimers = {}, -- timers to be processed by Go
         pendingHttpRequests = {}, -- HTTP requests to be processed by Go
@@ -76,6 +81,14 @@ function EventBus:on(moduleOrEventName, nameOrCallback, callback)
         self.callbacks[eventName] = {}
     end
     table.insert(self.callbacks[eventName], callbackToAdd)
+
+    -- The mark only grows, so off/on around it does not repeat the warning.
+    local count = #self.callbacks[eventName]
+    local warnAt = self.callbackWarnAt[eventName] or CALLBACK_WARN_THRESHOLD
+    if count >= warnAt then
+        self.callbackWarnAt[eventName] = warnAt * 2
+        Logger:getShared():warn("[EVENT] %d callbacks registered for '%s'; is on() called repeatedly without off()?", count, eventName)
+    end
 end
 
 --- Fire an event and execute all registered callbacks
