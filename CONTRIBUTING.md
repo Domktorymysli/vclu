@@ -71,6 +71,8 @@ chore: update bootstrap to 5.3.3
 
 Keep PRs focused — one feature or fix per PR. If your change is large, consider splitting it into smaller PRs.
 
+If the `vulncheck` job fails, upgrade the module that brings in the vulnerability (`go get module@fixed-version`, then `go mod tidy`). If there is no fixed version and vCLU does not use the vulnerable code, add the id to `.github/govulncheck-accepted.txt` with the review date and the reason.
+
 #### PR checklist
 
 - [ ] Code builds without errors
