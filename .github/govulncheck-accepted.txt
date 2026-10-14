@@ -1,0 +1,3 @@
+# Findings reviewed and accepted by the vulncheck job (.github/govulncheck.sh).
+# Format: <OSV id> <review date> <reason>
+GO-2026-4316 2026-10-14 open redirect in RedirectSlashes of go-chi/chi v1.5.4 (via brutella/hap), no fixed version; vCLU does not use RedirectSlashes, traces go only through chi's response writer wrappers
