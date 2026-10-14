@@ -708,6 +708,17 @@ local function notifyChange(self)
     self:emit("OnChange", value, old)
 end
 
+-- onChange returns an unsubscribe function, which unexpose() calls.
+local function onChangeUnsubscribe(self, callback)
+    self:on("OnChange", callback)
+    return function()
+        local handlers = self._eventHandlers["OnChange"] or {}
+        for i, cb in ipairs(handlers) do
+            if cb == callback then table.remove(handlers, i) return end
+        end
+    end
+end
+
 function Plugin:sensor(id, getter)
     if not self._sensors then self._sensors = {} end
 
@@ -739,9 +750,7 @@ function Plugin:sensor(id, getter)
             end
         end,
 
-        onChange = function(self, callback)
-            return self:on("OnChange", callback)
-        end,
+        onChange = onChangeUnsubscribe,
 
         _notify = notifyChange,
     }
@@ -803,9 +812,7 @@ function Plugin:control(id, getter, setter)
             end
         end,
 
-        onChange = function(self, callback)
-            return self:on("OnChange", callback)
-        end,
+        onChange = onChangeUnsubscribe,
 
         _notify = notifyChange,
     }

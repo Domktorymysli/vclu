@@ -669,7 +669,7 @@ Set description for AI agents (fluent)
 
 Update options at runtime
 
-- `opts` (table) — Options to merge
+- `opts` (table) — Options to merge (filter = false removes a filter)
 
 **Returns:** boolean Success, false if handle is inactive
 
@@ -725,7 +725,7 @@ Set value on object
 
 ### `expose(obj, objType, options) → ExposedHandle`
 
-Global function to expose an object
+Global function to expose an object. A custom object's onChange(cb) must return a function that removes cb: unexpose() calls it, otherwise the callback stays registered and expose() logs a warning.
 
 - `obj` (table) — Object to expose
 - `objType` (string) — Type (switch, light, sensor, etc.)

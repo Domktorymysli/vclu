@@ -1753,3 +1753,125 @@ func TestGPIO_DOUT_OnChangePropagatesToExpose(t *testing.T) {
 		t.Fatal("expected at least one state_changed event after SWITCH_ON")
 	}
 }
+
+// captureOnChangeWarns collects formatted Logger warnings that mention onChange into _warns.
+const captureOnChangeWarns = `
+	_warns = {}
+	Logger.warn = function(self, msg, ...)
+		local s = self:format(msg, ...)
+		if s:find("onChange", 1, true) then _warns[#_warns + 1] = s end
+	end
+`
+
+// An object whose onChange returns no unsubscribe function keeps its callback after unexpose;
+// expose() logs one warning with the path, once per object.
+func TestExposeWarnsWhenOnChangeReturnsNoUnsubscribe(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+
+	got, err := engine.Execute(captureOnChangeWarns + `
+		local function custom(ret)
+			return {
+				get = function() return 0 end,
+				onChange = function(self, cb) return ret end,
+			}
+		end
+		local a = custom(nil)
+		local h = expose(a, "switch", { path = "custom:a" })
+		expose(a, "switch", { path = "custom:a" })
+		h:unexpose()
+		expose(a, "switch", { path = "custom:a" })
+		expose(custom({}), "sensor", { path = "custom:b" })
+		expose({ get = function() return 0 end }, "sensor", { path = "custom:no-onchange" })
+		expose(custom(function() end), "sensor", { path = "custom:ok" })
+		return table.concat(_warns, "\n")
+	`)
+	if err != nil {
+		t.Fatalf("lua: %v", err)
+	}
+	warns := strings.Split(got, "\n")
+	if got == "" || len(warns) != 2 {
+		t.Fatalf("want one warning per object (custom:a, custom:b), got:\n%s", got)
+	}
+	if !strings.Contains(warns[0], "custom:a") || !strings.Contains(warns[1], "custom:b") {
+		t.Errorf("warnings should name the paths custom:a and custom:b:\n%s", got)
+	}
+}
+
+// Every kind of object the runtime provides returns an unsubscribe function: no warning.
+func TestExposeCoreObjectsNoOnChangeWarning(t *testing.T) {
+	engine := newGPIOExposeEngine(t)
+	defer engine.Close()
+
+	got, err := engine.Execute(captureOnChangeWarns + `
+		local clu = { execute = function() end }
+		local bus, mod = EventBus:getShared(), { address = "MOD1" }
+		local p = Plugin:new("warn-test", { name = "Warn test" })
+		local objs = {
+			{ RemoteObject:new(clu, "OBJ0001", "remote_object"), "switch" },
+			{ RemoteSwitch:new(clu, "DOU0001", "remote_switch"), "switch" },
+			{ RemoteLight:new(clu, "DIM0001", "remote_light"), "dimmer" },
+			{ RemoteRGBLight:new(clu, "LED0001", "remote_rgb"), "light" },
+			{ RemoteCover:new(clu, "ROL0001", "remote_cover"), "cover" },
+			{ RemoteNumber:new(clu, "NUM0001", "remote_number"), "number" },
+			{ RemoteSensor:new(clu, "DIN0001", "remote_sensor"), "binary_sensor" },
+			{ RemoteThermometer:new(clu, "TMP0001", "remote_thermo"), "temperature" },
+			{ RemoteValueSensor:new(clu, "AIN0001", "remote_value", "humidity"), "humidity" },
+			{ VirtualObject:new("virtual_object"), "sensor" },
+			{ VirtualSwitch:new("virtual_switch"), "switch" },
+			{ VirtualDimmer:new("virtual_dimmer"), "dimmer" },
+			{ VirtualNumber:new("virtual_number"), "number" },
+			{ VirtualSensor:new("virtual_sensor"), "sensor" },
+			{ VirtualText:new("virtual_text"), "sensor" },
+			{ VirtualCover:new("virtual_cover"), "cover" },
+			{ DOUT:new("DOU0002", mod, 1, bus), "switch" },
+			{ DIN:new("DIN0002", mod, 1, bus), "binary_sensor" },
+			{ ANALOG_OUT:new("AOU0001", mod, 1, bus), "number" },
+			{ GPIO_DOUT:new("RELAY1", 17), "switch" },
+			{ GPIO_DIN:new("BTN1", 27, "up"), "binary_sensor" },
+			{ p:sensor("temp", function() return 21 end), "temperature" },
+			{ p:control("speed", function() return 1 end, function() end), "number" },
+		}
+		local c = { n = 0 }
+		for i, o in ipairs(objs) do
+			assert(type(o[1].onChange) == "function", "object " .. i .. " has no onChange")
+			expose(o[1], o[2], { path = "core:" .. i })
+			c.n = c.n + 1
+		end
+		return c.n .. "|" .. table.concat(_warns, "\n")
+	`)
+	if err != nil {
+		t.Fatalf("lua: %v", err)
+	}
+	if got != "23|" {
+		t.Errorf("core objects should expose without an onChange warning, got %q", got)
+	}
+}
+
+// A plugin sensor's onChange unsubscribe removes the callback: after it, and after
+// unexpose(), a value change no longer reaches it.
+func TestPluginSensorOnChangeUnsubscribe(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+
+	got := mustExec(t, engine, `(function()
+		local p = Plugin:new("unsub-test", { name = "Unsub test" })
+		local state = { v = 1 }
+		local s = p:sensor("temp", function() return state.v end)
+		local c = { a = 0, b = 0 }
+		local unsubA = s:onChange(function() c.a = c.a + 1 end)
+		s:onChange(function() c.b = c.b + 1 end)
+		state.v = 2; s:_notify()
+		unsubA()
+		state.v = 3; s:_notify()
+
+		local h = expose(s, "temperature", { path = "unsub:temp" })
+		local exposed = #s._eventHandlers["OnChange"]
+		h:unexpose()
+		return c.a .. "," .. c.b .. "|" .. exposed .. "," .. #s._eventHandlers["OnChange"]
+	end)()`)
+	// a stops after unsubscribe, b keeps running; expose adds one handler, unexpose removes it.
+	if got != "1,2|2,1" {
+		t.Errorf("calls a,b | handlers exposed,after unexpose = %s, want 1,2|2,1", got)
+	}
+}
