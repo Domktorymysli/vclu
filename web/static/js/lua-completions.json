@@ -2315,6 +2315,14 @@
         "insertTextRules": 4
       },
       {
+        "label": "destroy",
+        "kind": "method",
+        "detail": "(): boolean",
+        "documentation": "Destroy client: unsubscribe on the broker, disconnect, drop subscriptions, handlers and the registry entry",
+        "insertText": "destroy()",
+        "insertTextRules": 4
+      },
+      {
         "label": "publish",
         "kind": "method",
         "detail": "(topic: string, payload: string|table, qos: number, retain: boolean): boolean",

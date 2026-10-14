@@ -9,12 +9,21 @@ MQTT.__index = MQTT
 MQTT._instances = {}
 MQTT._nextInstanceId = 1
 
---- Create new MQTT instance.
+--- Create new MQTT instance (an id already in use destroys the old instance, with a warning).
 -- @api public
 function MQTT:new(id)
     -- Generate unique instance ID if not provided
     local instanceId = id or ("mqtt_" .. MQTT._nextInstanceId)
     MQTT._nextInstanceId = MQTT._nextInstanceId + 1
+
+    -- An id in use: release the old client so it does not stay half alive
+    local old = MQTT._instances[instanceId]
+    if old then
+        if Logger then
+            Logger:warn("MQTT:new(%s): id already in use, destroying the old client", instanceId)
+        end
+        old:destroy()
+    end
 
     local instance = {
         _id = instanceId,
@@ -276,6 +285,31 @@ function MQTT:disconnect(removeInstance)
     if removeInstance ~= false then
         MQTT._instances[self._instanceId] = nil
     end
+
+    return true
+end
+
+--- Destroy client: unsubscribe on the broker, disconnect, drop subscriptions, handlers and the registry entry
+-- @return boolean Success
+-- @api public
+function MQTT:destroy()
+    if self._destroyed then
+        return true
+    end
+    self._destroyed = true
+
+    if Logger then
+        Logger:info("MQTT[%s]:destroy()", self._instanceId)
+    end
+
+    if __go_mqtt_disconnect then
+        __go_mqtt_disconnect(self._instanceId, true)
+    end
+
+    self._props.connected = false
+    self._subscriptions = {}
+    self._eventHandlers = {}
+    MQTT._instances[self._instanceId] = nil
 
     return true
 end

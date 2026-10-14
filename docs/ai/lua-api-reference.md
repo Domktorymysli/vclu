@@ -19,7 +19,7 @@ Only public API is listed — internal/private functions are omitted.
 - [Dashboard](#dashboard) (48 functions)
 - [GPIO_DOUT](#gpio_dout) (1 functions)
 - [GPIO_DIN](#gpio_din) (1 functions)
-- [integrations.mqtt.MqttClient](#integrationsmqttmqttclient) (29 functions)
+- [integrations.mqtt.MqttClient](#integrationsmqttmqttclient) (30 functions)
 
 ---
 
@@ -1230,7 +1230,7 @@ Create a new GPIO_DIN object
 
 ### `MQTT:new()`
 
-Create new MQTT instance.
+Create new MQTT instance (an id already in use destroys the old instance, with a warning).
 
 ### `MQTT:getId()`
 
@@ -1339,6 +1339,12 @@ Connect to broker
 Disconnect from broker
 
 - `removeInstance` (boolean) — Remove from instance registry (default: true)
+
+**Returns:** boolean Success
+
+### `MQTT:destroy() → boolean Success`
+
+Destroy client: unsubscribe on the broker, disconnect, drop subscriptions, handlers and the registry entry
 
 **Returns:** boolean Success
 
