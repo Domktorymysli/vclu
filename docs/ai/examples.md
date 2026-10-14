@@ -401,6 +401,20 @@ Small chart under the status value. Takes data from Metrics.
     {spark = 'temp:salon', sparkRange = '2h', color = '#FF6B6B'})
 ```
 
+### Colour that follows the value (status)
+
+`color` on a status widget (section or header) can be a function. It is called on every poll;
+the tile's icon and value take the returned colour, and `nil` means no colour. Keep the
+threshold in your own Lua. An error in the function leaves the value and drops the colour
+(logged once).
+
+```lua
+:status('sms', 'SMS', 'chat-dots', function() return smsLeft end, '',
+    {color = function()
+        if smsLeft < 20 then return 'danger' end  -- red below 20
+    end})
+```
+
 ### Dashboard dynamiczny (Dashboard.dynamic)
 
 A dashboard that changes depending on the Lua runtime state — time of day,
