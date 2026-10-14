@@ -810,6 +810,7 @@ func TestDashboardFunctionColor(t *testing.T) {
 			:section('S', 'icon')
 			:status('s1', 'SMS', 'chat', function() return sms end, '', {color = smsColor})
 			:status('s2', 'Fixed', 'icon', function() return 1 end, '', {color = 'info'})
+			:toggle('t1', 'Lamp', 'icon', function() return 1 end, function() end, {color = smsColor})
 			:build()
 	`)
 	if err != nil {
@@ -834,6 +835,10 @@ func TestDashboardFunctionColor(t *testing.T) {
 	}
 	if c, ok := vals["s2"]["color"]; ok {
 		t.Errorf("values s2 carries a string colour %v, expected none", c)
+	}
+	// Only status takes a function colour
+	if c, ok := vals["t1"]["color"]; ok || def.widget("t1")["color"] != nil {
+		t.Errorf("toggle with a function colour: values %v, definition %v, expected none", c, def.widget("t1")["color"])
 	}
 
 	// nil from the function: colour is false in values, so the page drops it

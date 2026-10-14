@@ -4,7 +4,7 @@
 
 ### Dashboards
 
-- **A status tile's colour can follow its value** - `color` on `:status()` (section or header) can be a function, e.g. `function() if smsLeft < 20 then return 'danger' end end`. It is read on every poll: an open page recolours the icon and value without a reload and drops the colour when the function returns nil. An error in the function leaves the value shown, drops the colour and is logged once per tile. A string `color` works as before ([#8](https://github.com/Domktorymysli/vclu/issues/8)).
+- **A status tile's colour can follow its value** - `color` on `:status()` (section or header) can be a function, e.g. `function() if smsLeft < 20 then return 'danger' end end`. It is read on every poll: an open page recolours the tile (in the header, its icon) without a reload and drops the colour when the function returns nil. An error in the function leaves the value shown, drops the colour and is logged once per tile. A string `color` works as before ([#8](https://github.com/Domktorymysli/vclu/issues/8)).
 
 ### Lua runtime
 

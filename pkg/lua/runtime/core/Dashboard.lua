@@ -664,10 +664,11 @@ end
 -- Colour errors already logged, by "dashboard/widget"
 local _colorErrorLogged = {}
 
--- Safe colour: a string as is, a function's current string result, nil on error
+-- Safe colour: a string as is, a status tile's function's current string result, nil on error
 local function safeColor(dashId, w)
     local c = w.opts.color
     if type(c) ~= 'function' then return c end
+    if w.type ~= 'status' then return nil end
     local ok, val = pcall(c)
     if ok then
         if type(val) == 'string' then return val end
@@ -1051,7 +1052,7 @@ function DashboardAPI.getValues(id)
                 end
                 entry.disabled = safeDisabled(w.opts)
                 -- false: the function gave no colour, the page drops it
-                if type(w.opts.color) == 'function' then
+                if w.type == 'status' and type(w.opts.color) == 'function' then
                     entry.color = safeColor(id, w) or false
                 end
                 result[w.id] = entry

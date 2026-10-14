@@ -404,7 +404,8 @@ Small chart under the status value. Takes data from Metrics.
 ### Colour that follows the value (status)
 
 `color` on a status widget (section or header) can be a function. It is called on every poll;
-the tile's icon and value take the returned colour, and `nil` means no colour. Keep the
+the tile's icon and value take the returned colour (in the header, the icon), and `nil` means
+no colour. Other widget types take only a string colour. Keep the
 threshold in your own Lua. An error in the function leaves the value and drops the colour
 (logged once).
 
