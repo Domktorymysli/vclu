@@ -200,12 +200,12 @@ func startTestBroker(t *testing.T) (*broker.Broker, int) {
 		t.Fatal(err)
 	}
 	port := l.Addr().(*net.TCPAddr).Port
-	l.Close()
+	_ = l.Close()
 	b := broker.New(&broker.Config{Enabled: true, Port: port})
 	if err := b.Start(); err != nil {
 		t.Fatalf("broker start: %v", err)
 	}
-	t.Cleanup(func() { b.Stop() })
+	t.Cleanup(func() { _ = b.Stop() })
 	return b, port
 }
 
