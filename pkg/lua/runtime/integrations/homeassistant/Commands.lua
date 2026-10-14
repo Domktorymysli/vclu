@@ -87,7 +87,7 @@ HACommands.handlers = {
             if position then
                 -- HA sends 0 = closed .. 100 = open (discovery); RemoteCover documents
                 -- 0 = open .. 100 = closed (not verified on a Grenton roller).
-                position = 100 - math.max(0, math.min(100, position))
+                position = 100 - math.floor(math.max(0, math.min(100, position)) + 0.5)
                 if obj.setPosition then
                     obj:setPosition(position)
                 elseif obj.set then
@@ -98,27 +98,16 @@ HACommands.handlers = {
             return false, "invalid position value"
         end
 
-        -- OPEN/CLOSE/STOP command
+        -- OPEN/CLOSE/STOP command. Not open()/close()/stop(): their updateState stores the
+        -- movement code (1/2/0), which the publisher would report to HA as the position.
         if payload == "OPEN" then
-            if obj.open then
-                obj:open()
-            elseif obj.execute then
-                obj:execute(0, 0) -- Up(Time=0 uses MaxTime)
-            end
+            if obj.execute then obj:execute(0, 0) end -- Up(Time=0 uses MaxTime)
             return true
         elseif payload == "CLOSE" then
-            if obj.close then
-                obj:close()
-            elseif obj.execute then
-                obj:execute(1, 0) -- Down(Time=0 uses MaxTime)
-            end
+            if obj.execute then obj:execute(1, 0) end -- Down(Time=0 uses MaxTime)
             return true
         elseif payload == "STOP" then
-            if obj.stop then
-                obj:stop()
-            elseif obj.execute then
-                obj:execute(3) -- Stop (no params)
-            end
+            if obj.execute then obj:execute(3) end -- Stop (no params)
             return true
         end
         return false, "unknown payload: " .. tostring(payload)

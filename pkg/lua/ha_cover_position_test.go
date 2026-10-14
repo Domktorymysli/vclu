@@ -5,7 +5,8 @@ import "testing"
 // A roller from the OM import (the registry path, not expose()) is announced to
 // Home Assistant with position_open 100, position_closed 0. RemoteCover documents
 // 0 = open, 100 = closed, so a position command reaches setPosition inverted and
-// clamped; OPEN/CLOSE/STOP use the cover's own methods.
+// clamped and rounded. OPEN/CLOSE/STOP send the move without updating the state, which would
+// report the movement code to HA as the position.
 func TestRegistryCoverPosition(t *testing.T) {
 	engine := NewLuaEngine()
 	defer engine.Close()
@@ -22,19 +23,19 @@ func TestRegistryCoverPosition(t *testing.T) {
 
 	got := mustExec(t, engine, `(function()
 		local t = "vclu/clu1/cover/rol1/position/set"
-		for _, p in ipairs({ "30", "0", "100", "150", "-5" }) do
+		for _, p in ipairs({ "30", "0", "100", "150", "-5", "69.6" }) do
 			local ok, err = HACommands.handleMessage(t, p)
 			if not ok then table.insert(_sent, "refused " .. tostring(err)) end
 		end
 		return table.concat(_sent, ";")
 	end)()`)
 	want := "ROL1:execute(10, 70, 91);ROL1:execute(10, 100, 91);ROL1:execute(10, 0, 91);" +
-		"ROL1:execute(10, 0, 91);ROL1:execute(10, 100, 91)"
+		"ROL1:execute(10, 0, 91);ROL1:execute(10, 100, 91);ROL1:execute(10, 30, 91)"
 	if got != want {
 		t.Errorf("position commands sent\n got: %s\nwant: %s", got, want)
 	}
 
-	// OPEN/CLOSE/STOP go through open/close/stop, which also update the state.
+	// OPEN/CLOSE/STOP move the roller and leave the state as it was.
 	moves := mustExec(t, engine, `(function()
 		local out, t = {}, "vclu/clu1/cover/rol1/set"
 		for _, p in ipairs({ "OPEN", "CLOSE", "STOP" }) do
@@ -44,7 +45,7 @@ func TestRegistryCoverPosition(t *testing.T) {
 		end
 		return table.concat(out, ",")
 	end)()`)
-	if moves != "ROL1:execute(0, 0)=1,ROL1:execute(1, 0)=2,ROL1:execute(3)=0" {
+	if moves != "ROL1:execute(0, 0)=nil,ROL1:execute(1, 0)=nil,ROL1:execute(3)=nil" {
 		t.Errorf("OPEN/CLOSE/STOP = %s", moves)
 	}
 
