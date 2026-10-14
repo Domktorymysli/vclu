@@ -226,8 +226,9 @@ end
 
 --- Re-register subscription before TTL expires
 -- Sends clientRegister (not clientRefresh) so the CLU keeps the session alive. A live
--- session gets no report; an expired one is recreated and pushes current states.
--- Fire-and-forget via noreply.
+-- session gets no push; an expired one is recreated and pushes current states.
+-- Fire-and-forget via noreply: Go applies the CLU's answer (the session's current values)
+-- like a report, which corrects a state whose report was lost.
 -- @param cluIP string|number IP address of the CLU (dotted string or uint32)
 -- @param sessionID number Session ID to re-register
 -- @return true|nil success True on send, nil on error

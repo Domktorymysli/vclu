@@ -47,6 +47,7 @@ type Server struct {
 	broadcastConn *net.UDPConn
 	commandConn   *net.UDPConn
 	responseConn  *net.UDPConn
+	cluPort       int // port of remote CLUs' command socket; 0 = CommandPort (tests use a fake CLU)
 
 	grentonEnabled bool // whether Grenton UDP protocol is active
 

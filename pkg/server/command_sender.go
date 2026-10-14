@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Domktorymysli/vclu/pkg/cipher"
 	"github.com/Domktorymysli/vclu/pkg/commands"
 )
 
@@ -53,7 +54,7 @@ func (s *Server) SendCommandWithTimeout(targetIP string, script string, timeout 
 	// Create UDP connection for sending/receiving
 	conn, err := net.DialUDP("udp4", nil, &net.UDPAddr{
 		IP:   ip,
-		Port: CommandPort,
+		Port: s.remoteCommandPort(),
 	})
 	if err != nil {
 		return "", fmt.Errorf("failed to connect to target: %w", err)
@@ -97,7 +98,9 @@ func (s *Server) SendCommandWithTimeout(targetIP string, script string, timeout 
 
 // SendCommandNoReply sends a Lua script command to a CLU without waiting for a response.
 // Used for fire-and-forget operations like clientRegister (re-registration) and clientDestroy where
-// the response is not needed. This avoids blocking the caller on UDP round-trips.
+// the caller does not need the result. This avoids blocking the caller on UDP round-trips.
+// A CLU answers a re-registration with the session's current values; that answer is applied
+// like a pushed clientReport, so a report lost earlier is corrected. Other answers are ignored.
 func (s *Server) SendCommandNoReply(targetIP string, script string) error {
 	ip := net.ParseIP(targetIP)
 	if ip == nil {
@@ -128,18 +131,50 @@ func (s *Server) SendCommandNoReply(targetIP string, script string) error {
 
 	conn, err := net.DialUDP("udp4", nil, &net.UDPAddr{
 		IP:   ip,
-		Port: CommandPort,
+		Port: s.remoteCommandPort(),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to connect to target: %w", err)
 	}
-	defer conn.Close()
 
 	if _, err = conn.Write(encryptedRequest); err != nil {
+		_ = conn.Close()
 		return fmt.Errorf("failed to send request: %w", err)
 	}
 
+	go s.applyReportReply(conn, projectKey, ip.String())
 	return nil
+}
+
+// noReplyAnswerTimeout bounds how long a fire-and-forget command waits for a clientReport answer.
+const noReplyAnswerTimeout = 2 * time.Second
+
+// applyReportReply reads the CLU's answer to a fire-and-forget command and applies it when it
+// is a clientReport. It owns conn and closes it.
+func (s *Server) applyReportReply(conn *net.UDPConn, projectKey *cipher.CipherKey, cluIP string) {
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetReadDeadline(time.Now().Add(noReplyAnswerTimeout))
+
+	buffer := make([]byte, BufferSize)
+	n, err := conn.Read(buffer)
+	if err != nil {
+		return
+	}
+	decrypted, err := projectKey.Decrypt(buffer[:n])
+	if err != nil {
+		return
+	}
+	// Same format as a push; the subscription is keyed by the address it was sent to.
+	if _, sessionID, valuesStr, ok := parseClientReportMessage(string(decrypted)); ok {
+		s.updateRegistryFromClientReport(cluIP, sessionID, valuesStr)
+	}
+}
+
+func (s *Server) remoteCommandPort() int {
+	if s.cluPort != 0 {
+		return s.cluPort
+	}
+	return CommandPort
 }
 
 // GetRegisteredCLUs returns list of CLUs registered in Lua

@@ -5,6 +5,7 @@
 ### Lua runtime
 
 - **EventBus warns when callbacks for one event pile up** - code that calls `EventBus:on` in a timer or on every re-create without `off` adds callbacks for ever and every `emit` runs them all. At 100 callbacks for one event name `on` logs a warning with the name and the count, and again at 200, 400...; the callbacks are still added ([#7](https://github.com/Domktorymysli/vclu/issues/7)).
+- **`expose()` warns about an object whose `onChange` returns no unsubscribe function** - `unexpose()` calls that function to remove its callback; without it the callback stayed registered and kept running, silently. The log now shows one warning with the object's path. Plugin sensors and controls (`plugin:sensor`, `plugin:control`) now return one too, so `unexpose()` removes their callback ([#5](https://github.com/Domktorymysli/vclu/issues/5)).
 
 ### Plugins and HTTP
 
@@ -13,9 +14,9 @@
 
 - **Concurrent HTTP requests from Lua no longer lose each other's responses** - plugins (`PluginHelpers.httpRequest`), HTTP clients (`HTTP:async*`) and Grenton `HTTPRequest` objects took completed requests from one shared queue and dropped the ones that were not theirs, so with several plugins polling at once some timed out at random or got `HTTP 0`. Each request now collects its own response. Two requests from one plugin in the same second no longer share an id (one of them used to get the other's response), an HTTP client reports the real transport error instead of `HTTP 0`, and responses nobody collects are dropped after 5 minutes ([#19](https://github.com/Domktorymysli/vclu/issues/19)).
 
-### Lua runtime
+### Grenton
 
-- **`expose()` warns about an object whose `onChange` returns no unsubscribe function** - `unexpose()` calls that function to remove its callback; without it the callback stayed registered and kept running, silently. The log now shows one warning with the object's path. Plugin sensors and controls (`plugin:sensor`, `plugin:control`) now return one too, so `unexpose()` removes their callback ([#5](https://github.com/Domktorymysli/vclu/issues/5)).
+- **A state change whose report was lost shows up within 30 s** - a CLU reports a change with one UDP packet and no retry; when it was lost, vCLU kept the old state until another object in the same subscription changed (a light switched off from the myGrenton app stayed on in the dashboard). The CLU answers every subscription renewal (every 30 s) with the current values, and vCLU threw that answer away; it now applies it like a report ([#29](https://github.com/Domktorymysli/vclu/issues/29)).
 
 ### Home Assistant
 

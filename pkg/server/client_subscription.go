@@ -180,40 +180,49 @@ func (s *Server) handleClientReports(conn *net.UDPConn) {
 // handleClientReportMessage parses and processes a clientReport message
 // Format: resp:CLU_IP:SESSION:clientReport:SID:{values}
 func (s *Server) handleClientReportMessage(senderIP string, message string) {
-	// Expected format: resp:192.168.0.3:00000000:clientReport:123:{1,0,0.5}
-	if !strings.HasPrefix(message, "resp:") {
+	cluIP, sessionID, valuesStr, ok := parseClientReportMessage(message)
+	if !ok {
 		return
 	}
-
-	parts := strings.SplitN(message, ":", 5)
-	if len(parts) < 5 {
-		return
-	}
-
-	// parts[0] = "resp"
-	cluIP := parts[1]
-	// parts[2] = session (ignored for push notifications, always "00000000")
-	payload := parts[3] + ":" + parts[4] // "clientReport:SID:{values}"
-
-	// Parse clientReport payload
-	if !strings.HasPrefix(payload, "clientReport:") {
-		return
-	}
-
-	// clientReport:123:{1,0,0.5}
-	reportParts := strings.SplitN(payload, ":", 3)
-	if len(reportParts) < 3 {
-		return
-	}
-
-	var sessionID int
-	fmt.Sscanf(reportParts[1], "%d", &sessionID)
-	valuesStr := reportParts[2]
 
 	log.Printf("[CLIENT-REPORT] from %s session=%d values=%s", cluIP, sessionID, valuesStr)
 
 	// Call Lua to update registry
 	s.updateRegistryFromClientReport(cluIP, sessionID, valuesStr)
+}
+
+// parseClientReportMessage splits a clientReport message, pushed to ClientReportPort or sent as
+// the answer to clientRegister.
+// Expected format: resp:192.168.0.3:00000000:clientReport:123:{1,0,0.5}
+func parseClientReportMessage(message string) (cluIP string, sessionID int, valuesStr string, ok bool) {
+	if !strings.HasPrefix(message, "resp:") {
+		return "", 0, "", false
+	}
+
+	parts := strings.SplitN(message, ":", 5)
+	if len(parts) < 5 {
+		return "", 0, "", false
+	}
+
+	// parts[0] = "resp"
+	cluIP = parts[1]
+	// parts[2] = session (ignored for push notifications, always "00000000")
+	payload := parts[3] + ":" + parts[4] // "clientReport:SID:{values}"
+
+	if !strings.HasPrefix(payload, "clientReport:") {
+		return "", 0, "", false
+	}
+
+	// clientReport:123:{1,0,0.5}
+	reportParts := strings.SplitN(payload, ":", 3)
+	if len(reportParts) < 3 {
+		return "", 0, "", false
+	}
+
+	if _, err := fmt.Sscanf(reportParts[1], "%d", &sessionID); err != nil {
+		return "", 0, "", false
+	}
+	return cluIP, sessionID, strings.TrimSpace(reportParts[2]), true
 }
 
 // updateRegistryFromClientReport updates the Lua registry with values from clientReport.
