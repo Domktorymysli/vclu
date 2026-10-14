@@ -29,6 +29,7 @@
 ### Home Assistant
 
 - **A dimmer published from the OM import follows the scale it announces** - the registry `light` handler looked for the subpath `brightness/set` while the topic parser already strips the trailing `/set`, so a brightness command was refused as an "unknown payload" and the dimmer never moved. It also passed Home Assistant's 0..100 value straight to an object whose value is 0..1. A brightness command now uses the same path as `expose()`: 0..100 in, 0..1 out, clamped to the range, through `setBrightness` when the object has it ([#1](https://github.com/Domktorymysli/vclu/issues/1)).
+- **A roller published from the OM import moves to the position set in Home Assistant** - the registry `cover` handler looked for the subpath `position/set` while the topic parser already strips the trailing `/set`, so a position command was refused as an "unknown payload". It also looked for `SetPosition`, `Open`, `Close` and `Stop`, while a Grenton roller has `setPosition`, `open`, `close` and `stop`, so OPEN/CLOSE/STOP skipped the roller's state update. A position now goes through `setPosition`, clamped to 0..100 and converted from Home Assistant's 0 = closed .. 100 = open to the roller's documented 0 = open .. 100 = closed. Not tested on Grenton roller hardware ([#25](https://github.com/Domktorymysli/vclu/issues/25)).
 
 ## v1.3.0 (2026-10-10)
 
