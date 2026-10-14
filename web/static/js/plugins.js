@@ -330,7 +330,7 @@ PluginsManager.prototype._renderInstalledPlugins = function() {
     // Find available versions for update indicators
     var availableMap = {};
     this.availablePlugins.forEach(function(p) {
-        availableMap[p.id] = p;
+        availableMap[p.fullId] = p;
     });
 
     var html = '<div class="row">';
@@ -438,21 +438,27 @@ PluginsManager.prototype.install = function(id, repository) {
     fetch('/api/plugins/install', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({id: id, repository: repository})
+        // the Installed tab passes the full id; the repository knows the short one
+        body: JSON.stringify({id: id.replace(/^@[^\/]+\//, ''), repository: repository})
     })
     .then(function(r) { return r.json(); })
     .then(function(data) {
         if (data.error) {
             VCLU.showToast(data.error, 'danger');
         } else {
-            // Update local state and re-render
-            self.installedPlugins[id] = {
-                id: id,
-                version: data.version || '?',
-                enabled: true,
-                repository: repository,
-                config: {}
-            };
+            // Installed plugins are keyed by full id; an update keeps config and enabled
+            var existing = self.installedPlugins[data.fullId];
+            if (existing) {
+                existing.version = data.version || existing.version;
+            } else {
+                self.installedPlugins[data.fullId] = {
+                    id: data.fullId,
+                    version: data.version || '?',
+                    enabled: true,
+                    repository: repository,
+                    config: {}
+                };
+            }
             // Refresh available will also re-render installed
             self.refreshAvailable();
             self.switchTab('installed');
