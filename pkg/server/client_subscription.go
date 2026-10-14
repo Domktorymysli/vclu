@@ -229,6 +229,11 @@ func parseClientReportMessage(message string) (cluIP string, sessionID int, valu
 // Parses values in Go and passes a pre-built Lua table to avoid Lua-side string
 // parsing allocations (parseValues creates O(N×chars) temp tables/strings per call).
 func (s *Server) updateRegistryFromClientReport(cluIP string, sessionID int, valuesStr string) {
+	s.callRegistryUpdate("RemoteSubscription.updateRegistry", cluIP, sessionID, valuesStr)
+}
+
+// callRegistryUpdate calls the Lua function fn(cluIP, sessionID, values) with parsed values.
+func (s *Server) callRegistryUpdate(fn string, cluIP string, sessionID int, valuesStr string) {
 	if s.luaEngine == nil {
 		log.Printf("[CLIENT-REPORT] Lua engine not available")
 		return
@@ -239,7 +244,7 @@ func (s *Server) updateRegistryFromClientReport(cluIP string, sessionID int, val
 	parseClientReportValues(valuesStr, values)
 
 	if _, err := s.luaEngine.CallLuaFunctionLValues(
-		"RemoteSubscription.updateRegistry",
+		fn,
 		lua.LString(cluIP),
 		lua.LNumber(float64(sessionID)),
 		values,
