@@ -573,6 +573,14 @@ function PluginHelpers.httpRequest(pluginId, opts, callback)
         error("httpRequest: callback is required")
     end
 
+    -- The error is the callback's second argument and also resp.err, which plugins
+    -- and the plugin docs rely on ("if resp.err then ...").
+    local userCallback = callback
+    callback = function(response, errMsg)
+        if response and errMsg ~= nil then response.err = errMsg end
+        userCallback(response, errMsg)
+    end
+
     -- Validate body options (mutually exclusive)
     local bodyCount = 0
     if opts.body then bodyCount = bodyCount + 1 end
@@ -1134,6 +1142,15 @@ function PluginHelpers.createPoller(pluginId, name, opts)
                 return
             end
             self._doneCalled = true
+
+            -- done("error") passes the error as data: the tick counts as a success.
+            if err == nil and type(data) == "string" and not self._onData and not self._warnedStringData then
+                self._warnedStringData = true
+                if Logger then
+                    Logger:warn("[" .. self._pluginId .. "] Poller '" .. self._name .. "' done() got a string as data and has no onData; "
+                        .. "report an error with done(nil, err)")
+                end
+            end
 
             -- Clear timeout timer
             if self._timeoutTimerId then

@@ -4,6 +4,9 @@
 
 ### Plugins and HTTP
 
+- **Plugins see the request error in `resp.err`** - the plugin docs describe `resp = { status, body, headers, json, err, errCode }` and plugins check `if resp.err then`, but the runtime only passed the error as the callback's second argument, so `resp.err` was always nil: a refused connection reached plugins as a parse error and SolaX logged `HTTP 0`. `resp.err` now carries the same text as the second argument ([vclu-plugins#3](https://github.com/Domktorymysli/vclu-plugins/issues/3)).
+- **A poller warns when `done()` gets a string and has no `onData`** - `done("message")` is data to the poller, so the tick counts as a success and `onError` never runs. The poller logs one warning pointing to `done(nil, err)`; behaviour is unchanged.
+
 - **Concurrent HTTP requests from Lua no longer lose each other's responses** - plugins (`PluginHelpers.httpRequest`), HTTP clients (`HTTP:async*`) and Grenton `HTTPRequest` objects took completed requests from one shared queue and dropped the ones that were not theirs, so with several plugins polling at once some timed out at random or got `HTTP 0`. Each request now collects its own response. Two requests from one plugin in the same second no longer share an id (one of them used to get the other's response), an HTTP client reports the real transport error instead of `HTTP 0`, and responses nobody collects are dropped after 5 minutes ([#19](https://github.com/Domktorymysli/vclu/issues/19)).
 
 ### Home Assistant
