@@ -842,7 +842,9 @@ func TestDashboardFunctionColor(t *testing.T) {
 	}
 
 	// nil from the function: colour is false in values, so the page drops it
-	engine.Execute(`sms = 50`)
+	if _, err := engine.Execute(`sms = 50`); err != nil {
+		t.Fatal(err)
+	}
 	vals = nil
 	dashJSON(t, engine, `Dashboard.API.getValues("clr")`, &vals)
 	for _, id := range []string{"h1", "s1"} {
@@ -880,7 +882,7 @@ func TestDashboardFunctionColorError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("setup failed: %v", err)
 	}
-	defer engine.Execute(`Logger.warn = colorLog.orig`)
+	defer func() { _, _ = engine.Execute(`Logger.warn = colorLog.orig`) }()
 
 	var def dashDef
 	dashJSON(t, engine, `Dashboard.API.getDefinition("clrerr")`, &def)
