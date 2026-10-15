@@ -51,7 +51,22 @@ stays wrong until another object in the session changes. Contract: `pkg/server/r
 ### Values and scales
 A dimmer's value is 0..1, a digital output is 1/0. HomeKit and Home Assistant count brightness
 0..100, HomeKit counts 100 = open while vCLU counts 0 = open. Convert at the integration edge and
-test both directions.
+test both directions. Grenton's roller counts 0 % = closed; `RemoteCover` converts, so its value
+and `getPosition()` are on vCLU's scale.
+
+### Feature and method indexes come from Object Manager
+Object Manager ships the definition of every Grenton object as XML: on macOS in
+`Object Manager.app/Contents/Eclipse/configuration/com.grenton.om/device-interfaces/`
+(`module_*.xml`). Each lists the features (index, get/set, range), methods (`execute` or `set`,
+index, parameters) and events of an object class. Take indexes and scales from there, not from
+memory; when the English and Polish hints disagree, the feature's own description decides.
+`ROLLER_SHUTTER` (class 24): feature 0 State, 7 Position, 8 LamelPosition; methods 0 MoveUp,
+1 MoveDown, 3 Stop, 9 SetLamelPosition, 10 SetPosition; feature 13 ReversePosition flips the
+scale in the installation. The first firmware (fv01) has no Position, and om.lua does not say
+which firmware a module runs, so the OM import only marks class 24 with `_hasPosition = true`.
+`ROLLER_SH` (class 11) has no position.
+A subscription reports one feature per entry: an object that needs more than its feature 0 lists
+them in `subscribeFeatures()` and turns each into its value with `fromFeature()` (`RemoteCover`).
 
 ### Untested on hardware
 `RemoteLight` (dimmer) and `RemoteCover` (roller) in `runtime/objects/` follow the documentation, not a

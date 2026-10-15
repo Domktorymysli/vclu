@@ -82,11 +82,13 @@ HACommands.handlers = {
         if not obj then return false, "object not found" end
 
         -- Check if it's position command
-        if subpath == "position/set" then
+        if subpath == "position" then
             local position = tonumber(payload)
             if position then
-                if obj.SetPosition then
-                    obj:SetPosition(position)
+                -- HA sends 0 = closed .. 100 = open (discovery); vCLU counts 0 = open
+                position = 100 - math.floor(math.max(0, math.min(100, position)) + 0.5)
+                if obj.setPosition then
+                    obj:setPosition(position)
                 elseif obj.set then
                     obj:set(0, position)
                 end
@@ -97,22 +99,22 @@ HACommands.handlers = {
 
         -- OPEN/CLOSE/STOP command
         if payload == "OPEN" then
-            if obj.Open then
-                obj:Open()
+            if obj.open then
+                obj:open()
             elseif obj.execute then
                 obj:execute(0, 0) -- Up(Time=0 uses MaxTime)
             end
             return true
         elseif payload == "CLOSE" then
-            if obj.Close then
-                obj:Close()
+            if obj.close then
+                obj:close()
             elseif obj.execute then
                 obj:execute(1, 0) -- Down(Time=0 uses MaxTime)
             end
             return true
         elseif payload == "STOP" then
-            if obj.Stop then
-                obj:Stop()
+            if obj.stop then
+                obj:stop()
             elseif obj.execute then
                 obj:execute(3) -- Stop (no params)
             end

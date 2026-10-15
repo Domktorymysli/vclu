@@ -21,6 +21,9 @@
 ### Grenton
 
 - **A state change whose report was lost shows up within 30 s** - a CLU reports a change with one UDP packet and no retry; when it was lost, vCLU kept the old state until another object in the same subscription changed (a light switched off from the myGrenton app stayed on in the dashboard). The CLU answers every subscription renewal (every 30 s) with the current values, and vCLU threw that answer away; it now applies it like a report ([#29](https://github.com/Domktorymysli/vclu/issues/29)).
+- **A roller reports its position** - vCLU subscribed every object to feature 0, for a roller its movement (0 stopped, 1 up, 2 down), so Home Assistant showed 0-2 % and a stopped roller as closed, and HomeKit showed no position. A `ROLLER_SHUTTER` (class 24) is now subscribed to feature 7 `Position` as well; the position is the roller's value and its movement is read with `getState()`. Home Assistant gets the position with open/closed derived from it. Import the OM file again (or `POST /api/om/regenerate`) after updating: only a regenerated proxy marks a roller as having a position, an older one keeps the old behaviour. The first firmware of the 2.0 roller modules (fv01) has no position and om.lua does not tell it apart; set `_hasPosition = false` on such a roller.
+- **A roller's position runs the right way** - Grenton counts 0 % = closed .. 100 % = open (feature 7 and `SetPosition`, Object Manager's device definitions), vCLU 0 = open .. 100 = closed. `RemoteCover` passed the value unchanged, so `setPosition(30)` (30 % closed) left the roller 30 % open, from Lua, HomeKit and Home Assistant alike. It now converts both ways. Not tested on Grenton roller hardware.
+- **Contract change:** the value (`_lastState`, `onChange`, history) of a `RemoteCover` with a position is that position, 0 = open .. 100 = closed, not its movement; `getState()` still returns the movement and `getPosition()` the position. A roller without a position (class 11, or a proxy not regenerated) keeps its movement as the value and `getPosition()` returns nil.
 
 ### Web
 
@@ -29,6 +32,7 @@
 ### Home Assistant
 
 - **A dimmer published from the OM import follows the scale it announces** - the registry `light` handler looked for the subpath `brightness/set` while the topic parser already strips the trailing `/set`, so a brightness command was refused as an "unknown payload" and the dimmer never moved. It also passed Home Assistant's 0..100 value straight to an object whose value is 0..1. A brightness command now uses the same path as `expose()`: 0..100 in, 0..1 out, clamped to the range, through `setBrightness` when the object has it ([#1](https://github.com/Domktorymysli/vclu/issues/1)).
+- **A roller published from the OM import moves to the position set in Home Assistant** - the registry `cover` handler looked for the subpath `position/set` while the topic parser already strips the trailing `/set`, so a position command was refused as an "unknown payload". It also looked for `SetPosition`/`Open`/`Close`/`Stop` while a Grenton roller has them in lower case. A position now goes through `setPosition`, clamped to 0..100 and rounded, and OPEN/CLOSE/STOP through `open`/`close`/`stop` ([#25](https://github.com/Domktorymysli/vclu/issues/25)).
 
 ## v1.3.0 (2026-10-10)
 
