@@ -41,6 +41,7 @@ Unverified indices used by `RemoteRGBLight` (`pkg/lua/runtime/objects/RemoteRGBL
 - tests in `pkg/config` and `pkg/lua`; a docs page for the module (docs.vclu.pl, section modules)
 
 ## Acceptance criteria
+- [ ] Every point of "Verification (every module)" in #11 (discovery, Object Manager, Grenton mobile app, scales and directions) is reported in the PR.
 - [ ] The module can be added in the wizard; Object Manager finds it and lists its objects with their features, methods and events.
 - [ ] A script in Object Manager that calls the object's methods works on vCLU (checked in Object Manager; say so in the PR with a screenshot).
 - [ ] The Lua object has the same convenience methods as its remote counterpart in `pkg/lua/runtime/objects/`, so code works the same for a real and an emulated module.

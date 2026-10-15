@@ -33,7 +33,21 @@ Take them from a real Object Manager project containing the module and from Gren
 documentation, and record them in `pkg/lua/AGENTS.md` (section runtime/grenton) and the docs page.
 
 ## Starting point
-Unverified method numbers used by `RemoteCover` (`pkg/lua/runtime/objects/RemoteCover.lua`): `execute(0, time)` up, `1` down, `3` stop, `9` tilt angle, `10` set position (position, lamel). The class without position (ROLLER_SH, 11) may follow later. vCLU counts position 0 = open; HomeKit 100 = open.
+Unverified method numbers used by `RemoteCover` (`pkg/lua/runtime/objects/RemoteCover.lua`): `execute(0, time)` up, `1` down, `3` stop, `9` tilt angle, `10` set position (position, lamel). The class without position (ROLLER_SH, 11) may follow later.
+
+From the Object Manager XML for class 24 (`module_2_0_ROLLER_SHUTTER_*`, see #11 "Where the
+indices are"), not yet checked on vCLU: feature 0 State (0 stop, 1 up, 2 down, 3 blocked,
+4 calibration), 7 Position, 8 LamelPosition (0 open .. 90 closed), 13 ReversePosition; methods
+0 MoveUp(time, 0 = max time; while moving it stops), 1 MoveDown, 3 Stop, 9 SetLamelPosition,
+10 SetPosition(position, lamel; 91 = default, 92 = previous state); event 8 OnPositionChange.
+
+## Position direction: to settle first
+The sources disagree. The Object Manager XML describes Position as **0 % closed .. 100 % open**;
+`RemoteCover` and this ticket so far assume vCLU counts **0 = open**, and HomeKit counts 100 = open.
+Settle it before writing the class: check Position in Object Manager against the XML (and on a real
+roller if anyone has one), record the answer in `pkg/lua/AGENTS.md`, and if `RemoteCover` has it
+backwards, fix it in a separate ticket. Then convert in exactly one place, at the integration edge,
+with a contract test for both directions (Object Manager → HomeKit/HA and back).
 
 ## Files
 - `pkg/config/modules.go` (module type), `pkg/config/om_generator.go` if the module needs more than DOUT
@@ -41,6 +55,7 @@ Unverified method numbers used by `RemoteCover` (`pkg/lua/runtime/objects/Remote
 - tests in `pkg/config` and `pkg/lua`; a docs page for the module (docs.vclu.pl, section modules)
 
 ## Acceptance criteria
+- [ ] Every point of "Verification (every module)" in #11 (discovery, Object Manager, Grenton mobile app, scales and directions) is reported in the PR.
 - [ ] The module can be added in the wizard; Object Manager finds it and lists its objects with their features, methods and events.
 - [ ] A script in Object Manager that calls the object's methods works on vCLU (checked in Object Manager; say so in the PR with a screenshot).
 - [ ] The Lua object has the same convenience methods as its remote counterpart in `pkg/lua/runtime/objects/`, so code works the same for a real and an emulated module.

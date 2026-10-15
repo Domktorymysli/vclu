@@ -38,6 +38,30 @@ expects for this module, and the exact feature, method and event indices of the 
 Take them from a real Object Manager project containing the module and from Grenton
 documentation, and record them in `pkg/lua/AGENTS.md` (section runtime/grenton) and the docs page.
 
+## Where the indices are
+Object Manager ships one XML per object class in its installation, in
+`configuration/com.grenton.om/device-interfaces/` (`module_*` and `clu_*` files): features (index,
+get/set, range, description), methods (`execute`/`set`, index, parameters) and events. Check there
+before guessing an index or the direction of a scale. The English hints sometimes contradict the
+Polish and German ones; trust the feature's description.
+
+## Verification (every module)
+Most of the work is checking the module against Grenton's tools, not the code. Each sub-ticket's PR
+reports every point below with the tool versions (Object Manager, mobile app, CLU firmware) and a
+screenshot; a point that could not be checked is listed as such.
+
+- [ ] **Discovery:** Object Manager finds vCLU with the module during CLU discovery; the module type,
+  serial number and object list match the real module.
+- [ ] **Object Manager compatibility:** the project with the module is sent to vCLU and read back
+  without errors; every feature can be read, every method called from a script, every event can
+  have a handler; nothing changes in the other modules of the project.
+- [ ] **Grenton mobile app:** an interface with the module's objects is built in Object Manager, sent
+  to the app, and the app shows the state and controls the object in both directions (app → vCLU,
+  a change in vCLU → app).
+- [ ] **Scales and directions:** every range (0..1, 0..100, 0..255, degrees) and every direction
+  (open/closed, up/down) checked against the XML and in Object Manager, with a contract test for
+  each conversion.
+
 ## Sub-tickets
 - #12 dimmer
 - #13 roller
