@@ -351,7 +351,15 @@ function RemoteSubscription.updateRegistry(cluIP, sessionID, values, skip)
         local registryKey = sub.cluSerial .. "." .. objInfo.objId
         local obj = _registry and _registry[registryKey]
 
-        if obj and not (skip and skip[i]) then
+        -- A skipped entry is left as it is, its movement included
+        local skipped = skip and skip[i]
+
+        -- A roller reports its position and its movement; only one is the value
+        if obj and obj.fromFeature and not skipped then
+            newValue = obj:fromFeature(objInfo.featureIndex or 0, newValue)
+        end
+
+        if obj and newValue ~= nil and not skipped then
             local oldValue = obj._lastState
 
             -- Dead-band for analog sensors: skip noise < 0.1
@@ -451,11 +459,14 @@ function RemoteSubscription.autoSubscribe()
                 }
             end
 
-            if #cluObjects[cluIP].objects < MAX_PER_CLU then
-                table.insert(cluObjects[cluIP].objects, {
-                    objId = obj._objId,
-                    featureIndex = 0
-                })
+            local features = obj.subscribeFeatures and obj:subscribeFeatures() or {0}
+            if #cluObjects[cluIP].objects + #features <= MAX_PER_CLU then
+                for _, featureIndex in ipairs(features) do
+                    table.insert(cluObjects[cluIP].objects, {
+                        objId = obj._objId,
+                        featureIndex = featureIndex
+                    })
+                end
             else
                 Logger:getShared():warn("[RemoteSub] CLU %s truncated at %d objects", cluId, MAX_PER_CLU)
             end

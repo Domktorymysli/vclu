@@ -403,8 +403,22 @@ local function onStateChanged(data)
         return
     end
 
+    -- A cover's value is its position on vCLU's scale (0 = open); discovery announces
+    -- HA's (0 = closed). ROLLER_SH has no position: its value is not one.
+    local haPosition
+    if objType == "ROLLER" then
+        local obj = _registry and _registry[path]
+        local n = tonumber(value)
+        if n and not (obj and obj._hasPosition == false) then
+            haPosition = 100 - n
+        end
+    end
+
     -- Format and publish state
     local payload = formatState(value, objType)
+    if haPosition then
+        payload = haPosition > 0 and "open" or "closed"
+    end
 
     local ok, err = HAStatePublisher.mqttInstance:publish(topic, payload, 0, true)  -- qos=0, retain=true
     if ok then
@@ -428,11 +442,10 @@ local function onStateChanged(data)
     end
 
     -- Publish position for covers
-    if objType == "ROLLER" then
+    if haPosition then
         local positionTopic = buildPositionTopic(path, objType)
         if positionTopic then
-            local position = tostring(tonumber(value) or 0)
-            HAStatePublisher.mqttInstance:publish(positionTopic, position, 0, true)
+            HAStatePublisher.mqttInstance:publish(positionTopic, tostring(haPosition), 0, true)
         end
     end
 end

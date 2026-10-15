@@ -1,10 +1,19 @@
 --- Remote cover class for ROLLER_SHUTTER and ROLLER_SH objects.
 -- Provides control for blinds, shutters, and covers.
+-- The value is the position on vCLU's scale, 0 = open .. 100 = closed (as VirtualCover).
+-- Grenton counts the other way (ROLLER_SHUTTER, class 24: feature 7 Position and
+-- method 10 SetPosition, 0% = closed .. 100% = open; Object Manager device-interfaces);
+-- this class converts in both directions. ROLLER_SH (class 11) has no position:
+-- the OM import sets _hasPosition = false and the value stays feature 0.
 -- @module objects.RemoteCover
 -- @inherits RemoteObject
 
 RemoteCover = setmetatable({}, {__index = RemoteObject})
 RemoteCover.__index = RemoteCover
+
+-- Feature indexes of ROLLER_SHUTTER (class 24)
+RemoteCover.FEATURE_STATE = 0
+RemoteCover.FEATURE_POSITION = 7
 
 --- Creates a new RemoteCover instance.
 -- @param clu CLU_REMOTE The CLU instance this cover belongs to
@@ -15,29 +24,56 @@ function RemoteCover:new(clu, objId, name)
     local obj = RemoteObject.new(self, clu, objId, name)
     obj._type = "ROLLER"
     obj._hasPosition = true
-    obj._lastPosition = nil
+    obj._movement = nil
     obj._lastTilt = nil
     obj._allowedMethods = {"getState", "getPosition", "setPosition", "getTilt", "setTilt", "open", "close", "stop", "up", "down"}
     return obj
 end
 
---- Gets the current state of the cover (from local cache, updated by subscriptions).
--- @return number Current state (0 = stopped, 1 = up, 2 = down)
+--- Gets the movement of the cover (from local cache, updated by subscriptions).
+-- @return number Movement (0 = stopped, 1 = up, 2 = down, 3 = blocked, 4 = calibration)
 function RemoteCover:getState()
+    if self._hasPosition then return self._movement end
     return self._lastState
 end
 
 --- Gets the current position of the cover (from local cache).
--- @return number Current position (0 = open, 100 = closed)
+-- @return number|nil Current position (0 = open, 100 = closed), nil until reported
 function RemoteCover:getPosition()
-    return self._lastPosition
+    if self._hasPosition then return self._lastState end
+    return nil
 end
 
 --- Sets the cover to a specific position.
 -- @param position number Target position (0 = open, 100 = closed)
 -- @param lamel number Optional lamel angle (defaults to 91)
 function RemoteCover:setPosition(position, lamel)
-    self:execute(10, position, lamel or 91)
+    position = math.floor(math.max(0, math.min(100, position)) + 0.5)
+    self:execute(10, 100 - position, lamel or 91)
+end
+
+--- Features to subscribe to, in report order: the position first, so a report that
+-- carries both publishes the new position with the final movement already stored.
+-- @return table Feature indexes
+function RemoteCover:subscribeFeatures()
+    if self._hasPosition then
+        return {RemoteCover.FEATURE_POSITION, RemoteCover.FEATURE_STATE}
+    end
+    return {RemoteCover.FEATURE_STATE}
+end
+
+--- Turns a reported feature value into the object's value.
+-- @param index number Feature index
+-- @param value any Reported value
+-- @return any The value to store, or nil when the feature is kept aside (movement)
+function RemoteCover:fromFeature(index, value)
+    if not self._hasPosition then return value end
+    if index == RemoteCover.FEATURE_POSITION then
+        local n = tonumber(value)
+        return n and 100 - n
+    end
+    self._movement = value
+    return nil
 end
 
 --- Gets the current tilt angle of the cover slats (from local cache).
@@ -52,24 +88,33 @@ function RemoteCover:setTilt(angle)
     self:execute(9, angle)
 end
 
---- Opens the cover.
--- @param time number Optional duration in milliseconds
+--- Opens the cover. MoveUp: stops instead when the cover is moving.
+-- @param time number Optional duration in milliseconds (0 = full travel)
 function RemoteCover:open(time)
     self:execute(0, time or 0)
-    self:updateState(1)  -- 1 = moving up
+    self:_moved(1)
 end
 
---- Closes the cover.
--- @param time number Optional duration in milliseconds
+--- Closes the cover. MoveDown: stops instead when the cover is moving.
+-- @param time number Optional duration in milliseconds (0 = full travel)
 function RemoteCover:close(time)
     self:execute(1, time or 0)
-    self:updateState(2)  -- 2 = moving down
+    self:_moved(2)
 end
 
 --- Stops the cover movement.
 function RemoteCover:stop()
     self:execute(3)
-    self:updateState(0)  -- 0 = stopped
+    self:_moved(0)
+end
+
+-- Optimistic movement until the CLU reports. Without a position the movement is the value.
+function RemoteCover:_moved(movement)
+    if self._hasPosition then
+        self._movement = movement
+    else
+        self:updateState(movement)
+    end
 end
 
 --- Moves the cover up (alias for open).

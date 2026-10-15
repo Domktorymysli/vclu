@@ -386,3 +386,23 @@ func TestGenerateLocalProxyRealFile(t *testing.T) {
 
 	t.Logf("Registered %d local objects", regCount)
 }
+
+// A ROLLER_SH (class 11) has no Position feature, so its cover is marked to not subscribe
+// to it; a ROLLER_SHUTTER (class 24) keeps the default.
+func TestGenerateProxyRollerPosition(t *testing.T) {
+	parsed := NewParsedOM()
+	parsed.CLU = CLUInfo{ID: "CLU1", Name: "dom"}
+	parsed.Objects = []GrentonObject{
+		{ID: "ROL1", Name: "SALON", Class: ClassROLLER},
+		{ID: "ROL2", Name: "STRYCH", Class: ClassROLLER_SH},
+	}
+
+	lua := GenerateProxy(parsed, DefaultConfig())
+
+	if !strings.Contains(lua, "dom.STRYCH._hasPosition = false") {
+		t.Errorf("ROLLER_SH not marked without position:\n%s", lua)
+	}
+	if strings.Contains(lua, "dom.SALON._hasPosition") {
+		t.Errorf("ROLLER_SHUTTER must keep its position:\n%s", lua)
+	}
+}
