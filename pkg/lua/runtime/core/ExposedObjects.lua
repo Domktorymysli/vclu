@@ -663,7 +663,7 @@ function ExposedObjects:toJSON(filter)
                 table.insert(fields, '"dimmable":true')
             end
             if handle.type == "cover" and type(o) == "table" and type(o.getPosition) == "function" then
-                -- a Grenton roller's value is its movement, not a position
+                -- a Grenton roller without a position (class 11) has its movement as the value
                 table.insert(fields, '"hasPosition":true')
                 local ok, pos = pcall(o.getPosition, o)
                 if ok and type(pos) == "number" then

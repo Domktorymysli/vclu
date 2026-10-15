@@ -387,8 +387,8 @@ func TestGenerateLocalProxyRealFile(t *testing.T) {
 	t.Logf("Registered %d local objects", regCount)
 }
 
-// A ROLLER_SH (class 11) has no Position feature, so its cover is marked to not subscribe
-// to it; a ROLLER_SHUTTER (class 24) keeps the default.
+// A ROLLER_SHUTTER (class 24) is marked to subscribe to its position; a ROLLER_SH
+// (class 11) has none and keeps the default.
 func TestGenerateProxyRollerPosition(t *testing.T) {
 	parsed := NewParsedOM()
 	parsed.CLU = CLUInfo{ID: "CLU1", Name: "dom"}
@@ -399,10 +399,10 @@ func TestGenerateProxyRollerPosition(t *testing.T) {
 
 	lua := GenerateProxy(parsed, DefaultConfig())
 
-	if !strings.Contains(lua, "dom.STRYCH._hasPosition = false") {
-		t.Errorf("ROLLER_SH not marked without position:\n%s", lua)
+	if !strings.Contains(lua, "dom.SALON._hasPosition = true") {
+		t.Errorf("ROLLER_SHUTTER not marked with a position:\n%s", lua)
 	}
-	if strings.Contains(lua, "dom.SALON._hasPosition") {
-		t.Errorf("ROLLER_SHUTTER must keep its position:\n%s", lua)
+	if strings.Contains(lua, "dom.STRYCH._hasPosition") {
+		t.Errorf("ROLLER_SH has no position:\n%s", lua)
 	}
 }

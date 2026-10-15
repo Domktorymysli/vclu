@@ -14,6 +14,7 @@ func TestRegistryCoverPosition(t *testing.T) {
 		_sent = {}
 		local clu = { executeNoReply = function(s, i, cmd) table.insert(_sent, cmd) end }
 		_roller = RemoteCover:new(clu, "ROL1", "roller")
+		_roller._hasPosition = true -- the OM import marks class 24
 		registerObject("CLU1.ROL1", _roller)
 	`
 	if _, err := engine.Execute(setup); err != nil {
@@ -61,7 +62,7 @@ func TestRegistryCoverPosition(t *testing.T) {
 	}
 }
 
-// A ROLLER_SHUTTER is subscribed to feature 7 (Position) before feature 0 (State). The
+// A ROLLER_SHUTTER is subscribed to feature 0 (State) and feature 7 (Position). The
 // position becomes the value on vCLU's scale, the movement is kept aside, and Home
 // Assistant gets the position on its own scale with open/closed derived from it.
 func TestRegistryCoverReportsPosition(t *testing.T) {
@@ -74,13 +75,13 @@ func TestRegistryCoverReportsPosition(t *testing.T) {
 		__go_send_command = function(ip, script, delay)
 			table.insert(_scripts, script)
 			local sid = script:match("clientRegister%('.-', %d+, (%d+),")
-			return "clientReport:" .. sid .. ":{30,0,1}", nil
+			return "clientReport:" .. sid .. ":{0,30,1}", nil
 		end
 		local clu = { address = "192.168.0.3", executeNoReply = function() end }
 		_roller = RemoteCover:new(clu, "ROL1", "salon")
+		_roller._hasPosition = true -- the OM import marks class 24
 		registerObject("CLU1.ROL1", _roller)
 		_old = RemoteCover:new(clu, "ROL2", "strych")
-		_old._hasPosition = false
 		registerObject("CLU1.ROL2", _old)
 
 		_published = {}
@@ -107,7 +108,7 @@ func TestRegistryCoverReportsPosition(t *testing.T) {
 		return s:match("{{.*}}")
 	end)()`)
 	// pairs() order over the whitelist is not fixed: check each object's entries
-	for _, want := range []string{"{ROL1, 7}, {ROL1, 0}", "{ROL2, 0}"} {
+	for _, want := range []string{"{ROL1, 0}, {ROL1, 7}", "{ROL2, 0}"} {
 		if !contains(subs, want) {
 			t.Errorf("subscription %s lacks %s", subs, want)
 		}
@@ -122,7 +123,7 @@ func TestRegistryCoverReportsPosition(t *testing.T) {
 		RemoteSubscription.activeSubscriptions["192.168.0.3:5"] = {
 			cluSerial = "CLU1",
 			objects = {
-				{ objId = "ROL1", featureIndex = 7 }, { objId = "ROL1", featureIndex = 0 },
+				{ objId = "ROL1", featureIndex = 0 }, { objId = "ROL1", featureIndex = 7 },
 				{ objId = "ROL2", featureIndex = 0 },
 			},
 		}
@@ -136,9 +137,9 @@ func TestRegistryCoverReportsPosition(t *testing.T) {
 				tostring(_published["vclu/clu1/cover/rol1/position"]),
 				tostring(_old:getState())))
 		end
-		report({ 40, 2, 1 })
+		report({ 2, 40, 1 })
 		report({ 0, 0, 0 })
-		report({ 100, 0, 0 })
+		report({ 0, 100, 0 })
 		return table.concat(out, ";")
 	end)()`)
 	want := "60/2 open/40 old=1;100/0 closed/0 old=0;0/0 open/100 old=0"
@@ -146,4 +147,3 @@ func TestRegistryCoverReportsPosition(t *testing.T) {
 		t.Errorf("reports\n got: %s\nwant: %s", got, want)
 	}
 }
-

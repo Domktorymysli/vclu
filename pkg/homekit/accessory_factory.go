@@ -227,8 +227,8 @@ func (s *Server) createExposedLightbulb(info accessory.Info, obj ExposedObject, 
 }
 
 // createExposedCover creates a WindowCovering. vCLU counts 0 = open,
-// 100 = closed; HomeKit the other way round. A Grenton roller's value is its
-// movement, so the shown position is read with getPosition (Refetch).
+// 100 = closed; HomeKit the other way round. A Grenton roller without a position
+// has its movement as the value, so the shown position is read with getPosition (Refetch).
 func (s *Server) createExposedCover(info accessory.Info, obj ExposedObject, readonly bool) (*accessory.A, func(float64)) {
 	cover := accessory.NewWindowCovering(info)
 	wc := cover.WindowCovering

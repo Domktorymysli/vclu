@@ -3,8 +3,9 @@
 -- The value is the position on vCLU's scale, 0 = open .. 100 = closed (as VirtualCover).
 -- Grenton counts the other way (ROLLER_SHUTTER, class 24: feature 7 Position and
 -- method 10 SetPosition, 0% = closed .. 100% = open; Object Manager device-interfaces);
--- this class converts in both directions. ROLLER_SH (class 11) has no position:
--- the OM import sets _hasPosition = false and the value stays feature 0.
+-- this class converts in both directions. The OM import sets _hasPosition = true for
+-- class 24; without it (ROLLER_SH, class 11, or a proxy generated before) the value
+-- stays feature 0. First firmware of the 2.0 roller modules (fv01) has no Position either.
 -- @module objects.RemoteCover
 -- @inherits RemoteObject
 
@@ -23,7 +24,7 @@ RemoteCover.FEATURE_POSITION = 7
 function RemoteCover:new(clu, objId, name)
     local obj = RemoteObject.new(self, clu, objId, name)
     obj._type = "ROLLER"
-    obj._hasPosition = true
+    obj._hasPosition = false
     obj._movement = nil
     obj._lastTilt = nil
     obj._allowedMethods = {"getState", "getPosition", "setPosition", "getTilt", "setTilt", "open", "close", "stop", "up", "down"}
@@ -52,12 +53,12 @@ function RemoteCover:setPosition(position, lamel)
     self:execute(10, 100 - position, lamel or 91)
 end
 
---- Features to subscribe to, in report order: the position first, so a report that
--- carries both publishes the new position with the final movement already stored.
+--- Features to subscribe to, in report order: the movement first, so a report that
+-- carries both publishes the new position with the movement already stored.
 -- @return table Feature indexes
 function RemoteCover:subscribeFeatures()
     if self._hasPosition then
-        return {RemoteCover.FEATURE_POSITION, RemoteCover.FEATURE_STATE}
+        return {RemoteCover.FEATURE_STATE, RemoteCover.FEATURE_POSITION}
     end
     return {RemoteCover.FEATURE_STATE}
 end

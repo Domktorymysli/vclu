@@ -468,7 +468,7 @@ function RemoteSubscription.autoSubscribe()
                     })
                 end
             else
-                Logger:getShared():warn("[RemoteSub] CLU %s truncated at %d objects", cluId, MAX_PER_CLU)
+                Logger:getShared():warn("[RemoteSub] CLU %s truncated at %d subscription entries", cluId, MAX_PER_CLU)
             end
         end
     end
