@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.4.0 (2026-10-15)
 
 ### Installation
 
@@ -12,6 +12,7 @@
 
 ### Lua runtime
 
+- **A `VirtualNumber` with a fractional step stores the value on the step** - snapping to `step = 0.1` left binary noise, so 53.9 was stored and published as 53.900000000000006 to Home Assistant, HomeKit, MQTT and history. The snapped value is rounded to the step's decimals (#9, thanks @wzd8888).
 - **EventBus warns when callbacks for one event pile up** - code that calls `EventBus:on` in a timer or on every re-create without `off` adds callbacks for ever and every `emit` runs them all. At 100 callbacks for one event name `on` logs a warning with the name and the count, and again at 200, 400...; the callbacks are still added ([#7](https://github.com/Domktorymysli/vclu/issues/7)).
 - **`expose()` warns about an object whose `onChange` returns no unsubscribe function** - `unexpose()` calls that function to remove its callback; without it the callback stayed registered and kept running, silently. The log now shows one warning with the object's path. Plugin sensors and controls (`plugin:sensor`, `plugin:control`) now return one too, so `unexpose()` removes their callback ([#5](https://github.com/Domktorymysli/vclu/issues/5)).
 
