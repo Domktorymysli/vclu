@@ -41,6 +41,13 @@ CLU stops reporting; nothing tells vCLU. Space every series of messages to a CLU
 (`batchDelay` in `runtime/grenton/protocol/RemoteSubscription.lua`) without blocking the run loop. A dead
 subscription shows as no `[CLIENT-REPORT]` from that session in the log.
 
+### A lost report is corrected by the renewal, not by a push
+A change is reported with one UDP packet and no retry. The CLU answers every renewal
+(`clientRegister`, every TTL/2) with the session's current values; `SendCommandNoReply` reads that
+answer and `RemoteSubscription.applyRenewAnswer` applies it, except to objects published after the
+renewal was sent (the answer is older). Keep renewals going through `refresh`, or a lost report
+stays wrong until another object in the session changes. Contract: `pkg/server/renew_reply_test.go`.
+
 ### Values and scales
 A dimmer's value is 0..1, a digital output is 1/0. HomeKit and Home Assistant count brightness
 0..100, HomeKit counts 100 = open while vCLU counts 0 = open. Convert at the integration edge and

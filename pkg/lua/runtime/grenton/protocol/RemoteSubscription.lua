@@ -226,8 +226,9 @@ end
 
 --- Re-register subscription before TTL expires
 -- Sends clientRegister (not clientRefresh) so the CLU keeps the session alive. A live
--- session gets no report; an expired one is recreated and pushes current states.
--- Fire-and-forget via noreply.
+-- session gets no push; an expired one is recreated and pushes current states.
+-- Fire-and-forget via noreply: the CLU answers with the session's current values and Go hands
+-- them to applyRenewAnswer, which corrects a state whose report was lost.
 -- @param cluIP string|number IP address of the CLU (dotted string or uint32)
 -- @param sessionID number Session ID to re-register
 -- @return true|nil success True on send, nil on error
@@ -256,8 +257,17 @@ function RemoteSubscription.refresh(cluIP, sessionID)
         return nil, "no command sender available"
     end
 
+    -- What was published before sending; applyRenewAnswer keeps anything newer
+    local marks = {}
+    for i, objInfo in ipairs(sub.objects) do
+        local obj = _registry and _registry[tostring(sub.cluSerial) .. "." .. objInfo.objId]
+        marks[i] = obj and StateChange.mark(obj) or 0
+    end
+    sub.renewMarks = marks
+
     local ok, err = __go_send_command_noreply(targetIP, script)
     if not ok then
+        sub.renewMarks = nil
         Logger:getShared():error("[RemoteSub] Re-register failed: %s", tostring(err))
         return nil, err
     end
@@ -317,7 +327,8 @@ end
 -- @param cluIP string IP address of the CLU
 -- @param sessionID number Session ID for the subscription
 -- @param values table Array of new values corresponding to subscribed objects
-function RemoteSubscription.updateRegistry(cluIP, sessionID, values)
+-- @param skip table|nil skip[i] = true leaves the i-th object as it is
+function RemoteSubscription.updateRegistry(cluIP, sessionID, values, skip)
     local key = cluIP .. ":" .. sessionID
     local sub = RemoteSubscription.activeSubscriptions[key]
 
@@ -340,7 +351,7 @@ function RemoteSubscription.updateRegistry(cluIP, sessionID, values)
         local registryKey = sub.cluSerial .. "." .. objInfo.objId
         local obj = _registry and _registry[registryKey]
 
-        if obj then
+        if obj and not (skip and skip[i]) then
             local oldValue = obj._lastState
 
             -- Dead-band for analog sensors: skip noise < 0.1
@@ -371,6 +382,26 @@ function RemoteSubscription.updateRegistry(cluIP, sessionID, values)
 
         ::continue::
     end
+end
+
+--- Apply the CLU's answer to a renewal sent by refresh(): the session's current values.
+-- Corrects a state whose report was lost. An object published after the renewal was sent
+-- (a local write or a push) keeps its state: the answer is older.
+-- @param cluIP string IP address the renewal was sent to
+-- @param sessionID number Session ID from the answer
+-- @param values table Array of values, as in a report
+function RemoteSubscription.applyRenewAnswer(cluIP, sessionID, values)
+    local sub = RemoteSubscription.activeSubscriptions[cluIP .. ":" .. sessionID]
+    local marks = sub and sub.renewMarks
+    if not marks or #values ~= #sub.objects then return end
+    sub.renewMarks = nil
+
+    local skip = {}
+    for i, objInfo in ipairs(sub.objects) do
+        local obj = _registry and _registry[tostring(sub.cluSerial) .. "." .. objInfo.objId]
+        skip[i] = obj ~= nil and StateChange.publishedSince(obj, marks[i])
+    end
+    RemoteSubscription.updateRegistry(cluIP, sessionID, values, skip)
 end
 
 --- Auto-subscribe to whitelisted remote objects

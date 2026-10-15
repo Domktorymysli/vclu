@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Domktorymysli/vclu/pkg/cipher"
 	"github.com/Domktorymysli/vclu/pkg/commands"
 )
 
@@ -53,7 +54,7 @@ func (s *Server) SendCommandWithTimeout(targetIP string, script string, timeout 
 	// Create UDP connection for sending/receiving
 	conn, err := net.DialUDP("udp4", nil, &net.UDPAddr{
 		IP:   ip,
-		Port: CommandPort,
+		Port: s.remoteCommandPort(),
 	})
 	if err != nil {
 		return "", fmt.Errorf("failed to connect to target: %w", err)
@@ -97,7 +98,9 @@ func (s *Server) SendCommandWithTimeout(targetIP string, script string, timeout 
 
 // SendCommandNoReply sends a Lua script command to a CLU without waiting for a response.
 // Used for fire-and-forget operations like clientRegister (re-registration) and clientDestroy where
-// the response is not needed. This avoids blocking the caller on UDP round-trips.
+// the caller does not need the result. This avoids blocking the caller on UDP round-trips.
+// A CLU answers a re-registration with the session's current values; that answer is read in the
+// background and handed to RemoteSubscription.applyRenewAnswer. Other answers are not read.
 func (s *Server) SendCommandNoReply(targetIP string, script string) error {
 	ip := net.ParseIP(targetIP)
 	if ip == nil {
@@ -128,18 +131,54 @@ func (s *Server) SendCommandNoReply(targetIP string, script string) error {
 
 	conn, err := net.DialUDP("udp4", nil, &net.UDPAddr{
 		IP:   ip,
-		Port: CommandPort,
+		Port: s.remoteCommandPort(),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to connect to target: %w", err)
 	}
-	defer conn.Close()
 
 	if _, err = conn.Write(encryptedRequest); err != nil {
+		_ = conn.Close()
 		return fmt.Errorf("failed to send request: %w", err)
 	}
 
+	if !strings.HasPrefix(script, "SYSTEM:clientRegister(") {
+		_ = conn.Close()
+		return nil
+	}
+	go s.readRenewAnswer(conn, projectKey, ip.String())
 	return nil
+}
+
+// renewAnswerTimeout bounds how long the answer to a renewal is waited for.
+const renewAnswerTimeout = 2 * time.Second
+
+// readRenewAnswer reads the CLU's answer to a renewal and hands a clientReport to Lua.
+// It owns conn and closes it.
+func (s *Server) readRenewAnswer(conn *net.UDPConn, projectKey *cipher.CipherKey, cluIP string) {
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetReadDeadline(time.Now().Add(renewAnswerTimeout))
+
+	buffer := make([]byte, BufferSize)
+	n, err := conn.Read(buffer)
+	if err != nil {
+		return
+	}
+	decrypted, err := projectKey.Decrypt(buffer[:n])
+	if err != nil {
+		return
+	}
+	// Same format as a push; the subscription is keyed by the address it was sent to.
+	if _, sessionID, valuesStr, ok := parseClientReportMessage(string(decrypted)); ok {
+		s.callRegistryUpdate("RemoteSubscription.applyRenewAnswer", cluIP, sessionID, valuesStr)
+	}
+}
+
+func (s *Server) remoteCommandPort() int {
+	if s.cluPort != 0 {
+		return s.cluPort
+	}
+	return CommandPort
 }
 
 // GetRegisteredCLUs returns list of CLUs registered in Lua
