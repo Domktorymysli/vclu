@@ -108,7 +108,7 @@ mkdir vclu && tar -xzf vclu-linux-arm64.tar.gz -C vclu
 cd vclu && sudo ./install.sh
 ```
 
-Aktualizacja do najnowszego wydania (zachowuje katalogi i port, przed instalacją robi kopię programu, plików web, runtime Lua i usługi w `/opt/vclu/backup-<wersja>-<data>`, trzyma trzy ostatnie; własne zmiany usługi trzymaj w `sudo systemctl edit vclu`):
+Aktualizacja do najnowszego wydania. Zachowuje katalogi i port. Przed instalacją pakuje do `/opt/vclu/backup-<wersja>-<data>.tar.gz` program, pliki web, runtime Lua, usługę i konfigurację z katalogu danych (bez historii, metryk i kopii zapasowych); archiwum czyta tylko root, zostają trzy ostatnie. Własne zmiany usługi trzymaj w `sudo systemctl edit vclu`:
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/Domktorymysli/vclu/main/deploy/update.sh | sudo bash

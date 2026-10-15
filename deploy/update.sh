@@ -37,9 +37,13 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
-for cmd in curl tar systemctl; do
+# tar and gzip unpack the release and pack the backup: check before anything changes
+for cmd in curl tar gzip systemctl; do
   if ! command -v "$cmd" &>/dev/null; then
-    echo "Error: $cmd is required but not installed"
+    echo "Error: $cmd is required but not installed. Nothing was changed."
+    if command -v apt-get &>/dev/null; then
+      echo "Install it with: sudo apt-get install -y $cmd"
+    fi
     exit 1
   fi
 done
@@ -135,19 +139,32 @@ if [ "$EXEC_START" != "$TEMPLATE_EXEC" ] || [ -d "${SERVICE_FILE}.d" ]; then
   fi
 fi
 
-# Backup of what install.sh replaces: program, web files, Lua runtime, service file
-BACKUP="$INSTALL_DIR/backup-${CURRENT:-unknown}-$(date +%Y%m%d-%H%M%S)"
-echo "Backing up to $BACKUP ..."
-mkdir -p "$BACKUP"
-cp -a "$BINARY" "$BACKUP/"
-SAVED_DIRS=""
-for d in web runtime; do
-  if [ -d "$INSTALL_DIR/$d" ]; then
-    cp -a "$INSTALL_DIR/$d" "$BACKUP/"
-    SAVED_DIRS="$SAVED_DIRS $d"
-  fi
+# One archive, readable by root only (configuration holds passwords and keys):
+#   vclu, web/, runtime/, vclu.service  what install.sh replaces
+#   <data dir name>/                    configuration, Lua, plugins, KV, HomeKit pairing;
+#                                       without history, metrics and backups (large)
+BACKUP="$INSTALL_DIR/backup-${CURRENT:-unknown}-$(date +%Y%m%d-%H%M%S).tar.gz"
+DATA_PARENT=$(dirname "$DATA_DIR")
+DATA_NAME=$(basename "$DATA_DIR")
+EXCLUDES=("--exclude=$DATA_NAME/backup-*")
+for d in "$DATA_DIR"/clu/history "$DATA_DIR"/clu/metrics "$DATA_DIR"/clu/backups*; do
+  if [ -e "$d" ]; then EXCLUDES+=("--exclude=$DATA_NAME/${d#"$DATA_DIR"/}"); fi
 done
-cp -a "$SERVICE_FILE" "$BACKUP/"
+INSTALL_ITEMS=(vclu)
+for d in web runtime; do
+  if [ -d "$INSTALL_DIR/$d" ]; then INSTALL_ITEMS+=("$d"); fi
+done
+
+echo "Backing up to $BACKUP ..."
+if ! (umask 077 && tar -czf "$BACKUP" "${EXCLUDES[@]}" \
+      -C "$INSTALL_DIR" "${INSTALL_ITEMS[@]}" \
+      -C "$(dirname "$SERVICE_FILE")" "$(basename "$SERVICE_FILE")" \
+      -C "$DATA_PARENT" "$DATA_NAME"); then
+  rm -f "$BACKUP"
+  echo "Error: backup failed (disk full?). Nothing was changed."
+  exit 1
+fi
+echo "Backup: $(du -h "$BACKUP" | cut -f1)"
 
 # Keep the three newest backups
 ls -1dt "$INSTALL_DIR"/backup-* 2>/dev/null | tail -n +4 | while read -r old; do
@@ -158,12 +175,11 @@ if ! bash "$EXTRACTED/install.sh" "$INSTALL_DIR" "$DATA_DIR" "$WEB_PORT"; then
   echo ""
   echo "Update failed. The previous version is in $BACKUP; to restore it:"
   echo "  sudo systemctl stop vclu"
-  echo "  sudo cp -a '$BACKUP/vclu' '$INSTALL_DIR/'"
-  for d in $SAVED_DIRS; do
-    echo "  sudo rm -rf '$INSTALL_DIR/$d' && sudo cp -a '$BACKUP/$d' '$INSTALL_DIR/'"
-  done
-  echo "  sudo cp '$BACKUP/vclu.service' '$SERVICE_FILE' && sudo systemctl daemon-reload"
+  echo "  cd '$INSTALL_DIR' && sudo rm -rf web runtime"
+  echo "  sudo tar -xzf '$BACKUP' -C '$INSTALL_DIR' ${INSTALL_ITEMS[*]}"
+  echo "  sudo tar -xzf '$BACKUP' -C '$(dirname "$SERVICE_FILE")' $(basename "$SERVICE_FILE") && sudo systemctl daemon-reload"
   echo "  sudo systemctl start vclu"
+  echo "Configuration is in the same archive under $DATA_NAME/ (install.sh does not change it)."
   exit 1
 fi
 
