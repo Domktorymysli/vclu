@@ -2,18 +2,18 @@
 
 **Polski** | [English](README.en.md)
 
-**Runtime inteligentnego domu dla agentów AI. Automatyki w kodzie, które agent pisze, testuje w sandboxie i dopiero potem wdraża.**
+**Drugi CLU dla instalacji Grenton, na Raspberry Pi. Automatyki w Lua, które agent AI pisze, testuje na wirtualnym zegarze i dopiero potem wdraża.**
 
 [![Build](https://img.shields.io/github/actions/workflow/status/Domktorymysli/vclu/test.yml?branch=main)](https://github.com/Domktorymysli/vclu/actions)
 [![Go Version](https://img.shields.io/badge/go-1.26+-00ADD8.svg)](https://go.dev)
 [![codecov](https://codecov.io/gh/Domktorymysli/vclu/graph/badge.svg)](https://codecov.io/gh/Domktorymysli/vclu)
 [![License](https://img.shields.io/badge/license-BSL%201.1-blue.svg)](LICENSE)
 
-vCLU to runtime inteligentnego domu dedykowany agentom AI. Działa na Raspberry Pi albo dowolnym małym komputerze z Linuksem. Automatyki są kodem w Lua, a agent pracuje na nich przez MCP: pisze szkic, sprawdza go w sandboxie bez wpływu na dom i dopiero wtedy wdraża, z kopią zapasową każdej zmiany. Dzięki temu całą pracę możesz zlecić agentom, bo ich kod przechodzi testy w sandboxie, zanim trafi do domu.
+vCLU jest dla właścicieli instalacji Grenton. Dołącza do sieci jako kolejny CLU i jako klient Twoich CLU: importuje projekt z Object Managera, zna Twoje wyjścia, ściemniacze, rolety i czujniki, i dokłada to, czego CLU nie ma: historię zmian z informacją, kto co zmienił, Satela, HomeKit, Home Assistant, MQTT, Modbus i dashboardy na tablety. Działa na Raspberry Pi albo dowolnym małym komputerze z Linuksem.
 
-vCLU ma podstawowe integracje, a kolejne agent dodaje w trakcie pracy, tymi samymi narzędziami MCP. Home Assistant, HomeKit i MQTT są obsługiwane, ale nie są wymagane.
+Automatyki piszesz w tej samej Lua co na CLU, ale nie musisz robić tego sam. Agent AI (Claude Code, Codex, Gemini i inne) pracuje na nich przez MCP: pisze szkic, testuje go w sandboxie na wirtualnym zegarze, z komendami do CLU nagranymi zamiast wysłanymi, i dopiero wtedy wdraża, z kopią zapasową każdej zmiany. Agent potrafi dziś zmienić każdy system; w vCLU najpierw musi pokazać, że zmiana działa.
 
-To prototyp pomysłu, w którym framework pomaga agentom programować: daje im kontrakty, testy i bezpieczną drogę do wdrożenia.
+**Bez Grentona?** vCLU to też środowisko, w którym Ty albo agent piszecie integracje, których Home Assistant nie ma. Wszystko, co da się odczytać przez HTTP, MQTT, Modbus czy UDP, staje się w kilku linijkach Lua obiektem, a `expose` wysyła go do Home Assistanta, Apple Home albo przez MQTT do Node-RED. Działa przy tym na dużo słabszym sprzęcie niż Home Assistant: w domu autora zajmuje około 75 MB RAM, a buildy są nawet na pierwsze Raspberry Pi i Zero (ARMv6).
 
 <p align="center">
   <img src="docs/images/dashboard.png" alt="Dashboard zbudowany w Lua" width="32%">
