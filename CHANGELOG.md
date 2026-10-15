@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Installation
+
+- **`deploy/update.sh` updates an installation** - running the installer again reset the web port to 8080 and rewrote the service without a backup. The updater reads the install and data directories and the port from the systemd service, does nothing when that version is installed (`--force` to reinstall, `--version` to pick one), keeps a copy of the program, web files, runtime and service file in `<install dir>/backup-<version>-<time>`, and prints how to restore it if the install fails. Data is not touched.
+
 ### Dashboards
 
 - **A status tile's colour can follow its value** - `color` on `:status()` (section or header) can be a function, e.g. `function() if smsLeft < 20 then return 'danger' end end`. It is read on every poll: an open page recolours the tile (in the header, its icon) without a reload and drops the colour when the function returns nil. An error in the function leaves the value shown, drops the colour and is logged once per tile. A string `color` works as before ([#8](https://github.com/Domktorymysli/vclu/issues/8)).

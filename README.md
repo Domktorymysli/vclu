@@ -108,6 +108,12 @@ mkdir vclu && tar -xzf vclu-linux-arm64.tar.gz -C vclu
 cd vclu && sudo ./install.sh
 ```
 
+Aktualizacja do najnowszego wydania (zachowuje katalogi i port, przed instalacją robi kopię programu, plików web i usługi w `/opt/vclu/backup-<wersja>-<data>`):
+
+```bash
+curl -sSL https://raw.githubusercontent.com/Domktorymysli/vclu/main/deploy/update.sh | sudo bash
+```
+
 ### Docker
 
 ```bash
