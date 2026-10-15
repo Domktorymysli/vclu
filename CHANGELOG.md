@@ -4,7 +4,7 @@
 
 ### Installation
 
-- **`deploy/update.sh` updates an installation** - running the installer again reset the web port to 8080 and rewrote the service without a backup. The updater reads the install and data directories and the port from the systemd service, does nothing when that version is installed (`--force` to reinstall, `--version` to pick one), keeps a copy of the program, web files, runtime and service file in `<install dir>/backup-<version>-<time>`, and prints how to restore it if the install fails. Data is not touched.
+- **`deploy/update.sh` updates an installation** - running the installer again reset the web port to 8080 and rewrote the service without a backup. The updater reads the install and data directories and the port from the systemd service, does nothing when that version is installed (`--force` to reinstall, `--version` to pick one), keeps a copy of the program, web files, runtime and service file in `<install dir>/backup-<version>-<time>` (the three newest), and prints how to restore it if the install fails. It stops when the service file was edited, since the installer rewrites it (`--force` to go on; keep changes in `systemctl edit vclu`). Data is not touched except the bundled AI docs, as by the installer.
 
 ### Dashboards
 

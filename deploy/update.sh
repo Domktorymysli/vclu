@@ -3,11 +3,13 @@ set -e
 
 # Virtual CLU - Updater
 # Updates an installation made by install.sh (systemd) to the latest release, keeping its
-# directories and web port. Data (config, Lua, history) is not touched.
+# directories and web port. Data (config, Lua, history) is not touched; the bundled AI docs
+# in <data>/clu/docs/ai are replaced, as by install.sh.
 #
 # Usage: curl -sSL https://raw.githubusercontent.com/Domktorymysli/vclu/main/deploy/update.sh | sudo bash
 #    or: ... | sudo bash -s -- --version v1.3.0
 
+main() {
 REPO="Domktorymysli/vclu"
 SERVICE_FILE="/etc/systemd/system/vclu.service"
 VERSION=""
@@ -15,14 +17,15 @@ FORCE=0
 
 while [[ $# -gt 0 ]]; do
   case $1 in
-    --version) VERSION="$2"; shift 2 ;;
+    --version) VERSION="v${2#v}"; shift 2 ;;
     --force) FORCE=1; shift ;;
     --help)
       echo "Usage: curl -sSL https://raw.githubusercontent.com/${REPO}/main/deploy/update.sh | sudo bash -s -- [OPTIONS]"
       echo ""
       echo "Options:"
       echo "  --version VERSION    Update to a specific version (default: latest)"
-      echo "  --force              Reinstall even if this version is installed"
+      echo "  --force              Reinstall even if this version is installed, and even if"
+      echo "                       the service file was edited (install.sh rewrites it)"
       exit 0
       ;;
     *) echo "Unknown option: $1"; exit 1 ;;
@@ -118,32 +121,48 @@ if [ ! -f "$EXTRACTED/install.sh" ] || [ ! -f "$EXTRACTED/vclu" ]; then
   exit 1
 fi
 
+# install.sh writes the service file from its template: an edited one would be lost
+TEMPLATE_EXEC="$INSTALL_DIR/vclu --auto --data-dir . --web-port $WEB_PORT"
+if [ "$EXEC_START" != "$TEMPLATE_EXEC" ] || [ -d "${SERVICE_FILE}.d" ]; then
+  echo "The service was changed after installation:"
+  [ "$EXEC_START" != "$TEMPLATE_EXEC" ] && echo "  ExecStart: $EXEC_START"
+  [ -d "${SERVICE_FILE}.d" ] && echo "  drop-ins in ${SERVICE_FILE}.d (their settings are not read here)"
+  if [ "$FORCE" -eq 0 ]; then
+    echo "install.sh writes ExecStart back to: $TEMPLATE_EXEC"
+    echo "Put your changes in a drop-in (sudo systemctl edit vclu), which install.sh leaves alone,"
+    echo "or run again with --force to update anyway (a copy of the service file is kept)."
+    exit 1
+  fi
+fi
+
 # Backup of what install.sh replaces: program, web files, Lua runtime, service file
 BACKUP="$INSTALL_DIR/backup-${CURRENT:-unknown}-$(date +%Y%m%d-%H%M%S)"
 echo "Backing up to $BACKUP ..."
 mkdir -p "$BACKUP"
 cp -a "$BINARY" "$BACKUP/"
+SAVED_DIRS=""
 for d in web runtime; do
-  if [ -d "$INSTALL_DIR/$d" ]; then cp -a "$INSTALL_DIR/$d" "$BACKUP/"; fi
+  if [ -d "$INSTALL_DIR/$d" ]; then
+    cp -a "$INSTALL_DIR/$d" "$BACKUP/"
+    SAVED_DIRS="$SAVED_DIRS $d"
+  fi
 done
 cp -a "$SERVICE_FILE" "$BACKUP/"
 
-# install.sh writes the service file from its template: say so if this one was edited
-TEMPLATE_EXEC="$INSTALL_DIR/vclu --auto --data-dir . --web-port $WEB_PORT"
-if [ "$EXEC_START" != "$TEMPLATE_EXEC" ]; then
-  echo "Note: ExecStart differs from the template and will be reset:"
-  echo "  was: $EXEC_START"
-  echo "  copy kept in $BACKUP/vclu.service"
-fi
+# Keep the three newest backups
+ls -1dt "$INSTALL_DIR"/backup-* 2>/dev/null | tail -n +4 | while read -r old; do
+  rm -rf "$old"
+done
 
 if ! bash "$EXTRACTED/install.sh" "$INSTALL_DIR" "$DATA_DIR" "$WEB_PORT"; then
   echo ""
   echo "Update failed. The previous version is in $BACKUP; to restore it:"
   echo "  sudo systemctl stop vclu"
-  echo "  sudo cp -a $BACKUP/vclu $INSTALL_DIR/"
-  echo "  sudo rm -rf $INSTALL_DIR/web $INSTALL_DIR/runtime"
-  echo "  sudo cp -a $BACKUP/web $BACKUP/runtime $INSTALL_DIR/"
-  echo "  sudo cp $BACKUP/vclu.service $SERVICE_FILE && sudo systemctl daemon-reload"
+  echo "  sudo cp -a '$BACKUP/vclu' '$INSTALL_DIR/'"
+  for d in $SAVED_DIRS; do
+    echo "  sudo rm -rf '$INSTALL_DIR/$d' && sudo cp -a '$BACKUP/$d' '$INSTALL_DIR/'"
+  done
+  echo "  sudo cp '$BACKUP/vclu.service' '$SERVICE_FILE' && sudo systemctl daemon-reload"
   echo "  sudo systemctl start vclu"
   exit 1
 fi
@@ -151,3 +170,7 @@ fi
 echo ""
 echo "Updated ${CURRENT:-unknown} -> $VERSION. What changed:"
 echo "  https://github.com/${REPO}/releases/tag/${VERSION}"
+}
+
+# Wrapped in main so a script cut off while downloading does not run half
+main "$@"
