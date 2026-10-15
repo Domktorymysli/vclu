@@ -75,7 +75,7 @@ end
 -- @param icon string Bootstrap icon name (e.g., "thermometer-half", "droplet")
 -- @param getValue function Returns current value: function() -> number|string
 -- @param unit string Unit suffix displayed after value (e.g., "°C", "%", "lx")
--- @param opts table Optional: {disabled=function()->bool}
+-- @param opts table Optional: {disabled=function()->bool, color=string|function()->string|nil}
 -- @api public
 function SectionHandle:status(id, label, icon, getValue, unit, opts)
     self._builder:_addWidget(self._sectionIndex, {
@@ -437,7 +437,7 @@ end
 -- @param icon string Bootstrap icon name (e.g., "thermometer-half", "droplet")
 -- @param getValue function Returns current value: function() -> number|string
 -- @param unit string Unit suffix displayed after value (e.g., "°C", "%", "lx")
--- @param opts table Optional: {disabled=function()->bool}
+-- @param opts table Optional: {disabled=function()->bool, color=string|function()->string|nil}
 -- @api public
 function DashboardBuilder:status(id, label, icon, getValue, unit, opts)
     if not self._currentSection then
@@ -661,6 +661,27 @@ local function safeGetValue(fn)
     end
 end
 
+-- Colour errors already logged, by "dashboard/widget"
+local _colorErrorLogged = {}
+
+-- Safe colour: a string as is, a status tile's function's current string result, nil on error
+local function safeColor(dashId, w)
+    local c = w.opts.color
+    if type(c) ~= 'function' then return c end
+    if w.type ~= 'status' then return nil end
+    local ok, val = pcall(c)
+    if ok then
+        if type(val) == 'string' then return val end
+        return nil
+    end
+    local key = tostring(dashId) .. '/' .. tostring(w.id)
+    if not _colorErrorLogged[key] then
+        _colorErrorLogged[key] = true
+        Logger:getShared():warn("[DASHBOARD] Color error for '%s': %s", key, tostring(val))
+    end
+    return nil
+end
+
 -- Safe disabled check
 local function safeDisabled(opts)
     if not opts or type(opts.disabled) ~= 'function' then return false end
@@ -791,7 +812,7 @@ function DashboardAPI.getDefinition(id)
                 section = si - 1, -- 0-indexed for JS
                 span = w.opts.span,
                 size = w.opts.size,
-                color = w.opts.color,
+                color = safeColor(id, w),
             }
 
             -- Get current value
@@ -1030,6 +1051,10 @@ function DashboardAPI.getValues(id)
                     entry.value = val
                 end
                 entry.disabled = safeDisabled(w.opts)
+                -- false: the function gave no colour, the page drops it
+                if w.type == 'status' and type(w.opts.color) == 'function' then
+                    entry.color = safeColor(id, w) or false
+                end
                 result[w.id] = entry
             elseif w.type == 'cover' then
                 local fns = w.fns or {}

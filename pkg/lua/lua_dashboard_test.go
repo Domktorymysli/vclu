@@ -770,3 +770,133 @@ func TestDashboardConfirmOption(t *testing.T) {
 		t.Errorf("confirm = %v", w["confirm"])
 	}
 }
+
+// dashJSON runs a Dashboard.API call and decodes its JSON.
+func dashJSON(t *testing.T, engine *LuaEngine, call string, out interface{}) {
+	t.Helper()
+	result, err := engine.Execute(call)
+	if err != nil {
+		t.Fatalf("%s failed: %v", call, err)
+	}
+	if err := json.Unmarshal([]byte(result), out); err != nil {
+		t.Fatalf("%s: invalid JSON: %v (%s)", call, err, result)
+	}
+}
+
+type dashDef struct {
+	Widgets []map[string]interface{} `json:"widgets"`
+}
+
+func (d dashDef) widget(id string) map[string]interface{} {
+	for _, w := range d.Widgets {
+		if w["id"] == id {
+			return w
+		}
+	}
+	return nil
+}
+
+func TestDashboardFunctionColor(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+
+	_, err := engine.Execute(`
+		_dashboards = {}
+		sms = 10
+		local function smsColor() if sms < 20 then return 'danger' end end
+		Dashboard.new('clr')
+			:header()
+			:status('h1', 'SMS', 'chat', function() return sms end, '', {color = smsColor})
+			:section('S', 'icon')
+			:status('s1', 'SMS', 'chat', function() return sms end, '', {color = smsColor})
+			:status('s2', 'Fixed', 'icon', function() return 1 end, '', {color = 'info'})
+			:toggle('t1', 'Lamp', 'icon', function() return 1 end, function() end, {color = smsColor})
+			:build()
+	`)
+	if err != nil {
+		t.Fatalf("build failed: %v", err)
+	}
+
+	// Definition carries the current colour, never a function
+	var def dashDef
+	dashJSON(t, engine, `Dashboard.API.getDefinition("clr")`, &def)
+	for id, want := range map[string]string{"h1": "danger", "s1": "danger", "s2": "info"} {
+		if c := def.widget(id)["color"]; c != want {
+			t.Errorf("definition %s color = %v, expected %q", id, c, want)
+		}
+	}
+
+	var vals map[string]map[string]interface{}
+	dashJSON(t, engine, `Dashboard.API.getValues("clr")`, &vals)
+	for _, id := range []string{"h1", "s1"} {
+		if vals[id]["color"] != "danger" {
+			t.Errorf("values %s color = %v, expected 'danger'", id, vals[id]["color"])
+		}
+	}
+	if c, ok := vals["s2"]["color"]; ok {
+		t.Errorf("values s2 carries a string colour %v, expected none", c)
+	}
+	// Only status takes a function colour
+	if c, ok := vals["t1"]["color"]; ok || def.widget("t1")["color"] != nil {
+		t.Errorf("toggle with a function colour: values %v, definition %v, expected none", c, def.widget("t1")["color"])
+	}
+
+	// nil from the function: colour is false in values, so the page drops it
+	if _, err := engine.Execute(`sms = 50`); err != nil {
+		t.Fatal(err)
+	}
+	vals = nil
+	dashJSON(t, engine, `Dashboard.API.getValues("clr")`, &vals)
+	for _, id := range []string{"h1", "s1"} {
+		if c := vals[id]["color"]; c != false {
+			t.Errorf("values %s color = %v, expected false", id, c)
+		}
+		if vals[id]["value"] != float64(50) {
+			t.Errorf("values %s value = %v, expected 50", id, vals[id]["value"])
+		}
+	}
+	def = dashDef{}
+	dashJSON(t, engine, `Dashboard.API.getDefinition("clr")`, &def)
+	for _, id := range []string{"h1", "s1"} {
+		if c := def.widget(id)["color"]; c != nil {
+			t.Errorf("definition %s color = %v, expected none", id, c)
+		}
+	}
+}
+
+func TestDashboardFunctionColorError(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+
+	_, err := engine.Execute(`
+		_dashboards = {}
+		colorLog = { n = 0, orig = Logger.warn }
+		Logger.warn = function(_, msg, ...)
+			if string.find(Logger:format(msg, ...), 'boom', 1, true) then colorLog.n = colorLog.n + 1 end
+		end
+		Dashboard.new('clrerr')
+			:section('S', 'icon')
+			:status('bad', 'Bad', 'icon', function() return 7 end, '', {color = function() error('boom') end})
+			:build()
+	`)
+	if err != nil {
+		t.Fatalf("setup failed: %v", err)
+	}
+	defer func() { _, _ = engine.Execute(`Logger.warn = colorLog.orig`) }()
+
+	var def dashDef
+	dashJSON(t, engine, `Dashboard.API.getDefinition("clrerr")`, &def)
+	if w := def.widget("bad"); w["value"] != float64(7) || w["color"] != nil {
+		t.Errorf("definition bad = %v, expected value 7 and no colour", w)
+	}
+	for i := 0; i < 2; i++ {
+		var vals map[string]map[string]interface{}
+		dashJSON(t, engine, `Dashboard.API.getValues("clrerr")`, &vals)
+		if bad := vals["bad"]; bad["value"] != float64(7) || bad["color"] != false || bad["error"] != nil {
+			t.Errorf("values bad = %v, expected value 7, colour false, no error", bad)
+		}
+	}
+	if n, _ := engine.Execute(`colorLog.n`); n != "1" {
+		t.Errorf("colour error logged %s times, expected once", n)
+	}
+}

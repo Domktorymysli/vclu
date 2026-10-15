@@ -74,6 +74,19 @@
         return colorMap[c] || c;
     }
 
+    // Apply a polled colour; a falsy one drops it (header: icon only, as when rendered)
+    function applyColor(el, c) {
+        var color = resolveColor(c);
+        if (el.classList.contains('dash-header-item')) {
+            var icon = el.querySelector(':scope > i');
+            if (icon) icon.style.color = color || '';
+        } else if (color) {
+            el.style.setProperty('--widget-color', color);
+        } else {
+            el.style.removeProperty('--widget-color');
+        }
+    }
+
     // ---- Fetch helpers ----
 
     function fetchJSON(url, opts) {
@@ -1014,6 +1027,9 @@
         if (data.disabled !== undefined) {
             el.classList.toggle('disabled', !!data.disabled);
         }
+
+        // Colour from a function (false: none)
+        if (data.color !== undefined) applyColor(el, data.color);
 
         // Error state
         var errEl = el.querySelector('.dash-widget-error');

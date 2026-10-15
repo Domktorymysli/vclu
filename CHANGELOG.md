@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Dashboards
+
+- **A status tile's colour can follow its value** - `color` on `:status()` (section or header) can be a function, e.g. `function() if smsLeft < 20 then return 'danger' end end`. It is read on every poll: an open page recolours the tile (in the header, its icon) without a reload and drops the colour when the function returns nil. An error in the function leaves the value shown, drops the colour and is logged once per tile. A string `color` works as before ([#8](https://github.com/Domktorymysli/vclu/issues/8)).
+
 ### Lua runtime
 
 - **EventBus warns when callbacks for one event pile up** - code that calls `EventBus:on` in a timer or on every re-create without `off` adds callbacks for ever and every `emit` runs them all. At 100 callbacks for one event name `on` logs a warning with the name and the count, and again at 200, 400...; the callbacks are still added ([#7](https://github.com/Domktorymysli/vclu/issues/7)).

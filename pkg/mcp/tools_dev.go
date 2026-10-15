@@ -556,7 +556,7 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 			"widgets": map[string]any{
 				"toggle": "section:toggle(id, label, icon, getValueFn, onToggleFn, opts)",
 				"slider": "section:slider(id, label, min, max, getValueFn, onSetFn, opts)",
-				"status": "section:status(id, label, icon, getValueFn, unit, opts)",
+				"status": "section:status(id, label, icon, getValueFn, unit, opts) — opts.color may be function() -> color|nil, re-read on every poll",
 				"button": "section:button(id, label, icon, onTapFn, opts)",
 				"link":   "section:link(id, label, icon, url, opts)",
 				"cover":  "section:cover(id, label, icon, fns, opts) — fns={getPosition,getState,open,close,stop,set?}",
