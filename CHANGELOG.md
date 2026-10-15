@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Installation
+
+- **`deploy/update.sh` updates an installation** - running the installer again reset the web port to 8080 and rewrote the service without a backup. The updater reads the install and data directories and the port from the systemd service, does nothing when that version is installed (`--force` to reinstall, `--version` to pick one), stops vCLU and packs the program, web files, runtime, service file and the configuration from the data directory (Lua, plugins, KV, HomeKit pairing; not history, metrics or backups) into `<install dir>/backup-<version>-<time>.tar.gz`, readable by root only (the three newest are kept, pruned only after a good update), starts vCLU again if packing fails, and prints how to restore it if the install fails. A stopped service with the target version installed is installed again rather than reported up to date. Without `curl`, `tar` or `gzip` it stops before changing anything and says how to install them. It stops when the service file was edited, since the installer rewrites it (`--force` to go on; keep changes in `systemctl edit vclu`). Data is not touched except the bundled AI docs, as by the installer.
+
 ### Dashboards
 
 - **A status tile's colour can follow its value** - `color` on `:status()` (section or header) can be a function, e.g. `function() if smsLeft < 20 then return 'danger' end end`. It is read on every poll: an open page recolours the tile (in the header, its icon) without a reload and drops the colour when the function returns nil. An error in the function leaves the value shown, drops the colour and is logged once per tile. A string `color` works as before ([#8](https://github.com/Domktorymysli/vclu/issues/8)).
