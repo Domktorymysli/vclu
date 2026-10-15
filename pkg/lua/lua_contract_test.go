@@ -11,10 +11,14 @@ package lua
 //  4. Do NOT test implementation details (queue depth, timer IDs, etc.)
 
 import (
+	"fmt"
+	"net"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Domktorymysli/vclu/pkg/broker"
 	"github.com/Domktorymysli/vclu/pkg/gpio"
 )
 
@@ -185,6 +189,167 @@ func TestContract_MQTT_SubscribeCallback(t *testing.T) {
 	result, _ := engine.Execute(`tostring(_received)`)
 	if result != "hello" {
 		t.Errorf("expected callback to receive 'hello', got %s", result)
+	}
+}
+
+// startTestBroker starts an embedded MQTT broker on a free local port.
+func startTestBroker(t *testing.T) (*broker.Broker, int) {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := l.Addr().(*net.TCPAddr).Port
+	_ = l.Close()
+	b := broker.New(&broker.Config{Enabled: true, Port: port})
+	if err := b.Start(); err != nil {
+		t.Fatalf("broker start: %v", err)
+	}
+	t.Cleanup(func() { _ = b.Stop() })
+	return b, port
+}
+
+// brokerSubs returns the broker-side subscriptions of a client session (also a closed persistent one).
+func brokerSubs(b *broker.Broker, clientID string) []string {
+	for _, c := range b.GetClients() {
+		if c.ID == clientID {
+			return c.Subscriptions
+		}
+	}
+	return nil
+}
+
+// waitMQTT runs the MQTT poll (as the poll timer does) until cond holds or 5 s pass.
+func waitMQTT(t *testing.T, engine *LuaEngine, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timeout waiting for %s", what)
+		}
+		_, _ = engine.Execute(`MQTT.pollEvents(); MQTT.pollMessages()`)
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// connectTestClient creates a client with a persistent session (so broker-side subscriptions
+// outlive the connection), subscribes topic and waits until the broker has the subscription.
+func connectTestClient(t *testing.T, engine *LuaEngine, b *broker.Broker, port int, varName, id, topic string) {
+	t.Helper()
+	_, err := engine.Execute(fmt.Sprintf(`
+		%[1]s = MQTT:new(%[2]q)
+		%[1]s:setHost("127.0.0.1"):setPort(%[3]d)
+		%[1]s._props.cleanSession = false
+		%[1]s:subscribe(%[4]q, function() _c[%[1]q] = (_c[%[1]q] or 0) + 1 end)
+		%[1]s:onMessage(function() _c[%[1]q .. "_any"] = (_c[%[1]q .. "_any"] or 0) + 1 end)
+		%[1]s:connect()
+	`, varName, id, port, topic))
+	if err != nil {
+		t.Fatalf("lua: %v", err)
+	}
+	waitMQTT(t, engine, "broker subscription "+topic, func() bool {
+		return slices.Contains(brokerSubs(b, "vclu_"+id), topic)
+	})
+}
+
+// Contract: MQTT:destroy() releases a client: broker subscriptions and connection, Lua callbacks,
+// the registry entry and the Go-side client. A later message on its topic reaches no callback.
+func TestContract_MQTT_Destroy(t *testing.T) {
+	b, port := startTestBroker(t)
+	engine := NewLuaEngine()
+	defer engine.Close()
+	_, _ = engine.Execute(`_c = {}`)
+
+	connectTestClient(t, engine, b, port, "cli", "destroy_t", "t/destroy")
+	_ = b.Publish("t/destroy", []byte("1"), false)
+	waitMQTT(t, engine, "first message", func() bool {
+		got, _ := engine.Execute(`return tostring(_c.cli)`)
+		return got == "1"
+	})
+
+	got, err := engine.Execute(`
+		cli:destroy()
+		return tostring(MQTT.getInstance("destroy_t") == nil)`)
+	if err != nil || got != "true" {
+		t.Fatalf("after destroy: instance removed = %q, err %v", got, err)
+	}
+	waitMQTT(t, engine, "broker unsubscribe", func() bool {
+		return !slices.Contains(brokerSubs(b, "vclu_destroy_t"), "t/destroy")
+	})
+	for _, c := range engine.GetMQTTManager().Stats().Clients {
+		if c.InstanceID == "destroy_t" {
+			t.Errorf("Go-side client destroy_t still registered")
+		}
+	}
+
+	// Neither a broker message nor one handed to the old object reaches a callback.
+	_ = b.Publish("t/destroy", []byte("2"), false)
+	for i := 0; i < 10; i++ {
+		_, _ = engine.Execute(`MQTT.pollEvents(); MQTT.pollMessages()`)
+		time.Sleep(20 * time.Millisecond)
+	}
+	got, _ = engine.Execute(`
+		cli:simulateMessage("t/destroy", "3")
+		return tostring(_c.cli) .. "," .. tostring(_c.cli_any)`)
+	if got != "1,1" {
+		t.Errorf("callbacks after destroy: got %s (subscription,onMessage), want 1,1", got)
+	}
+}
+
+// Contract: MQTT:new(id) with an id in use destroys the old client and warns with the id;
+// the new client works on its own.
+func TestContract_MQTT_NewWithIdInUse(t *testing.T) {
+	b, port := startTestBroker(t)
+	engine := NewLuaEngine()
+	defer engine.Close()
+	_, _ = engine.Execute(`_c = {}`)
+
+	connectTestClient(t, engine, b, port, "old", "dup_t", "t/old")
+
+	got, err := engine.Execute(`
+		local warns = {}
+		local origWarn = Logger.warn
+		Logger.warn = function(_, msg, ...) warns[#warns + 1] = Logger:format(msg, ...) end
+		local ok, e = pcall(function() _G.nw = MQTT:new("dup_t") end)
+		Logger.warn = origWarn
+		if not ok then error(e) end
+		return tostring(MQTT.getInstance("dup_t") == nw and nw ~= old) .. "|" .. table.concat(warns, "\n")`)
+	if err != nil {
+		t.Fatalf("lua: %v", err)
+	}
+	parts := strings.SplitN(got, "|", 2)
+	if parts[0] != "true" {
+		t.Errorf("registry does not hold the new client: %q", got)
+	}
+	if len(parts) < 2 || !strings.Contains(parts[1], "dup_t") {
+		t.Errorf("want a warning naming dup_t, got %q", got)
+	}
+	waitMQTT(t, engine, "old client's broker subscription removed", func() bool {
+		return !slices.Contains(brokerSubs(b, "vclu_dup_t"), "t/old")
+	})
+
+	// The new client connects with the same id and gets its own messages; the old one gets none.
+	_, err = engine.Execute(fmt.Sprintf(`
+		nw:setHost("127.0.0.1"):setPort(%d)
+		nw:subscribe("t/new", function() _c.nw = (_c.nw or 0) + 1 end)
+		nw:connect()`, port))
+	if err != nil {
+		t.Fatalf("lua: %v", err)
+	}
+	waitMQTT(t, engine, "new client's subscription", func() bool {
+		return slices.Contains(brokerSubs(b, "vclu_dup_t"), "t/new")
+	})
+	_ = b.Publish("t/old", []byte("x"), false)
+	_ = b.Publish("t/new", []byte("y"), false)
+	waitMQTT(t, engine, "message for the new client", func() bool {
+		got, _ := engine.Execute(`return tostring(_c.nw)`)
+		return got == "1"
+	})
+	got, _ = engine.Execute(`
+		old:simulateMessage("t/old", "z")
+		return tostring(_c.old) .. "," .. tostring(_c.old_any)`)
+	if got != "nil,nil" {
+		t.Errorf("old client callbacks ran: %s (subscription,onMessage), want nil,nil", got)
 	}
 }
 

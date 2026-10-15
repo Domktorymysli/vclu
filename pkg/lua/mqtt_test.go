@@ -288,3 +288,39 @@ func TestMQTTConnectAsyncReturnsImmediately(t *testing.T) {
 		t.Log("Warning: connect event not received within 15s")
 	}
 }
+
+// A message queued by a client that was destroyed or replaced since never reaches Lua: the
+// new client with the same id did not subscribe to it.
+func TestMQTTPendingMessageFromReplacedClientIsDropped(t *testing.T) {
+	mm := NewMQTTManager()
+	old, cur := &mqttClientWrapper{instanceID: "dup"}, &mqttClientWrapper{instanceID: "dup"}
+	mm.clients["dup"] = cur
+	mm.incoming <- &mqttMessage{InstanceID: "dup", from: old, Topic: "t/old"}
+	mm.incoming <- &mqttMessage{InstanceID: "dup", from: cur, Topic: "t/new"}
+
+	if msg := mm.GetPendingMessage(); msg == nil || msg.Topic != "t/new" {
+		t.Fatalf("got %+v, want only the current client's t/new", msg)
+	}
+	if msg := mm.GetPendingMessage(); msg != nil {
+		t.Fatalf("got %+v after the queue was drained", msg)
+	}
+}
+
+// The built-in client (global MQTT, used by the Home Assistant integration) cannot be destroyed
+// or replaced by a module or plugin.
+func TestMQTTBuiltInClientIsProtected(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+
+	got, err := engine.Execute(`(function()
+		local ok = MQTT:destroy()
+		local okNew, err = pcall(function() return MQTT:new("MQTT") end)
+		return tostring(ok) .. "|" .. tostring(okNew) .. "|" .. tostring(MQTT._destroyed)
+	end)()`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "false|false|nil" {
+		t.Errorf("destroy/new of the built-in client = %s, want false|false|nil", got)
+	}
+}

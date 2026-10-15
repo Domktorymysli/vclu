@@ -53,6 +53,7 @@ type MQTTClientCredentials struct {
 // mqttMessage represents an incoming MQTT message
 type mqttMessage struct {
 	InstanceID string
+	from       *mqttClientWrapper // dropped when this client was destroyed or replaced
 	Topic      string
 	Payload    string
 	QoS        byte
@@ -160,11 +161,13 @@ func (mm *MQTTManager) Connect(instanceID, url string, port int, clientID, usern
 	// Set connection handlers
 	opts.SetOnConnectHandler(func(c mqtt.Client) {
 		mm.mu.Lock()
-		if w, ok := mm.clients[instanceID]; ok {
-			w.connected = true
-			w.connectedAt = time.Now()
-			w.lastError = ""
+		if mm.clients[instanceID] != wrapper {
+			mm.mu.Unlock() // destroyed or replaced: its events belong to no instance
+			return
 		}
+		wrapper.connected = true
+		wrapper.connectedAt = time.Now()
+		wrapper.lastError = ""
 		mm.mu.Unlock()
 		if mm.metrics != nil {
 			mm.metrics.SetMQTTConnected(true)
@@ -179,10 +182,12 @@ func (mm *MQTTManager) Connect(instanceID, url string, port int, clientID, usern
 	opts.SetConnectionLostHandler(func(c mqtt.Client, err error) {
 		log.Printf("[MQTT] %s connection lost: %v", instanceID, err)
 		mm.mu.Lock()
-		if w, ok := mm.clients[instanceID]; ok {
-			w.connected = false
-			w.lastError = err.Error()
+		if mm.clients[instanceID] != wrapper {
+			mm.mu.Unlock()
+			return
 		}
+		wrapper.connected = false
+		wrapper.lastError = err.Error()
 		mm.mu.Unlock()
 		if mm.metrics != nil {
 			mm.metrics.SetMQTTConnected(false)
@@ -210,6 +215,7 @@ func (mm *MQTTManager) Connect(instanceID, url string, port int, clientID, usern
 		}
 		msg := &mqttMessage{
 			InstanceID: instanceID,
+			from:       wrapper,
 			Topic:      m.Topic(),
 			Payload:    string(m.Payload()),
 			QoS:        m.Qos(),
@@ -238,18 +244,25 @@ func (mm *MQTTManager) Connect(instanceID, url string, port int, clientID, usern
 
 	token := client.Connect()
 	if !token.WaitTimeout(10 * time.Second) {
+		mm.mu.Lock()
 		wrapper.lastError = "connection timeout (auto-reconnect active)"
+		mm.mu.Unlock()
 		log.Printf("[MQTT] %s initial connect timeout, auto-reconnect will retry", instanceID)
 		return fmt.Errorf("connection timeout (auto-reconnect active)")
 	}
 	if err := token.Error(); err != nil {
+		mm.mu.Lock()
 		wrapper.lastError = err.Error()
+		mm.mu.Unlock()
 		log.Printf("[MQTT] %s initial connect failed: %v, auto-reconnect will retry", instanceID, err)
 		return fmt.Errorf("connection failed: %w (auto-reconnect active)", err)
 	}
 
+	// The OnConnect handler writes these too, under the lock
+	mm.mu.Lock()
 	wrapper.connected = true
 	wrapper.connectedAt = time.Now()
+	mm.mu.Unlock()
 
 	log.Printf("[MQTT] %s connected", instanceID)
 	return nil
@@ -281,6 +294,30 @@ func (mm *MQTTManager) Disconnect(instanceID string) {
 			mm.metrics.SetMQTTConnected(false)
 		}
 	}
+}
+
+// Destroy removes the client at once, so a new client with the same id gets its own connection,
+// then unsubscribes its topics on the broker and disconnects in the background.
+func (mm *MQTTManager) Destroy(instanceID string) {
+	mm.mu.Lock()
+	wrapper, ok := mm.clients[instanceID]
+	if !ok || wrapper.client == nil {
+		mm.mu.Unlock()
+		return
+	}
+	delete(mm.clients, instanceID)
+	subs := append([]string(nil), wrapper.subscriptions...)
+	mm.mu.Unlock()
+	if mm.metrics != nil {
+		mm.metrics.SetMQTTConnected(false)
+	}
+
+	go func() {
+		if len(subs) > 0 && wrapper.client.IsConnected() {
+			wrapper.client.Unsubscribe(subs...).WaitTimeout(2 * time.Second)
+		}
+		wrapper.client.Disconnect(1000)
+	}()
 }
 
 // Publish publishes a message to a topic
@@ -417,11 +454,21 @@ func (mm *MQTTManager) Unsubscribe(instanceID, topic string) error {
 
 // GetPendingMessage returns next pending incoming message (non-blocking)
 func (mm *MQTTManager) GetPendingMessage() *mqttMessage {
-	select {
-	case msg := <-mm.incoming:
-		return msg
-	default:
-		return nil
+	for {
+		select {
+		case msg := <-mm.incoming:
+			if msg.from != nil {
+				mm.mu.RLock()
+				current := mm.clients[msg.InstanceID] == msg.from
+				mm.mu.RUnlock()
+				if !current {
+					continue // queued by a client that was destroyed or replaced since
+				}
+			}
+			return msg
+		default:
+			return nil
+		}
 	}
 }
 
@@ -579,10 +626,12 @@ func (mm *MQTTManager) Reconnect(instanceID, host string, port int, clientID, us
 	opts.SetConnectionLostHandler(func(c mqtt.Client, err error) {
 		log.Printf("[MQTT] %s connection lost: %v", instanceID, err)
 		mm.mu.Lock()
-		if w, ok := mm.clients[instanceID]; ok {
-			w.connected = false
-			w.lastError = err.Error()
+		if mm.clients[instanceID] != wrapper {
+			mm.mu.Unlock()
+			return
 		}
+		wrapper.connected = false
+		wrapper.lastError = err.Error()
 		mm.mu.Unlock()
 		if mm.metrics != nil {
 			mm.metrics.SetMQTTConnected(false)
@@ -610,6 +659,7 @@ func (mm *MQTTManager) Reconnect(instanceID, host string, port int, clientID, us
 		}
 		msg := &mqttMessage{
 			InstanceID: instanceID,
+			from:       wrapper,
 			Topic:      m.Topic(),
 			Payload:    string(m.Payload()),
 			QoS:        m.Qos(),
@@ -725,10 +775,14 @@ func registerMQTTFunctions(L *lua.LState, mm *MQTTManager) {
 		return 2
 	}))
 
-	// __go_mqtt_disconnect(instanceId) — fire-and-forget
+	// __go_mqtt_disconnect(instanceId, destroy) — fire-and-forget; destroy also unsubscribes
 	L.SetGlobal("__go_mqtt_disconnect", L.NewFunction(func(L *lua.LState) int {
 		instanceID := L.CheckString(1)
-		go mm.Disconnect(instanceID)
+		if L.OptBool(2, false) {
+			mm.Destroy(instanceID)
+		} else {
+			go mm.Disconnect(instanceID)
+		}
 		L.Push(lua.LTrue)
 		L.Push(lua.LNil)
 		return 2
