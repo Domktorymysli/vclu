@@ -17,7 +17,9 @@ FORCE=0
 
 while [[ $# -gt 0 ]]; do
   case $1 in
-    --version) VERSION="v${2#v}"; shift 2 ;;
+    --version)
+      if [ -z "${2:-}" ]; then echo "Error: --version needs a value, e.g. --version v1.3.0"; exit 1; fi
+      VERSION="v${2#v}"; shift 2 ;;
     --force) FORCE=1; shift ;;
     --help)
       echo "Usage: curl -sSL https://raw.githubusercontent.com/${REPO}/main/deploy/update.sh | sudo bash -s -- [OPTIONS]"
@@ -101,7 +103,9 @@ echo "  Data:      $DATA_DIR"
 echo "  Web port:  $WEB_PORT"
 echo ""
 
-if [ "$FORCE" -eq 0 ] && [ -n "$CURRENT" ] && [ "${VERSION#v}" = "${CURRENT#v}" ]; then
+# A stopped service after the same version means an earlier update failed: install again
+if [ "$FORCE" -eq 0 ] && [ -n "$CURRENT" ] && [ "${VERSION#v}" = "${CURRENT#v}" ] \
+   && systemctl is-active --quiet vclu; then
   echo "Already up to date."
   exit 0
 fi
@@ -142,12 +146,13 @@ fi
 # One archive, readable by root only (configuration holds passwords and keys):
 #   vclu, web/, runtime/, vclu.service  what install.sh replaces
 #   <data dir name>/                    configuration, Lua, plugins, KV, HomeKit pairing;
-#                                       without history, metrics and backups (large)
+#                                       without history, metrics and vCLU's own backups (large)
 BACKUP="$INSTALL_DIR/backup-${CURRENT:-unknown}-$(date +%Y%m%d-%H%M%S).tar.gz"
 DATA_PARENT=$(dirname "$DATA_DIR")
 DATA_NAME=$(basename "$DATA_DIR")
 EXCLUDES=("--exclude=$DATA_NAME/backup-*")
-for d in "$DATA_DIR"/clu/history "$DATA_DIR"/clu/metrics "$DATA_DIR"/clu/backups*; do
+for d in "$DATA_DIR"/clu/history "$DATA_DIR"/clu/metrics "$DATA_DIR"/clu/backups* \
+         "$DATA_DIR"/clu/workspace/backups "$DATA_DIR"/backup; do
   if [ -e "$d" ]; then EXCLUDES+=("--exclude=$DATA_NAME/${d#"$DATA_DIR"/}"); fi
 done
 INSTALL_ITEMS=(vclu)
@@ -155,21 +160,19 @@ for d in web runtime; do
   if [ -d "$INSTALL_DIR/$d" ]; then INSTALL_ITEMS+=("$d"); fi
 done
 
+# Stopped, so tar reads files that do not change under it (install.sh stops it anyway)
+systemctl stop vclu
 echo "Backing up to $BACKUP ..."
 if ! (umask 077 && tar -czf "$BACKUP" "${EXCLUDES[@]}" \
       -C "$INSTALL_DIR" "${INSTALL_ITEMS[@]}" \
       -C "$(dirname "$SERVICE_FILE")" "$(basename "$SERVICE_FILE")" \
       -C "$DATA_PARENT" "$DATA_NAME"); then
   rm -f "$BACKUP"
-  echo "Error: backup failed (disk full?). Nothing was changed."
+  systemctl start vclu
+  echo "Error: backup failed (disk full?). Nothing was changed; vCLU was started again."
   exit 1
 fi
 echo "Backup: $(du -h "$BACKUP" | cut -f1)"
-
-# Keep the three newest backups
-ls -1dt "$INSTALL_DIR"/backup-* 2>/dev/null | tail -n +4 | while read -r old; do
-  rm -rf "$old"
-done
 
 if ! bash "$EXTRACTED/install.sh" "$INSTALL_DIR" "$DATA_DIR" "$WEB_PORT"; then
   echo ""
@@ -182,6 +185,11 @@ if ! bash "$EXTRACTED/install.sh" "$INSTALL_DIR" "$DATA_DIR" "$WEB_PORT"; then
   echo "Configuration is in the same archive under $DATA_NAME/ (install.sh does not change it)."
   exit 1
 fi
+
+# Keep the three newest backups; only after a good update, so retries never prune the last good one
+ls -1t "$INSTALL_DIR"/backup-*.tar.gz 2>/dev/null | tail -n +4 | while read -r old; do
+  rm -f "$old"
+done
 
 echo ""
 echo "Updated ${CURRENT:-unknown} -> $VERSION. What changed:"
