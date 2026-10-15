@@ -43,7 +43,8 @@ Object Manager ships one XML per object class in its installation, in
 `configuration/com.grenton.om/device-interfaces/` (`module_*` and `clu_*` files): features (index,
 get/set, range, description), methods (`execute`/`set`, index, parameters) and events. Check there
 before guessing an index or the direction of a scale. The English hints sometimes contradict the
-Polish and German ones; trust the feature's description.
+Polish and German ones; trust the feature's description. The XML files belong to Grenton: do not
+copy them (or parts of them) into the repository; record only the indices you use, in your own words.
 
 ## Verification (every module)
 Most of the work is checking the module against Grenton's tools, not the code. Each sub-ticket's PR
