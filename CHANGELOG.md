@@ -18,6 +18,10 @@
 
 - **A state change whose report was lost shows up within 30 s** - a CLU reports a change with one UDP packet and no retry; when it was lost, vCLU kept the old state until another object in the same subscription changed (a light switched off from the myGrenton app stayed on in the dashboard). The CLU answers every subscription renewal (every 30 s) with the current values, and vCLU threw that answer away; it now applies it like a report ([#29](https://github.com/Domktorymysli/vclu/issues/29)).
 
+### Web
+
+- **After updating a plugin, the plugins page no longer shows it as unconfigured** - Install/Update stored the plugin under its short id while the page keys installed plugins by full id (`@vclu/...`), so the Installed tab showed a second entry with version `?`, "not configured" and an empty config form until a reload. Install and update now answer with `fullId` and `version`; the page updates the entry under the full id, keeping its configuration and enabled state, and matches installed plugins to the catalog by full id, so the description and the update button appear on the Installed tab ([#31](https://github.com/Domktorymysli/vclu/issues/31)).
+
 ### Home Assistant
 
 - **A dimmer published from the OM import follows the scale it announces** - the registry `light` handler looked for the subpath `brightness/set` while the topic parser already strips the trailing `/set`, so a brightness command was refused as an "unknown payload" and the dimmer never moved. It also passed Home Assistant's 0..100 value straight to an object whose value is 0..1. A brightness command now uses the same path as `expose()`: 0..100 in, 0..1 out, clamped to the range, through `setBrightness` when the object has it ([#1](https://github.com/Domktorymysli/vclu/issues/1)).

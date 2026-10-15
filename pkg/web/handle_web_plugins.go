@@ -334,7 +334,7 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 				return
 			}
 
-			c.JSON(http.StatusOK, gin.H{"success": true, "action": "updated", "fullId": fullId})
+			c.JSON(http.StatusOK, gin.H{"success": true, "action": "updated", "fullId": fullId, "version": pluginMeta.Version})
 			return
 		}
 	}
@@ -354,7 +354,7 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"success": true, "action": "installed", "fullId": fullId})
+	c.JSON(http.StatusOK, gin.H{"success": true, "action": "installed", "fullId": fullId, "version": pluginMeta.Version})
 }
 
 // handlePluginsAPIUninstall uninstalls a plugin
