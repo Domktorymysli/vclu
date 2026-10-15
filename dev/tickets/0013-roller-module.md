@@ -4,7 +4,7 @@
 - **Area:** grenton
 - **Size:** M
 - **Epic:** #11
-- **Blocked by:** —
+- **Blocked by:** #25 (PR #32)
 - **Skill:** `.agents/skills/write-contract-test`
 - **Needs hardware:** Grenton Object Manager to verify; no physical module
 
@@ -41,13 +41,13 @@ indices are"), not yet checked on vCLU: feature 0 State (0 stop, 1 up, 2 down, 3
 0 MoveUp(time, 0 = max time; while moving it stops), 1 MoveDown, 3 Stop, 9 SetLamelPosition,
 10 SetPosition(position, lamel; 91 = default, 92 = previous state); event 8 OnPositionChange.
 
-## Position direction: to settle first
-The sources disagree. The Object Manager XML describes Position as **0 % closed .. 100 % open**;
-`RemoteCover` and this ticket so far assume vCLU counts **0 = open**, and HomeKit counts 100 = open.
-Settle it before writing the class: check Position in Object Manager against the XML (and on a real
-roller if anyone has one), record the answer in `pkg/lua/AGENTS.md`, and if `RemoteCover` has it
-backwards, fix it in a separate ticket. Then convert in exactly one place, at the integration edge,
-with a contract test for both directions (Object Manager → HomeKit/HA and back).
+## Position direction
+Settled in #25 (PR #32), from the Object Manager XML: Grenton's Position counts **0 % closed ..
+100 % open**, vCLU counts **0 = open .. 100 = closed** (`VirtualCover`, HomeKit, Home Assistant
+discovery), and `RemoteCover` converts at the Grenton edge (`fromFeature`, `setPosition`); see
+`pkg/lua/AGENTS.md`, "Values and scales". The emulated roller is the same edge seen from the other
+side: it reports feature 7 and takes `SetPosition` on Grenton's scale, and its Lua value is on
+vCLU's scale. Convert in that one place, with a contract test for both directions.
 
 ## Files
 - `pkg/config/modules.go` (module type), `pkg/config/om_generator.go` if the module needs more than DOUT
