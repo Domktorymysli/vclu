@@ -54,7 +54,7 @@ end
 -- @param hex string Color in hex format (e.g., "#FF5500")
 -- @param ramp number Optional ramp time
 function RemoteRGBLight:setRGB(hex, ramp)
-    self:execute(6, '"' .. hex .. '"', ramp)
+    self:execute(6, hex, ramp)
 end
 
 --- Sets the RGB color using individual components.
