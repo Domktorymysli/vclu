@@ -50,9 +50,8 @@ stays wrong until another object in the session changes. Contract: `pkg/server/r
 
 ### Values and scales
 A dimmer's value is 0..1, a digital output is 1/0. HomeKit and Home Assistant count brightness
-0..100, HomeKit counts 100 = open while vCLU counts 0 = open. Convert at the integration edge and
-test both directions. Grenton's roller counts 0 % = closed; `RemoteCover` converts, so its value
-and `getPosition()` are on vCLU's scale.
+0..100: convert at the integration edge and test both directions. A cover's position is
+0 = closed .. 100 = open everywhere: Grenton, vCLU, Home Assistant and HomeKit.
 
 ### Feature and method indexes come from Object Manager
 Object Manager ships the definition of every Grenton object as XML: on macOS in

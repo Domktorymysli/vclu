@@ -900,3 +900,53 @@ func TestDashboardFunctionColorError(t *testing.T) {
 		t.Errorf("colour error logged %s times, expected once", n)
 	}
 }
+
+// A cover's position reaches the page as the object counts it (0 = closed); a roller that
+// has not reported one sends none, so the page does not show it as closed.
+func TestDashboardCoverPosition(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+
+	_, err := engine.Execute(`
+		_dashboards = {}
+		_open = VirtualCover:new('taras')
+		_open:open()
+		_roller = RemoteCover:new({ executeNoReply = function() end }, 'ROL1', 'salon')
+		_roller._hasPosition = true
+		local function fns(c) return { getPosition = function() return c:getPosition() end,
+			set = function(p) c:setPosition(p) end } end
+		Dashboard.new('covers')
+			:section('S', 'icon')
+			:cover('taras', 'Taras', 'icon', fns(_open))
+			:cover('salon', 'Salon', 'icon', fns(_roller))
+			:build()
+	`)
+	if err != nil {
+		t.Fatalf("build failed: %v", err)
+	}
+
+	var def map[string]interface{}
+	result, _ := engine.Execute(`Dashboard.API.getDefinition("covers")`)
+	if err := json.Unmarshal([]byte(result), &def); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	widgets := def["widgets"].([]interface{})
+	if p := widgets[0].(map[string]interface{})["position"]; p != float64(100) {
+		t.Errorf("open cover position = %v, want 100", p)
+	}
+	if p, ok := widgets[1].(map[string]interface{})["position"]; ok {
+		t.Errorf("unreported position = %v, want none", p)
+	}
+
+	var vals map[string]map[string]interface{}
+	result, _ = engine.Execute(`Dashboard.API.getValues("covers")`)
+	if err := json.Unmarshal([]byte(result), &vals); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if p := vals["taras"]["position"]; p != float64(100) {
+		t.Errorf("open cover value = %v, want 100", p)
+	}
+	if p, ok := vals["salon"]["position"]; ok {
+		t.Errorf("unreported value = %v, want none", p)
+	}
+}

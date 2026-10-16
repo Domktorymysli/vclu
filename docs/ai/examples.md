@@ -239,7 +239,7 @@ CLU220000592:executeNoReply(0, "SetThermostat(19)")
 ## Dashboard (Lua-defined)
 
 Public dashboard for a tablet/wall. Defined in Lua, available at `/d/:id`.
-Widget types: button, toggle, slider, status, link.
+Widget types: button, toggle, slider, status, link, select, chart, image, group, cover, dimmer, color.
 
 **IMPORTANT**: After creating a dashboard file you MUST add a `require()` in `modules/init.lua`.
 Without it the dashboard will not be loaded!
@@ -311,6 +311,34 @@ Dashboard.new('home')
 -- Section options (3rd argument of :section()):
 -- { columns = 4 }        -- override the column count for this section
 ```
+
+### Cover widget (blind)
+
+Buttons up / stop / down, and a 0-100% position slider when `set` is given.
+
+```lua
+local roleta = r:get("CLU220000592.ROL0001")
+
+-- inside a Dashboard.new(...):section(...) chain
+:cover('roleta_salon', 'Roleta salon', 'window', {
+    getPosition = function() return roleta:getPosition() end, -- slider and "NN%" label
+    getState    = function() return roleta:getState() end,    -- lights the moving button
+    open  = function() roleta:open() end,
+    close = function() roleta:close() end,
+    stop  = function() roleta:stop() end,
+    set   = function(p) roleta:setPosition(p) end,            -- without it: buttons only
+})
+
+-- A fixed position on one tap: a plain button
+:button('roleta_pol', 'Pół', 'window', function() roleta:setPosition(50) end)
+```
+
+- **Scale:** 0 = closed .. 100 = open, the same as `getPosition`/`setPosition`, the Grenton app,
+  Home Assistant and HomeKit.
+- **No position:** a Grenton roller without position (class 11, firmware fv01) returns nil from
+  `getPosition()`; the slider then shows `--`. Leave out `getPosition` and `set` for such a roller
+  and keep the buttons.
+- **getState:** 0 = stopped, 1 = up, 2 = down. Without it the stop button stays lit.
 
 ### Select widget (dropdown)
 

@@ -1,5 +1,5 @@
 --- Virtual cover class for blinds, shutters, and covers.
--- State is position 0-100 (0 = open, 100 = closed).
+-- State is position 0-100 (0 = closed, 100 = open), as in Grenton, Home Assistant and HomeKit.
 -- _type = "ROLLER" — must stay in sync with RemoteCover.
 -- Public API must match RemoteCover (see objects/RemoteCover.lua).
 -- @module objects.VirtualCover
@@ -23,28 +23,28 @@ end
 
 --- Gets the current position.
 -- @api public
--- @return number Position (0 = open, 100 = closed)
+-- @return number Position (0 = closed, 100 = open)
 function VirtualCover:getPosition()
     return self._state or 0
 end
 
 --- Sets the cover to a specific position.
 -- @api public
--- @param position number Target position (0 = open, 100 = closed)
+-- @param position number Target position (0 = closed, 100 = open)
 function VirtualCover:setPosition(position)
     self:updateState(position)
 end
 
---- Opens the cover (position = 0).
+--- Opens the cover (position = 100).
 -- @api public
 function VirtualCover:open()
-    self:updateState(0)
+    self:updateState(100)
 end
 
---- Closes the cover (position = 100).
+--- Closes the cover (position = 0).
 -- @api public
 function VirtualCover:close()
-    self:updateState(100)
+    self:updateState(0)
 end
 
 --- Stops the cover movement. Override for actual stop command.

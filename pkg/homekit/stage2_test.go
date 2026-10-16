@@ -69,7 +69,7 @@ func TestDimmerOnRealLua(t *testing.T) {
 	}
 }
 
-// Covers: vCLU 0 = open, HomeKit 100 = open; the position, not the value, is shown.
+// Covers: vCLU and HomeKit both count 100 = open; the position, not the value, is shown.
 func TestCoverOnRealLua(t *testing.T) {
 	engine := lua.NewLuaEngine()
 	defer engine.Close()
@@ -90,14 +90,14 @@ func TestCoverOnRealLua(t *testing.T) {
 		t.Error("cover must re-read its position on state events")
 	}
 	cur := findChar(w.Accessory, characteristic.TypeCurrentPosition)
-	if cur.Value().(int) != 70 {
-		t.Fatalf("vCLU 30 (mostly open) shown as %v, want 70", cur.Value())
+	if cur.Value().(int) != 30 {
+		t.Fatalf("vCLU 30 shown as %v, want 30", cur.Value())
 	}
 	findChar(w.Accessory, characteristic.TypeTargetPosition).SetValueRequest(100, homeAppRequest())
-	if v, _ := engine.Execute(`return tostring(cov:getPosition())`); v != "0" {
-		t.Fatalf("'open fully' gave vCLU position %s, want 0", v)
+	if v, _ := engine.Execute(`return tostring(cov:getPosition())`); v != "100" {
+		t.Fatalf("'open fully' gave vCLU position %s, want 100", v)
 	}
-	if v, ok := s.GetCurrentState("hk:cov"); !ok || v != 0 {
+	if v, ok := s.GetCurrentState("hk:cov"); !ok || v != 100 {
 		t.Errorf("state read %v %v, want the position", v, ok)
 	}
 }
@@ -251,6 +251,7 @@ func TestGrentonRollerFromHomeApp(t *testing.T) {
 		{"hk:strych", 40, "ROL2:execute(1, 0)"},
 		{"hk:strych", 60, "ROL2:execute(0, 0)"},
 		{"hk:strych", 0, "ROL2:execute(1, 0)"},
+		{"hk:strych", 50, "ROL2:execute(0, 0)"},
 	} {
 		w := acc[c.path]
 		if _, err := engine.Execute(`_sent = {}`); err != nil {
