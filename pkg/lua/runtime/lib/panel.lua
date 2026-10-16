@@ -1,0 +1,985 @@
+--- Panel: vCLU runs a Grenton Smart Panel.
+-- The CLU only forwards the panel's events (click(name, input)); this library keeps the
+-- state (open pages, cursor, edits, idle timer) and draws the screen with frames sent by
+-- RemotePanel. The panel is a square with four buttons in the corners around a small
+-- display: a page gives the corners meanings (roles up, down, ok); one corner is always
+-- back. Hints for the corners are drawn next to them, the buttons' LEDs show which work.
+--
+--   local Panel = require("lib/panel")
+--   Panel.new(dom.P1_PANEL_SALON)
+--     :home(Panel.menu("Dom")
+--       :toggle("Swiatlo", dom.LAMPA)
+--       :number("Zadana", getFn, setFn, { step = 0.5, min = 19, max = 22 }))
+--     :idle(Panel.idle{ { "Salon", dom.TEMP } })
+--     :sleepAfter(30)
+--
+-- A page is a table: draw(screen, panel), keys (table or function(panel) -> {role = {label, fn}}),
+-- input(name, panel), back(panel) -> true when it handled back itself, watch (objects or
+-- function), every (seconds), modal (gets every input, no hints), open/close(panel).
+-- Panel.register(name, factory) adds a page type as Panel.<name>.
+-- @module lib.panel
+
+local Panel = {}
+Panel.__index = Panel
+
+-- Screen layout (128 x 64, font 1); tune on the panel
+Panel.layout = {
+    w = 128, h = 64,
+    cw = 6,                  -- character width of font 1
+    top = 0, bottom = 54,    -- y of the hint rows
+    rows = { 14, 27, 40 },   -- y of the content rows
+    rowH = 12,
+}
+Panel.MAX_TEXT = 15
+Panel.partial = true         -- redraw only changed areas (needs DrawBox to fill)
+Panel.REDRAW_MS = 20         -- changes within this time make one frame
+Panel.pageControlOff = true  -- stop gestures from switching Grenton's own pages
+
+-- Letters the panel's fonts may not have, replaced in one place
+Panel.charMap = {
+    ["ą"] = "a", ["ć"] = "c", ["ę"] = "e", ["ł"] = "l", ["ń"] = "n", ["ó"] = "o",
+    ["ś"] = "s", ["ź"] = "z", ["ż"] = "z", ["Ą"] = "A", ["Ć"] = "C", ["Ę"] = "E",
+    ["Ł"] = "L", ["Ń"] = "N", ["Ó"] = "O", ["Ś"] = "S", ["Ź"] = "Z", ["Ż"] = "Z",
+}
+
+Panel.timer = {
+    after = function(ms, fn) return EventBus:getShared():setTimeout(fn, ms) end,
+    cancel = function(id) if id then EventBus:getShared():clearInterval(id) end end,
+    now = function() return (__go_time_ms and __go_time_ms()) or os.time() * 1000 end,
+    date = function(fmt) return os.date(fmt) end,
+}
+
+local CORNERS = { "tl", "tr", "bl", "br" }
+-- For each back corner: the other column is up (top) / down (bottom), the rest is ok
+local ROLES = {
+    br = { up = "tl", down = "bl", ok = "tr" },
+    bl = { up = "tr", down = "br", ok = "tl" },
+    tr = { up = "tl", down = "bl", ok = "br" },
+    tl = { up = "tr", down = "br", ok = "bl" },
+}
+
+local function log() return Logger:getShared() end
+
+--- Text with the letters the panel lacks replaced.
+function Panel.map(s)
+    s = tostring(s == nil and "" or s)
+    for from, to in pairs(Panel.charMap) do s = s:gsub(from, to) end
+    return s
+end
+
+--- Text as the panel can print it: letters mapped, cut to MAX_TEXT.
+function Panel.text(s)
+    s = Panel.map(s)
+    if #s > Panel.MAX_TEXT then s = s:sub(1, Panel.MAX_TEXT) end
+    return s
+end
+
+-- Value of an object (getValue/get) or a function
+local function read(src)
+    if type(src) == "function" then return src() end
+    if type(src) == "table" then
+        if src.getValue then return src:getValue() end
+        if src.get then return src:get() end
+    end
+    return src
+end
+Panel.read = read
+
+local function fmt(f, v)
+    if v == nil then return "--" end
+    if type(f) == "function" then return f(v) end
+    if f then
+        local ok, s = pcall(string.format, f, v)
+        if ok then return s end
+    end
+    return tostring(v)
+end
+Panel.format = fmt
+
+-- ============================================================
+-- Screen: collects draw calls in named regions
+-- ============================================================
+
+local Screen = {}
+Screen.__index = Screen
+
+local function newScreen(panelObj)
+    return setmetatable({ _obj = panelObj, _regions = {}, _order = {}, _cur = nil }, Screen)
+end
+
+--- Starts a region: an area redrawn on its own when only it changed.
+-- @param name string Region name, unique on the page
+-- @param x,y,w,h number Its box (cleared before it is redrawn); nil = redraw everything
+function Screen:region(name, x, y, w, h)
+    local r = self._regions[name]
+    if not r then
+        r = { name = name, ops = {}, box = x and { x, y, w, h } or nil }
+        self._regions[name] = r
+        self._order[#self._order + 1] = r
+    end
+    self._cur = r
+    return self
+end
+
+function Screen:_add(op)
+    if not self._cur then self:region("body") end
+    local ops = self._cur.ops
+    ops[#ops + 1] = op
+    return self
+end
+
+function Screen:text(x, y, s, font)
+    return self:_add(self._obj:op(RemotePanel.PRINT_TEXT, math.floor(x), math.floor(y), Panel.text(s), font or 1))
+end
+
+--- Text aligned to the right edge (or to x as its right end).
+function Screen:textRight(y, s, font, right)
+    s = Panel.text(s)
+    local x = (right or Panel.layout.w) - #s * Panel.layout.cw * (font or 1)
+    return self:text(math.max(0, x), y, s, font)
+end
+
+--- Text centred between x0 and x1 (default: the whole width).
+function Screen:textCenter(y, s, font, x0, x1)
+    s = Panel.text(s)
+    x0, x1 = x0 or 0, x1 or Panel.layout.w
+    local x = x0 + ((x1 - x0) - #s * Panel.layout.cw * (font or 1)) / 2
+    return self:text(math.max(0, x), y, s, font)
+end
+
+function Screen:float(x, y, n, precision, font)
+    return self:_add(self._obj:op(RemotePanel.PRINT_FLOAT, x, y, n, precision or 1, font or 1))
+end
+
+function Screen:line(x, y, xe, ye, color)
+    return self:_add(self._obj:op(RemotePanel.DRAW_LINE, x, y, xe, ye, color or 1))
+end
+
+function Screen:box(x, y, w, h, color)
+    return self:_add(self._obj:op(RemotePanel.DRAW_BOX, x, y, w, h, color or 1))
+end
+
+function Screen:point(x, y, color)
+    return self:_add(self._obj:op(RemotePanel.DRAW_POINT, x, y, color or 1))
+end
+
+function Screen:icon(x, y, file)
+    return self:_add(self._obj:op(RemotePanel.DRAW_ICON, x, y, tostring(file)))
+end
+
+Panel.Screen = Screen
+
+-- ============================================================
+-- Panel instance
+-- ============================================================
+
+--- Takes over a panel.
+-- @param obj RemotePanel The panel from the OM import
+-- @return Panel
+function Panel.new(obj)
+    assert(obj and obj.op and obj.send, "Panel.new: a RemotePanel is required")
+    local self = setmetatable({
+        obj = obj,
+        _input = { btn1 = "tl", btn2 = "tr", btn3 = "bl", btn4 = "br" },
+        _back = "br",
+        _home = nil,
+        _idle = nil,
+        _sleep = nil,
+        _gestures = {},
+        _onProximity = nil,
+        _stack = {},
+        _subs = {},
+        _timers = {},
+        _deb = {},
+        _last = nil,       -- regions and LEDs of the last frame sent
+        _pending = false,
+        _full = true,
+        _started = false,
+    }, Panel)
+    obj:onInput(function(input) self:input(input) end)
+    Panel.timer.after(0, function() self:start() end)
+    return self
+end
+
+--- Which physical button is in which corner.
+-- @param map table { tl = "btn1", tr = "btn2", bl = "btn3", br = "btn4" }
+function Panel:buttons(map)
+    self._input = {}
+    for corner, btn in pairs(map) do self._input[btn] = corner end
+    return self
+end
+
+--- The corner that is back on every screen (default "br").
+function Panel:back(corner)
+    if corner == nil then return self:goBack() end
+    assert(ROLES[corner], "Panel:back: corner must be tl, tr, bl or br")
+    self._back = corner
+    return self
+end
+
+function Panel:home(page)
+    if page == nil then return self:goHome() end
+    self._home = page
+    return self
+end
+
+local function setIdle(self, page)
+    self._idle = page
+    if page then page._isIdle = true end
+    return self
+end
+
+--- After this many seconds without input: the idle screen, or home.
+function Panel:sleepAfter(seconds)
+    self._sleep = seconds
+    return self
+end
+
+--- A gesture handler: name "swipe:up" / "swipe:down" / "swipe:left" / "swipe:right".
+function Panel:onGesture(name, fn)
+    if not name:find(":") then name = "swipe:" .. name end
+    self._gestures[name] = fn
+    return self
+end
+
+function Panel:onProximity(fn)
+    self._onProximity = fn
+    return self
+end
+
+--- Draws the home page; runs by itself once the definition is complete.
+function Panel:start()
+    if self._started then return self end
+    self._started = true
+    if Panel.pageControlOff then self.obj:set(RemotePanel.FEATURE_PAGE_CONTROL, 0) end
+    self:goHome()
+    return self
+end
+
+-- ---------- pages ----------
+
+function Panel:top() return self._stack[#self._stack] end
+
+local function keysOf(page, panel)
+    local k = page and page.keys
+    if type(k) == "function" then k = k(panel) end
+    return k or {}
+end
+
+function Panel:_unwatch()
+    for _, unsub in ipairs(self._subs) do pcall(unsub) end
+    self._subs = {}
+    for _, id in ipairs(self._timers) do Panel.timer.cancel(id) end
+    self._timers = {}
+end
+
+function Panel:_watch(page)
+    self:_unwatch()
+    if not page then return end
+    local objs = page.watch
+    if type(objs) == "function" then objs = objs(self) end
+    for _, o in ipairs(objs or {}) do
+        if type(o) == "table" and o.onChange then
+            local unsub = o:onChange(function() self:redraw() end)
+            if type(unsub) == "function" then self._subs[#self._subs + 1] = unsub end
+        end
+    end
+    if page.every then
+        local function tick()
+            if self:top() ~= page then return end
+            self:redraw()
+            local ms = page.every * 1000
+            if page.align then ms = ms - Panel.timer.now() % ms end
+            self._timers[#self._timers + 1] = Panel.timer.after(ms, tick)
+        end
+        local ms = page.every * 1000
+        if page.align then ms = ms - Panel.timer.now() % ms end
+        self._timers[#self._timers + 1] = Panel.timer.after(ms, tick)
+    end
+end
+
+function Panel:_show()
+    local page = self:top()
+    self:_watch(page)
+    self:redraw()
+end
+
+local function call(page, name, ...)
+    local fn = page and page[name]
+    if type(fn) ~= "function" then return nil end
+    local ok, r = pcall(fn, ...)
+    if not ok then log():error("[Panel] page %s failed: %s", name, tostring(r)) end
+    return r
+end
+
+--- Opens a page on top of the current one.
+function Panel:open(page)
+    if type(page) == "string" then page = self._named and self._named[page] end
+    if not page then return self end
+    self._stack[#self._stack + 1] = page
+    call(page, "open", self)
+    self:_show()
+    return self
+end
+
+--- Closes the current page; on home, goes to the idle screen.
+function Panel:goBack()
+    local page = self:top()
+    if #self._stack <= 1 then
+        if page and not page._isIdle and self._idle then self:goIdle() end
+        return self
+    end
+    table.remove(self._stack)
+    call(page, "close", self)
+    self:_show()
+    return self
+end
+
+--- Closes a given page wherever it is (notify, cleaning end).
+function Panel:close(page)
+    for i = #self._stack, 1, -1 do
+        if self._stack[i] == page then
+            table.remove(self._stack, i)
+            call(page, "close", self)
+            if i == #self._stack + 1 then self:_show() end
+            return self
+        end
+    end
+    return self
+end
+
+function Panel:_reset(page)
+    for i = #self._stack, 1, -1 do call(self._stack[i], "close", self) end
+    self._stack = {}
+    if page then
+        self._stack[1] = page
+        call(page, "open", self)
+    end
+    self:_show()
+end
+
+function Panel:goHome()
+    self:_reset(self._home)
+    return self
+end
+
+function Panel:goIdle()
+    self:_reset(self._idle or self._home)
+    return self
+end
+
+--- Names a page so panel:open("name") and gestures can open it.
+function Panel:name(name, page)
+    self._named = self._named or {}
+    self._named[name] = page
+    return self
+end
+
+-- ---------- input ----------
+
+function Panel:_touch()
+    if self._sleepTimer then Panel.timer.cancel(self._sleepTimer) end
+    self._sleepTimer = nil
+    if not self._sleep then return end
+    self._sleepTimer = Panel.timer.after(self._sleep * 1000, function()
+        self._sleepTimer = nil
+        local top = self:top()
+        if top and (top.modal or top._isIdle) then return self:_touch() end
+        self:goIdle()
+    end)
+end
+
+--- Handles one input from the CLU.
+-- @param raw string btn1..btn4 (":long", ":hold"), swipe:<dir>, proximity, wake
+function Panel:input(raw)
+    raw = tostring(raw)
+    if raw == "wake" then
+        self:redraw(true)
+        return
+    end
+    if raw == "proximity" then
+        self:_touch()
+        if self._onProximity then
+            local ok, err = pcall(self._onProximity, self)
+            if not ok then log():error("[Panel] onProximity failed: %s", tostring(err)) end
+        end
+        return
+    end
+    local base, mod = raw:match("^([^:]+):?(.*)$")
+    if base == "swipe" then
+        self:_touch()
+        local fn = self._gestures[raw]
+        if fn then
+            local ok, err = pcall(fn, self)
+            if not ok then log():error("[Panel] gesture %s failed: %s", raw, tostring(err)) end
+        elseif self:top() and self:top().gestures then
+            call(self:top(), "input", raw, self)
+            self:redraw()
+        end
+        return
+    end
+    local corner = self._input[base]
+    if not corner then
+        log():warn("[Panel] %s: unknown input %s", tostring(self.obj._name), raw)
+        return
+    end
+    self:_touch()
+    local page = self:top()
+    if not page then return end
+    local role = corner == self._back and "back" or nil
+    if not role then
+        for r, c in pairs(ROLES[self._back]) do if c == corner then role = r end end
+    end
+    local name = mod ~= "" and (role .. ":" .. mod) or role
+
+    if page.modal then
+        call(page, "input", name, self)
+        self:redraw()
+        return
+    end
+    if page._isIdle and self._home and page ~= self._home then
+        if mod == "" then self:goHome() end
+        return
+    end
+    if name == "back" then
+        if call(page, "back", self) ~= true then self:goBack() end
+        self:redraw()
+        return
+    end
+    if page.input then
+        call(page, "input", name, self)
+    else
+        local key = keysOf(page, self)[name]
+        if key and type(key[2]) == "function" then
+            local ok, err = pcall(key[2], self)
+            if not ok then log():error("[Panel] key %s failed: %s", name, tostring(err)) end
+        end
+    end
+    self:redraw()
+end
+
+-- ---------- helpers for pages ----------
+
+--- Runs fn once, seconds after the last call with this key.
+function Panel:debounce(key, seconds, fn)
+    if self._deb[key] then Panel.timer.cancel(self._deb[key]) end
+    self._deb[key] = Panel.timer.after((seconds or 1) * 1000, function()
+        self._deb[key] = nil
+        local ok, err = pcall(fn)
+        if not ok then log():error("[Panel] debounce %s failed: %s", tostring(key), tostring(err)) end
+    end)
+end
+
+-- Splits text into lines of at most MAX_TEXT characters, by words
+local function wrap(text, max)
+    local lines, cur = {}, ""
+    for word in tostring(text):gmatch("%S+") do
+        if cur == "" then cur = word
+        elseif #cur + 1 + #word <= max then cur = cur .. " " .. word
+        else lines[#lines + 1] = cur; cur = word end
+    end
+    if cur ~= "" then lines[#lines + 1] = cur end
+    return lines
+end
+Panel.wrap = wrap
+
+--- Shows a message over the current page; OK, back or the timeout closes it.
+-- @param text string
+-- @param opts table|nil { beep = true, seconds = 30, title = "..." }
+function Panel:notify(text, opts)
+    opts = opts or {}
+    local page
+    page = {
+        keys = { ok = { "OK", function(p) p:close(page) end } },
+        draw = function(s)
+            local L = Panel.layout
+            if opts.title then s:region("title"):textCenter(L.top, opts.title, 1, 30, 98) end
+            s:region("msg")
+            for i, line in ipairs(wrap(Panel.map(text), Panel.MAX_TEXT)) do
+                if L.rows[i] then s:textCenter(L.rows[i], line) end
+            end
+        end,
+        back = function(p) p:close(page) return true end,
+    }
+    self:open(page)
+    if opts.beep then self.obj:beep() end
+    if opts.seconds then
+        Panel.timer.after(opts.seconds * 1000, function() self:close(page) end)
+    end
+    return page
+end
+
+-- ---------- drawing ----------
+
+--- Asks for a redraw; changes within REDRAW_MS make one frame.
+-- @param full boolean Redraw everything (the picture may be lost)
+function Panel:redraw(full)
+    if full then self._full = true end
+    if self._pending then return end
+    self._pending = true
+    Panel.timer.after(Panel.REDRAW_MS, function()
+        self._pending = false
+        self:_frame()
+    end)
+end
+
+local HINT_W = 30
+
+local function hintBox(corner)
+    local L = Panel.layout
+    local x = (corner == "tl" or corner == "bl") and 0 or (L.w - HINT_W)
+    local y = (corner == "tl" or corner == "tr") and L.top or L.bottom
+    return x, y, HINT_W, 10
+end
+
+function Panel:_frame()
+    local page = self:top()
+    if not page then return end
+    local L = Panel.layout
+    local s = newScreen(self.obj)
+    local keys = keysOf(page, self)
+    local roles = ROLES[self._back]
+    local lit = {}
+
+    -- hints in the corners
+    for _, corner in ipairs(CORNERS) do
+        local role
+        if corner == self._back then role = "back" end
+        for r, c in pairs(roles) do if c == corner then role = r end end
+        local label
+        if not page.modal and not page._isIdle then
+            if role == "back" then
+                label = keys.back and keys.back[1] or "<"
+            elseif keys[role] then
+                label = keys[role][1]
+            end
+        end
+        local x, y, w, h = hintBox(corner)
+        s:region("hint." .. corner, x, y, w, h)
+        if label and label ~= "" then
+            lit[corner] = true
+            if corner == "tl" or corner == "bl" then s:text(x, y, label)
+            else s:textRight(y, label) end
+        end
+    end
+    if page._isIdle then for _, c in ipairs(CORNERS) do lit[c] = true end end
+
+    local ok, err = pcall(page.draw, s, self)
+    if not ok then log():error("[Panel] draw failed: %s", tostring(err)) end
+
+    -- LEDs of the buttons
+    local leds = {}
+    for btn, corner in pairs(self._input) do
+        local idx = tonumber(btn:match("^btn(%d+)$"))
+        local b = idx and self.obj:getButton(idx - 1)
+        if b then leds[#leds + 1] = { key = btn, on = lit[corner] == true, op = b:ledOp(lit[corner] == true) } end
+    end
+    table.sort(leds, function(a, b) return a.key < b.key end)
+
+    -- full frame
+    local full = { self.obj:op(RemotePanel.CLEAR) }
+    local sigs = {}
+    for _, r in ipairs(s._order) do
+        for _, op in ipairs(r.ops) do full[#full + 1] = op end
+        sigs[r.name] = table.concat(r.ops, "\n")
+    end
+    full[#full + 1] = self.obj:op(RemotePanel.DISPLAY)
+    for _, l in ipairs(leds) do full[#full + 1] = l.op end
+
+    local last = self._last
+    local ops = full
+    if not self._full and last and Panel.partial then
+        ops = {}
+        local same = #s._order == #last.order
+        for i, r in ipairs(s._order) do
+            if not same then break end
+            if last.order[i] ~= r.name then same = false break end
+            if last.sigs[r.name] ~= sigs[r.name] then
+                if not r.box then same = false break end
+                local b = r.box
+                ops[#ops + 1] = self.obj:op(RemotePanel.DRAW_BOX, b[1], b[2], b[3], b[4], 0)
+                for _, op in ipairs(r.ops) do ops[#ops + 1] = op end
+            end
+        end
+        if not same then
+            ops = full
+        else
+            if #ops > 0 then ops[#ops + 1] = self.obj:op(RemotePanel.DISPLAY) end
+            for _, l in ipairs(leds) do
+                if last.leds[l.key] ~= l.on then ops[#ops + 1] = l.op end
+            end
+        end
+    end
+    self._full = false
+
+    local order = {}
+    for i, r in ipairs(s._order) do order[i] = r.name end
+    local ledState = {}
+    for _, l in ipairs(leds) do ledState[l.key] = l.on end
+    self._last = { order = order, sigs = sigs, leds = ledState }
+
+    if #ops > 0 then self.obj:send(ops, full) end
+end
+
+-- ============================================================
+-- Page types
+-- ============================================================
+
+--- Adds a page type: Panel.<name>(...) calls factory(...) and returns the page.
+function Panel.register(name, factory)
+    assert(type(factory) == "function", "Panel.register: factory must be a function")
+    Panel[name] = factory
+end
+
+local function title(s, text)
+    local L = Panel.layout
+    s:region("title", HINT_W, L.top, L.w - 2 * HINT_W, 10):textCenter(L.top, text, 1, HINT_W, L.w - HINT_W)
+end
+Panel.drawTitle = title
+
+-- ---------- menu ----------
+
+local Menu = {}
+Menu.__index = Menu
+
+--- A list of rows; up/down move, OK opens or edits, back leaves (or cancels an edit).
+function Panel.menu(name)
+    local m = setmetatable({ name = name, rows = {}, cursor = 1, scroll = 0, edit = nil }, Menu)
+    -- the panel calls page functions without self
+    m.keys = function() return Menu.keys(m) end
+    m.watch = function() return Menu.watch(m) end
+    m.draw = function(s, p) return Menu.draw(m, s, p) end
+    m.input = function(n, p) return Menu.input(m, n, p) end
+    m.back = function() return Menu.back(m) end
+    m.close = function() return Menu.close(m) end
+    return m
+end
+
+function Menu:_add(row) self.rows[#self.rows + 1] = row return self end
+
+--- A row that opens a page (or a submenu).
+function Menu:item(label, page) return self:_add({ label = label, page = page }) end
+Menu.submenu = Menu.item
+
+--- A row with an on/off object; OK switches it.
+function Menu:toggle(label, obj)
+    return self:_add({ label = label, obj = obj, kind = "toggle" })
+end
+
+--- A read-only value.
+function Menu:value(label, src, format)
+    return self:_add({ label = label, src = src, format = format, kind = "value",
+        obj = type(src) == "table" and src or nil })
+end
+
+--- A number edited in place: OK, then +/-, OK sets it once, back cancels.
+-- @param opts table { step = 1, min, max, format = "%.1f", watch = obj }
+function Menu:number(label, get, set, opts)
+    opts = opts or {}
+    return self:_add({ label = label, get = get, set = set, opts = opts, kind = "number", obj = opts.watch })
+end
+
+--- One of a list of options edited in place.
+-- @param opts table { options = { "A", "B" }, watch = obj }
+function Menu:choice(label, get, set, opts)
+    opts = opts or {}
+    return self:_add({ label = label, get = get, set = set, opts = opts, kind = "choice", obj = opts.watch })
+end
+
+--- A row that runs fn(panel) (or opens a page); opts.confirm asks first.
+function Menu:action(label, fn, opts)
+    opts = opts or {}
+    return self:_add({ label = label, fn = fn, opts = opts, kind = "action" })
+end
+
+local function rowValue(row)
+    if row.kind == "toggle" then
+        local v = read(row.obj)
+        return (v == 1 or v == true) and "ON" or "OFF"
+    elseif row.kind == "value" then
+        return fmt(row.format, read(row.src))
+    elseif row.kind == "number" or row.kind == "choice" then
+        return fmt(row.opts.format, read(row.get))
+    elseif row.page then
+        return ">"
+    end
+    return ""
+end
+
+function Menu:keys()
+    if self.edit then
+        return { up = { "+" }, down = { "-" }, ok = { "OK" }, back = { "x" } }
+    end
+    local k = {}
+    if #self.rows > 1 then k.up = { "^" }; k.down = { "v" } end
+    local row = self.rows[self.cursor]
+    if row and row.kind ~= "value" then k.ok = { "OK" } end
+    return k
+end
+
+function Menu:watch()
+    local objs = {}
+    for _, row in ipairs(self.rows) do
+        if type(row.obj) == "table" then objs[#objs + 1] = row.obj end
+    end
+    return objs
+end
+
+function Menu:draw(s, panel)
+    local L = Panel.layout
+    title(s, self.name or "")
+    local n = #L.rows
+    if self.cursor > self.scroll + n then self.scroll = self.cursor - n end
+    if self.cursor <= self.scroll then self.scroll = self.cursor - 1 end
+    for i = 1, n do
+        local row = self.rows[self.scroll + i]
+        local y = L.rows[i]
+        s:region("row" .. i, 0, y - 1, L.w, L.rowH)
+        if row then
+            local sel = (self.scroll + i) == self.cursor
+            local value
+            if sel and self.edit then
+                value = "[" .. (row.kind == "choice" and tostring(self.edit.value)
+                    or fmt(row.opts.format, self.edit.value)) .. "]"
+            else
+                value = rowValue(row)
+            end
+            s:text(0, y, (sel and ">" or " ") .. row.label)
+            if value ~= "" then s:textRight(y, value) end
+        end
+    end
+end
+
+local function clamp(v, opts)
+    if opts.min and v < opts.min then v = opts.min end
+    if opts.max and v > opts.max then v = opts.max end
+    return v
+end
+
+function Menu:input(name, panel)
+    local row = self.rows[self.cursor]
+    if self.edit then
+        local e = self.edit
+        if name == "up" or name == "down" or name == "up:hold" or name == "down:hold" then
+            local dir = name:sub(1, 2) == "up" and 1 or -1
+            if row.kind == "number" then
+                local step = row.opts.step or 1
+                e.value = clamp((tonumber(e.value) or row.opts.min or 0) + dir * step, row.opts)
+                e.value = math.floor(e.value / step + 0.5) * step
+            else
+                local opts = row.opts.options or {}
+                local i = 1
+                for k, o in ipairs(opts) do if o == e.value then i = k end end
+                i = (i - 1 + dir) % #opts + 1
+                e.value = opts[i]
+            end
+        elseif name == "ok" then
+            self.edit = nil
+            local ok, err = pcall(row.set, e.value)
+            if not ok then log():error("[Panel] set %s failed: %s", row.label, tostring(err)) end
+        end
+        return
+    end
+    if name == "up" then
+        self.cursor = (self.cursor - 2) % #self.rows + 1
+    elseif name == "down" then
+        self.cursor = self.cursor % #self.rows + 1
+    elseif name == "ok" and row then
+        if row.page then
+            panel:open(row.page)
+        elseif row.kind == "toggle" then
+            local o = row.obj
+            if o.toggle then o:toggle()
+            elseif o.setValue then o:setValue((read(o) == 1) and 0 or 1) end
+        elseif row.kind == "number" or row.kind == "choice" then
+            local v = read(row.get)
+            if row.kind == "number" then v = clamp(tonumber(v) or row.opts.min or 0, row.opts) end
+            if row.kind == "choice" and v == nil then v = (row.opts.options or {})[1] end
+            self.edit = { value = v }
+        elseif row.kind == "action" then
+            local run = function(p)
+                if type(row.fn) == "table" then return p:open(row.fn) end
+                local ok, err = pcall(row.fn, p)
+                if not ok then log():error("[Panel] action %s failed: %s", row.label, tostring(err)) end
+            end
+            if row.opts.confirm then
+                panel:open(Panel.confirm(row.opts.confirm, run, row.label))
+            else
+                run(panel)
+            end
+        end
+    end
+end
+
+function Menu:back()
+    if self.edit then self.edit = nil return true end
+end
+
+function Menu:close() self.edit = nil end
+
+Panel.Menu = Menu
+
+-- ---------- confirm ----------
+
+--- Asks before running fn(panel): OK runs it and closes, back closes.
+function Panel.confirm(text, fn, heading)
+    local page
+    page = {
+        keys = { ok = { "OK" } },
+        draw = function(s)
+            local L = Panel.layout
+            title(s, (heading or "") .. "?")
+            s:region("msg")
+            for i, line in ipairs(wrap(Panel.map(text), Panel.MAX_TEXT)) do
+                if L.rows[i] then s:text(0, L.rows[i], line) end
+            end
+        end,
+        input = function(name, p)
+            if name == "ok" then
+                p:close(page)
+                fn(p)
+            end
+        end,
+    }
+    return page
+end
+
+-- ---------- toggle, value, thermostat ----------
+
+--- One on/off object on its own page; OK switches.
+function Panel.toggle(obj, name)
+    return {
+        watch = { obj },
+        keys = { ok = { "OK" } },
+        draw = function(s)
+            local L = Panel.layout
+            title(s, name or obj._name or "")
+            local v = read(obj)
+            s:region("value", 0, L.rows[2] - 1, L.w, 16):textCenter(L.rows[2], (v == 1 or v == true) and "ON" or "OFF", 2)
+        end,
+        input = function(n)
+            if n ~= "ok" then return end
+            if obj.toggle then obj:toggle()
+            elseif obj.setValue then obj:setValue((read(obj) == 1) and 0 or 1) end
+        end,
+    }
+end
+
+--- One value on its own page.
+function Panel.value(name, src, format)
+    return {
+        watch = { type(src) == "table" and src or nil },
+        every = type(src) == "function" and 30 or nil,
+        draw = function(s)
+            local L = Panel.layout
+            title(s, name)
+            s:region("value", 0, L.rows[2] - 1, L.w, 16):textCenter(L.rows[2], fmt(format, read(src)), 2)
+        end,
+    }
+end
+
+--- Current and set temperature; +/- change the set point, written 1 s after the last press.
+-- @param o table { name, current = obj|fn, get = fn, set = fn, step = 0.5, min, max, format = "%.1f" }
+function Panel.thermostat(o)
+    local page = { pending = nil }
+    page.watch = function()
+        local w = {}
+        if type(o.current) == "table" then w[#w + 1] = o.current end
+        if type(o.watch) == "table" then w[#w + 1] = o.watch end
+        return w
+    end
+    page.keys = { up = { "+" }, down = { "-" } }
+    page.draw = function(s)
+        local L = Panel.layout
+        title(s, o.name or "Termostat")
+        s:region("now", 0, L.rows[1] - 1, L.w, L.rowH)
+        s:text(0, L.rows[1], "Teraz"):textRight(L.rows[1], fmt(o.format or "%.1f", read(o.current)))
+        local set = page.pending or read(o.get)
+        s:region("set", 0, L.rows[2] - 1, L.w, L.rowH)
+        s:text(0, L.rows[2], "Zadana"):textRight(L.rows[2], fmt(o.format or "%.1f", set))
+        if o.min or o.max then
+            s:region("range", 0, L.rows[3] - 1, L.w, L.rowH)
+            s:textCenter(L.rows[3], fmt("%g", o.min or 0) .. "-" .. fmt("%g", o.max or 0))
+        end
+    end
+    page.input = function(n, panel)
+        local base = n:match("^(%a+)")
+        if base ~= "up" and base ~= "down" then return end
+        local step = o.step or 0.5
+        local v = tonumber(page.pending or read(o.get)) or o.min or 0
+        v = clamp(v + (base == "up" and step or -step), o)
+        v = math.floor(v / step + 0.5) * step
+        page.pending = v
+        panel:debounce(page, 1, function()
+            page.pending = nil
+            o.set(v)
+            panel:redraw()
+        end)
+    end
+    return page
+end
+
+-- ---------- idle ----------
+
+--- The idle screen: time, date and a few values; any button opens home.
+-- @param rows table { { "Salon", obj|fn, "%.1f" }, ... }
+function Panel.idle(rows, page)
+    -- panel:idle(page) sets the idle screen; Panel.idle(rows) makes one
+    if getmetatable(rows) == Panel then return setIdle(rows, page) end
+    rows = rows or {}
+    local page = { every = 60, align = true }
+    page.watch = function()
+        local w = {}
+        for _, r in ipairs(rows) do if type(r[2]) == "table" then w[#w + 1] = r[2] end end
+        return w
+    end
+    page.draw = function(s)
+        local L = Panel.layout
+        s:region("time", 0, L.top, L.w, 10):textCenter(L.top, Panel.timer.date("%H:%M  %d.%m"))
+        for i, r in ipairs(rows) do
+            local y = L.rows[i]
+            if not y then break end
+            s:region("v" .. i, 0, y - 1, L.w, L.rowH)
+            s:text(0, y, r[1]):textRight(y, fmt(r[3] or "%.1f", read(r[2])))
+        end
+    end
+    return page
+end
+
+-- ---------- cleaning ----------
+
+--- Locks the panel for cleaning: a countdown, inputs ignored, buzzer and LEDs off.
+function Panel.cleaning(seconds)
+    seconds = seconds or 30
+    local page = { modal = true }
+    page.open = function(panel)
+        page.left = seconds
+        panel.obj:set(RemotePanel.FEATURE_BUZZER, 0)
+        local function tick()
+            if panel:top() ~= page then return end
+            page.left = page.left - 1
+            if page.left <= 0 then
+                panel.obj:set(RemotePanel.FEATURE_BUZZER, 1)
+                panel:close(page)
+                return
+            end
+            panel:redraw()
+            page.timer = Panel.timer.after(1000, tick)
+        end
+        page.timer = Panel.timer.after(1000, tick)
+    end
+    page.close = function(panel)
+        Panel.timer.cancel(page.timer)
+        if page.left and page.left > 0 then panel.obj:set(RemotePanel.FEATURE_BUZZER, 1) end
+    end
+    page.draw = function(s)
+        local L = Panel.layout
+        s:region("title", 0, L.top, L.w, 10):textCenter(L.top, "Czyszczenie")
+        s:region("count", 0, L.rows[1] + 2, L.w, 20):textCenter(L.rows[1] + 4, tostring(page.left or seconds), 3)
+        s:region("info", 0, L.bottom, L.w, 10):textCenter(L.bottom, "panel nieaktywny")
+    end
+    page.input = function() end
+    return page
+end
+
+return Panel

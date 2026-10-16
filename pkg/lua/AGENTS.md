@@ -68,6 +68,19 @@ which firmware a module runs, so the OM import only marks class 24 with `_hasPos
 A subscription reports one feature per entry: an object that needs more than its feature 0 lists
 them in `subscribeFeatures()` and turns each into its value with `fromFeature()` (`RemoteCover`).
 
+### Smart Panel (SMART_PANEL_FM_4)
+Indices from the Object Manager definition, fv07. PANEL (class 29) execute: 0 SwitchOnDisplay,
+2 ClearScreen, 3 PrintText(x, y, text, font 1-3), 4 DrawLine, 5 DrawPoint, 6 DrawIcon(x, y, file),
+7 DisplayContent, 20 PrintFloat, 21 SetBeep(freq, ms, volume, 0), 22 SetPageNr, 30 DrawBox(x, y, w,
+h, color), 31 StartCleaningMode (fv07 only); features 13 BuzzerValue, 20 PageControlMode; events
+0-3 gestures, 4 OnProximityDetect, 6 OnDisplayOn. PANEL_BUTTON (class 30, 16 = 4 buttons × 4 pages)
+execute 1 LedSwitchOn, 2 LedSwitchOff, 3 SetLabel; events 4 OnLongPress, 5 OnHold, 6 OnClick.
+Screen 128 × 64, text up to 15 characters. A frame is several calls in one script, so keep each
+message under `RemotePanel.MAX_MESSAGE` and spaced by `SPACING_MS`. Not yet checked on a panel:
+the message size the CLU takes, whether DrawBox fills (partial redraws need it, else set
+`Panel.partial = false`), font sizes (`Panel.layout`), which button is in which corner, and
+whether OnClick also fires after a long press.
+
 ### Untested on hardware
 `RemoteLight` (dimmer) and `RemoteCover` (roller) in `runtime/objects/` follow the documentation, not a
 real module. Say so in the PR when you change them; a hardware report is welcome.

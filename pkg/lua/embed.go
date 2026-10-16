@@ -38,6 +38,12 @@ var remoteValueSensor string
 
 // Virtual object class files
 //
+//go:embed runtime/objects/RemotePanel.lua
+var remotePanel string
+
+//go:embed runtime/objects/RemotePanelButton.lua
+var remotePanelButton string
+
 //go:embed runtime/objects/VirtualObject.lua
 var virtualObject string
 
@@ -83,6 +89,10 @@ func BaseClasses() string {
 	sb.WriteString(remoteThermometer)
 	sb.WriteString("\n")
 	sb.WriteString(remoteValueSensor)
+	sb.WriteString("\n")
+	sb.WriteString(remotePanel)
+	sb.WriteString("\n")
+	sb.WriteString(remotePanelButton)
 	sb.WriteString("\n\n-- Virtual object classes\n\n")
 	sb.WriteString(virtualObject)
 	sb.WriteString("\n")
