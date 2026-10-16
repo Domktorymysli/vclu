@@ -12,6 +12,7 @@ TypeMap.grentonToExpose = {
     -- Lights
     DIMMER = "dimmer",
     LEDRGB = "light",
+    LED_CHANNEL = "dimmer",
     RemoteLight = "light",
     RemoteDimmer = "dimmer",
     -- Covers
@@ -71,6 +72,7 @@ TypeMap.grentonToHA = {
     GPIO_DIN = "binary_sensor",
     DIMMER = "light",
     LEDRGB = "light",
+    LED_CHANNEL = "light",
     ROLLER = "cover",
     ROLLER_SH = "cover",
     AnalogIN = "sensor",

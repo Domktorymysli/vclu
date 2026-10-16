@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Grenton
+
+- **The channels of an LED RGBW module are lights** - the OM import did not know `LED_CHANNEL` (class 49, four per LED RGBW 2.0 module), so a strip driven per channel had nothing in vCLU. Each channel is now a `RemoteLedChannel`: a dimmer on vCLU's 0..1 scale (`setBrightness`, `switchOn`, `switchOff`, `toggle`, `dim`), converted from and to the module's 0..255; Home Assistant gets it as a dimmable light, `exposeRegistry()` as a dimmer (HomeKit too). Import the OM project again to get them ([#41](https://github.com/Domktorymysli/vclu/issues/41)). Not tested on Grenton LED hardware.
+
+### Home Assistant
+
+- **The white channel of an RGBW LED can be set** - an LEDRGB on an LED RGBW 2.0 module (module type 0x18 or 0x1d in om.lua) is announced with the `rgbw` colour mode, and `color.w` of a JSON command goes to `setWhite`. An LED RGB module is announced as before. Publish the HA discovery again to get it.
+
 ## v1.5.0 (2026-10-16)
 
 ### Lua runtime

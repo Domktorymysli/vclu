@@ -76,7 +76,7 @@ local function formatState(value, objType)
             return "OFF"
         end
 
-    elseif objType == "DIMMER" then
+    elseif objType == "DIMMER" or objType == "LED_CHANNEL" then
         -- Dimmer: 0-1 float -> OFF/ON
         local numVal = tonumber(value) or 0
         if numVal > 0 then
@@ -135,7 +135,7 @@ end
 
 -- Build brightness topic for dimmers
 local function buildBrightnessTopic(path, objType)
-    if objType ~= "DIMMER" then
+    if objType ~= "DIMMER" and objType ~= "LED_CHANNEL" then
         return nil
     end
 
@@ -483,7 +483,7 @@ local function onStateChanged(data)
     end
 
     -- Publish brightness for dimmers
-    if objType == "DIMMER" then
+    if objType == "DIMMER" or objType == "LED_CHANNEL" then
         local brightnessTopic = buildBrightnessTopic(path, objType)
         if brightnessTopic then
             local numVal = tonumber(value) or 0

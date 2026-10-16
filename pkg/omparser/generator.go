@@ -98,6 +98,7 @@ func GenerateProxy(parsed *ParsedOM, config GeneratorConfig) string {
 	generateObjectsForClass(&sb, parsed, namespace, ClassDIN, "RemoteSensor")
 	generateObjectsForClass(&sb, parsed, namespace, ClassDIMMER, "RemoteLight")
 	generateObjectsForClass(&sb, parsed, namespace, ClassLEDRGB, "RemoteRGBLight")
+	generateObjectsForClass(&sb, parsed, namespace, ClassLEDChannel, "RemoteLedChannel")
 	generateObjectsForClass(&sb, parsed, namespace, ClassROLLER_SH, "RemoteCover")
 	generateObjectsForClass(&sb, parsed, namespace, ClassROLLER, "RemoteCover")
 	generateObjectsForClass(&sb, parsed, namespace, ClassAnalogIN, "RemoteSensor")

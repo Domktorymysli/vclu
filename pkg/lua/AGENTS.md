@@ -68,13 +68,17 @@ which firmware a module runs, so the OM import only marks class 24 with `_hasPos
 2 SwitchOn, 3 SwitchOff. It has no SetValue with a ramp.
 `LEDRGB` (class 9, LED RGB and LED RGBW 2.0) numbers its methods otherwise: Value is read-only,
 execute 0 SetValue, 1 SetHue, 2 SetSaturation, 6 SetRGBvalue, 7 HoldValue, 9 SwitchOn,
-10 SwitchOff, 11 Switch, 12 SetWhiteValue (feature 15 WhiteValue, RGBW only). A subclass
+10 SwitchOff, 11 Switch, 12 SetWhiteValue (feature 15 WhiteValue, RGBW only). An RGBW module
+is told apart in om.lua by its module type (third argument of the module's `OBJECT:new`): 0x18
+LED RGBW DIN, 0x1d LED RGBW FM, 0x04 the old LED RGB. `LED_CHANNEL` (class 49, four per RGBW
+module): feature 0 Value 0..255, read-only; execute 0 SetValue(0..255, ramp), 1 SwitchOn,
+2 SwitchOff, 3 Switch, 4 HoldValue. `RemoteLedChannel` converts to 0..1 in `fromFeature`. A subclass
 inherits its parent's indexes: check them (`RemoteLight.METHODS`).
 A subscription reports one feature per entry: an object that needs more than its feature 0 lists
 them in `subscribeFeatures()` and turns each into its value with `fromFeature()` (`RemoteCover`).
 
 ### Untested on hardware
-`RemoteLight` (dimmer) and `RemoteCover` (roller) in `runtime/objects/` follow the documentation, not a
+`RemoteLight` (dimmer), `RemoteLedChannel` and `RemoteCover` (roller) in `runtime/objects/` follow the documentation, not a
 real module. Say so in the PR when you change them; a hardware report is welcome.
 
 ## runtime/integrations: Home Assistant, MQTT, HTTP

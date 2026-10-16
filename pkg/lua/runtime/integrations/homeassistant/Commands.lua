@@ -10,7 +10,7 @@ HACommands.topicPrefix = "vclu"
 
 -- Command handlers by component type
 --- A JSON light command (schema json, RGB light from the OM import):
--- {"state":"ON"|"OFF","brightness":0..100,"color":{"r","g","b"} or {"h","s"}}.
+-- {"state":"ON"|"OFF","brightness":0..100,"color":{"r","g","b"[,"w"]} or {"h","s"}}.
 -- Brightness is on the 0..100 scale of brightness_scale; hs saturation is 0..100.
 -- @param obj table The light
 -- @param payload string JSON
@@ -33,6 +33,9 @@ function HACommands.lightJSON(obj, payload)
         if r and g and b and obj.setColor then
             obj:setColor(byte(r), byte(g), byte(b))
             changed = true
+            -- an RGBW light is announced with rgbw: white comes with the colour
+            local w = tonumber(c.w)
+            if w and obj.setWhite then obj:setWhite(byte(w)) end
         elseif h and sat and obj.setHue and obj.setSaturation then
             obj:setHue(math.max(0, math.min(360, h)))
             obj:setSaturation(math.max(0, math.min(100, sat)) / 100)
