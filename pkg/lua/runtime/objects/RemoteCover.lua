@@ -73,8 +73,15 @@ function RemoteCover:fromFeature(index, value)
         local n = tonumber(value)
         return n and 100 - n
     end
-    self._movement = value
+    self:_setMovement(value)
     return nil
+end
+
+-- Movement aside from the value; integrations (Home Assistant) listen for its changes
+function RemoteCover:_setMovement(movement)
+    local old = self._movement
+    self._movement = movement
+    if movement ~= old then self:emit("OnMovementChange", movement, old) end
 end
 
 --- Gets the current tilt angle of the cover slats (from local cache).
@@ -112,7 +119,7 @@ end
 -- Optimistic movement until the CLU reports. Without a position the movement is the value.
 function RemoteCover:_moved(movement)
     if self._hasPosition then
-        self._movement = movement
+        self:_setMovement(movement)
     else
         self:updateState(movement)
     end

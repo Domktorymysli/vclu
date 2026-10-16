@@ -133,15 +133,72 @@ func TestHAExposedCoverPublishes(t *testing.T) {
 		t.Errorf("published state/position = %s, want open/70,closed/0,open/100,open/70", got)
 	}
 
-	// A roller without a position: its value is the movement, nothing is a position.
+	// A roller without a position: its value is the movement, shown as the state;
+	// nothing is a position.
 	old := mustExec(t, engine, `(function()
-		_pub = {}
-		_old:updateState(2)
-		return _last("vclu/exposed/t/cover/strych/state") .. "/" ..
-			_last("vclu/exposed/t/cover/strych/position")
+		local out = {}
+		for _, m in ipairs({ 2, 0, 1 }) do
+			_pub = {}
+			_old:updateState(m)
+			table.insert(out, _last("vclu/exposed/t/cover/strych/state") .. "/" ..
+				_last("vclu/exposed/t/cover/strych/position"))
+		end
+		return table.concat(out, ",")
 	end)()`)
-	if old != "nil/nil" {
-		t.Errorf("roller without a position published %s, want nil/nil", old)
+	if old != "closing/nil,stopped/nil,opening/nil" {
+		t.Errorf("roller without a position published %s, want closing/nil,stopped/nil,opening/nil", old)
+	}
+}
+
+// A Grenton roller's movement (feature 0) is not its value, yet HA shows it: opening and
+// closing while it moves, open/closed from the position when it stops, also when the
+// position did not change.
+func TestHAExposedCoverMovement(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+	if _, err := engine.Execute(haExposedCoverSetup); err != nil {
+		t.Fatalf("setup failed: %v", err)
+	}
+
+	got := mustExec(t, engine, `(function()
+		local out = {}
+		local function state() return _last("vclu/exposed/t/cover/salon/state") end
+		local function report(movement, pct)
+			_pub = {}
+			_roller:fromFeature(RemoteCover.FEATURE_STATE, movement)
+			if pct then _roller:updateState(_roller:fromFeature(RemoteCover.FEATURE_POSITION, pct)) end
+			table.insert(out, state())
+		end
+		report(0, 50)  -- stopped half open
+		report(2, 40)  -- moving down
+		report(2, 30)
+		report(0)      -- stopped, the position report did not change
+		_pub = {}
+		HACommands.handleExposedMessage("vclu/exposed/t/cover/salon/set", "OPEN")
+		table.insert(out, state()) -- optimistic, before the CLU reports
+		report(0)
+		return table.concat(out, ",")
+	end)()`)
+	if got != "open,closing,closing,open,opening,open" {
+		t.Errorf("states = %s, want open,closing,closing,open,opening,open", got)
+	}
+
+	// Once unexposed, a movement publishes nothing; exposing again does not double it.
+	again := mustExec(t, engine, `(function()
+		ExposedObjects:get("t:salon"):unexpose()
+		_pub = {}
+		_roller:fromFeature(RemoteCover.FEATURE_STATE, 1)
+		local n1 = #_pub
+		expose(_roller, "cover", { name = "Salon", path = "t:salon" })
+		_roller:fromFeature(RemoteCover.FEATURE_STATE, 0)
+		_pub = {}
+		_roller:fromFeature(RemoteCover.FEATURE_STATE, 2)
+		local n2 = 0
+		for _, p in ipairs(_pub) do if p.topic == "vclu/exposed/t/cover/salon/state" then n2 = n2 + 1 end end
+		return n1 .. "|" .. n2
+	end)()`)
+	if again != "0|1" {
+		t.Errorf("unexposed/re-exposed publishes = %s, want 0|1", again)
 	}
 }
 
