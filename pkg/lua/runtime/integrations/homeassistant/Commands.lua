@@ -409,23 +409,23 @@ function HACommands.handleExposedMessage(topic, payload)
             return true
         end
     elseif exposedType == "cover" then
+        -- The object's own methods move a roller; setValue would write its feature 0
+        local obj = handle.object
         if parsed.subpath == "position" then
-            local position = tonumber(payload)
-            if position then
-                handle:setValue(position)
-                return true
+            local position = HAStatePublisher.coverPositionFromHA(payload)
+            if not position then
+                return false, "invalid position value"
             end
+            if obj.setPosition then obj:setPosition(position) else handle:setValue(position) end
+            return true
         elseif payload == "OPEN" then
-            handle:setValue(100)
+            if obj.open then obj:open() else handle:setValue(0) end
             return true
         elseif payload == "CLOSE" then
-            handle:setValue(0)
+            if obj.close then obj:close() else handle:setValue(100) end
             return true
         elseif payload == "STOP" then
-            -- For stop, try execute if available
-            if handle.object and handle.object.execute then
-                handle.object:execute(3)
-            end
+            if obj.stop then obj:stop() end
             return true
         end
     elseif exposedType == "number" then

@@ -197,14 +197,8 @@ local function formatExposedState(value, exposedType)
         return "OFF"
 
     elseif exposedType == "cover" then
-        local numVal = tonumber(value) or 0
-        if numVal >= 100 then
-            return "open"
-        elseif numVal <= 0 then
-            return "closed"
-        else
-            return "open"  -- partially open
-        end
+        -- value is the position on HA's scale (see exposedCoverPosition)
+        return (tonumber(value) or 0) > 0 and "open" or "closed"
 
     elseif exposedType == "lock" then
         -- Lock: 0/1 -> UNLOCKED/LOCKED
@@ -305,6 +299,33 @@ local function buildExposedPositionTopic(path, exposedType)
     )
 end
 
+--- Position of an exposed cover on Home Assistant's scale (0 = closed .. 100 = open).
+-- vCLU counts 0 = open .. 100 = closed. Read from getPosition() when the object has it,
+-- else from its value.
+-- @param handle ExposedHandle
+-- @return number|nil Position, nil when the object reports none (a roller without one)
+function HAStatePublisher.exposedCoverPosition(handle)
+    local obj = handle.object
+    local position
+    if type(obj) == "table" and type(obj.getPosition) == "function" then
+        local ok, p = pcall(obj.getPosition, obj)
+        if ok then position = p end
+    else
+        position = handle:getValue()
+    end
+    local n = tonumber(position)
+    return n and 100 - n
+end
+
+--- A position from Home Assistant (0 = closed .. 100 = open) on vCLU's scale.
+-- @param payload string|number Position from HA
+-- @return number|nil Position 0..100 (0 = open), rounded; nil when not a number
+function HAStatePublisher.coverPositionFromHA(payload)
+    local n = tonumber(payload)
+    if not n then return nil end
+    return 100 - math.floor(math.max(0, math.min(100, n)) + 0.5)
+end
+
 -- Handle state change for ExposedObject
 local function publishExposedState(handle)
     if not HAStatePublisher.enabled or not HAStatePublisher.mqttInstance then
@@ -324,6 +345,9 @@ local function publishExposedState(handle)
     end
 
     local value = handle:getValue()
+    if handle.type == "cover" then
+        value = HAStatePublisher.exposedCoverPosition(handle)
+    end
     -- Never publish a nil reading. HA rejects "nil" for numeric sensors
     -- (temperature/humidity/number) and there is nothing meaningful to report -
     -- the entity simply stays unavailable until a real value arrives.
@@ -359,8 +383,7 @@ local function publishExposedState(handle)
     if handle.type == "cover" then
         local positionTopic = buildExposedPositionTopic(handle.path, handle.type)
         if positionTopic then
-            local position = tostring(tonumber(value) or 0)
-            HAStatePublisher.mqttInstance:publish(positionTopic, position, 0, true)
+            HAStatePublisher.mqttInstance:publish(positionTopic, tostring(value), 0, true)
         end
     end
 end
@@ -567,6 +590,8 @@ local function onObjectExposed(data)
         local positionTopic = buildExposedPositionTopic(path, exposedType)
         discoveryPayload.position_topic = positionTopic
         discoveryPayload.set_position_topic = positionTopic .. "/set"
+        discoveryPayload.position_open = 100
+        discoveryPayload.position_closed = 0
     end
 
     -- Add unit for sensors
