@@ -144,3 +144,154 @@ func TestHAExposedCoverPublishes(t *testing.T) {
 		t.Errorf("roller without a position published %s, want nil/nil", old)
 	}
 }
+
+// The scale conversion on its own: HA counts 0 = closed .. 100 = open, vCLU 0 = open.
+func TestHAExposedCoverScale(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+	if _, err := engine.Execute(haExposedCoverSetup); err != nil {
+		t.Fatalf("setup failed: %v", err)
+	}
+
+	for _, c := range []struct{ payload, want string }{
+		{"0", "100"}, {"100", "0"}, {"42", "58"}, {"69.6", "30"}, {"69.4", "31"},
+		{"150", "0"}, {"-5", "100"}, {" 42 ", "58"},
+		{"abc", "nil"}, {"", "nil"}, {"nan", "nil"}, {"inf", "nil"}, {"1e999", "nil"},
+	} {
+		got := mustExec(t, engine, `tostring(HAStatePublisher.coverPositionFromHA("`+c.payload+`"))`)
+		if got != c.want {
+			t.Errorf("coverPositionFromHA(%q) = %s, want %s", c.payload, got, c.want)
+		}
+	}
+
+	got := mustExec(t, engine, `(function()
+		_virtual:setPosition(30)
+		_roller:updateState(0)
+		_plain = { _lastState = 25, get = function(s) return s._lastState end,
+			set = function(s, _, v) s._lastState = v end, onChange = function() return function() end end }
+		expose(_plain, "cover", { path = "t:plain" })
+		_broken = { getPosition = function() error("boom") end, onChange = function() return function() end end }
+		expose(_broken, "cover", { path = "t:broken" })
+		local out = {}
+		for _, p in ipairs({ "t:taras", "t:salon", "t:strych", "t:plain", "t:broken" }) do
+			table.insert(out, tostring(HAStatePublisher.exposedCoverPosition(ExposedObjects:get(p))))
+		end
+		return table.concat(out, ",")
+	end)()`)
+	// fully open roller (vCLU 0) is 100 in HA; no position and a failing getPosition give nil
+	if got != "70,100,nil,75,nil" {
+		t.Errorf("exposedCoverPosition = %s, want 70,100,nil,75,nil", got)
+	}
+}
+
+// A position sent from HA comes back from the roller's report as the same number.
+func TestHAExposedCoverRoundTrip(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+	if _, err := engine.Execute(haExposedCoverSetup); err != nil {
+		t.Fatalf("setup failed: %v", err)
+	}
+
+	got := mustExec(t, engine, `(function()
+		local out = {}
+		for _, ha in ipairs({ 42, 0, 100, 7 }) do
+			_sent, _pub = {}, {}
+			HACommands.handleExposedMessage("vclu/exposed/t/cover/salon/position/set", tostring(ha))
+			-- the CLU reports feature 7 with the percentage it was sent
+			local grenton = tonumber(_sent[1]:match("execute%(10, (%d+)"))
+			_roller:updateState(_roller:fromFeature(RemoteCover.FEATURE_POSITION, grenton))
+			table.insert(out, ha .. ">" .. grenton .. ">" .. _last("vclu/exposed/t/cover/salon/position"))
+		end
+		return table.concat(out, ",")
+	end)()`)
+	if got != "42>42>42,0>0>0,100>100>100,7>7>7" {
+		t.Errorf("HA > Grenton > HA = %s", got)
+	}
+}
+
+// A roller without a position only moves: HA gets no slider and a position is refused.
+func TestHAExposedCoverWithoutPosition(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+	if _, err := engine.Execute(haExposedCoverSetup); err != nil {
+		t.Fatalf("setup failed: %v", err)
+	}
+
+	payload := findDiscovery(t, engine, "t_strych")
+	if payload == "" || strings.Contains(payload, "position") {
+		t.Errorf("discovery of a roller without a position = %s", payload)
+	}
+	if got := mustExec(t, engine, `(function()
+		for _, p in ipairs(_pub) do
+			if p.topic == "vclu/exposed/t/cover/strych/position" then return "[" .. p.payload .. "]" end
+		end
+		return "none"
+	end)()`); got != "[]" {
+		t.Errorf("retained position of a roller without one not cleared: %s", got)
+	}
+	if got := findDiscovery(t, engine, "t_salon"); !strings.Contains(got, "set_position_topic") {
+		t.Errorf("roller with a position lost its slider: %s", got)
+	}
+
+	refused := mustExec(t, engine, `(function()
+		_sent = {}
+		local ok, err = HACommands.handleExposedMessage("vclu/exposed/t/cover/strych/position/set", "40")
+		return tostring(ok) .. "|" .. tostring(err) .. "|" .. #_sent
+	end)()`)
+	if refused != "false|cover has no position|0" {
+		t.Errorf("position on a roller without one = %s, want false|cover has no position|0", refused)
+	}
+}
+
+// An object without cover methods is written through setValue on vCLU's scale;
+// one with only execute() still stops.
+func TestHAExposedCoverFallbacks(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+	if _, err := engine.Execute(haExposedCoverSetup); err != nil {
+		t.Fatalf("setup failed: %v", err)
+	}
+
+	got := mustExec(t, engine, `(function()
+		_plain = { _lastState = 50, get = function(s) return s._lastState end,
+			set = function(s, _, v) s._lastState = v end,
+			execute = function(s, ...) table.insert(_sent, "execute(" .. table.concat({...}, ", ") .. ")") end,
+			onChange = function() return function() end end }
+		expose(_plain, "cover", { path = "t:plain" })
+		local out, t = {}, "vclu/exposed/t/cover/plain/"
+		for _, c in ipairs({ { "position/set", "70" }, { "set", "OPEN" }, { "set", "CLOSE" } }) do
+			HACommands.handleExposedMessage(t .. c[1], c[2])
+			table.insert(out, tostring(_plain._lastState))
+		end
+		_sent = {}
+		HACommands.handleExposedMessage(t .. "set", "STOP")
+		table.insert(out, table.concat(_sent, ";"))
+		return table.concat(out, ",")
+	end)()`)
+	if got != "30,0,100,execute(3)" {
+		t.Errorf("fallbacks = %s, want 30,0,100,execute(3)", got)
+	}
+}
+
+// A cover set to Readonly for MQTT refuses commands before any method runs.
+func TestHAExposedCoverReadonly(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+	if _, err := engine.Execute(haExposedCoverSetup); err != nil {
+		t.Fatalf("setup failed: %v", err)
+	}
+
+	got := mustExec(t, engine, `(function()
+		AccessControl.set("mqtt", "t:salon", "readonly")
+		_sent = {}
+		local out = {}
+		for _, c in ipairs({ { "position/set", "40" }, { "set", "OPEN" }, { "set", "STOP" } }) do
+			local ok = HACommands.handleExposedMessage("vclu/exposed/t/cover/salon/" .. c[1], c[2])
+			table.insert(out, tostring(ok))
+		end
+		return table.concat(out, ",") .. "|" .. #_sent .. "|" .. tostring(_roller:getState())
+	end)()`)
+	if got != "false,false,false|0|nil" {
+		t.Errorf("readonly cover = %s, want false,false,false|0|nil", got)
+	}
+}

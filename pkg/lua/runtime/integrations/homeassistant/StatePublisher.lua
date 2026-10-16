@@ -299,6 +299,15 @@ local function buildExposedPositionTopic(path, exposedType)
     )
 end
 
+--- Whether an exposed cover has a position. A Grenton roller without one (class 11, or a
+-- proxy not regenerated) only moves up and down; other covers count their value as one.
+-- @param handle ExposedHandle
+-- @return boolean
+function HAStatePublisher.coverHasPosition(handle)
+    local obj = handle.object
+    return not (type(obj) == "table" and obj._hasPosition == false)
+end
+
 --- Position of an exposed cover on Home Assistant's scale (0 = closed .. 100 = open).
 -- vCLU counts 0 = open .. 100 = closed. Read from getPosition() when the object has it,
 -- else from its value.
@@ -585,13 +594,18 @@ local function onObjectExposed(data)
         end
     end
 
-    -- Add position for covers
+    -- Add position for covers that have one
     if exposedType == "cover" then
         local positionTopic = buildExposedPositionTopic(path, exposedType)
-        discoveryPayload.position_topic = positionTopic
-        discoveryPayload.set_position_topic = positionTopic .. "/set"
-        discoveryPayload.position_open = 100
-        discoveryPayload.position_closed = 0
+        if handle and not HAStatePublisher.coverHasPosition(handle) then
+            -- drop a position retained by older versions (the movement, 0-2)
+            HAStatePublisher.mqttInstance:publish(positionTopic, "", 0, true)
+        else
+            discoveryPayload.position_topic = positionTopic
+            discoveryPayload.set_position_topic = positionTopic .. "/set"
+            discoveryPayload.position_open = 100
+            discoveryPayload.position_closed = 0
+        end
     end
 
     -- Add unit for sensors

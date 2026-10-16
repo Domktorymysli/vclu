@@ -83,10 +83,9 @@ HACommands.handlers = {
 
         -- Check if it's position command
         if subpath == "position" then
-            local position = tonumber(payload)
+            -- HA sends 0 = closed .. 100 = open (discovery); vCLU counts 0 = open
+            local position = HAStatePublisher.coverPositionFromHA(payload)
             if position then
-                -- HA sends 0 = closed .. 100 = open (discovery); vCLU counts 0 = open
-                position = 100 - math.floor(math.max(0, math.min(100, position)) + 0.5)
                 if obj.setPosition then
                     obj:setPosition(position)
                 elseif obj.set then
@@ -412,6 +411,9 @@ function HACommands.handleExposedMessage(topic, payload)
         -- The object's own methods move a roller; setValue would write its feature 0
         local obj = handle.object
         if parsed.subpath == "position" then
+            if not HAStatePublisher.coverHasPosition(handle) then
+                return false, "cover has no position"
+            end
             local position = HAStatePublisher.coverPositionFromHA(payload)
             if not position then
                 return false, "invalid position value"
@@ -425,7 +427,7 @@ function HACommands.handleExposedMessage(topic, payload)
             if obj.close then obj:close() else handle:setValue(100) end
             return true
         elseif payload == "STOP" then
-            if obj.stop then obj:stop() end
+            if obj.stop then obj:stop() elseif obj.execute then obj:execute(3) end
             return true
         end
     elseif exposedType == "number" then
