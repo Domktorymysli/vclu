@@ -14,6 +14,8 @@ require("RemoteCover")
 require("RemoteNumber")
 require("RemoteThermometer")
 require("RemoteValueSensor")
+require("RemotePanel")
+require("RemotePanelButton")
 
 -- Load virtual base class
 require("VirtualObject")
@@ -36,6 +38,8 @@ return {
     RemoteNumber = RemoteNumber,
     RemoteThermometer = RemoteThermometer,
     RemoteValueSensor = RemoteValueSensor,
+    RemotePanel = RemotePanel,
+    RemotePanelButton = RemotePanelButton,
     VirtualObject = VirtualObject,
     VirtualSwitch = VirtualSwitch,
     VirtualDimmer = VirtualDimmer,

@@ -106,6 +106,9 @@ func GenerateProxy(parsed *ParsedOM, config GeneratorConfig) string {
 	generateTypedSensorsForClass(&sb, parsed, namespace, ClassPanelTemp, "PANELSENSTEMP")
 	generateTypedSensorsForClass(&sb, parsed, namespace, ClassPanelLight, "PANELSENSLIGHT")
 	generateTypedSensorsForClass(&sb, parsed, namespace, ClassHumidity, "HUMIDITY_SENSOR")
+	generateObjectsForClass(&sb, parsed, namespace, ClassPanelBtn, "RemotePanelButton")
+	generateObjectsForClass(&sb, parsed, namespace, ClassPanel, "RemotePanel")
+	generatePanelButtons(&sb, parsed, namespace)
 
 	// Register objects in _registry for lookup (use registerObject for name indexing)
 	if config.RegisterObjects {
@@ -145,6 +148,19 @@ func generateObjectsForClass(sb *strings.Builder, parsed *ParsedOM, namespace st
 		}
 	}
 	sb.WriteString("\n")
+}
+
+// generatePanelButtons attaches each panel's buttons (same module) by their index.
+func generatePanelButtons(sb *strings.Builder, parsed *ParsedOM, namespace string) {
+	buttons := parsed.GetObjectsByClass(ClassPanelBtn)
+	for _, panel := range parsed.GetObjectsByClass(ClassPanel) {
+		for _, btn := range buttons {
+			if btn.ModuleID != "" && btn.ModuleID == panel.ModuleID {
+				fmt.Fprintf(sb, "%s.%s:addButton(%d, %s.%s)\n",
+					namespace, getObjectLuaName(panel), btn.Index, namespace, getObjectLuaName(btn))
+			}
+		}
+	}
 }
 
 // generateTypedSensorsForClass emits read-only RemoteValueSensor proxies whose Grenton
