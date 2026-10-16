@@ -918,12 +918,12 @@ Add a group label widget to this section.
 
 ### `SectionHandle:cover(id, label, icon, fns, opts)`
 
-Add a cover widget to this section.
+Add a cover widget to this section. Buttons up/stop/down call open/stop/close. With set, a 0-100% slider is shown under them. Position on vCLU's scale: 0 = open, 100 = closed (Grenton shows 100 - position); nil is shown as 0. getState lights the button of the movement: 0 = stopped, 1 = up, 2 = down.
 
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label
 - `icon` (string) — Bootstrap icon name (e.g., "arrows-expand")
-- `fns` (table) — {getPosition=function()->number(0-100), open=function(), close=function(), stop=function()}
+- `fns` (table) — {getPosition=function()->number|nil, getState=function()->number|nil, open=function(), close=function(), stop=function(), set=function(position)}
 - `opts` (table) — Optional: {disabled=function()->bool}
 
 ### `SectionHandle:dimmer(id, label, icon, fns, opts)`
@@ -1136,12 +1136,12 @@ Add a group label widget to the current section.
 
 ### `DashboardBuilder:cover(id, label, icon, fns, opts)`
 
-Add a cover widget to the current section.
+Add a cover widget to the current section. Buttons up/stop/down call open/stop/close. With set, a 0-100% slider is shown under them. Position on vCLU's scale: 0 = open, 100 = closed (Grenton shows 100 - position); nil is shown as 0. getState lights the button of the movement: 0 = stopped, 1 = up, 2 = down.
 
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label
 - `icon` (string) — Bootstrap icon name (e.g., "arrows-expand")
-- `fns` (table) — {getPosition=function()->number(0-100), open=function(), close=function(), stop=function()}
+- `fns` (table) — {getPosition=function()->number|nil, getState=function()->number|nil, open=function(), close=function(), stop=function(), set=function(position)}
 - `opts` (table) — Optional: {disabled=function()->bool}
 
 ### `DashboardBuilder:dimmer(id, label, icon, fns, opts)`
