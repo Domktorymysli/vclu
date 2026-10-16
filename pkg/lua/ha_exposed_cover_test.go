@@ -66,7 +66,7 @@ func TestHAExposedCoverCommands(t *testing.T) {
 
 	// OPEN/CLOSE/STOP call the roller's methods and leave its value (the position) alone.
 	for _, c := range []struct{ path, want string }{
-		{"salon", "ROL1:execute(0, 0)=1/nil,ROL1:execute(1, 0)=2/nil,ROL1:execute(3)=0/nil"},
+		{"salon", "ROL1:execute(10, 100, 91)=1/nil,ROL1:execute(10, 0, 91)=2/nil,ROL1:execute(3)=0/nil"},
 		{"strych", "ROL2:execute(0, 0)=1/1,ROL2:execute(1, 0)=2/2,ROL2:execute(3)=0/0"},
 	} {
 		moves := mustExec(t, engine, `(function()
