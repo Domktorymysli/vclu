@@ -1,4 +1,4 @@
-# #0041: The channels of an LED RGBW module and its white channel work, in Lua and in Home Assistant
+# #41: The channels of an LED RGBW module and its white channel work, in Lua and in Home Assistant
 
 - **Type:** feature
 - **Area:** grenton
