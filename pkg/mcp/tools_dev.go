@@ -524,7 +524,7 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 			"VirtualCover (ROLLER)": map[string]any{
 				"constructor": "VirtualCover:new(name, {initial=0, persist=true|'key'})",
 				"methods":     []string{"open()", "close()", "stop()", "up()", "down()", "getPosition()", "setPosition(pos)", "onChange(cb)"},
-				"note":        "Software-only cover, position 0-100",
+				"note":        "Software-only cover, position 0 = closed .. 100 = open",
 			},
 			"VirtualSensor (DIN)": map[string]any{
 				"constructor": "VirtualSensor:new(name, {initial=0, persist=true|'key'})",

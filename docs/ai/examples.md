@@ -319,6 +319,7 @@ Buttons up / stop / down, and a 0-100% position slider when `set` is given.
 ```lua
 local roleta = r:get("CLU220000592.ROL0001")
 
+-- inside a Dashboard.new(...):section(...) chain
 :cover('roleta_salon', 'Roleta salon', 'window', {
     getPosition = function() return roleta:getPosition() end, -- slider and "NN%" label
     getState    = function() return roleta:getState() end,    -- lights the moving button

@@ -198,7 +198,7 @@ local function formatExposedState(value, exposedType)
         return "OFF"
 
     elseif exposedType == "cover" then
-        -- value is the position on HA's scale (see exposedCoverPosition)
+        -- value is the position (see exposedCoverPosition)
         return (tonumber(value) or 0) > 0 and "open" or "closed"
 
     elseif exposedType == "lock" then
@@ -457,19 +457,18 @@ local function onStateChanged(data)
     end
 
     -- A cover's value is its position (0 = closed). ROLLER_SH has no position: its value is not one.
-    local haPosition
+    local position
     if objType == "ROLLER" then
         local obj = _registry and _registry[path]
-        local n = tonumber(value)
-        if n and not (obj and obj._hasPosition == false) then
-            haPosition = n
+        if not (obj and obj._hasPosition == false) then
+            position = tonumber(value)
         end
     end
 
     -- Format and publish state
     local payload = formatState(value, objType)
-    if haPosition then
-        payload = haPosition > 0 and "open" or "closed"
+    if position then
+        payload = position > 0 and "open" or "closed"
     end
 
     local ok, err = HAStatePublisher.mqttInstance:publish(topic, payload, 0, true)  -- qos=0, retain=true
@@ -494,10 +493,10 @@ local function onStateChanged(data)
     end
 
     -- Publish position for covers
-    if haPosition then
+    if position then
         local positionTopic = buildPositionTopic(path, objType)
         if positionTopic then
-            HAStatePublisher.mqttInstance:publish(positionTopic, tostring(haPosition), 0, true)
+            HAStatePublisher.mqttInstance:publish(positionTopic, tostring(position), 0, true)
         end
     end
 end

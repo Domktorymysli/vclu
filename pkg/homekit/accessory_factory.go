@@ -253,15 +253,14 @@ func (s *Server) createExposedCover(info accessory.Info, obj ExposedObject, read
 		if s.paused(obj.Path, updateFunc) {
 			return
 		}
-		pos := target
-		if current, ok := s.GetCurrentState(obj.Path); ok && int(math.Round(current)) == pos {
+		if current, ok := s.GetCurrentState(obj.Path); ok && int(math.Round(current)) == target {
 			return
 		}
 		// A Grenton roller without a position (class 11, or a proxy not regenerated) has
 		// no SetPosition: it opens or closes, as a tap in the Home app does
 		if s.command(obj.Path, fmt.Sprintf(
 			"local o = h.object; if o._hasPosition == false and o.open then if %d >= 50 then o:open() else o:close() end "+
-				"elseif o.setPosition then o:setPosition(%d) else h:setValue(%d) end", pos, pos, pos), updateFunc) && obj.HasPos {
+				"elseif o.setPosition then o:setPosition(%d) else h:setValue(%d) end", target, target, target), updateFunc) && obj.HasPos {
 			// position never reported (Grenton roller): show the target, or
 			// the Home app waits for the cover to arrive forever
 			if _, ok := s.GetCurrentState(obj.Path); !ok {

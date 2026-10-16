@@ -3,9 +3,8 @@ package lua
 import "testing"
 
 // A roller from the OM import (the registry path, not expose()) is announced to
-// Home Assistant with position_open 100, position_closed 0. vCLU counts 0 = open,
-// Grenton's SetPosition 0 = closed (Object Manager device-interfaces), so a position
-// from HA reaches the roller unchanged, clamped and rounded.
+// Home Assistant with position_open 100, position_closed 0. vCLU, HA and Grenton all
+// count 0 = closed, so a position from HA reaches the roller unchanged, clamped and rounded.
 func TestRegistryCoverPosition(t *testing.T) {
 	engine := NewLuaEngine()
 	defer engine.Close()
@@ -63,8 +62,8 @@ func TestRegistryCoverPosition(t *testing.T) {
 }
 
 // A ROLLER_SHUTTER is subscribed to feature 0 (State) and feature 7 (Position). The
-// position becomes the value on vCLU's scale, the movement is kept aside, and Home
-// Assistant gets the position on its own scale with open/closed derived from it.
+// position becomes the value, the movement is kept aside, and Home Assistant gets the
+// position with open/closed derived from it.
 func TestRegistryCoverReportsPosition(t *testing.T) {
 	engine := NewLuaEngine()
 	defer engine.Close()
@@ -117,7 +116,7 @@ func TestRegistryCoverReportsPosition(t *testing.T) {
 		t.Errorf("ROLLER_SH subscribed to a position: %s", subs)
 	}
 
-	// Drive reports directly in a known entry order: position 30% open while moving down.
+	// Drive reports directly in a known entry order: position 40 while moving down.
 	got := mustExec(t, engine, `(function()
 		RemoteSubscription.activeSubscriptions = {}
 		RemoteSubscription.activeSubscriptions["192.168.0.3:5"] = {
