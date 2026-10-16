@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Home Assistant
+
+- **A cover published with `expose()` moves, and runs the right way** - a position from Home Assistant was written to the object's feature 0, which on a Grenton roller is its read-only state, so the slider moved nothing; OPEN and CLOSE were sent the same way, and the position went to HA unconverted (vCLU counts 0 = open, HA 0 = closed). Commands now call the object's own `setPosition`, `open`, `close` and `stop` (`setValue` only for objects without them), positions are converted both ways, discovery announces `position_open: 100` / `position_closed: 0`, and the state is `open` whenever the cover is not fully closed. A roller without a position (class 11, or a proxy not regenerated) gets no position slider in HA, a position sent to it is refused (it would call a method class 11 does not have), a position retained by older versions is cleared. A Grenton roller's movement is shown as `opening`/`closing` while it moves (also when only the movement changed, e.g. a stop at the same position), and a roller without a position reports `stopped` when it stops. **Contract change:** the position on `vclu/exposed/.../cover/.../position` is now on HA's scale; a Home Assistant automation that compensated for the inverted position needs changing ([#36](https://github.com/Domktorymysli/vclu/issues/36), thanks to Dawkaxxl for the logs). Not tested on Grenton roller hardware.
+- **`open()` and `close()` of a Grenton roller with a position go to `SetPosition`** - they sent MoveUp/MoveDown, which stop a roller that is moving (Object Manager's device definitions), so a second OPEN from Home Assistant, HomeKit or Lua stopped the roller halfway. With a position and no time they now send SetPosition 100 % / 0 %; with a time (`open(5000)`) or without a position MoveUp/MoveDown stay. Not tested on Grenton roller hardware.
+- **HomeKit opens and closes a Grenton roller without a position** - the Home app's slider and tap sent SetPosition, which a roller without a position (class 11) does not have, so it did not move. Such a roller now opens at a target of 50 % or more and closes below. A roller from a proxy generated before v1.4.0 counts as one without a position too: import the OM project again to get its position back. Not tested on Grenton roller hardware.
+
 ## v1.4.0 (2026-10-15)
 
 ### Installation

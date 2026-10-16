@@ -214,6 +214,55 @@ func TestCoverWithoutPositionShowsTarget(t *testing.T) {
 	}
 }
 
+// A Grenton roller from the Home app, on the real runtime: with a position the target
+// goes to SetPosition (HomeKit 100 = open, Grenton 100 % = open); without one (class 11)
+// there is no SetPosition, so the target opens or closes it.
+func TestGrentonRollerFromHomeApp(t *testing.T) {
+	engine := lua.NewLuaEngine()
+	defer engine.Close()
+	if _, err := engine.Execute(`
+		_sent = {}
+		local clu = { executeNoReply = function(s, i, cmd) table.insert(_sent, cmd) end }
+		local r = RemoteCover:new(clu, "ROL1", "salon")
+		r._hasPosition = true
+		expose(r, "cover", { name = "Salon", path = "hk:salon" })
+		expose(RemoteCover:new(clu, "ROL2", "strych"), "cover", { name = "Strych", path = "hk:strych" })
+	`); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{luaExecutor: engine}
+	objs, err := s.fetchExposed()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// one accessory per roller, as in the Home app: a target equal to the last one is no change
+	acc := map[string]*AccessoryWrapper{}
+	for _, o := range objs {
+		acc[o.Path] = s.createExposedAccessory(o, false)
+	}
+	for _, c := range []struct {
+		path   string
+		target int
+		want   string
+	}{
+		{"hk:salon", 60, "ROL1:execute(10, 60, 91)"},
+		{"hk:salon", 0, "ROL1:execute(10, 0, 91)"},
+		{"hk:strych", 100, "ROL2:execute(0, 0)"},
+		{"hk:strych", 40, "ROL2:execute(1, 0)"},
+		{"hk:strych", 60, "ROL2:execute(0, 0)"},
+		{"hk:strych", 0, "ROL2:execute(1, 0)"},
+	} {
+		w := acc[c.path]
+		if _, err := engine.Execute(`_sent = {}`); err != nil {
+			t.Fatal(err)
+		}
+		findChar(w.Accessory, characteristic.TypeTargetPosition).SetValueRequest(c.target, homeAppRequest())
+		if got, _ := engine.Execute(`return table.concat(_sent, ";")`); got != c.want {
+			t.Errorf("%s target %d sent %q, want %q", c.path, c.target, got, c.want)
+		}
+	}
+}
+
 // missingPosLua: writes succeed, the position stays unknown.
 type missingPosLua struct{}
 

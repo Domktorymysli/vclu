@@ -73,8 +73,15 @@ function RemoteCover:fromFeature(index, value)
         local n = tonumber(value)
         return n and 100 - n
     end
-    self._movement = value
+    self:_setMovement(value)
     return nil
+end
+
+-- Movement aside from the value; integrations (Home Assistant) listen for its changes
+function RemoteCover:_setMovement(movement)
+    local old = self._movement
+    self._movement = movement
+    if movement ~= old then self:emit("OnMovementChange", movement, old) end
 end
 
 --- Gets the current tilt angle of the cover slats (from local cache).
@@ -89,17 +96,27 @@ function RemoteCover:setTilt(angle)
     self:execute(9, angle)
 end
 
---- Opens the cover. MoveUp: stops instead when the cover is moving.
+--- Opens the cover. With a position and no time: SetPosition 100 %, which opens also while
+-- the cover moves; otherwise MoveUp, which stops instead when the cover is moving.
 -- @param time number Optional duration in milliseconds (0 = full travel)
 function RemoteCover:open(time)
-    self:execute(0, time or 0)
+    if self._hasPosition and (time or 0) == 0 then
+        self:setPosition(0)
+    else
+        self:execute(0, time or 0)
+    end
     self:_moved(1)
 end
 
---- Closes the cover. MoveDown: stops instead when the cover is moving.
+--- Closes the cover. With a position and no time: SetPosition 0 %, which closes also while
+-- the cover moves; otherwise MoveDown, which stops instead when the cover is moving.
 -- @param time number Optional duration in milliseconds (0 = full travel)
 function RemoteCover:close(time)
-    self:execute(1, time or 0)
+    if self._hasPosition and (time or 0) == 0 then
+        self:setPosition(100)
+    else
+        self:execute(1, time or 0)
+    end
     self:_moved(2)
 end
 
@@ -112,7 +129,7 @@ end
 -- Optimistic movement until the CLU reports. Without a position the movement is the value.
 function RemoteCover:_moved(movement)
     if self._hasPosition then
-        self._movement = movement
+        self:_setMovement(movement)
     else
         self:updateState(movement)
     end

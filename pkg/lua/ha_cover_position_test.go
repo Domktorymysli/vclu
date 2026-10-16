@@ -35,8 +35,8 @@ func TestRegistryCoverPosition(t *testing.T) {
 		t.Errorf("position commands sent\n got: %s\nwant: %s", got, want)
 	}
 
-	// OPEN/CLOSE/STOP move the roller; the movement is kept aside, the value (the
-	// position) stays as it was.
+	// OPEN/CLOSE go to SetPosition 100 % / 0 %, STOP to Stop; the movement is kept
+	// aside, the value (the position) stays as it was.
 	moves := mustExec(t, engine, `(function()
 		local out, t = {}, "vclu/clu1/cover/rol1/set"
 		for _, p in ipairs({ "OPEN", "CLOSE", "STOP" }) do
@@ -47,7 +47,7 @@ func TestRegistryCoverPosition(t *testing.T) {
 		end
 		return table.concat(out, ",")
 	end)()`)
-	if moves != "ROL1:execute(0, 0)=1/nil,ROL1:execute(1, 0)=2/nil,ROL1:execute(3)=0/nil" {
+	if moves != "ROL1:execute(10, 100, 91)=1/nil,ROL1:execute(10, 0, 91)=2/nil,ROL1:execute(3)=0/nil" {
 		t.Errorf("OPEN/CLOSE/STOP = %s", moves)
 	}
 
@@ -145,5 +145,29 @@ func TestRegistryCoverReportsPosition(t *testing.T) {
 	want := "60/2 open/40 old=1;100/0 closed/0 old=0;0/0 open/100 old=0"
 	if got != want {
 		t.Errorf("reports\n got: %s\nwant: %s", got, want)
+	}
+}
+
+// A roller with a position opens and closes through SetPosition: MoveUp/MoveDown stop a
+// moving roller instead (Object Manager device-interfaces), so a second OPEN would stop it.
+// With a time, or without a position, MoveUp/MoveDown stay.
+func TestRemoteCoverOpenClose(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+
+	got := mustExec(t, engine, `(function()
+		local sent = {}
+		local clu = { executeNoReply = function(s, i, cmd) table.insert(sent, cmd) end }
+		local r = RemoteCover:new(clu, "ROL1", "salon")
+		r._hasPosition = true
+		local old = RemoteCover:new(clu, "ROL2", "strych")
+		r:open(); r:open(); r:close(); r:open(5000); r:close(0)
+		old:open(); old:close(3000)
+		return table.concat(sent, ";")
+	end)()`)
+	want := "ROL1:execute(10, 100, 91);ROL1:execute(10, 100, 91);ROL1:execute(10, 0, 91);" +
+		"ROL1:execute(0, 5000);ROL1:execute(10, 0, 91);ROL2:execute(0, 0);ROL2:execute(1, 3000)"
+	if got != want {
+		t.Errorf("commands\n got: %s\nwant: %s", got, want)
 	}
 }
