@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Grenton
+
+- **An RGB(W) LED switches on and off, and dims** - `RemoteRGBLight` (LEDRGB, class 9) inherited the dimmer's method numbers, which mean something else on a LED: `switchOn()` sent SetSaturation (the colour turned white), `switchOff()` SetRedValue (the red channel went dark), `toggle()` SetHue, `dim()` SetValue, and `setValue`/`setBrightness` wrote the read-only Value, so nothing changed. They now send SwitchOn 9, SwitchOff 10, Switch 11, HoldValue 7 and SetValue (execute 0, with an optional ramp), as listed in Object Manager's device definitions. New `getWhite()`/`setWhite(0..255, ramp)` for the white channel of an RGBW module. Not tested on Grenton LED hardware.
+- **A dimmer's `setValue` with a ramp sets the value** - `setValue(v, ramp)` sent execute 0, which on a dimmer is Hold (dimming while a button is held), not SetValue. A dimmer has no SetValue with a ramp, so the ramp is written to its RampTime (feature 1) and the value with `set(0)`; the RampTime stays for later changes. Not tested on Grenton dimmer hardware.
+- **Brightness is rounded, not cut** - `getBrightness()` and the brightness sent to Home Assistant turned 0.29 into 28 %. `getBrightness()` returns nil until the dimmer reports, instead of an error.
+
+### Home Assistant
+
+- **An RGB LED from the OM import can be controlled** - it is announced with `schema: json`, so Home Assistant sends one JSON command (`{"state":"ON","brightness":40,"color":{...}}`), which was refused as an unknown payload. The command is now read: OFF, brightness, an `rgb` or `hs` colour, ON. The state no longer reports a made-up white colour. ON/OFF for lights call the object's `switchOn`/`switchOff`.
+
 ## v1.4.0 (2026-10-15)
 
 ### Installation

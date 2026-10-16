@@ -65,6 +65,12 @@ memory; when the English and Polish hints disagree, the feature's own descriptio
 scale in the installation. The first firmware (fv01) has no Position, and om.lua does not say
 which firmware a module runs, so the OM import only marks class 24 with `_hasPosition = true`.
 `ROLLER_SH` (class 11) has no position.
+`DIMMER` (class 5): feature 0 Value (0..1, settable), 1 RampTime; execute 0 Hold, 1 Switch,
+2 SwitchOn, 3 SwitchOff. It has no SetValue with a ramp.
+`LEDRGB` (class 9, LED RGB and LED RGBW 2.0) numbers its methods otherwise: Value is read-only,
+execute 0 SetValue, 1 SetHue, 2 SetSaturation, 6 SetRGBvalue, 7 HoldValue, 9 SwitchOn,
+10 SwitchOff, 11 Switch, 12 SetWhiteValue (feature 15 WhiteValue, RGBW only). A subclass
+inherits its parent's indexes: check them (`RemoteLight.METHODS`).
 A subscription reports one feature per entry: an object that needs more than its feature 0 lists
 them in `subscribeFeatures()` and turns each into its value with `fromFeature()` (`RemoteCover`).
 

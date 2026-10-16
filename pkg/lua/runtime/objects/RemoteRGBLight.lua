@@ -6,6 +6,12 @@
 RemoteRGBLight = setmetatable({}, {__index = RemoteLight})
 RemoteRGBLight.__index = RemoteRGBLight
 
+-- LEDRGB (class 9, LED RGB and LED RGBW 2.0; Object Manager device-interfaces) numbers its
+-- methods unlike DIMMER: execute 0 SetValue (Value is read-only), 7 HoldValue, 9 SwitchOn,
+-- 10 SwitchOff, 11 Switch, 12 SetWhiteValue; feature 15 WhiteValue (RGBW only).
+RemoteRGBLight.METHODS = { setValue = 0, hold = 7, switch = 11, switchOn = 9, switchOff = 10, setWhite = 12 }
+RemoteRGBLight.FEATURE_WHITE = 15
+
 --- Creates a new RemoteRGBLight instance.
 -- @param clu CLU_REMOTE The CLU instance this RGB light belongs to
 -- @param objId string The unique identifier of the RGB light
@@ -14,8 +20,30 @@ RemoteRGBLight.__index = RemoteRGBLight
 function RemoteRGBLight:new(clu, objId, name)
     local obj = RemoteLight.new(self, clu, objId, name)
     obj._type = "LEDRGB"
-    obj._allowedMethods = {"getValue", "setValue", "getBrightness", "setBrightness", "switchOn", "switchOff", "on", "off", "toggle", "getHue", "setHue", "getSaturation", "setSaturation", "getRGB", "setRGB", "setColor"}
+    obj._allowedMethods = {"getValue", "setValue", "getBrightness", "setBrightness", "switchOn", "switchOff", "on", "off", "toggle", "getHue", "setHue", "getSaturation", "setSaturation", "getRGB", "setRGB", "setColor", "getWhite", "setWhite"}
     return obj
+end
+
+--- Sets the brightness value (0.0 to 1.0): SetValue, with an optional ramp.
+-- @param value number Brightness value
+-- @param ramp number Optional ramp time in milliseconds
+function RemoteRGBLight:setValue(value, ramp)
+    self:execute(self.METHODS.setValue, value, ramp)
+    self:updateState(value)
+end
+
+--- Gets the white channel of an RGBW module.
+-- @return number White value (0 to 255)
+function RemoteRGBLight:getWhite()
+    return self:get(RemoteRGBLight.FEATURE_WHITE)
+end
+
+--- Sets the white channel of an RGBW module.
+-- @param value number White value (0 to 255)
+-- @param ramp number Optional ramp time in milliseconds
+function RemoteRGBLight:setWhite(value, ramp)
+    value = math.floor(math.max(0, math.min(255, value)) + 0.5)
+    self:execute(self.METHODS.setWhite, value, ramp)
 end
 
 --- Gets the current hue value.
