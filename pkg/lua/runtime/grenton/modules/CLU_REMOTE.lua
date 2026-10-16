@@ -82,6 +82,33 @@ function CLU_REMOTE:executeNoReply(method, script)
     end
 end
 
+-- Answers to executeAsync, by request id
+CLU_REMOTE._pending = {}
+CLU_REMOTE._nextId = 0
+
+-- Sends a command without blocking the run loop; done(result, err) is called when the
+-- answer comes (err set on a timeout). Without the async sender it falls back to
+-- fire-and-forget and calls done("", nil) at once.
+function CLU_REMOTE:executeAsync(script, done)
+    local targetIP = numericIPToString(self.address)
+    Logger:getShared():debug("CLU_REMOTE:executeAsync -> " .. targetIP .. ": " .. tostring(script))
+    if not __go_send_command_async then
+        self:executeNoReply(0, script)
+        if done then done("", nil) end
+        return
+    end
+    CLU_REMOTE._nextId = CLU_REMOTE._nextId + 1
+    local id = tostring(CLU_REMOTE._nextId)
+    CLU_REMOTE._pending[id] = done or false
+    __go_send_command_async(targetIP, script, id)
+end
+
+function __vclu_command_reply(id, result, err)
+    local done = CLU_REMOTE._pending[id]
+    CLU_REMOTE._pending[id] = nil
+    if done then done(result, err) end
+end
+
 function CLU_REMOTE:add_event(eventName, callback)
     self.eventBus:on(self, eventName, callback)
 end
