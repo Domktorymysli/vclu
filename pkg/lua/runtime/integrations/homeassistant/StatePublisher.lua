@@ -89,10 +89,11 @@ local function formatState(value, objType)
         -- RGB Light: JSON format
         local numVal = tonumber(value) or 0
         local state = numVal > 0 and "ON" or "OFF"
+        -- the colour is not reported (only Value is subscribed): HA keeps the last one
         return string.format(
-            '{"state":"%s","brightness":%d,"color":{"r":255,"g":255,"b":255}}',
+            '{"state":"%s","brightness":%d}',
             state,
-            math.floor(numVal * 100)
+            math.floor(numVal * 100 + 0.5)
         )
 
     elseif objType == "ROLLER" or objType == "ROLLER_SH" then
@@ -405,7 +406,7 @@ local function publishExposedState(handle)
         local brightnessTopic = buildExposedBrightnessTopic(handle.path, handle.type)
         if brightnessTopic then
             local numVal = tonumber(value) or 0
-            local brightness = tostring(math.floor(numVal * 100))
+            local brightness = tostring(math.floor(numVal * 100 + 0.5))
             HAStatePublisher.mqttInstance:publish(brightnessTopic, brightness, 0, true)
         end
     end
@@ -490,7 +491,7 @@ local function onStateChanged(data)
         local brightnessTopic = buildBrightnessTopic(path, objType)
         if brightnessTopic then
             local numVal = tonumber(value) or 0
-            local brightness = tostring(math.floor(numVal * 100))
+            local brightness = tostring(math.floor(numVal * 100 + 0.5))
             HAStatePublisher.mqttInstance:publish(brightnessTopic, brightness, 0, true)
         end
     end

@@ -9,6 +9,47 @@ local HACommands = {}
 HACommands.topicPrefix = "vclu"
 
 -- Command handlers by component type
+--- A JSON light command (schema json, RGB light from the OM import):
+-- {"state":"ON"|"OFF","brightness":0..100,"color":{"r","g","b"} or {"h","s"}}.
+-- Brightness is on the 0..100 scale of brightness_scale; hs saturation is 0..100.
+-- @param obj table The light
+-- @param payload string JSON
+-- @return boolean, string|nil
+function HACommands.lightJSON(obj, payload)
+    local ok, cmd = pcall(JSON.decode, payload)
+    if not ok or type(cmd) ~= "table" then
+        return false, "invalid JSON command"
+    end
+    if cmd.state == "OFF" then
+        if obj.switchOff then obj:switchOff() end
+        return true
+    end
+    local changed = false
+    local c = cmd.color
+    if type(c) == "table" then
+        local r, g, b = tonumber(c.r), tonumber(c.g), tonumber(c.b)
+        local h, sat = tonumber(c.h), tonumber(c.s)
+        local function byte(v) return math.floor(math.max(0, math.min(255, v)) + 0.5) end
+        if r and g and b and obj.setColor then
+            obj:setColor(byte(r), byte(g), byte(b))
+            changed = true
+        elseif h and sat and obj.setHue and obj.setSaturation then
+            obj:setHue(math.max(0, math.min(360, h)))
+            obj:setSaturation(math.max(0, math.min(100, sat)) / 100)
+            changed = true
+        end
+    end
+    local brightness = tonumber(cmd.brightness)
+    if brightness and obj.setBrightness then
+        obj:setBrightness(math.max(0, math.min(100, brightness)))
+        changed = true
+    end
+    if not changed and cmd.state == "ON" and obj.switchOn then
+        obj:switchOn()
+    end
+    return true
+end
+
 HACommands.handlers = {
     -- Switch: ON/OFF
     -- DOUT methods: execute(0)=Switch, execute(1,Time)=SwitchOn, execute(2,Time)=SwitchOff
@@ -38,6 +79,11 @@ HACommands.handlers = {
     light = function(obj, payload, subpath)
         if not obj then return false, "object not found" end
 
+        -- An RGB light is announced with schema json: one JSON command
+        if type(payload) == "string" and payload:sub(1, 1) == "{" then
+            return HACommands.lightJSON(obj, payload)
+        end
+
         -- Check if it's brightness command
         if subpath == "brightness" then
             local brightness = tonumber(payload)
@@ -57,16 +103,20 @@ HACommands.handlers = {
             return false, "invalid brightness value"
         end
 
-        -- ON/OFF command
+        -- ON/OFF command: the object's own method (a LEDRGB numbers them unlike a dimmer)
         if payload == "ON" then
-            if obj.SwitchOn then
+            if obj.switchOn then
+                obj:switchOn()
+            elseif obj.SwitchOn then
                 obj:SwitchOn()
             elseif obj.execute then
                 obj:execute(2, 0) -- SwitchOn(Time=0)
             end
             return true
         elseif payload == "OFF" then
-            if obj.SwitchOff then
+            if obj.switchOff then
+                obj:switchOff()
+            elseif obj.SwitchOff then
                 obj:SwitchOff()
             elseif obj.execute then
                 obj:execute(3, 0) -- SwitchOff(Time=0)

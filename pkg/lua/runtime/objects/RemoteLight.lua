@@ -6,6 +6,11 @@
 RemoteLight = setmetatable({}, {__index = RemoteObject})
 RemoteLight.__index = RemoteLight
 
+-- Execute indexes of DIMMER (class 5, Object Manager device-interfaces); LEDRGB has others
+RemoteLight.METHODS = { hold = 0, switch = 1, switchOn = 2, switchOff = 3 }
+-- DIMMER feature 1, set: the ramp of the next changes
+RemoteLight.FEATURE_RAMP_TIME = 1
+
 --- Creates a new RemoteLight instance.
 -- @param clu CLU_REMOTE The CLU instance this light belongs to
 -- @param objId string The unique identifier of the light
@@ -25,20 +30,22 @@ function RemoteLight:getValue()
 end
 
 --- Sets the brightness value (0.0 to 1.0).
+-- A dimmer has no SetValue with a ramp: a ramp is written to its RampTime first and stays
+-- for later changes.
 -- @param value number Brightness value
 -- @param ramp number Optional ramp time in milliseconds
 function RemoteLight:setValue(value, ramp)
     if ramp then
-        self:execute(0, value, ramp)
-    else
-        self:set(0, value)
+        self:set(RemoteLight.FEATURE_RAMP_TIME, ramp)
     end
+    self:set(0, value)
 end
 
---- Gets the current brightness as a percentage.
--- @return number Brightness percentage (0 to 100)
+--- Gets the current brightness as a percentage, rounded.
+-- @return number|nil Brightness percentage (0 to 100), nil until reported
 function RemoteLight:getBrightness()
-    return math.floor(self:getValue() * 100)
+    local v = tonumber(self:getValue())
+    return v and math.floor(v * 100 + 0.5)
 end
 
 --- Sets the brightness as a percentage.
@@ -52,7 +59,7 @@ end
 -- @param time number Optional duration in milliseconds
 -- @param ramp number Optional ramp time
 function RemoteLight:switchOn(time, ramp)
-    self:execute(2, time or 0, ramp)
+    self:execute(self.METHODS.switchOn, time or 0, ramp)
     self:updateState(1)
 end
 
@@ -60,7 +67,7 @@ end
 -- @param time number Optional duration in milliseconds
 -- @param ramp number Optional ramp time
 function RemoteLight:switchOff(time, ramp)
-    self:execute(3, time or 0, ramp)
+    self:execute(self.METHODS.switchOff, time or 0, ramp)
     self:updateState(0)
 end
 
@@ -82,13 +89,13 @@ end
 -- @param time number Optional duration in milliseconds
 -- @param ramp number Optional ramp time
 function RemoteLight:toggle(time, ramp)
-    self:execute(1, time or 0, ramp)
+    self:execute(self.METHODS.switch, time or 0, ramp)
 end
 
 --- Starts dimming operation (hold function).
 -- @param ramp number Ramp time for dimming
 function RemoteLight:dim(ramp)
-    self:execute(0, ramp)
+    self:execute(self.METHODS.hold, ramp)
 end
 
 --- Registers a callback for when the light turns on.
