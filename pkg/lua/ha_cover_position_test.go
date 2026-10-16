@@ -142,7 +142,7 @@ func TestRegistryCoverReportsPosition(t *testing.T) {
 		report({ 0, 100, 0 })
 		return table.concat(out, ";")
 	end)()`)
-	want := "60/2 open/40 old=1;100/0 closed/0 old=0;0/0 open/100 old=0"
+	want := "40/2 open/40 old=1;0/0 closed/0 old=0;100/0 open/100 old=0"
 	if got != want {
 		t.Errorf("reports\n got: %s\nwant: %s", got, want)
 	}

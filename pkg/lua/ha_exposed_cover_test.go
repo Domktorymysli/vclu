@@ -5,9 +5,8 @@ import (
 	"testing"
 )
 
-// A cover published with expose() is announced to Home Assistant on HA's scale
-// (0 = closed .. 100 = open). vCLU counts 0 = open, so commands and reports are
-// converted, and a Grenton roller is moved by its own methods: a write to its
+// A cover published with expose() is announced to Home Assistant with 0 = closed .. 100 = open,
+// the scale vCLU counts on, and a Grenton roller is moved by its own methods: a write to its
 // feature 0 (State, read-only) moves nothing (#36).
 
 const haExposedCoverSetup = `
@@ -40,8 +39,8 @@ func TestHAExposedCoverCommands(t *testing.T) {
 		t.Fatalf("setup failed: %v", err)
 	}
 
-	// A position from HA reaches setPosition on vCLU's scale, clamped and rounded;
-	// RemoteCover converts it once more to Grenton's (SetPosition 0 = closed).
+	// A position from HA reaches setPosition unchanged, clamped and rounded;
+	// RemoteCover sends it to Grenton as is (SetPosition 0 = closed).
 	got := mustExec(t, engine, `(function()
 		local t = "vclu/exposed/t/cover/salon/position/set"
 		for _, p in ipairs({ "42", "0", "100", "150", "-5", "69.6" }) do
@@ -84,7 +83,7 @@ func TestHAExposedCoverCommands(t *testing.T) {
 		}
 	}
 
-	// A VirtualCover: 70 % open in HA is 30 on vCLU's scale; OPEN and CLOSE set the position.
+	// A VirtualCover: 70 % open in HA is 70; OPEN and CLOSE set the position.
 	virtual := mustExec(t, engine, `(function()
 		local out = {}
 		HACommands.handleExposedMessage("vclu/exposed/t/cover/taras/position/set", "70")
@@ -95,8 +94,8 @@ func TestHAExposedCoverCommands(t *testing.T) {
 		table.insert(out, _virtual:getPosition())
 		return table.concat(out, ",")
 	end)()`)
-	if virtual != "30,100,0" {
-		t.Errorf("virtual cover positions = %s, want 30,100,0", virtual)
+	if virtual != "70,0,100" {
+		t.Errorf("virtual cover positions = %s, want 70,0,100", virtual)
 	}
 }
 
@@ -114,7 +113,7 @@ func TestHAExposedCoverPublishes(t *testing.T) {
 		}
 	}
 
-	// vCLU position 30 (30 % closed) is 70 % open in HA; fully closed is 0 and closed.
+	// Position 30 is 30 in HA; 0 is closed.
 	got := mustExec(t, engine, `(function()
 		local out = {}
 		for _, p in ipairs({ 30, 100, 0 }) do
@@ -129,8 +128,8 @@ func TestHAExposedCoverPublishes(t *testing.T) {
 			_last("vclu/exposed/t/cover/taras/position"))
 		return table.concat(out, ",")
 	end)()`)
-	if got != "open/70,closed/0,open/100,open/70" {
-		t.Errorf("published state/position = %s, want open/70,closed/0,open/100,open/70", got)
+	if got != "open/30,open/100,closed/0,open/30" {
+		t.Errorf("published state/position = %s, want open/30,open/100,closed/0,open/30", got)
 	}
 
 	// A roller without a position: its value is the movement, shown as the state;
@@ -202,7 +201,7 @@ func TestHAExposedCoverMovement(t *testing.T) {
 	}
 }
 
-// The scale conversion on its own: HA counts 0 = closed .. 100 = open, vCLU 0 = open.
+// Positions from HA are clamped and rounded; vCLU and HA both count 0 = closed.
 func TestHAExposedCoverScale(t *testing.T) {
 	engine := NewLuaEngine()
 	defer engine.Close()
@@ -211,8 +210,8 @@ func TestHAExposedCoverScale(t *testing.T) {
 	}
 
 	for _, c := range []struct{ payload, want string }{
-		{"0", "100"}, {"100", "0"}, {"42", "58"}, {"69.6", "30"}, {"69.4", "31"},
-		{"150", "0"}, {"-5", "100"}, {" 42 ", "58"},
+		{"0", "0"}, {"100", "100"}, {"42", "42"}, {"69.6", "70"}, {"69.4", "69"},
+		{"150", "100"}, {"-5", "0"}, {" 42 ", "42"},
 		{"abc", "nil"}, {"", "nil"}, {"nan", "nil"}, {"inf", "nil"}, {"1e999", "nil"},
 	} {
 		got := mustExec(t, engine, `tostring(HAStatePublisher.coverPositionFromHA("`+c.payload+`"))`)
@@ -235,9 +234,9 @@ func TestHAExposedCoverScale(t *testing.T) {
 		end
 		return table.concat(out, ",")
 	end)()`)
-	// fully open roller (vCLU 0) is 100 in HA; no position and a failing getPosition give nil
-	if got != "70,100,nil,75,nil" {
-		t.Errorf("exposedCoverPosition = %s, want 70,100,nil,75,nil", got)
+	// a closed roller is 0; no position and a failing getPosition give nil
+	if got != "30,0,nil,25,nil" {
+		t.Errorf("exposedCoverPosition = %s, want 30,0,nil,25,nil", got)
 	}
 }
 
@@ -300,7 +299,7 @@ func TestHAExposedCoverWithoutPosition(t *testing.T) {
 	}
 }
 
-// An object without cover methods is written through setValue on vCLU's scale;
+// An object without cover methods is written through setValue (OPEN 100, CLOSE 0);
 // one with only execute() still stops.
 func TestHAExposedCoverFallbacks(t *testing.T) {
 	engine := NewLuaEngine()
@@ -325,8 +324,8 @@ func TestHAExposedCoverFallbacks(t *testing.T) {
 		table.insert(out, table.concat(_sent, ";"))
 		return table.concat(out, ",")
 	end)()`)
-	if got != "30,0,100,execute(3)" {
-		t.Errorf("fallbacks = %s, want 30,0,100,execute(3)", got)
+	if got != "70,100,0,execute(3)" {
+		t.Errorf("fallbacks = %s, want 70,100,0,execute(3)", got)
 	}
 }
 

@@ -49,7 +49,7 @@ type ExposedObject struct {
 	Readonly bool        `json:"readonly"`
 	Satel    bool        `json:"satel,omitempty"`       // alarm objects: read-only in HomeKit
 	Dimmable bool        `json:"dimmable,omitempty"`    // has brightness (value 0..1)
-	Position *float64    `json:"position,omitempty"`    // covers: 0 = open, 100 = closed
+	Position *float64    `json:"position,omitempty"`    // covers: 0 = closed, 100 = open
 	HasPos   bool        `json:"hasPosition,omitempty"` // cover with getPosition (value is not a position)
 	Caps     ExposedCaps `json:"caps"`
 }

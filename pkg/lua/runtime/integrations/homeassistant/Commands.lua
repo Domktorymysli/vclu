@@ -133,7 +133,7 @@ HACommands.handlers = {
 
         -- Check if it's position command
         if subpath == "position" then
-            -- HA sends 0 = closed .. 100 = open (discovery); vCLU counts 0 = open
+            -- HA sends 0 = closed .. 100 = open (discovery), as vCLU counts
             local position = HAStatePublisher.coverPositionFromHA(payload)
             if position then
                 if obj.setPosition then
@@ -471,10 +471,10 @@ function HACommands.handleExposedMessage(topic, payload)
             if obj.setPosition then obj:setPosition(position) else handle:setValue(position) end
             return true
         elseif payload == "OPEN" then
-            if obj.open then obj:open() else handle:setValue(0) end
+            if obj.open then obj:open() else handle:setValue(100) end
             return true
         elseif payload == "CLOSE" then
-            if obj.close then obj:close() else handle:setValue(100) end
+            if obj.close then obj:close() else handle:setValue(0) end
             return true
         elseif payload == "STOP" then
             if obj.stop then obj:stop() elseif obj.execute then obj:execute(3) end

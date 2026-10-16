@@ -309,9 +309,8 @@ function HAStatePublisher.coverHasPosition(handle)
     return not (type(obj) == "table" and obj._hasPosition == false)
 end
 
---- Position of an exposed cover on Home Assistant's scale (0 = closed .. 100 = open).
--- vCLU counts 0 = open .. 100 = closed. Read from getPosition() when the object has it,
--- else from its value.
+--- Position of an exposed cover (0 = closed .. 100 = open, the same in vCLU and HA).
+-- Read from getPosition() when the object has it, else from its value.
 -- @param handle ExposedHandle
 -- @return number|nil Position, nil when the object reports none (a roller without one)
 function HAStatePublisher.exposedCoverPosition(handle)
@@ -323,15 +322,14 @@ function HAStatePublisher.exposedCoverPosition(handle)
     else
         position = handle:getValue()
     end
-    local n = tonumber(position)
-    return n and 100 - n
+    return tonumber(position)
 end
 
 --- State of an exposed cover for Home Assistant. A Grenton roller reports its movement
 -- (getState: 1 up, 2 down), shown as opening/closing; otherwise the position decides, and
 -- a roller without a position is stopped.
 -- @param handle ExposedHandle
--- @param position number|nil Position on HA's scale (exposedCoverPosition)
+-- @param position number|nil Position (exposedCoverPosition)
 -- @return string|nil open, closed, opening, closing or stopped; nil when nothing is known
 function HAStatePublisher.exposedCoverState(handle, position)
     local obj = handle.object
@@ -347,13 +345,13 @@ function HAStatePublisher.exposedCoverState(handle, position)
     return nil
 end
 
---- A position from Home Assistant (0 = closed .. 100 = open) on vCLU's scale.
+--- A position from Home Assistant (0 = closed .. 100 = open), clamped and rounded.
 -- @param payload string|number Position from HA
--- @return number|nil Position 0..100 (0 = open), rounded; nil when not a number
+-- @return number|nil Position 0..100, nil when not a number
 function HAStatePublisher.coverPositionFromHA(payload)
     local n = tonumber(payload)
     if not n then return nil end
-    return 100 - math.floor(math.max(0, math.min(100, n)) + 0.5)
+    return math.floor(math.max(0, math.min(100, n)) + 0.5)
 end
 
 -- Handle state change for ExposedObject
@@ -458,14 +456,13 @@ local function onStateChanged(data)
         return
     end
 
-    -- A cover's value is its position on vCLU's scale (0 = open); discovery announces
-    -- HA's (0 = closed). ROLLER_SH has no position: its value is not one.
+    -- A cover's value is its position (0 = closed). ROLLER_SH has no position: its value is not one.
     local haPosition
     if objType == "ROLLER" then
         local obj = _registry and _registry[path]
         local n = tonumber(value)
         if n and not (obj and obj._hasPosition == false) then
-            haPosition = 100 - n
+            haPosition = n
         end
     end
 

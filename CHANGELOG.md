@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Lua runtime
+
+- **A cover's position counts 0 = closed .. 100 = open, as in Grenton, Home Assistant and HomeKit** - vCLU counted the other way (0 = open), so a blind at 30 % on the dashboard was at 70 % in the Grenton app, and every integration converted. `VirtualCover` and `RemoteCover` now use Grenton's scale: `getPosition()`, `setPosition()`, the value, `onChange`, history and the dashboard slider; `open()` sets 100, `close()` 0. The conversions in Home Assistant and HomeKit are gone, and nothing changes there. A dashboard cover whose roller has not reported a position shows `--` instead of 0. **Contract change:** a module that reads or sets a position must swap it (`100 - p`), and a `VirtualCover` kept with `persist` or a position in history from before the update is on the old scale. Not tested on Grenton roller hardware.
+
 ### Grenton
 
 - **An RGB(W) LED switches on and off, and dims** - `RemoteRGBLight` (LEDRGB, class 9) inherited the dimmer's method numbers, which mean something else on a LED: `switchOn()` sent SetSaturation (the colour turned white), `switchOff()` SetRedValue (the red channel went dark), `toggle()` SetHue, `dim()` SetValue, and `setValue`/`setBrightness` wrote the read-only Value, so nothing changed. They now send SwitchOn 9, SwitchOff 10, Switch 11, HoldValue 7 and SetValue (execute 0, with an optional ramp), as listed in Object Manager's device definitions. New `getWhite()`/`setWhite(0..255, ramp)` for the white channel of an RGBW module. Not tested on Grenton LED hardware.

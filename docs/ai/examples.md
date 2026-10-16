@@ -332,11 +332,11 @@ local roleta = r:get("CLU220000592.ROL0001")
 :button('roleta_pol', 'Pół', 'window', function() roleta:setPosition(50) end)
 ```
 
-- **Scale:** vCLU's, 0 = open .. 100 = closed, the same as `getPosition`/`setPosition`. The
-  Grenton app shows the same roller as `100 - position`.
+- **Scale:** 0 = closed .. 100 = open, the same as `getPosition`/`setPosition`, the Grenton app,
+  Home Assistant and HomeKit.
 - **No position:** a Grenton roller without position (class 11, firmware fv01) returns nil from
-  `getPosition()`; the slider then shows 0, which reads as open. Leave out `getPosition` and `set`
-  for such a roller and keep the buttons.
+  `getPosition()`; the slider then shows `--`. Leave out `getPosition` and `set` for such a roller
+  and keep the buttons.
 - **getState:** 0 = stopped, 1 = up, 2 = down. Without it the stop button stays lit.
 
 ### Select widget (dropdown)
