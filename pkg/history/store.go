@@ -266,6 +266,8 @@ type Recorded struct {
 	// a reload or restart instead of the reported old one; Old is that value
 	Known bool
 	Old   any
+	// First is set when nothing was known about the path before
+	First bool
 }
 
 // RecordChange is Record that also says whether the entry is a change, so
@@ -281,6 +283,7 @@ func (s *Store) RecordChange(e Entry) Recorded {
 	}
 	e.Value, e.Old = boundValue(e.Value), boundValue(e.Old)
 	prev, seen := s.known[e.Path]
+	r.First = !seen
 	s.known[e.Path] = e.Value
 	// Only within the reload window: an object that stayed silent after the
 	// reload and changes later is a real change, whatever its known value

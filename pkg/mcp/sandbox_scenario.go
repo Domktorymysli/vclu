@@ -196,14 +196,15 @@ const sandboxHelpers = `
 		if rawget(_registry, path) == nil and _nameIndex[path] then return _nameIndex[path] end
 		return path
 	end
-	-- a set step is a change made by the agent, also on an object with no value
-	-- yet: watchers fire, while the history still skips a first reading
+	-- a set step, and what the automation then does to an object the scenario
+	-- has not seen yet, is a change: watchers fire, while the history still
+	-- skips a first reading
 	local stepPath
 	local record = __go_history_record
 	if record then
 		__go_history_record = function(e)
-			local id, atMs, change, known = record(e)
-			if e.path == stepPath then change = true end
+			local id, atMs, change, known, first = record(e)
+			if e.path == stepPath or first then change = true end
 			return id, atMs, change, known
 		end
 	end

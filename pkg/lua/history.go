@@ -25,7 +25,8 @@ func registerHistoryFunctions(L *lua.LState, store *history.Store) {
 	}
 
 	// __go_history_record({path, value, old, origin, actor, correlationId})
-	// -> id, atMs, change (false: a first reading), known old value or nil
+	// -> id, atMs, change (false: a first reading), known old value or nil,
+	// first (nothing was known about the path)
 	L.SetGlobal("__go_history_record", L.NewFunction(func(L *lua.LState) int {
 		t := L.CheckTable(1)
 		e := history.Entry{
@@ -55,7 +56,8 @@ func registerHistoryFunctions(L *lua.LState, store *history.Store) {
 		} else {
 			L.Push(lua.LNil)
 		}
-		return 4
+		L.Push(lua.LBool(r.First))
+		return 5
 	}))
 
 	// __go_expect({path, value, dueAtMs, earlyMs, lateMs, origin, actor, correlationId})
