@@ -1,17 +1,13 @@
 package web
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
+	"strconv"
 	"strings"
 
-	"github.com/Domktorymysli/vclu/pkg/accesscontrol"
 	"github.com/Domktorymysli/vclu/pkg/broker"
 	"github.com/Domktorymysli/vclu/pkg/config"
-	"github.com/Domktorymysli/vclu/pkg/omparser"
 	"github.com/gin-gonic/gin"
 )
 
@@ -501,131 +497,44 @@ func (s *Server) handleAPIMQTTClientTest(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
-// handleAPIHADiscoveryPublish publishes HA Discovery messages for all OM files
+// haDiscoveryRefresh republishes discovery from the runtime; -1 when the HA
+// integration is off
+const haDiscoveryRefresh = `
+	if not (HAStatePublisher and HAStatePublisher.isEnabled()) then return -1 end
+	HAStatePublisher.refresh()
+	local n = 0
+	for _ in pairs(ExposedObjects:list()) do n = n + 1 end
+	return n`
+
+// handleAPIHADiscoveryPublish republishes Home Assistant discovery
 //
 //	@Summary		Publish Home Assistant discovery
-//	@Description	Parses all stored OM files and publishes Home Assistant MQTT discovery messages plus initial states to the embedded broker. Objects hidden by access control are skipped. Per-file errors are collected and returned alongside the counters.
+//	@Description	Republishes Home Assistant discovery and state of every exposed object (CLU objects are exposed automatically), as vCLU does on start, and clears stale discovery. Access control applies: hidden objects are removed, read-only ones get no command topic. Needs the Home Assistant integration of the MQTT client.
 //	@Tags			mqtt
 //	@Produce		json
-//	@Success		200	{object}	map[string]interface{}	"success bool, published int, states int, files int, errors []string (or message string when there are no OM files)"
+//	@Success		200	{object}	map[string]interface{}	"success bool, published int (exposed objects)"
+//	@Failure		409	{object}	web.APIError	"Home Assistant integration is off"
 //	@Failure		503	{object}	web.APIError
 //	@Security		ApiKeyAuth
 //	@Router			/api/ha/discovery/publish [post]
 func (s *Server) handleAPIHADiscoveryPublish(c *gin.Context) {
-	if s.brokerController == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Broker controller not available"})
+	if s.luaExecutor == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Lua runtime not available"})
 		return
 	}
-
-	b := s.brokerController.GetMQTTBroker()
-	if b == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "MQTT broker not running"})
+	out, err := s.luaExecutor.Execute(haDiscoveryRefresh)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		return
 	}
-
-	// Get all OM files
-	omFiles := config.GetOMFiles(s.serverDir)
-	if len(omFiles) == 0 {
-		c.JSON(http.StatusOK, gin.H{
-			"success":   true,
-			"published": 0,
-			"message":   "No OM files to publish",
-		})
+	n, err := strconv.Atoi(strings.TrimSpace(out))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "unexpected result: " + out})
 		return
 	}
-
-	totalDiscovery := 0
-	totalStates := 0
-	var errors []string
-
-	for _, omFile := range omFiles {
-		// Fresh config for each file (so DeviceIdentifier/DeviceName are set per-CLU)
-		haConfig := omparser.DefaultHAConfig()
-
-		// Read and parse OM file
-		filePath := filepath.Join(config.GetOMFilesDir(s.serverDir), omFile.Filename)
-		content, err := os.ReadFile(filePath)
-		if err != nil {
-			errors = append(errors, fmt.Sprintf("%s: %v", omFile.Filename, err))
-			continue
-		}
-
-		parsed, err := omparser.Parse(string(content))
-		if err != nil {
-			errors = append(errors, fmt.Sprintf("%s: parse error: %v", omFile.Filename, err))
-			continue
-		}
-
-		// Generate and publish discovery messages
-		messages := omparser.GenerateHADiscovery(parsed, haConfig)
-		for _, msg := range messages {
-			// Check MQTT access - skip hidden objects
-			if s.accessManager != nil {
-				objPath := msg.ObjectPath // e.g., "CLU123.DOU456"
-				if s.accessManager.IsHidden(accesscontrol.IntegrationMQTT, objPath) {
-					continue // Skip discovery for hidden objects
-				}
-				// Readonly must be honoured here too. These configs are published
-				// RETAINED, so advertising a command_topic for a readonly object
-				// would leave a controllable entity in HA that outlives this call —
-				// and would undo the read-only treatment applied elsewhere.
-				if s.accessManager.IsReadonly(accesscontrol.IntegrationMQTT, objPath) {
-					stripCommandTopics(msg.Payload)
-				}
-			}
-
-			payload, err := json.Marshal(msg.Payload)
-			if err != nil {
-				errors = append(errors, fmt.Sprintf("json error: %v", err))
-				continue
-			}
-
-			if err := b.Publish(msg.Topic, payload, msg.Retain); err != nil {
-				errors = append(errors, fmt.Sprintf("publish error: %v", err))
-				continue
-			}
-			totalDiscovery++
-		}
-
-		// Generate and publish initial states
-		states := omparser.GenerateInitialStates(parsed, haConfig)
-		for _, state := range states {
-			// Check MQTT access - skip hidden objects
-			if s.accessManager != nil {
-				objPath := state.ObjectPath
-				if s.accessManager.IsHidden(accesscontrol.IntegrationMQTT, objPath) {
-					continue // Skip state for hidden objects
-				}
-			}
-
-			if err := b.Publish(state.Topic, []byte(state.Payload), state.Retain); err != nil {
-				errors = append(errors, fmt.Sprintf("state publish error: %v", err))
-				continue
-			}
-			totalStates++
-		}
+	if n < 0 {
+		c.JSON(http.StatusConflict, gin.H{"error": "Home Assistant integration is off: enable it in the MQTT client settings"})
+		return
 	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"success":   len(errors) == 0,
-		"published": totalDiscovery,
-		"states":    totalStates,
-		"files":     len(omFiles),
-		"errors":    errors,
-	})
-}
-
-// stripCommandTopics removes every write-side topic from an HA discovery payload,
-// so a readonly object cannot be advertised to Home Assistant as controllable.
-//
-// HA requires a command_topic on switch/light/fan components and will reject a
-// config that lacks one — the entity then simply does not appear. That is the
-// intended outcome here: no entity is strictly better than a controllable entity
-// for an object the user marked read-only. The state topics are left untouched.
-func stripCommandTopics(payload map[string]interface{}) {
-	for key := range payload {
-		if strings.HasSuffix(key, "command_topic") || key == "set_position_topic" {
-			delete(payload, key)
-		}
-	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "published": n})
 }
