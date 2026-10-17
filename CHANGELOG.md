@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Installation
+
+- **The Docker image runs vCLU as a user, not as root, and reports its health** - `ghcr.io/domktorymysli/vclu` starts vCLU as `vclu` (UID/GID 1000). An entrypoint runs as root only to hand the data directory to that user (a volume written by an earlier, root image) and to add it to the group of a passed-in `/dev/gpiomem`, then drops root with `su-exec`. The binary has `cap_net_bind_service`, so TFTP on port 69 opens without `--cap-add` (not with `--security-opt no-new-privileges`). `HEALTHCHECK` calls `/api/health` on the `--web-port` vCLU was started with. Nothing to do for existing users; a container started with `--user` runs vCLU as that user, and its data directory must be writable by it. `docker exec` still enters as root ([#3](https://github.com/Domktorymysli/vclu/issues/3)).
+
 ## v1.5.0 (2026-10-16)
 
 ### Lua runtime

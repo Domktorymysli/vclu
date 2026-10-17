@@ -125,6 +125,10 @@ docker run -d --name vclu \
 
 `--network host` jest potrzebne do broadcastu UDP (wykrywanie Grentona) i mDNS (HomeKit).
 
+vCLU działa w kontenerze jako użytkownik `vclu` (UID/GID 1000), nie jako root. Przy starcie kontener oddaje mu katalog danych, więc wolumen z wcześniejszej wersji obrazu działa bez zmian. Port 69/udp (TFTP) otwiera dzięki uprawnieniu nadanemu binarce, bez `--cap-add`; z `--security-opt no-new-privileges` to uprawnienie nie działa i TFTP się nie uruchomi. `docker ps` pokazuje stan z `/api/health` (`healthy`/`unhealthy`). `docker exec` domyślnie wchodzi jako root; `docker exec -u vclu` jako użytkownik vCLU.
+
+GPIO na Raspberry Pi: dodaj `--device /dev/gpiomem`; kontener dopisze `vclu` do grupy właściciela urządzenia.
+
 ### Ze źródeł
 
 ```bash
