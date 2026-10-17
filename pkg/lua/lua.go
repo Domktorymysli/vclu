@@ -365,21 +365,46 @@ func (le *LuaEngine) doFileAs(origin, actor, path string) error {
 }
 
 // loadModuleAs runs a top-level module with RunModule, acting as actor.
-func (le *LuaEngine) loadModuleAs(origin, actor, path, name string) (skipped bool, err error) {
+func (le *LuaEngine) loadModuleAs(origin, actor, path, name string, before map[string]bool) (skipped bool, err error) {
 	_, err = le.executeSlow("doFile:"+filepath.Base(path), func(L *lua.LState) (string, error) {
 		defer withStateContext(L, origin, actor, "")()
-		skipped, err = RunModule(L, path, name)
+		skipped, err = RunModule(L, path, name, before)
 		return "", err
 	})
 	return skipped, err
 }
 
+// LoadedModules returns the names in package.loaded.
+func LoadedModules(L *lua.LState) map[string]bool {
+	names := map[string]bool{}
+	if loaded, ok := L.GetField(L.GetGlobal("package"), "loaded").(*lua.LTable); ok {
+		loaded.ForEach(func(k, _ lua.LValue) {
+			if s, ok := k.(lua.LString); ok {
+				names[string(s)] = true
+			}
+		})
+	}
+	return names
+}
+
 // RunModule runs the file at path like require(name): not again when a
-// require already loaded it, and a later require gets its result.
-func RunModule(L *lua.LState, path, name string) (skipped bool, err error) {
+// require since the `before` snapshot loaded it, and a later require gets
+// its result. A name known before (a runtime module) stays as it was: the
+// file runs, but does not replace the module.
+func RunModule(L *lua.LState, path, name string, before map[string]bool) (skipped bool, err error) {
 	loaded, _ := L.GetField(L.GetGlobal("package"), "loaded").(*lua.LTable)
-	if loaded != nil && loaded.RawGetString(name) != lua.LNil {
-		return true, nil
+	if loaded != nil && !before[name] {
+		v := loaded.RawGetString(name)
+		if v == lua.LNil {
+			v = loaded.RawGetString(strings.ReplaceAll(name, "/", "."))
+		}
+		// a failed require leaves gopher-lua's loop sentinel (userdata)
+		if _, failed := v.(*lua.LUserData); failed {
+			return true, fmt.Errorf("failed when another module required it; see that module's error")
+		}
+		if v != lua.LNil {
+			return true, nil
+		}
 	}
 	fn, err := L.LoadFile(path)
 	if err != nil {
@@ -391,10 +416,10 @@ func RunModule(L *lua.LState, path, name string) (skipped bool, err error) {
 	}
 	ret := L.Get(-1)
 	L.Pop(1)
-	if ret == lua.LNil {
+	if ret == lua.LNil || ret == lua.LFalse {
 		ret = lua.LTrue
 	}
-	if loaded != nil && loaded.RawGetString(name) == lua.LNil {
+	if loaded != nil && !before[name] && loaded.RawGetString(name) == lua.LNil {
 		loaded.RawSetString(name, ret)
 	}
 	return false, nil
@@ -590,6 +615,13 @@ func (le *LuaEngine) LoadUserModules(serverDir string) []ModuleLoadResult {
 
 	log.Printf("[LUA] loading user modules: %s", strings.Join(files, ", "))
 
+	// what require() knew before any user file ran: the runtime's modules
+	var before map[string]bool
+	_, _ = le.executeSlow("doFile:snapshot", func(L *lua.LState) (string, error) {
+		before = LoadedModules(L)
+		return "", nil
+	})
+
 	results := make([]ModuleLoadResult, 0, len(files))
 	loaded := 0
 	for _, name := range files {
@@ -600,8 +632,11 @@ func (le *LuaEngine) LoadUserModules(serverDir string) []ModuleLoadResult {
 		if name == initFile {
 			err = le.doFileAs("lua", "automation:module:"+module, fullPath)
 		} else {
+			if before[module] {
+				log.Printf("[LUA] modules/%s has a runtime module's name: require(%q) keeps the runtime one", name, module)
+			}
 			var skipped bool
-			if skipped, err = le.loadModuleAs("lua", "automation:module:"+module, fullPath, module); skipped {
+			if skipped, err = le.loadModuleAs("lua", "automation:module:"+module, fullPath, module, before); skipped && err == nil {
 				log.Printf("[LUA] modules/%s already loaded by require(%q)", name, module)
 			}
 		}

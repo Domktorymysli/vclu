@@ -671,7 +671,8 @@ user.lua and om.lua are OM files — NEVER modify them, they will be overwritten
 **IMPORTANT**: A file in a subdirectory of `modules/` loads only through a `require()` in
 `modules/init.lua`. Files directly in `modules/` load by themselves: `init.lua` first, then the
 others alphabetically. A `require()` of such a file in `init.lua` loads it earlier, and it still
-runs once.
+runs once; what the file returns is what `require()` gets. Do not name a file like a runtime module
+(`Timer`, `TypeMap`, `string`...): it runs, but `require()` of that name keeps the runtime module.
 
 ```lua
 -- modules/init.lua (example)

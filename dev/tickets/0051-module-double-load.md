@@ -30,6 +30,10 @@ Found by the end-to-end suite.
 - [ ] A top-level file that `init.lua` requires is not run again by the loader, and a later
   `require` of a loaded file gets its result (`TestLoadUserModules_RequiredTopLevelRunsOnce`).
 - [ ] The sandbox behaves the same (`TestSandbox_RequiredDraftRunsOnce`).
+- [ ] A file named like a runtime module (`string.lua`, `TypeMap.lua`) still runs and does not
+  replace the runtime module (`TestLoadUserModules_RuntimeModuleNameStillRuns`).
+- [ ] A file that failed inside `init.lua`'s `require` is not run a second time
+  (`TestLoadUserModules_RequiredFileErrorRunsOnce`).
 - [ ] The docs describe the load order as it is.
 - [ ] `go test ./...` passes.
 - [ ] CHANGELOG entry.

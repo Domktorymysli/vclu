@@ -3,7 +3,10 @@ package lua
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/Domktorymysli/vclu/pkg/history"
 )
 
 // createTestModulesDir creates a temporary server dir with modules/ and given files.
@@ -245,5 +248,191 @@ func TestLoadUserModules_RequiredTopLevelRunsOnce(t *testing.T) {
 	}
 	if got != "1,1,later" {
 		t.Errorf("runs = %q, want 1,1,later", got)
+	}
+}
+
+// A user file named like a runtime module (string, debug, TypeMap...) still
+// runs, and require() of that name keeps the runtime module.
+func TestLoadUserModules_RuntimeModuleNameStillRuns(t *testing.T) {
+	serverDir := createTestModulesDir(t, map[string]string{
+		"string.lua":  `_ran = (_ran or "") .. "string,"`,
+		"debug.lua":   `_ran = (_ran or "") .. "debug,"`,
+		"TypeMap.lua": `_ran = (_ran or "") .. "TypeMap,"; return { user = true }`,
+	})
+	engine := NewLuaEngine()
+	defer engine.Close()
+	luaOK(t, engine, `_tm = require("TypeMap"); assert(type(_tm) == "table" and not _tm.user)`)
+
+	for _, r := range engine.LoadUserModules(serverDir) {
+		if !r.OK {
+			t.Fatalf("%s: %s", r.Name, r.Error)
+		}
+	}
+	got, err := engine.Execute(`_ran`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "TypeMap,debug,string," {
+		t.Errorf("ran = %q, want all three files", got)
+	}
+	luaOK(t, engine, `
+		assert(require("TypeMap") == _tm, "runtime TypeMap replaced by modules/TypeMap.lua")
+		assert(require("string") == string and string.format("%d", 1) == "1", "runtime string broken")
+		assert(require("debug").traceback, "runtime debug broken")
+	`)
+}
+
+// A subdirectory file that init.lua requires runs once, also when another
+// top-level file requires it again, and is never run by the loader.
+func TestLoadUserModules_RequiredSubdirRunsOnce(t *testing.T) {
+	serverDir := createTestModulesDir(t, map[string]string{
+		"init.lua":     `_runs = {}; _x = require("scenes/x")`,
+		"scenes/x.lua": `_runs.x = (_runs.x or 0) + 1; return { name = "x" }`,
+		"zz.lua":       `_same = require("scenes/x") == _x`,
+	})
+	engine := NewLuaEngine()
+	defer engine.Close()
+
+	results := engine.LoadUserModules(serverDir)
+	if len(results) != 2 {
+		t.Fatalf("results = %+v, want init.lua and zz.lua only", results)
+	}
+	for _, r := range results {
+		if !r.OK {
+			t.Fatalf("%s: %s", r.Name, r.Error)
+		}
+	}
+	luaOK(t, engine, `assert(_runs.x == 1 and _same, "x ran " .. tostring(_runs.x) .. " same=" .. tostring(_same))`)
+}
+
+// The dotted require form works for a subdirectory file too.
+func TestLoadUserModules_RequiredSubdirDottedForm(t *testing.T) {
+	serverDir := createTestModulesDir(t, map[string]string{
+		"init.lua":     `_runs = {}; require("scenes.x")`,
+		"scenes/x.lua": `_runs.x = (_runs.x or 0) + 1`,
+	})
+	engine := NewLuaEngine()
+	defer engine.Close()
+	for _, r := range engine.LoadUserModules(serverDir) {
+		if !r.OK {
+			t.Fatalf("%s: %s", r.Name, r.Error)
+		}
+	}
+	luaOK(t, engine, `assert(_runs.x == 1, "x ran " .. tostring(_runs.x))`)
+}
+
+// An error in a top-level file names the file and the line, as DoFile did.
+func TestLoadUserModules_ErrorNamesFileAndLine(t *testing.T) {
+	serverDir := createTestModulesDir(t, map[string]string{
+		"broken.lua": "local x = 1\nerror(\"boom\")",
+		"syntax.lua": "function broken(",
+	})
+	engine := NewLuaEngine()
+	defer engine.Close()
+
+	got := map[string]ModuleLoadResult{}
+	for _, r := range engine.LoadUserModules(serverDir) {
+		got[r.Name] = r
+	}
+	if r := got["broken.lua"]; r.OK || !strings.Contains(r.Error, "broken.lua:2: boom") {
+		t.Errorf("broken.lua: %+v", r)
+	}
+	if r := got["syntax.lua"]; r.OK || !strings.Contains(r.Error, "syntax.lua") {
+		t.Errorf("syntax.lua: %+v", r)
+	}
+}
+
+// A top-level file that fails while init.lua requires it does not run again:
+// init.lua carries the error, the file's own entry points at it.
+func TestLoadUserModules_RequiredFileErrorRunsOnce(t *testing.T) {
+	serverDir := createTestModulesDir(t, map[string]string{
+		"init.lua":  `_runs = {}; require("lampa")`,
+		"lampa.lua": "_runs.lampa = (_runs.lampa or 0) + 1\nerror(\"boom\")",
+		"zz.lua":    `_zz = true`,
+	})
+	engine := NewLuaEngine()
+	defer engine.Close()
+
+	got := map[string]ModuleLoadResult{}
+	for _, r := range engine.LoadUserModules(serverDir) {
+		got[r.Name] = r
+	}
+	if r := got["init.lua"]; r.OK || !strings.Contains(r.Error, "lampa.lua:2: boom") {
+		t.Errorf("init.lua: %+v", r)
+	}
+	if r := got["lampa.lua"]; r.OK || !strings.Contains(r.Error, "required it") {
+		t.Errorf("lampa.lua: %+v", r)
+	}
+	if r := got["zz.lua"]; !r.OK {
+		t.Errorf("zz.lua: %+v", r)
+	}
+	luaOK(t, engine, `assert(_runs.lampa == 1, "lampa ran " .. tostring(_runs.lampa))`)
+}
+
+// What a file returns is what a later require gets; nil and false count as loaded.
+func TestLoadUserModules_ReturnValueCached(t *testing.T) {
+	serverDir := createTestModulesDir(t, map[string]string{
+		"a.lua": `return false`,
+		"b.lua": `_b = 1`,
+		"c.lua": `return { name = "c" }`,
+	})
+	engine := NewLuaEngine()
+	defer engine.Close()
+	for _, r := range engine.LoadUserModules(serverDir) {
+		if !r.OK {
+			t.Fatalf("%s: %s", r.Name, r.Error)
+		}
+	}
+	luaOK(t, engine, `
+		assert(package.loaded.a == true and package.loaded.b == true, "a/b not marked loaded")
+		assert(package.loaded.c.name == "c" and require("c") == package.loaded.c, "c not cached")
+	`)
+}
+
+// After a reload the files run again, also the ones init.lua requires.
+func TestLoadUserModules_ReloadRunsAgain(t *testing.T) {
+	serverDir := createTestModulesDir(t, map[string]string{
+		"init.lua":  `_runs = {}; require("lampa")`,
+		"lampa.lua": `_runs.lampa = (_runs.lampa or 0) + 1`,
+		"other.lua": `_runs.other = (_runs.other or 0) + 1`,
+	})
+	engine := NewLuaEngine()
+	defer engine.Close()
+	for i := 0; i < 2; i++ {
+		if i > 0 {
+			if err := engine.Reinitialize("CLU"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for _, r := range engine.LoadUserModules(serverDir) {
+			if !r.OK {
+				t.Fatalf("load %d: %s: %s", i, r.Name, r.Error)
+			}
+		}
+		luaOK(t, engine, `assert(_runs.lampa == 1 and _runs.other == 1, "lampa=" .. tostring(_runs.lampa) .. " other=" .. tostring(_runs.other))`)
+	}
+}
+
+// A top-level module's state changes act as that module.
+func TestLoadUserModules_ModuleActor(t *testing.T) {
+	serverDir := createTestModulesDir(t, map[string]string{
+		"lampa.lua": `
+			local v = VirtualSwitch:new("lampa")
+			registerObject("virt.lampa", v)
+			v:setValue(1)
+		`,
+	})
+	engine := NewLuaEngine()
+	defer engine.Close()
+	store := history.New(history.DefaultConfig(), nil)
+	engine.SetHistoryStore(store)
+	for _, r := range engine.LoadUserModules(serverDir) {
+		if !r.OK {
+			t.Fatalf("%s: %s", r.Name, r.Error)
+		}
+	}
+	last, ok := store.Last("virt.lampa")
+	if !ok || last.Origin != "lua" || last.Actor != "automation:module:lampa" {
+		t.Fatalf("module change: %+v", last)
 	}
 }
