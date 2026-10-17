@@ -323,7 +323,7 @@ func TestWatch_RestartBeyondMemoryWindowFiresOnChange(t *testing.T) {
 	engine := NewLuaEngine()
 	t.Cleanup(engine.Close)
 	store2 := history.New(cfg, clk.now)
-	t.Cleanup(func() { store2.Close(time.Second) })
+	t.Cleanup(func() { _ = store2.Close(time.Second) })
 	engine.SetHistoryStore(store2)
 	SetClock(engine.state, fixedClockFunc(clk.now))
 	luaOK(t, engine, `

@@ -198,7 +198,7 @@ func TestRecordChange_KnownBeyondMemoryWindow(t *testing.T) {
 	// the snapshot follows the changes
 	now = now.Add(30 * time.Hour)
 	s3 := New(cfg, clock)
-	defer s3.Close(time.Second)
+	defer func() { _ = s3.Close(time.Second) }()
 	if r := s3.RecordChange(Entry{Path: "b", Old: nil, Value: "z"}); r.Change {
 		t.Fatalf("b unchanged since the last run: %+v", r)
 	}
