@@ -76,7 +76,7 @@ func GenerateHADiscovery(parsed *ParsedOM, config HADiscoveryConfig) []HADiscove
 	var messages []HADiscoveryMessage
 
 	for _, obj := range parsed.Objects {
-		msg := generateDiscoveryForObject(parsed, obj, device, config)
+		msg := generateDiscoveryForObject(obj, parsed.CLU.ID, device, config)
 		if msg != nil {
 			messages = append(messages, *msg)
 		}
@@ -95,8 +95,7 @@ func GenerateHADiscoveryJSON(parsed *ParsedOM, config HADiscoveryConfig) (string
 	return string(data), nil
 }
 
-func generateDiscoveryForObject(parsed *ParsedOM, obj GrentonObject, device HADevice, config HADiscoveryConfig) *HADiscoveryMessage {
-	cluID := parsed.CLU.ID
+func generateDiscoveryForObject(obj GrentonObject, cluID string, device HADevice, config HADiscoveryConfig) *HADiscoveryMessage {
 	objectPath := strings.ToUpper(cluID) + "." + strings.ToUpper(obj.ID)
 
 	var msg *HADiscoveryMessage
@@ -105,10 +104,10 @@ func generateDiscoveryForObject(parsed *ParsedOM, obj GrentonObject, device HADe
 		msg = generateSwitch(obj, cluID, device, config)
 	case ClassDIN:
 		msg = generateBinarySensor(obj, cluID, device, config)
-	case ClassDIMMER, ClassLEDChannel:
+	case ClassDIMMER:
 		msg = generateLight(obj, cluID, device, config)
 	case ClassLEDRGB:
-		msg = generateRGBLight(obj, cluID, device, config, parsed.HasWhite(obj))
+		msg = generateRGBLight(obj, cluID, device, config)
 	case ClassROLLER, ClassROLLER_SH:
 		msg = generateCover(obj, cluID, device, config)
 	case ClassAnalogIN:
@@ -212,7 +211,7 @@ func generateLight(obj GrentonObject, cluID string, device HADevice, config HADi
 	}
 }
 
-func generateRGBLight(obj GrentonObject, cluID string, device HADevice, config HADiscoveryConfig, white bool) *HADiscoveryMessage {
+func generateRGBLight(obj GrentonObject, cluID string, device HADevice, config HADiscoveryConfig) *HADiscoveryMessage {
 	uniqueID := getUniqueID(cluID, obj)
 	baseTopic := getBaseTopic(config, "light", cluID, obj.ID)
 
@@ -228,11 +227,6 @@ func generateRGBLight(obj GrentonObject, cluID string, device HADevice, config H
 		"supported_color_modes": []string{"rgb", "hs"},
 		"effect":                false,
 		"device":                device,
-	}
-
-	if white {
-		// HA sends the white channel in color.w (0..255)
-		payload["supported_color_modes"] = []string{"rgbw"}
 	}
 
 	return &HADiscoveryMessage{
@@ -357,7 +351,7 @@ func GenerateInitialStates(parsed *ParsedOM, config HADiscoveryConfig) []HAState
 				Retain:     true,
 				ObjectPath: objectPath,
 			})
-		case ClassDIMMER, ClassLEDChannel:
+		case ClassDIMMER:
 			baseTopic := getBaseTopic(config, "light", parsed.CLU.ID, obj.ID)
 			states = append(states, HAStateMessage{
 				Topic:      baseTopic + "/state",

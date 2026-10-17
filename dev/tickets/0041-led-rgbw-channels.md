@@ -21,10 +21,14 @@ device-interfaces, `module_2_0_LED_RGBW_*`; see `pkg/lua/AGENTS.md`, "Feature an
 indexes come from Object Manager"):
 
 - `LEDRGB` (class 9): the whole light. vCLU has it as `RemoteRGBLight`. Since the LEDRGB fix it
-  has `getWhite`/`setWhite` (SetWhiteValue 12, feature 15 WhiteValue 0..255), but Home Assistant
-  is told `supported_color_modes: ["rgb", "hs"]` (`generateRGBLight` in
-  `pkg/omparser/generator_ha.go`), so the white channel cannot be set from HA, and the state
-  reports only the brightness (only feature 0 Value is subscribed).
+  has `getWhite`/`setWhite` (SetWhiteValue 12, feature 15 WhiteValue 0..255). Home Assistant
+  does not get the colour at all: the runtime (`onObjectExposed` in
+  `pkg/lua/runtime/integrations/homeassistant/StatePublisher.lua`) announces an LEDRGB as a plain
+  dimmable light, and only feature 0 Value is subscribed. The colour discovery
+  (`supported_color_modes: ["rgb", "hs"]`, `generateRGBLight` in `pkg/omparser/generator_ha.go`)
+  lived only in the endpoint that froze entities, removed in #50, so `Commands.lightJSON` was
+  never reached in normal use. **Update 2026-10-17:** this bug is fixed here, not in a ticket of
+  its own: colour and white in the runtime's discovery, state and command.
 - `LED_CHANNEL` (class 49, four per module): one channel. Feature 0 Value is **0..255**, not
   0..1, read-only; execute 0 SetValue(value, ramp), 1 SwitchOn(time, ramp), 2 SwitchOff,
   3 Switch, 4 HoldValue; set 1 RampTime, 2 MaxValue, 3 MinValue. The OM parser does not know
@@ -36,12 +40,15 @@ Assistant; which object they expose is not known yet. Other projects that talk t
 expose each channel as its own light next to the RGBW light; vCLU may take the idea, not code.
 
 ## Files
-- `pkg/omparser/types.go`, `generator.go`, `generator_ha.go`: class 49, its proxy object, its discovery.
+- `pkg/omparser/types.go`, `generator.go`: class 49, its proxy object, `_hasWhite` on the light of
+  an RGBW module (`generator_ha.go` has no caller since #50; leave it).
 - `pkg/lua/runtime/objects/`: a channel object (value on vCLU's 0..1 dimmer scale, converted from
-  0..255 at the object), registered in `objects/init.lua` and `pkg/lua/embed.go`.
-- `pkg/lua/runtime/integrations/homeassistant/`: `rgbw` colour mode for an RGBW light (white in the
-  JSON command and state), brightness for a channel.
-- `pkg/lua/runtime/utils/TypeMap.lua`, HomeKit mapping if a channel becomes a lightbulb there.
+  0..255 at the object), registered in `objects/init.lua` and `pkg/lua/embed.go`; the colour and
+  the white of `RemoteRGBLight` subscribed and kept aside, like a roller's movement.
+- `pkg/lua/runtime/integrations/homeassistant/`: a colour light (`schema: json`, `rgb` or `rgbw`)
+  in discovery, state and command; brightness for a channel.
+- `pkg/lua/runtime/utils/TypeMap.lua` (a class's traits in one table, see `pkg/lua/AGENTS.md`);
+  HomeKit mapping if a channel becomes a lightbulb there.
 - tests in `pkg/lua/` and `pkg/omparser/`.
 
 ## Acceptance criteria
@@ -50,8 +57,11 @@ expose each channel as its own light next to the RGBW light; vCLU may take the i
   send execute 1/2/3; a reported Value of 255 reads as brightness 100.
 - [ ] Home Assistant gets each channel as a dimmable light whose brightness follows the reports,
   and a brightness from HA reaches SetValue.
-- [ ] An RGBW `LEDRGB` is announced with `rgbw`; a JSON command with `color.w` reaches
-  `setWhite`; an RGB-only module (no feature 15) is announced as before.
+- [ ] An exposed `LEDRGB` is announced to Home Assistant as a colour light (`schema: json`,
+  `rgb`); the colour the CLU reports (feature 6) is in the state, and a JSON command sets the
+  colour, the brightness and the state. A plain dimmer is announced as before.
+- [ ] An `LEDRGB` on an RGBW module (`_hasWhite` from the import) is announced with `rgbw`, its
+  white (feature 15) is subscribed and reported, and `color.w` reaches `setWhite`.
 - [ ] Tests fail on the current code; `go test ./...` and `go test -race ./...` pass.
 - [ ] CHANGELOG entry in "Unreleased"; the PR says it was not tested on hardware unless it was.
 

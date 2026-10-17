@@ -8,7 +8,7 @@
 
 ### Home Assistant
 
-- **The white channel of an RGBW LED can be set** - an LEDRGB on an LED RGBW 2.0 module (module type 0x18 or 0x1d in om.lua) is announced with the `rgbw` colour mode, and `color.w` of a JSON command goes to `setWhite`. An LED RGB module is announced as before. Publish the HA discovery again to get it.
+- **A Grenton RGB light has its colour in Home Assistant** - an LEDRGB from the OM import was announced as a plain dimmable light: no colour picker, and a colour set in Grenton never reached HA (the colour discovery lived only in the endpoint that froze entities, removed in #50). It is now a colour light (`schema: json`): the colour (feature 6 RGB) is subscribed next to the value and reported in the state, and one JSON command sets state, brightness and colour. An LEDRGB on an LED RGBW 2.0 module (module type 0x18 or 0x1d in om.lua; the import marks it with `_hasWhite`) gets `rgbw`: its white (feature 15) is subscribed and reported, and `color.w` goes to `setWhite`. Import the OM project again for the white; HA picks the colour up on the next start or `POST /api/ha/discovery/publish` ([#41](https://github.com/Domktorymysli/vclu/issues/41)). Not tested on Grenton LED hardware.
 
 ## v1.5.0 (2026-10-16)
 

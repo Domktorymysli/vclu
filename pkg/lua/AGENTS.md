@@ -73,13 +73,21 @@ is told apart in om.lua by its module type (third argument of the module's `OBJE
 LED RGBW DIN, 0x1d LED RGBW FM, 0x04 the old LED RGB. `LED_CHANNEL` (class 49, four per RGBW
 module): feature 0 Value 0..255, read-only; execute 0 SetValue(0..255, ramp), 1 SwitchOn,
 2 SwitchOff, 3 Switch, 4 HoldValue. `RemoteLedChannel` converts to 0..1 in `fromFeature`. A subclass
-inherits its parent's indexes: check them (`RemoteLight.METHODS`).
+inherits its parent's indexes: check them (`RemoteLight.METHODS`). `RemoteRGBLight` subscribes
+feature 6 RGB (and 15 on `_hasWhite`) next to its value and keeps them aside; Home Assistant
+listens for `OnColorChange`.
+
+### A class's traits live in one table
+What a Grenton class is for an integration (a dimmer, a light, a cover) is declared once:
+`runtime/utils/TypeMap.lua` for Lua, `MQTTType()` in `pkg/omparser/types.go` for Go. Code asks
+the table (`TypeMap.getExposeType(t) == "dimmer"`); a new class that needs its name added to an
+`if` or a `case` elsewhere is a design error.
 A subscription reports one feature per entry: an object that needs more than its feature 0 lists
 them in `subscribeFeatures()` and turns each into its value with `fromFeature()` (`RemoteCover`).
 
 ### Untested on hardware
-`RemoteLight` (dimmer), `RemoteLedChannel` and `RemoteCover` (roller) in `runtime/objects/` follow the documentation, not a
-real module. Say so in the PR when you change them; a hardware report is welcome.
+`RemoteLight` (dimmer), `RemoteLedChannel`, the colour of `RemoteRGBLight` and `RemoteCover` (roller) in
+`runtime/objects/` follow the documentation, not a real module. Say so in the PR when you change them; a hardware report is welcome.
 
 ## runtime/integrations: Home Assistant, MQTT, HTTP
 

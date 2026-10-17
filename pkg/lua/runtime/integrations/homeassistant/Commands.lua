@@ -440,6 +440,10 @@ function HACommands.handleExposedMessage(topic, payload)
     elseif exposedType == "light" or exposedType == "dimmer" then
         -- value is 0..1, HA sends brightness as 0..100 (brightness_scale)
         local obj = handle.object
+        -- a colour light is announced with schema json: one JSON command
+        if type(payload) == "string" and payload:sub(1, 1) == "{" then
+            return HACommands.lightJSON(obj, payload)
+        end
         if parsed.subpath == "brightness" then
             local pct = tonumber(payload)
             if pct then
