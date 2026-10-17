@@ -493,7 +493,13 @@ func (run *sandboxRun) load() (*lua.LState, error) {
 		// as in LuaEngine.LoadUserModules: a module acts as itself
 		name := strings.TrimSuffix(filepath.Base(dp), ".lua")
 		restore := vclulua.WithStateContext(L, "lua", "automation:module:"+name, "")
-		err := L.DoFile(se.ws.GetDraftFullPath(dp))
+		var err error
+		if dp == "modules/init.lua" {
+			err = L.DoFile(se.ws.GetDraftFullPath(dp))
+		} else {
+			// as require() names it, so an init.lua draft that requires it runs it once
+			_, err = vclulua.RunModule(L, se.ws.GetDraftFullPath(dp), strings.TrimSuffix(strings.TrimPrefix(dp, "modules/"), ".lua"))
+		}
 		restore()
 		if err != nil {
 			return L, fmt.Errorf("draft %s load failed: %w", dp, err)

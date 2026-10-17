@@ -668,13 +668,15 @@ modules/schedules/         -- time schedules
 Each file = one module. Name = snake_case.
 user.lua and om.lua are OM files — NEVER modify them, they will be overwritten.
 
-**IMPORTANT**: Every new file in `modules/` must be added to `modules/init.lua` via `require()`.
-Without it the file will not be loaded by the Lua runtime.
+**IMPORTANT**: A file in a subdirectory of `modules/` loads only through a `require()` in
+`modules/init.lua`. Files directly in `modules/` load by themselves: `init.lua` first, then the
+others alphabetically. A `require()` of such a file in `init.lua` loads it earlier, and it still
+runs once.
 
 ```lua
 -- modules/init.lua (example)
 require("scenes/salon_movie")
 require("automations/motion_kitchen")
-require("tasmota_biurko")
+require("tasmota_biurko") -- optional: modules/tasmota_biurko.lua loads anyway, this loads it first
 require("dashboards/home")
 ```

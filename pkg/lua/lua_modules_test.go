@@ -221,3 +221,29 @@ func TestLoadUserModules_GlobalFunctionsCallable(t *testing.T) {
 		t.Errorf("movieMode() = %q, expected %q", result, "lights dimmed")
 	}
 }
+
+// A top-level file that init.lua requires runs once, and a module loaded by
+// the loader gives its result to a later require.
+func TestLoadUserModules_RequiredTopLevelRunsOnce(t *testing.T) {
+	serverDir := createTestModulesDir(t, map[string]string{
+		"init.lua":  `_runs = {}; require("lampa")`,
+		"lampa.lua": `_runs.lampa = (_runs.lampa or 0) + 1; return { name = "lampa" }`,
+		"later.lua": `_runs.later = (_runs.later or 0) + 1; return { name = "later" }`,
+		"zz.lua":    `_runs.got = require("later").name`,
+	})
+	engine := NewLuaEngine()
+	defer engine.Close()
+
+	for _, r := range engine.LoadUserModules(serverDir) {
+		if !r.OK {
+			t.Fatalf("%s: %s", r.Name, r.Error)
+		}
+	}
+	got, err := engine.Execute(`_runs.lampa .. "," .. _runs.later .. "," .. _runs.got`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "1,1,later" {
+		t.Errorf("runs = %q, want 1,1,later", got)
+	}
+}

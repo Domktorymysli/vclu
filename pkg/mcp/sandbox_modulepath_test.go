@@ -216,3 +216,20 @@ func TestSandbox_HasProductionLibraries(t *testing.T) {
 		t.Fatalf("production libraries missing in sandbox; errors=%v", result.Errors)
 	}
 }
+
+// As in production, a draft that a draft init.lua requires runs once.
+func TestSandbox_RequiredDraftRunsOnce(t *testing.T) {
+	se, ws, _ := newTestSandbox(t)
+	writeDraft(t, ws, "modules/init.lua", `_runs = (_runs or 0); require("lampa")`)
+	writeDraft(t, ws, "modules/lampa.lua", `
+		_runs = (_runs or 0) + 1
+		if _runs > 1 then error("lampa ran twice") end
+	`)
+	res, err := se.RunDraft([]string{"modules/init.lua", "modules/lampa.lua"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("draft failed: %v", res.Errors)
+	}
+}

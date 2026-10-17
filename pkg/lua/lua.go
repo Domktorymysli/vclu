@@ -364,6 +364,42 @@ func (le *LuaEngine) doFileAs(origin, actor, path string) error {
 	return err
 }
 
+// loadModuleAs runs a top-level module with RunModule, acting as actor.
+func (le *LuaEngine) loadModuleAs(origin, actor, path, name string) (skipped bool, err error) {
+	_, err = le.executeSlow("doFile:"+filepath.Base(path), func(L *lua.LState) (string, error) {
+		defer withStateContext(L, origin, actor, "")()
+		skipped, err = RunModule(L, path, name)
+		return "", err
+	})
+	return skipped, err
+}
+
+// RunModule runs the file at path like require(name): not again when a
+// require already loaded it, and a later require gets its result.
+func RunModule(L *lua.LState, path, name string) (skipped bool, err error) {
+	loaded, _ := L.GetField(L.GetGlobal("package"), "loaded").(*lua.LTable)
+	if loaded != nil && loaded.RawGetString(name) != lua.LNil {
+		return true, nil
+	}
+	fn, err := L.LoadFile(path)
+	if err != nil {
+		return false, err
+	}
+	L.Push(fn)
+	if err := L.PCall(0, 1, nil); err != nil {
+		return false, err
+	}
+	ret := L.Get(-1)
+	L.Pop(1)
+	if ret == lua.LNil {
+		ret = lua.LTrue
+	}
+	if loaded != nil && loaded.RawGetString(name) == lua.LNil {
+		loaded.RawSetString(name, ret)
+	}
+	return false, nil
+}
+
 // LoadCLUData loads CLU data files from the specified directory
 // The directory should contain: om.lua, user.lua (and main.lua for checkAlive serial)
 //
@@ -482,6 +518,7 @@ func (le *LuaEngine) setLastModuleLoad(results []ModuleLoadResult) []ModuleLoadR
 // LoadUserModules auto-loads .lua files from the modules/ directory (flat, not recursive).
 // init.lua is loaded first (if present), then remaining .lua files sorted alphabetically.
 // Subdirectories are NOT auto-loaded — users must require() them manually from their files.
+// A file that init.lua already required is not run again.
 // Should be called AFTER LoadProxyFiles so remote objects are available.
 //
 // Returns one result per attempted file. The result is also retained and readable
@@ -557,8 +594,18 @@ func (le *LuaEngine) LoadUserModules(serverDir string) []ModuleLoadResult {
 	loaded := 0
 	for _, name := range files {
 		fullPath := filepath.Join(modulesDir, name)
+		module := strings.TrimSuffix(name, ".lua")
 		// a module's own timers act as that module from now on
-		if err := le.doFileAs("lua", "automation:module:"+strings.TrimSuffix(name, ".lua"), fullPath); err != nil {
+		var err error
+		if name == initFile {
+			err = le.doFileAs("lua", "automation:module:"+module, fullPath)
+		} else {
+			var skipped bool
+			if skipped, err = le.loadModuleAs("lua", "automation:module:"+module, fullPath, module); skipped {
+				log.Printf("[LUA] modules/%s already loaded by require(%q)", name, module)
+			}
+		}
+		if err != nil {
 			log.Printf("[LUA] failed to load modules/%s: %v", name, err)
 			results = append(results, ModuleLoadResult{Name: name, OK: false, Error: err.Error()})
 		} else {
