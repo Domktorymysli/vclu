@@ -133,3 +133,84 @@ func TestHALightJSONCommands(t *testing.T) {
 		t.Errorf("invalid JSON = %s, want false|invalid JSON command|0", bad)
 	}
 }
+
+// A channel of an LED RGBW 2.0 module (LED_CHANNEL, class 49) counts its Value 0..255 and
+// numbers its methods SetValue 0, SwitchOn 1, SwitchOff 2, Switch 3, HoldValue 4. vCLU keeps
+// it on the dimmer scale (0..1) like every light.
+func TestGrentonLedChannel(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+	if _, err := engine.Execute(grentonLightSetup + `
+		_ch = RemoteLedChannel:new({ executeNoReply = function(s, i, cmd) table.insert(_sent, cmd) end }, "LED2", "pasek_w")
+		registerObject("CLU1.LED2", _ch)
+	`); err != nil {
+		t.Fatalf("setup failed: %v", err)
+	}
+
+	for _, c := range []struct{ code, want string }{
+		{`_ch:setBrightness(50)`, "LED2:execute(0, 128)"},
+		{`_ch:setValue(1, 300)`, "LED2:execute(0, 255, 300)"},
+		{`_ch:setValue(2)`, "LED2:execute(0, 255)"},
+		{`_ch:switchOn()`, "LED2:execute(1, 0)"},
+		{`_ch:switchOff()`, "LED2:execute(2, 0)"},
+		{`_ch:toggle()`, "LED2:execute(3, 0)"},
+		{`_ch:dim(500)`, "LED2:execute(4, 500)"},
+	} {
+		got := mustExec(t, engine, `_run(function() `+c.code+` end)`)
+		if got != c.want {
+			t.Errorf("%s sent %s, want %s", c.code, got, c.want)
+		}
+	}
+
+	// A reported Value of 255 is brightness 100; Home Assistant gets it as a dimmer's.
+	got := mustExec(t, engine, `(function()
+		local p = {}
+		HAStatePublisher.setup({ publish = function(self, topic, payload) p[topic] = payload; return true end })
+		_ch:updateState(_ch:fromFeature(0, 255))
+		local full = tostring(_ch:getBrightness())
+		_ch:updateState(_ch:fromFeature(0, 64))
+		return full .. "|" .. tostring(_ch:getBrightness()) .. "|" ..
+			tostring(p["vclu/clu1/light/led2/state"]) .. "|" .. tostring(p["vclu/clu1/light/led2/brightness"])
+	end)()`)
+	if got != "100|25|ON|25" {
+		t.Errorf("reported value = %s, want 100|25|ON|25", got)
+	}
+
+	// A brightness from Home Assistant reaches SetValue on 0..255.
+	for _, c := range []struct{ topic, payload, want string }{
+		{"led2/brightness/set", "40", "LED2:execute(0, 102)"},
+		{"led2/set", "ON", "LED2:execute(1, 0)"},
+		{"led2/set", "OFF", "LED2:execute(2, 0)"},
+	} {
+		got := mustExec(t, engine, `_run(function()
+			HACommands.handleMessage("vclu/clu1/light/`+c.topic+`", [[`+c.payload+`]])
+		end)`)
+		if got != c.want {
+			t.Errorf("%s %s sent %s, want %s", c.topic, c.payload, got, c.want)
+		}
+	}
+
+	// exposeRegistry makes it a dimmable light (HomeKit and HA's exposed path).
+	if got := mustExec(t, engine, `(function()
+		local h = expose(_ch, require("TypeMap").getExposeType(_ch._type), { name = "Pasek W" })
+		return h.type .. "|" .. tostring(ExposedObjects.hasBrightness(h))
+	end)()`); got != "dimmer|true" {
+		t.Errorf("exposed = %s, want dimmer|true", got)
+	}
+}
+
+// An RGBW light is announced with rgbw: Home Assistant sends white in color.w.
+func TestHALightJSONWhite(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+	if _, err := engine.Execute(grentonLightSetup); err != nil {
+		t.Fatalf("setup failed: %v", err)
+	}
+	got := mustExec(t, engine, `_run(function()
+		HACommands.handleMessage("vclu/clu1/light/led1/set", [[{"state":"ON","color":{"r":255,"g":0,"b":10,"w":128}}]])
+	end)`)
+	// no value known yet: ON with a colour also switches on
+	if want := `LED1:execute(6, "#ff000a");LED1:execute(12, 128);LED1:execute(9, 0)`; got != want {
+		t.Errorf("rgbw command sent %s, want %s", got, want)
+	}
+}

@@ -66,6 +66,39 @@ local function clearDiscovery(path)
     end
 end
 
+-- A Grenton type that is a dimmer for HA (DIMMER, LED_CHANNEL): value 0..1, brightness
+local function isDimmer(objType)
+    return TypeMap.getExposeType(objType) == "dimmer"
+end
+
+-- The colour mode of an exposed light whose object has a colour (RemoteRGBLight): rgbw on
+-- an RGBW module, rgb otherwise; nil for a plain light and for a read-only one, which
+-- is a binary_sensor to HA (exposedComponent) and gets ON/OFF
+local function colorMode(handle)
+    local o = handle and handle.object
+    if handle.type ~= "light" or type(o) ~= "table" or type(o.setColor) ~= "function" then return nil end
+    if isReadonly(handle.path, handle.options) then return nil end
+    return o._hasWhite and "rgbw" or "rgb"
+end
+
+-- schema json: the state, the brightness (0..100) and the colour in one payload; no
+-- color_mode before the first colour report (HA warns about a mode without a colour)
+local function formatColorState(handle, value, mode)
+    local o = handle.object
+    local brightness = math.floor((tonumber(value) or 0) * 100 + 0.5)
+    local parts = { string.format('"state":"%s","brightness":%d', brightness > 0 and "ON" or "OFF", brightness) }
+    local r, g, b = o:getColor()
+    if r then
+        parts[#parts + 1] = string.format('"color_mode":"%s"', mode)
+        if mode == "rgbw" then
+            parts[#parts + 1] = string.format('"color":{"r":%d,"g":%d,"b":%d,"w":%d}', r, g, b, o._white or 0)
+        else
+            parts[#parts + 1] = string.format('"color":{"r":%d,"g":%d,"b":%d}', r, g, b)
+        end
+    end
+    return "{" .. table.concat(parts, ",") .. "}"
+end
+
 -- Format state value for MQTT based on type
 local function formatState(value, objType)
     if objType == "DOUT" or objType == "DIN" then
@@ -76,7 +109,7 @@ local function formatState(value, objType)
             return "OFF"
         end
 
-    elseif objType == "DIMMER" then
+    elseif isDimmer(objType) then
         -- Dimmer: 0-1 float -> OFF/ON
         local numVal = tonumber(value) or 0
         if numVal > 0 then
@@ -135,7 +168,7 @@ end
 
 -- Build brightness topic for dimmers
 local function buildBrightnessTopic(path, objType)
-    if objType ~= "DIMMER" then
+    if not isDimmer(objType) then
         return nil
     end
 
@@ -386,7 +419,9 @@ local function publishExposedState(handle)
     end
 
     local topic = buildExposedTopic(handle.path, handle.type)
-    local payload = coverState or formatExposedState(value, handle.type)
+    local mode = colorMode(handle)
+    local payload = coverState or (mode and formatColorState(handle, value, mode))
+        or formatExposedState(value, handle.type)
 
     local ok, err = HAStatePublisher.mqttInstance:publish(topic, payload, 0, true)
     if ok then
@@ -399,8 +434,8 @@ local function publishExposedState(handle)
         end
     end
 
-    -- Publish brightness for dimmers/lights
-    if ExposedObjects.hasBrightness(handle) then
+    -- Publish brightness for dimmers/lights (a colour light has it in the JSON state)
+    if not mode and ExposedObjects.hasBrightness(handle) then
         local brightnessTopic = buildExposedBrightnessTopic(handle.path, handle.type)
         if brightnessTopic then
             local numVal = tonumber(value) or 0
@@ -483,7 +518,7 @@ local function onStateChanged(data)
     end
 
     -- Publish brightness for dimmers
-    if objType == "DIMMER" then
+    if isDimmer(objType) then
         local brightnessTopic = buildBrightnessTopic(path, objType)
         if brightnessTopic then
             local numVal = tonumber(value) or 0
@@ -600,7 +635,27 @@ local function onObjectExposed(data)
 
     -- Add brightness for dimmers/lights (not when remapped to a read-only component)
     local handle = ExposedObjects and ExposedObjects:get(path)
-    if not readonlyRemapped and handle and ExposedObjects.hasBrightness(handle) then
+    local mode = not readonlyRemapped and handle and colorMode(handle)
+    if mode then
+        -- a colour light: state, brightness and colour travel in one JSON (Commands.lightJSON)
+        discoveryPayload.schema = "json"
+        discoveryPayload.brightness = true
+        discoveryPayload.brightness_scale = 100
+        discoveryPayload.supported_color_modes = { mode }
+        local obj = handle.object
+        if obj.onEvent and not obj._haColorHook then
+            obj._haColorHook = true
+            obj:onEvent("OnColorChange", function()
+                local h = ExposedObjects:get(StateChange.pathOf(obj))
+                if h and h.type == "light" then publishExposedState(h) end
+            end)
+        end
+        -- drop a brightness retained by an earlier version, which announced a plain dimmer
+        local brightnessTopic = buildExposedBrightnessTopic(path, exposedType)
+        if brightnessTopic then
+            HAStatePublisher.mqttInstance:publish(brightnessTopic, "", 0, true)
+        end
+    elseif not readonlyRemapped and handle and ExposedObjects.hasBrightness(handle) then
         local brightnessTopic = buildExposedBrightnessTopic(path, exposedType)
         discoveryPayload.brightness_state_topic = brightnessTopic
         discoveryPayload.brightness_command_topic = brightnessTopic .. "/set"

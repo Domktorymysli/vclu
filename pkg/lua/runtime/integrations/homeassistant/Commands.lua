@@ -10,7 +10,7 @@ HACommands.topicPrefix = "vclu"
 
 -- Command handlers by component type
 --- A JSON light command (schema json, RGB light from the OM import):
--- {"state":"ON"|"OFF","brightness":0..100,"color":{"r","g","b"} or {"h","s"}}.
+-- {"state":"ON"|"OFF","brightness":0..100,"color":{"r","g","b"[,"w"]} or {"h","s"}}.
 -- Brightness is on the 0..100 scale of brightness_scale; hs saturation is 0..100.
 -- @param obj table The light
 -- @param payload string JSON
@@ -33,6 +33,9 @@ function HACommands.lightJSON(obj, payload)
         if r and g and b and obj.setColor then
             obj:setColor(byte(r), byte(g), byte(b))
             changed = true
+            -- an RGBW light is announced with rgbw: white comes with the colour
+            local w = tonumber(c.w)
+            if w and obj.setWhite then obj:setWhite(byte(w)) end
         elseif h and sat and obj.setHue and obj.setSaturation then
             obj:setHue(math.max(0, math.min(360, h)))
             obj:setSaturation(math.max(0, math.min(100, sat)) / 100)
@@ -44,8 +47,11 @@ function HACommands.lightJSON(obj, payload)
         obj:setBrightness(math.max(0, math.min(100, brightness)))
         changed = true
     end
-    if not changed and cmd.state == "ON" and obj.switchOn then
-        obj:switchOn()
+    -- ON alone switches on; so does ON with a colour on a light that is off (HA sends
+    -- that when a colour is picked on an off light; SetRGBvalue alone may not light it)
+    if cmd.state == "ON" and not brightness and obj.switchOn then
+        local v = tonumber(obj.getValue and obj:getValue())
+        if not changed or not v or v <= 0 then obj:switchOn() end
     end
     return true
 end
@@ -437,6 +443,10 @@ function HACommands.handleExposedMessage(topic, payload)
     elseif exposedType == "light" or exposedType == "dimmer" then
         -- value is 0..1, HA sends brightness as 0..100 (brightness_scale)
         local obj = handle.object
+        -- a colour light is announced with schema json: one JSON command
+        if type(payload) == "string" and payload:sub(1, 1) == "{" then
+            return HACommands.lightJSON(obj, payload)
+        end
         if parsed.subpath == "brightness" then
             local pct = tonumber(payload)
             if pct then

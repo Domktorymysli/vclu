@@ -10,6 +10,8 @@ RemoteRGBLight.__index = RemoteRGBLight
 -- methods unlike DIMMER: execute 0 SetValue (Value is read-only), 7 HoldValue, 9 SwitchOn,
 -- 10 SwitchOff, 11 Switch, 12 SetWhiteValue; feature 15 WhiteValue (RGBW only).
 RemoteRGBLight.METHODS = { setValue = 0, hold = 7, switch = 11, switchOn = 9, switchOff = 10, setWhite = 12 }
+-- Feature 6 RGB ("#rrggbb"), 15 WhiteValue 0..255; the OM import sets _hasWhite on an RGBW module
+RemoteRGBLight.FEATURE_RGB = 6
 RemoteRGBLight.FEATURE_WHITE = 15
 
 --- Creates a new RemoteRGBLight instance.
@@ -20,8 +22,67 @@ RemoteRGBLight.FEATURE_WHITE = 15
 function RemoteRGBLight:new(clu, objId, name)
     local obj = RemoteLight.new(self, clu, objId, name)
     obj._type = "LEDRGB"
-    obj._allowedMethods = {"getValue", "setValue", "getBrightness", "setBrightness", "switchOn", "switchOff", "on", "off", "toggle", "getHue", "setHue", "getSaturation", "setSaturation", "getRGB", "setRGB", "setColor", "getWhite", "setWhite"}
+    obj._allowedMethods = {"getValue", "setValue", "getBrightness", "setBrightness", "switchOn", "switchOff", "on", "off", "toggle", "getHue", "setHue", "getSaturation", "setSaturation", "getRGB", "setRGB", "getColor", "setColor", "getWhite", "setWhite"}
     return obj
+end
+
+--- Features to subscribe to: the colour (and the white of an RGBW module) first, so a
+-- report that carries them with the value publishes the value with the colour stored.
+-- @return table Feature indexes
+function RemoteRGBLight:subscribeFeatures()
+    local features = { RemoteRGBLight.FEATURE_RGB }
+    if self._hasWhite then features[#features + 1] = RemoteRGBLight.FEATURE_WHITE end
+    features[#features + 1] = 0
+    return features
+end
+
+--- Turns a reported feature into the object's value; the colour and the white are kept aside.
+-- @param index number Feature index
+-- @param value any Reported value
+-- @return any The value to store, or nil for the colour and the white
+function RemoteRGBLight:fromFeature(index, value)
+    if index == RemoteRGBLight.FEATURE_RGB then
+        self:_setColor(RemoteRGBLight.parseHex(value))
+        return nil
+    elseif index == RemoteRGBLight.FEATURE_WHITE then
+        self:_setWhite(tonumber(value))
+        return nil
+    end
+    return value
+end
+
+--- "#rrggbb" to its components; the # is optional, and so are the quotes a CLU puts
+-- around a string in a report.
+-- @param hex string
+-- @return number, number, number r, g, b (0..255), or nil
+function RemoteRGBLight.parseHex(hex)
+    local r, g, b = tostring(hex):match('^"?#?(%x%x)(%x%x)(%x%x)"?$')
+    if not r then return nil end
+    return tonumber(r, 16), tonumber(g, 16), tonumber(b, 16)
+end
+
+-- The colour and the white aside from the value; integrations (Home Assistant) listen
+-- for OnColorChange
+function RemoteRGBLight:_setColor(r, g, b)
+    if not r then return end
+    local c = self._color
+    if c and c.r == r and c.g == g and c.b == b then return end
+    self._color = { r = r, g = g, b = b }
+    self:emit("OnColorChange")
+end
+
+function RemoteRGBLight:_setWhite(w)
+    if w == nil or w == self._white then return end
+    self._white = w
+    self:emit("OnColorChange")
+end
+
+--- Gets the last reported or set colour.
+-- @return number, number, number r, g, b (0..255), or nil before the first report
+function RemoteRGBLight:getColor()
+    local c = self._color
+    if not c then return nil end
+    return c.r, c.g, c.b
 end
 
 --- Sets the brightness value (0.0 to 1.0): SetValue, with an optional ramp.
@@ -32,10 +93,10 @@ function RemoteRGBLight:setValue(value, ramp)
     self:updateState(value)
 end
 
---- Gets the white channel of an RGBW module.
+--- Gets the white channel of an RGBW module: the last reported or set value, else from the CLU.
 -- @return number White value (0 to 255)
 function RemoteRGBLight:getWhite()
-    return self:get(RemoteRGBLight.FEATURE_WHITE)
+    return self._white or self:get(RemoteRGBLight.FEATURE_WHITE)
 end
 
 --- Sets the white channel of an RGBW module.
@@ -44,6 +105,7 @@ end
 function RemoteRGBLight:setWhite(value, ramp)
     value = math.floor(math.max(0, math.min(255, value)) + 0.5)
     self:execute(self.METHODS.setWhite, value, ramp)
+    self:_setWhite(value)
 end
 
 --- Gets the current hue value.
@@ -83,6 +145,7 @@ end
 -- @param ramp number Optional ramp time
 function RemoteRGBLight:setRGB(hex, ramp)
     self:execute(6, '"' .. hex .. '"', ramp)
+    self:_setColor(RemoteRGBLight.parseHex(hex))
 end
 
 --- Sets the RGB color using individual components.

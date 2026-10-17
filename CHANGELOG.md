@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Grenton
+
+- **The channels of an LED RGBW module are lights** - the OM import did not know `LED_CHANNEL` (class 49, four per LED RGBW 2.0 module), so a strip driven per channel had nothing in vCLU. Each channel is now a `RemoteLedChannel`: a dimmer on vCLU's 0..1 scale (`setBrightness`, `switchOn`, `switchOff`, `toggle`, `dim`), converted from and to the module's 0..255; Home Assistant gets it as a dimmable light, `exposeRegistry()` as a dimmer (HomeKit too). Import the OM project again to get them ([#41](https://github.com/Domktorymysli/vclu/issues/41)). Not tested on Grenton LED hardware.
+
 ### Installation
 
 - **The Docker image runs vCLU as a user, not as root, and reports its health** - `ghcr.io/domktorymysli/vclu` starts vCLU as `vclu` (UID/GID 1000). An entrypoint runs as root only to hand the data directory to that user (a volume written by an earlier, root image, or a host directory mounted as `/data`, which gets owner 1000:1000) and to give it access to a passed-in `/dev/gpiomem`, then drops root with `su-exec`; a step it cannot do is logged and does not stop the start. The binary has `cap_net_bind_service`, so TFTP on port 69 opens without `--cap-add` (not with `--security-opt no-new-privileges`). `HEALTHCHECK` calls `/api/health` on the `--web-port` vCLU was started with. A named volume needs nothing. **Check:** a container run with `--cap-drop ALL` (or Kubernetes `drop: [ALL]`) needs `--cap-add NET_BIND_SERVICE`, or vCLU does not start; one run with `--user` (not root) runs vCLU as that user, whose data directory must be writable by it. `docker exec` still enters as root, `docker exec -u vclu` as vCLU's user ([#3](https://github.com/Domktorymysli/vclu/issues/3)).
@@ -18,6 +22,7 @@
 
 ### Home Assistant
 
+- **A Grenton RGB light has its colour in Home Assistant** - an LEDRGB from the OM import was announced as a plain dimmable light: no colour picker, and a colour set in Grenton never reached HA (the colour discovery lived only in the endpoint that froze entities, removed in #50). It is now a colour light (`schema: json`): the colour (feature 6 RGB) is subscribed next to the value and reported in the state, and one JSON command sets state, brightness and colour. An LEDRGB on an LED RGBW 2.0 module (module type 0x18 or 0x1d in om.lua; the import marks it with `_hasWhite`) gets `rgbw`: its white (feature 15) is subscribed and reported, and `color.w` goes to `setWhite`. Import the OM project again for the white; HA picks the colour up on the next start or `POST /api/ha/discovery/publish` ([#41](https://github.com/Domktorymysli/vclu/issues/41)). Not tested on Grenton LED hardware.
 - **`POST /api/ha/discovery/publish` no longer freezes entities** - it published discovery built from the OM files with state topics nobody updates since CLU objects are exposed automatically, so entities stopped following their objects until the next reload. It now republishes the runtime's own discovery (as on start, access control applied) and answers with the number of exposed objects, 409 when the Home Assistant integration is off, or 503 when the MQTT client is not connected (it used to answer 200 and publish nothing) ([#50](https://github.com/Domktorymysli/vclu/issues/50)).
 
 ## v1.5.0 (2026-10-16)
