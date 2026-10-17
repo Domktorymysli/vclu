@@ -250,9 +250,16 @@ func (s *Server) handlePluginsAPIAvailable(c *gin.Context) {
 func (s *Server) handlePluginsAPIInstalled(c *gin.Context) {
 	masterConfig, _ := config.ReadMasterConfig(s.serverDir)
 
-	var installed []config.InstalledPlugin
+	type installedPlugin struct {
+		config.InstalledPlugin
+		NeedsConfig bool `json:"needsConfig"`
+	}
+	installed := []installedPlugin{}
 	if masterConfig != nil && masterConfig.Plugins != nil {
-		installed = masterConfig.Plugins.Installed
+		loader := plugins.NewLoader(s.serverDir)
+		for _, p := range masterConfig.Plugins.Installed {
+			installed = append(installed, installedPlugin{p, loader.NeedsConfig(p)})
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"installed": installed})

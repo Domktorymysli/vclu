@@ -553,6 +553,12 @@ func pluginDeclaresConfig(localDir string) bool {
 	return len(probe.Config) > 0 || len(probe.ConfigSchema) > 0
 }
 
+// NeedsConfig reports whether an installed plugin asks for configuration and has none:
+// the loader skips it and the plugins page marks it. A factory plugin never needs it.
+func (l *Loader) NeedsConfig(p config.InstalledPlugin) bool {
+	return len(p.Config) == 0 && pluginDeclaresConfig(l.resolvePluginDir(p.ID))
+}
+
 // LoadAllEnabled loads all enabled plugins from config
 // This also clears the loaded map to support reloading after Lua reinitialize
 func (l *Loader) LoadAllEnabled() error {
@@ -594,7 +600,7 @@ func (l *Loader) LoadAllEnabled() error {
 		// Skip plugins that ask for configuration and have none. A plugin that
 		// declares none is a factory driven from user modules, so there is
 		// nothing to wait for and it must still load.
-		if len(installed.Config) == 0 && pluginDeclaresConfig(localDir) {
+		if l.NeedsConfig(installed) {
 			log.Printf("[PLUGINS] skipping %s: not configured", installed.ID)
 			continue
 		}
