@@ -80,10 +80,13 @@ object name from the OM import, so vCLU finds the panel object without extra con
 - A Smart Panel WiFi is its own CLU (`GATE:new` in om.lua) with the same panel module; its import
   and events work the same way, with the panel's own OM file.
 - The handler returns at once: drawing goes out asynchronously, never inside the CLU's request.
-- Check on the panel: whether OnClick also fires after a long press (then wire OnShortPress for
-  the short one); whether the 4 button objects of page 1 are enough when vCLU never changes
-  page; whether gestures switch Grenton's built-in pages (PageControlMode) and must be turned
-  off when the panel starts.
+- Checked on a Smart Panel WiFi (2026-10-18, Gate firmware 1.0.2, panel module fv05): OnClick
+  does not fire after a long press, so OnClick and OnLongPress are enough (OnShortPress is hard to
+  aim). Object Manager passed the button's id as the first argument, so `click()` accepts a
+  panel or one of its buttons. The Gate sends the call as broadcast and unicast in turn; every
+  press arrived. Still open: whether the 4 button objects of page 1 are enough when vCLU never
+  changes page; whether gestures switch Grenton's built-in pages (PageControlMode) and must be
+  turned off when the panel starts.
 
 ### 2. Screen out: short messages, and a lost one is repaired
 The CLU handles long messages badly and loses messages without a word. Design for both:
@@ -91,7 +94,12 @@ The CLU handles long messages badly and loses messages without a word. Design fo
   (`p:execute(2) p:execute(3, 0, 0, "Salon", 1) …`) but keep each message under a size limit found
   on the CLU and kept conservative (record it in `pkg/lua/AGENTS.md`). Parts go out spaced
   30-100 ms on the EventBus (non-blocking), as the subscription code does.
-- A frame is idempotent (it starts from ClearScreen or redraws whole rows), so a lost part is
+- Measured 2026-10-18 on the WiFi panel: the CLU runs one expression per message (two statements
+  side by side run nothing), so every message is wrapped in `(function() ... end)()`; 337
+  characters went through, the limit is kept at 300. `DrawBox` draws nothing and `PrintText`
+  paints a black cell behind every letter, so a frame always redraws the whole screen; there are
+  no partial redraws. Fonts: 10, 14 and 28 px high, y is the top.
+- A frame is idempotent (it starts from ClearScreen), so a lost part is
   repaired by sending the frame again. The last part (with DisplayContent) is sent with a reply;
   without a reply in time the whole frame is resent, a bounded number of times, then logged.
 - Redraws coalesce: if a new frame for the same panel is ready before the last one went out, only
@@ -151,7 +159,7 @@ Panel.new(PANEL_SALON)
   the three free corners by role, `up`, `down` and `ok`, and the library places the roles from
   the back corner (the other column is up/down, the rest is ok), so a page works whichever
   corner is back. `input` gets the role (with `:long`/`:hold`). `screen` collects draw
-  calls (`screen:text(x, y, s, font):line(...):box(...):icon(...)`); the library turns it into one
+  calls (`screen:text(x, y, s, font):line(...):rule(y):icon(...)`); the library turns it into one
   frame. `Panel.register("name", factory)` adds a page type, so a user module or a later PR adds
   pages (roller, scene list, alarm status) without changing the library.
 - **First page types:** `menu` (list with cursor and scrolling, submenus, back), `toggle` (any object
@@ -212,7 +220,7 @@ Panel.new(PANEL_SALON)
 - [ ] An OM import of a Smart Panel WiFi generates the same objects under the panel's CLU; a Go test covers it.
 - [ ] `click(panel, input)` reaches the panel's current page; unknown panel or input is logged and ignored; tests drive inputs and check the frames sent.
 - [ ] No message exceeds the size limit; parts are spaced on the EventBus; quick redraws coalesce to the newest frame; a frame whose last part gets no reply is resent (bounded). Tests check this on a virtual clock, including a dropped part.
-- [ ] Menu rows `toggle`, `number`, `choice` and `action` edit in place (OK, `+`/`-`, OK sets once, `✕` cancels, `min`/`max` hold); tests cover each and the partial row redraw.
+- [ ] Menu rows `toggle`, `number`, `choice` and `action` edit in place (OK, `+`/`-`, OK sets once, `✕` cancels, `min`/`max` hold); tests cover each and the frame after every step.
 - [ ] Every page shows a hint in each corner whose button does something, and the button LEDs match; changing page or mode updates both. Tested; the PR has a photo of the menu and of edit mode on the panel.
 - [ ] The back corner closes every built-in page, cancels edits and confirmations, and leads from home to idle; a user-registered page gets it without code; no built-in page reacts to gestures. Tested.
 - [ ] `every`, `panel:debounce` and `panel:notify` work as described; tested on a virtual clock.

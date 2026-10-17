@@ -138,17 +138,19 @@ func TestPanelHomeFrame(t *testing.T) {
 		`PAN1:execute(7)`,
 		`PAN1B0:execute(1)`, `PAN1B1:execute(1)`, `PAN1B2:execute(1)`, `PAN1B3:execute(1)`)
 
-	// no message over the limit, consecutive messages at least SPACING_MS apart
+	// no message over the limit, consecutive messages at least SPACING_MS apart, and each
+	// message one expression: the CLU runs nothing of a message with two statements
 	check := mustExec(t, engine, `(function()
-		PANEL:redraw(true); T.q = T.q
-		local times = {}
-		CLU.executeNoReply = function(_, _, s) SENT[#SENT + 1] = s; AT[#AT + 1] = T.now end
+		RemotePanel.MAX_MESSAGE = 120
+		PANEL:redraw(true)
 		T.advance(1000)
 		local bad = {}
 		for i, s in ipairs(SENT) do
 			if #s > RemotePanel.MAX_MESSAGE then bad[#bad + 1] = "long " .. #s end
 			if i > 1 and AT[i] - AT[i - 1] < RemotePanel.SPACING_MS then bad[#bad + 1] = "close " .. i end
+			if s:sub(1, 12) ~= "(function() " or s:sub(-7) ~= " end)()" then bad[#bad + 1] = "bare " .. i end
 		end
+		RemotePanel.MAX_MESSAGE = 300
 		return #SENT .. "|" .. table.concat(bad, ",")
 	end)()`)
 	if !strings.HasSuffix(check, "|") || strings.HasPrefix(check, "1|") || strings.HasPrefix(check, "0|") {
@@ -156,19 +158,31 @@ func TestPanelHomeFrame(t *testing.T) {
 	}
 }
 
-// Moving the cursor redraws only the two rows; OK on a toggle row switches the object
-// and the row follows it.
+// One statement that does not fit the budget still goes out, alone and wrapped.
+func TestRemotePanelPackWrapsEveryPart(t *testing.T) {
+	engine := newPanelEngine(t, "")
+	got := mustExec(t, engine, `(function()
+		local parts = RemotePanel._pack({ "a()", string.rep("b", 400), "c()" })
+		return #parts .. "|" .. parts[1] .. "|" .. #parts[2] .. "|" .. parts[3]
+	end)()`)
+	if want := "3|(function() a() end)()|419|(function() c() end)()"; got != want {
+		t.Errorf("pack = %s, want %s", got, want)
+	}
+}
+
+// Moving the cursor redraws the whole screen (nothing on the panel fills a box) and
+// leaves the LEDs alone; OK on a toggle row switches the object and the row follows it.
 func TestPanelMenuCursorAndToggle(t *testing.T) {
 	engine := newPanelEngine(t, menuSetup)
 	mustExec(t, engine, `T.advance(1000); sent()`)
 
 	moved := mustExec(t, engine, `(function() click("P1_PANEL_SALON", "btn3"); T.advance(1000); return sent() end)()`)
-	mustContain(t, "cursor down", moved, `PAN1:execute(30, 0, 13, 128, 12, 0)`, `" Swiatlo"`, `">Zadana"`, `PAN1:execute(7)`)
-	mustNotContain(t, "cursor down", moved, `PAN1:execute(2)`, `"Dom"`)
+	mustContain(t, "cursor down", moved, `PAN1:execute(2)`, `" Swiatlo"`, `">Zadana"`, `"Dom"`, `PAN1:execute(7)`)
+	mustNotContain(t, "cursor down", moved, `PAN1B0:execute(1)`, `PAN1B3:execute(1)`)
 
 	toggled := mustExec(t, engine, `(function()
-		click("PAN1", "btn1") -- up, back to the toggle row (by object id this time)
-		click("PAN1", "btn2") -- OK
+		click("PAN1B0", "btn1") -- up, back to the toggle row (by the button's id this time)
+		click("PAN1", "btn2")   -- OK
 		T.advance(1000)
 		return LAMP:getValue() .. "|" .. sent()
 	end)()`)
@@ -250,8 +264,9 @@ func TestPanelLostFrameAndCoalescing(t *testing.T) {
 		local burst = sent()
 		return clears .. "|" .. burst
 	end)()`)
-	if !strings.HasPrefix(got, "1|") {
-		t.Errorf("lost frame: clear screens in the resend = %s, want 1", got[:strings.Index(got, "|")])
+	// the frame itself and one resend, each a whole screen
+	if !strings.HasPrefix(got, "2|") {
+		t.Errorf("lost frame: clear screens sent = %s, want 2 (frame and resend)", got[:strings.Index(got, "|")])
 	}
 	burst := got[strings.Index(got, "|")+1:]
 	mustContain(t, "after two quick moves", burst, `">Swiatlo"`)
@@ -271,9 +286,10 @@ func TestPanelCleaning(t *testing.T) {
 		return start .. "\n#" .. tick .. "\n#" .. done
 	end)()`)
 	parts := strings.Split(got, "\n#")
+	// the LEDs lit at home (OK and back) go off; the two that were off are left alone
 	mustContain(t, "cleaning start", parts[0], `PAN1:set(13, 0)`, `"Czyszczenie"`, `"3", 3`,
-		`PAN1B0:execute(2)`, `PAN1B3:execute(2)`)
-	mustNotContain(t, "cleaning start", parts[0], `"<"`)
+		`PAN1B1:execute(2)`, `PAN1B3:execute(2)`)
+	mustNotContain(t, "cleaning start", parts[0], `"<"`, `PAN1B0:execute(2)`)
 	mustContain(t, "countdown", parts[1], `"2", 3`)
 	mustNotContain(t, "inputs ignored", parts[1], `"Dom"`)
 	mustContain(t, "cleaning end", parts[2], `PAN1:set(13, 1)`, `"Dom"`, `">Czyszczenie"`)

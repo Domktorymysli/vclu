@@ -74,17 +74,33 @@ A subscription reports one feature per entry: an object that needs more than its
 them in `subscribeFeatures()` and turns each into its value with `fromFeature()` (`RemoteCover`).
 
 ### Smart Panel (SMART_PANEL_FM_4)
-Indices from the Object Manager definition, fv07. PANEL (class 29) execute: 0 SwitchOnDisplay,
+Indices from the Object Manager definition, fv05 and fv07. PANEL (class 29) execute: 0 SwitchOnDisplay,
 2 ClearScreen, 3 PrintText(x, y, text, font 1-3), 4 DrawLine, 5 DrawPoint, 6 DrawIcon(x, y, file),
-7 DisplayContent, 20 PrintFloat, 21 SetBeep(freq, ms, volume, 0), 22 SetPageNr, 30 DrawBox(x, y, w,
-h, color), 31 StartCleaningMode (fv07 only); features 13 BuzzerValue, 20 PageControlMode; events
+7 DisplayContent, 20 PrintFloat, 21 SetBeep(freq, ms, volume, 0), 22 SetPageNr, 30 DrawBox (fv05 on),
+31 StartCleaningMode (fv07 only); features 13 BuzzerValue, 20 PageControlMode; events
 0-3 gestures, 4 OnProximityDetect, 6 OnDisplayOn. PANEL_BUTTON (class 30, 16 = 4 buttons × 4 pages)
-execute 1 LedSwitchOn, 2 LedSwitchOff, 3 SetLabel; events 4 OnLongPress, 5 OnHold, 6 OnClick.
-Screen 128 × 64, text up to 15 characters. A frame is several calls in one script, so keep each
-message under `RemotePanel.MAX_MESSAGE` and spaced by `SPACING_MS`. Not yet checked on a panel:
-the message size the CLU takes, whether DrawBox fills (partial redraws need it, else set
-`Panel.partial = false`), font sizes (`Panel.layout`), which button is in which corner, and
-whether OnClick also fires after a long press.
+execute 1 LedSwitchOn, 2 LedSwitchOff, 3 SetLabel; events 3 OnShortPress, 4 OnLongPress, 5 OnHold,
+6 OnClick. Screen 128 × 64, text up to 15 characters. PANEL_PAGE (class 19) is Grenton's own page
+and is not imported.
+
+Measured on a Smart Panel WiFi (its own CLU, `GATE:new` in om.lua, Gate firmware 1.0.2, panel
+module fv05) on 2026-10-18:
+- The CLU runs **one expression per message**: two statements side by side run nothing. `RemotePanel`
+  wraps every message in `(function() ... end)()`. Messages of 337 characters went through whole;
+  `RemotePanel.MAX_MESSAGE` is 300. A frame of 14 DrawLine calls in two messages 150 ms apart arrived.
+- `PrintText`: y is the top of the text; font 1 is 10 px high (capitals), font 2 14 px, font 3 28 px.
+  Every letter gets a black cell behind it, so text does not invert and nothing draws on top of it.
+- `DrawBox` (30) draws nothing, with (x, y, w, h, color) and with end coordinates alike; it is not in
+  fv04 (the bus panels). `DrawLine` and `ClearScreen` work; a frame needs `DisplayContent` at the end.
+- Buttons: OnClick does not fire after a long press, so OnClick and OnLongPress are enough.
+  Object Manager tends to pass the button's id as the first argument of `click()`, so
+  `RemotePanel.click` accepts a panel or one of its buttons. The Gate sends the call as broadcast and
+  unicast in turn; every press arrived (4 presses in 1.5 s).
+- Not yet measured: gestures, OnHold, the proximity range, icons (`DrawIcon` with the panel's own
+  `.bmp` files, 64 × 32 and 16 × 16), character widths (`Panel.layout.cw` is an estimate), which
+  button sits in which corner.
+A frame is several calls in one script, so keep each message under `RemotePanel.MAX_MESSAGE` and
+spaced by `SPACING_MS`; the CLU drops bursts.
 
 ### Untested on hardware
 `RemoteLight` (dimmer) and `RemoteCover` (roller) in `runtime/objects/` follow the documentation, not a

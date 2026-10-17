@@ -1,8 +1,10 @@
 --- Remote Smart Panel (class 29, PANEL) and its screen.
--- Indices from Object Manager device-interfaces, SMART_PANEL_FM_4 fv07 (execute methods
+-- Indices from Object Manager device-interfaces, SMART_PANEL_FM_4 fv05/fv07 (execute methods
 -- of PANEL; see pkg/lua/AGENTS.md). The screen is drawn with frames: lists of calls sent
 -- in short messages, spaced, the last one with a reply; a lost frame is sent again whole.
--- The CLU forwards the panel's events with click(panelName, input).
+-- A CLU runs one expression per message, so every message is wrapped in a function call.
+-- The CLU forwards the panel's events with click(name, input), where name is the panel or
+-- one of its buttons (Object Manager fills in the button's id).
 -- @module objects.RemotePanel
 -- @inherits RemoteObject
 
@@ -20,16 +22,20 @@ RemotePanel.DISPLAY = 7
 RemotePanel.PRINT_FLOAT = 20
 RemotePanel.BEEP = 21
 RemotePanel.SET_PAGE = 22
-RemotePanel.DRAW_BOX = 30
 RemotePanel.CLEANING = 31
+-- DrawBox (execute 30) is listed from fv05 on but drew nothing on a fv05 panel: not used
 -- PANEL features
 RemotePanel.FEATURE_BUZZER = 13
 RemotePanel.FEATURE_PAGE_CONTROL = 20
 
--- Frame sending: the CLU drops long messages and bursts (pkg/lua/AGENTS.md)
-RemotePanel.MAX_MESSAGE = 200
+-- Frame sending: the CLU drops long messages and bursts (pkg/lua/AGENTS.md); a WiFi panel
+-- took 337 characters in one message, so 300 keeps a margin
+RemotePanel.MAX_MESSAGE = 300
 RemotePanel.SPACING_MS = 60
 RemotePanel.RETRIES = 2
+-- One expression per message: the statements of a part go inside this call
+RemotePanel.WRAP_OPEN = "(function() "
+RemotePanel.WRAP_CLOSE = " end)()"
 
 -- Timer used for spacing; tests replace it
 RemotePanel.timer = {
@@ -65,6 +71,9 @@ end
 -- @param button RemotePanelButton
 function RemotePanel:addButton(index, button)
     self._buttons[index] = button
+    -- click() from Object Manager often carries the button's id, not the panel's
+    RemotePanel._byName[button._objId] = self
+    if button._name then RemotePanel._byName[button._name] = self end
     return self
 end
 
@@ -98,18 +107,20 @@ end
 --- Shows one of Grenton's built-in pages (1-4).
 function RemotePanel:setPage(nr) self:execute(RemotePanel.SET_PAGE, nr) end
 
--- Packs statements into messages of at most MAX_MESSAGE characters
+-- Packs statements into messages of at most MAX_MESSAGE characters, each one expression
 local function pack(ops)
+    local open, close = RemotePanel.WRAP_OPEN, RemotePanel.WRAP_CLOSE
+    local budget = RemotePanel.MAX_MESSAGE - #open - #close
     local parts, cur = {}, ""
     for _, op in ipairs(ops) do
-        if cur ~= "" and #cur + 1 + #op > RemotePanel.MAX_MESSAGE then
-            parts[#parts + 1] = cur
+        if cur ~= "" and #cur + 1 + #op > budget then
+            parts[#parts + 1] = open .. cur .. close
             cur = op
         else
             cur = (cur == "" and op) or (cur .. " " .. op)
         end
     end
-    if cur ~= "" then parts[#parts + 1] = cur end
+    if cur ~= "" then parts[#parts + 1] = open .. cur .. close end
     return parts
 end
 RemotePanel._pack = pack

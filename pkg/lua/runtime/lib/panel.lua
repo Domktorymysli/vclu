@@ -22,16 +22,19 @@
 local Panel = {}
 Panel.__index = Panel
 
--- Screen layout (128 x 64, font 1); tune on the panel
+-- Screen layout (128 x 64). Measured on a Smart Panel WiFi (module fv05): y is the top of
+-- the text; font 1 is 10 px high (capitals; g, y go lower), font 2 14 px, font 3 28 px.
+-- PrintText paints a black cell behind every letter, so text never inverts and nothing
+-- fills a box (DrawBox draws nothing): every frame redraws the whole screen.
 Panel.layout = {
     w = 128, h = 64,
-    cw = 6,                  -- character width of font 1
+    cw = { 6, 8, 16 },       -- character width per font, an estimate for aligning text
+    fh = { 10, 14, 28 },     -- font height per font
     top = 0, bottom = 54,    -- y of the hint rows
     rows = { 14, 27, 40 },   -- y of the content rows
     rowH = 12,
 }
 Panel.MAX_TEXT = 15
-Panel.partial = true         -- redraw only changed areas (needs DrawBox to fill)
 Panel.REDRAW_MS = 20         -- changes within this time make one frame
 Panel.pageControlOff = true  -- stop gestures from switching Grenton's own pages
 
@@ -97,36 +100,28 @@ end
 Panel.format = fmt
 
 -- ============================================================
--- Screen: collects draw calls in named regions
+-- Screen: collects the draw calls of one frame
 -- ============================================================
 
 local Screen = {}
 Screen.__index = Screen
 
 local function newScreen(panelObj)
-    return setmetatable({ _obj = panelObj, _regions = {}, _order = {}, _cur = nil }, Screen)
+    return setmetatable({ _obj = panelObj, _ops = {} }, Screen)
 end
 
---- Starts a region: an area redrawn on its own when only it changed.
--- @param name string Region name, unique on the page
--- @param x,y,w,h number Its box (cleared before it is redrawn); nil = redraw everything
-function Screen:region(name, x, y, w, h)
-    local r = self._regions[name]
-    if not r then
-        r = { name = name, ops = {}, box = x and { x, y, w, h } or nil }
-        self._regions[name] = r
-        self._order[#self._order + 1] = r
-    end
-    self._cur = r
+--- Names the area drawn next (kept for readable page code; a frame always redraws all).
+function Screen:region(name)
+    self._region = name
     return self
 end
 
 function Screen:_add(op)
-    if not self._cur then self:region("body") end
-    local ops = self._cur.ops
-    ops[#ops + 1] = op
+    self._ops[#self._ops + 1] = op
     return self
 end
+
+local function charW(font) return Panel.layout.cw[font or 1] or Panel.layout.cw[1] end
 
 function Screen:text(x, y, s, font)
     return self:_add(self._obj:op(RemotePanel.PRINT_TEXT, math.floor(x), math.floor(y), Panel.text(s), font or 1))
@@ -135,7 +130,7 @@ end
 --- Text aligned to the right edge (or to x as its right end).
 function Screen:textRight(y, s, font, right)
     s = Panel.text(s)
-    local x = (right or Panel.layout.w) - #s * Panel.layout.cw * (font or 1)
+    local x = (right or Panel.layout.w) - #s * charW(font)
     return self:text(math.max(0, x), y, s, font)
 end
 
@@ -143,7 +138,7 @@ end
 function Screen:textCenter(y, s, font, x0, x1)
     s = Panel.text(s)
     x0, x1 = x0 or 0, x1 or Panel.layout.w
-    local x = x0 + ((x1 - x0) - #s * Panel.layout.cw * (font or 1)) / 2
+    local x = x0 + ((x1 - x0) - #s * charW(font)) / 2
     return self:text(math.max(0, x), y, s, font)
 end
 
@@ -155,8 +150,9 @@ function Screen:line(x, y, xe, ye, color)
     return self:_add(self._obj:op(RemotePanel.DRAW_LINE, x, y, xe, ye, color or 1))
 end
 
-function Screen:box(x, y, w, h, color)
-    return self:_add(self._obj:op(RemotePanel.DRAW_BOX, x, y, w, h, color or 1))
+--- A horizontal rule across the screen.
+function Screen:rule(y)
+    return self:line(0, y, Panel.layout.w - 1, y, 1)
 end
 
 function Screen:point(x, y, color)
@@ -191,9 +187,8 @@ function Panel.new(obj)
         _subs = {},
         _timers = {},
         _deb = {},
-        _last = nil,       -- regions and LEDs of the last frame sent
+        _leds = nil,       -- LEDs as the last frame left them
         _pending = false,
-        _full = true,
         _started = false,
     }, Panel)
     obj:onInput(function(input) self:input(input) end)
@@ -512,9 +507,8 @@ end
 -- ---------- drawing ----------
 
 --- Asks for a redraw; changes within REDRAW_MS make one frame.
--- @param full boolean Redraw everything (the picture may be lost)
+-- @param full boolean Kept for callers; every frame redraws the whole screen
 function Panel:redraw(full)
-    if full then self._full = true end
     if self._pending then return end
     self._pending = true
     Panel.timer.after(Panel.REDRAW_MS, function()
@@ -524,13 +518,6 @@ function Panel:redraw(full)
 end
 
 local HINT_W = 30
-
-local function hintBox(corner)
-    local L = Panel.layout
-    local x = (corner == "tl" or corner == "bl") and 0 or (L.w - HINT_W)
-    local y = (corner == "tl" or corner == "tr") and L.top or L.bottom
-    return x, y, HINT_W, 10
-end
 
 function Panel:_frame()
     local page = self:top()
@@ -554,11 +541,11 @@ function Panel:_frame()
                 label = keys[role][1]
             end
         end
-        local x, y, w, h = hintBox(corner)
-        s:region("hint." .. corner, x, y, w, h)
+        local y = (corner == "tl" or corner == "tr") and L.top or L.bottom
+        s:region("hint." .. corner)
         if label and label ~= "" then
             lit[corner] = true
-            if corner == "tl" or corner == "bl" then s:text(x, y, label)
+            if corner == "tl" or corner == "bl" then s:text(0, y, label)
             else s:textRight(y, label) end
         end
     end
@@ -567,8 +554,8 @@ function Panel:_frame()
     local ok, err = pcall(page.draw, s, self)
     if not ok then log():error("[Panel] draw failed: %s", tostring(err)) end
 
-    -- LEDs of the buttons
-    local leds = {}
+    -- LEDs of the buttons; only the ones that change go out
+    local leds, ledState = {}, {}
     for btn, corner in pairs(self._input) do
         local idx = tonumber(btn:match("^btn(%d+)$"))
         local b = idx and self.obj:getButton(idx - 1)
@@ -576,49 +563,20 @@ function Panel:_frame()
     end
     table.sort(leds, function(a, b) return a.key < b.key end)
 
-    -- full frame
-    local full = { self.obj:op(RemotePanel.CLEAR) }
-    local sigs = {}
-    for _, r in ipairs(s._order) do
-        for _, op in ipairs(r.ops) do full[#full + 1] = op end
-        sigs[r.name] = table.concat(r.ops, "\n")
+    local ops = { self.obj:op(RemotePanel.CLEAR) }
+    for _, op in ipairs(s._ops) do ops[#ops + 1] = op end
+    ops[#ops + 1] = self.obj:op(RemotePanel.DISPLAY)
+    local full = {}
+    for i, op in ipairs(ops) do full[i] = op end
+    local last = self._leds or {}
+    for _, l in ipairs(leds) do
+        full[#full + 1] = l.op
+        if last[l.key] ~= l.on then ops[#ops + 1] = l.op end
+        ledState[l.key] = l.on
     end
-    full[#full + 1] = self.obj:op(RemotePanel.DISPLAY)
-    for _, l in ipairs(leds) do full[#full + 1] = l.op end
+    self._leds = ledState
 
-    local last = self._last
-    local ops = full
-    if not self._full and last and Panel.partial then
-        ops = {}
-        local same = #s._order == #last.order
-        for i, r in ipairs(s._order) do
-            if not same then break end
-            if last.order[i] ~= r.name then same = false break end
-            if last.sigs[r.name] ~= sigs[r.name] then
-                if not r.box then same = false break end
-                local b = r.box
-                ops[#ops + 1] = self.obj:op(RemotePanel.DRAW_BOX, b[1], b[2], b[3], b[4], 0)
-                for _, op in ipairs(r.ops) do ops[#ops + 1] = op end
-            end
-        end
-        if not same then
-            ops = full
-        else
-            if #ops > 0 then ops[#ops + 1] = self.obj:op(RemotePanel.DISPLAY) end
-            for _, l in ipairs(leds) do
-                if last.leds[l.key] ~= l.on then ops[#ops + 1] = l.op end
-            end
-        end
-    end
-    self._full = false
-
-    local order = {}
-    for i, r in ipairs(s._order) do order[i] = r.name end
-    local ledState = {}
-    for _, l in ipairs(leds) do ledState[l.key] = l.on end
-    self._last = { order = order, sigs = sigs, leds = ledState }
-
-    if #ops > 0 then self.obj:send(ops, full) end
+    self.obj:send(ops, full)
 end
 
 -- ============================================================
