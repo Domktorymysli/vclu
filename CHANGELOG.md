@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Lua runtime
+
+- **A reload does not fire automations whose input is already in the target state** - after a Lua reload (every promote from an agent) CLU objects start without a value, and their first report reached `StateBus:watch` as a change from nothing: `StateBus:watch(path, fn, { to = 1 })` ran whenever the input already was 1. A watch now fires on the changes the history records: a first reading after a start or reload fires only when it differs from the value known before, and then `old` is that value. The very first reading of an object fires nothing. Integrations still get it; the event carries `baseline = true`. In `vclu_draft_test` a `set` step still fires, also on an object with no value yet. **Contract change:** code that relied on a watch firing for the first report must read the value itself after start ([#49](https://github.com/Domktorymysli/vclu/issues/49)).
+- **A module directly in `modules/` runs once when `init.lua` requires it** - the loader runs every top-level file, so a file that `init.lua` also required, as the docs advised, ran twice: two objects, two watchers, two timers. The loader now skips a file already loaded by `require`, and a later `require` of a file it loaded gets the file's result. Drafts in `vclu_draft_test` load the same way ([#51](https://github.com/Domktorymysli/vclu/issues/51)).
+
+### Home Assistant
+
+- **`POST /api/ha/discovery/publish` no longer freezes entities** - it published discovery built from the OM files with state topics nobody updates since CLU objects are exposed automatically, so entities stopped following their objects until the next reload. It now republishes the runtime's own discovery (as on start, access control applied) and answers with the number of exposed objects, or 409 when the Home Assistant integration is off ([#50](https://github.com/Domktorymysli/vclu/issues/50)).
+
 ## v1.5.0 (2026-10-16)
 
 ### Lua runtime
