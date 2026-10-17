@@ -20,6 +20,11 @@
 
 - **`POST /api/ha/discovery/publish` no longer freezes entities** - it published discovery built from the OM files with state topics nobody updates since CLU objects are exposed automatically, so entities stopped following their objects until the next reload. It now republishes the runtime's own discovery (as on start, access control applied) and answers with the number of exposed objects, 409 when the Home Assistant integration is off, or 503 when the MQTT client is not connected (it used to answer 200 and publish nothing) ([#50](https://github.com/Domktorymysli/vclu/issues/50)).
 
+### Grenton
+
+- **vCLU can run a Grenton Smart Panel** - the OM import now creates the panel (`RemotePanel`, class 29) and its buttons (`RemotePanelButton`, class 30, attached to the panel by index). In Object Manager every panel event calls `click("<panel name>", "btn1")` (also `btn1:long`, `btn1:hold`, `swipe:up`, `proximity`, `wake`), and a module describes the screens with `require("lib/panel")`: a menu that edits values in place (`:toggle`, `:number` with `min`/`max`, `:choice`, `:action` with `confirm`), pages for a value, an on/off object and a thermostat, an idle screen with time and values, a cleaning lock with a countdown, `panel:notify()`, and page types of your own (`Panel.register`). The four corner buttons get their meaning from the page with a hint next to each; one corner is always back. Frames go out in short spaced messages, only changed areas are redrawn, and a frame without an answer is sent again whole. Import the OM file again after updating. Not yet tested on the panel.
+- **Text sent to a CLU is quoted** - `execute()` on a remote object sent a string argument without quotes, so the CLU got a bare name (nil); `set()` did not escape quotes or newlines. Both now send a Lua string literal. `RemoteRGBLight:setRGB` quoted the colour itself and now passes it plain.
+
 ## v1.5.0 (2026-10-16)
 
 ### Lua runtime
@@ -38,11 +43,6 @@
 - **`open()` and `close()` of a Grenton roller with a position go to `SetPosition`** - they sent MoveUp/MoveDown, which stop a roller that is moving (Object Manager's device definitions), so a second OPEN from Home Assistant, HomeKit or Lua stopped the roller halfway. With a position and no time they now send SetPosition 100 % / 0 %; with a time (`open(5000)`) or without a position MoveUp/MoveDown stay. Not tested on Grenton roller hardware.
 - **HomeKit opens and closes a Grenton roller without a position** - the Home app's slider and tap sent SetPosition, which a roller without a position (class 11) does not have, so it did not move. Such a roller now opens at a target of 50 % or more and closes below. A roller from a proxy generated before v1.4.0 counts as one without a position too: import the OM project again to get its position back. Not tested on Grenton roller hardware.
 - **An RGB LED from the OM import can be controlled** - it is announced with `schema: json`, so Home Assistant sends one JSON command (`{"state":"ON","brightness":40,"color":{...}}`), which was refused as an unknown payload. The command is now read: OFF, brightness, an `rgb` or `hs` colour, ON. The state no longer reports a made-up white colour. ON/OFF for lights call the object's `switchOn`/`switchOff`.
-
-### Grenton
-
-- **vCLU can run a Grenton Smart Panel** - the OM import now creates the panel (`RemotePanel`, class 29) and its buttons (`RemotePanelButton`, class 30, attached to the panel by index). In Object Manager every panel event calls `click("<panel name>", "btn1")` (also `btn1:long`, `btn1:hold`, `swipe:up`, `proximity`, `wake`), and a module describes the screens with `require("lib/panel")`: a menu that edits values in place (`:toggle`, `:number` with `min`/`max`, `:choice`, `:action` with `confirm`), pages for a value, an on/off object and a thermostat, an idle screen with time and values, a cleaning lock with a countdown, `panel:notify()`, and page types of your own (`Panel.register`). The four corner buttons get their meaning from the page with a hint next to each; one corner is always back. Frames go out in short spaced messages, only changed areas are redrawn, and a frame without an answer is sent again whole. Import the OM file again after updating. Not yet tested on the panel.
-- **Text sent to a CLU is quoted** - `execute()` on a remote object sent a string argument without quotes, so the CLU got a bare name (nil); `set()` did not escape quotes or newlines. Both now send a Lua string literal. `RemoteRGBLight:setRGB` quoted the colour itself and now passes it plain.
 
 ## v1.4.0 (2026-10-15)
 
