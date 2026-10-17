@@ -49,7 +49,13 @@ Panel.timer = {
     after = function(ms, fn) return EventBus:getShared():setTimeout(fn, ms) end,
     cancel = function(id) if id then EventBus:getShared():clearInterval(id) end end,
     now = function() return (__go_time_ms and __go_time_ms()) or os.time() * 1000 end,
-    date = function(fmt) return os.date(fmt) end,
+    -- "HH:MM  DD.MM" in the installation's time zone (datetime.setTimezone), not the server's
+    clock = function()
+        if datetime and datetime.now and datetime.format then
+            return datetime.format(datetime.now(), "15:04  02.01")
+        end
+        return os.date("%H:%M  %d.%m")
+    end,
 }
 
 local CORNERS = { "tl", "tr", "bl", "br" }
@@ -893,7 +899,7 @@ function Panel.idle(rows, page)
     end
     page.draw = function(s)
         local L = Panel.layout
-        s:region("time", 0, L.top, L.w, 10):textCenter(L.top, Panel.timer.date("%H:%M  %d.%m"))
+        s:region("time"):textCenter(L.top, Panel.timer.clock())
         for i, r in ipairs(rows) do
             local y = L.rows[i]
             if not y then break end

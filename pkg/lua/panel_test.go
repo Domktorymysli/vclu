@@ -30,7 +30,7 @@ end
 RemotePanel.timer = { after = T.after }
 Panel = require("lib/panel")
 Panel.timer = { after = T.after, cancel = T.cancel, now = function() return T.now end,
-	date = function() return "12:34  16.10" end }
+	clock = function() return "12:34  16.10" end }
 SENT = {}
 AT = {}
 REPLY = { fail = 0 }
