@@ -348,7 +348,7 @@ PluginsManager.prototype._renderInstalledPlugins = function() {
             repoUrl: available.repoUrl || '',
             tags: available.tags || [],
             enabled: p.enabled,
-            configured: p.config && Object.keys(p.config).length > 0,
+            configured: !p.needsConfig,
             updateAvailable: available.updateAvailable,
             availableVersion: available.version
         };

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -90,4 +92,61 @@ func postInstall(t *testing.T, s *Server, id string) installAnswer {
 		t.Fatalf("answer %s: %v", w.Body.String(), err)
 	}
 	return resp
+}
+
+// Only a plugin that asks for configuration and has none is marked "not configured";
+// a factory plugin declares none and is configured from code.
+func TestPluginsAPIInstalledNeedsConfig(t *testing.T) {
+	dir := t.TempDir()
+	manifests := map[string]string{
+		"vclu--musiccast": `{"id":"musiccast","version":"0.1.1"}`,
+		"vclu--solax":     `{"id":"solax","version":"1.0.1","config":{"host":{"type":"string"}}}`,
+		"vclu--salda":     `{"id":"salda","version":"1.2.0","config":{"host":{"type":"string"}}}`,
+	}
+	for name, manifest := range manifests {
+		pluginDir := filepath.Join(dir, "plugins", name, "1.0.0")
+		if err := os.MkdirAll(pluginDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(pluginDir, "plugin.json"), []byte(manifest), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	err := config.WriteMasterConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
+		Installed: []config.InstalledPlugin{
+			{ID: "@vclu/musiccast", Version: "0.1.1", Enabled: true},
+			{ID: "@vclu/solax", Version: "1.0.1", Enabled: true},
+			{ID: "@vclu/salda", Version: "1.2.0", Enabled: true, Config: map[string]interface{}{"host": "192.168.0.20"}},
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{serverDir: dir}
+
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/plugins/installed", nil)
+	s.handlePluginsAPIInstalled(c)
+
+	var resp struct {
+		Installed []struct {
+			ID          string `json:"id"`
+			NeedsConfig bool   `json:"needsConfig"`
+		} `json:"installed"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("%v: %s", err, w.Body.String())
+	}
+	got := map[string]bool{}
+	for _, p := range resp.Installed {
+		got[p.ID] = p.NeedsConfig
+	}
+	want := map[string]bool{"@vclu/musiccast": false, "@vclu/solax": true, "@vclu/salda": false}
+	for id, needs := range want {
+		if v, ok := got[id]; !ok || v != needs {
+			t.Errorf("%s needsConfig = %v (listed %v), want %v", id, v, ok, needs)
+		}
+	}
 }
