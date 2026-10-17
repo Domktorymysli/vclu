@@ -166,3 +166,43 @@ func TestRecordChange_NilValueRoundTrip(t *testing.T) {
 		t.Fatalf("value after nil: %+v, want a plain change with old nil", r)
 	}
 }
+
+// An object whose last change is older than the memory window keeps its
+// value through a restart (known.json): a change while vCLU was down is a
+// change from it, the same value is none.
+func TestRecordChange_KnownBeyondMemoryWindow(t *testing.T) {
+	now := time.Date(2026, 10, 7, 21, 0, 0, 0, time.UTC)
+	clock := func() time.Time { return now }
+	cfg := DefaultConfig()
+	cfg.Dir, cfg.FlushInterval = t.TempDir(), time.Hour
+	s := New(cfg, clock)
+	s.Record(Entry{Path: "a", Old: 1, Value: 0})
+	s.Record(Entry{Path: "b", Old: "x", Value: "y"})
+	if err := s.Close(time.Second); err != nil {
+		t.Fatal(err)
+	}
+
+	now = now.Add(30 * time.Hour)
+	s2 := New(cfg, clock)
+	if r := s2.RecordChange(Entry{Path: "a", Old: nil, Value: 0}); r.Change {
+		t.Fatalf("same value 30 h later: %+v", r)
+	}
+	if r := s2.RecordChange(Entry{Path: "b", Old: nil, Value: "z"}); !r.Change || !r.Known || r.Old != "y" {
+		t.Fatalf("changed while down: %+v, want a change from y", r)
+	}
+	s2.Record(Entry{Path: "c", Old: nil, Value: true})
+	if err := s2.Close(time.Second); err != nil {
+		t.Fatal(err)
+	}
+
+	// the snapshot follows the changes
+	now = now.Add(30 * time.Hour)
+	s3 := New(cfg, clock)
+	defer s3.Close(time.Second)
+	if r := s3.RecordChange(Entry{Path: "b", Old: nil, Value: "z"}); r.Change {
+		t.Fatalf("b unchanged since the last run: %+v", r)
+	}
+	if r := s3.RecordChange(Entry{Path: "c", Old: nil, Value: false}); !r.Change || r.Old != true {
+		t.Fatalf("c changed while down: %+v", r)
+	}
+}

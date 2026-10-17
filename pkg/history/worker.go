@@ -76,12 +76,28 @@ func (s *Store) Flush() error {
 	disk, batch := s.disk, s.pending
 	s.pending = nil
 	cfg := s.cfg
+	// the last value of every object, for a restart after the memory window
+	var known map[string]knownValue
+	if s.knownDirty {
+		known = make(map[string]knownValue, len(s.known))
+		for path, v := range s.known {
+			known[path] = knownValue{Value: v, AtMs: s.knownAt[path]}
+		}
+		s.knownDirty = false
+	}
 	s.mu.Unlock()
 
 	var err error
 	var skipped int
 	if len(batch) > 0 {
 		skipped, err = disk.appendBatch(batch)
+	}
+	if known != nil && err == nil {
+		if err = disk.writeKnown(known); err != nil {
+			s.mu.Lock()
+			s.knownDirty = true
+			s.mu.Unlock()
+		}
 	}
 	removed, over := disk.rotate(s.now(), cfg.RetentionDays, int64(cfg.MaxDiskMB)*1024*1024)
 	if skipped > 0 || removed > 0 {

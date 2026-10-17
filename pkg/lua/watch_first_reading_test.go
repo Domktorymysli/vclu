@@ -305,3 +305,36 @@ func TestWatch_NilValueIsAChange(t *testing.T) {
 		assert(c.events == 3 and c.baseline == nil, "events " .. c.events)
 	`)
 }
+
+// A restart after more than MemoryHours: an input that changed while vCLU
+// was down (a leak sensor, a door) fires its watch once, from the value
+// known before the shutdown.
+func TestWatch_RestartBeyondMemoryWindowFiresOnChange(t *testing.T) {
+	clk := &stepClock{t: time.Date(2026, 10, 7, 21, 0, 0, 0, time.UTC)}
+	cfg := history.DefaultConfig()
+	cfg.Dir, cfg.FlushInterval = t.TempDir(), time.Hour
+	store := history.New(cfg, clk.now)
+	store.Record(history.Entry{Path: "CLU1.DIN1", Value: int64(0), Old: int64(1), Origin: "grenton", Actor: "clu:1"})
+	if err := store.Close(time.Second); err != nil {
+		t.Fatal(err)
+	}
+
+	clk.t = clk.t.Add(30 * time.Hour)
+	engine := NewLuaEngine()
+	t.Cleanup(engine.Close)
+	store2 := history.New(cfg, clk.now)
+	t.Cleanup(func() { store2.Close(time.Second) })
+	engine.SetHistoryStore(store2)
+	SetClock(engine.state, fixedClockFunc(clk.now))
+	luaOK(t, engine, `
+		_G.c = { fired = 0, old = "none" }
+		local sw = RemoteSwitch:new({ executeNoReply = function() end }, "DIN1", "WEJSCIE")
+		registerObject("CLU1.DIN1", sw)
+		StateBus:watch("CLU1.DIN1", function(e) c.fired = c.fired + 1; c.old = e.old end, { to = 1 })
+		_:sync("CLU1.DIN1", 1)
+		assert(c.fired == 1 and c.old == 0, "changed while down: fired " .. c.fired .. " old " .. tostring(c.old))
+		_:sync("CLU1.DIN1", 0)
+		_:sync("CLU1.DIN1", 1)
+		assert(c.fired == 2, "a later change: " .. c.fired)
+	`)
+}

@@ -118,7 +118,10 @@ type Store struct {
 	dropped    int64
 	// known is the last value seen per path, entry or not: a first reading
 	// (old == nil, e.g. after a Lua reload) is compared with it
-	known map[string]any
+	known   map[string]any
+	knownAt map[string]int64
+	// knownDirty: known changed since its snapshot on disk (known.json)
+	knownDirty bool
 	// epoch counts Lua reloads; pathEpoch is the epoch of a path's last record
 	epoch      int
 	reloadAtMs int64
@@ -154,6 +157,7 @@ func New(cfg Config, now func() time.Time) *Store {
 		now:          now,
 		rings:        map[string]*ring{},
 		known:        map[string]any{},
+		knownAt:      map[string]int64{},
 		pathEpoch:    map[string]int{},
 		idPrefix:     rand.Text()[:10],
 		Expectations: NewTracker(now),
@@ -167,7 +171,8 @@ func New(cfg Config, now func() time.Time) *Store {
 
 // restore loads the hot window from the newest files, so a restart starts
 // with the last MemoryHours of history and the last known value of every
-// object (a first reading equal to it is then no change).
+// object (a first reading equal to it is then no change). An object that
+// last changed before the window has its value in the known.json snapshot.
 //
 // Memory stays within the ring limits: only the newest MaxEntriesTotal
 // entries of the window are held (files are in time order), the last value
@@ -178,7 +183,14 @@ func (s *Store) restore() {
 	next := 0 // oldest slot once tail is full
 	lastAt := map[string]int64{}
 	known := map[string]any{}
-	err := s.disk.scanRange(since, 0, func(e Entry) {
+	snapshot, err := s.disk.readKnown()
+	if err != nil {
+		s.lastFlushError = "restore: " + err.Error()
+	}
+	for path, k := range snapshot {
+		lastAt[path], known[path] = k.AtMs, k.Value
+	}
+	err = s.disk.scanRange(since, 0, func(e Entry) {
 		if at, ok := lastAt[e.Path]; !ok || e.AtMs >= at {
 			lastAt[e.Path], known[e.Path] = e.AtMs, e.Value
 		}
@@ -196,7 +208,8 @@ func (s *Store) restore() {
 	seen := make(map[string]bool, len(tail))
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.known = known
+	s.known, s.knownAt = known, lastAt
+	s.knownDirty = len(known) > len(snapshot)
 	for i := range tail {
 		e := tail[i]
 		if seen[e.ID] {
@@ -285,6 +298,9 @@ func (s *Store) RecordChange(e Entry) Recorded {
 	prev, seen := s.known[e.Path]
 	r.First = !seen
 	s.known[e.Path] = e.Value
+	if !seen || !equal(prev, e.Value) {
+		s.knownAt[e.Path], s.knownDirty = atMs, true
+	}
 	// Only within the reload window: an object that stayed silent after the
 	// reload and changes later is a real change, whatever its known value
 	firstSinceReload := s.pathEpoch[e.Path] != s.epoch && atMs-s.reloadAtMs <= reloadWindowMs
