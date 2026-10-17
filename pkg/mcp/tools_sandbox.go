@@ -94,7 +94,9 @@ func (s *MCPServer) registerSandboxTools() {
 				"type": "array",
 				"description": "Scenario steps run after the drafts load, each with exactly one operation: " +
 					`{"set": path or name, "value": v} (same path as a CLU report: _:sync), {"emit": event, "data": {...}}, ` +
-					`{"advance": seconds}, {"reload": true} (new Lua state; clock and KV kept, timers dropped, ` +
+					`{"advance": seconds}, {"click": panel or button id, "input": "btn1"} (a Smart Panel input as the CLU sends it: ` +
+					"btn1..btn4, btn1:long, swipe:up; the frame drawn shows in clu_calls after an advance), " +
+					`{"reload": true} (new Lua state; clock and KV kept, timers dropped, ` +
 					"integration objects back to the starting snapshot), " +
 					`{"expect_state": {path: value}}, {"expect_clu_calls": [{"script": "DOU4992:execute(1, 60000)", "target": "192.168.0.5"}]} ` +
 					"(exact list of CLU calls since the previous expect_clu_calls; target optional), " +

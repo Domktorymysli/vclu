@@ -47,6 +47,8 @@ type SandboxStep struct {
 	Emit           *string          `json:"emit,omitempty"`
 	Data           map[string]any   `json:"data,omitempty"`
 	Advance        *float64         `json:"advance,omitempty"` // seconds
+	Click          *string          `json:"click,omitempty"`   // Smart Panel or one of its buttons
+	Input          string           `json:"input,omitempty"`   // btn1..btn4, btn1:long, swipe:up...
 	Reload         *bool            `json:"reload,omitempty"`
 	ExpectState    map[string]any   `json:"expect_state,omitempty"`
 	ExpectCluCalls *[]CluCallExpect `json:"expect_clu_calls,omitempty"`
@@ -76,6 +78,9 @@ func (s SandboxStep) op() string {
 	}
 	if s.Advance != nil {
 		ops = append(ops, "advance")
+	}
+	if s.Click != nil {
+		ops = append(ops, "click")
 	}
 	if s.Reload != nil {
 		ops = append(ops, "reload")
@@ -116,7 +121,7 @@ func ParseSteps(raw []byte) ([]SandboxStep, error) {
 		op := s.op()
 		switch {
 		case op == "":
-			return nil, fmt.Errorf("step %d: needs exactly one of set, emit, advance, reload, expect_state, expect_clu_calls, expect_history", i+1)
+			return nil, fmt.Errorf("step %d: needs exactly one of set, emit, advance, click, reload, expect_state, expect_clu_calls, expect_history", i+1)
 		case op == "set" && (*s.Set == "" || len(s.Value) == 0):
 			return nil, fmt.Errorf("step %d: set needs a path and a value", i+1)
 		case op != "set" && len(s.Value) > 0:
@@ -125,6 +130,10 @@ func ParseSteps(raw []byte) ([]SandboxStep, error) {
 			return nil, fmt.Errorf("step %d: data is only allowed with emit", i+1)
 		case op == "emit" && *s.Emit == "":
 			return nil, fmt.Errorf("step %d: emit needs an event name", i+1)
+		case op == "click" && (*s.Click == "" || s.Input == ""):
+			return nil, fmt.Errorf("step %d: click needs a panel and an input", i+1)
+		case op != "click" && s.Input != "":
+			return nil, fmt.Errorf("step %d: input is only allowed with click", i+1)
 		case op == "advance" && (*s.Advance <= 0 || *s.Advance > maxAdvance.Seconds()):
 			return nil, fmt.Errorf("step %d: advance must be between 0 and %s", i+1, maxAdvance)
 		case op == "reload" && !*s.Reload:
@@ -291,6 +300,25 @@ func (run *sandboxRun) runSteps(L *lua.LState, steps []SandboxStep, cluMark int)
 		case "emit":
 			if err := run.se.injectEvent(L, InjectEvent{Name: *s.Emit, Data: s.Data}); err != nil {
 				fail(i, op, "%v", err)
+			}
+
+		case "click":
+			// what a CLU sends when a panel button is pressed; drawing happens on timers,
+			// so an advance step afterwards shows the frame in clu_calls
+			rp, _ := L.GetGlobal("RemotePanel").(*lua.LTable)
+			if rp == nil {
+				fail(i, op, "RemotePanel is not loaded")
+				continue
+			}
+			if err := L.CallByParam(lua.P{Fn: L.GetField(rp, "click"), NRet: 1, Protect: true},
+				lua.LString(*s.Click), lua.LString(s.Input)); err != nil {
+				fail(i, op, "%v", err)
+				continue
+			}
+			ok := L.Get(-1)
+			L.Pop(1)
+			if ok != lua.LTrue {
+				fail(i, op, "no panel %q handles input %q (a Panel.new on its RemotePanel, from the OM import?)", *s.Click, s.Input)
 			}
 
 		case "advance":
