@@ -393,16 +393,17 @@ func LoadedModules(L *lua.LState) map[string]bool {
 // file runs, but does not replace the module.
 func RunModule(L *lua.LState, path, name string, before map[string]bool) (skipped bool, err error) {
 	loaded, _ := L.GetField(L.GetGlobal("package"), "loaded").(*lua.LTable)
-	if loaded != nil && !before[name] {
+	// require turns dots into slashes: a file with a dot in its name is never
+	// what require(name) loaded
+	requirable := loaded != nil && !before[name] && !strings.Contains(name[strings.LastIndex(name, "/")+1:], ".")
+	if requirable {
 		v := loaded.RawGetString(name)
 		if v == lua.LNil {
 			v = loaded.RawGetString(strings.ReplaceAll(name, "/", "."))
 		}
-		// a failed require leaves gopher-lua's loop sentinel (userdata)
-		if _, failed := v.(*lua.LUserData); failed {
-			return true, fmt.Errorf("failed when another module required it; see that module's error")
-		}
-		if v != lua.LNil {
+		// a require that failed leaves gopher-lua's sentinel (userdata): the
+		// file has not run, it gets its turn and reports its own error
+		if _, failed := v.(*lua.LUserData); v != lua.LNil && !failed {
 			return true, nil
 		}
 	}
@@ -419,8 +420,10 @@ func RunModule(L *lua.LState, path, name string, before map[string]bool) (skippe
 	if ret == lua.LNil || ret == lua.LFalse {
 		ret = lua.LTrue
 	}
-	if loaded != nil && !before[name] && loaded.RawGetString(name) == lua.LNil {
-		loaded.RawSetString(name, ret)
+	if requirable {
+		if v := loaded.RawGetString(name); v == lua.LNil || v.Type() == lua.LTUserData {
+			loaded.RawSetString(name, ret)
+		}
 	}
 	return false, nil
 }

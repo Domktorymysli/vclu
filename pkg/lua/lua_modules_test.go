@@ -342,9 +342,9 @@ func TestLoadUserModules_ErrorNamesFileAndLine(t *testing.T) {
 	}
 }
 
-// A top-level file that fails while init.lua requires it does not run again:
-// init.lua carries the error, the file's own entry points at it.
-func TestLoadUserModules_RequiredFileErrorRunsOnce(t *testing.T) {
+// A top-level file that fails while init.lua requires it has not run: the
+// loader gives it its turn, and it reports its own error under its name.
+func TestLoadUserModules_RequiredFileThatFailedRunsAgain(t *testing.T) {
 	serverDir := createTestModulesDir(t, map[string]string{
 		"init.lua":  `_runs = {}; require("lampa")`,
 		"lampa.lua": "_runs.lampa = (_runs.lampa or 0) + 1\nerror(\"boom\")",
@@ -360,13 +360,55 @@ func TestLoadUserModules_RequiredFileErrorRunsOnce(t *testing.T) {
 	if r := got["init.lua"]; r.OK || !strings.Contains(r.Error, "lampa.lua:2: boom") {
 		t.Errorf("init.lua: %+v", r)
 	}
-	if r := got["lampa.lua"]; r.OK || !strings.Contains(r.Error, "required it") {
+	if r := got["lampa.lua"]; r.OK || !strings.Contains(r.Error, "lampa.lua:2: boom") {
 		t.Errorf("lampa.lua: %+v", r)
 	}
 	if r := got["zz.lua"]; !r.OK {
 		t.Errorf("zz.lua: %+v", r)
 	}
-	luaOK(t, engine, `assert(_runs.lampa == 1, "lampa ran " .. tostring(_runs.lampa))`)
+	luaOK(t, engine, `assert(_runs.lampa == 2, "lampa ran " .. tostring(_runs.lampa))`)
+}
+
+// init.lua requires (in a pcall) a file that needs a global set by an earlier
+// flat file: the require fails, the loader runs the file in its turn and it
+// works, as before RunModule.
+func TestLoadUserModules_FailedRequireGetsItsTurn(t *testing.T) {
+	serverDir := createTestModulesDir(t, map[string]string{
+		"init.lua":       `_runs = {}; pcall(require, "zz_scenes")`,
+		"aa_helpers.lua": `H = { x = 1 }`,
+		"zz_scenes.lua":  `_runs.zz = (_runs.zz or 0) + 1; local v = H.x; return { ok = true }`,
+	})
+	engine := NewLuaEngine()
+	defer engine.Close()
+
+	for _, r := range engine.LoadUserModules(serverDir) {
+		if !r.OK {
+			t.Errorf("%s: %s", r.Name, r.Error)
+		}
+	}
+	luaOK(t, engine, `
+		assert(_runs.zz == 2, "zz_scenes ran " .. tostring(_runs.zz))
+		assert(require("zz_scenes").ok == true, "require after the loader's run")
+	`)
+}
+
+// require("v2.lamp") loads modules/v2/lamp.lua, never modules/v2.lamp.lua:
+// a flat file with a dot in its name is not skipped for it.
+func TestLoadUserModules_DottedNameIsNotTheRequiredModule(t *testing.T) {
+	serverDir := createTestModulesDir(t, map[string]string{
+		"init.lua":    `_runs = {}; require("v2.lamp")`,
+		"v2.lamp.lua": `_runs.flat = (_runs.flat or 0) + 1`,
+		"v2/lamp.lua": `_runs.sub = (_runs.sub or 0) + 1`,
+	})
+	engine := NewLuaEngine()
+	defer engine.Close()
+
+	for _, r := range engine.LoadUserModules(serverDir) {
+		if !r.OK {
+			t.Errorf("%s: %s", r.Name, r.Error)
+		}
+	}
+	luaOK(t, engine, `assert(_runs.flat == 1 and _runs.sub == 1, "flat " .. tostring(_runs.flat) .. " sub " .. tostring(_runs.sub))`)
 }
 
 // What a file returns is what a later require gets; nil and false count as loaded.
