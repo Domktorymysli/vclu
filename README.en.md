@@ -119,9 +119,9 @@ docker run -d --name vclu \
 
 `--network host` is needed for UDP broadcast (Grenton discovery) and mDNS (HomeKit).
 
-In the container vCLU runs as the user `vclu` (UID/GID 1000), not as root. On start the container hands the data directory to it, so a volume from an earlier image keeps working as it is. Port 69/udp (TFTP) opens through a capability given to the binary, without `--cap-add`; with `--security-opt no-new-privileges` that capability does not apply and TFTP does not start. `docker ps` shows the state from `/api/health` (`healthy`/`unhealthy`). `docker exec` enters as root by default; `docker exec -u vclu` as vCLU's user.
+In the container vCLU runs as the user `vclu` (UID/GID 1000), not as root. On start the container hands the data directory to it, so a volume from an earlier image keeps working as it is; a host directory mounted as `/data` (`-v /path:/data`) is given owner 1000:1000 too. Port 69/udp (TFTP) opens through a capability given to the binary, without `--cap-add`. With `--security-opt no-new-privileges` that capability does not apply and TFTP does not start; with `--cap-drop ALL` add `--cap-add NET_BIND_SERVICE`, or vCLU does not start. `docker ps` shows the state from `/api/health` (`healthy`/`unhealthy`). `docker exec` enters as root by default; `docker exec -u vclu` as vCLU's user.
 
-GPIO on a Raspberry Pi: add `--device /dev/gpiomem`; the container adds `vclu` to the device's group.
+GPIO on a Raspberry Pi: add `--device /dev/gpiomem`; the container gives `vclu` access to the device (adds it to the device's group, and hands a device of group root to the group `vclu`).
 
 ### From source
 

@@ -22,7 +22,9 @@ FROM alpine:3.21
 
 RUN apk add --no-cache ca-certificates tzdata su-exec \
  && addgroup -g 1000 vclu \
- && adduser -D -H -u 1000 -G vclu -s /sbin/nologin vclu
+ && adduser -D -H -u 1000 -G vclu -s /sbin/nologin vclu \
+ && mkdir -p /data /opt/vclu/data \
+ && chown vclu:vclu /data /opt/vclu/data
 
 # Install directory
 WORKDIR /opt/vclu
