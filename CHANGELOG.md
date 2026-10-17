@@ -6,6 +6,11 @@
 
 - **The Docker image runs vCLU as a user, not as root, and reports its health** - `ghcr.io/domktorymysli/vclu` starts vCLU as `vclu` (UID/GID 1000). An entrypoint runs as root only to hand the data directory to that user (a volume written by an earlier, root image, or a host directory mounted as `/data`, which gets owner 1000:1000) and to give it access to a passed-in `/dev/gpiomem`, then drops root with `su-exec`; a step it cannot do is logged and does not stop the start. The binary has `cap_net_bind_service`, so TFTP on port 69 opens without `--cap-add` (not with `--security-opt no-new-privileges`). `HEALTHCHECK` calls `/api/health` on the `--web-port` vCLU was started with. A named volume needs nothing. **Check:** a container run with `--cap-drop ALL` (or Kubernetes `drop: [ALL]`) needs `--cap-add NET_BIND_SERVICE`, or vCLU does not start; one run with `--user` (not root) runs vCLU as that user, whose data directory must be writable by it. `docker exec` still enters as root, `docker exec -u vclu` as vCLU's user ([#3](https://github.com/Domktorymysli/vclu/issues/3)).
 
+### AI agents (MCP)
+
+- **Agents are told to put code in modules** - the MCP instructions and `docs/ai/examples.md` now say: read `modules/init.lua` and follow its layout; a domain (a plugin, a device, a room) is `modules/<domain>/init.lua` with its readings, metrics and exports, and its dashboard in `modules/dashboards/` reads from that module, not from the plugin directly, so the dashboard and every export show the same values. A flat `modules/*.lua` is for a short standalone script, and must not sit next to a directory of the same name, which `require` would then never reach. Before this, an agent asked for a dashboard tended to drop a loose file in `modules/`.
+- **`vclu_draft_promote` no longer warns about a module's `init.lua` that is required by its directory name** - promoting `modules/pogoda/init.lua` warned that `modules/init.lua` has no `require('pogoda/init')`, though `require("pogoda")` loads it.
+
 ## v1.5.0 (2026-10-16)
 
 ### Lua runtime
