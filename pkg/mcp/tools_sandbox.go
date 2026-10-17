@@ -662,8 +662,12 @@ func stripLuaBlockComments(src string) string {
 //   - the block-comment stripper is not string-aware, so a line comment
 //     containing "--[[" swallows text up to the next "]]" (e.g. an unrelated
 //     t[a[b]]), which can drop a real require from view and warn needlessly.
+//
+// A directory module's init.lua is loaded by the directory name, so
+// "pogoda/init" is satisfied by require("pogoda") too.
 func hasRequire(luaSrc, modPath string) bool {
 	want := strings.ReplaceAll(modPath, ".", "/")
+	dir := strings.TrimSuffix(want, "/init")
 
 	// Block comments first — they span lines, so line-based stripping cannot see them.
 	src := stripLuaBlockComments(luaSrc)
@@ -673,7 +677,7 @@ func hasRequire(luaSrc, modPath string) bool {
 			line = line[:i]
 		}
 		for _, m := range requireCallRe.FindAllStringSubmatch(line, -1) {
-			if strings.ReplaceAll(m[2], ".", "/") == want {
+			if got := strings.ReplaceAll(m[2], ".", "/"); got == want || got == dir {
 				return true
 			}
 		}

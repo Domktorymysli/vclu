@@ -45,7 +45,7 @@ IMPORTANT — common pitfalls when writing Lua modules:
 
 2. Dashboard API: use dash:section("Title", "icon") for interactive widgets (toggle, slider, button). dash:header() is ONLY for compact status indicators in the top bar. Finish with dash:build(). For dashboards that depend on plugins or late-loading objects, use setTimeout.
 
-3. Subdirectory modules (modules/dashboards/*.lua, modules/scenes/*.lua) MUST have a matching require() in modules/init.lua or they will NOT load.
+3. Where code goes: in modules, not loose files. Read modules/init.lua first and follow the layout already there. A domain (a plugin, a device, a room) is a directory modules/<domain>/init.lua that holds its readings, metrics, exports and automations and returns a table. Its dashboard goes in modules/dashboards/<domain>.lua and reads from require("<domain>"), not from the plugin directly, so the dashboard and every export show the same values. Both need a require() in modules/init.lua: require("<domain>") loads modules/<domain>/init.lua, require("dashboards/<domain>") the dashboard. Subdirectory files without a matching require() do NOT load. A flat modules/*.lua is auto-loaded, but keep it for a short standalone script; never put modules/<name>.lua next to modules/<name>/, because require("<name>") then loads the flat file.
 
 4. Never modify a/user.lua or a/om.lua — these are OM-generated and will be overwritten.
 

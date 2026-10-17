@@ -655,29 +655,65 @@ Dashboard.new('settings')
 
 ## Directory convention
 
+Put code in modules, not loose files in `modules/`. Read `modules/init.lua`
+first and follow the layout that is already there.
+
 ```
-modules/init.lua           -- entry point, requires modules
+modules/init.lua           -- entry point, requires everything below
+modules/<domain>/init.lua  -- one domain (plugin, device, room): readings,
+                           -- metrics, exports, automations; returns a table
+modules/<domain>/*.lua     -- more files of the same domain: require("<domain>/file")
+modules/dashboards/        -- dashboards (Lua-defined UI), one per domain
 modules/scenes/            -- scenes (manual triggers)
-modules/automations/       -- automations (event-driven)
-modules/dashboards/        -- dashboards (Lua-defined UI)
-modules/api/               -- HTTP endpoints
-modules/helpers/           -- helper functions
-modules/schedules/         -- time schedules
+modules/helpers/           -- helper functions shared by domains
+```
+
+A dashboard only draws. It reads from its domain module, not from the plugin
+directly, so the dashboard and every export (InfluxDB, Home Assistant) show the
+same values:
+
+```lua
+-- modules/pogoda/init.lua
+local weather = Plugin.getPlugin("@vclu/weather")
+if not weather then return nil end
+
+local M = {}
+function M.temp()
+    local d = weather:getData()
+    return d.ready and d.temp or nil
+end
+metric("pogoda:temp", M.temp, { unit = "°C", interval = 600 })
+return M
+```
+
+```lua
+-- modules/dashboards/pogoda.lua
+local pogoda = require("pogoda")
+if type(pogoda) ~= "table" then return end   -- module skipped: require gives true
+
+Dashboard.new("pogoda"):name("Pogoda"):icon("cloud-sun")
+    :header()
+    :status("temp", "Temperatura", "thermometer-half", pogoda.temp, "°C")
+-- ... sections, then build()
 ```
 
 Each file = one module. Name = snake_case.
 user.lua and om.lua are OM files — NEVER modify them, they will be overwritten.
 
-**IMPORTANT**: A file in a subdirectory of `modules/` loads only through a `require()` in
-`modules/init.lua`. Files directly in `modules/` load by themselves: `init.lua` first, then the
-others alphabetically. A `require()` of such a file in `init.lua` loads it earlier, and it still
-runs once; what the file returns is what `require()` gets. Do not name a file like a runtime module
-(`Timer`, `TypeMap`, `string`...): it runs, but `require()` of that name keeps the runtime module.
+**IMPORTANT**: Flat `modules/*.lua` files load by themselves, alphabetically after
+`init.lua`; keep them for short standalone scripts. A `require()` of such a file in `init.lua`
+loads it earlier, and it still runs once; what the file returns is what `require()` gets.
+Everything in a subdirectory loads only through a `require()` in `modules/init.lua`, and
+`require("<domain>")` loads `modules/<domain>/init.lua`. Never put `modules/<name>.lua` next to
+`modules/<name>/`: `require("<name>")` finds the flat file first. Do not name a file like a
+runtime module (`Timer`, `TypeMap`, `string`...): it runs, but `require()` of that name keeps
+the runtime module.
 
 ```lua
 -- modules/init.lua (example)
+require("pogoda")              -- modules/pogoda/init.lua
 require("scenes/salon_movie")
 require("automations/motion_kitchen")
-require("tasmota_biurko") -- optional: modules/tasmota_biurko.lua loads anyway, this loads it first
+require("dashboards/pogoda")
 require("dashboards/home")
 ```
