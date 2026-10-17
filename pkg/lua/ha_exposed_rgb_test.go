@@ -131,3 +131,83 @@ func TestHAExposedRGBCommands(t *testing.T) {
 		t.Errorf("on/off sent %s, want %s", got, want)
 	}
 }
+
+// The colour comes through the subscription as the CLU sends it: a quoted string in the
+// report, next to the white and the value. The first answer and a later report both land.
+func TestHAExposedRGBColourFromReport(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+	if _, err := engine.Execute(haExposedRGBSetup + `
+		registerObject("CLU1.LED2", _rgbw)
+		_rgbw._registryPath = "CLU1.LED2"
+		__go_send_command = function(ip, script) return 'clientReport:1:{"#FF5500",64,0.5}' end
+		_sid = RemoteSubscription.subscribe("192.168.0.3", {
+			{ objId = "LED2", featureIndex = 6 }, { objId = "LED2", featureIndex = 15 }, { objId = "LED2", featureIndex = 0 },
+		}, "CLU1")
+	`); err != nil {
+		t.Fatalf("setup failed: %v", err)
+	}
+	got := mustExec(t, engine, `_last("vclu/exposed/t/light/kuchnia/state")`)
+	if want := `{"state":"ON","brightness":50,"color_mode":"rgbw","color":{"r":255,"g":85,"b":0,"w":64}}`; got != want {
+		t.Errorf("after the subscribe answer = %s, want %s", got, want)
+	}
+	got = mustExec(t, engine, `(function()
+		RemoteSubscription.handleReport("192.168.0.3", _sid, '{"#0000ff",128,1}')
+		return _last("vclu/exposed/t/light/kuchnia/state")
+	end)()`)
+	if want := `{"state":"ON","brightness":100,"color_mode":"rgbw","color":{"r":0,"g":0,"b":255,"w":128}}`; got != want {
+		t.Errorf("after a report = %s, want %s", got, want)
+	}
+}
+
+// Before the first colour report the state has no color_mode (HA warns about a mode
+// without a colour); a read-only RGB light is a binary_sensor and gets ON/OFF.
+func TestHAExposedRGBWithoutColourAndReadonly(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+	if _, err := engine.Execute(haExposedRGBSetup + `
+		_ro = RemoteRGBLight:new({ executeNoReply = function() end }, "LED3", "sypialnia")
+		expose(_ro, "light", { name = "Sypialnia", path = "t:sypialnia", readonly = true })
+	`); err != nil {
+		t.Fatalf("setup failed: %v", err)
+	}
+	got := mustExec(t, engine, `(function()
+		_rgb:updateState(0.5)
+		return _last("vclu/exposed/t/light/salon/state")
+	end)()`)
+	if want := `{"state":"ON","brightness":50}`; got != want {
+		t.Errorf("state before a colour = %s, want %s", got, want)
+	}
+	got = mustExec(t, engine, `(function()
+		_ro:fromFeature(6, "#ff0000")
+		_ro:updateState(1)
+		return _last("homeassistant/binary_sensor/t_sypialnia/config"):match('"state_topic":"[^"]+"') .. "|" .. _last("vclu/exposed/t/light/sypialnia/state") .. "|" .. tostring(_last("homeassistant/light/t_sypialnia/config"):find("schema"))
+	end)()`)
+	if want := `"state_topic":"vclu/exposed/t/light/sypialnia/state"|ON|nil`; got != want {
+		t.Errorf("read-only RGB light = %s, want %s", got, want)
+	}
+}
+
+// Picking a colour on a light that is off: HA sends ON with the colour and no
+// brightness, and the light must come on, not only change colour.
+func TestHAExposedRGBColourOnOffLightSwitchesOn(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+	if _, err := engine.Execute(haExposedRGBSetup); err != nil {
+		t.Fatalf("setup failed: %v", err)
+	}
+	got := mustExec(t, engine, `(function()
+		_rgb:updateState(0)
+		_sent = {}
+		HACommands.handleExposedMessage("vclu/exposed/t/light/salon/set", '{"state":"ON","color":{"r":255,"g":0,"b":12}}')
+		local off = table.concat(_sent, ";")
+		_rgb:updateState(0.5)
+		_sent = {}
+		HACommands.handleExposedMessage("vclu/exposed/t/light/salon/set", '{"state":"ON","color":{"r":0,"g":255,"b":0}}')
+		return off .. "|" .. table.concat(_sent, ";")
+	end)()`)
+	// off: colour, then SwitchOn; already on: the colour alone
+	if want := `LED1:execute(6, "#ff000c");LED1:execute(9, 0)|LED1:execute(6, "#00ff00")`; got != want {
+		t.Errorf("sent %s, want %s", got, want)
+	}
+}

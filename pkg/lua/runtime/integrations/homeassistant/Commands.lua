@@ -47,8 +47,11 @@ function HACommands.lightJSON(obj, payload)
         obj:setBrightness(math.max(0, math.min(100, brightness)))
         changed = true
     end
-    if not changed and cmd.state == "ON" and obj.switchOn then
-        obj:switchOn()
+    -- ON alone switches on; so does ON with a colour on a light that is off (HA sends
+    -- that when a colour is picked on an off light; SetRGBvalue alone may not light it)
+    if cmd.state == "ON" and not brightness and obj.switchOn then
+        local v = tonumber(obj.getValue and obj:getValue())
+        if not changed or not v or v <= 0 then obj:switchOn() end
     end
     return true
 end

@@ -209,7 +209,8 @@ func TestHALightJSONWhite(t *testing.T) {
 	got := mustExec(t, engine, `_run(function()
 		HACommands.handleMessage("vclu/clu1/light/led1/set", [[{"state":"ON","color":{"r":255,"g":0,"b":10,"w":128}}]])
 	end)`)
-	if want := `LED1:execute(6, "#ff000a");LED1:execute(12, 128)`; got != want {
+	// no value known yet: ON with a colour also switches on
+	if want := `LED1:execute(6, "#ff000a");LED1:execute(12, 128);LED1:execute(9, 0)`; got != want {
 		t.Errorf("rgbw command sent %s, want %s", got, want)
 	}
 }

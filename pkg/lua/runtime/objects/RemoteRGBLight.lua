@@ -51,11 +51,12 @@ function RemoteRGBLight:fromFeature(index, value)
     return value
 end
 
---- "#rrggbb" (the # optional) to its components.
+--- "#rrggbb" to its components; the # is optional, and so are the quotes a CLU puts
+-- around a string in a report.
 -- @param hex string
 -- @return number, number, number r, g, b (0..255), or nil
 function RemoteRGBLight.parseHex(hex)
-    local r, g, b = tostring(hex):match("^#?(%x%x)(%x%x)(%x%x)$")
+    local r, g, b = tostring(hex):match('^"?#?(%x%x)(%x%x)(%x%x)"?$')
     if not r then return nil end
     return tonumber(r, 16), tonumber(g, 16), tonumber(b, 16)
 end

@@ -72,21 +72,24 @@ local function isDimmer(objType)
 end
 
 -- The colour mode of an exposed light whose object has a colour (RemoteRGBLight): rgbw on
--- an RGBW module, rgb otherwise; nil for a plain light
+-- an RGBW module, rgb otherwise; nil for a plain light and for a read-only one, which
+-- is a binary_sensor to HA (exposedComponent) and gets ON/OFF
 local function colorMode(handle)
     local o = handle and handle.object
     if handle.type ~= "light" or type(o) ~= "table" or type(o.setColor) ~= "function" then return nil end
+    if isReadonly(handle.path, handle.options) then return nil end
     return o._hasWhite and "rgbw" or "rgb"
 end
 
--- schema json: the state, the brightness (0..100) and the colour in one payload
+-- schema json: the state, the brightness (0..100) and the colour in one payload; no
+-- color_mode before the first colour report (HA warns about a mode without a colour)
 local function formatColorState(handle, value, mode)
     local o = handle.object
     local brightness = math.floor((tonumber(value) or 0) * 100 + 0.5)
-    local parts = { string.format('"state":"%s","brightness":%d,"color_mode":"%s"',
-        brightness > 0 and "ON" or "OFF", brightness, mode) }
+    local parts = { string.format('"state":"%s","brightness":%d', brightness > 0 and "ON" or "OFF", brightness) }
     local r, g, b = o:getColor()
     if r then
+        parts[#parts + 1] = string.format('"color_mode":"%s"', mode)
         if mode == "rgbw" then
             parts[#parts + 1] = string.format('"color":{"r":%d,"g":%d,"b":%d,"w":%d}', r, g, b, o._white or 0)
         else
