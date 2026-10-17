@@ -41,7 +41,7 @@ The "description" field on devices contains rules and constraints — always rea
 
 IMPORTANT — common pitfalls when writing Lua modules:
 
-1. Load order: flat modules/*.lua files load alphabetically BEFORE subdirectory modules (required from init.lua). If your code depends on objects created by another module (e.g., _registry["tasmota:xxx"]), wrap it in EventBus:getShared():setTimeout(fn, 5000) to delay execution. Never use "if not obj then return end" as a guard — it silently fails.
+1. Load order: modules/init.lua first (with the subdirectory modules it requires), then the other flat modules/*.lua files alphabetically; a file init.lua requires runs once. If your code depends on objects created by another module (e.g., _registry["tasmota:xxx"]), wrap it in EventBus:getShared():setTimeout(fn, 5000) to delay execution. Never use "if not obj then return end" as a guard — it silently fails.
 
 2. Dashboard API: use dash:section("Title", "icon") for interactive widgets (toggle, slider, button). dash:header() is ONLY for compact status indicators in the top bar. Finish with dash:build(). For dashboards that depend on plugins or late-loading objects, use setTimeout.
 

@@ -826,3 +826,20 @@ func TestScenario_PersistSurvivesReload(t *testing.T) {
 	}
 	requireSuccess(t, res)
 }
+
+// A set step is a change made by the agent: it fires a watch even on a CLU
+// object that has no value yet (a first reading would not).
+func TestScenario_FirstSetFiresWatch(t *testing.T) {
+	se, ws, serverDir := newTestSandbox(t)
+	writeProxy(t, serverDir)
+	writeDraft(t, ws, "modules/probe.lua", `
+		StateBus:watch("CLU220000592.DOU4992", function()
+			_:get("CLU220000592.DOU4992"):switchOff()
+		end, { to = 1 })
+	`)
+	res := runScenario(t, se, []string{"modules/probe.lua"}, "2026-10-04T23:00:00+02:00", `[
+		{"set": "CLU220000592.DOU4992", "value": 1},
+		{"expect_clu_calls": [{"script": "DOU4992:execute(2, 0)"}]}
+	]`)
+	requireSuccess(t, res)
+}

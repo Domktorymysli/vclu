@@ -1,8 +1,9 @@
 --- StateChange - the single producer of StateBus "state_changed" events.
 --
 -- One real value change = exactly one event; old == value emits nothing.
--- Event: {id, path, old, value, atMs, type, origin, actor, correlationId, obj}
--- (oldValue = old for older scripts)
+-- Event: {id, path, old, value, atMs, type, origin, actor, correlationId, obj, baseline}
+-- (oldValue = old for older scripts; baseline = true for a first reading that
+-- the history does not count as a change)
 --
 -- Every change is recorded in the Go history store (__go_history_record)
 -- before watchers run, so a callback already sees it in lastChange().
@@ -203,8 +204,12 @@ end
 function StateChange.publish(path, obj, old, value, context)
     if old == value then return nil end
     local skipHistory = false
+    -- baseline: a first reading that is no change (after a start or reload);
+    -- integrations get the state, StateBus:watch does not fire
+    local baseline = false
     if obj and quiet[obj] ~= nil then
         skipHistory = old == nil and quiet[obj] == value
+        baseline = skipHistory
         quiet[obj] = nil
     end
     context = resolveContext(obj, context)
@@ -217,11 +222,15 @@ function StateChange.publish(path, obj, old, value, context)
     local origin, actor = context.origin or "unknown", context.actor or "unknown"
     local id, atMs
     if __go_history_record and not skipHistory then
-        local ok, rid, rat = pcall(__go_history_record, {
+        local ok, rid, rat, change, known = pcall(__go_history_record, {
             path = path, value = value, old = old,
             origin = origin, actor = actor, correlationId = context.correlationId,
         })
-        if ok then id, atMs = rid, rat end
+        if ok then
+            id, atMs = rid, rat
+            if change == false then baseline = true end
+            if known ~= nil then old = known end
+        end
     end
     if not id then
         if __go_state_change_id then
@@ -245,6 +254,7 @@ function StateChange.publish(path, obj, old, value, context)
         actor = actor,
         correlationId = context.correlationId,
         obj = obj,
+        baseline = baseline or nil,
     }
     local bus = StateBus and StateBus:getShared()
     if bus then bus:emit("state_changed", event) end

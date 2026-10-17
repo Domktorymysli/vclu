@@ -701,15 +701,19 @@ Each file = one module. Name = snake_case.
 user.lua and om.lua are OM files — NEVER modify them, they will be overwritten.
 
 **IMPORTANT**: Flat `modules/*.lua` files load by themselves, alphabetically after
-`init.lua`; keep them for short standalone scripts. Everything in a subdirectory
-loads only through a `require()` in `modules/init.lua`, and `require("<domain>")`
-loads `modules/<domain>/init.lua`. Never put `modules/<name>.lua` next to
-`modules/<name>/`: `require("<name>")` finds the flat file first.
+`init.lua`; keep them for short standalone scripts. A `require()` of such a file in `init.lua`
+loads it earlier, and it still runs once; what the file returns is what `require()` gets.
+Everything in a subdirectory loads only through a `require()` in `modules/init.lua`, and
+`require("<domain>")` loads `modules/<domain>/init.lua`. Never put `modules/<name>.lua` next to
+`modules/<name>/`: `require("<name>")` finds the flat file first. Do not name a file like a
+runtime module (`Timer`, `TypeMap`, `string`...): it runs, but `require()` of that name keeps
+the runtime module.
 
 ```lua
 -- modules/init.lua (example)
 require("pogoda")              -- modules/pogoda/init.lua
 require("scenes/salon_movie")
+require("automations/motion_kitchen")
 require("dashboards/pogoda")
 require("dashboards/home")
 ```
