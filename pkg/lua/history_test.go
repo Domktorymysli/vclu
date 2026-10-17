@@ -126,11 +126,12 @@ func TestHistory_WatchByNameAndRegistryPath(t *testing.T) {
 		StateBus:watch("LAMPA", function() byName = byName + 1 end)
 		StateBus:watch("CLU1.DOU9", function() byReg = byReg + 1 end)
 		StateBus:watch("salon.lampa", function() byExpose = byExpose + 1 end)
-		_:sync("CLU1.DOU9", 0)
+		_:sync("CLU1.DOU9", 0) -- first reading: no change
 		_:sync("CLU1.DOU9", 1)
+		_:sync("CLU1.DOU9", 0)
 		assert(byName == 2 and byReg == 2 and byExpose == 2,
 			string.format("name=%d reg=%d expose=%d", byName, byReg, byExpose))
-		assert(sw:lastChange().value == 1, "history under the expose path")
+		assert(sw:lastChange().value == 0, "history under the expose path")
 	`)
 }
 
@@ -177,13 +178,49 @@ func TestHistory_WatchByNameCreatedLaterAndAfterOff(t *testing.T) {
 		StateBus:watch("LATE_LAMP", function() c.n = c.n + 1 end)
 		local sw = RemoteSwitch:new({ executeNoReply = function() end }, "DOU5", "LATE_LAMP")
 		registerObject("CLU1.DOU5", sw)
-		_:sync("CLU1.DOU5", 0)
+		_:sync("CLU1.DOU5", 0) -- first reading: no change
 		_:sync("CLU1.DOU5", 1)
+		_:sync("CLU1.DOU5", 0)
 		assert(c.n == 2, "watch by name of a later object: " .. c.n)
 
 		StateBus:getShared():off("state_changed")
 		StateBus:watch("CLU1.DOU5", function() c.m = c.m + 1 end)
-		_:sync("CLU1.DOU5", 0)
+		_:sync("CLU1.DOU5", 1)
 		assert(c.m == 1, "dispatcher not re-attached after off: " .. c.m)
+	`)
+}
+
+// A reload re-creates CLU objects without a value; their first report is no
+// change for StateBus:watch unless it differs from the value known before.
+func TestHistory_WatchSkipsFirstReadingAfterReload(t *testing.T) {
+	engine, _, _ := newHistoryEngine(t)
+	setup := `
+		local c = { fired = 0, old = "none" }
+		_G.c = c
+		local sw = RemoteSwitch:new({ executeNoReply = function() end }, "DIN1", "WEJSCIE")
+		registerObject("CLU1.DIN1", sw)
+		StateBus:watch("CLU1.DIN1", function(e) c.fired = c.fired + 1; c.old = e.old end, { to = 1 })
+	`
+	luaOK(t, engine, setup+`
+		_:sync("CLU1.DIN1", 1)
+		assert(c.fired == 0, "first reading ever fired the watch")
+		_:sync("CLU1.DIN1", 0)
+		_:sync("CLU1.DIN1", 1)
+		assert(c.fired == 1, "a real change: " .. c.fired)
+	`)
+	if err := engine.Reinitialize("CLU"); err != nil {
+		t.Fatal(err)
+	}
+	luaOK(t, engine, setup+`
+		_:sync("CLU1.DIN1", 1)
+		assert(c.fired == 0, "the same value after a reload fired the watch")
+		_:sync("CLU1.DIN1", 0)
+	`)
+	if err := engine.Reinitialize("CLU"); err != nil {
+		t.Fatal(err)
+	}
+	luaOK(t, engine, setup+`
+		_:sync("CLU1.DIN1", 1)
+		assert(c.fired == 1 and c.old == 0, "a change during the reload: " .. c.fired .. " old " .. tostring(c.old))
 	`)
 }

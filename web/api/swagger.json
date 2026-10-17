@@ -1219,7 +1219,7 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Parses all stored OM files and publishes Home Assistant MQTT discovery messages plus initial states to the embedded broker. Objects hidden by access control are skipped. Per-file errors are collected and returned alongside the counters.",
+                "description": "Republishes Home Assistant discovery and state of every exposed object (CLU objects are exposed automatically), as vCLU does on start, and clears stale discovery. Access control applies: hidden objects are removed, read-only ones get no command topic. Needs the Home Assistant integration of the MQTT client.",
                 "produces": [
                     "application/json"
                 ],
@@ -1229,10 +1229,16 @@
                 "summary": "Publish Home Assistant discovery",
                 "responses": {
                     "200": {
-                        "description": "success bool, published int, states int, files int, errors []string (or message string when there are no OM files)",
+                        "description": "success bool, published int (exposed objects)",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "Home Assistant integration is off",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
                         }
                     },
                     "503": {
@@ -3367,16 +3373,10 @@
                 1000000000,
                 60000000000,
                 3600000000000,
-                -9223372036854775808,
-                9223372036854775807,
                 1,
                 1000,
                 1000000,
                 1000000000,
-                60000000000,
-                3600000000000,
-                -9223372036854775808,
-                9223372036854775807,
                 1,
                 1000,
                 1000000,
@@ -3393,16 +3393,10 @@
                 "Second",
                 "Minute",
                 "Hour",
-                "minDuration",
-                "maxDuration",
                 "Nanosecond",
                 "Microsecond",
                 "Millisecond",
                 "Second",
-                "Minute",
-                "Hour",
-                "minDuration",
-                "maxDuration",
                 "Nanosecond",
                 "Microsecond",
                 "Millisecond",

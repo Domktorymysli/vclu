@@ -24,7 +24,9 @@ func registerHistoryFunctions(L *lua.LState, store *history.Store) {
 		return
 	}
 
-	// __go_history_record({path, value, old, origin, actor, correlationId}) -> id, atMs
+	// __go_history_record({path, value, old, origin, actor, correlationId})
+	// -> id, atMs, change (false: a first reading), known old value or nil,
+	// first (nothing was known about the path)
 	L.SetGlobal("__go_history_record", L.NewFunction(func(L *lua.LState) int {
 		t := L.CheckTable(1)
 		e := history.Entry{
@@ -37,18 +39,25 @@ func registerHistoryFunctions(L *lua.LState, store *history.Store) {
 		if e.Value, err = LuaToGo(t.RawGetString("value")); err == nil {
 			e.Old, err = LuaToGo(t.RawGetString("old"))
 		}
-		var id string
-		var atMs int64
 		if err != nil {
 			// The change still happens and is published; only history skips it
 			log.Printf("[HISTORY] %s not recorded: %v", e.Path, err)
-			id, atMs = store.Stamp()
-		} else {
-			id, atMs = store.Record(e)
+			id, atMs := store.Stamp()
+			L.Push(lua.LString(id))
+			L.Push(lua.LNumber(atMs))
+			return 2
 		}
-		L.Push(lua.LString(id))
-		L.Push(lua.LNumber(atMs))
-		return 2
+		r := store.RecordChange(e)
+		L.Push(lua.LString(r.ID))
+		L.Push(lua.LNumber(r.AtMs))
+		L.Push(lua.LBool(r.Change))
+		if r.Known {
+			L.Push(goValueToLua(L, r.Old))
+		} else {
+			L.Push(lua.LNil)
+		}
+		L.Push(lua.LBool(r.First))
+		return 5
 	}))
 
 	// __go_expect({path, value, dueAtMs, earlyMs, lateMs, origin, actor, correlationId})

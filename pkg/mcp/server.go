@@ -41,11 +41,11 @@ The "description" field on devices contains rules and constraints — always rea
 
 IMPORTANT — common pitfalls when writing Lua modules:
 
-1. Load order: flat modules/*.lua files load alphabetically BEFORE subdirectory modules (required from init.lua). If your code depends on objects created by another module (e.g., _registry["tasmota:xxx"]), wrap it in EventBus:getShared():setTimeout(fn, 5000) to delay execution. Never use "if not obj then return end" as a guard — it silently fails.
+1. Load order: modules/init.lua first (with the subdirectory modules it requires), then the other flat modules/*.lua files alphabetically; a file init.lua requires runs once. If your code depends on objects created by another module (e.g., _registry["tasmota:xxx"]), wrap it in EventBus:getShared():setTimeout(fn, 5000) to delay execution. Never use "if not obj then return end" as a guard — it silently fails.
 
 2. Dashboard API: use dash:section("Title", "icon") for interactive widgets (toggle, slider, button). dash:header() is ONLY for compact status indicators in the top bar. Finish with dash:build(). For dashboards that depend on plugins or late-loading objects, use setTimeout.
 
-3. Subdirectory modules (modules/dashboards/*.lua, modules/scenes/*.lua) MUST have a matching require() in modules/init.lua or they will NOT load.
+3. Where code goes: in modules, not loose files. Read modules/init.lua first and follow the layout already there. A domain (a plugin, a device, a room) is a directory modules/<domain>/init.lua that holds its readings, metrics, exports and automations and returns a table. Its dashboard goes in modules/dashboards/<domain>.lua and reads from require("<domain>"), not from the plugin directly, so the dashboard and every export show the same values. Both need a require() in modules/init.lua: require("<domain>") loads modules/<domain>/init.lua, require("dashboards/<domain>") the dashboard. Subdirectory files without a matching require() do NOT load. A flat modules/*.lua is auto-loaded, but keep it for a short standalone script; never put modules/<name>.lua next to modules/<name>/, because require("<name>") then loads the flat file.
 
 4. Never modify a/user.lua or a/om.lua — these are OM-generated and will be overwritten.
 

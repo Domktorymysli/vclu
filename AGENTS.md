@@ -56,7 +56,9 @@ Show the list with each ticket's size and area (from its file). Before starting 
 3. **New behaviour a script or integration can see gets a contract test.** Test what they observe,
    not internals; prove the test fails with the code broken.
 4. **Keep Go and Lua in their layers.** Network and system work in Go; house logic in `.lua` files
-   under `pkg/lua/runtime/`, not in Go strings.
+   under `pkg/lua/runtime/`, not in Go strings. Lua that only Go needs (sandbox helpers, a tool's
+   query) is a `.lua` file next to its Go package, loaded with `go:embed`; a Go string holds at
+   most a call, never a `function` or a `local`.
 5. **State changes go through StateBus**, never straight to an integration.
 6. **Grenton encryption (`pkg/cipher/`) and protocol (`pkg/server/`) are maintainer areas.**
    Nothing in CI talks to real hardware.

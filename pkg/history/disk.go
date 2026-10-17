@@ -34,6 +34,47 @@ func (d *diskStore) path(day string) string {
 	return filepath.Join(d.dir, day+fileSuffix)
 }
 
+// knownValue is the last value of an object in known.json: the baseline of
+// a restart for objects whose last change is older than the memory window.
+type knownValue struct {
+	Value any   `json:"value"`
+	AtMs  int64 `json:"atMs"`
+}
+
+const knownFile = "known.json"
+
+// writeKnown replaces known.json whole (write, then rename).
+func (d *diskStore) writeKnown(known map[string]knownValue) error {
+	if err := os.MkdirAll(d.dir, dirPerm); err != nil {
+		return err
+	}
+	data, err := json.Marshal(known)
+	if err != nil {
+		return err
+	}
+	tmp := filepath.Join(d.dir, knownFile+".tmp")
+	if err := os.WriteFile(tmp, data, filePerm); err != nil {
+		return err
+	}
+	return os.Rename(tmp, filepath.Join(d.dir, knownFile))
+}
+
+// readKnown returns the snapshot, empty when there is none.
+func (d *diskStore) readKnown() (map[string]knownValue, error) {
+	known := map[string]knownValue{}
+	data, err := os.ReadFile(filepath.Join(d.dir, knownFile))
+	if os.IsNotExist(err) {
+		return known, nil
+	}
+	if err != nil {
+		return known, err
+	}
+	if err := json.Unmarshal(data, &known); err != nil {
+		return map[string]knownValue{}, fmt.Errorf("%s: %w", knownFile, err)
+	}
+	return known, nil
+}
+
 // appendBatch writes entries to the file of their own UTC day (a batch that
 // spans midnight goes to two files). Entries over 64 KiB are skipped and
 // counted in skipped.

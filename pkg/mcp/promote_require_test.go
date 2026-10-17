@@ -87,6 +87,24 @@ func TestHasRequire(t *testing.T) {
 			want:    true,
 		},
 		{
+			name:    "a directory module's init.lua is required by the directory name",
+			src:     `require("pogoda")`,
+			modPath: "pogoda/init",
+			want:    true,
+		},
+		{
+			name:    "a directory module's init.lua by its full path",
+			src:     `require("pogoda/init")`,
+			modPath: "pogoda/init",
+			want:    true,
+		},
+		{
+			name:    "another file of the module is not loaded by the directory name",
+			src:     `require("pogoda")`,
+			modPath: "pogoda/influx",
+			want:    false,
+		},
+		{
 			name:    "empty source",
 			src:     "",
 			modPath: "dashboards/homelab",

@@ -8,7 +8,7 @@
 --
 -- Events:
 --   "state_changed" - one per real value change, emitted only by StateChange.publish
---     data: {id, path, old, value, atMs, type, origin, actor, correlationId, obj}
+--     data: {id, path, old, value, atMs, type, origin, actor, correlationId, obj, baseline}
 --
 -- @module StateBus
 
@@ -102,7 +102,7 @@ local function dispatch(event)
         for i, w in ipairs(list) do copy[i] = w end
         for _, w in ipairs(copy) do
             local o = w.opts
-            if w.active
+            if w.active and not event.baseline
                 and (o.from == nil or event.old == o.from)
                 and (o.to == nil or event.value == o.to)
                 and (o.origin == nil or event.origin == o.origin)
@@ -126,6 +126,8 @@ end
 
 --- Calls fn(event) for each state change of path that passes the filters.
 -- Works for objects created later; the event is the full state_changed record.
+-- A first reading after a start or reload is no change: it fires only when it
+-- differs from the value known before, and then old is that value.
 -- @param path string Object path or name ("*" for every object)
 -- Callbacks should not raise: errors are isolated and logged, but gopher-lua
 -- then detaches locals of still-running functions from their closures, so
