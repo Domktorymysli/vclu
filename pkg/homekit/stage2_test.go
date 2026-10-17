@@ -69,7 +69,7 @@ func TestDimmerOnRealLua(t *testing.T) {
 	}
 }
 
-// Covers: vCLU 0 = open, HomeKit 100 = open; the position, not the value, is shown.
+// Covers: vCLU and HomeKit both count 100 = open; the position, not the value, is shown.
 func TestCoverOnRealLua(t *testing.T) {
 	engine := lua.NewLuaEngine()
 	defer engine.Close()
@@ -90,14 +90,14 @@ func TestCoverOnRealLua(t *testing.T) {
 		t.Error("cover must re-read its position on state events")
 	}
 	cur := findChar(w.Accessory, characteristic.TypeCurrentPosition)
-	if cur.Value().(int) != 70 {
-		t.Fatalf("vCLU 30 (mostly open) shown as %v, want 70", cur.Value())
+	if cur.Value().(int) != 30 {
+		t.Fatalf("vCLU 30 shown as %v, want 30", cur.Value())
 	}
 	findChar(w.Accessory, characteristic.TypeTargetPosition).SetValueRequest(100, homeAppRequest())
-	if v, _ := engine.Execute(`return tostring(cov:getPosition())`); v != "0" {
-		t.Fatalf("'open fully' gave vCLU position %s, want 0", v)
+	if v, _ := engine.Execute(`return tostring(cov:getPosition())`); v != "100" {
+		t.Fatalf("'open fully' gave vCLU position %s, want 100", v)
 	}
-	if v, ok := s.GetCurrentState("hk:cov"); !ok || v != 0 {
+	if v, ok := s.GetCurrentState("hk:cov"); !ok || v != 100 {
 		t.Errorf("state read %v %v, want the position", v, ok)
 	}
 }
@@ -211,6 +211,56 @@ func TestCoverWithoutPositionShowsTarget(t *testing.T) {
 	findChar(w.Accessory, characteristic.TypeTargetPosition).SetValueRequest(60, homeAppRequest())
 	if v := findChar(w.Accessory, characteristic.TypeCurrentPosition).Value().(int); v != 60 {
 		t.Errorf("current position %d after a write, want the target 60", v)
+	}
+}
+
+// A Grenton roller from the Home app, on the real runtime: with a position the target
+// goes to SetPosition (HomeKit 100 = open, Grenton 100 % = open); without one (class 11)
+// there is no SetPosition, so the target opens or closes it.
+func TestGrentonRollerFromHomeApp(t *testing.T) {
+	engine := lua.NewLuaEngine()
+	defer engine.Close()
+	if _, err := engine.Execute(`
+		_sent = {}
+		local clu = { executeNoReply = function(s, i, cmd) table.insert(_sent, cmd) end }
+		local r = RemoteCover:new(clu, "ROL1", "salon")
+		r._hasPosition = true
+		expose(r, "cover", { name = "Salon", path = "hk:salon" })
+		expose(RemoteCover:new(clu, "ROL2", "strych"), "cover", { name = "Strych", path = "hk:strych" })
+	`); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{luaExecutor: engine}
+	objs, err := s.fetchExposed()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// one accessory per roller, as in the Home app: a target equal to the last one is no change
+	acc := map[string]*AccessoryWrapper{}
+	for _, o := range objs {
+		acc[o.Path] = s.createExposedAccessory(o, false)
+	}
+	for _, c := range []struct {
+		path   string
+		target int
+		want   string
+	}{
+		{"hk:salon", 60, "ROL1:execute(10, 60, 91)"},
+		{"hk:salon", 0, "ROL1:execute(10, 0, 91)"},
+		{"hk:strych", 100, "ROL2:execute(0, 0)"},
+		{"hk:strych", 40, "ROL2:execute(1, 0)"},
+		{"hk:strych", 60, "ROL2:execute(0, 0)"},
+		{"hk:strych", 0, "ROL2:execute(1, 0)"},
+		{"hk:strych", 50, "ROL2:execute(0, 0)"},
+	} {
+		w := acc[c.path]
+		if _, err := engine.Execute(`_sent = {}`); err != nil {
+			t.Fatal(err)
+		}
+		findChar(w.Accessory, characteristic.TypeTargetPosition).SetValueRequest(c.target, homeAppRequest())
+		if got, _ := engine.Execute(`return table.concat(_sent, ";")`); got != c.want {
+			t.Errorf("%s target %d sent %q, want %q", c.path, c.target, got, c.want)
+		}
 	}
 }
 

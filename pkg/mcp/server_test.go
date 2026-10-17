@@ -7,8 +7,11 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
+
+	mcplib "github.com/mark3labs/mcp-go/mcp"
 
 	"github.com/Domktorymysli/vclu/pkg/accesscontrol"
 	"github.com/Domktorymysli/vclu/pkg/config"
@@ -219,5 +222,21 @@ func TestSetEnabled(t *testing.T) {
 	srv.SetEnabled(true)
 	if !srv.IsEnabled() {
 		t.Fatal("expected enabled")
+	}
+}
+
+// A cover in the scene boilerplate moves through setPosition: its feature 0 is a read-only state.
+func TestCreateScenePromptCover(t *testing.T) {
+	devices := &mockDeviceProvider{devices: []Device{{Path: "CLU.ROL1", Type: "cover", Name: "Roleta"}}}
+	srv := NewMCPServer(devices, newMockAccessChecker(), &mockConfigProvider{}, &mockMetrics{})
+	var req mcplib.GetPromptRequest
+	req.Params.Arguments = map[string]string{"name": "Wieczór", "devices": "CLU.ROL1"}
+	res, err := srv.handleCreateScenePrompt(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := res.Messages[0].Content.(mcplib.TextContent).Text
+	if !strings.Contains(text, "CLU_ROL1:setPosition(VALUE) -- 0=closed, 100=open") || strings.Contains(text, "CLU_ROL1:set(0") {
+		t.Errorf("cover boilerplate:\n%s", text)
 	}
 }

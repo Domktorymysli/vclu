@@ -1,9 +1,8 @@
 --- Remote cover class for ROLLER_SHUTTER and ROLLER_SH objects.
 -- Provides control for blinds, shutters, and covers.
--- The value is the position on vCLU's scale, 0 = open .. 100 = closed (as VirtualCover).
--- Grenton counts the other way (ROLLER_SHUTTER, class 24: feature 7 Position and
--- method 10 SetPosition, 0% = closed .. 100% = open; Object Manager device-interfaces);
--- this class converts in both directions. The OM import sets _hasPosition = true for
+-- The value is the position, 0 = closed .. 100 = open, as in Grenton (ROLLER_SHUTTER,
+-- class 24: feature 7 Position and method 10 SetPosition; Object Manager device-interfaces),
+-- Home Assistant and HomeKit. The OM import sets _hasPosition = true for
 -- class 24; without it (ROLLER_SH, class 11, or a proxy generated before) the value
 -- stays feature 0. First firmware of the 2.0 roller modules (fv01) has no Position either.
 -- @module objects.RemoteCover
@@ -39,18 +38,18 @@ function RemoteCover:getState()
 end
 
 --- Gets the current position of the cover (from local cache).
--- @return number|nil Current position (0 = open, 100 = closed), nil until reported
+-- @return number|nil Current position (0 = closed, 100 = open), nil until reported
 function RemoteCover:getPosition()
     if self._hasPosition then return self._lastState end
     return nil
 end
 
 --- Sets the cover to a specific position.
--- @param position number Target position (0 = open, 100 = closed)
+-- @param position number Target position (0 = closed, 100 = open)
 -- @param lamel number Optional lamel angle (defaults to 91)
 function RemoteCover:setPosition(position, lamel)
     position = math.floor(math.max(0, math.min(100, position)) + 0.5)
-    self:execute(10, 100 - position, lamel or 91)
+    self:execute(10, position, lamel or 91)
 end
 
 --- Features to subscribe to, in report order: the movement first, so a report that
@@ -70,11 +69,17 @@ end
 function RemoteCover:fromFeature(index, value)
     if not self._hasPosition then return value end
     if index == RemoteCover.FEATURE_POSITION then
-        local n = tonumber(value)
-        return n and 100 - n
+        return tonumber(value)
     end
-    self._movement = value
+    self:_setMovement(value)
     return nil
+end
+
+-- Movement aside from the value; integrations (Home Assistant) listen for its changes
+function RemoteCover:_setMovement(movement)
+    local old = self._movement
+    self._movement = movement
+    if movement ~= old then self:emit("OnMovementChange", movement, old) end
 end
 
 --- Gets the current tilt angle of the cover slats (from local cache).
@@ -89,17 +94,27 @@ function RemoteCover:setTilt(angle)
     self:execute(9, angle)
 end
 
---- Opens the cover. MoveUp: stops instead when the cover is moving.
+--- Opens the cover. With a position and no time: SetPosition 100 %, which opens also while
+-- the cover moves; otherwise MoveUp, which stops instead when the cover is moving.
 -- @param time number Optional duration in milliseconds (0 = full travel)
 function RemoteCover:open(time)
-    self:execute(0, time or 0)
+    if self._hasPosition and (time or 0) == 0 then
+        self:setPosition(100)
+    else
+        self:execute(0, time or 0)
+    end
     self:_moved(1)
 end
 
---- Closes the cover. MoveDown: stops instead when the cover is moving.
+--- Closes the cover. With a position and no time: SetPosition 0 %, which closes also while
+-- the cover moves; otherwise MoveDown, which stops instead when the cover is moving.
 -- @param time number Optional duration in milliseconds (0 = full travel)
 function RemoteCover:close(time)
-    self:execute(1, time or 0)
+    if self._hasPosition and (time or 0) == 0 then
+        self:setPosition(0)
+    else
+        self:execute(1, time or 0)
+    end
     self:_moved(2)
 end
 
@@ -112,7 +127,7 @@ end
 -- Optimistic movement until the CLU reports. Without a position the movement is the value.
 function RemoteCover:_moved(movement)
     if self._hasPosition then
-        self._movement = movement
+        self:_setMovement(movement)
     else
         self:updateState(movement)
     end

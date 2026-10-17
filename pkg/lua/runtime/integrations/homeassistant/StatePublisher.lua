@@ -89,10 +89,11 @@ local function formatState(value, objType)
         -- RGB Light: JSON format
         local numVal = tonumber(value) or 0
         local state = numVal > 0 and "ON" or "OFF"
+        -- the colour is not reported (only Value is subscribed): HA keeps the last one
         return string.format(
-            '{"state":"%s","brightness":%d,"color":{"r":255,"g":255,"b":255}}',
+            '{"state":"%s","brightness":%d}',
             state,
-            math.floor(numVal * 100)
+            math.floor(numVal * 100 + 0.5)
         )
 
     elseif objType == "ROLLER" or objType == "ROLLER_SH" then
@@ -197,14 +198,8 @@ local function formatExposedState(value, exposedType)
         return "OFF"
 
     elseif exposedType == "cover" then
-        local numVal = tonumber(value) or 0
-        if numVal >= 100 then
-            return "open"
-        elseif numVal <= 0 then
-            return "closed"
-        else
-            return "open"  -- partially open
-        end
+        -- value is the position (see exposedCoverPosition)
+        return (tonumber(value) or 0) > 0 and "open" or "closed"
 
     elseif exposedType == "lock" then
         -- Lock: 0/1 -> UNLOCKED/LOCKED
@@ -305,6 +300,60 @@ local function buildExposedPositionTopic(path, exposedType)
     )
 end
 
+--- Whether an exposed cover has a position. A Grenton roller without one (class 11, or a
+-- proxy not regenerated) only moves up and down; other covers count their value as one.
+-- @param handle ExposedHandle
+-- @return boolean
+function HAStatePublisher.coverHasPosition(handle)
+    local obj = handle.object
+    return not (type(obj) == "table" and obj._hasPosition == false)
+end
+
+--- Position of an exposed cover (0 = closed .. 100 = open, the same in vCLU and HA).
+-- Read from getPosition() when the object has it, else from its value.
+-- @param handle ExposedHandle
+-- @return number|nil Position, nil when the object reports none (a roller without one)
+function HAStatePublisher.exposedCoverPosition(handle)
+    local obj = handle.object
+    local position
+    if type(obj) == "table" and type(obj.getPosition) == "function" then
+        local ok, p = pcall(obj.getPosition, obj)
+        if ok then position = p end
+    else
+        position = handle:getValue()
+    end
+    return tonumber(position)
+end
+
+--- State of an exposed cover for Home Assistant. A Grenton roller reports its movement
+-- (getState: 1 up, 2 down), shown as opening/closing; otherwise the position decides, and
+-- a roller without a position is stopped.
+-- @param handle ExposedHandle
+-- @param position number|nil Position (exposedCoverPosition)
+-- @return string|nil open, closed, opening, closing or stopped; nil when nothing is known
+function HAStatePublisher.exposedCoverState(handle, position)
+    local obj = handle.object
+    local movement
+    if type(obj) == "table" and type(obj.getState) == "function" then
+        local ok, m = pcall(obj.getState, obj)
+        if ok then movement = tonumber(m) end
+    end
+    if movement == 1 then return "opening" end
+    if movement == 2 then return "closing" end
+    if position then return position > 0 and "open" or "closed" end
+    if movement then return "stopped" end
+    return nil
+end
+
+--- A position from Home Assistant (0 = closed .. 100 = open), clamped and rounded.
+-- @param payload string|number Position from HA
+-- @return number|nil Position 0..100, nil when not a number
+function HAStatePublisher.coverPositionFromHA(payload)
+    local n = tonumber(payload)
+    if not n then return nil end
+    return math.floor(math.max(0, math.min(100, n)) + 0.5)
+end
+
 -- Handle state change for ExposedObject
 local function publishExposedState(handle)
     if not HAStatePublisher.enabled or not HAStatePublisher.mqttInstance then
@@ -324,15 +373,20 @@ local function publishExposedState(handle)
     end
 
     local value = handle:getValue()
+    local coverState
+    if handle.type == "cover" then
+        value = HAStatePublisher.exposedCoverPosition(handle)
+        coverState = HAStatePublisher.exposedCoverState(handle, value)
+    end
     -- Never publish a nil reading. HA rejects "nil" for numeric sensors
     -- (temperature/humidity/number) and there is nothing meaningful to report -
     -- the entity simply stays unavailable until a real value arrives.
-    if value == nil then
+    if value == nil and coverState == nil then
         return
     end
 
     local topic = buildExposedTopic(handle.path, handle.type)
-    local payload = formatExposedState(value, handle.type)
+    local payload = coverState or formatExposedState(value, handle.type)
 
     local ok, err = HAStatePublisher.mqttInstance:publish(topic, payload, 0, true)
     if ok then
@@ -350,17 +404,16 @@ local function publishExposedState(handle)
         local brightnessTopic = buildExposedBrightnessTopic(handle.path, handle.type)
         if brightnessTopic then
             local numVal = tonumber(value) or 0
-            local brightness = tostring(math.floor(numVal * 100))
+            local brightness = tostring(math.floor(numVal * 100 + 0.5))
             HAStatePublisher.mqttInstance:publish(brightnessTopic, brightness, 0, true)
         end
     end
 
-    -- Publish position for covers
-    if handle.type == "cover" then
+    -- Publish position for covers that have one
+    if handle.type == "cover" and value ~= nil then
         local positionTopic = buildExposedPositionTopic(handle.path, handle.type)
         if positionTopic then
-            local position = tostring(tonumber(value) or 0)
-            HAStatePublisher.mqttInstance:publish(positionTopic, position, 0, true)
+            HAStatePublisher.mqttInstance:publish(positionTopic, tostring(value), 0, true)
         end
     end
 end
@@ -403,21 +456,19 @@ local function onStateChanged(data)
         return
     end
 
-    -- A cover's value is its position on vCLU's scale (0 = open); discovery announces
-    -- HA's (0 = closed). ROLLER_SH has no position: its value is not one.
-    local haPosition
+    -- A cover's value is its position (0 = closed). ROLLER_SH has no position: its value is not one.
+    local position
     if objType == "ROLLER" then
         local obj = _registry and _registry[path]
-        local n = tonumber(value)
-        if n and not (obj and obj._hasPosition == false) then
-            haPosition = 100 - n
+        if not (obj and obj._hasPosition == false) then
+            position = tonumber(value)
         end
     end
 
     -- Format and publish state
     local payload = formatState(value, objType)
-    if haPosition then
-        payload = haPosition > 0 and "open" or "closed"
+    if position then
+        payload = position > 0 and "open" or "closed"
     end
 
     local ok, err = HAStatePublisher.mqttInstance:publish(topic, payload, 0, true)  -- qos=0, retain=true
@@ -436,16 +487,16 @@ local function onStateChanged(data)
         local brightnessTopic = buildBrightnessTopic(path, objType)
         if brightnessTopic then
             local numVal = tonumber(value) or 0
-            local brightness = tostring(math.floor(numVal * 100))
+            local brightness = tostring(math.floor(numVal * 100 + 0.5))
             HAStatePublisher.mqttInstance:publish(brightnessTopic, brightness, 0, true)
         end
     end
 
     -- Publish position for covers
-    if haPosition then
+    if position then
         local positionTopic = buildPositionTopic(path, objType)
         if positionTopic then
-            HAStatePublisher.mqttInstance:publish(positionTopic, tostring(haPosition), 0, true)
+            HAStatePublisher.mqttInstance:publish(positionTopic, tostring(position), 0, true)
         end
     end
 end
@@ -562,11 +613,27 @@ local function onObjectExposed(data)
         end
     end
 
-    -- Add position for covers
+    -- Add position for covers that have one
     if exposedType == "cover" then
+        -- A roller's movement is not its value: publish when it changes (once per object)
+        local obj = handle and handle.object
+        if type(obj) == "table" and obj.onEvent and not obj._haMovementHook then
+            obj._haMovementHook = true
+            obj:onEvent("OnMovementChange", function()
+                local h = ExposedObjects:get(StateChange.pathOf(obj))
+                if h and h.type == "cover" then publishExposedState(h) end
+            end)
+        end
         local positionTopic = buildExposedPositionTopic(path, exposedType)
-        discoveryPayload.position_topic = positionTopic
-        discoveryPayload.set_position_topic = positionTopic .. "/set"
+        if handle and not HAStatePublisher.coverHasPosition(handle) then
+            -- drop a position retained by older versions (the movement, 0-2)
+            HAStatePublisher.mqttInstance:publish(positionTopic, "", 0, true)
+        else
+            discoveryPayload.position_topic = positionTopic
+            discoveryPayload.set_position_topic = positionTopic .. "/set"
+            discoveryPayload.position_open = 100
+            discoveryPayload.position_closed = 0
+        end
     end
 
     -- Add unit for sensors

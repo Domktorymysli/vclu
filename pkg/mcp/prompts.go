@@ -111,7 +111,8 @@ func (s *MCPServer) handleCreateScenePrompt(ctx context.Context, req mcplib.GetP
 		if d.devType == "dimmer" {
 			fmt.Fprintf(&code, "    %s:set(0, VALUE) -- 0/1, dimmer 0..1\n", d.varName)
 		} else if d.devType == "cover" {
-			fmt.Fprintf(&code, "    %s:set(0, VALUE) -- 0=closed, 100=open\n", d.varName)
+			// feature 0 of a Grenton roller is its read-only state
+			fmt.Fprintf(&code, "    %s:setPosition(VALUE) -- 0=closed, 100=open\n", d.varName)
 		} else {
 			fmt.Fprintf(&code, "    %s:set(0, VALUE) -- 0/1 or specific value\n", d.varName)
 		}

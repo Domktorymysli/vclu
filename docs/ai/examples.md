@@ -239,7 +239,7 @@ CLU220000592:executeNoReply(0, "SetThermostat(19)")
 ## Dashboard (Lua-defined)
 
 Public dashboard for a tablet/wall. Defined in Lua, available at `/d/:id`.
-Widget types: button, toggle, slider, status, link.
+Widget types: button, toggle, slider, status, link, select, chart, image, group, cover, dimmer, color.
 
 **IMPORTANT**: After creating a dashboard file you MUST add a `require()` in `modules/init.lua`.
 Without it the dashboard will not be loaded!
@@ -311,6 +311,34 @@ Dashboard.new('home')
 -- Section options (3rd argument of :section()):
 -- { columns = 4 }        -- override the column count for this section
 ```
+
+### Cover widget (blind)
+
+Buttons up / stop / down, and a 0-100% position slider when `set` is given.
+
+```lua
+local roleta = r:get("CLU220000592.ROL0001")
+
+-- inside a Dashboard.new(...):section(...) chain
+:cover('roleta_salon', 'Roleta salon', 'window', {
+    getPosition = function() return roleta:getPosition() end, -- slider and "NN%" label
+    getState    = function() return roleta:getState() end,    -- lights the moving button
+    open  = function() roleta:open() end,
+    close = function() roleta:close() end,
+    stop  = function() roleta:stop() end,
+    set   = function(p) roleta:setPosition(p) end,            -- without it: buttons only
+})
+
+-- A fixed position on one tap: a plain button
+:button('roleta_pol', 'Pół', 'window', function() roleta:setPosition(50) end)
+```
+
+- **Scale:** 0 = closed .. 100 = open, the same as `getPosition`/`setPosition`, the Grenton app,
+  Home Assistant and HomeKit.
+- **No position:** a Grenton roller without position (class 11, firmware fv01) returns nil from
+  `getPosition()`; the slider then shows `--`. Leave out `getPosition` and `set` for such a roller
+  and keep the buttons.
+- **getState:** 0 = stopped, 1 = up, 2 = down. Without it the stop button stays lit.
 
 ### Select widget (dropdown)
 
@@ -627,26 +655,65 @@ Dashboard.new('settings')
 
 ## Directory convention
 
+Put code in modules, not loose files in `modules/`. Read `modules/init.lua`
+first and follow the layout that is already there.
+
 ```
-modules/init.lua           -- entry point, requires modules
+modules/init.lua           -- entry point, requires everything below
+modules/<domain>/init.lua  -- one domain (plugin, device, room): readings,
+                           -- metrics, exports, automations; returns a table
+modules/<domain>/*.lua     -- more files of the same domain: require("<domain>/file")
+modules/dashboards/        -- dashboards (Lua-defined UI), one per domain
 modules/scenes/            -- scenes (manual triggers)
-modules/automations/       -- automations (event-driven)
-modules/dashboards/        -- dashboards (Lua-defined UI)
-modules/api/               -- HTTP endpoints
-modules/helpers/           -- helper functions
-modules/schedules/         -- time schedules
+modules/helpers/           -- helper functions shared by domains
+```
+
+A dashboard only draws. It reads from its domain module, not from the plugin
+directly, so the dashboard and every export (InfluxDB, Home Assistant) show the
+same values:
+
+```lua
+-- modules/pogoda/init.lua
+local weather = Plugin.getPlugin("@vclu/weather")
+if not weather then return nil end
+
+local M = {}
+function M.temp()
+    local d = weather:getData()
+    return d.ready and d.temp or nil
+end
+metric("pogoda:temp", M.temp, { unit = "°C", interval = 600 })
+return M
+```
+
+```lua
+-- modules/dashboards/pogoda.lua
+local pogoda = require("pogoda")
+if type(pogoda) ~= "table" then return end   -- module skipped: require gives true
+
+Dashboard.new("pogoda"):name("Pogoda"):icon("cloud-sun")
+    :header()
+    :status("temp", "Temperatura", "thermometer-half", pogoda.temp, "°C")
+-- ... sections, then build()
 ```
 
 Each file = one module. Name = snake_case.
 user.lua and om.lua are OM files — NEVER modify them, they will be overwritten.
 
-**IMPORTANT**: Every new file in `modules/` must be added to `modules/init.lua` via `require()`.
-Without it the file will not be loaded by the Lua runtime.
+**IMPORTANT**: Flat `modules/*.lua` files load by themselves, alphabetically after
+`init.lua`; keep them for short standalone scripts. A `require()` of such a file in `init.lua`
+loads it earlier, and it still runs once; what the file returns is what `require()` gets.
+Everything in a subdirectory loads only through a `require()` in `modules/init.lua`, and
+`require("<domain>")` loads `modules/<domain>/init.lua`. Never put `modules/<name>.lua` next to
+`modules/<name>/`: `require("<name>")` finds the flat file first. Do not name a file like a
+runtime module (`Timer`, `TypeMap`, `string`...): it runs, but `require()` of that name keeps
+the runtime module.
 
 ```lua
 -- modules/init.lua (example)
+require("pogoda")              -- modules/pogoda/init.lua
 require("scenes/salon_movie")
 require("automations/motion_kitchen")
-require("tasmota_biurko")
+require("dashboards/pogoda")
 require("dashboards/home")
 ```

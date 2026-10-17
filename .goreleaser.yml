@@ -87,6 +87,7 @@ dockers:
       - web
       - pkg/lua/runtime
       - docs/ai
+      - deploy/docker-entrypoint.sh
   - id: arm64
     goarch: arm64
     use: buildx

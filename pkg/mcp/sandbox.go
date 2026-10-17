@@ -489,11 +489,22 @@ func (run *sandboxRun) load() (*lua.LState, error) {
 	if err := L.DoString(draftPackagePath); err != nil {
 		log.Printf("[SANDBOX] failed to set draft package.path: %v", err)
 	}
+	before := vclulua.LoadedModules(L)
 	for _, dp := range run.drafts {
 		// as in LuaEngine.LoadUserModules: a module acts as itself
 		name := strings.TrimSuffix(filepath.Base(dp), ".lua")
 		restore := vclulua.WithStateContext(L, "lua", "automation:module:"+name, "")
-		err := L.DoFile(se.ws.GetDraftFullPath(dp))
+		var err error
+		if dp == "modules/init.lua" {
+			err = L.DoFile(se.ws.GetDraftFullPath(dp))
+		} else {
+			// as require() names it, so an init.lua draft that requires it runs it once
+			modName := strings.TrimSuffix(strings.TrimPrefix(dp, "modules/"), ".lua")
+			if before[modName] {
+				result.Logs = append(result.Logs, fmt.Sprintf("[WARN] %s has a runtime module's name: require(%q) keeps the runtime one", dp, modName))
+			}
+			_, err = vclulua.RunModule(L, se.ws.GetDraftFullPath(dp), modName, before)
+		}
 		restore()
 		if err != nil {
 			return L, fmt.Errorf("draft %s load failed: %w", dp, err)

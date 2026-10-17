@@ -531,7 +531,7 @@
 
             var valEl = document.createElement('span');
             valEl.className = 'dash-slider-value';
-            valEl.textContent = input.value + '%';
+            valEl.textContent = w.position != null ? input.value + '%' : '--';
 
             var debounceTimer = null;
             input.addEventListener('input', function() {

@@ -468,25 +468,25 @@ Creates a new VirtualCover instance.
 
 **Returns:** VirtualCover The new virtual cover instance
 
-### `VirtualCover:getPosition() → number Position (0 = open, 100 = closed)`
+### `VirtualCover:getPosition() → number Position (0 = closed, 100 = open)`
 
 Gets the current position.
 
-**Returns:** number Position (0 = open, 100 = closed)
+**Returns:** number Position (0 = closed, 100 = open)
 
 ### `VirtualCover:setPosition(position)`
 
 Sets the cover to a specific position.
 
-- `position` (number) — Target position (0 = open, 100 = closed)
+- `position` (number) — Target position (0 = closed, 100 = open)
 
 ### `VirtualCover:open()`
 
-Opens the cover (position = 0).
+Opens the cover (position = 100).
 
 ### `VirtualCover:close()`
 
-Closes the cover (position = 100).
+Closes the cover (position = 0).
 
 ### `VirtualCover:stop()`
 
@@ -918,12 +918,12 @@ Add a group label widget to this section.
 
 ### `SectionHandle:cover(id, label, icon, fns, opts)`
 
-Add a cover widget to this section.
+Add a cover widget to this section. Buttons up/stop/down call open/stop/close. With set, a 0-100% slider is shown under them. Position 0 = closed, 100 = open, as in Grenton; nil (not reported yet) is shown as --. getState lights the button of the movement: 0 = stopped, 1 = up, 2 = down.
 
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label
 - `icon` (string) — Bootstrap icon name (e.g., "arrows-expand")
-- `fns` (table) — {getPosition=function()->number(0-100), open=function(), close=function(), stop=function()}
+- `fns` (table) — {getPosition=function()->number|nil, getState=function()->number|nil, open=function(), close=function(), stop=function(), set=function(position)}
 - `opts` (table) — Optional: {disabled=function()->bool}
 
 ### `SectionHandle:dimmer(id, label, icon, fns, opts)`
@@ -1136,12 +1136,12 @@ Add a group label widget to the current section.
 
 ### `DashboardBuilder:cover(id, label, icon, fns, opts)`
 
-Add a cover widget to the current section.
+Add a cover widget to the current section. Buttons up/stop/down call open/stop/close. With set, a 0-100% slider is shown under them. Position 0 = closed, 100 = open, as in Grenton; nil (not reported yet) is shown as --. getState lights the button of the movement: 0 = stopped, 1 = up, 2 = down.
 
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label
 - `icon` (string) — Bootstrap icon name (e.g., "arrows-expand")
-- `fns` (table) — {getPosition=function()->number(0-100), open=function(), close=function(), stop=function()}
+- `fns` (table) — {getPosition=function()->number|nil, getState=function()->number|nil, open=function(), close=function(), stop=function(), set=function(position)}
 - `opts` (table) — Optional: {disabled=function()->bool}
 
 ### `DashboardBuilder:dimmer(id, label, icon, fns, opts)`

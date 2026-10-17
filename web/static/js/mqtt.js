@@ -52,7 +52,6 @@ MqttManager.prototype.init = function() {
         clientStatDropped: document.getElementById('clientStatDropped'),
 
         // HA Integration
-        haDiscoveryBtn: document.getElementById('haDiscoveryBtn'),
         haCommandsBtn: document.getElementById('haCommandsBtn'),
         haResult: document.getElementById('haResult'),
 
@@ -416,41 +415,6 @@ MqttManager.prototype.testPublish = function() {
     });
 };
 
-MqttManager.prototype.publishHADiscovery = function() {
-    var btn = this.elements.haDiscoveryBtn;
-    var resultDiv = this.elements.haResult;
-    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Publishing...'; }
-
-    fetch('/api/ha/discovery/publish', { method: 'POST' })
-        .then(function(r) { return r.json(); })
-        .then(function(result) {
-            if (!resultDiv) return;
-            resultDiv.style.display = 'block';
-            if (result.error) {
-                resultDiv.className = 'alert alert-danger';
-                resultDiv.innerHTML = '<i class="bi bi-x-circle"></i> ' + result.error;
-            } else {
-                var html = '<i class="bi bi-check-circle"></i> Published <strong>' +
-                           result.published + '</strong> discovery messages from <strong>' +
-                           result.files + '</strong> OM files';
-                if (result.errors && result.errors.length > 0) {
-                    html += '<br><small class="text-danger">Errors: ' + result.errors.join(', ') + '</small>';
-                }
-                resultDiv.className = 'alert alert-success';
-                resultDiv.innerHTML = html;
-            }
-        })
-        .catch(function(error) {
-            if (!resultDiv) return;
-            resultDiv.style.display = 'block';
-            resultDiv.className = 'alert alert-danger';
-            resultDiv.innerHTML = '<i class="bi bi-x-circle"></i> ' + error.message;
-        })
-        .finally(function() {
-            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-send"></i> Publish Discovery'; }
-        });
-};
-
 MqttManager.prototype.enableHACommands = function() {
     var btn = this.elements.haCommandsBtn;
     var resultDiv = this.elements.haResult;
@@ -510,7 +474,6 @@ document.addEventListener('DOMContentLoaded', function() {
 // Legacy functions for inline onclick
 function saveBrokerConfig() { if (window.mqttManager) window.mqttManager.saveBrokerConfig(); }
 function testPublish() { if (window.mqttManager) window.mqttManager.testPublish(); }
-function publishHADiscovery() { if (window.mqttManager) window.mqttManager.publishHADiscovery(); }
 function enableHACommands() { if (window.mqttManager) window.mqttManager.enableHACommands(); }
 function saveClientConfig() { if (window.mqttManager) window.mqttManager.saveClientConfig(); }
 function testClientConnection() { if (window.mqttManager) window.mqttManager.testClientConnection(); }

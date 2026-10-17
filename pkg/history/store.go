@@ -118,7 +118,10 @@ type Store struct {
 	dropped    int64
 	// known is the last value seen per path, entry or not: a first reading
 	// (old == nil, e.g. after a Lua reload) is compared with it
-	known map[string]any
+	known   map[string]any
+	knownAt map[string]int64
+	// knownDirty: known changed since its snapshot on disk (known.json)
+	knownDirty bool
 	// epoch counts Lua reloads; pathEpoch is the epoch of a path's last record
 	epoch      int
 	reloadAtMs int64
@@ -154,6 +157,7 @@ func New(cfg Config, now func() time.Time) *Store {
 		now:          now,
 		rings:        map[string]*ring{},
 		known:        map[string]any{},
+		knownAt:      map[string]int64{},
 		pathEpoch:    map[string]int{},
 		idPrefix:     rand.Text()[:10],
 		Expectations: NewTracker(now),
@@ -167,7 +171,8 @@ func New(cfg Config, now func() time.Time) *Store {
 
 // restore loads the hot window from the newest files, so a restart starts
 // with the last MemoryHours of history and the last known value of every
-// object (a first reading equal to it is then no change).
+// object (a first reading equal to it is then no change). An object that
+// last changed before the window has its value in the known.json snapshot.
 //
 // Memory stays within the ring limits: only the newest MaxEntriesTotal
 // entries of the window are held (files are in time order), the last value
@@ -178,7 +183,14 @@ func (s *Store) restore() {
 	next := 0 // oldest slot once tail is full
 	lastAt := map[string]int64{}
 	known := map[string]any{}
-	err := s.disk.scanRange(since, 0, func(e Entry) {
+	snapshot, err := s.disk.readKnown()
+	if err != nil {
+		s.lastFlushError = "restore: " + err.Error()
+	}
+	for path, k := range snapshot {
+		lastAt[path], known[path] = k.AtMs, k.Value
+	}
+	err = s.disk.scanRange(since, 0, func(e Entry) {
 		if at, ok := lastAt[e.Path]; !ok || e.AtMs >= at {
 			lastAt[e.Path], known[e.Path] = e.AtMs, e.Value
 		}
@@ -196,7 +208,8 @@ func (s *Store) restore() {
 	seen := make(map[string]bool, len(tail))
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.known = known
+	s.known, s.knownAt = known, lastAt
+	s.knownDirty = len(known) > len(snapshot)
 	for i := range tail {
 		e := tail[i]
 		if seen[e.ID] {
@@ -252,37 +265,68 @@ func normalize(cfg Config) Config {
 // change from the known value with origin "system" (who changed it while
 // vCLU was not looking is unknown).
 func (s *Store) Record(e Entry) (id string, atMs int64) {
-	id, atMs = s.Stamp()
+	r := s.RecordChange(e)
+	return r.ID, r.AtMs
+}
+
+// Recorded is the outcome of RecordChange.
+type Recorded struct {
+	ID   string
+	AtMs int64
+	// Change is false for a first reading that only sets the baseline
+	Change bool
+	// Known is set when the change is measured from the value known before
+	// a reload or restart instead of the reported old one; Old is that value
+	Known bool
+	Old   any
+	// First is set when nothing was known about the path before
+	First bool
+}
+
+// RecordChange is Record that also says whether the entry is a change, so
+// automations see the same changes as the history.
+func (s *Store) RecordChange(e Entry) Recorded {
+	id, atMs := s.Stamp()
+	r := Recorded{ID: id, AtMs: atMs, Change: true}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.cfg.Enabled {
-		return id, atMs
+		return r
 	}
 	e.Value, e.Old = boundValue(e.Value), boundValue(e.Old)
 	prev, seen := s.known[e.Path]
+	r.First = !seen
 	s.known[e.Path] = e.Value
+	if !seen || !equal(prev, e.Value) {
+		s.knownAt[e.Path], s.knownDirty = atMs, true
+	}
 	// Only within the reload window: an object that stayed silent after the
 	// reload and changes later is a real change, whatever its known value
 	firstSinceReload := s.pathEpoch[e.Path] != s.epoch && atMs-s.reloadAtMs <= reloadWindowMs
 	s.pathEpoch[e.Path] = s.epoch
 	if e.Old == nil && e.Value == nil {
-		return id, atMs
+		r.Change = false
+		return r
 	}
 	// After a Lua reload objects restart from a default (Satel zone 0, counter
 	// 0): their first change is measured against the last known value
 	if firstSinceReload && seen && e.Old != nil {
 		if equal(prev, e.Value) {
-			return id, atMs
+			r.Change = false
+			return r
 		}
 		e.Old = prev
+		r.Known, r.Old = true, prev
 	}
 	// prev == nil: the object really was nil (value -> nil -> value), a normal change
 	if e.Old == nil && (!seen || prev != nil) {
 		if !seen || equal(prev, e.Value) {
-			return id, atMs
+			r.Change = false
+			return r
 		}
 		e.Old, e.Origin, e.Actor, e.CorrelationID = prev, "system", "system:startup", ""
+		r.Known, r.Old = true, prev
 	}
 
 	e.Schema, e.ID, e.AtMs = SchemaVersion, id, atMs
@@ -301,7 +345,7 @@ func (s *Store) Record(e Entry) (id string, atMs int64) {
 	}
 	s.insert(&e)
 	s.expire(atMs)
-	return id, atMs
+	return r
 }
 
 // insert adds an entry to its ring and the global order, then applies the

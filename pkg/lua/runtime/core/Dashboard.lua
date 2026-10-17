@@ -161,7 +161,10 @@ end
 -- @param id string Unique widget identifier
 -- @param label string Display label
 -- @param icon string Bootstrap icon name (e.g., "arrows-expand")
--- @param fns table {getPosition=function()->number(0-100), open=function(), close=function(), stop=function()}
+-- @param fns table {getPosition=function()->number|nil, getState=function()->number|nil, open=function(), close=function(), stop=function(), set=function(position)}
+--   Buttons up/stop/down call open/stop/close. With set, a 0-100% slider is shown under them.
+--   Position 0 = closed, 100 = open, as in Grenton; nil (not reported yet) is shown as --.
+--   getState lights the button of the movement: 0 = stopped, 1 = up, 2 = down.
 -- @param opts table Optional: {disabled=function()->bool}
 -- @api public
 function SectionHandle:cover(id, label, icon, fns, opts)
@@ -541,7 +544,10 @@ end
 -- @param id string Unique widget identifier
 -- @param label string Display label
 -- @param icon string Bootstrap icon name (e.g., "arrows-expand")
--- @param fns table {getPosition=function()->number(0-100), open=function(), close=function(), stop=function()}
+-- @param fns table {getPosition=function()->number|nil, getState=function()->number|nil, open=function(), close=function(), stop=function(), set=function(position)}
+--   Buttons up/stop/down call open/stop/close. With set, a 0-100% slider is shown under them.
+--   Position 0 = closed, 100 = open, as in Grenton; nil (not reported yet) is shown as --.
+--   getState lights the button of the movement: 0 = stopped, 1 = up, 2 = down.
 -- @param opts table Optional: {disabled=function()->bool}
 -- @api public
 function DashboardBuilder:cover(id, label, icon, fns, opts)
@@ -892,7 +898,7 @@ function DashboardAPI.getDefinition(id)
             -- Cover widget
             if w.type == 'cover' then
                 local fns = w.fns or {}
-                widget.position = safeGetValue(fns.getPosition) or 0
+                widget.position = safeGetValue(fns.getPosition)
                 local state = safeGetValue(fns.getState)
                 widget.state = (state ~= nil) and state or 0
                 widget.capabilities = {
@@ -1059,7 +1065,7 @@ function DashboardAPI.getValues(id)
             elseif w.type == 'cover' then
                 local fns = w.fns or {}
                 local entry = { disabled = safeDisabled(w.opts) }
-                entry.position = safeGetValue(fns.getPosition) or 0
+                entry.position = safeGetValue(fns.getPosition)
                 local state = safeGetValue(fns.getState)
                 entry.state = (state ~= nil) and state or 0
                 result[w.id] = entry

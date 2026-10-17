@@ -216,3 +216,75 @@ func TestSandbox_HasProductionLibraries(t *testing.T) {
 		t.Fatalf("production libraries missing in sandbox; errors=%v", result.Errors)
 	}
 }
+
+// As in production, a draft that a draft init.lua requires runs once.
+func TestSandbox_RequiredDraftRunsOnce(t *testing.T) {
+	se, ws, _ := newTestSandbox(t)
+	writeDraft(t, ws, "modules/init.lua", `_runs = (_runs or 0); require("lampa")`)
+	writeDraft(t, ws, "modules/lampa.lua", `
+		_runs = (_runs or 0) + 1
+		if _runs > 1 then error("lampa ran twice") end
+	`)
+	res, err := se.RunDraft([]string{"modules/init.lua", "modules/lampa.lua"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("draft failed: %v", res.Errors)
+	}
+}
+
+// A draft named like a runtime module (TypeMap, string...) still runs, and
+// require() of that name keeps the runtime module.
+func TestSandbox_DraftWithRuntimeModuleNameRuns(t *testing.T) {
+	se, ws, _ := newTestSandbox(t)
+	writeDraft(t, ws, "modules/init.lua", `_tm = require("TypeMap")`)
+	writeDraft(t, ws, "modules/TypeMap.lua", `_ran = (_ran or 0) + 1; return { user = true }`)
+	writeDraft(t, ws, "modules/zz_check.lua", `
+		assert(_ran == 1, "TypeMap.lua ran " .. tostring(_ran))
+		assert(require("TypeMap") == _tm and not _tm.user, "runtime TypeMap replaced")
+	`)
+	res, err := se.RunDraft([]string{"modules/init.lua", "modules/TypeMap.lua", "modules/zz_check.lua"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("draft failed: %v", res.Errors)
+	}
+	if !strings.Contains(strings.Join(res.Logs, "\n"), "modules/TypeMap.lua has a runtime module's name") {
+		t.Errorf("no warning about the name clash in logs: %v", res.Logs)
+	}
+}
+
+// A subdirectory draft that the init draft requires, by either spelling, runs once.
+func TestSandbox_RequiredSubdirDraftRunsOnce(t *testing.T) {
+	for _, form := range []string{"scenes/x", "scenes.x"} {
+		se, ws, _ := newTestSandbox(t)
+		writeDraft(t, ws, "modules/init.lua", `require("`+form+`")`)
+		writeDraft(t, ws, "modules/scenes/x.lua", `
+			_runs = (_runs or 0) + 1
+			if _runs > 1 then error("scenes/x ran twice") end
+		`)
+		res, err := se.RunDraft([]string{"modules/init.lua", "modules/scenes/x.lua"}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !res.Success {
+			t.Errorf("require(%q): %v", form, res.Errors)
+		}
+	}
+}
+
+// An error in a required draft names the draft and the line; the run stops there.
+func TestSandbox_RequiredDraftErrorNamesFile(t *testing.T) {
+	se, ws, _ := newTestSandbox(t)
+	writeDraft(t, ws, "modules/init.lua", `require("lampa")`)
+	writeDraft(t, ws, "modules/lampa.lua", "local x = 1\nerror(\"boom\")")
+	res, err := se.RunDraft([]string{"modules/init.lua", "modules/lampa.lua"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Success || !strings.Contains(strings.Join(res.Errors, "\n"), "lampa.lua:2: boom") {
+		t.Fatalf("errors = %v", res.Errors)
+	}
+}
