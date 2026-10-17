@@ -69,6 +69,7 @@ end
 --- Attaches a PANEL_BUTTON of the same module (the OM import does this).
 -- @param index number Button index on the module (0-15; 0-3 are page 1)
 -- @param button RemotePanelButton
+-- @api public
 function RemotePanel:addButton(index, button)
     self._buttons[index] = button
     -- click() from Object Manager often carries the button's id, not the panel's
@@ -80,6 +81,7 @@ end
 --- Gets an attached button.
 -- @param index number Button index on the module
 -- @return RemotePanelButton|nil
+-- @api public
 function RemotePanel:getButton(index)
     return self._buttons[index]
 end
@@ -94,17 +96,20 @@ function RemotePanel:op(index, ...)
 end
 
 --- Switches the display on.
+-- @api public
 function RemotePanel:displayOn() self:execute(RemotePanel.SWITCH_ON_DISPLAY) end
 
 --- Beeps.
 -- @param freq number Frequency 30-5700 Hz (default 2000)
 -- @param ms number Duration 1-2000 ms (default 100)
 -- @param volume number Volume 0-16 (default 8)
+-- @api public
 function RemotePanel:beep(freq, ms, volume)
     self:execute(RemotePanel.BEEP, freq or 2000, ms or 100, volume or 8, 0)
 end
 
 --- Shows one of Grenton's built-in pages (1-4).
+-- @api public
 function RemotePanel:setPage(nr) self:execute(RemotePanel.SET_PAGE, nr) end
 
 -- Packs statements into messages of at most MAX_MESSAGE characters, each one expression
@@ -186,6 +191,7 @@ local warned = {}
 -- click("<panel name>", "<input>"). Never raises into the CLU's request.
 -- @param name string Panel object name or id
 -- @param input string Input (btn1..btn4, btn1:long, swipe:up, proximity, wake, ...)
+-- @api public
 function RemotePanel.click(name, input)
     local panel = RemotePanel._byName[tostring(name)]
     if not panel or not panel._onInput then

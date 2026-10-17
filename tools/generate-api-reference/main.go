@@ -20,6 +20,7 @@ type FuncDoc struct {
 	Params      []ParamDoc
 	Returns     string
 	Usage       string
+	Args        string // argument list from the source, for functions without @param
 	IsGlobal    bool
 	LineNumber  int
 }
@@ -67,6 +68,8 @@ var moduleOrder = map[string]int{
 	"core.Registry":                25,
 	"core.Metrics":                 30,
 	"Dashboard":                    35,
+	"lib.panel":                    36,
+	"objects.RemotePanel":          37,
 	"GPIO_DOUT":                    40,
 	"GPIO_DIN":                     41,
 	"integrations.mqtt.MqttClient": 50,
@@ -271,8 +274,10 @@ func parseDocBlock(block []string, funcLine string, lineNum int) *FuncDoc {
 		fn.ClassName = m[1]
 		fn.Separator = m[2]
 		fn.FuncName = m[3]
+		fn.Args = strings.TrimSpace(m[4])
 	} else if m := globalFunc.FindStringSubmatch(trimmed); m != nil {
 		fn.FuncName = m[1]
+		fn.Args = strings.TrimSpace(m[2])
 		fn.IsGlobal = true
 	} else {
 		return nil
@@ -408,7 +413,7 @@ func generateMarkdown(modules map[string]*ModuleDoc) string {
 
 func formatSignature(fn FuncDoc) string {
 	if fn.IsGlobal {
-		params := formatParams(fn.Params)
+		params := formatParams(fn)
 		ret := ""
 		if fn.Returns != "" {
 			ret = " → " + fn.Returns
@@ -416,7 +421,7 @@ func formatSignature(fn FuncDoc) string {
 		return fmt.Sprintf("%s(%s)%s", fn.FuncName, params, ret)
 	}
 
-	params := formatParams(fn.Params)
+	params := formatParams(fn)
 	ret := ""
 	if fn.Returns != "" {
 		ret = " → " + fn.Returns
@@ -424,9 +429,13 @@ func formatSignature(fn FuncDoc) string {
 	return fmt.Sprintf("%s%s%s(%s)%s", fn.ClassName, fn.Separator, fn.FuncName, params, ret)
 }
 
-func formatParams(params []ParamDoc) string {
-	names := make([]string, len(params))
-	for i, p := range params {
+// formatParams names the documented parameters, or the source's argument list when none are
+func formatParams(fn FuncDoc) string {
+	if len(fn.Params) == 0 {
+		return fn.Args
+	}
+	names := make([]string, len(fn.Params))
+	for i, p := range fn.Params {
 		names[i] = p.Name
 	}
 	return strings.Join(names, ", ")

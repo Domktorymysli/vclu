@@ -653,6 +653,61 @@ Dashboard.new('settings')
     :build()
 ```
 
+## Grenton Smart Panel (screen drawn by vCLU)
+
+A Smart Panel (on the TF-Bus of a CLU, or a Smart Panel WiFi, which is its own CLU) shows
+what a module draws with `require("lib/panel")`. Object Manager only forwards the panel's
+events: on every button's OnClick it calls the script `click` on vCLU with
+`("<panel or button id>", "btn1")`, and on OnLongPress with `"btn1:long"`. The OM import
+creates the panel as `RemotePanel` (class 29) with its buttons attached.
+
+```lua
+-- modules/panel_biuro/init.lua — one panel = one module
+local Panel = require("lib/panel")
+local temperatury = require("temperatury")       -- read values from domain modules
+
+local PANEL = _:get("CLU470000100.PAN1085")      -- the PANEL object from the OM import
+if not PANEL then return nil end
+
+-- OM uploads an empty click(panel, input) to user.lua; modules load after it,
+-- so put the runtime entry back
+click = RemotePanel.click
+
+local lampa = _:get("CLU221000290.DOU4157")
+local zadana = VirtualNumber:new("zadana_biuro", { initial = 21, persist = true })
+
+Panel.new(PANEL)
+    :buttons{ tl = "btn1", tr = "btn2", bl = "btn3", br = "btn4" }
+    :back("br")                                   -- this corner is back on every page
+    :home(Panel.menu("Biuro")
+        :toggle("Swiatlo", lampa)                 -- OK switches it, the row follows the object
+        :number("Zadana", function() return zadana:getValue() end,
+            function(v) zadana:setValue(v) end, { step = 0.5, min = 19, max = 22, format = "%.1f" })
+        :submenu("Temperatury", Panel.menu("Temperatury")
+            :value("Biuro", temperatury.all[1].read, "%.1f"))
+        :action("Czyszczenie", Panel.cleaning(30)))
+    :idle(Panel.idle{ { "Biuro", temperatury.all[1].read, "%.1f" } })
+    :sleepAfter(30)                               -- idle screen after 30 s without input
+```
+
+The corners get their meaning from the page (up, down, ok, back) and show a hint; their LEDs
+light when they do something. A page type of your own: `Panel.register(name, factory)`, where
+a page is `{ draw = function(screen, panel) ... end, keys = { up = { "+" } }, input = function(role, panel) ... end }`
+and `screen` has `text(x, y, s, font)`, `textRight`, `textCenter`, `line`, `rule(y)`, `icon(x, y, "temp")`.
+
+What the panel can do (measured on a Smart Panel WiFi): 128 × 64 monochrome; fonts 1-3 are
+10, 14 and 28 px high, y is the top; 15 characters per text; Polish letters are replaced
+(`ł` → `l`); boxes are not filled, so text never inverts; icons are the `.bmp` files on the
+panel's card (`temp`, `fan`, `sun`, `lamp1on`... 64 × 32; `arrups`, `arrdowns` 16 × 16).
+Draw only through `lib/panel`: it sends each frame in short spaced messages, one expression
+each, which is what the panel's CLU accepts. Do not loop `PANEL:execute(...)` yourself.
+
+Test a panel module in `vclu_draft_test` with `click` steps; the frames are in `clu_calls`:
+
+```json
+[{"advance": 1}, {"click": "PAN1085", "input": "btn3"}, {"advance": 1}]
+```
+
 ## Directory convention
 
 Put code in modules, not loose files in `modules/`. Read `modules/init.lua`

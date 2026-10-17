@@ -70,6 +70,7 @@ local ROLES = {
 local function log() return Logger:getShared() end
 
 --- Text with the letters the panel lacks replaced.
+-- @api public
 function Panel.map(s)
     s = tostring(s == nil and "" or s)
     for from, to in pairs(Panel.charMap) do s = s:gsub(from, to) end
@@ -77,6 +78,7 @@ function Panel.map(s)
 end
 
 --- Text as the panel can print it: letters mapped, cut to MAX_TEXT.
+-- @api public
 function Panel.text(s)
     s = Panel.map(s)
     if #s > Panel.MAX_TEXT then s = s:sub(1, Panel.MAX_TEXT) end
@@ -129,11 +131,14 @@ end
 
 local function charW(font) return Panel.layout.cw[font or 1] or Panel.layout.cw[1] end
 
+--- Text at x, y (y is the top), font 1-3; cut to 15 characters.
+-- @api public
 function Screen:text(x, y, s, font)
     return self:_add(self._obj:op(RemotePanel.PRINT_TEXT, math.floor(x), math.floor(y), Panel.text(s), font or 1))
 end
 
 --- Text aligned to the right edge (or to x as its right end).
+-- @api public
 function Screen:textRight(y, s, font, right)
     s = Panel.text(s)
     local x = (right or Panel.layout.w) - #s * charW(font)
@@ -141,6 +146,7 @@ function Screen:textRight(y, s, font, right)
 end
 
 --- Text centred between x0 and x1 (default: the whole width).
+-- @api public
 function Screen:textCenter(y, s, font, x0, x1)
     s = Panel.text(s)
     x0, x1 = x0 or 0, x1 or Panel.layout.w
@@ -148,23 +154,32 @@ function Screen:textCenter(y, s, font, x0, x1)
     return self:text(math.max(0, x), y, s, font)
 end
 
+--- A number printed by the panel itself, with precision 0-2.
+-- @api public
 function Screen:float(x, y, n, precision, font)
     return self:_add(self._obj:op(RemotePanel.PRINT_FLOAT, x, y, n, precision or 1, font or 1))
 end
 
+--- A line from x, y to xe, ye (color 1 white, 0 black).
+-- @api public
 function Screen:line(x, y, xe, ye, color)
     return self:_add(self._obj:op(RemotePanel.DRAW_LINE, x, y, xe, ye, color or 1))
 end
 
 --- A horizontal rule across the screen.
+-- @api public
 function Screen:rule(y)
     return self:line(0, y, Panel.layout.w - 1, y, 1)
 end
 
+--- One pixel.
+-- @api public
 function Screen:point(x, y, color)
     return self:_add(self._obj:op(RemotePanel.DRAW_POINT, x, y, color or 1))
 end
 
+--- An icon from the panel's card: file name without .bmp (most are 64 x 32, arrows 16 x 16).
+-- @api public
 function Screen:icon(x, y, file)
     return self:_add(self._obj:op(RemotePanel.DRAW_ICON, x, y, tostring(file)))
 end
@@ -178,6 +193,7 @@ Panel.Screen = Screen
 --- Takes over a panel.
 -- @param obj RemotePanel The panel from the OM import
 -- @return Panel
+-- @api public
 function Panel.new(obj)
     assert(obj and obj.op and obj.send, "Panel.new: a RemotePanel is required")
     local self = setmetatable({
@@ -204,6 +220,7 @@ end
 
 --- Which physical button is in which corner.
 -- @param map table { tl = "btn1", tr = "btn2", bl = "btn3", br = "btn4" }
+-- @api public
 function Panel:buttons(map)
     self._input = {}
     for corner, btn in pairs(map) do self._input[btn] = corner end
@@ -211,6 +228,7 @@ function Panel:buttons(map)
 end
 
 --- The corner that is back on every screen (default "br").
+-- @api public
 function Panel:back(corner)
     if corner == nil then return self:goBack() end
     assert(ROLES[corner], "Panel:back: corner must be tl, tr, bl or br")
@@ -218,6 +236,8 @@ function Panel:back(corner)
     return self
 end
 
+--- The home page (a menu); without an argument, goes home.
+-- @api public
 function Panel:home(page)
     if page == nil then return self:goHome() end
     self._home = page
@@ -231,18 +251,22 @@ local function setIdle(self, page)
 end
 
 --- After this many seconds without input: the idle screen, or home.
+-- @api public
 function Panel:sleepAfter(seconds)
     self._sleep = seconds
     return self
 end
 
 --- A gesture handler: name "swipe:up" / "swipe:down" / "swipe:left" / "swipe:right".
+-- @api public
 function Panel:onGesture(name, fn)
     if not name:find(":") then name = "swipe:" .. name end
     self._gestures[name] = fn
     return self
 end
 
+--- Called when someone comes close to the panel.
+-- @api public
 function Panel:onProximity(fn)
     self._onProximity = fn
     return self
@@ -314,6 +338,7 @@ local function call(page, name, ...)
 end
 
 --- Opens a page on top of the current one.
+-- @api public
 function Panel:open(page)
     if type(page) == "string" then page = self._named and self._named[page] end
     if not page then return self end
@@ -324,6 +349,7 @@ function Panel:open(page)
 end
 
 --- Closes the current page; on home, goes to the idle screen.
+-- @api public
 function Panel:goBack()
     local page = self:top()
     if #self._stack <= 1 then
@@ -359,17 +385,22 @@ function Panel:_reset(page)
     self:_show()
 end
 
+--- Closes every page and shows home.
+-- @api public
 function Panel:goHome()
     self:_reset(self._home)
     return self
 end
 
+--- Closes every page and shows the idle screen (or home).
+-- @api public
 function Panel:goIdle()
     self:_reset(self._idle or self._home)
     return self
 end
 
 --- Names a page so panel:open("name") and gestures can open it.
+-- @api public
 function Panel:name(name, page)
     self._named = self._named or {}
     self._named[name] = page
@@ -462,6 +493,7 @@ end
 -- ---------- helpers for pages ----------
 
 --- Runs fn once, seconds after the last call with this key.
+-- @api public
 function Panel:debounce(key, seconds, fn)
     if self._deb[key] then Panel.timer.cancel(self._deb[key]) end
     self._deb[key] = Panel.timer.after((seconds or 1) * 1000, function()
@@ -487,6 +519,7 @@ Panel.wrap = wrap
 --- Shows a message over the current page; OK, back or the timeout closes it.
 -- @param text string
 -- @param opts table|nil { beep = true, seconds = 30, title = "..." }
+-- @api public
 function Panel:notify(text, opts)
     opts = opts or {}
     local page
@@ -514,6 +547,7 @@ end
 
 --- Asks for a redraw; changes within REDRAW_MS make one frame.
 -- @param full boolean Kept for callers; every frame redraws the whole screen
+-- @api public
 function Panel:redraw(full)
     if self._pending then return end
     self._pending = true
@@ -590,6 +624,7 @@ end
 -- ============================================================
 
 --- Adds a page type: Panel.<name>(...) calls factory(...) and returns the page.
+-- @api public
 function Panel.register(name, factory)
     assert(type(factory) == "function", "Panel.register: factory must be a function")
     Panel[name] = factory
@@ -607,6 +642,7 @@ local Menu = {}
 Menu.__index = Menu
 
 --- A list of rows; up/down move, OK opens or edits, back leaves (or cancels an edit).
+-- @api public
 function Panel.menu(name)
     local m = setmetatable({ name = name, rows = {}, cursor = 1, scroll = 0, edit = nil }, Menu)
     -- the panel calls page functions without self
@@ -621,36 +657,48 @@ end
 
 function Menu:_add(row) self.rows[#self.rows + 1] = row return self end
 
---- A row that opens a page (or a submenu).
+--- A row that opens a page or a submenu (also Menu:submenu).
+-- @api public
 function Menu:item(label, page) return self:_add({ label = label, page = page }) end
 Menu.submenu = Menu.item
 
 --- A row with an on/off object; OK switches it.
+-- @api public
 function Menu:toggle(label, obj)
     return self:_add({ label = label, obj = obj, kind = "toggle" })
 end
 
 --- A read-only value.
+-- @api public
 function Menu:value(label, src, format)
     return self:_add({ label = label, src = src, format = format, kind = "value",
         obj = type(src) == "table" and src or nil })
 end
 
 --- A number edited in place: OK, then +/-, OK sets it once, back cancels.
+-- @param label string Row label
+-- @param get function Returns the current value
+-- @param set function Gets the new value once, on OK
 -- @param opts table { step = 1, min, max, format = "%.1f", watch = obj }
+-- @api public
 function Menu:number(label, get, set, opts)
     opts = opts or {}
     return self:_add({ label = label, get = get, set = set, opts = opts, kind = "number", obj = opts.watch })
 end
 
 --- One of a list of options edited in place.
+-- @param label string Row label
+-- @param get function Returns the current option
+-- @param set function Gets the chosen option once, on OK
 -- @param opts table { options = { "A", "B" }, watch = obj }
+-- @api public
 function Menu:choice(label, get, set, opts)
     opts = opts or {}
     return self:_add({ label = label, get = get, set = set, opts = opts, kind = "choice", obj = opts.watch })
 end
 
 --- A row that runs fn(panel) (or opens a page); opts.confirm asks first.
+-- @api public
 function Menu:action(label, fn, opts)
     opts = opts or {}
     return self:_add({ label = label, fn = fn, opts = opts, kind = "action" })
@@ -786,6 +834,7 @@ Panel.Menu = Menu
 -- ---------- confirm ----------
 
 --- Asks before running fn(panel): OK runs it and closes, back closes.
+-- @api public
 function Panel.confirm(text, fn, heading)
     local page
     page = {
@@ -811,6 +860,7 @@ end
 -- ---------- toggle, value, thermostat ----------
 
 --- One on/off object on its own page; OK switches.
+-- @api public
 function Panel.toggle(obj, name)
     return {
         watch = { obj },
@@ -830,6 +880,7 @@ function Panel.toggle(obj, name)
 end
 
 --- One value on its own page.
+-- @api public
 function Panel.value(name, src, format)
     return {
         watch = { type(src) == "table" and src or nil },
@@ -844,6 +895,7 @@ end
 
 --- Current and set temperature; +/- change the set point, written 1 s after the last press.
 -- @param o table { name, current = obj|fn, get = fn, set = fn, step = 0.5, min, max, format = "%.1f" }
+-- @api public
 function Panel.thermostat(o)
     local page = { pending = nil }
     page.watch = function()
@@ -887,6 +939,7 @@ end
 
 --- The idle screen: time, date and a few values; any button opens home.
 -- @param rows table { { "Salon", obj|fn, "%.1f" }, ... }
+-- @api public
 function Panel.idle(rows, page)
     -- panel:idle(page) sets the idle screen; Panel.idle(rows) makes one
     if getmetatable(rows) == Panel then return setIdle(rows, page) end
@@ -913,6 +966,7 @@ end
 -- ---------- cleaning ----------
 
 --- Locks the panel for cleaning: a countdown, inputs ignored, buzzer and LEDs off.
+-- @api public
 function Panel.cleaning(seconds)
     seconds = seconds or 30
     local page = { modal = true }

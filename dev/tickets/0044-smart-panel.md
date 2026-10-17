@@ -246,8 +246,11 @@ Panel.new(PANEL_SALON)
 ## Contract impact
 - New public Lua API: `click(panel, input)` as a global called by CLUs, `RemotePanel` /
   `RemotePanelButton`, and the library's `Panel.*` builder and page contract (`draw`/`input`,
-  `Panel.register`). Needs a decision record in `dev/decisions/`, which also settles where shipped
-  Lua libraries live and how they are required (there is no library location yet).
+  `Panel.register`). Where shipped Lua libraries live and how they are required:
+  `dev/decisions/0002-runtime-libraries.md` (`pkg/lua/runtime/lib/`, `require("lib/panel")`).
+- For agents writing modules: the library is in `docs/ai/lua-api-reference.md` (generated) and
+  `docs/ai/examples.md`, `vclu_runtime_schema` has a `smartPanel` entry, and `vclu_draft_test`
+  takes `{"click": panel, "input": "btn1"}` steps, so the frames show in `clu_calls`.
 - Changed behaviour: `RemoteObject:execute` now quotes string arguments (previously sent as bare
   names). The only caller that relied on it, `RemoteRGBLight:setRGB`, quoted the colour itself and
   now passes it plain.

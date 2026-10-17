@@ -549,6 +549,27 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 				"methods": []string{"get()", "set(value)", "onChange(cb)"},
 				"note":    "Created via plugin:control(). NOT getValue/setValue!",
 			},
+			"RemotePanel (PANEL)": map[string]any{
+				"methods": []string{"beep(freq, ms, volume)", "displayOn()", "getButton(index)"},
+				"note":    "Grenton Smart Panel screen from the OM import; draw it with require('lib/panel'), not with execute()",
+			},
+		},
+		"smartPanel": map[string]any{
+			"library": "local Panel = require('lib/panel'); Panel.new(_:get('CLU….PAN…')) — the panel object from the OM import",
+			"builder": "Panel.new(panel):buttons{tl='btn1',tr='btn2',bl='btn3',br='btn4'}:back('br'):home(page):idle(page):sleepAfter(s):onGesture('up', fn):onProximity(fn)",
+			"pages": map[string]any{
+				"menu":       "Panel.menu(title):toggle(label, obj):number(label, getFn, setFn, {step,min,max,format,watch}):choice(label, getFn, setFn, {options}):value(label, obj|fn, format):submenu(label, page):action(label, fn|page, {confirm=text})",
+				"value":      "Panel.value(title, obj|fn, format)",
+				"toggle":     "Panel.toggle(obj, title)",
+				"thermostat": "Panel.thermostat{name, current=obj|fn, get=fn, set=fn, step, min, max, format}",
+				"idle":       "Panel.idle{ {label, obj|fn, format}, ... } — clock and up to 3 values; any button opens home",
+				"cleaning":   "Panel.cleaning(seconds) — inputs ignored, countdown",
+				"own":        "Panel.register(name, factory): a page is {draw=function(screen, panel), keys={up={label,fn},down=…,ok=…}|fn, input=function(role, panel), watch={objs}, every=s}",
+			},
+			"screen":        "screen:text(x, y, s, font 1-3), textRight, textCenter, line, rule(y), point, icon(x, y, 'name' of a .bmp on the panel) — 128x64, fonts 10/14/28 px, y is the top, 15 characters",
+			"helpers":       "panel:notify(text, {seconds, beep}), panel:open(page), panel:goBack(), panel:goHome(), panel:redraw(), panel:debounce(key, s, fn)",
+			"objectManager": "every button event (OnClick 'btn1'..'btn4', OnLongPress 'btn1:long') calls click(panel or button id, input) on vCLU; an empty click() from OM in user.lua hides the runtime one, so the module sets click = RemotePanel.click",
+			"sandbox":       "vclu_draft_test steps {\"click\": \"PAN…\", \"input\": \"btn3\"} then {\"advance\": 1}: the frame drawn is in clu_calls",
 		},
 		"dashboard": map[string]any{
 			"builder":  "Dashboard.new(id):name():icon():columns():auth():pin():poll():theme()",
