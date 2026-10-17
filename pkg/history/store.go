@@ -252,12 +252,32 @@ func normalize(cfg Config) Config {
 // change from the known value with origin "system" (who changed it while
 // vCLU was not looking is unknown).
 func (s *Store) Record(e Entry) (id string, atMs int64) {
-	id, atMs = s.Stamp()
+	r := s.RecordChange(e)
+	return r.ID, r.AtMs
+}
+
+// Recorded is the outcome of RecordChange.
+type Recorded struct {
+	ID   string
+	AtMs int64
+	// Change is false for a first reading that only sets the baseline
+	Change bool
+	// Known is set when the change is measured from the value known before
+	// a reload or restart instead of the reported old one; Old is that value
+	Known bool
+	Old   any
+}
+
+// RecordChange is Record that also says whether the entry is a change, so
+// automations see the same changes as the history.
+func (s *Store) RecordChange(e Entry) Recorded {
+	id, atMs := s.Stamp()
+	r := Recorded{ID: id, AtMs: atMs, Change: true}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.cfg.Enabled {
-		return id, atMs
+		return r
 	}
 	e.Value, e.Old = boundValue(e.Value), boundValue(e.Old)
 	prev, seen := s.known[e.Path]
@@ -267,22 +287,27 @@ func (s *Store) Record(e Entry) (id string, atMs int64) {
 	firstSinceReload := s.pathEpoch[e.Path] != s.epoch && atMs-s.reloadAtMs <= reloadWindowMs
 	s.pathEpoch[e.Path] = s.epoch
 	if e.Old == nil && e.Value == nil {
-		return id, atMs
+		r.Change = false
+		return r
 	}
 	// After a Lua reload objects restart from a default (Satel zone 0, counter
 	// 0): their first change is measured against the last known value
 	if firstSinceReload && seen && e.Old != nil {
 		if equal(prev, e.Value) {
-			return id, atMs
+			r.Change = false
+			return r
 		}
 		e.Old = prev
+		r.Known, r.Old = true, prev
 	}
 	// prev == nil: the object really was nil (value -> nil -> value), a normal change
 	if e.Old == nil && (!seen || prev != nil) {
 		if !seen || equal(prev, e.Value) {
-			return id, atMs
+			r.Change = false
+			return r
 		}
 		e.Old, e.Origin, e.Actor, e.CorrelationID = prev, "system", "system:startup", ""
+		r.Known, r.Old = true, prev
 	}
 
 	e.Schema, e.ID, e.AtMs = SchemaVersion, id, atMs
@@ -301,7 +326,7 @@ func (s *Store) Record(e Entry) (id string, atMs int64) {
 	}
 	s.insert(&e)
 	s.expire(atMs)
-	return id, atMs
+	return r
 }
 
 // insert adds an entry to its ring and the global order, then applies the
