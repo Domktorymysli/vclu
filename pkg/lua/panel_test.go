@@ -391,15 +391,15 @@ func TestPanelChart(t *testing.T) {
 		return a .. "\n#" .. sent()
 	end)()`)
 	parts := strings.Split(got, "\n#")
-	mustContain(t, "chart", parts[0], `"Salon"`, `"12:00"`, `PAN1:execute(3, 94, 30, "22.0", 2)`,
-		`PAN1:execute(4, 76, 57, 78, 55, 1)`, `PAN1:execute(4, 79, 55, 81, 57, 1)`, // ^ under it
-		`PAN1:execute(4, 77, 13, 77, 52, 1)`, `PAN1:execute(4, 80, 13, 80, 52, 1)`, // the chosen hour, 4 px
+	mustContain(t, "chart", parts[0], `"Salon"`, `PAN1:execute(3, 89, 54, "12:00", 1)`, `PAN1:execute(3, 72, 20, "22.0", 3)`,
+		`PAN1:execute(4, 54, 57, 56, 55, 1)`, `PAN1:execute(4, 57, 55, 59, 57, 1)`, // ^ under it
+		`PAN1:execute(4, 55, 13, 55, 52, 1)`, `PAN1:execute(4, 58, 13, 58, 52, 1)`, // the chosen hour, 4 px
 		`PAN1:execute(4, 1, 31, 1, 52, 1)`, `PAN1:execute(4, 2, 31, 2, 52, 1)`, // 21 between 20 and 22
-		`PAN1:execute(4, 50, 50, 50, 52, 1)`, // 20, the lowest: a stub
+		`PAN1:execute(4, 36, 50, 36, 52, 1)`, // 20, the lowest: a stub
 		`PAN1B3:execute(2)`) // no OK on the chart
 	mustNotContain(t, "chart", parts[0], `PAN1:execute(4, 0, 31, 0, 52, 1)`)
-	mustContain(t, "hour before", parts[1], `"11:00"`, `"20.0", 2)`,
-		`PAN1:execute(4, 70, 50, 70, 52, 1)`, `PAN1:execute(4, 73, 50, 73, 52, 1)`)
+	mustContain(t, "hour before", parts[1], `"11:00"`, `"20.0", 3)`,
+		`PAN1:execute(4, 50, 50, 50, 52, 1)`, `PAN1:execute(4, 53, 50, 53, 52, 1)`)
 
 	mean := mustExec(t, engine, `(function()
 		local b = Panel._hourly(HIST, 12, T.now)

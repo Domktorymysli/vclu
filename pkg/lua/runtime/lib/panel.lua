@@ -977,7 +977,7 @@ function Panel.chart(name, src, opts)
             if v then lo, hi = math.min(lo or v, v), math.max(hi or v, v) end
         end
         -- bars from the base up; the lowest hour still gets a stub
-        local base, top, pitch = 52, 13, 7
+        local base, top, pitch = 52, 13, 5
         if lo then
             if hi - lo < 1 then lo, hi = (lo + hi) / 2 - 0.5, (lo + hi) / 2 + 0.5 end
             for b = 1, hours do
@@ -998,8 +998,11 @@ function Panel.chart(name, src, opts)
         local h0 = tonumber(Panel.timer.clock():match("^(%d+)")) or 0
         local hour = (h0 - (hours - page.sel)) % 24
         local right = L.w
-        s:textRight(L.rows[1], string.format("%02d:00", hour), 1, right)
-        s:textRight(L.rows[2] + 3, fmt(opts.format or "%.1f", bars[page.sel]), 2, right)
+        local value = fmt(opts.format or "%.1f", bars[page.sel])
+        -- big digits right of the bars, smaller when they do not fit
+        if textW(value, 3) <= right - (hours * pitch + 2) then s:textRight(20, value, 3, right)
+        else s:textRight(24, value, 2, right) end
+        s:textRight(54, string.format("%02d:00", hour), 1, right)
     end
     return page
 end
