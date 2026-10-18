@@ -1000,9 +1000,9 @@ function Panel.chart(name, src, opts)
         local right = L.w
         local value = fmt(opts.format or "%.1f", bars[page.sel])
         -- big digits right of the bars, smaller when they do not fit
-        if textW(value, 3) <= right - (hours * pitch + 2) then s:textRight(20, value, 3, right)
-        else s:textRight(24, value, 2, right) end
-        s:textRight(54, string.format("%02d:00", hour), 1, right)
+        if textW(value, 3) <= right - 3 - (hours * pitch + 2) then s:textRight(20, value, 3, right - 3)
+        else s:textRight(24, value, 2, right - 3) end
+        s:textRight(52, string.format("%02d:00", hour), 1, right - 3)
     end
     return page
 end
