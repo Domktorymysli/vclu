@@ -132,7 +132,8 @@ func TestPanelHomeFrame(t *testing.T) {
 		`PAN1:set(20, 0)`,
 		`PAN1:execute(2)`,
 		`PAN1:execute(3, 0, 14, ">", 1)`, `PAN1:execute(3, 8, 14, "Swiatlo", 1)`,
-		`"OFF"`, `"21.0"`, `"Dom"`,
+		// right-aligned by the measured widths: O 8 + F 7 + F 7, 2 8 + 1 7 + . 4 + 0 8
+		`PAN1:execute(3, 106, 14, "OFF", 1)`, `PAN1:execute(3, 101, 27, "21.0", 1)`, `"Dom"`,
 		`PAN1:execute(4, 118, 54, 118, 62, 1)`, `PAN1:execute(4, 118, 54, 126, 58, 1)`, `PAN1:execute(3, 120, 0, "<", 1)`, `"<"`,
 		`PAN1:execute(7)`,
 		`PAN1B0:execute(1)`, `PAN1B1:execute(1)`, `PAN1B2:execute(1)`, `PAN1B3:execute(1)`)

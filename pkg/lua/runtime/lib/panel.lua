@@ -31,6 +31,8 @@ Panel.__index = Panel
 Panel.layout = {
     w = 128, h = 64,
     cw = { 8, 10, 16 },      -- width of a digit or capital per font, for aligning text
+    -- narrower characters in font 1 (measured from a photo); other fonts scale them by cw
+    narrow = { ["1"] = 7, F = 7, ["%"] = 9, ["."] = 4, [","] = 4, ["["] = 4, ["]"] = 4, [" "] = 6 },
     fh = { 10, 14, 28 },     -- font height per font
     top = 0, bottom = 54,    -- y of the hint rows
     rows = { 14, 27, 40 },   -- y of the content rows
@@ -141,7 +143,17 @@ function Screen:_add(op)
     return self
 end
 
-local function charW(font) return Panel.layout.cw[font or 1] or Panel.layout.cw[1] end
+-- Width of text in a font, from Panel.layout.cw and .narrow
+local function textW(s, font)
+    local L = Panel.layout
+    local cw = L.cw[font or 1] or L.cw[1]
+    local w = 0
+    for c in s:gmatch(".") do
+        local n = L.narrow[c]
+        w = w + (n and n * cw / L.cw[1] or cw)
+    end
+    return w
+end
 
 --- Text at x, y (y is the top), font 1-3; cut to 15 characters.
 -- @api public
@@ -153,7 +165,7 @@ end
 -- @api public
 function Screen:textRight(y, s, font, right)
     s = Panel.text(s)
-    local x = (right or Panel.layout.w) - #s * charW(font)
+    local x = (right or Panel.layout.w) - textW(s, font)
     return self:text(math.max(0, x), y, s, font)
 end
 
@@ -162,7 +174,7 @@ end
 function Screen:textCenter(y, s, font, x0, x1)
     s = Panel.text(s)
     x0, x1 = x0 or 0, x1 or Panel.layout.w
-    local x = x0 + ((x1 - x0) - #s * charW(font)) / 2
+    local x = x0 + ((x1 - x0) - textW(s, font)) / 2
     return self:text(math.max(0, x), y, s, font)
 end
 

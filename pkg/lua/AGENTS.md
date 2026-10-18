@@ -91,7 +91,8 @@ module fv05) on 2026-10-18:
 - `PrintText`: y is the top of the text; font 1 is 10 px high (capitals), font 2 14 px, font 3 28 px.
   Every letter gets a black cell behind it, so text does not invert and nothing draws on top of it.
   The fonts are proportional and keep leading spaces: a row of 128 px holds 16 digits in font 1 and
-  13 in font 2, a space is about 6 px. Place a column by x (the menu cursor `>` is drawn on its own at
+  13 in font 2. In font 1 most digits and capitals take 8 px; from a photo of a test screen: 1 and
+  F 7, % 9, `.` `[` `]` 4, a space about 6 (`Panel.layout.narrow`, used to right-align values). Place a column by x (the menu cursor `>` is drawn on its own at
   x 0, the label at `Panel.layout.indent`), never by padding with spaces. Text past the right edge is
   cut, and a glyph at y 0 or at the bottom row loses a pixel or two.
 - `DrawBox` (30) draws nothing, with (x, y, w, h, color) and with end coordinates alike; it is not in
