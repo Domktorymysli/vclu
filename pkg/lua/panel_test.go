@@ -453,3 +453,34 @@ func TestPanelCorners(t *testing.T) {
 	back := mustExec(t, engine, `(function() click("PAN1", "btn2"); T.advance(1000); return sent() end)()`)
 	mustContain(t, "back home", back, `"Lampka"`)
 }
+
+// A history page lists the last changes newest first; up/down move the cursor and scroll.
+func TestPanelHistory(t *testing.T) {
+	engine := newPanelEngine(t, `
+		Panel.timer.at = function(ms) return string.format("%02d:00", math.floor(ms / 3600000)) end
+		HIST = {}
+		for h = 12, 1, -1 do HIST[#HIST + 1] = { value = h % 2, atMs = h * 3600000 } end
+		local fmt = function(v) return v == 1 and "OTWARTA" or "zamk." end
+		PANEL = Panel.new(P):home(Panel.menu("Dom")
+			:value("Brama", function() return 1 end, fmt, Panel.history("Brama", function() return HIST end, { format = fmt })))`)
+	got := mustExec(t, engine, `(function()
+		T.advance(100); sent()
+		click("PAN1", "btn4"); T.advance(1000)
+		local a = sent()
+		for _ = 1, 3 do click("PAN1", "btn3") end
+		T.advance(1000)
+		local b = sent()
+		for _ = 1, 20 do click("PAN1", "btn3") end
+		T.advance(1000)
+		return a .. "\n#" .. b .. "\n#" .. sent()
+	end)()`)
+	parts := strings.Split(got, "\n#")
+	mustContain(t, "newest first", parts[0], `"Brama"`, `PAN1:execute(3, 0, 14, ">", 1)`,
+		`PAN1:execute(3, 8, 14, "12:00", 1)`, `"zamk."`, `PAN1:execute(3, 8, 27, "11:00", 1)`, `"OTWARTA"`,
+		`PAN1:execute(3, 8, 40, "10:00", 1)`)
+	mustContain(t, "fourth", parts[1], `PAN1:execute(3, 0, 40, ">", 1)`, `PAN1:execute(3, 8, 40, "09:00", 1)`)
+	mustNotContain(t, "fourth", parts[1], `"12:00"`)
+	// ten entries only: the cursor stops at the tenth (03:00)
+	mustContain(t, "last", parts[2], `PAN1:execute(3, 8, 40, "03:00", 1)`)
+	mustNotContain(t, "last", parts[2], `"02:00"`)
+}

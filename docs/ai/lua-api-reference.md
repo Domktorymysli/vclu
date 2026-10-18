@@ -17,7 +17,7 @@ Only public API is listed — internal/private functions are omitted.
 - [core.Registry](#coreregistry) (9 functions)
 - [core.Metrics](#coremetrics) (1 functions)
 - [Dashboard](#dashboard) (48 functions)
-- [lib.panel](#libpanel) (42 functions)
+- [lib.panel](#libpanel) (43 functions)
 - [objects.RemotePanel](#objectsremotepanel) (6 functions)
 - [GPIO_DOUT](#gpio_dout) (1 functions)
 - [GPIO_DIN](#gpio_din) (1 functions)
@@ -1384,6 +1384,14 @@ Hourly bars of a value's history: up and down pick an hour, its time and value s
 Current and set temperature; +/- change the set point, written 1 s after the last press.
 
 - `o` (table) — { name, current = obj|fn, get = fn, set = fn, step = 0.5, min, max, format = "%.1f" }
+
+### `Panel.history(name, src, opts)`
+
+The last changes of an object, newest first, as a list: when and what.
+
+- `name` (string) — Title
+- `src` (table) — |function Object with :history(n), or a function returning { {value, atMs}, ... }
+- `opts` (table) — |nil { count = 10, format = "%s" | fn(value) }
 
 ### `Panel.corners(opts)`
 

@@ -561,6 +561,7 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 				"menu":       "Panel.menu(title):toggle(label, obj):number(label, getFn, setFn, {step,min,max,format,watch}):choice(label, getFn, setFn, {options}):value(label, obj|fn, format, page?) (OK opens page, e.g. a chart):submenu(label?, menu) (an empty menu adds no row; no label: its name):action(label, fn|page, {confirm=text})",
 				"value":      "Panel.value(title, obj|fn, format)",
 				"chart":      "Panel.chart(title, obj with history | fn returning changes newest first, {hours=12, format}) — hourly bars (time-weighted mean), up/down pick an hour (up = back), its time and value on the right",
+				"history":    "Panel.history(title, obj with history | fn returning changes newest first, {count=10, format}) — the last changes as a list, newest first: time and date left, value right (keep the value short, ~5 characters); e.g. when a gate opened, opened from a menu value row",
 				"corners":    "Panel.corners{tl={label, obj|fn(panel)}, tr=..., bl=..., br=..., draw=fn(screen, panel), every=60} — each corner one button (obj is switched), no back; e.g. home with a room's lights and Menu; a corner with only a label keeps its LED off",
 				"toggle":     "Panel.toggle(obj, title)",
 				"thermostat": "Panel.thermostat{name, current=obj|fn, get=fn, set=fn, step, min, max, format}",

@@ -62,6 +62,13 @@ Panel.timer = {
         end
         return os.date("%H:%M  %d.%m")
     end,
+    -- "HH:MM DD.MM" of a time in ms, in the installation's time zone
+    at = function(ms)
+        if datetime and datetime.fromTimestamp and datetime.format then
+            return datetime.format(datetime.fromTimestamp(ms), "15:04 02.01")
+        end
+        return os.date("%H:%M %d.%m", math.floor(ms / 1000))
+    end,
 }
 
 local CORNERS = { "tl", "tr", "bl", "br" }
@@ -1077,6 +1084,59 @@ function Panel.thermostat(o)
             o.set(v)
             panel:redraw()
         end)
+    end
+    return page
+end
+
+-- ---------- history ----------
+
+--- The last changes of an object, newest first, as a list: when and what.
+-- @param name string Title
+-- @param src table|function Object with :history(n), or a function returning { {value, atMs}, ... }
+-- @param opts table|nil { count = 10, format = "%s" | fn(value) }
+-- @api public
+function Panel.history(name, src, opts)
+    opts = opts or {}
+    local count = opts.count or 10
+    local page = { cursor = 1, scroll = 0 }
+    page.watch = { type(src) == "table" and src or nil }
+    page.keys = { up = { "" }, down = { "" } }
+    page.open = function() page.cursor, page.scroll = 1, 0 end
+    local function entries()
+        local e
+        if type(src) == "function" then e = src()
+        elseif type(src) == "table" and src.history then e = src:history(count) end
+        e = e or {}
+        while #e > count do table.remove(e) end
+        return e
+    end
+    page.input = function(n)
+        local total = #entries()
+        if n == "up" then page.cursor = math.max(1, page.cursor - 1)
+        elseif n == "down" then page.cursor = math.max(1, math.min(total, page.cursor + 1)) end
+    end
+    page.draw = function(s)
+        local L = Panel.layout
+        title(s, name)
+        local list = entries()
+        if #list == 0 then
+            s:textCenter(L.rows[2], "brak zmian")
+            return
+        end
+        page.cursor = math.min(page.cursor, #list)
+        local n = #L.rows
+        if page.cursor > page.scroll + n then page.scroll = page.cursor - n end
+        if page.cursor <= page.scroll then page.scroll = page.cursor - 1 end
+        local at = Panel.timer.at or function(ms) return os.date("%H:%M %d.%m", math.floor(ms / 1000)) end
+        for i = 1, n do
+            local e = list[page.scroll + i]
+            local y = L.rows[i]
+            if e then
+                if page.scroll + i == page.cursor then s:text(0, y, ">") end
+                s:text(L.indent, y, at(e.atMs))
+                s:textRight(y, fmt(opts.format or "%s", e.value))
+            end
+        end
     end
     return page
 end
