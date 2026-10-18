@@ -416,3 +416,40 @@ func TestPanelChart(t *testing.T) {
 		t.Errorf("hourly means = %q, want %q", mean, "21 20.5 20 22")
 	}
 }
+
+// A corners page: each corner is one button with its label, back included; a corner with
+// only a label leaves its LED off. A longer bottom label sits higher than a symbol.
+// An empty submenu adds no row.
+func TestPanelCorners(t *testing.T) {
+	engine := newPanelEngine(t, `
+		CALLS = { n = 0 }
+		MENU = Panel.menu("Menu"):toggle("A", LAMP)
+			:submenu(Panel.menu("Pusty"))
+			:submenu(Panel.menu("Sub"):value("T", function() return 1 end))
+		PANEL = Panel.new(P):home(Panel.corners{
+			tl = { "Swiatlo", LAMP },
+			tr = { "LED", function() CALLS.n = CALLS.n + 1 end },
+			bl = { "Lampka" },
+			br = { "Menu", function(p) p:open(MENU) end },
+			draw = function(s) s:textCenter(24, "12:34", 2) end,
+		})`)
+	home := mustExec(t, engine, `(function() T.advance(1000); return sent() end)()`)
+	mustContain(t, "home", home, `PAN1:execute(3, 0, 0, "Swiatlo", 1)`, `PAN1:execute(3, 104, 0, "LED", 1)`,
+		`PAN1:execute(3, 0, 48, "Lampka", 1)`, `PAN1:execute(3, 96, 48, "Menu", 1)`, `"12:34", 2)`,
+		`PAN1B0:execute(1)`, `PAN1B1:execute(1)`, `PAN1B2:execute(2)`, `PAN1B3:execute(1)`)
+
+	got := mustExec(t, engine, `(function()
+		click("PAN1", "btn1"); click("PAN1", "btn2"); click("PAN1", "btn3"); T.advance(1000)
+		return LAMP:getValue() .. "|" .. CALLS.n .. "|" .. #PANEL._stack
+	end)()`)
+	if got != "1|1|1" {
+		t.Errorf("lamp|calls|pages = %s, want 1|1|1", got)
+	}
+
+	menu := mustExec(t, engine, `(function() sent(); click("PAN1", "btn4"); T.advance(1000); return sent() end)()`)
+	mustContain(t, "menu", menu, `"A"`, `"Sub"`, `PAN1:execute(3, 120, 54, ">", 1)`)
+	mustNotContain(t, "menu", menu, `"Pusty"`)
+
+	back := mustExec(t, engine, `(function() click("PAN1", "btn2"); T.advance(1000); return sent() end)()`)
+	mustContain(t, "back home", back, `"Lampka"`)
+}

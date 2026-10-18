@@ -17,7 +17,7 @@ Only public API is listed — internal/private functions are omitted.
 - [core.Registry](#coreregistry) (9 functions)
 - [core.Metrics](#coremetrics) (1 functions)
 - [Dashboard](#dashboard) (48 functions)
-- [lib.panel](#libpanel) (40 functions)
+- [lib.panel](#libpanel) (42 functions)
 - [objects.RemotePanel](#objectsremotepanel) (6 functions)
 - [GPIO_DOUT](#gpio_dout) (1 functions)
 - [GPIO_DIN](#gpio_din) (1 functions)
@@ -1325,6 +1325,10 @@ A list of rows; up/down move, OK opens or edits, back leaves (or cancels an edit
 
 A row that opens a page or a submenu (also Menu:submenu).
 
+### `Menu:submenu(label, menu)`
+
+A row that opens a menu; a menu with no rows adds nothing. Without a label: the menu's name.
+
 ### `Menu:toggle(label, obj)`
 
 A row with an on/off object; OK switches it.
@@ -1380,6 +1384,12 @@ Hourly bars of a value's history: up and down pick an hour, its time and value s
 Current and set temperature; +/- change the set point, written 1 s after the last press.
 
 - `o` (table) — { name, current = obj|fn, get = fn, set = fn, step = 0.5, min, max, format = "%.1f" }
+
+### `Panel.corners(opts)`
+
+A page where each corner is one button, e.g. home with the room's lights; no back. A corner with an object switches it, with a function calls fn(panel); a corner with only a label shows it and leaves its LED off. draw fills the middle.
+
+- `opts` (table) — { tl = { "Swiatlo", obj|fn }, tr, bl, br, draw = fn(screen, panel), every, watch }
 
 ### `Panel.idle(rows)`
 

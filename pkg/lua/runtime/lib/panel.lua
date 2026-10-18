@@ -35,6 +35,7 @@ Panel.layout = {
     narrow = { ["1"] = 7, F = 7, ["%"] = 9, ["."] = 4, [","] = 4, ["["] = 4, ["]"] = 4, [" "] = 6 },
     fh = { 10, 14, 28 },     -- font height per font
     top = 0, bottom = 54,    -- y of the hint rows
+    bottomText = 48,         -- y of a longer bottom hint: lower case runs below 64 at 54
     rows = { 14, 27, 40 },   -- y of the content rows
     rowH = 12,
     indent = 8,              -- x of a menu label, after the cursor
@@ -101,6 +102,12 @@ local function read(src)
     return src
 end
 Panel.read = read
+
+-- Switches an on/off object
+local function flip(o)
+    if o.toggle then o:toggle()
+    elseif o.setValue then o:setValue((read(o) == 1) and 0 or 1) end
+end
 
 local function fmt(f, v)
     if v == nil then return "--" end
@@ -489,6 +496,18 @@ function Panel:input(raw)
         if mod == "" then self:goHome() end
         return
     end
+    if page.corners then
+        local c = page.corners[corner]
+        local action = mod == "" and c and c[2]
+        if type(action) == "function" then
+            local ok, err = pcall(action, self)
+            if not ok then log():error("[Panel] corner %s failed: %s", corner, tostring(err)) end
+        elseif type(action) == "table" then
+            flip(action)
+        end
+        self:redraw()
+        return
+    end
     if name == "back" then
         if call(page, "back", self) ~= true then self:goBack() end
         self:redraw()
@@ -590,16 +609,23 @@ function Panel:_frame()
         if corner == self._back then role = "back" end
         for r, c in pairs(roles) do if c == corner then role = r end end
         local label
-        if not page.modal and not page._isIdle then
+        if page.corners then
+            local c = page.corners[corner]
+            label = c and c[1]
+            if c and c[2] then lit[corner] = true end
+        elseif not page.modal and not page._isIdle then
             if role == "back" then
                 label = keys.back and keys.back[1] or "<"
             elseif keys[role] then
                 label = keys[role][1]
             end
         end
-        local y = (corner == "tl" or corner == "tr") and L.top or L.bottom
+        local y = L.top
+        if corner == "bl" or corner == "br" then
+            y = (label and #label > 1) and L.bottomText or L.bottom
+        end
         s:region("hint." .. corner)
-        if label then lit[corner] = true end -- "" lights the LED with no hint
+        if label and not page.corners then lit[corner] = true end -- "" lights the LED with no hint
         if label and label ~= "" then
             if corner == "tl" or corner == "bl" then s:text(0, y, label)
             else s:textRight(y, label) end
@@ -676,7 +702,17 @@ function Menu:_add(row) self.rows[#self.rows + 1] = row return self end
 --- A row that opens a page or a submenu (also Menu:submenu).
 -- @api public
 function Menu:item(label, page) return self:_add({ label = label, page = page }) end
-Menu.submenu = Menu.item
+
+--- A row that opens a menu; a menu with no rows adds nothing. Without a label: the menu's name.
+-- @api public
+function Menu:submenu(label, menu)
+    if menu == nil and getmetatable(label) == Menu then
+        menu = label
+        label = menu.name
+    end
+    if getmetatable(menu) == Menu and #menu.rows == 0 then return self end
+    return self:item(label, menu)
+end
 
 --- A row with an on/off object; OK switches it.
 -- @api public
@@ -819,9 +855,7 @@ function Menu:input(name, panel)
         if row.page then
             panel:open(row.page)
         elseif row.kind == "toggle" then
-            local o = row.obj
-            if o.toggle then o:toggle()
-            elseif o.setValue then o:setValue((read(o) == 1) and 0 or 1) end
+            flip(row.obj)
         elseif row.kind == "number" or row.kind == "choice" then
             local v = read(row.get)
             if row.kind == "number" then v = clamp(tonumber(v) or row.opts.min or 0, row.opts) end
@@ -1043,6 +1077,22 @@ function Panel.thermostat(o)
             o.set(v)
             panel:redraw()
         end)
+    end
+    return page
+end
+
+-- ---------- corners ----------
+
+--- A page where each corner is one button, e.g. home with the room's lights; no back.
+-- @param opts table { tl = { "Swiatlo", obj|fn }, tr, bl, br, draw = fn(screen, panel), every, watch }
+-- A corner with an object switches it, with a function calls fn(panel); a corner with only
+-- a label shows it and leaves its LED off. draw fills the middle.
+-- @api public
+function Panel.corners(opts)
+    local page = { corners = {}, every = opts.every, align = opts.every ~= nil, watch = opts.watch }
+    for _, c in ipairs(CORNERS) do page.corners[c] = opts[c] end
+    page.draw = function(s, panel)
+        if opts.draw then opts.draw(s, panel) end
     end
     return page
 end
