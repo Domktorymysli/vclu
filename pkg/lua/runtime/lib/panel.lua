@@ -38,6 +38,8 @@ Panel.layout = {
     indent = 8,              -- x of a menu label, after the cursor
 }
 Panel.MAX_TEXT = 15
+-- Hints drawn as an icon from the panel's card (16 x 16, the arrow in its middle 10 x 10)
+Panel.hintIcons = { OK = "arrright" }
 Panel.REDRAW_MS = 20         -- changes within this time make one frame
 Panel.pageControlOff = true  -- stop gestures from switching Grenton's own pages
 
@@ -587,7 +589,11 @@ function Panel:_frame()
         local y = (corner == "tl" or corner == "tr") and L.top or L.bottom
         s:region("hint." .. corner)
         if label then lit[corner] = true end -- "" lights the LED with no hint
-        if label and label ~= "" then
+        local icon = label and Panel.hintIcons[label]
+        if icon then
+            local left = corner == "tl" or corner == "bl"
+            s:icon(left and 0 or L.w - 14, y == L.top and 0 or L.h - 16, icon)
+        elseif label and label ~= "" then
             if corner == "tl" or corner == "bl" then s:text(0, y, label)
             else s:textRight(y, label) end
         end
@@ -999,7 +1005,6 @@ function Panel.cleaning(seconds)
         local L = Panel.layout
         s:region("title", 0, L.top, L.w, 10):textCenter(L.top, "Czyszczenie")
         s:region("count", 0, L.rows[1] + 2, L.w, 20):textCenter(L.rows[1] + 4, tostring(page.left or seconds), 3)
-        s:region("info", 0, L.bottom, L.w, 10):textCenter(L.bottom, "panel nieaktywny")
     end
     page.input = function() end
     return page

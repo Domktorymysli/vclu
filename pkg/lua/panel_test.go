@@ -133,7 +133,7 @@ func TestPanelHomeFrame(t *testing.T) {
 		`PAN1:execute(2)`,
 		`PAN1:execute(3, 0, 14, ">", 1)`, `PAN1:execute(3, 8, 14, "Swiatlo", 1)`,
 		`"OFF"`, `"21.0"`, `"Dom"`,
-		`"OK"`, `"<"`,
+		`PAN1:execute(6, 114, 0, "arrright")`, `"<"`,
 		`PAN1:execute(7)`,
 		`PAN1B0:execute(1)`, `PAN1B1:execute(1)`, `PAN1B2:execute(1)`, `PAN1B3:execute(1)`)
 
@@ -328,7 +328,7 @@ func TestPanelNotifyRegisterAndState(t *testing.T) {
 	mustContain(t, "other panel", parts[1], `PAN2:`, `">", 1)`, `, "z", 1)`)
 	mustNotContain(t, "other panel", parts[1], `PAN1:`)
 	mustContain(t, "back from registered page", parts[2], `">", 1)`, `"Licznik"`)
-	mustContain(t, "notify", parts[3], `"Pranie gotowe"`, `"OK"`)
+	mustContain(t, "notify", parts[3], `"Pranie gotowe"`, `"arrright")`)
 	mustContain(t, "notify gone", parts[4], `">", 1)`, `"Licznik"`)
 	mustContain(t, "wake", parts[5], `PAN1:execute(2)`, `">", 1)`, `"Licznik"`)
 	if parts[6] != "falsetrue" {
