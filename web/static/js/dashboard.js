@@ -258,7 +258,10 @@
 
         // Color
         var color = resolveColor(w.color);
-        if (color) el.style.setProperty('--widget-color', color);
+        if (color) {
+            el.style.setProperty('--widget-color', color);
+            el.dataset.ownColor = '1';
+        }
 
         // Disabled
         if (w.disabled) el.classList.add('disabled');
@@ -609,8 +612,10 @@
 
     // ---- Color picker widget ----
 
-    // The light's own colour tints the tile (icon, switch, slider thumbs) while it is on.
+    // The light's own colour tints the tile (icon, switch, slider thumbs) while it is on,
+    // unless the dashboard gave the widget a colour.
     function applyLightColor(el, rgb, isOn) {
+        if (el.dataset.ownColor) return;
         if (rgb && isOn) {
             el.style.setProperty('--widget-color', 'rgb(' + rgb.r + ',' + rgb.g + ',' + rgb.b + ')');
         } else {
@@ -692,6 +697,7 @@
             input.addEventListener('change', function(e) {
                 e.stopPropagation();
                 executeAction(w.id, input.checked ? 'switchOn' : 'switchOff');
+                if (!input.checked) applyLightColor(el, null, false);
             });
             sw.appendChild(input);
             el.appendChild(sw);
@@ -1148,7 +1154,10 @@
                 var pk = el.querySelector('.dash-color-custom input');
                 if (pk && document.activeElement !== pk) pk.value = toHex(data.rgb);
             }
-            applyLightColor(el, data.rgb, data.on !== false);
+            // an action's reply carries only its value: keep the tint until a poll
+            if (data.rgb !== undefined || data.on !== undefined) {
+                applyLightColor(el, data.rgb, data.on !== false);
+            }
             return;
         }
 

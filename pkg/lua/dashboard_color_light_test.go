@@ -87,3 +87,71 @@ func TestDashboardColorWidgetFromLight(t *testing.T) {
 		t.Errorf("white on an RGB module: %s", res)
 	}
 }
+
+// Before its first report a light gives no values (and no CLU query), switchOn reaches it, and
+// a colour out of range is clamped before it goes to the CLU.
+func TestDashboardColorWidgetFromLightEdges(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+	if _, err := engine.Execute(dashColorLightSetup); err != nil {
+		t.Fatalf("setup failed: %v", err)
+	}
+	var vals map[string]map[string]interface{}
+	dashJSON(t, engine, `Dashboard.API.getValues("led")`, &vals)
+	for _, k := range []string{"rgb", "brightness", "white", "on"} {
+		if v, ok := vals["rgbw"][k]; ok {
+			t.Errorf("before a report %s = %v", k, v)
+		}
+	}
+	mustExec(t, engine, `_sent = {}`)
+	for _, a := range []string{
+		`Dashboard.API.executeAction("led", "rgbw", "switchOn")`,
+		`Dashboard.API.executeAction("led", "rgbw", "setColor", {r = 300, g = 12.6, b = -5})`,
+	} {
+		if res := mustExec(t, engine, a); !strings.Contains(res, `"success":true`) {
+			t.Errorf("%s: %s", a, res)
+		}
+	}
+	got := mustExec(t, engine, `table.concat(_sent, ";")`)
+	for _, want := range []string{`LED2:execute(9, 0)`, `LED2:execute(6, "#ff0d00")`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("sent %s, missing %s", got, want)
+		}
+	}
+	if strings.Contains(got, "QUERY") {
+		t.Errorf("asked the CLU: %s", got)
+	}
+}
+
+// A colour widget built from functions works as before: no white unless it has getWhite/setWhite.
+func TestDashboardColorWidgetFunctionsUnchanged(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+	if _, err := engine.Execute(`
+		_dashboards = {}
+		_c = {}
+		Dashboard.new('fn')
+			:section('S', 'icon')
+			:color('c', 'C', 'palette', {
+				getColor = function() return {r = 1, g = 2, b = 3} end,
+				setColor = function(r, g, b) _c = {r, g, b} end,
+				get = function() return 40 end, set = function() end,
+			})
+			:build()
+	`); err != nil {
+		t.Fatalf("setup failed: %v", err)
+	}
+	var def dashDef
+	dashJSON(t, engine, `Dashboard.API.getDefinition("fn")`, &def)
+	w := def.widget("c")
+	if c, _ := w["capabilities"].(map[string]interface{}); c["white"] != false || c["brightness"] != true {
+		t.Errorf("capabilities = %v", w["capabilities"])
+	}
+	if _, ok := w["white"]; ok {
+		t.Errorf("white without getWhite: %v", w["white"])
+	}
+	mustExec(t, engine, `Dashboard.API.executeAction("fn", "c", "setColor", {r = 10, g = 20, b = 30})`)
+	if got := mustExec(t, engine, `table.concat(_c, ",")`); got != "10,20,30" {
+		t.Errorf("setColor got %s", got)
+	}
+}

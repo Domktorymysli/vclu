@@ -1304,10 +1304,8 @@ function DashboardAPI.executeAction(id, widgetId, action, value)
         if action == 'setColor' then
             if type(fns.setColor) ~= 'function' then return JSON.encode({ error = 'No setColor function' }) end
             if type(value) ~= 'table' then return JSON.encode({ error = 'Value must be {r, g, b}' }) end
-            local r = tonumber(value.r) or 0
-            local g = tonumber(value.g) or 0
-            local b = tonumber(value.b) or 0
-            local ok, ret = pcall(fns.setColor, r, g, b)
+            local function channel(v) return math.floor(math.max(0, math.min(255, tonumber(v) or 0)) + 0.5) end
+            local ok, ret = pcall(fns.setColor, channel(value.r), channel(value.g), channel(value.b))
             if not ok then return JSON.encode({ error = tostring(ret) }) end
             return JSON.encode({ success = true })
         elseif action == 'set' then
