@@ -691,7 +691,7 @@ Panel.new(PANEL)
 ```
 
 The corners mean the same on every page: up and down on the left (`+` and `-` while editing
-a value), back top right (`<`) and OK bottom right (a triangle). Keep the default so every
+a value), back top right (`<`) and OK bottom right (`>`). Keep the default so every
 panel in a house works alike; the LEDs light the corners that do something. A page type of your own: `Panel.register(name, factory)`, where
 a page is `{ draw = function(screen, panel) ... end, keys = { up = { "+" } }, input = function(role, panel) ... end }`
 and `screen` has `text(x, y, s, font)`, `textRight`, `textCenter`, `line`, `rule(y)`, `icon(x, y, "temp")`.

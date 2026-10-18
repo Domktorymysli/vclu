@@ -40,14 +40,6 @@ Panel.layout = {
     indent = 8,              -- x of a menu label, after the cursor
 }
 Panel.MAX_TEXT = 15
--- Hints drawn instead of their label: fn(screen, x, y) draws in the 10 x 10 corner cell at
--- x, y. Not arrright from the card: the panel ignores a bitmap's palette, and that one's is
--- inverted, so it came out on a white square.
-Panel.hintIcons = {
-    OK = function(s, x, y) -- a triangle pointing right
-        s:line(x, y, x, y + 8):line(x, y, x + 8, y + 4):line(x, y + 8, x + 8, y + 4)
-    end,
-}
 Panel.REDRAW_MS = 20         -- changes within this time make one frame
 Panel.pageControlOff = true  -- stop gestures from switching Grenton's own pages
 
@@ -548,7 +540,7 @@ function Panel:notify(text, opts)
     opts = opts or {}
     local page
     page = {
-        keys = { ok = { "OK", function(p) p:close(page) end } },
+        keys = { ok = { ">", function(p) p:close(page) end } },
         draw = function(s)
             local L = Panel.layout
             if opts.title then s:region("title"):textCenter(L.top, opts.title, 1, 30, 98) end
@@ -608,11 +600,7 @@ function Panel:_frame()
         local y = (corner == "tl" or corner == "tr") and L.top or L.bottom
         s:region("hint." .. corner)
         if label then lit[corner] = true end -- "" lights the LED with no hint
-        local icon = label and Panel.hintIcons[label]
-        if icon then
-            local left = corner == "tl" or corner == "bl"
-            icon(s, left and 0 or L.w - 10, y == L.top and 0 or L.h - 10)
-        elseif label and label ~= "" then
+        if label and label ~= "" then
             if corner == "tl" or corner == "bl" then s:text(0, y, label)
             else s:textRight(y, label) end
         end
@@ -748,13 +736,13 @@ end
 
 function Menu:keys()
     if self.edit then
-        return { up = { "+" }, down = { "-" }, ok = { "OK" }, back = { "x" } }
+        return { up = { "+" }, down = { "-" }, ok = { ">" }, back = { "x" } }
     end
     local k = {}
     -- up and down need no hint: the lit LEDs show them, and ^ v got clipped at the edges
     if #self.rows > 1 then k.up = { "" }; k.down = { "" } end
     local row = self.rows[self.cursor]
-    if row and row.kind ~= "value" then k.ok = { "OK" } end
+    if row and row.kind ~= "value" then k.ok = { ">" } end
     return k
 end
 
@@ -869,7 +857,7 @@ Panel.Menu = Menu
 function Panel.confirm(text, fn, heading)
     local page
     page = {
-        keys = { ok = { "OK" } },
+        keys = { ok = { ">" } },
         draw = function(s)
             local L = Panel.layout
             title(s, (heading or "") .. "?")
@@ -895,7 +883,7 @@ end
 function Panel.toggle(obj, name)
     return {
         watch = { obj },
-        keys = { ok = { "OK" } },
+        keys = { ok = { ">" } },
         draw = function(s)
             local L = Panel.layout
             title(s, name or obj._name or "")
