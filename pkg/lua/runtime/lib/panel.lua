@@ -30,7 +30,7 @@ Panel.__index = Panel
 -- narrower (about 6 px), so a column is set by x, never by leading spaces.
 Panel.layout = {
     w = 128, h = 64,
-    cw = { 8, 10, 16 },      -- width of a digit or capital per font, for aligning text
+    cw = { 8, 9.6, 16 },     -- width of a digit or capital per font, for aligning text
     -- narrower characters in font 1 (measured from a photo); other fonts scale them by cw
     narrow = { ["1"] = 7, F = 7, ["%"] = 9, ["."] = 4, [","] = 4, ["["] = 4, ["]"] = 4, [" "] = 6 },
     fh = { 10, 14, 28 },     -- font height per font
@@ -988,6 +988,9 @@ function Panel.chart(name, src, opts)
                     local x0, x1 = x, x + 1
                     if b == page.sel then x0, x1 = x - 1, x + 2 end
                     for xx = x0, x1 do s:line(xx, base - h, xx, base) end
+                    if b == page.sel then -- a ^ under the chosen bar
+                        s:line(x - 2, base + 5, x, base + 3):line(x + 1, base + 3, x + 3, base + 5)
+                    end
                 end
             end
         end
@@ -996,7 +999,7 @@ function Panel.chart(name, src, opts)
         local hour = (h0 - (hours - page.sel)) % 24
         local right = L.w
         s:textRight(L.rows[1], string.format("%02d:00", hour), 1, right)
-        s:textRight(L.rows[2], fmt(opts.format or "%.1f", bars[page.sel]), 2, right)
+        s:textRight(L.rows[2] + 3, fmt(opts.format or "%.1f", bars[page.sel]), 2, right)
     end
     return page
 end
