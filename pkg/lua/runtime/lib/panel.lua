@@ -984,7 +984,7 @@ function Panel.chart(name, src, opts)
                 local v = bars[b]
                 if v then
                     local h = 2 + math.floor((v - lo) / (hi - lo) * (base - top - 2) + 0.5)
-                    local x = 1 + (b - 1) * pitch
+                    local x = 3 + (b - 1) * pitch -- the ^ of the first bar starts at x = 1
                     local x0, x1 = x, x + 1
                     if b == page.sel then x0, x1 = x - 1, x + 2 end
                     for xx = x0, x1 do s:line(xx, base - h, xx, base) end
@@ -1000,7 +1000,7 @@ function Panel.chart(name, src, opts)
         local right = L.w
         local value = fmt(opts.format or "%.1f", bars[page.sel])
         -- big digits right of the bars, smaller when they do not fit
-        if textW(value, 3) <= right - 3 - (hours * pitch + 2) then s:textRight(20, value, 3, right - 3)
+        if textW(value, 3) <= right - 3 - (hours * pitch + 4) then s:textRight(20, value, 3, right - 3)
         else s:textRight(24, value, 2, right - 3) end
         s:textRight(52, string.format("%02d:00", hour), 1, right - 3)
     end
