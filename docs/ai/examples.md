@@ -678,7 +678,7 @@ local zadana = VirtualNumber:new("zadana_biuro", { initial = 21, persist = true 
 
 Panel.new(PANEL)
     :buttons{ tl = "btn1", tr = "btn2", bl = "btn3", br = "btn4" }
-    :back("br")                                   -- this corner is back on every page
+    :back("tr")                                   -- back top right, OK bottom left (the default)
     :home(Panel.menu("Biuro")
         :toggle("Swiatlo", lampa)                 -- OK switches it, the row follows the object
         :number("Zadana", function() return zadana:getValue() end,
@@ -690,8 +690,9 @@ Panel.new(PANEL)
     :sleepAfter(30)                               -- idle screen after 30 s without input
 ```
 
-The corners get their meaning from the page (up, down, ok, back) and show a hint; their LEDs
-light when they do something. A page type of your own: `Panel.register(name, factory)`, where
+The corners mean the same on every page: back top right (`<`), OK bottom left (an arrow),
+up top left and down bottom right (`+` and `-` while editing a value). Keep the default so every
+panel in a house works alike; the LEDs light the corners that do something. A page type of your own: `Panel.register(name, factory)`, where
 a page is `{ draw = function(screen, panel) ... end, keys = { up = { "+" } }, input = function(role, panel) ... end }`
 and `screen` has `text(x, y, s, font)`, `textRight`, `textCenter`, `line`, `rule(y)`, `icon(x, y, "temp")`.
 
@@ -705,7 +706,7 @@ each, which is what the panel's CLU accepts. Do not loop `PANEL:execute(...)` yo
 Test a panel module in `vclu_draft_test` with `click` steps; the frames are in `clu_calls`:
 
 ```json
-[{"advance": 1}, {"click": "PAN1085", "input": "btn3"}, {"advance": 1}]
+[{"advance": 1}, {"click": "PAN1085", "input": "btn4"}, {"advance": 1}]
 ```
 
 ## Directory convention
