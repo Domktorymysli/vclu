@@ -558,8 +558,9 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 			"library": "local Panel = require('lib/panel'); Panel.new(_:get('CLU….PAN…')) — the panel object from the OM import",
 			"builder": "Panel.new(panel):buttons{tl='btn1',tr='btn2',bl='btn3',br='btn4'}:back('tr'):home(page):idle(page):sleepAfter(s):onGesture('up', fn):onProximity(fn)",
 			"pages": map[string]any{
-				"menu":       "Panel.menu(title):toggle(label, obj):number(label, getFn, setFn, {step,min,max,format,watch}):choice(label, getFn, setFn, {options}):value(label, obj|fn, format):submenu(label, page):action(label, fn|page, {confirm=text})",
+				"menu":       "Panel.menu(title):toggle(label, obj):number(label, getFn, setFn, {step,min,max,format,watch}):choice(label, getFn, setFn, {options}):value(label, obj|fn, format, page?) (OK opens page, e.g. a chart):submenu(label, page):action(label, fn|page, {confirm=text})",
 				"value":      "Panel.value(title, obj|fn, format)",
+				"chart":      "Panel.chart(title, obj with history | fn returning changes newest first, {hours=12, format}) — hourly bars (time-weighted mean), up/down pick an hour, its time and value on the right",
 				"toggle":     "Panel.toggle(obj, title)",
 				"thermostat": "Panel.thermostat{name, current=obj|fn, get=fn, set=fn, step, min, max, format}",
 				"idle":       "Panel.idle{ {label, obj|fn, format}, ... } — clock and up to 3 values; any button opens home",

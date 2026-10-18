@@ -684,11 +684,11 @@ function Menu:toggle(label, obj)
     return self:_add({ label = label, obj = obj, kind = "toggle" })
 end
 
---- A read-only value.
+--- A read-only value; with a page (e.g. Panel.chart), OK opens it.
 -- @api public
-function Menu:value(label, src, format)
+function Menu:value(label, src, format, page)
     return self:_add({ label = label, src = src, format = format, kind = "value",
-        obj = type(src) == "table" and src or nil })
+        obj = type(src) == "table" and src or nil, page = page })
 end
 
 --- A number edited in place: OK, then +/-, OK sets it once, back cancels.
@@ -742,7 +742,7 @@ function Menu:keys()
     -- up and down need no hint: the lit LEDs show them, and ^ v got clipped at the edges
     if #self.rows > 1 then k.up = { "" }; k.down = { "" } end
     local row = self.rows[self.cursor]
-    if row and row.kind ~= "value" then k.ok = { ">" } end
+    if row and (row.kind ~= "value" or row.page) then k.ok = { ">" } end
     return k
 end
 
@@ -910,6 +910,95 @@ function Panel.value(name, src, format)
             s:region("value", 0, L.rows[2] - 1, L.w, 16):textCenter(L.rows[2], fmt(format, read(src)), 2)
         end,
     }
+end
+
+-- ---------- chart ----------
+
+local HOUR_MS = 3600000
+
+-- Time-weighted mean per hour from changes (newest first): the last `hours` full hours
+-- ending with the current one; nil where nothing is known
+local function hourly(entries, hours, now)
+    local cur = now - now % HOUR_MS
+    local first = cur - (hours - 1) * HOUR_MS
+    local sum, len = {}, {}
+    for i = #entries, 1, -1 do
+        local e, nxt = entries[i], entries[i - 1]
+        local v, from = tonumber(e.value), tonumber(e.atMs)
+        local to = nxt and tonumber(nxt.atMs) or now
+        if v and from and to > first then
+            from = math.max(from, first)
+            while from < to do
+                local b = math.floor((from - first) / HOUR_MS) + 1
+                local edge = math.min(to, first + b * HOUR_MS)
+                sum[b] = (sum[b] or 0) + v * (edge - from)
+                len[b] = (len[b] or 0) + (edge - from)
+                from = edge
+            end
+        end
+    end
+    local out = {}
+    for b = 1, hours do
+        if len[b] and len[b] > 0 then out[b] = sum[b] / len[b] end
+    end
+    return out
+end
+Panel._hourly = hourly
+
+--- Hourly bars of a value's history: up and down pick an hour, its time and value show
+-- on the right. Each bar is the time-weighted mean of that hour; the last is the
+-- current one.
+-- @param name string Title
+-- @param src table|function An object with history (obj:history(n)) or a function
+--   returning changes newest first ({ value, atMs })
+-- @param opts table { hours = 12, format = "%.1f" }
+-- @api public
+function Panel.chart(name, src, opts)
+    opts = opts or {}
+    local hours = opts.hours or 12
+    local page = { every = 60, sel = hours }
+    page.watch = { type(src) == "table" and src or nil }
+    page.keys = { up = { "" }, down = { "" } }
+    page.open = function() page.sel = hours end
+    page.input = function(n)
+        if n == "up" then page.sel = math.min(hours, page.sel + 1)
+        elseif n == "down" then page.sel = math.max(1, page.sel - 1) end
+    end
+    page.draw = function(s)
+        local L = Panel.layout
+        title(s, name)
+        local entries
+        if type(src) == "function" then entries = src()
+        elseif type(src) == "table" and src.history then entries = src:history(2000) end
+        local bars = hourly(entries or {}, hours, Panel.timer.now())
+        local lo, hi
+        for b = 1, hours do
+            local v = bars[b]
+            if v then lo, hi = math.min(lo or v, v), math.max(hi or v, v) end
+        end
+        -- bars from the base up; the lowest hour still gets a stub
+        local base, top, pitch = 52, 13, 7
+        if lo then
+            if hi - lo < 1 then lo, hi = (lo + hi) / 2 - 0.5, (lo + hi) / 2 + 0.5 end
+            for b = 1, hours do
+                local v = bars[b]
+                if v then
+                    local h = 2 + math.floor((v - lo) / (hi - lo) * (base - top - 2) + 0.5)
+                    local x = 1 + (b - 1) * pitch
+                    local x0, x1 = x, x + 1
+                    if b == page.sel then x0, x1 = x - 1, x + 2 end
+                    for xx = x0, x1 do s:line(xx, base - h, xx, base) end
+                end
+            end
+        end
+        -- the chosen hour and its value
+        local h0 = tonumber(Panel.timer.clock():match("^(%d+)")) or 0
+        local hour = (h0 - (hours - page.sel)) % 24
+        local right = L.w
+        s:textRight(L.rows[1], string.format("%02d:00", hour), 1, right)
+        s:textRight(L.rows[2], fmt(opts.format or "%.1f", bars[page.sel]), 2, right)
+    end
+    return page
 end
 
 --- Current and set temperature; +/- change the set point, written 1 s after the last press.

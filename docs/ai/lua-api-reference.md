@@ -17,7 +17,7 @@ Only public API is listed — internal/private functions are omitted.
 - [core.Registry](#coreregistry) (9 functions)
 - [core.Metrics](#coremetrics) (1 functions)
 - [Dashboard](#dashboard) (48 functions)
-- [lib.panel](#libpanel) (39 functions)
+- [lib.panel](#libpanel) (40 functions)
 - [objects.RemotePanel](#objectsremotepanel) (6 functions)
 - [GPIO_DOUT](#gpio_dout) (1 functions)
 - [GPIO_DIN](#gpio_din) (1 functions)
@@ -1329,9 +1329,9 @@ A row that opens a page or a submenu (also Menu:submenu).
 
 A row with an on/off object; OK switches it.
 
-### `Menu:value(label, src, format)`
+### `Menu:value(label, src, format, page)`
 
-A read-only value.
+A read-only value; with a page (e.g. Panel.chart), OK opens it.
 
 ### `Menu:number(label, get, set, opts)`
 
@@ -1366,6 +1366,14 @@ One on/off object on its own page; OK switches.
 ### `Panel.value(name, src, format)`
 
 One value on its own page.
+
+### `Panel.chart(name, src, opts)`
+
+Hourly bars of a value's history: up and down pick an hour, its time and value show on the right. Each bar is the time-weighted mean of that hour; the last is the current one. returning changes newest first ({ value, atMs })
+
+- `name` (string) — Title
+- `src` (table) — |function An object with history (obj:history(n)) or a function
+- `opts` (table) — { hours = 12, format = "%.1f" }
 
 ### `Panel.thermostat(o)`
 

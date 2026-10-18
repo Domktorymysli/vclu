@@ -369,3 +369,42 @@ func TestCLURemoteExecuteAsync(t *testing.T) {
 }
 
 var errTimeoutForTest = errors.New("timeout")
+
+// A value row opens its chart: hourly time-weighted means, the current hour chosen,
+// down picks the hour before; bars scale between the lowest and highest hour.
+func TestPanelChart(t *testing.T) {
+	engine := newPanelEngine(t, `
+		local H = 3600000
+		T.now = 12 * H + H / 2
+		HIST = {
+			{ value = 22, atMs = 12 * H },
+			{ value = 20, atMs = 7 * H + H / 2 },
+			{ value = 21, atMs = 0 },
+		}
+		PANEL = Panel.new(P):home(Panel.menu("Dom")
+			:value("Salon", function() return 22 end, "%.1f", Panel.chart("Salon", function() return HIST end)))`)
+	got := mustExec(t, engine, `(function()
+		T.advance(100); sent()
+		click("PAN1", "btn4"); T.advance(1000)
+		local a = sent()
+		click("PAN1", "btn3"); T.advance(1000)
+		return a .. "\n#" .. sent()
+	end)()`)
+	parts := strings.Split(got, "\n#")
+	mustContain(t, "chart", parts[0], `"Salon"`, `"12:00"`, `"22.0", 2)`,
+		`PAN1:execute(4, 77, 13, 77, 52, 1)`, `PAN1:execute(4, 80, 13, 80, 52, 1)`, // the chosen hour, 4 px
+		`PAN1:execute(4, 1, 31, 1, 52, 1)`, `PAN1:execute(4, 2, 31, 2, 52, 1)`, // 21 between 20 and 22
+		`PAN1:execute(4, 50, 50, 50, 52, 1)`, // 20, the lowest: a stub
+		`PAN1B3:execute(2)`) // no OK on the chart
+	mustNotContain(t, "chart", parts[0], `PAN1:execute(4, 0, 31, 0, 52, 1)`)
+	mustContain(t, "hour before", parts[1], `"11:00"`, `"20.0", 2)`,
+		`PAN1:execute(4, 70, 50, 70, 52, 1)`, `PAN1:execute(4, 73, 50, 73, 52, 1)`)
+
+	mean := mustExec(t, engine, `(function()
+		local b = Panel._hourly(HIST, 12, T.now)
+		return string.format("%s %s %s %s", b[6], b[7], b[11], b[12])
+	end)()`)
+	if mean != "21 20.5 20 22" {
+		t.Errorf("hourly means = %q, want %q", mean, "21 20.5 20 22")
+	}
+}
