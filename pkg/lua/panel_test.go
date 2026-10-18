@@ -391,7 +391,7 @@ func TestPanelChart(t *testing.T) {
 		return a .. "\n#" .. sent()
 	end)()`)
 	parts := strings.Split(got, "\n#")
-	mustContain(t, "chart", parts[0], `"Salon"`, `PAN1:execute(3, 86, 52, "12:00", 1)`, `PAN1:execute(3, 91, 24, "22.0", 2)`,
+	mustContain(t, "chart", parts[0], `"Salon"`, `PAN1:execute(3, 86, 52, "12:00", 1)`, `PAN1:execute(3, 86, 24, "22.0", 2)`,
 		`PAN1:execute(4, 56, 57, 58, 55, 1)`, `PAN1:execute(4, 59, 55, 61, 57, 1)`, // ^ under it
 		`PAN1:execute(4, 57, 13, 57, 52, 1)`, `PAN1:execute(4, 60, 13, 60, 52, 1)`, // the chosen hour, 4 px
 		`PAN1:execute(4, 3, 31, 3, 52, 1)`, `PAN1:execute(4, 4, 31, 4, 52, 1)`, // 21 between 20 and 22

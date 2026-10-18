@@ -999,7 +999,7 @@ function Panel.chart(name, src, opts)
         local hour = (h0 - (hours - page.sel)) % 24
         local right = L.w
         local value = fmt(opts.format or "%.1f", bars[page.sel])
-        s:textRight(24, value, 2, right - 3)
+        s:textRight(24, value, 2, right - 8)
         s:textRight(52, string.format("%02d:00", hour), 1, right - 3)
     end
     return page
