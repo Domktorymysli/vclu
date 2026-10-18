@@ -561,7 +561,7 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 				"link":   "section:link(id, label, icon, url, opts)",
 				"cover":  "section:cover(id, label, icon, fns, opts) — fns={getPosition,getState,open,close,stop,set?}",
 				"dimmer": "section:dimmer(id, label, icon, fns, opts) — fns={get?,set,switchOn?,switchOff?,isOn?}",
-				"color":  "section:color(id, label, icon, fns, opts) — fns={getColor,setColor,get?,set?,switchOn?,switchOff?,isOn?}, opts.presets=[{label,r,g,b}]",
+				"color":  "section:color(id, label, icon, fns, opts) — fns={getColor,setColor,get?,set?,switchOn?,switchOff?,isOn?,getWhite?,setWhite?} or a RemoteRGBLight object, opts.presets=[{label,r,g,b}]",
 			},
 			"opts":       "{ span=n, size='lg', color='#hex', disabled=function() }",
 			"auth_types": "public | pin | session",

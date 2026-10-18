@@ -609,11 +609,78 @@
 
     // ---- Color picker widget ----
 
+    // The light's own colour tints the tile (icon, switch, slider thumbs) while it is on.
+    function applyLightColor(el, rgb, isOn) {
+        if (rgb && isOn) {
+            el.style.setProperty('--widget-color', 'rgb(' + rgb.r + ',' + rgb.g + ',' + rgb.b + ')');
+        } else {
+            el.style.removeProperty('--widget-color');
+        }
+    }
+
+    function markPreset(el, rgb) {
+        var dots = el.querySelectorAll('.dash-color-preset:not(.dash-color-custom)');
+        for (var i = 0; i < dots.length; i++) {
+            var c = dots[i].style.backgroundColor.match(/(\d+)/g);
+            var near = false;
+            if (rgb && c) {
+                var dr = (rgb.r || 0) - parseInt(c[0]);
+                var dg = (rgb.g || 0) - parseInt(c[1]);
+                var db = (rgb.b || 0) - parseInt(c[2]);
+                near = Math.sqrt(dr*dr + dg*dg + db*db) < 30;
+            }
+            dots[i].classList.toggle('selected', near);
+        }
+    }
+
+    function toHex(rgb) {
+        function h(v) { v = Math.max(0, Math.min(255, Math.round(v || 0))); return (v < 16 ? '0' : '') + v.toString(16); }
+        return '#' + h(rgb.r) + h(rgb.g) + h(rgb.b);
+    }
+
+    // A compact slider row: small icon, range 0..100, value in %.
+    function colorSlider(el, w, role, icon, title, value, action) {
+        var row = document.createElement('div');
+        row.className = 'dash-slider-row dash-color-row';
+        row.title = title;
+
+        var ic = document.createElement('i');
+        ic.className = 'bi bi-' + icon + ' dash-color-row-icon';
+        row.appendChild(ic);
+
+        var slider = document.createElement('input');
+        slider.type = 'range';
+        slider.className = 'dash-slider-input';
+        slider.min = 0;
+        slider.max = 100;
+        slider.value = value != null ? value : 0;
+        slider.dataset.role = role;
+
+        var valEl = document.createElement('span');
+        valEl.className = 'dash-slider-value';
+        valEl.dataset.role = role;
+        valEl.textContent = value != null ? value + '%' : '--';
+
+        var debounceTimer = null;
+        slider.addEventListener('input', function() {
+            valEl.textContent = slider.value + '%';
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(function() {
+                executeAction(w.id, action, parseFloat(slider.value));
+            }, 500);
+        });
+
+        row.appendChild(slider);
+        row.appendChild(valEl);
+        el.appendChild(row);
+    }
+
     function renderColor(el, w) {
         el.style.cursor = 'default';
 
         var caps = w.capabilities || {};
         var isOn = w.on !== false;
+        applyLightColor(el, w.rgb, isOn);
 
         if (caps.toggle) {
             var sw = document.createElement('div');
@@ -630,68 +697,50 @@
             el.appendChild(sw);
         }
 
-        var presets = w.presets || [];
-        if (presets.length > 0) {
-            var presetsRow = document.createElement('div');
-            presetsRow.className = 'dash-color-presets';
+        var presetsRow = document.createElement('div');
+        presetsRow.className = 'dash-color-presets';
 
-            for (var i = 0; i < presets.length; i++) {
-                (function(preset) {
-                    var dot = document.createElement('button');
-                    dot.className = 'dash-color-preset';
-                    dot.style.backgroundColor = 'rgb(' + preset.r + ',' + preset.g + ',' + preset.b + ')';
-                    dot.title = preset.label || '';
+        (w.presets || []).forEach(function(preset) {
+            var dot = document.createElement('button');
+            dot.className = 'dash-color-preset';
+            dot.style.backgroundColor = 'rgb(' + preset.r + ',' + preset.g + ',' + preset.b + ')';
+            dot.title = preset.label || '';
+            dot.addEventListener('click', function(e) {
+                e.stopPropagation();
+                executeAction(w.id, 'setColor', { r: preset.r, g: preset.g, b: preset.b });
+                var rgb = { r: preset.r, g: preset.g, b: preset.b };
+                markPreset(el, rgb);
+                applyLightColor(el, rgb, true);
+            });
+            presetsRow.appendChild(dot);
+        });
 
-                    if (w.rgb) {
-                        var dr = (w.rgb.r || 0) - preset.r;
-                        var dg = (w.rgb.g || 0) - preset.g;
-                        var db = (w.rgb.b || 0) - preset.b;
-                        if (Math.sqrt(dr*dr + dg*dg + db*db) < 30) dot.classList.add('selected');
-                    }
+        // Any other colour: the last dot opens the system colour picker.
+        var custom = document.createElement('label');
+        custom.className = 'dash-color-preset dash-color-custom';
+        custom.title = 'Colour';
+        var picker = document.createElement('input');
+        picker.type = 'color';
+        picker.value = w.rgb ? toHex(w.rgb) : '#ffffff';
+        picker.addEventListener('change', function(e) {
+            e.stopPropagation();
+            var v = picker.value;
+            var rgb = { r: parseInt(v.substr(1, 2), 16), g: parseInt(v.substr(3, 2), 16), b: parseInt(v.substr(5, 2), 16) };
+            executeAction(w.id, 'setColor', rgb);
+            markPreset(el, rgb);
+            applyLightColor(el, rgb, true);
+        });
+        custom.appendChild(picker);
+        presetsRow.appendChild(custom);
 
-                    dot.addEventListener('click', function(e) {
-                        e.stopPropagation();
-                        executeAction(w.id, 'setColor', { r: preset.r, g: preset.g, b: preset.b });
-                        var dots = presetsRow.querySelectorAll('.dash-color-preset');
-                        for (var j = 0; j < dots.length; j++) dots[j].classList.remove('selected');
-                        dot.classList.add('selected');
-                    });
-
-                    presetsRow.appendChild(dot);
-                })(presets[i]);
-            }
-
-            el.appendChild(presetsRow);
-        }
+        el.appendChild(presetsRow);
+        markPreset(el, w.rgb);
 
         if (caps.brightness) {
-            var row = document.createElement('div');
-            row.className = 'dash-slider-row';
-
-            var slider = document.createElement('input');
-            slider.type = 'range';
-            slider.className = 'dash-slider-input';
-            slider.min = 0;
-            slider.max = 100;
-            slider.value = w.brightness != null ? w.brightness : 0;
-            slider.dataset.widgetId = w.id;
-
-            var valEl = document.createElement('span');
-            valEl.className = 'dash-slider-value';
-            valEl.textContent = (w.brightness != null ? w.brightness : 0) + '%';
-
-            var debounceTimer = null;
-            slider.addEventListener('input', function() {
-                valEl.textContent = slider.value + '%';
-                clearTimeout(debounceTimer);
-                debounceTimer = setTimeout(function() {
-                    executeAction(w.id, 'set', parseFloat(slider.value));
-                }, 500);
-            });
-
-            row.appendChild(slider);
-            row.appendChild(valEl);
-            el.appendChild(row);
+            colorSlider(el, w, 'brightness', 'brightness-high', 'Brightness', w.brightness, 'set');
+        }
+        if (caps.white) {
+            colorSlider(el, w, 'white', 'lightbulb', 'White', w.white, 'setWhite');
         }
     }
 
@@ -1085,26 +1134,21 @@
             }
             return;
         } else if (type === 'color') {
-            var slider = el.querySelector('.dash-slider-input');
-            var valSpan = el.querySelector('.dash-slider-value');
-            if (slider && document.activeElement !== slider && data.brightness != null) {
-                slider.value = data.brightness;
-            }
-            if (valSpan && data.brightness != null) valSpan.textContent = data.brightness + '%';
+            ['brightness', 'white'].forEach(function(role) {
+                if (data[role] == null) return;
+                var sl = el.querySelector('.dash-slider-input[data-role="' + role + '"]');
+                var vs = el.querySelector('.dash-slider-value[data-role="' + role + '"]');
+                if (sl && document.activeElement !== sl) sl.value = data[role];
+                if (vs) vs.textContent = data[role] + '%';
+            });
             var toggle = el.querySelector('.dash-color-toggle .form-check-input');
             if (toggle && data.on !== undefined) toggle.checked = !!data.on;
             if (data.rgb) {
-                var dots = el.querySelectorAll('.dash-color-preset');
-                for (var di = 0; di < dots.length; di++) {
-                    var rgb = dots[di].style.backgroundColor.match(/(\d+)/g);
-                    if (rgb) {
-                        var dr = (data.rgb.r||0) - parseInt(rgb[0]);
-                        var dg = (data.rgb.g||0) - parseInt(rgb[1]);
-                        var db = (data.rgb.b||0) - parseInt(rgb[2]);
-                        dots[di].classList.toggle('selected', Math.sqrt(dr*dr+dg*dg+db*db) < 30);
-                    }
-                }
+                markPreset(el, data.rgb);
+                var pk = el.querySelector('.dash-color-custom input');
+                if (pk && document.activeElement !== pk) pk.value = toHex(data.rgb);
             }
+            applyLightColor(el, data.rgb, data.on !== false);
             return;
         }
 
