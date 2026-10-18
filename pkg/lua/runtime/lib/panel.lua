@@ -780,8 +780,9 @@ function Menu:draw(s, panel)
             local sel = (self.scroll + i) == self.cursor
             local value
             if sel and self.edit then
-                value = "[" .. (row.kind == "choice" and tostring(self.edit.value)
-                    or fmt(row.opts.format, self.edit.value)) .. "]"
+                -- no brackets: the + and - hints show the row is being edited
+                value = row.kind == "choice" and tostring(self.edit.value)
+                    or fmt(row.opts.format, self.edit.value)
             else
                 value = rowValue(row)
             end

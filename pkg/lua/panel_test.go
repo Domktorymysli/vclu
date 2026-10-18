@@ -211,8 +211,9 @@ func TestPanelMenuNumberEdit(t *testing.T) {
 		T.advance(1000)
 		return editing .. "\n#" .. up .. "\n#" .. before .. "|" .. after1 .. "|" .. SET.n .. "/" .. TEMP.v
 	end)()`)
-	mustContain(t, "edit mode", got, `"+"`, `"-"`, `"x"`, `"[21.0]"`)
-	mustContain(t, "held at max", got, `"[22.0]"`)
+	mustContain(t, "edit mode", got, `"+"`, `"-"`, `"x"`, `"21.0"`)
+	mustNotContain(t, "edit mode", got, `"[`)
+	mustContain(t, "held at max", got, `"22.0"`)
 	if !strings.HasSuffix(got, "0|1/22|1/22") {
 		t.Errorf("set count/value = %s, want 0|1/22|1/22", got[strings.LastIndex(got, "#"):])
 	}
