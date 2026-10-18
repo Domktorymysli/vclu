@@ -387,22 +387,22 @@ func TestPanelChart(t *testing.T) {
 		T.advance(100); sent()
 		click("PAN1", "btn4"); T.advance(1000)
 		local a = sent()
-		click("PAN1", "btn3"); T.advance(1000)
+		click("PAN1", "btn1"); T.advance(1000)
 		return a .. "\n#" .. sent()
 	end)()`)
 	parts := strings.Split(got, "\n#")
-	mustContain(t, "chart", parts[0], `"Salon"`, `PAN1:execute(3, 86, 52, "12:00", 1)`, `PAN1:execute(3, 69, 20, "22.0", 3)`,
+	mustContain(t, "chart", parts[0], `"Salon"`, `PAN1:execute(3, 86, 52, "12:00", 1)`, `PAN1:execute(3, 91, 24, "22.0", 2)`,
 		`PAN1:execute(4, 56, 57, 58, 55, 1)`, `PAN1:execute(4, 59, 55, 61, 57, 1)`, // ^ under it
 		`PAN1:execute(4, 57, 13, 57, 52, 1)`, `PAN1:execute(4, 60, 13, 60, 52, 1)`, // the chosen hour, 4 px
 		`PAN1:execute(4, 3, 31, 3, 52, 1)`, `PAN1:execute(4, 4, 31, 4, 52, 1)`, // 21 between 20 and 22
 		`PAN1:execute(4, 38, 50, 38, 52, 1)`, // 20, the lowest: a stub
 		`PAN1B3:execute(2)`) // no OK on the chart
 	mustNotContain(t, "chart", parts[0], `PAN1:execute(4, 2, 31, 2, 52, 1)`)
-	mustContain(t, "hour before", parts[1], `"11:00"`, `"20.0", 3)`,
+	mustContain(t, "hour before", parts[1], `"11:00"`, `"20.0", 2)`,
 		`PAN1:execute(4, 52, 50, 52, 52, 1)`, `PAN1:execute(4, 55, 50, 55, 52, 1)`)
 
 	first := mustExec(t, engine, `(function()
-		for _ = 1, 11 do click("PAN1", "btn3"); T.advance(1000) end
+		for _ = 1, 11 do click("PAN1", "btn1"); T.advance(1000) end
 		return sent()
 	end)()`)
 	mustContain(t, "first hour", first, `"01:00"`, `PAN1:execute(4, 1, 57, 3, 55, 1)`)
