@@ -59,9 +59,9 @@ func TestScenario_PanelClickDrawsFrames(t *testing.T) {
 	se, paths := newPanelSandbox(t)
 	res := runScenario(t, se, paths, "2026-10-18T10:00:00+02:00", `[
 		{"advance": 1},
-		{"click": "PAN9852", "input": "btn4"},
+		{"click": "PAN9852", "input": "btn3"},
 		{"advance": 1},
-		{"click": "PAN1085", "input": "btn3"},
+		{"click": "PAN1085", "input": "btn4"},
 		{"advance": 1}
 	]`)
 	frames := panelFrames(res)

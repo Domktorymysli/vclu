@@ -133,7 +133,7 @@ func TestPanelHomeFrame(t *testing.T) {
 		`PAN1:execute(2)`,
 		`PAN1:execute(3, 0, 14, ">", 1)`, `PAN1:execute(3, 8, 14, "Swiatlo", 1)`,
 		`"OFF"`, `"21.0"`, `"Dom"`,
-		`PAN1:execute(6, 0, 48, "arrright")`, `PAN1:execute(3, 120, 0, "<", 1)`, `"<"`,
+		`PAN1:execute(6, 114, 48, "arrright")`, `PAN1:execute(3, 120, 0, "<", 1)`, `"<"`,
 		`PAN1:execute(7)`,
 		`PAN1B0:execute(1)`, `PAN1B1:execute(1)`, `PAN1B2:execute(1)`, `PAN1B3:execute(1)`)
 
@@ -175,13 +175,13 @@ func TestPanelMenuCursorAndToggle(t *testing.T) {
 	engine := newPanelEngine(t, menuSetup)
 	mustExec(t, engine, `T.advance(1000); sent()`)
 
-	moved := mustExec(t, engine, `(function() click("P1_PANEL_SALON", "btn4"); T.advance(1000); return sent() end)()`)
+	moved := mustExec(t, engine, `(function() click("P1_PANEL_SALON", "btn3"); T.advance(1000); return sent() end)()`)
 	mustContain(t, "cursor down", moved, `PAN1:execute(2)`, `PAN1:execute(3, 8, 14, "Swiatlo", 1)`, `PAN1:execute(3, 0, 27, ">", 1)`, `PAN1:execute(3, 8, 27, "Zadana", 1)`, `"Dom"`, `PAN1:execute(7)`)
 	mustNotContain(t, "cursor down", moved, `PAN1B0:execute(1)`, `PAN1B3:execute(1)`)
 
 	toggled := mustExec(t, engine, `(function()
 		click("PAN1B0", "btn1") -- up, back to the toggle row (by the button's id this time)
-		click("PAN1", "btn3")   -- OK
+		click("PAN1", "btn4")   -- OK
 		T.advance(1000)
 		return LAMP:getValue() .. "|" .. sent()
 	end)()`)
@@ -197,16 +197,16 @@ func TestPanelMenuNumberEdit(t *testing.T) {
 	engine := newPanelEngine(t, menuSetup)
 	got := mustExec(t, engine, `(function()
 		T.advance(1000)
-		click("PAN1", "btn4")              -- down to Zadana
-		click("PAN1", "btn3")              -- edit
+		click("PAN1", "btn3")              -- down to Zadana
+		click("PAN1", "btn4")              -- edit
 		T.advance(1000); local editing = sent()
 		for i = 1, 5 do click("PAN1", "btn1") end -- +2.5, held at 22
 		T.advance(1000); local up = sent()
 		local before = SET.n
-		click("PAN1", "btn3")              -- set
+		click("PAN1", "btn4")              -- set
 		T.advance(1000)
 		local after1 = SET.n .. "/" .. tostring(SET.v)
-		click("PAN1", "btn3"); click("PAN1", "btn4"); click("PAN1", "btn2") -- edit, -, back = cancel
+		click("PAN1", "btn4"); click("PAN1", "btn3"); click("PAN1", "btn2") -- edit, -, back = cancel
 		T.advance(1000)
 		return editing .. "\n#" .. up .. "\n#" .. before .. "|" .. after1 .. "|" .. SET.n .. "/" .. TEMP.v
 	end)()`)
@@ -224,13 +224,13 @@ func TestPanelBackAndIdle(t *testing.T) {
 	got := mustExec(t, engine, `(function()
 		T.advance(1000); sent()
 		click("PAN1", "btn1")             -- up wraps to Sypialnia
-		click("PAN1", "btn3")             -- open
+		click("PAN1", "btn4")             -- open
 		T.advance(1000); local sub = sent()
 		click("PAN1", "btn2")             -- back
 		T.advance(1000); local home = sent()
 		click("PAN1", "btn2")             -- back on home: idle
 		T.advance(1000); local idle = sent()
-		click("PAN1", "btn4")             -- any button: home
+		click("PAN1", "btn3")             -- any button: home
 		T.advance(1000); local again = sent()
 		T.advance(31000); local slept = sent()
 		return sub .. "\n#1\n" .. home .. "\n#2\n" .. idle .. "\n#3\n" .. again .. "\n#4\n" .. slept
@@ -254,11 +254,11 @@ func TestPanelLostFrameAndCoalescing(t *testing.T) {
 	got := mustExec(t, engine, `(function()
 		T.advance(1000); sent()
 		REPLY.fail = 1
-		click("PAN1", "btn4")
+		click("PAN1", "btn3")
 		T.advance(2000)
 		local resent = sent()
 		local clears = select(2, resent:gsub("PAN1:execute%(2%)", ""))
-		click("PAN1", "btn4"); T.advance(25); click("PAN1", "btn4")
+		click("PAN1", "btn3"); T.advance(25); click("PAN1", "btn3")
 		T.advance(2000)
 		local burst = sent()
 		return clears .. "|" .. burst
@@ -277,9 +277,9 @@ func TestPanelCleaning(t *testing.T) {
 		PANEL = Panel.new(P):home(Panel.menu("Dom"):action("Czyszczenie", Panel.cleaning(3)))`)
 	got := mustExec(t, engine, `(function()
 		T.advance(1000); sent()
-		click("PAN1", "btn3")
+		click("PAN1", "btn4")
 		T.advance(500); local start = sent()
-		click("PAN1", "btn2"); click("PAN1", "btn3")
+		click("PAN1", "btn2"); click("PAN1", "btn4")
 		T.advance(1000); local tick = sent()
 		T.advance(3000); local done = sent()
 		return start .. "\n#" .. tick .. "\n#" .. done
@@ -287,8 +287,8 @@ func TestPanelCleaning(t *testing.T) {
 	parts := strings.Split(got, "\n#")
 	// the LEDs lit at home (OK and back) go off; the two that were off are left alone
 	mustContain(t, "cleaning start", parts[0], `PAN1:set(13, 0)`, `"Czyszczenie"`, `"3", 3`,
-		`PAN1B1:execute(2)`, `PAN1B2:execute(2)`)
-	mustNotContain(t, "cleaning start", parts[0], `"<"`, `PAN1B0:execute(2)`, `PAN1B3:execute(2)`)
+		`PAN1B1:execute(2)`, `PAN1B3:execute(2)`)
+	mustNotContain(t, "cleaning start", parts[0], `"<"`, `PAN1B0:execute(2)`, `PAN1B2:execute(2)`)
 	mustContain(t, "countdown", parts[1], `"2", 3`)
 	mustNotContain(t, "inputs ignored", parts[1], `"Dom"`)
 	mustContain(t, "cleaning end", parts[2], `PAN1:set(13, 1)`, `"Dom"`, `">", 1)`, `"Czyszczenie"`)
@@ -310,9 +310,9 @@ func TestPanelNotifyRegisterAndState(t *testing.T) {
 		B = Panel.new(P2):home(Panel.menu("B"):item("x", Panel.menu("y")):item("z", Panel.menu("w")))`)
 	got := mustExec(t, engine, `(function()
 		T.advance(1000); sent()
-		click("PAN1", "btn3"); click("PAN1", "btn1"); click("PAN1", "btn1")
+		click("PAN1", "btn4"); click("PAN1", "btn1"); click("PAN1", "btn1")
 		T.advance(1000); local counter = sent()
-		click("PAN2", "btn4")
+		click("PAN2", "btn3")
 		T.advance(1000); local other = sent()
 		click("PAN1", "btn2")
 		T.advance(1000); local back = sent()

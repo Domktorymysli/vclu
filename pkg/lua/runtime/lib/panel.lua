@@ -64,13 +64,13 @@ Panel.timer = {
 }
 
 local CORNERS = { "tl", "tr", "bl", "br" }
--- For each back corner: ok is the opposite corner, the other two are up (top) and down
--- (bottom). With back top right: up top left, ok bottom left, down bottom right.
+-- For each back corner: the other column is up (top) / down (bottom), the rest is ok.
+-- With back top right: up and down on the left, ok bottom right.
 local ROLES = {
-    tr = { up = "tl", down = "br", ok = "bl" },
-    tl = { up = "tr", down = "bl", ok = "br" },
-    br = { up = "tr", down = "bl", ok = "tl" },
-    bl = { up = "tl", down = "br", ok = "tr" },
+    tr = { up = "tl", down = "bl", ok = "br" },
+    br = { up = "tl", down = "bl", ok = "tr" },
+    tl = { up = "tr", down = "br", ok = "bl" },
+    bl = { up = "tr", down = "br", ok = "tl" },
 }
 
 local function log() return Logger:getShared() end
@@ -233,7 +233,7 @@ function Panel:buttons(map)
     return self
 end
 
---- The corner that is back on every screen (default "tr"; ok is the opposite corner).
+--- The corner that is back on every screen (default "tr"; ok is below or above it).
 -- @api public
 function Panel:back(corner)
     if corner == nil then return self:goBack() end

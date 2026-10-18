@@ -1258,7 +1258,7 @@ Which physical button is in which corner.
 
 ### `Panel:back(corner)`
 
-The corner that is back on every screen (default "tr"; ok is the opposite corner).
+The corner that is back on every screen (default "tr"; ok is below or above it).
 
 ### `Panel:home(page)`
 
