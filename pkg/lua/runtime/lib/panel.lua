@@ -38,8 +38,14 @@ Panel.layout = {
     indent = 8,              -- x of a menu label, after the cursor
 }
 Panel.MAX_TEXT = 15
--- Hints drawn as an icon from the panel's card (16 x 16, the arrow in its middle 10 x 10)
-Panel.hintIcons = { OK = "arrright" }
+-- Hints drawn instead of their label: fn(screen, x, y) draws in the 10 x 10 corner cell at
+-- x, y. Not arrright from the card: the panel ignores a bitmap's palette, and that one's is
+-- inverted, so it came out on a white square.
+Panel.hintIcons = {
+    OK = function(s, x, y) -- a triangle pointing right
+        s:line(x, y, x, y + 8):line(x, y, x + 8, y + 4):line(x, y + 8, x + 8, y + 4)
+    end,
+}
 Panel.REDRAW_MS = 20         -- changes within this time make one frame
 Panel.pageControlOff = true  -- stop gestures from switching Grenton's own pages
 
@@ -593,7 +599,7 @@ function Panel:_frame()
         local icon = label and Panel.hintIcons[label]
         if icon then
             local left = corner == "tl" or corner == "bl"
-            s:icon(left and 0 or L.w - 14, y == L.top and 0 or L.h - 16, icon)
+            icon(s, left and 0 or L.w - 10, y == L.top and 0 or L.h - 10)
         elseif label and label ~= "" then
             if corner == "tl" or corner == "bl" then s:text(0, y, label)
             else s:textRight(y, label) end
