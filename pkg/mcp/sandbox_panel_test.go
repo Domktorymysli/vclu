@@ -66,7 +66,7 @@ func TestScenario_PanelClickDrawsFrames(t *testing.T) {
 	]`)
 	frames := panelFrames(res)
 	// home, cursor down to Druga, OK switches it on and the row follows
-	for _, want := range []string{`">Lampa"`, `">Druga"`, `" Lampa"`, `"ON"`, `PAN1085:execute(7)`, `PAN9852:execute(1)`} {
+	for _, want := range []string{`PAN1085:execute(3, 0, 14, ">", 1)`, `PAN1085:execute(3, 0, 27, ">", 1)`, `PAN1085:execute(3, 8, 14, "Lampa", 1)`, `"ON"`, `PAN1085:execute(7)`, `PAN9852:execute(1)`} {
 		if !strings.Contains(frames, want) {
 			t.Errorf("frames lack %s:\n%s", want, frames)
 		}

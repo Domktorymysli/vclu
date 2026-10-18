@@ -131,9 +131,8 @@ func TestPanelHomeFrame(t *testing.T) {
 	mustContain(t, "home frame", got,
 		`PAN1:set(20, 0)`,
 		`PAN1:execute(2)`,
-		`PAN1:execute(3, 0, 14, ">Swiatlo", 1)`,
+		`PAN1:execute(3, 0, 14, ">", 1)`, `PAN1:execute(3, 8, 14, "Swiatlo", 1)`,
 		`"OFF"`, `"21.0"`, `"Dom"`,
-		`PAN1:execute(3, 0, 0, "^", 1)`, `PAN1:execute(3, 0, 54, "v", 1)`,
 		`"OK"`, `"<"`,
 		`PAN1:execute(7)`,
 		`PAN1B0:execute(1)`, `PAN1B1:execute(1)`, `PAN1B2:execute(1)`, `PAN1B3:execute(1)`)
@@ -177,7 +176,7 @@ func TestPanelMenuCursorAndToggle(t *testing.T) {
 	mustExec(t, engine, `T.advance(1000); sent()`)
 
 	moved := mustExec(t, engine, `(function() click("P1_PANEL_SALON", "btn3"); T.advance(1000); return sent() end)()`)
-	mustContain(t, "cursor down", moved, `PAN1:execute(2)`, `" Swiatlo"`, `">Zadana"`, `"Dom"`, `PAN1:execute(7)`)
+	mustContain(t, "cursor down", moved, `PAN1:execute(2)`, `PAN1:execute(3, 8, 14, "Swiatlo", 1)`, `PAN1:execute(3, 0, 27, ">", 1)`, `PAN1:execute(3, 8, 27, "Zadana", 1)`, `"Dom"`, `PAN1:execute(7)`)
 	mustNotContain(t, "cursor down", moved, `PAN1B0:execute(1)`, `PAN1B3:execute(1)`)
 
 	toggled := mustExec(t, engine, `(function()
@@ -269,7 +268,7 @@ func TestPanelLostFrameAndCoalescing(t *testing.T) {
 		t.Errorf("lost frame: clear screens sent = %s, want 2 (frame and resend)", got[:strings.Index(got, "|")])
 	}
 	burst := got[strings.Index(got, "|")+1:]
-	mustContain(t, "after two quick moves", burst, `">Swiatlo"`)
+	mustContain(t, "after two quick moves", burst, `PAN1:execute(3, 0, 14, ">", 1)`, `PAN1:execute(3, 8, 14, "Swiatlo", 1)`)
 }
 
 // Cleaning: a countdown, inputs ignored, buzzer off and back on, then the page it came from.
@@ -292,7 +291,7 @@ func TestPanelCleaning(t *testing.T) {
 	mustNotContain(t, "cleaning start", parts[0], `"<"`, `PAN1B0:execute(2)`)
 	mustContain(t, "countdown", parts[1], `"2", 3`)
 	mustNotContain(t, "inputs ignored", parts[1], `"Dom"`)
-	mustContain(t, "cleaning end", parts[2], `PAN1:set(13, 1)`, `"Dom"`, `">Czyszczenie"`)
+	mustContain(t, "cleaning end", parts[2], `PAN1:set(13, 1)`, `"Dom"`, `">", 1)`, `"Czyszczenie"`)
 }
 
 // notify shows over the page and goes away; a registered page type gets the back corner;
@@ -326,12 +325,12 @@ func TestPanelNotifyRegisterAndState(t *testing.T) {
 	end)()`)
 	parts := strings.Split(got, "\n#")
 	mustContain(t, "registered page", parts[0], `"n=2"`)
-	mustContain(t, "other panel", parts[1], `PAN2:`, `">z"`)
+	mustContain(t, "other panel", parts[1], `PAN2:`, `">", 1)`, `, "z", 1)`)
 	mustNotContain(t, "other panel", parts[1], `PAN1:`)
-	mustContain(t, "back from registered page", parts[2], `">Licznik"`)
+	mustContain(t, "back from registered page", parts[2], `">", 1)`, `"Licznik"`)
 	mustContain(t, "notify", parts[3], `"Pranie gotowe"`, `"OK"`)
-	mustContain(t, "notify gone", parts[4], `">Licznik"`)
-	mustContain(t, "wake", parts[5], `PAN1:execute(2)`, `">Licznik"`)
+	mustContain(t, "notify gone", parts[4], `">", 1)`, `"Licznik"`)
+	mustContain(t, "wake", parts[5], `PAN1:execute(2)`, `">", 1)`, `"Licznik"`)
 	if parts[6] != "falsetrue" {
 		t.Errorf("unknown panel / input = %s, want falsetrue", parts[6])
 	}

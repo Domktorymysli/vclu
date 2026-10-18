@@ -90,15 +90,20 @@ module fv05) on 2026-10-18:
   `RemotePanel.MAX_MESSAGE` is 300. A frame of 14 DrawLine calls in two messages 150 ms apart arrived.
 - `PrintText`: y is the top of the text; font 1 is 10 px high (capitals), font 2 14 px, font 3 28 px.
   Every letter gets a black cell behind it, so text does not invert and nothing draws on top of it.
+  The fonts are proportional and keep leading spaces: a row of 128 px holds 16 digits in font 1 and
+  13 in font 2, a space is about 6 px. Place a column by x (the menu cursor `>` is drawn on its own at
+  x 0, the label at `Panel.layout.indent`), never by padding with spaces. Text past the right edge is
+  cut, and a glyph at y 0 or at the bottom row loses a pixel or two.
 - `DrawBox` (30) draws nothing, with (x, y, w, h, color) and with end coordinates alike; it is not in
   fv04 (the bus panels). `DrawLine` and `ClearScreen` work; a frame needs `DisplayContent` at the end.
 - Buttons: OnClick does not fire after a long press, so OnClick and OnLongPress are enough.
   Object Manager tends to pass the button's id as the first argument of `click()`, so
   `RemotePanel.click` accepts a panel or one of its buttons. The Gate sends the call as broadcast and
   unicast in turn; every press arrived (4 presses in 1.5 s).
-- Not yet measured: gestures, OnHold, the proximity range, icons (`DrawIcon` with the panel's own
-  `.bmp` files, 64 × 32 and 16 × 16), character widths (`Panel.layout.cw` is an estimate), which
-  button sits in which corner.
+- `DrawIcon` (6) draws the panel's own `.bmp` files (64 × 32, arrows 16 × 16) by name without the
+  extension.
+- Not yet measured: gestures, OnHold, the proximity range, the width of font 3, which button sits in
+  which corner.
 A frame is several calls in one script, so keep each message under `RemotePanel.MAX_MESSAGE` and
 spaced by `SPACING_MS`; the CLU drops bursts.
 

@@ -26,13 +26,16 @@ Panel.__index = Panel
 -- the text; font 1 is 10 px high (capitals; g, y go lower), font 2 14 px, font 3 28 px.
 -- PrintText paints a black cell behind every letter, so text never inverts and nothing
 -- fills a box (DrawBox draws nothing): every frame redraws the whole screen.
+-- The fonts are proportional: a row holds 16 digits in font 1 and 13 in font 2; a space is
+-- narrower (about 6 px), so a column is set by x, never by leading spaces.
 Panel.layout = {
     w = 128, h = 64,
-    cw = { 6, 8, 16 },       -- character width per font, an estimate for aligning text
+    cw = { 8, 10, 16 },      -- width of a digit or capital per font, for aligning text
     fh = { 10, 14, 28 },     -- font height per font
     top = 0, bottom = 54,    -- y of the hint rows
     rows = { 14, 27, 40 },   -- y of the content rows
     rowH = 12,
+    indent = 8,              -- x of a menu label, after the cursor
 }
 Panel.MAX_TEXT = 15
 Panel.REDRAW_MS = 20         -- changes within this time make one frame
@@ -583,8 +586,8 @@ function Panel:_frame()
         end
         local y = (corner == "tl" or corner == "tr") and L.top or L.bottom
         s:region("hint." .. corner)
+        if label then lit[corner] = true end -- "" lights the LED with no hint
         if label and label ~= "" then
-            lit[corner] = true
             if corner == "tl" or corner == "bl" then s:text(0, y, label)
             else s:textRight(y, label) end
         end
@@ -723,7 +726,8 @@ function Menu:keys()
         return { up = { "+" }, down = { "-" }, ok = { "OK" }, back = { "x" } }
     end
     local k = {}
-    if #self.rows > 1 then k.up = { "^" }; k.down = { "v" } end
+    -- up and down need no hint: the lit LEDs show them, and ^ v got clipped at the edges
+    if #self.rows > 1 then k.up = { "" }; k.down = { "" } end
     local row = self.rows[self.cursor]
     if row and row.kind ~= "value" then k.ok = { "OK" } end
     return k
@@ -756,7 +760,8 @@ function Menu:draw(s, panel)
             else
                 value = rowValue(row)
             end
-            s:text(0, y, (sel and ">" or " ") .. row.label)
+            if sel then s:text(0, y, ">") end
+            s:text(L.indent, y, row.label)
             if value ~= "" then s:textRight(y, value) end
         end
     end
