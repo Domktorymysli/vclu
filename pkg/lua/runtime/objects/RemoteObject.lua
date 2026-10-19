@@ -385,6 +385,9 @@ function RemoteObject:expose(options)
 
     -- Determine expose type
     local exposeType = self:_getExposeType()
+    if exposeType == nil then
+        error("expose: " .. tostring(self._objId) .. " (" .. tostring(self._type) .. ") has no expose type yet")
+    end
 
     -- Expose and cache handle
     self._exposeHandle = ExposedObjects:expose(self, exposeType, options)

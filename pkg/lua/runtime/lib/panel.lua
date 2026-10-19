@@ -183,6 +183,33 @@ local function fmt(f, v)
 end
 Panel.format = fmt
 
+-- A value just set shows until the device reports it, at most HOLD_S: a device behind
+-- HTTP or a slow bus reads back the old value for a while
+Panel.HOLD_S = 90
+
+local function same(a, b)
+    if a == b then return true end
+    local x, y = tonumber(a), tonumber(b)
+    return x ~= nil and y ~= nil and math.abs(x - y) < 1e-6
+end
+
+-- before: what the device reported when the value was set; any other report ends the hold
+-- (the value, or the device clamped it, or someone changed it there)
+local function hold(t, v, before, panel)
+    t._held = { value = v, before = before, untilMs = Panel.timer.now() + Panel.HOLD_S * 1000 }
+    Panel.timer.after(Panel.HOLD_S * 1000, function() panel:redraw() end)
+end
+
+local function shown(t, current)
+    local h = t._held
+    if not h then return current end
+    if not same(current, h.before) or Panel.timer.now() >= h.untilMs then
+        t._held = nil
+        return current
+    end
+    return h.value
+end
+
 -- ============================================================
 -- Screen: collects the draw calls of one frame
 -- ============================================================
@@ -418,17 +445,20 @@ function Panel:_watch(page)
             local unsub = o:onChange(function() self:redraw() end)
             if type(unsub) == "function" then self._subs[#self._subs + 1] = unsub end
         end
-        -- a Grenton roller reports its movement aside from the position; onEvent has no
-        -- unsubscribe, so one handler per object redraws the panels watching it
-        if type(o) == "table" and o._hasPosition and o.onEvent then
+        -- what an object keeps aside from its value (a roller's movement, a thermostat's
+        -- target) comes with CHANGE_EVENTS; onEvent has no unsubscribe, so one handler per
+        -- object redraws the panels watching it
+        if type(o) == "table" and o.CHANGE_EVENTS and o.onEvent then
             self._watching[o] = true
             if not hooked[o] then
                 hooked[o] = true
-                o:onEvent("OnMovementChange", function()
-                    for p in pairs(Panel._panels) do
-                        if p._watching and p._watching[o] then p:redraw() end
-                    end
-                end)
+                for _, ev in ipairs(o.CHANGE_EVENTS) do
+                    o:onEvent(ev, function()
+                        for p in pairs(Panel._panels) do
+                            if p._watching and p._watching[o] then p:redraw() end
+                        end
+                    end)
+                end
             end
         end
     end
@@ -925,7 +955,7 @@ local function rowValue(row)
     elseif row.kind == "value" then
         return fmt(row.format, read(row.src))
     elseif row.kind == "number" or row.kind == "choice" then
-        return fmt(row.opts.format, read(row.get))
+        return fmt(row.opts.format, shown(row, read(row.get)))
     elseif row.kind == "cover" then
         return Panel.coverText(row.obj)
     elseif row.page then
@@ -1008,8 +1038,10 @@ function Menu:input(name, panel)
             end
         elseif name == "ok" then
             self.edit = nil
+            local before = read(row.get)
             local ok, err = pcall(row.set, e.value)
-            if not ok then log():error("[Panel] set %s failed: %s", row.label, tostring(err)) end
+            if ok then hold(row, e.value, before, panel)
+            else log():error("[Panel] set %s failed: %s", row.label, tostring(err)) end
         end
         return
     end
@@ -1067,6 +1099,7 @@ end
 -- @return string|nil "switch", "light", "dimmer", "cover", "temperature", "sensor", ...
 -- @api public
 function Panel.kind(obj)
+    if type(obj) == "table" and obj._type == "THERMOSTAT" then return "thermostat" end
     local h = exposed(obj)
     if h then return h.type end
     local ok, TypeMap = pcall(require, "TypeMap")
@@ -1132,6 +1165,9 @@ function Menu:add(label, obj, opts)
         if readonly then return self:value(label, function() return Panel.coverText(obj) end) end
         return self:cover(label, obj)
     end
+    if kind == "thermostat" then
+        return self:thermostat(label, obj, { readonly = readonly, format = opts.format })
+    end
     if BINARY[kind] then
         local f = opts.format or onOff
         local page = isObj and opts.history ~= false and Panel.history(label, obj, { format = f }) or nil
@@ -1163,6 +1199,29 @@ function Menu:gate(label, obj, opts)
     end
     return self:value(label, obj, function(v) return state(v) end,
         Panel.history(label, obj, { format = function(v) return state(v, true) end }))
+end
+
+--- A Grenton thermostat: the temperature at its sensor; OK opens its page with the target.
+-- + and - write the set point by hand, so only in manual mode (in holiday or auto mode the
+-- thermostat follows its own value or the schedule, and the page only shows).
+-- @param label string Row label and page title
+-- @param obj table|string A RemoteThermostat or its path; missing: no row
+-- @param opts table|nil { readonly = true (the page shows, nothing changes), step = 0.5,
+--   min, max (what + and - can reach), format = "%.1f" }
+-- @api public
+function Menu:thermostat(label, obj, opts)
+    obj = object(obj, label)
+    if obj == nil then return self end
+    opts = opts or {}
+    local f = opts.format or "%.1f"
+    return self:value(label, obj, f, Panel.thermostat{
+        name = label,
+        current = obj,
+        get = function() return obj:getTarget() end,
+        set = not opts.readonly and function(v) obj:setSetpoint(v) end or nil,
+        canSet = function() local m = obj.getMode and obj:getMode() return m == nil or m == 0 end,
+        step = opts.step, min = opts.min, max = opts.max, format = f,
+    })
 end
 
 --- A cover: its position (^ or v while it moves); OK opens its page.
@@ -1442,7 +1501,8 @@ function Panel.chart(name, src, opts)
 end
 
 --- Current and set temperature; +/- change the set point, written 1 s after the last press.
--- @param o table { name, current = obj|fn, get = fn, set = fn, step = 0.5, min, max, format = "%.1f" }
+-- Without set (or while canSet() is false) the page only shows them.
+-- @param o table { name, current = obj|fn, get = fn, set = fn|nil, canSet = fn|nil, step = 0.5, min, max, format = "%.1f" }
 -- @api public
 function Panel.thermostat(o)
     local page = { pending = nil }
@@ -1452,23 +1512,24 @@ function Panel.thermostat(o)
         if type(o.watch) == "table" then w[#w + 1] = o.watch end
         return w
     end
-    page.keys = { up = { "+" }, down = { "-" } }
+    local function editable() return o.set ~= nil and (o.canSet == nil or o.canSet()) end
+    page.keys = function() return editable() and { up = { "+" }, down = { "-" } } or {} end
     page.draw = function(s)
         local L = Panel.layout
         title(s, o.name or Panel.strings.thermostat)
         s:region("now", 0, L.rows[1] - 1, L.w, L.rowH)
         s:text(0, L.rows[1], Panel.strings.now):textRight(L.rows[1], fmt(o.format or "%.1f", read(o.current)))
-        local set = page.pending or read(o.get)
+        local set = page.pending or shown(page, read(o.get))
         s:region("set", 0, L.rows[2] - 1, L.w, L.rowH)
         s:text(0, L.rows[2], Panel.strings.set):textRight(L.rows[2], fmt(o.format or "%.1f", set))
-        if o.min or o.max then
+        if editable() and (o.min or o.max) then
             s:region("range", 0, L.rows[3] - 1, L.w, L.rowH)
             s:textCenter(L.rows[3], fmt("%g", o.min or 0) .. "-" .. fmt("%g", o.max or 0))
         end
     end
     page.input = function(n, panel)
         local base = n:match("^(%a+)")
-        if base ~= "up" and base ~= "down" then return end
+        if not editable() or (base ~= "up" and base ~= "down") then return end
         local step = o.step or 0.5
         local v = tonumber(page.pending or read(o.get)) or o.min or 0
         v = clamp(v + (base == "up" and step or -step), o)
@@ -1476,7 +1537,9 @@ function Panel.thermostat(o)
         page.pending = v
         panel:debounce(page, 1, function()
             page.pending = nil
+            local before = read(o.get)
             o.set(v)
+            hold(page, v, before, panel)
             panel:redraw()
         end)
     end

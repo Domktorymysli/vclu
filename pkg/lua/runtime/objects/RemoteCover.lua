@@ -15,6 +15,9 @@ RemoteCover.__index = RemoteCover
 RemoteCover.FEATURE_STATE = 0
 RemoteCover.FEATURE_POSITION = 7
 
+-- Events besides OnChange that change what the object shows (a panel redraws on them)
+RemoteCover.CHANGE_EVENTS = {"OnMovementChange"}
+
 --- Creates a new RemoteCover instance.
 -- @param clu CLU_REMOTE The CLU instance this cover belongs to
 -- @param objId string The unique identifier of the cover

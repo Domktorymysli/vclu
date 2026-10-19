@@ -108,12 +108,16 @@ func GenerateProxy(parsed *ParsedOM, config GeneratorConfig) string {
 	generateTypedSensorsForClass(&sb, parsed, namespace, ClassHumidity, "HUMIDITY_SENSOR")
 	generateObjectsForClass(&sb, parsed, namespace, ClassPanelBtn, "RemotePanelButton")
 	generateObjectsForClass(&sb, parsed, namespace, ClassPanel, "RemotePanel")
+	generateObjectsForClass(&sb, parsed, namespace, ClassThermostat, "RemoteThermostat")
 	generatePanelButtons(&sb, parsed, namespace)
 
 	// Register objects in _registry for lookup (use registerObject for name indexing)
 	if config.RegisterObjects {
 		sb.WriteString("-- Register objects for event forwarding\n")
-		for _, obj := range parsed.GetExposableObjects() {
+		// Thermostats too: not for Home Assistant (no climate type yet), but the Sync list
+		// and the subscriptions find objects in the registry
+		objects := append(parsed.GetExposableObjects(), parsed.GetObjectsByClass(ClassThermostat)...)
+		for _, obj := range objects {
 			objName := getObjectLuaName(obj)
 			path := fmt.Sprintf("%s.%s", parsed.CLU.ID, obj.ID)
 			sb.WriteString(fmt.Sprintf("registerObject(\"%s\", %s.%s)\n", path, namespace, objName))
@@ -146,8 +150,19 @@ func generateObjectsForClass(sb *strings.Builder, parsed *ParsedOM, namespace st
 			// Feature 7 Position (not on fv01 firmware, which om.lua does not tell apart)
 			fmt.Fprintf(sb, "%s.%s._hasPosition = true\n", namespace, objName)
 		}
+		if class == ClassThermostat && thermostatV1(parsed.CLU) {
+			// Thermostat v1 has no feature 14 CurrentTemp
+			fmt.Fprintf(sb, "%s.%s._version = 1\n", namespace, objName)
+		}
 	}
 	sb.WriteString("\n")
+}
+
+// thermostatV1 tells the CLU firmware whose Thermostat object is version 1 (Object Manager's
+// device-interfaces: clu_ft00000003_fv197 and clu_ZWAVE_ft00000003_fv1f5; the others have v2).
+func thermostatV1(clu CLUInfo) bool {
+	fw := strings.ToLower(strings.TrimLeft(clu.FwVersion, "0"))
+	return strings.TrimLeft(clu.FwType, "0") == "3" && (fw == "197" || fw == "1f5")
 }
 
 // generatePanelButtons attaches each panel's buttons (same module) by their index.

@@ -36,6 +36,9 @@ var remoteThermometer string
 //go:embed runtime/objects/RemoteValueSensor.lua
 var remoteValueSensor string
 
+//go:embed runtime/objects/RemoteThermostat.lua
+var remoteThermostat string
+
 // Virtual object class files
 //
 //go:embed runtime/objects/RemotePanel.lua
@@ -89,6 +92,8 @@ func BaseClasses() string {
 	sb.WriteString(remoteThermometer)
 	sb.WriteString("\n")
 	sb.WriteString(remoteValueSensor)
+	sb.WriteString("\n")
+	sb.WriteString(remoteThermostat)
 	sb.WriteString("\n")
 	sb.WriteString(remotePanel)
 	sb.WriteString("\n")

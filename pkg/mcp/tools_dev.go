@@ -511,6 +511,10 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 				"methods": []string{"get(feature)", "set(feature,value)", "open()", "close()", "stop()", "setPosition(pos)", "getValue()"},
 				"note":    "Remote CLU roller shutter / cover",
 			},
+			"RemoteThermostat (THERMOSTAT)": map[string]any{
+				"methods": []string{"getValue()", "getTarget()", "getSetpoint()", "setSetpoint(v)", "getState()", "getMode()", "onChange(cb)"},
+				"note":    "A CLU's Thermostat (class 18, THE…): value = temperature at its sensor, getTarget() = target in effect (with auto/holiday mode), setSetpoint writes PointValue; mode 0 set point, 1 holiday, 2 auto, 3 heat-up. In the registry (add it to Grenton → Sync for values), not exposed to Home Assistant",
+			},
 			"VirtualSwitch (DOUT)": map[string]any{
 				"constructor": "VirtualSwitch:new(name, {initial=0, persist=true|'key'})",
 				"methods":     []string{"switchOn()", "switchOff()", "toggle()", "getValue()", "setValue(v)", "onChange(cb)"},
@@ -565,7 +569,7 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 				"history":    "Panel.history(title, obj with history | fn returning changes newest first, {count=10, format}) — the last changes as a list, newest first: time and date left, value right (keep the value short, ~5 characters); e.g. when a gate opened, opened from a menu value row; nil without history",
 				"corners":    "Panel.corners{tl={label, obj|path|fn(panel)}, tr=..., bl=..., br=..., clock=true, draw=fn(screen, panel), every=60} — each corner one button (a device does what its row would: a light switches, a cover opens or closes; Panel.press(obj)), clock draws the time in the middle, no back; e.g. home with a room's lights and Menu; a corner with only a label keeps its LED off",
 				"toggle":     "Panel.toggle(obj, title)",
-				"thermostat": "Panel.thermostat{name, current=obj|fn, get=fn, set=fn, step, min, max, format}",
+				"thermostat": "menu:thermostat(label, obj|path, {readonly=true, step=0.5, min, max, format}) — a Grenton thermostat (RemoteThermostat): the row shows the temperature, OK opens a page with the target; readonly shows them without + and -, otherwise + and - write the set point in manual mode only (holiday/auto: the page shows; min/max bound them). Panel.thermostat{name, current=obj|fn, get=fn, set=fn|nil, step, min, max, format} for any other source; without set it only shows",
 				"idle":       "Panel.idle{ {label, obj|fn, format}, ... } — clock and up to 3 values; any button opens home",
 				"cleaning":   "Panel.cleaning(seconds) — inputs ignored, countdown",
 				"own":        "Panel.register(name, factory): a page is {draw=function(screen, panel), keys={up={label,fn},down=…,ok=…}|fn, input=function(role, panel), watch={objs}, every=s}",

@@ -214,17 +214,16 @@ alarm_status:setValue("ALARM!")
 
 ## Grenton objects without a proxy: call a script on the CLU
 
-vCLU generates proxies only for some Grenton classes (DOUT, DIN, DIMMER, LEDRGB, ROLLER, analog I/O, 1-Wire, panel sensors). For anything else (a thermostat, a module without a proxy) do not invent methods: write a script in Object Manager on the CLU and call it from vCLU. Each imported CLU is a global `CLU<serial>` (a `CLU_REMOTE`, from `imports/proxy_<serial>.lua`).
+vCLU generates proxies only for some Grenton classes (DOUT, DIN, DIMMER, LEDRGB, ROLLER, analog I/O, 1-Wire, panel sensors and buttons, thermostats). A thermostat (`THE…`) is a `RemoteThermostat`: `getValue()` is the temperature at its sensor, `getTarget()` the target in effect, `getSetpoint()`/`setSetpoint(v)` the set point by hand, `getState()`, `getMode()` (add it to Grenton → Sync for values; it is not exposed to Home Assistant or HomeKit). For anything else (a thermostat's schedule, a module without a proxy) do not invent methods: write a script in Object Manager on the CLU and call it from vCLU. Each imported CLU is a global `CLU<serial>` (a `CLU_REMOTE`, from `imports/proxy_<serial>.lua`).
 
 ```lua
---- Thermostat on the CLU: OM script SetThermostat(temp) does the work
+--- An OM script on the CLU does the work (e.g. a thermostat's holiday mode)
 -- execute(_, script) sends the script text to the CLU and returns its reply (string) or nil, err.
 local reply, err = CLU220000592:execute(0, "SetThermostat(21)")
 if err then Logger:getShared():warn("thermostat: " .. err) end
 
--- Read a feature the same way; the reply is a string
--- (THE0855 = thermostat id, 14 = current temperature; check both in OM)
-local temp = tonumber(CLU220000592:execute(0, "THE0855:get(14)"))
+-- Read a feature the same way; the reply is a string (check the id and index in OM)
+local hyst = tonumber(CLU220000592:execute(0, "THE0855:get(5)"))
 
 -- No reply needed: does not wait for the CLU
 CLU220000592:executeNoReply(0, "SetThermostat(19)")
@@ -232,7 +231,7 @@ CLU220000592:executeNoReply(0, "SetThermostat(19)")
 
 - The first argument is ignored; the script is plain Lua run on the CLU.
 - `execute` blocks the vCLU event loop until the CLU replies, up to 5 s when the CLU is offline or the reply is lost (the CLU does drop UDP packets). Do not call it in a loop or from frequent timers; prefer `executeNoReply` for commands.
-- Changes the script makes to proxied objects come back as CLU reports, so history records them with actor `device:<CLU>`, not your automation. Objects without a proxy (the thermostat itself) do not appear in history at all.
+- Changes the script makes to proxied objects come back as CLU reports, so history records them with actor `device:<CLU>`, not your automation. Objects without a proxy do not appear in history at all.
 - In `vclu_draft_test` the script is recorded in `clu_calls` instead of being sent; `execute` returns no reply there.
 - Check the script name and arguments in OM first; a typo only shows up as an error reply from the CLU.
 

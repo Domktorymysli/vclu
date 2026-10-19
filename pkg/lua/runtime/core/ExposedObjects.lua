@@ -794,6 +794,8 @@ function ExposedObjects:exposeRegistry(options)
         -- Skip plugins (they manage their own exposure)
         if obj._isPlugin then
             -- noop
+        elseif type(obj._getExposeType) == "function" and obj:_getExposeType() == nil then
+            -- nothing to expose it as (a thermostat): no switch fallback
         elseif not self._objects[path] then
             -- Check AccessControl for per-integration visibility
             local mqttHidden = AccessControl and AccessControl.isHidden("mqtt", path)

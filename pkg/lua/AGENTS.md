@@ -72,6 +72,16 @@ execute 0 SetValue, 1 SetHue, 2 SetSaturation, 6 SetRGBvalue, 7 HoldValue, 9 Swi
 inherits its parent's indexes: check them (`RemoteLight.METHODS`).
 A subscription reports one feature per entry: an object that needs more than its feature 0 lists
 them in `subscribeFeatures()` and turns each into its value with `fromFeature()` (`RemoteCover`).
+What such an object keeps aside from its value changes with an event listed in `CHANGE_EVENTS`
+(`OnMovementChange`, `OnSettingsChange`), which `lib/panel` redraws on.
+`Thermostat` (class 18, a CLU's own object `THE…`, `object_thermostat_v2.xml`): features
+3 PointValue (set by hand, settable with set 3), 6 State (1 active), 8 Mode (0 PointValue,
+1 holiday, 2 auto from the schedule, 3 heat-up), 10 Min, 11 Max, 12 TargetTemp (in effect,
+with the mode), 14 CurrentTemp; execute 0 Start, 1 Stop. `RemoteThermostat` subscribes to
+3, 6, 8, 12 and 14 (five entries of a CLU's 64); its value is CurrentTemp. Thermostat v1
+(CLU firmware 197 and 1f5, FwType 3) has no feature 14; the OM import sets `_version = 1`.
+Feature 0 is Source (the sensor binding), so a thermostat must never be exposed as a switch:
+`_getExposeType()` returns nil, which keeps it out of `exposeRegistry()`.
 
 ### Smart Panel (SMART_PANEL_FM_4)
 Indices from the Object Manager definition, fv05 and fv07. PANEL (class 29) execute: 0 SwitchOnDisplay,

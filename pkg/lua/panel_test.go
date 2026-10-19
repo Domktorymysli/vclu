@@ -219,6 +219,106 @@ func TestPanelMenuNumberEdit(t *testing.T) {
 	}
 }
 
+// A device behind HTTP reads back the old value for a while after a set: the row keeps
+// the value set until the device reports it, or until HOLD_S runs out.
+func TestPanelNumberHeldUntilReported(t *testing.T) {
+	engine := newPanelEngine(t, `
+DEV = { v = 20 }
+PANEL = Panel.new(P)
+	:home(Panel.menu("Reku")
+		:number("Zadana", function() return DEV.v end, function(v) SET.v = v end,
+			{ step = 1, min = 19, max = 22, format = "%d C" }))
+`)
+	got := mustExec(t, engine, `(function()
+		T.advance(1000); sent()
+		click("PAN1", "btn4"); click("PAN1", "btn1"); click("PAN1", "btn4") -- edit, +, set
+		T.advance(1000); local set = sent()
+		T.advance(30000); PANEL:redraw(); T.advance(1000); local stale = sent()
+		DEV.v = 21; PANEL:redraw(); T.advance(1000); local reported = sent()
+		DEV.v = 20; PANEL:redraw(); T.advance(1000); local later = sent()
+		click("PAN1", "btn4"); click("PAN1", "btn1"); click("PAN1", "btn4") -- 21 again, never reported
+		T.advance(Panel.HOLD_S * 1000 + 1000); local expired = sent()
+		click("PAN1", "btn4"); click("PAN1", "btn1"); click("PAN1", "btn1"); click("PAN1", "btn4") -- 22
+		T.advance(1000); sent()
+		DEV.v = 21; PANEL:redraw(); T.advance(1000); local clamped = sent() -- device took 21 only
+		return SET.v .. "|" .. set .. "\n#" .. stale .. "\n#" .. reported .. "\n#" .. later .. "\n#" .. expired .. "\n#" .. clamped
+	end)()`)
+	parts := strings.Split(got, "\n#")
+	if len(parts) != 6 {
+		t.Fatalf("parts = %d in\n%s", len(parts), got)
+	}
+	if !strings.HasPrefix(parts[0], "22|") {
+		t.Errorf("last value set = %s, want 22", parts[0][:strings.Index(parts[0], "|")])
+	}
+	mustContain(t, "right after set", parts[0], `"21 C"`)
+	mustContain(t, "device still reads the old value", parts[1], `"21 C"`)
+	mustContain(t, "device reports it", parts[2], `"21 C"`)
+	mustContain(t, "a later change on the device shows", parts[3], `"20 C"`)
+	mustContain(t, "after HOLD_S the device's value shows", parts[4], `"20 C"`)
+	// any other report ends the hold: the device clamped 22 to 21
+	mustContain(t, "a clamped value shows", parts[5], `"21 C"`)
+	mustNotContain(t, "a clamped value shows", parts[5], `"22 C"`)
+}
+
+// A Grenton thermostat: the CLU reports its settings and the temperature in one session;
+// the row shows the temperature, OK opens the page with the target. Read-only shows
+// them without + and -; editable writes SetPointValue and holds it until reported.
+func TestPanelThermostat(t *testing.T) {
+	engine := newPanelEngine(t, `
+TH = RemoteThermostat:new(CLU, "THE1", "aSalon")
+TH._clu.address = "192.168.0.3"
+registerObject("CLU1.THE1", TH)
+RemoteSubscription.activeSubscriptions = {}
+local objs = {}
+for _, f in ipairs(TH:subscribeFeatures()) do objs[#objs + 1] = { objId = "THE1", featureIndex = f } end
+RemoteSubscription.activeSubscriptions["192.168.0.3:5"] = { cluSerial = "CLU1", objects = objs }
+function report(state, mode, point, target, current)
+	RemoteSubscription.updateRegistry("192.168.0.3", 5, { state, mode, point, target, current })
+end
+PANEL = Panel.new(P)
+	:home(Panel.menu("Dom")
+		:thermostat("Salon", "CLU1.THE1", { readonly = true })
+		:add("Edytuj", TH, { kind = "thermostat" }))
+`)
+	got := mustExec(t, engine, `(function()
+		report(1, 0, 21, 21, 20.4)
+		local th = TH:getValue() .. "/" .. TH:getTarget() .. "/" .. TH:getSetpoint() .. "/" .. TH:getState() .. "/" .. TH:getMode()
+		T.advance(1000); local home = sent()
+		click("PAN1", "btn4"); T.advance(1000); local page = sent()  -- read-only page
+		click("PAN1", "btn1"); T.advance(2000); local pressed = sent() -- + does nothing
+		report(1, 2, 21, 19, 20.4); T.advance(1000); local target = sent() -- schedule: 19
+		click("PAN1", "btn2"); click("PAN1", "btn3"); click("PAN1", "btn4") -- back, down, OK
+		T.advance(1000); local auto = sent()
+		click("PAN1", "btn1"); T.advance(2000); local autoPressed = sent() -- auto: + does nothing
+		report(1, 0, 21, 21, 20.4); T.advance(1000); sent()               -- manual again
+		click("PAN1", "btn1"); T.advance(2000); local edited = sent() -- + 0.5, written after 1 s
+		local exposedCount = exposeRegistry()
+		local kind = Panel.kind(TH)
+		local ok = pcall(function() TH:expose() end)
+		return th .. "\n#" .. home .. "\n#" .. page .. "\n#" .. pressed .. "\n#" .. target .. "\n#" .. edited ..
+			"\n#" .. auto .. "\n#" .. autoPressed .. "\n#" .. tostring(ExposedObjects:get("CLU1.THE1")) .. "/" .. kind .. "/" .. tostring(ok)
+	end)()`)
+	parts := strings.Split(got, "\n#")
+	if len(parts) != 9 {
+		t.Fatalf("parts = %d in\n%s", len(parts), got)
+	}
+	if parts[0] != "20.4/21/21/1/0" {
+		t.Errorf("value/target/setpoint/state/mode = %s", parts[0])
+	}
+	mustContain(t, "row shows the temperature", parts[1], `"Salon"`, `"20.4"`)
+	mustContain(t, "read-only page", parts[2], `"21.0"`, `"20.4"`)
+	mustNotContain(t, "read-only page", parts[2], `"+"`, `"-"`)
+	mustNotContain(t, "read-only +", parts[3], "THE1:set")
+	mustContain(t, "target from the schedule redraws the page", parts[4], `"19.0"`)
+	mustContain(t, "editable writes SetPointValue in manual mode", parts[5], "THE1:set(3, 21.5)", `"21.5"`, `"+"`)
+	mustNotContain(t, "auto mode: no + and -", parts[6], `"+"`, `"-"`)
+	mustNotContain(t, "auto mode: + writes nothing", parts[7], "THE1:set")
+	// exposeRegistry must not make it a switch: toggling one would write feature 0 (Source)
+	if parts[8] != "nil/thermostat/false" {
+		t.Errorf("exposed/kind/expose() = %s, want nil/thermostat/false", parts[8])
+	}
+}
+
 // The back corner leaves a submenu; on home it goes to the idle screen; any button there
 // opens home; sleepAfter returns to idle.
 func TestPanelBackAndIdle(t *testing.T) {

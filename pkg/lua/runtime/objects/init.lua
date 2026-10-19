@@ -14,6 +14,7 @@ require("RemoteCover")
 require("RemoteNumber")
 require("RemoteThermometer")
 require("RemoteValueSensor")
+require("RemoteThermostat")
 require("RemotePanel")
 require("RemotePanelButton")
 
@@ -38,6 +39,7 @@ return {
     RemoteNumber = RemoteNumber,
     RemoteThermometer = RemoteThermometer,
     RemoteValueSensor = RemoteValueSensor,
+    RemoteThermostat = RemoteThermostat,
     RemotePanel = RemotePanel,
     RemotePanelButton = RemotePanelButton,
     VirtualObject = VirtualObject,

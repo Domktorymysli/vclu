@@ -17,7 +17,7 @@ Only public API is listed — internal/private functions are omitted.
 - [core.Registry](#coreregistry) (9 functions)
 - [core.Metrics](#coremetrics) (1 functions)
 - [Dashboard](#dashboard) (48 functions)
-- [lib.panel](#libpanel) (54 functions)
+- [lib.panel](#libpanel) (55 functions)
 - [objects.RemotePanel](#objectsremotepanel) (6 functions)
 - [GPIO_DOUT](#gpio_dout) (1 functions)
 - [GPIO_DIN](#gpio_din) (1 functions)
@@ -1404,6 +1404,14 @@ A gate (or a door, a window): open or closed, OK shows when it changed. "closed"
 - `obj` (table) — |string A binary input or its path; missing: no row
 - `opts` (table) — |nil { open = 1 } the value that means open (a Grenton input wired to
 
+### `Menu:thermostat(label, obj, opts)`
+
+A Grenton thermostat: the temperature at its sensor; OK opens its page with the target. + and - write the set point by hand, so only in manual mode (in holiday or auto mode the thermostat follows its own value or the schedule, and the page only shows). min, max (what + and - can reach), format = "%.1f" }
+
+- `label` (string) — Row label and page title
+- `obj` (table) — |string A RemoteThermostat or its path; missing: no row
+- `opts` (table) — |nil { readonly = true (the page shows, nothing changes), step = 0.5,
+
 ### `Menu:cover(label, obj)`
 
 A cover: its position (^ or v while it moves); OK opens its page.
@@ -1453,9 +1461,9 @@ Hourly bars of a value's history: up and down pick an hour, its time and value s
 
 ### `Panel.thermostat(o)`
 
-Current and set temperature; +/- change the set point, written 1 s after the last press.
+Current and set temperature; +/- change the set point, written 1 s after the last press. Without set (or while canSet() is false) the page only shows them.
 
-- `o` (table) — { name, current = obj|fn, get = fn, set = fn, step = 0.5, min, max, format = "%.1f" }
+- `o` (table) — { name, current = obj|fn, get = fn, set = fn|nil, canSet = fn|nil, step = 0.5, min, max, format = "%.1f" }
 
 ### `Panel.history(name, src, opts) → table|nil The page; nil when src has no history`
 
