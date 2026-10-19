@@ -98,6 +98,7 @@ func GenerateProxy(parsed *ParsedOM, config GeneratorConfig) string {
 	generateObjectsForClass(&sb, parsed, namespace, ClassDIN, "RemoteSensor")
 	generateObjectsForClass(&sb, parsed, namespace, ClassDIMMER, "RemoteLight")
 	generateObjectsForClass(&sb, parsed, namespace, ClassLEDRGB, "RemoteRGBLight")
+	generateObjectsForClass(&sb, parsed, namespace, ClassLEDChannel, "RemoteLedChannel")
 	generateObjectsForClass(&sb, parsed, namespace, ClassROLLER_SH, "RemoteCover")
 	generateObjectsForClass(&sb, parsed, namespace, ClassROLLER, "RemoteCover")
 	generateObjectsForClass(&sb, parsed, namespace, ClassAnalogIN, "RemoteSensor")
@@ -142,6 +143,10 @@ func generateObjectsForClass(sb *strings.Builder, parsed *ParsedOM, namespace st
 		if class == ClassROLLER {
 			// Feature 7 Position (not on fv01 firmware, which om.lua does not tell apart)
 			fmt.Fprintf(sb, "%s.%s._hasPosition = true\n", namespace, objName)
+		}
+		if class == ClassLEDRGB && parsed.HasWhite(obj) {
+			// an LED RGBW module: feature 15 WhiteValue, SetWhiteValue
+			fmt.Fprintf(sb, "%s.%s._hasWhite = true\n", namespace, objName)
 		}
 	}
 	sb.WriteString("\n")

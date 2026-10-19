@@ -14,6 +14,35 @@ _dashboardOrder = _dashboardOrder or {}
 local SectionHandle = {}
 SectionHandle.__index = SectionHandle
 
+-- A colour widget given a light object (RemoteRGBLight) instead of fns. Reads come from what
+-- the light keeps (a get() would ask the CLU on every poll); brightness and white are 0..100.
+local function lightColorFns(light)
+    local function pct(v) v = tonumber(v); return v and math.floor(v * 100 + 0.5) end
+    local fns = {
+        getColor = function()
+            local r, g, b = light:getColor()
+            if r then return { r = r, g = g, b = b } end
+        end,
+        setColor = function(r, g, b) light:setColor(r, g, b) end,
+        get = function() return pct(light:getValue()) end,
+        set = function(p) light:setValue(p / 100) end,
+        switchOn = function() light:switchOn() end,
+        switchOff = function() light:switchOff() end,
+    }
+    if light._hasWhite then
+        fns.getWhite = function() return light._white and pct(light._white / 255) end
+        fns.setWhite = function(p) light:setWhite(p * 255 / 100) end
+    end
+    return fns
+end
+
+local function colorFns(fns)
+    if type(fns) == 'table' and fns._objId and type(fns.setColor) == 'function' then
+        return lightColorFns(fns)
+    end
+    return fns
+end
+
 function SectionHandle:new(builder, sectionIndex)
     local h = { _builder = builder, _sectionIndex = sectionIndex }
     setmetatable(h, self)
@@ -194,13 +223,14 @@ end
 -- @param id string Unique widget identifier
 -- @param label string Display label
 -- @param icon string Bootstrap icon name (e.g., "palette")
--- @param fns table {getColor=function()->{r,g,b}, setColor=function(r,g,b), switchOn=function(), switchOff=function()}
+-- @param fns table {getColor=function()->{r,g,b}, setColor=function(r,g,b), get?/set? brightness 0-100,
+--   switchOn?, switchOff?, isOn?, getWhite?/setWhite? white 0-100}, or a RemoteRGBLight (white when it has one)
 -- @param opts table Optional: {disabled=function()->bool}
 -- @api public
 function SectionHandle:color(id, label, icon, fns, opts)
     self._builder:_addWidget(self._sectionIndex, {
         id = id, type = 'color', label = label, icon = icon,
-        fns = fns, opts = opts or {}
+        fns = colorFns(fns), opts = opts or {}
     })
     return self
 end
@@ -583,7 +613,8 @@ end
 -- @param id string Unique widget identifier
 -- @param label string Display label
 -- @param icon string Bootstrap icon name (e.g., "palette")
--- @param fns table {getColor=function()->{r,g,b}, setColor=function(r,g,b), switchOn=function(), switchOff=function()}
+-- @param fns table {getColor=function()->{r,g,b}, setColor=function(r,g,b), get?/set? brightness 0-100,
+--   switchOn?, switchOff?, isOn?, getWhite?/setWhite? white 0-100}, or a RemoteRGBLight (white when it has one)
 -- @param opts table Optional: {disabled=function()->bool}
 -- @api public
 function DashboardBuilder:color(id, label, icon, fns, opts)
@@ -592,7 +623,7 @@ function DashboardBuilder:color(id, label, icon, fns, opts)
     end
     self:_addWidget(self._currentSection, {
         id = id, type = 'color', label = label, icon = icon,
-        fns = fns, opts = opts or {}
+        fns = colorFns(fns), opts = opts or {}
     })
     return self
 end
@@ -933,6 +964,7 @@ function DashboardAPI.getDefinition(id)
                     }
                 end
                 widget.brightness = safeGetValue(fns.get)
+                widget.white = safeGetValue(fns.getWhite)
                 local isOn = safeGetValue(fns.isOn)
                 if isOn ~= nil then
                     widget.on = (isOn == true)
@@ -952,6 +984,7 @@ function DashboardAPI.getDefinition(id)
                 widget.presets = presets
                 widget.capabilities = {
                     brightness = type(fns.get) == 'function' and type(fns.set) == 'function',
+                    white = type(fns.getWhite) == 'function' and type(fns.setWhite) == 'function',
                     toggle = type(fns.switchOn) == 'function' and type(fns.switchOff) == 'function'
                 }
             end
@@ -1092,6 +1125,7 @@ function DashboardAPI.getValues(id)
                     }
                 end
                 entry.brightness = safeGetValue(fns.get)
+                entry.white = safeGetValue(fns.getWhite)
                 local isOn = safeGetValue(fns.isOn)
                 if isOn ~= nil then
                     entry.on = (isOn == true)
@@ -1270,10 +1304,8 @@ function DashboardAPI.executeAction(id, widgetId, action, value)
         if action == 'setColor' then
             if type(fns.setColor) ~= 'function' then return JSON.encode({ error = 'No setColor function' }) end
             if type(value) ~= 'table' then return JSON.encode({ error = 'Value must be {r, g, b}' }) end
-            local r = tonumber(value.r) or 0
-            local g = tonumber(value.g) or 0
-            local b = tonumber(value.b) or 0
-            local ok, ret = pcall(fns.setColor, r, g, b)
+            local function channel(v) return math.floor(math.max(0, math.min(255, tonumber(v) or 0)) + 0.5) end
+            local ok, ret = pcall(fns.setColor, channel(value.r), channel(value.g), channel(value.b))
             if not ok then return JSON.encode({ error = tostring(ret) }) end
             return JSON.encode({ success = true })
         elseif action == 'set' then
@@ -1282,6 +1314,14 @@ function DashboardAPI.executeAction(id, widgetId, action, value)
             if not numVal then return JSON.encode({ error = 'Value must be a number' }) end
             if numVal < 0 or numVal > 100 then return JSON.encode({ error = 'Value out of range [0, 100]' }) end
             local ok, ret = pcall(fns.set, numVal)
+            if not ok then return JSON.encode({ error = tostring(ret) }) end
+            return JSON.encode({ success = true, value = numVal })
+        elseif action == 'setWhite' then
+            if type(fns.setWhite) ~= 'function' then return JSON.encode({ error = 'No setWhite function' }) end
+            local numVal = tonumber(value)
+            if not numVal then return JSON.encode({ error = 'Value must be a number' }) end
+            if numVal < 0 or numVal > 100 then return JSON.encode({ error = 'Value out of range [0, 100]' }) end
+            local ok, ret = pcall(fns.setWhite, numVal)
             if not ok then return JSON.encode({ error = tostring(ret) }) end
             return JSON.encode({ success = true, value = numVal })
         elseif action == 'switchOn' then

@@ -943,7 +943,7 @@ Add a color picker widget to this section.
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label
 - `icon` (string) — Bootstrap icon name (e.g., "palette")
-- `fns` (table) — {getColor=function()->{r,g,b}, setColor=function(r,g,b), switchOn=function(), switchOff=function()}
+- `fns` (table) — {getColor=function()->{r,g,b}, setColor=function(r,g,b), get?/set? brightness 0-100, switchOn?, switchOff?, isOn?, getWhite?/setWhite? white 0-100}, or a RemoteRGBLight (white when it has one)
 - `opts` (table) — Optional: {disabled=function()->bool}
 
 ### `SectionHandle:when(periods, fn)`
@@ -1161,7 +1161,7 @@ Add a color picker widget to the current section.
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label
 - `icon` (string) — Bootstrap icon name (e.g., "palette")
-- `fns` (table) — {getColor=function()->{r,g,b}, setColor=function(r,g,b), switchOn=function(), switchOff=function()}
+- `fns` (table) — {getColor=function()->{r,g,b}, setColor=function(r,g,b), get?/set? brightness 0-100, switchOn?, switchOff?, isOn?, getWhite?/setWhite? white 0-100}, or a RemoteRGBLight (white when it has one)
 - `opts` (table) — Optional: {disabled=function()->bool}
 
 ### `DashboardBuilder:when(periods, fn)`
