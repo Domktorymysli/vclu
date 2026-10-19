@@ -26,13 +26,13 @@ function RemoteRGBLight:new(clu, objId, name)
     return obj
 end
 
---- Features to subscribe to: the colour (and the white of an RGBW module) first, so a
--- report that carries them with the value publishes the value with the colour stored.
+--- Features to subscribe to: the value first, then the colour (and the white of an RGBW
+-- module): the CLU reports the colour scaled by the value, so it is read with the value of
+-- the same report.
 -- @return table Feature indexes
 function RemoteRGBLight:subscribeFeatures()
-    local features = { RemoteRGBLight.FEATURE_RGB }
+    local features = { 0, RemoteRGBLight.FEATURE_RGB }
     if self._hasWhite then features[#features + 1] = RemoteRGBLight.FEATURE_WHITE end
-    features[#features + 1] = 0
     return features
 end
 
@@ -42,13 +42,29 @@ end
 -- @return any The value to store, or nil for the colour and the white
 function RemoteRGBLight:fromFeature(index, value)
     if index == RemoteRGBLight.FEATURE_RGB then
-        self:_setColor(RemoteRGBLight.parseHex(value))
+        self:_colorFromReport(RemoteRGBLight.parseHex(value))
         return nil
     elseif index == RemoteRGBLight.FEATURE_WHITE then
         self:_setWhite(tonumber(value))
         return nil
     end
     return value
+end
+
+-- The CLU reports the colour it outputs, scaled by the value (a red at 0.49 is #7c0000,
+-- off is #000000; LED RGBW DIN fv01, 2026-10-19). The light's colour is that divided by the
+-- value (reported just before it); off or black keeps the last one, and a report that
+-- matches the colour at this value (rounding) keeps it exactly.
+function RemoteRGBLight:_colorFromReport(r, g, b)
+    if not r or (r == 0 and g == 0 and b == 0) then return end
+    local v = tonumber(self._lastState) or 1
+    if v <= 0 then return end
+    local c = self._color
+    if c and math.abs(c.r * v - r) <= 2 and math.abs(c.g * v - g) <= 2 and math.abs(c.b * v - b) <= 2 then
+        return
+    end
+    local function up(x) return math.min(255, math.floor(x / v + 0.5)) end
+    self:_setColor(up(r), up(g), up(b))
 end
 
 --- "#rrggbb" to its components; the # is optional, and so are the quotes a CLU puts

@@ -73,7 +73,10 @@ is told apart in om.lua by its module type (third argument of the module's `OBJE
 LED RGBW DIN, 0x1d LED RGBW FM, 0x04 the old LED RGB. `LED_CHANNEL` (class 49, four per RGBW
 module): feature 0 Value 0..255, read-only; execute 0 SetValue(0..255, ramp), 1 SwitchOn,
 2 SwitchOff, 3 Switch, 4 HoldValue. `RemoteLedChannel` converts to 0..1 in `fromFeature`. A subclass
-inherits its parent's indexes: check them (`RemoteLight.METHODS`). `RemoteRGBLight` subscribes
+inherits its parent's indexes: check them (`RemoteLight.METHODS`). Feature 6 RGB is reported
+as a quoted string (`"#7c0000"`) and is the colour the module outputs, scaled by Value: a red at
+0.49 is `#7c0000`, off is `#000000` (LED RGBW DIN fv01, 2026-10-19). `RemoteRGBLight` subscribes
+to the value before the colour and divides by it. `RemoteRGBLight` subscribes
 feature 6 RGB (and 15 on `_hasWhite`) next to its value and keeps them aside; Home Assistant
 listens for `OnColorChange`.
 

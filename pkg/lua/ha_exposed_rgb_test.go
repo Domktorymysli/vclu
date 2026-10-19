@@ -61,9 +61,10 @@ func TestHAExposedRGBState(t *testing.T) {
 	if _, err := engine.Execute(haExposedRGBSetup); err != nil {
 		t.Fatalf("setup failed: %v", err)
 	}
-	// the subscription asks for the colour (and the white) before the value
-	if got := mustExec(t, engine, `table.concat(_rgb:subscribeFeatures(), ",") .. "|" .. table.concat(_rgbw:subscribeFeatures(), ",")`); got != "6,0|6,15,0" {
-		t.Errorf("subscribed features = %s, want 6,0|6,15,0", got)
+	// the subscription asks for the value before the colour (and the white): the colour is
+	// reported scaled by the value
+	if got := mustExec(t, engine, `table.concat(_rgb:subscribeFeatures(), ",") .. "|" .. table.concat(_rgbw:subscribeFeatures(), ",")`); got != "0,6|0,6,15" {
+		t.Errorf("subscribed features = %s, want 0,6|0,6,15", got)
 	}
 	// reports as the subscription delivers them: the colour is kept aside, the value published
 	got := mustExec(t, engine, `(function()
@@ -140,23 +141,52 @@ func TestHAExposedRGBColourFromReport(t *testing.T) {
 	if _, err := engine.Execute(haExposedRGBSetup + `
 		registerObject("CLU1.LED2", _rgbw)
 		_rgbw._registryPath = "CLU1.LED2"
-		__go_send_command = function(ip, script) return 'clientReport:1:{"#FF5500",64,0.5}' end
+		-- the CLU reports the colour scaled by the value: #FF5500 at 0.5
+		__go_send_command = function(ip, script) return 'clientReport:1:{0.5,"#7F2A00",64}' end
 		_sid = RemoteSubscription.subscribe("192.168.0.3", {
-			{ objId = "LED2", featureIndex = 6 }, { objId = "LED2", featureIndex = 15 }, { objId = "LED2", featureIndex = 0 },
+			{ objId = "LED2", featureIndex = 0 }, { objId = "LED2", featureIndex = 6 }, { objId = "LED2", featureIndex = 15 },
 		}, "CLU1")
 	`); err != nil {
 		t.Fatalf("setup failed: %v", err)
 	}
 	got := mustExec(t, engine, `_last("vclu/exposed/t/light/kuchnia/state")`)
-	if want := `{"state":"ON","brightness":50,"color_mode":"rgbw","color":{"r":255,"g":85,"b":0,"w":64}}`; got != want {
+	if want := `{"state":"ON","brightness":50,"color_mode":"rgbw","color":{"r":254,"g":84,"b":0,"w":64}}`; got != want {
 		t.Errorf("after the subscribe answer = %s, want %s", got, want)
 	}
 	got = mustExec(t, engine, `(function()
-		RemoteSubscription.handleReport("192.168.0.3", _sid, '{"#0000ff",128,1}')
+		RemoteSubscription.handleReport("192.168.0.3", _sid, '{1,"#0000ff",128}')
 		return _last("vclu/exposed/t/light/kuchnia/state")
 	end)()`)
 	if want := `{"state":"ON","brightness":100,"color_mode":"rgbw","color":{"r":0,"g":0,"b":255,"w":128}}`; got != want {
 		t.Errorf("after a report = %s, want %s", got, want)
+	}
+}
+
+// The colour reported is the output, scaled by the value: dimmed it keeps the light's
+// colour, off (#000000) keeps the last one, and a colour changed on the CLU shows.
+func TestRGBColourScaledByValue(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+	got := mustExec(t, engine, `(function()
+		local clu = { executeNoReply = function() end }
+		local l = RemoteRGBLight:new(clu, "LED1", "tasma")
+		local out = {}
+		local function report(hex, v) -- in report order: the value, then the colour
+			l:updateState(l:fromFeature(0, v))
+			l:fromFeature(RemoteRGBLight.FEATURE_RGB, hex)
+			local r, g, b = l:getColor()
+			out[#out + 1] = tostring(r) .. "," .. tostring(g) .. "," .. tostring(b)
+		end
+		report('"#ff0000"', 1)    -- red, full
+		report('"#7c0000"', 0.49) -- dimmed: still red
+		report('"#000000"', 0)    -- off: the colour stays
+		report('"#00007f"', 0.5)  -- blue set on the CLU, at half
+		l:setColor(255, 128, 0)   -- set from vCLU
+		report('"#7f4000"', 0.5)  -- its report at half: kept exactly
+		return table.concat(out, " ") .. " " .. table.concat({ l:getColor() }, ",")
+	end)()`)
+	if want := "255,0,0 255,0,0 255,0,0 0,0,254 255,128,0 255,128,0"; got != want {
+		t.Errorf("colours\n got: %s\nwant: %s", got, want)
 	}
 }
 
