@@ -104,8 +104,10 @@ The CLU handles long messages badly and loses messages without a word. Design fo
   without a reply in time the whole frame is resent, a bounded number of times, then logged.
 - Redraws coalesce: if a new frame for the same panel is ready before the last one went out, only
   the newest is sent.
-- Small changes do not need a full frame: a moved menu cursor or a changed value redraws only
-  its rows (DrawBox in background colour over the row, then the text). Fewer and shorter messages.
+- ~~Small changes do not need a full frame: a moved menu cursor or a changed value redraws only
+  its rows (DrawBox in background colour over the row, then the text).~~ Dropped: DrawBox draws
+  nothing on fv05 and PrintText paints a black cell behind every letter, so every frame redraws
+  the whole screen (see above).
 - Fix string arguments in `RemoteObject:execute` and `:set` with a Lua string-literal encoder that
   quotes and escapes (`"`, `\`, newline, control characters). Contract test for both. This is a core
   fix and also helps every other remote method that takes text.
@@ -215,25 +217,25 @@ Panel.new(PANEL_SALON)
 - `pkg/lua/AGENTS.md` (panel indices with their source, frame size limit), docs page for the panel (docs.vclu.pl)
 
 ## Acceptance criteria
-- [ ] An OM import with a Smart Panel generates `RemotePanel` and `RemotePanelButton` objects (and the two sensors) in `om.lua`; Go tests cover the generated lines.
-- [ ] `RemoteObject:execute` and `:set` send strings as quoted, escaped Lua literals; a Lua contract test covers quotes, backslash and newline.
-- [ ] An OM import of a Smart Panel WiFi generates the same objects under the panel's CLU; a Go test covers it.
-- [ ] `click(panel, input)` reaches the panel's current page; unknown panel or input is logged and ignored; tests drive inputs and check the frames sent.
-- [ ] No message exceeds the size limit; parts are spaced on the EventBus; quick redraws coalesce to the newest frame; a frame whose last part gets no reply is resent (bounded). Tests check this on a virtual clock, including a dropped part.
-- [ ] Menu rows `toggle`, `number`, `choice` and `action` edit in place (OK, `+`/`-`, OK sets once, `✕` cancels, `min`/`max` hold); tests cover each and the frame after every step.
-- [ ] Every page shows a hint in each corner whose button does something, and the button LEDs match; changing page or mode updates both. Tested; the PR has a photo of the menu and of edit mode on the panel.
-- [ ] The back corner closes every built-in page, cancels edits and confirmations, and leads from home to idle; a user-registered page gets it without code; no built-in page reacts to gestures. Tested.
-- [ ] `every`, `panel:debounce` and `panel:notify` work as described; tested on a virtual clock.
-- [ ] `menu`, `toggle`, `value` and `thermostat` pages work and are covered by contract tests (input → frame, object change → redraw, closing a page unsubscribes).
-- [ ] Two panels keep separate state; after a reload each draws its home page; `wake` and a CLU session coming back redraw the current page. Tests cover all three.
-- [ ] A page type registered from a user module (`Panel.register`) works without changes to the library; a test registers one.
-- [ ] On a real panel: menu navigation, a light switched from the panel, temperature view and thermostat set point all work; the PR says which firmware, with a photo or video.
-- [ ] `Panel.idle` shows after `sleepAfter`, updates the time row on the minute and values on change, and any input opens home; tested on a virtual clock.
-- [ ] `Panel.cleaning(n)` counts down from n, ignores inputs, restores buzzer, LEDs and the previous page at 0; tested on a virtual clock and checked on the panel (touching the glass during it does nothing).
-- [ ] `proximity` wakes the panel and reaches `:onProximity`; the PR reports the measured range and repeat rate.
-- [ ] The Object Manager syntax for forwarding events is documented with a screenshot; indices and the frame size limit are recorded in `pkg/lua/AGENTS.md` with their source.
-- [ ] `go test ./...` and `go test -race ./...` pass.
-- [ ] CHANGELOG entry in "Unreleased".
+- [x] An OM import with a Smart Panel generates `RemotePanel` and `RemotePanelButton` objects (and the two sensors) in `om.lua`; Go tests cover the generated lines.
+- [x] `RemoteObject:execute` and `:set` send strings as quoted, escaped Lua literals; a Lua contract test covers quotes, backslash and newline.
+- [x] An OM import of a Smart Panel WiFi generates the same objects under the panel's CLU; a Go test covers it.
+- [x] `click(panel, input)` reaches the panel's current page; unknown panel or input is logged and ignored; tests drive inputs and check the frames sent.
+- [x] No message exceeds the size limit; parts are spaced on the EventBus; quick redraws coalesce to the newest frame; a frame whose last part gets no reply is resent (bounded). Tests check this on a virtual clock, including a dropped part.
+- [x] Menu rows `toggle`, `number`, `choice` and `action` edit in place (OK, `+`/`-`, OK sets once, `✕` cancels, `min`/`max` hold); tests cover each and the frame after every step.
+- [x] Every page shows a hint in each corner whose button does something, and the button LEDs match; changing page or mode updates both. Tested; the PR has a photo of the menu and of edit mode on the panel. (photos: #66)
+- [x] The back corner closes every built-in page, cancels edits and confirmations, and leads from home to idle; a user-registered page gets it without code; no built-in page reacts to gestures. Tested. (No built-in page has `gestures`, so none reacts to one; not covered by a test.)
+- [x] `every`, `panel:debounce` and `panel:notify` work as described; tested on a virtual clock.
+- [x] `menu`, `toggle`, `value` and `thermostat` pages work and are covered by contract tests (input → frame, object change → redraw, closing a page unsubscribes).
+- [ ] Two panels keep separate state; after a reload each draws its home page; `wake` and a CLU session coming back redraw the current page. Tests cover all three. Two panels, reload and `wake` are tested; a CLU session coming back does not redraw yet.
+- [x] A page type registered from a user module (`Panel.register`) works without changes to the library; a test registers one.
+- [ ] On a real panel: menu navigation, a light switched from the panel, temperature view and thermostat set point all work; the PR says which firmware, with a photo or video. Done on a Smart Panel WiFi, panel module fv05 (menu, lights, temperature chart); the thermostat and the photos: #66.
+- [x] `Panel.idle` shows after `sleepAfter`, updates the time row on the minute and values on change, and any input opens home; tested on a virtual clock.
+- [x] `Panel.cleaning(n)` counts down from n, ignores inputs, restores buzzer, LEDs and the previous page at 0; tested on a virtual clock and checked on the panel (touching the glass during it does nothing).
+- [ ] `proximity` wakes the panel and reaches `:onProximity`; the PR reports the measured range and repeat rate. Measuring: #66.
+- [ ] The Object Manager syntax for forwarding events is documented with a screenshot; indices and the frame size limit are recorded in `pkg/lua/AGENTS.md` with their source. Indices and the limit are in `pkg/lua/AGENTS.md`; the screenshot: #66.
+- [x] `go test ./...` and `go test -race ./...` pass.
+- [x] CHANGELOG entry in "Unreleased".
 
 ## Not in scope
 - Grenton's built-in pages (PANEL_PAGE types, DistributedLogic): vCLU draws on its own.
