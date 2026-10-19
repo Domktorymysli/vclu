@@ -148,3 +148,73 @@ func TestTasmotaNeedsTopic(t *testing.T) {
 		assert(not ok and tostring(err):find("Topic"), tostring(err))
 	`)
 }
+
+// an automation reacting to the device's own change by commanding the same object
+// (e.g. "switch it back off") must reach the device.
+func TestTasmotaCommandFromOnChangeOfDeviceState(t *testing.T) {
+	runStateChange(t, tasmotaHarness+`
+		local sw = tasmota.switch("tasmota_75088A")
+		sw:onChange(function(v) if v == 1 then sw:switchOff() end end)
+		MQTT._outbox = {}
+		msg("stat/tasmota_75088A/POWER", "ON")
+		eq("local state", sw:getValue(), 0)
+		eq("the command from the automation is sent", sent(), "cmnd/tasmota_75088A/POWER=OFF")
+	`)
+}
+
+// after the device switched itself off, switchOn (Lua, dashboard, HA "ON") should
+// restore the level the device had, not jump to 100.
+func TestTasmotaDimmerSwitchOnRestoresDeviceLevel(t *testing.T) {
+	runStateChange(t, tasmotaHarness+`
+		local d = tasmota.dimmer("dim1")
+		msg("stat/dim1/RESULT", '{"POWER":"ON","Dimmer":40}')
+		msg("stat/dim1/POWER", "OFF")
+		MQTT._outbox = {}
+		d:switchOn()
+		local out = sent()
+		assert(out == "cmnd/dim1/Dimmer=40" or out == "cmnd/dim1/POWER=ON", "switchOn sent: " .. out)
+	`)
+}
+
+// a topic prefix on the default client would move Tasmota's topics; the library says so.
+func TestTasmotaTopicPrefix(t *testing.T) {
+	runStateChange(t, tasmotaHarness+`
+		local warned = { text = "" }
+		local warn = Logger.warn
+		Logger.warn = function(self, fmt, ...) warned.text = warned.text .. string.format(fmt, ...) end
+		MQTT:setTopicPrefix("grenton")
+		tasmota.switch("tasmota_75088A")
+		Logger.warn = warn
+		assert(warned.text:find("topic prefix", 1, true), "no warning: " .. warned.text)
+	`)
+}
+
+// a sensor is read-only; a write changes the local value with nothing sent.
+func TestTasmotaSensorWriteIsRefused(t *testing.T) {
+	runStateChange(t, tasmotaHarness+`
+		local p = tasmota.sensor("plug1", "ENERGY.Power", { unit = "W" })
+		msg("tele/plug1/SENSOR", '{"ENERGY":{"Power":12}}')
+		pcall(function() p:setValue(500) end)
+		eq("value stays the device's", p:getValue(), 12)
+	`)
+}
+
+// an error in a module's handler during a device update must not break later updates
+// or commands (quiet flag, StateContext stack, gopher-lua pcall upvalues).
+func TestTasmotaErrorInHandlerRecovers(t *testing.T) {
+	runStateChange(t, tasmotaHarness+`
+		local sw = tasmota.switch("tasmota_75088A")
+		local f = { boom = true }
+		sw:onChange(function() if f.boom then f.boom = false; error("boom") end end)
+		local depth = StateContext.depth()
+		msg("stat/tasmota_75088A/POWER", "ON")
+		eq("stack", StateContext.depth(), depth)
+		eq("state applied", sw:getValue(), 1)
+		MQTT._outbox = {}
+		msg("stat/tasmota_75088A/POWER", "OFF")
+		eq("device state after error", sw:getValue(), 0)
+		eq("nothing sent back", sent(), "")
+		sw:switchOn()
+		eq("command after error", sent(), "cmnd/tasmota_75088A/POWER=ON")
+	`)
+}

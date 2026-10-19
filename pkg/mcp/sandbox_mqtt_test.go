@@ -58,3 +58,29 @@ func TestParseSteps_MQTT(t *testing.T) {
 		t.Errorf("an empty payload is a payload: %v", err)
 	}
 }
+
+// an error in the module's MQTT callback must show in the result, not only in a log line.
+func TestScenario_MQTTCallbackErrorIsReported(t *testing.T) {
+	se, ws, _ := newTestSandbox(t)
+	writeDraft(t, ws, "modules/zly.lua", `
+MQTT:subscribe("stat/x/POWER", function(_, payload) error("bad payload " .. payload) end)
+`)
+	res := runScenario(t, se, []string{"modules/zly.lua"}, "2026-10-19T23:00:00+02:00", `[
+		{"mqtt": "stat/x/POWER", "payload": "ON"}
+	]`)
+	if res.Success || !strings.Contains(strings.Join(res.Errors, "\n"), "bad payload") {
+		t.Errorf("success=%v errors=%v", res.Success, res.Errors)
+	}
+}
+
+// after a reload step the module's new subscriptions get messages.
+func TestScenario_MQTTAfterReload(t *testing.T) {
+	se, ws, _ := newTestSandbox(t)
+	writeDraft(t, ws, "modules/tasmota.lua", testTasmotaModule)
+	res := runScenario(t, se, []string{"modules/tasmota.lua"}, "2026-10-19T23:00:00+02:00", `[
+		{"reload": true},
+		{"mqtt": "stat/tasmota_75088A/POWER", "payload": "ON"},
+		{"expect_state": {"tasmota.biurko": 1}}
+	]`)
+	requireSuccess(t, res)
+}

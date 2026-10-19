@@ -10,6 +10,9 @@
 -- A state from the device is never sent back as a command. The state is asked for on start, when
 -- the MQTT client connects and when the device comes back (LWT Online). A change from the device
 -- is recorded with the device as the actor (device:<topic>).
+-- The library subscribes stat/<topic>/+ and tele/<topic>/+; MQTT keeps one callback per
+-- pattern, so a module must not subscribe those patterns itself (subscribe e.g.
+-- tele/<topic>/SENSOR). It needs the default client without a topic prefix.
 -- @module lib.tasmota
 
 local M = {}
@@ -95,6 +98,10 @@ local function start()
     started = true
     local c = client()
     if not c then return end
+    if c:getTopicPrefix() ~= "" and Logger then
+        Logger:warn("[tasmota] MQTT has the topic prefix %q: Tasmota topics are stat/..., cmnd/..., "
+            .. "they will not match", c:getTopicPrefix())
+    end
     c:onConnect(function()
         for _, dev in pairs(devices) do ask(dev) end
     end)
@@ -131,18 +138,22 @@ local function device(topic)
     return dev
 end
 
--- binds obj to a device: changes from the device are applied quietly (no command back),
--- other changes of obj go to send(value)
+-- binds obj to a device: a value from the device is not sent back; any other change of obj,
+-- also one made by a callback reacting to the device's value, goes to send(value)
 local function bind(dev, obj, send)
-    local b = { quiet = false }
+    local b = {}
     obj:onChange(function(v)
-        if not b.quiet then send(v) end
+        if b.applying ~= nil and v == b.applying then
+            b.applying = nil
+            return
+        end
+        send(v)
     end)
     local function apply(v)
         if v == nil or v == obj:getValue() then return end
-        b.quiet = true
+        b.applying = v
         local ok, err = pcall(function() obj:updateState(v) end)
-        b.quiet = false
+        b.applying = nil
         if not ok then error(err, 0) end
     end
     return apply
@@ -196,6 +207,8 @@ function M.dimmer(topic, opts)
         end
     end)
     local function update()
+        -- switchOn after the device switched off restores the device's level
+        if st.level and st.level > 0 then dim._lastBrightness = st.level / 100 end
         if st.power == 0 then apply(0)
         elseif st.power == 1 and st.level then apply(st.level / 100) end
     end
@@ -229,6 +242,13 @@ function M.sensor(topic, path, opts)
     end
     local dev = device(topic)
     local num = VirtualNumber:new(opts.name or (topic .. "_" .. path:gsub("%.", "_")), { unit = opts.unit })
+    -- read-only: the value is the device's (expose it with readonly = true as well)
+    num._allowedMethods = { "getValue" }
+    local function refuse()
+        if Logger then Logger:warn("[tasmota] %s %s is read-only, the value comes from the device", topic, path) end
+    end
+    num.setValue = refuse
+    num.set = refuse
     local apply = bind(dev, num, function() end)
     dev.listeners[#dev.listeners + 1] = {
         sensor = function(d)
