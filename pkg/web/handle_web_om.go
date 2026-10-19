@@ -80,6 +80,7 @@ func (s *Server) handleZipUpload(c *gin.Context, content []byte, filename string
 
 	// Regex to match CLU*/om.lua pattern
 	cluOmPattern := regexp.MustCompile(`^CLU(\d+)/om\.lua$`)
+	names := cluNamesFromProject(zipReader)
 
 	var results []gin.H
 	var errors []string
@@ -100,29 +101,30 @@ func (s *Server) handleZipUpload(c *gin.Context, content []byte, filename string
 		// Skip vCLU's own serial
 		serialStr := matches[1]
 		serial, _ := strconv.ParseUint(serialStr, 10, 64)
+		label := cluLabel(names, "CLU"+serialStr)
 		if ownSerial > 0 && serial == ownSerial {
-			skipped = append(skipped, fmt.Sprintf("CLU%s (this vCLU)", serialStr))
+			skipped = append(skipped, label+" (this vCLU)")
 			continue
 		}
 
 		// Read file content
 		rc, err := f.Open()
 		if err != nil {
-			errors = append(errors, fmt.Sprintf("%s: failed to open", f.Name))
+			errors = append(errors, fmt.Sprintf("%s: failed to open om.lua", label))
 			continue
 		}
 
 		fileContent, err := io.ReadAll(rc)
 		rc.Close()
 		if err != nil {
-			errors = append(errors, fmt.Sprintf("%s: failed to read", f.Name))
+			errors = append(errors, fmt.Sprintf("%s: failed to read om.lua", label))
 			continue
 		}
 
 		// Process this OM file
 		result, err := s.processOMFile(fileContent, f.Name)
 		if err != nil {
-			errors = append(errors, fmt.Sprintf("%s: %v", f.Name, err))
+			errors = append(errors, fmt.Sprintf("%s: %v", label, err))
 			continue
 		}
 
@@ -148,8 +150,66 @@ func (s *Server) handleZipUpload(c *gin.Context, content []byte, filename string
 	})
 }
 
+// Project CLU entry in system.xml: <name>Dom1</name> <ipAddress>…</ipAddress> <nameOnCLU>CLU220000000</nameOnCLU>
+var reProjectCLU = regexp.MustCompile(`<name>([^<]*)</name>\s*(?:<ipAddress>[^<]*</ipAddress>\s*)?<nameOnCLU>(CLU\d+)</nameOnCLU>`)
+
+// cluNamesFromProject maps CLU IDs to their project names, read from the Object
+// Manager project zip that diagnostic packs carry (any nested zip with system.xml).
+func cluNamesFromProject(pack *zip.Reader) map[string]string {
+	names := map[string]string{}
+	for _, f := range pack.File {
+		if strings.Contains(f.Name, "/") || !strings.HasSuffix(strings.ToLower(f.Name), ".zip") {
+			continue
+		}
+		data, err := readZipFile(f)
+		if err != nil {
+			continue
+		}
+		project, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+		if err != nil {
+			continue
+		}
+		for _, pf := range project.File {
+			if pf.Name != "system.xml" {
+				continue
+			}
+			xml, err := readZipFile(pf)
+			if err != nil {
+				break
+			}
+			for _, m := range reProjectCLU.FindAllSubmatch(xml, -1) {
+				names[string(m[2])] = string(m[1])
+			}
+			return names
+		}
+	}
+	return names
+}
+
+func readZipFile(f *zip.File) ([]byte, error) {
+	rc, err := f.Open()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rc.Close() }()
+	return io.ReadAll(rc)
+}
+
+// cluLabel is "Name (CLU…)" when the project names the CLU, else the bare ID.
+func cluLabel(names map[string]string, id string) string {
+	if name := names[id]; name != "" {
+		return name + " (" + id + ")"
+	}
+	return id
+}
+
 // processOMFile validates and saves a single OM file
 func (s *Server) processOMFile(content []byte, originalName string) (gin.H, error) {
+	// Object Manager writes empty files for a CLU it could not read
+	if len(bytes.TrimSpace(content)) == 0 {
+		return nil, fmt.Errorf("om.lua is empty, Object Manager did not download this CLU's configuration")
+	}
+
 	// Parse OM file to validate it
 	parsed, err := omparser.Parse(string(content))
 	if err != nil {
