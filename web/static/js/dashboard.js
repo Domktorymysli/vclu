@@ -367,14 +367,8 @@
         valEl.className = 'dash-slider-value';
         valEl.textContent = input.value;
 
-        var debounceTimer = null;
-        input.addEventListener('input', function() {
-            valEl.textContent = input.value;
-            clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(function() {
-                executeAction(w.id, 'set', parseFloat(input.value));
-            }, 250);
-        });
+        bindSlider(input, function(v) { valEl.textContent = v; },
+            function(v) { executeAction(w.id, 'set', v); }, 250);
 
         row.appendChild(input);
         row.appendChild(valEl);
@@ -536,14 +530,8 @@
             valEl.className = 'dash-slider-value';
             valEl.textContent = w.position != null ? input.value + '%' : '--';
 
-            var debounceTimer = null;
-            input.addEventListener('input', function() {
-                valEl.textContent = input.value + '%';
-                clearTimeout(debounceTimer);
-                debounceTimer = setTimeout(function() {
-                    executeAction(w.id, 'set', parseFloat(input.value));
-                }, 500);
-            });
+            bindSlider(input, function(v) { valEl.textContent = v + '%'; },
+                function(v) { executeAction(w.id, 'set', v); }, 500);
 
             row.appendChild(input);
             row.appendChild(valEl);
@@ -552,6 +540,35 @@
     }
 
     // ---- Dimmer widget ----
+
+    // A slider sends the value it was moved to: after a pause, or at once when let go, so
+    // a page reload right after does not lose it. Until then a poll leaves it alone
+    // (on a phone a dragged slider has no focus).
+    function bindSlider(input, show, send, delay) {
+        var timer = null, pending = null;
+        function flush() {
+            clearTimeout(timer);
+            timer = null;
+            if (pending === null) return;
+            var v = pending;
+            pending = null;
+            delete input.dataset.pending;
+            send(v);
+        }
+        input.addEventListener('input', function() {
+            pending = parseFloat(input.value);
+            input.dataset.pending = '1';
+            show(pending);
+            clearTimeout(timer);
+            timer = setTimeout(flush, delay);
+        });
+        input.addEventListener('change', flush);
+    }
+
+    // The user is moving it, or it has a value not sent yet: a poll must not overwrite it
+    function userHolds(input) {
+        return document.activeElement === input || input.dataset.pending === '1';
+    }
 
     function renderDimmer(el, w) {
         el.style.cursor = 'default';
@@ -590,14 +607,8 @@
         valEl.className = 'dash-slider-value';
         valEl.textContent = (w.value != null ? w.value : 0) + '%';
 
-        var debounceTimer = null;
-        slider.addEventListener('input', function() {
-            valEl.textContent = slider.value + '%';
-            clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(function() {
-                executeAction(w.id, 'set', parseFloat(slider.value));
-            }, 500);
-        });
+        bindSlider(slider, function(v) { valEl.textContent = v + '%'; },
+            function(v) { executeAction(w.id, 'set', v); }, 500);
 
         row.appendChild(slider);
         row.appendChild(valEl);
@@ -666,14 +677,8 @@
         valEl.dataset.role = role;
         valEl.textContent = value != null ? value + '%' : '--';
 
-        var debounceTimer = null;
-        slider.addEventListener('input', function() {
-            valEl.textContent = slider.value + '%';
-            clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(function() {
-                executeAction(w.id, action, parseFloat(slider.value));
-            }, 500);
-        });
+        bindSlider(slider, function(v) { valEl.textContent = v + '%'; },
+            function(v) { executeAction(w.id, action, v); }, 500);
 
         row.appendChild(slider);
         row.appendChild(valEl);
@@ -1111,10 +1116,11 @@
         if (type === 'cover') {
             var slider = el.querySelector('.dash-slider-input');
             var valSpan = el.querySelector('.dash-slider-value');
-            if (slider && document.activeElement !== slider && data.position != null) {
+            var held = slider && userHolds(slider);
+            if (slider && !held && data.position != null) {
                 slider.value = data.position;
             }
-            if (valSpan && data.position != null) valSpan.textContent = data.position + '%';
+            if (valSpan && !held && data.position != null) valSpan.textContent = data.position + '%';
             var btns = el.querySelectorAll('.dash-cover-btn');
             if (btns.length === 3 && data.state != null) {
                 btns[0].classList.toggle('active', data.state === 1);
@@ -1125,10 +1131,11 @@
         } else if (type === 'dimmer') {
             var slider = el.querySelector('.dash-slider-input');
             var valSpan = el.querySelector('.dash-slider-value');
-            if (slider && document.activeElement !== slider && data.value != null) {
+            var held = slider && userHolds(slider);
+            if (slider && !held && data.value != null) {
                 slider.value = data.value;
             }
-            if (valSpan && data.value != null) valSpan.textContent = data.value + '%';
+            if (valSpan && !held && data.value != null) valSpan.textContent = data.value + '%';
             var toggle = el.querySelector('.dash-dimmer-toggle .form-check-input');
             if (toggle && data.on !== undefined) toggle.checked = !!data.on;
             var isOn = data.on !== false;
@@ -1144,7 +1151,8 @@
                 if (data[role] == null) return;
                 var sl = el.querySelector('.dash-slider-input[data-role="' + role + '"]');
                 var vs = el.querySelector('.dash-slider-value[data-role="' + role + '"]');
-                if (sl && document.activeElement !== sl) sl.value = data[role];
+                if (sl && userHolds(sl)) return;
+                if (sl) sl.value = data[role];
                 if (vs) vs.textContent = data[role] + '%';
             });
             var toggle = el.querySelector('.dash-color-toggle .form-check-input');
@@ -1172,10 +1180,11 @@
         } else if (type === 'slider') {
             var slider = el.querySelector('.dash-slider-input');
             var valSpan = el.querySelector('.dash-slider-value');
-            if (slider && document.activeElement !== slider) {
+            var held = slider && userHolds(slider);
+            if (slider && !held) {
                 slider.value = value;
             }
-            if (valSpan) valSpan.textContent = value;
+            if (valSpan && !held) valSpan.textContent = value;
         } else if (type === 'status') {
             var valEl = el.querySelector('.dash-status-value');
             if (valEl) {
