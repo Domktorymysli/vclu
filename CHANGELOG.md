@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Lua runtime
+
+- **A Tasmota device is one line in a module** - `require("lib/tasmota")`: `tasmota.switch(topic, { relay = 2 })` is a `VirtualSwitch`, `tasmota.dimmer(topic)` a `VirtualDimmer` (Tasmota's Dimmer 0..100 on vCLU's 0..1), `tasmota.sensor(topic, "ENERGY.Power", { unit = "W" })` a `VirtualNumber` from `tele/<topic>/SENSOR`. The library keeps the state from `stat/<topic>/POWER<n>`, `RESULT` and `tele/<topic>/STATE`, sends a command once from Lua, a dashboard or Home Assistant, never sends a state from the device back, and asks for the state on start, when MQTT connects and when the device comes back (LWT `Online`). A press on the device is recorded in history with the device as the actor (`device:<topic>`). `tasmota.online(topic)` follows LWT, and `tasmota.devices()` lists what Tasmota's own discovery announced (nothing is created from it). `expose()` stays in the module. Not yet run against a real Tasmota: the tests replay the messages of the Sonoff Basic (Tasmota 13.3.0) that the maintainer's own module handles ([#65](https://github.com/Domktorymysli/vclu/issues/65)).
+
+### MCP
+
+- **`vclu_draft_test` delivers MQTT messages** - the step `{"mqtt": "stat/<topic>/POWER", "payload": "ON"}` hands a message to the module's subscriptions as the broker would; what the module publishes shows in `blocked_calls`.
+
 ## v1.6.0 (2026-10-19)
 
 ### Grenton

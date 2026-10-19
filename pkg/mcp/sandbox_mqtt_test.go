@@ -1,0 +1,60 @@
+package mcp
+
+import (
+	"fmt"
+	"strings"
+	"testing"
+)
+
+const testTasmotaModule = `
+local tasmota = require("lib/tasmota")
+LAMPKA = tasmota.switch("tasmota_75088A")
+expose(LAMPKA, "light", { path = "tasmota.biurko", name = "Lampka" })
+local plug = tasmota.sensor("tasmota_gniazdko", "ENERGY.Power", { unit = "W" })
+expose(plug, "number", { path = "tasmota.gniazdko_moc", name = "Gniazdko moc",
+	readonly = true, unit = "W", device_class = "power", state_class = "measurement" })
+`
+
+// An agent checks a Tasmota module in the sandbox: a message from the device changes the
+// object with the device as the actor, a command from the module shows as a blocked publish.
+func TestScenario_MQTTMessageReachesSubscription(t *testing.T) {
+	se, ws, _ := newTestSandbox(t)
+	writeDraft(t, ws, "modules/tasmota.lua", testTasmotaModule)
+	res := runScenario(t, se, []string{"modules/tasmota.lua"}, "2026-10-19T23:00:00+02:00", `[
+		{"mqtt": "stat/tasmota_75088A/POWER", "payload": "ON"},
+		{"expect_state": {"tasmota.biurko": 1}},
+		{"expect_history": {"path": "tasmota.biurko", "changes": [{"old": 0, "value": 1, "origin": "mqtt", "actor": "device:tasmota_75088A"}]}},
+		{"mqtt": "tele/tasmota_gniazdko/SENSOR", "payload": "{\"ENERGY\":{\"Power\":40.5}}"},
+		{"expect_state": {"tasmota.gniazdko_moc": 40.5}},
+		{"set": "tasmota.biurko", "value": 0}
+	]`)
+	requireSuccess(t, res)
+	var published []string
+	for _, c := range res.BlockedCalls {
+		if c.Type == "mqtt.publish" {
+			published = append(published, fmt.Sprintf("%v=%v", c.Args["arg2"], c.Args["arg3"]))
+		}
+	}
+	got := strings.Join(published, " ")
+	want := "cmnd/tasmota_75088A/STATE= cmnd/tasmota_gniazdko/STATE= cmnd/tasmota_gniazdko/Status=10 cmnd/tasmota_75088A/POWER=OFF"
+	if got != want {
+		t.Errorf("published: %s", got)
+	}
+}
+
+func TestParseSteps_MQTT(t *testing.T) {
+	bad := map[string]string{
+		`[{"mqtt": "a/b"}]`:                            "mqtt needs a topic and a payload",
+		`[{"mqtt": "", "payload": "x"}]`:               "mqtt needs a topic and a payload",
+		`[{"advance": 1, "payload": "x"}]`:             "payload is only allowed with mqtt",
+		`[{"mqtt": "a", "payload": "", "advance": 1}]`: "exactly one",
+	}
+	for js, want := range bad {
+		if _, err := ParseSteps([]byte(js)); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: err = %v, want %q", js, err, want)
+		}
+	}
+	if _, err := ParseSteps([]byte(`[{"mqtt": "a/b", "payload": ""}]`)); err != nil {
+		t.Errorf("an empty payload is a payload: %v", err)
+	}
+}

@@ -579,6 +579,13 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 			"objectManager": "every button event (OnClick 'btn1'..'btn4', OnLongPress 'btn1:long') calls click(panel or button id, input) on vCLU; an empty click() from OM in user.lua hides the runtime one, so the module sets click = RemotePanel.click",
 			"sandbox":       "vclu_draft_test steps {\"click\": \"PAN…\", \"input\": \"btn3\"} then {\"advance\": 1}: the frame drawn is in clu_calls",
 		},
+		"tasmota": map[string]any{
+			"library":   "local tasmota = require('lib/tasmota'); the topic is the device's Topic (Tasmota: Configuration → MQTT, e.g. tasmota_75088A); the library binds objects to the default MQTT client, expose() stays in the module",
+			"objects":   "tasmota.switch(topic, {relay=2}) → VirtualSwitch (POWER<n>); tasmota.dimmer(topic) → VirtualDimmer (Dimmer 0..100 ↔ 0..1, 0 = POWER OFF); tasmota.sensor(topic, 'ENERGY.Power', {unit='W'}) → VirtualNumber from tele/<topic>/SENSOR and Status 10",
+			"behaviour": "state from stat/<topic>/POWER<n>, RESULT and tele/<topic>/STATE; a state from the device is never sent back as a command; the state is asked for on start, on MQTT connect and on LWT Online; a change from the device is recorded with actor device:<topic>",
+			"helpers":   "tasmota.online(topic) (LWT); tasmota.devices() lists {topic, name, device, relays, ip, mac} from Tasmota's own discovery (tasmota/discovery/<mac>/config), nothing is created from it",
+			"sandbox":   "vclu_draft_test step {\"mqtt\": \"stat/<topic>/POWER\", \"payload\": \"ON\"} delivers a message; commands show as mqtt.publish in blocked_calls",
+		},
 		"dashboard": map[string]any{
 			"builder":  "Dashboard.new(id):name():icon():columns():auth():pin():poll():theme()",
 			"sections": "dash:header() first, then dash:section(name, icon, {columns=n})",

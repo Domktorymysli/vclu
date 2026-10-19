@@ -22,6 +22,7 @@ Only public API is listed — internal/private functions are omitted.
 - [GPIO_DOUT](#gpio_dout) (1 functions)
 - [GPIO_DIN](#gpio_din) (1 functions)
 - [integrations.mqtt.MqttClient](#integrationsmqttmqttclient) (30 functions)
+- [lib.tasmota](#libtasmota) (5 functions)
 
 ---
 
@@ -1790,6 +1791,52 @@ Publish state update for object
 - `state` (any) — State value
 
 **Returns:** boolean Success
+
+---
+
+## lib.tasmota
+
+### `M.switch(topic, opts) → VirtualSwitch`
+
+A relay as a VirtualSwitch (1 on, 0 off).
+
+- `topic` (string) — The device's Topic, e.g. "tasmota_75088A"
+- `opts` (table) — Optional: relay (1 = POWER, 2 = POWER2...), name (object name)
+
+**Returns:** VirtualSwitch
+
+### `M.dimmer(topic, opts) → VirtualDimmer`
+
+A dimmer (Tasmota Dimmer 0..100) as a VirtualDimmer (0..1; 0 = off).
+
+- `topic` (string) — The device's Topic
+- `opts` (table) — Optional: name (object name)
+
+**Returns:** VirtualDimmer
+
+### `M.sensor(topic, path, opts) → VirtualNumber`
+
+A sensor value as a VirtualNumber, from tele/<topic>/SENSOR and the answer to Status 10.
+
+- `topic` (string) — The device's Topic
+- `path` (string) — Field in the SENSOR JSON, e.g. "ENERGY.Power" or "DS18B20.Temperature"
+- `opts` (table) — Optional: unit, name (object name)
+
+**Returns:** VirtualNumber
+
+### `M.online(topic) → boolean`
+
+Whether the device is online (its LWT is Online).
+
+- `topic` (string) — The device's Topic
+
+**Returns:** boolean
+
+### `M.devices() → table list of { topic, name, device, relays, ip, mac }`
+
+Tasmota devices seen on MQTT discovery (tasmota/discovery/<mac>/config), sorted by topic. Nothing is created from them; add a device with a line in a module.
+
+**Returns:** table list of { topic, name, device, relays, ip, mac }
 
 ---
 

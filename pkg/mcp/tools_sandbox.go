@@ -96,6 +96,8 @@ func (s *MCPServer) registerSandboxTools() {
 					`{"set": path or name, "value": v} (same path as a CLU report: _:sync), {"emit": event, "data": {...}}, ` +
 					`{"advance": seconds}, {"click": panel or button id, "input": "btn1"} (a Smart Panel input as the CLU sends it: ` +
 					"btn1..btn4, btn1:long, swipe:up; the frame drawn shows in clu_calls after an advance), " +
+					`{"mqtt": topic, "payload": "ON"} (a message as the broker delivers it, to the module's subscriptions; ` +
+					"what the module publishes shows in blocked_calls), " +
 					`{"reload": true} (new Lua state; clock and KV kept, timers dropped, ` +
 					"integration objects back to the starting snapshot), " +
 					`{"expect_state": {path: value}}, {"expect_clu_calls": [{"script": "DOU4992:execute(1, 60000)", "target": "192.168.0.5"}]} ` +
