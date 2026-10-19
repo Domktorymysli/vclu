@@ -41,6 +41,37 @@ Panel.layout = {
     indent = 8,              -- x of a menu label, after the cursor
 }
 Panel.MAX_TEXT = 15
+-- Texts the library draws itself; a module sets them in its own language
+Panel.strings = {
+    noChanges = "no changes",  -- an empty history
+    cleaning = "Cleaning",
+    thermostat = "Thermostat",
+    now = "Now",               -- thermostat: current temperature
+    set = "Set",               -- thermostat: set point
+    on = "ON", off = "OFF",    -- a switch, a dimmer at 0, a binary sensor
+    open = "OPEN", closed = "closed",       -- a gate in a menu
+    openShort = "open", closedShort = "shut", -- a gate in its history (about 5 characters fit)
+    coverOpen = "Open", coverClose = "Close", coverStop = "Stop", -- the corners of a cover page
+}
+
+-- Texts per language for Panel.lang; letters the panel lacks are mapped when drawn
+Panel.languages = {
+    pl = {
+        noChanges = "brak zmian", cleaning = "Czyszczenie", thermostat = "Termostat",
+        now = "Teraz", set = "Zadana", on = "ON", off = "OFF",
+        open = "OTWARTA", closed = "zamk.", openShort = "otw.", closedShort = "zamk.",
+        coverOpen = "Otworz", coverClose = "Zamknij", coverStop = "Stop",
+    },
+}
+
+--- Sets Panel.strings to a language ("pl"); English is the default.
+-- @param code string Language code from Panel.languages
+-- @api public
+function Panel.lang(code)
+    local t = Panel.languages[code]
+    assert(t, "Panel.lang: no language " .. tostring(code))
+    for k, v in pairs(t) do Panel.strings[k] = v end
+end
 Panel.REDRAW_MS = 20         -- changes within this time make one frame
 Panel.pageControlOff = true  -- stop gestures from switching Grenton's own pages
 
@@ -83,6 +114,10 @@ local ROLES = {
 
 local function log() return Logger:getShared() end
 
+-- Panels, for events that are not a value change (a cover's movement)
+Panel._panels = setmetatable({}, { __mode = "k" })
+local hooked = setmetatable({}, { __mode = "k" })
+
 --- Text with the letters the panel lacks replaced.
 -- @api public
 function Panel.map(s)
@@ -98,6 +133,20 @@ function Panel.text(s)
     if #s > Panel.MAX_TEXT then s = s:sub(1, Panel.MAX_TEXT) end
     return s
 end
+
+-- An object, or one from the registry by path ("CLU221000290.DOU4157"); nil if missing
+local function object(o, label)
+    if type(o) ~= "string" then
+        if o == nil and label then
+            Logger:getShared():warn("[Panel] %s: no object, row left out", tostring(label))
+        end
+        return o
+    end
+    local found = _registry and _registry:get(o)
+    if not found then Logger:getShared():warn("[Panel] no object %s, row left out", o) end
+    return found
+end
+Panel.object = object
 
 -- Value of an object (getValue/get) or a function
 local function read(src)
@@ -119,6 +168,13 @@ end
 local function fmt(f, v)
     if v == nil then return "--" end
     if type(f) == "function" then return f(v) end
+    if type(f) == "table" then -- { [0] = "closed", [1] = "open" }
+        if v == true then v = 1 elseif v == false then v = 0 end
+        local t = f[v]
+        if t == nil then t = f[tonumber(v)] end
+        if t ~= nil then return tostring(t) end
+        return tostring(v)
+    end
     if f then
         local ok, s = pcall(string.format, f, v)
         if ok then return s end
@@ -159,6 +215,15 @@ local function textW(s, font)
         w = w + (n and n * cw / L.cw[1] or cw)
     end
     return w
+end
+
+-- Text cut so it is at most w pixels wide
+local function fit(s, w, font)
+    s = Panel.text(s)
+    if textW(s, font) <= w then return s end
+    while #s > 0 and textW(s, font) > w do s = s:sub(1, -2) end
+    s = s:gsub("[\192-\255][\128-\191]*$", "") -- no half of a UTF-8 character (°)
+    return (s:gsub("%s+$", ""))
 end
 
 --- Text at x, y (y is the top), font 1-3; cut to 15 characters.
@@ -225,7 +290,14 @@ Panel.Screen = Screen
 -- @return Panel
 -- @api public
 function Panel.new(obj)
+    if type(obj) == "string" then
+        local id = obj
+        obj = Panel.find(id)
+        assert(obj, "Panel.new: no panel " .. id .. " (OM import of its CLU?)")
+    end
     assert(obj and obj.op and obj.send, "Panel.new: a RemotePanel is required")
+    -- the click() Object Manager uploads in user.lua is empty and hides the runtime's
+    click = RemotePanel.click
     local self = setmetatable({
         obj = obj,
         _input = { btn1 = "tl", btn2 = "tr", btn3 = "bl", btn4 = "br" },
@@ -244,8 +316,15 @@ function Panel.new(obj)
         _started = false,
     }, Panel)
     obj:onInput(function(input) self:input(input) end)
+    Panel._panels[self] = true
     Panel.timer.after(0, function() self:start() end)
     return self
+end
+
+--- A panel from the OM import by its object id or name ("PAN1085"), or nil.
+-- @api public
+function Panel.find(id)
+    return RemotePanel and RemotePanel._byName[tostring(id)] or nil
 end
 
 --- Which physical button is in which corner.
@@ -324,6 +403,7 @@ end
 function Panel:_unwatch()
     for _, unsub in ipairs(self._subs) do pcall(unsub) end
     self._subs = {}
+    self._watching = {}
     for _, id in ipairs(self._timers) do Panel.timer.cancel(id) end
     self._timers = {}
 end
@@ -337,6 +417,19 @@ function Panel:_watch(page)
         if type(o) == "table" and o.onChange then
             local unsub = o:onChange(function() self:redraw() end)
             if type(unsub) == "function" then self._subs[#self._subs + 1] = unsub end
+        end
+        -- a Grenton roller reports its movement aside from the position; onEvent has no
+        -- unsubscribe, so one handler per object redraws the panels watching it
+        if type(o) == "table" and o._hasPosition and o.onEvent then
+            self._watching[o] = true
+            if not hooked[o] then
+                hooked[o] = true
+                o:onEvent("OnMovementChange", function()
+                    for p in pairs(Panel._panels) do
+                        if p._watching and p._watching[o] then p:redraw() end
+                    end
+                end)
+            end
         end
     end
     if page.every then
@@ -372,6 +465,7 @@ end
 function Panel:open(page)
     if type(page) == "string" then page = self._named and self._named[page] end
     if not page then return self end
+    if getmetatable(page) == Panel.Menu then page:_prepare() end
     self._stack[#self._stack + 1] = page
     call(page, "open", self)
     self:_show()
@@ -409,6 +503,7 @@ function Panel:_reset(page)
     for i = #self._stack, 1, -1 do call(self._stack[i], "close", self) end
     self._stack = {}
     if page then
+        if getmetatable(page) == Panel.Menu then page:_prepare() end
         self._stack[1] = page
         call(page, "open", self)
     end
@@ -510,7 +605,7 @@ function Panel:input(raw)
             local ok, err = pcall(action, self)
             if not ok then log():error("[Panel] corner %s failed: %s", corner, tostring(err)) end
         elseif type(action) == "table" then
-            flip(action)
+            Panel.press(action)
         end
         self:redraw()
         return
@@ -691,8 +786,10 @@ local Menu = {}
 Menu.__index = Menu
 
 --- A list of rows; up/down move, OK opens or edits, back leaves (or cancels an edit).
+-- @param name string Title
+-- @param submenus table|nil Menus to add as submenus (empty ones are left out)
 -- @api public
-function Panel.menu(name)
+function Panel.menu(name, submenus)
     local m = setmetatable({ name = name, rows = {}, cursor = 1, scroll = 0, edit = nil }, Menu)
     -- the panel calls page functions without self
     m.keys = function() return Menu.keys(m) end
@@ -701,10 +798,19 @@ function Panel.menu(name)
     m.input = function(n, p) return Menu.input(m, n, p) end
     m.back = function() return Menu.back(m) end
     m.close = function() return Menu.close(m) end
+    submenus = submenus or {}
+    for i = 1, table.maxn(submenus) do
+        if submenus[i] then m:submenu(submenus[i]) end
+    end
     return m
 end
 
-function Menu:_add(row) self.rows[#self.rows + 1] = row return self end
+-- Rows a module added are kept apart from the rows shown, which _prepare rebuilds
+function Menu:_add(row)
+    local t = self._filling or self._own or self.rows
+    t[#t + 1] = row
+    return self
+end
 
 --- A row that opens a page or a submenu (also Menu:submenu).
 -- @api public
@@ -717,13 +823,42 @@ function Menu:submenu(label, menu)
         menu = label
         label = menu.name
     end
-    if getmetatable(menu) == Menu and #menu.rows == 0 then return self end
-    return self:item(label, menu)
+    if getmetatable(menu) == Menu and #(menu._own or menu.rows) == 0 and not menu._fill then return self end
+    return self:_add({ label = label, page = menu, sub = true })
 end
 
---- A row with an on/off object; OK switches it.
+-- Each time a menu opens: refills a menu built from expose (Panel.area: its devices,
+-- then the rows added by hand), so devices a plugin exposes later show up, and leaves out
+-- submenus that are empty now
+function Menu:_prepare(seen)
+    seen = seen or {}
+    if seen[self] then return end
+    seen[self] = true
+    self._own = self._own or self.rows
+    local all = {}
+    if self._fill then
+        self._filling = {}
+        local ok, err = pcall(self._fill, self)
+        if not ok then log():error("[Panel] %s: filling failed: %s", tostring(self.name), tostring(err)) end
+        for _, row in ipairs(self._filling) do all[#all + 1] = row end
+        self._filling = nil
+    end
+    for _, row in ipairs(self._own) do all[#all + 1] = row end
+    local rows = {}
+    for _, row in ipairs(all) do
+        local sub = row.sub and getmetatable(row.page) == Menu and row.page or nil
+        if sub then sub:_prepare(seen) end
+        if not (sub and #sub.rows == 0) then rows[#rows + 1] = row end
+    end
+    self.rows = rows
+    if self.cursor > #rows then self.cursor = math.max(1, #rows) end
+end
+
+--- A row with an on/off object (or its registry path); OK switches it. No object: no row.
 -- @api public
 function Menu:toggle(label, obj)
+    obj = object(obj, label)
+    if obj == nil then return self end
     return self:_add({ label = label, obj = obj, kind = "toggle" })
 end
 
@@ -743,6 +878,26 @@ end
 function Menu:number(label, get, set, opts)
     opts = opts or {}
     return self:_add({ label = label, get = get, set = set, opts = opts, kind = "number", obj = opts.watch })
+end
+
+--- A dimmer's brightness edited in place, 0-100 by 10; 0 shows OFF. No object: no row.
+-- @param obj table|string Object with getBrightness/setBrightness (percent), or its path;
+--   without them the row switches it on and off
+-- @param opts table|nil { step = 10, format }
+-- @api public
+function Menu:dimmer(label, obj, opts)
+    obj = object(obj, label)
+    if obj == nil then return self end
+    if not (obj.getBrightness and obj.setBrightness) then return self:toggle(label, obj) end
+    opts = opts or {}
+    local function get() return obj:getBrightness() or 0 end
+    local function set(v) obj:setBrightness(v) end
+    return self:number(label, get, set, { step = opts.step or 10, min = 0, max = 100, watch = obj,
+        format = opts.format or function(v)
+            v = tonumber(v) or 0
+            if v <= 0 then return Panel.strings.off end
+            return string.format("%d%%", v)
+        end })
 end
 
 --- One of a list of options edited in place.
@@ -766,11 +921,13 @@ end
 local function rowValue(row)
     if row.kind == "toggle" then
         local v = read(row.obj)
-        return (v == 1 or v == true) and "ON" or "OFF"
+        return (v == 1 or v == true) and Panel.strings.on or Panel.strings.off
     elseif row.kind == "value" then
         return fmt(row.format, read(row.src))
     elseif row.kind == "number" or row.kind == "choice" then
         return fmt(row.opts.format, read(row.get))
+    elseif row.kind == "cover" then
+        return Panel.coverText(row.obj)
     elseif row.page then
         return ">"
     end
@@ -818,7 +975,9 @@ function Menu:draw(s, panel)
                 value = rowValue(row)
             end
             if sel then s:text(0, y, ">") end
-            s:text(L.indent, y, row.label)
+            -- a long label (e.g. a name from expose) is cut before the value
+            local room = L.w - L.indent - (value ~= "" and textW(Panel.text(value)) + 4 or 0)
+            s:text(L.indent, y, fit(row.label, room))
             if value ~= "" then s:textRight(y, value) end
         end
     end
@@ -854,6 +1013,7 @@ function Menu:input(name, panel)
         end
         return
     end
+    if #self.rows == 0 then return end
     if name == "up" then
         self.cursor = (self.cursor - 2) % #self.rows + 1
     elseif name == "down" then
@@ -890,6 +1050,239 @@ end
 function Menu:close() self.edit = nil end
 
 Panel.Menu = Menu
+
+-- ---------- devices ----------
+
+-- The handle expose() made for an object (type, options.name, options.area), or nil
+local function exposed(obj)
+    local E = ExposedObjects
+    local path = E and E._objectToPath and E._objectToPath[obj]
+    local h = path and E:get(path)
+    -- the path can outlive an unexpose and be taken by another object
+    if h and h.object == obj then return h end
+    return nil
+end
+
+--- What device an object is: its expose() type, else the one of its Grenton type (TypeMap).
+-- @return string|nil "switch", "light", "dimmer", "cover", "temperature", "sensor", ...
+-- @api public
+function Panel.kind(obj)
+    local h = exposed(obj)
+    if h then return h.type end
+    local ok, TypeMap = pcall(require, "TypeMap")
+    if ok and type(obj) == "table" then return TypeMap.grentonToExpose[obj._type or ""] end
+end
+
+--- One press on a device: a cover opens (closes when open), anything else switches.
+-- @api public
+function Panel.press(obj)
+    if Panel.kind(obj) == "cover" and obj.open and obj.close then
+        local pos = obj.getPosition and obj:getPosition()
+        if pos and pos > 0 then obj:close() else obj:open() end
+        return
+    end
+    flip(obj)
+end
+
+local FORMATS = { temperature = "%.1f", humidity = "%.0f%%", illuminance = "%.0f", number = "%g" }
+local BINARY = { sensor = true, binary_sensor = true, motion = true }
+
+-- 1/0 as Panel.strings on/off, read when drawn (a module may set the texts after its menus)
+local function onOff(v)
+    if v == true or tonumber(v) == 1 then return Panel.strings.on end
+    if v == false or tonumber(v) == 0 then return Panel.strings.off end
+    return tostring(v)
+end
+
+--- A row for a device, by what it is (Panel.kind): a switch or light switches, a dimmer
+-- edits its brightness, a cover opens its page, a sensor's value opens its chart (a
+-- binary sensor's its history). No label: the name from expose().
+-- @param label string|nil Row label
+-- @param obj table|string Object or registry path; missing: no row
+-- @param opts table|nil { kind, format, chart = false, history = false, readonly = true }
+--   readonly: the state only, nothing switches (expose(..., { readonly = true }) sets it)
+-- @api public
+function Menu:add(label, obj, opts)
+    if obj == nil then
+        obj = label
+        label = nil
+    end
+    obj = object(obj)
+    if obj == nil then return self end
+    opts = opts or {}
+    local h = exposed(obj)
+    label = label or (h and h.options and h.options.name) or obj._name or "?"
+    local kind = opts.kind or Panel.kind(obj)
+    local isObj = type(obj) == "table"
+    local readonly = opts.readonly or (h and h.options and h.options.readonly)
+    local dims = isObj and obj.getBrightness and obj.setBrightness
+    if kind == "dimmer" or (kind == "light" and dims) then
+        if not readonly then return self:dimmer(label, obj, opts) end
+        return self:value(label, function() return obj:getBrightness() end, function(v)
+            v = tonumber(v) or 0
+            if v <= 0 then return Panel.strings.off end
+            return string.format("%d%%", v)
+        end)
+    end
+    if kind == "switch" or kind == "light" or kind == "lock" then
+        if readonly then return self:value(label, obj, onOff) end
+        return self:toggle(label, obj)
+    end
+    if kind == "cover" then
+        if readonly then return self:value(label, function() return Panel.coverText(obj) end) end
+        return self:cover(label, obj)
+    end
+    if BINARY[kind] then
+        local f = opts.format or onOff
+        local page = isObj and opts.history ~= false and Panel.history(label, obj, { format = f }) or nil
+        return self:value(label, obj, f, page)
+    end
+    -- a number gets its chart; text, scenes and the like only their value
+    local numeric = kind == nil or FORMATS[kind] ~= nil
+    local f = opts.format or FORMATS[kind] or (numeric and "%g") or "%s"
+    local page = isObj and numeric and opts.chart ~= false and Panel.chart(label, obj, { format = f }) or nil
+    return self:value(label, obj, f, page)
+end
+
+--- A gate (or a door, a window): open or closed, OK shows when it changed.
+-- @param obj table|string A binary input or its path; missing: no row
+-- @param opts table|nil { open = 1 } the value that means open (a Grenton input wired to
+--   "closed" gives 0 when open)
+-- @api public
+function Menu:gate(label, obj, opts)
+    obj = object(obj, label)
+    if obj == nil then return self end
+    local open = (opts and opts.open) or 1
+    -- texts read when drawn: a module may set Panel.strings after its menus
+    local function state(v, short)
+        if v == true then v = 1 elseif v == false then v = 0 end
+        local S = Panel.strings
+        if tonumber(v) == open then return short and S.openShort or S.open end
+        if tonumber(v) == 1 - open then return short and S.closedShort or S.closed end
+        return tostring(v)
+    end
+    return self:value(label, obj, function(v) return state(v) end,
+        Panel.history(label, obj, { format = function(v) return state(v, true) end }))
+end
+
+--- A cover: its position (^ or v while it moves); OK opens its page.
+-- @api public
+function Menu:cover(label, obj)
+    obj = object(obj, label)
+    if obj == nil then return self end
+    return self:_add({ label = label, obj = obj, kind = "cover", page = Panel.cover(label, obj) })
+end
+
+--- A cover's position as text: "70%", "^ 70%" while it opens, "v" while it closes
+function Panel.coverText(obj)
+    local pos = obj.getPosition and obj:getPosition()
+    -- a Grenton roller keeps its movement aside (getState); one without a position has
+    -- the movement as its state
+    local mv
+    if obj._hasPosition or pos == nil then mv = obj.getState and obj:getState() end
+    local arrow = (mv == 1 and "^ ") or (mv == 2 and "v ") or ""
+    if pos == nil then return arrow ~= "" and arrow:sub(1, 1) or "--" end
+    return arrow .. string.format("%d%%", tonumber(pos) or 0)
+end
+
+--- A cover on its own page: up opens, down closes, OK stops; position and movement follow.
+-- @param name string Title
+-- @param obj table|string Cover (open, close, stop, getPosition) or its path
+-- @api public
+function Panel.cover(name, obj)
+    obj = object(obj)
+    if obj == nil then return nil end
+    local S = Panel.strings
+    local page = { watch = { obj } }
+    page.keys = function()
+        return { up = { S.coverOpen }, down = { S.coverClose }, ok = { S.coverStop } }
+    end
+    page.input = function(n)
+        if n == "up" then obj:open()
+        elseif n == "down" then obj:close()
+        elseif n == "ok" then obj:stop() end
+    end
+    page.draw = function(s)
+        -- the long corner hints take the top and bottom rows: the name goes below them
+        s:region("name"):textCenter(12, name)
+        s:region("pos"):textCenter(26, Panel.coverText(obj), 2)
+    end
+    return page
+end
+
+--- A menu of the devices expose() put in an area, each with its row (Menu:add), named as
+-- in Home Assistant and HomeKit; filled each time it opens, so devices a plugin exposes
+-- later show up. Rows added by hand come after the devices.
+-- Lights, dimmers and covers first, then temperature and humidity; switches (pumps,
+-- gates, door openers) and sensors only when asked for in kinds. Like homekit and mqtt,
+-- expose(obj, type, { panel = false }) keeps an object off the panels and panel = true
+-- puts it on whatever its kind (e.g. the intercom).
+-- @param area string|table Area name, or several (one room under two names)
+-- @param opts table|nil { title, kinds = { "light", "dimmer", "cover", "temperature", "humidity" }, skip = { path } }
+-- @api public
+function Panel.area(area, opts)
+    opts = opts or {}
+    local areas = type(area) == "table" and area or { area }
+    local m = Panel.menu(opts.title or areas[1])
+    m._fill = function(self)
+        local inArea, kinds, skip = {}, {}, {}
+        for _, a in ipairs(areas) do inArea[a] = true end
+        for _, k in ipairs(opts.kinds or { "light", "dimmer", "cover", "temperature", "humidity" }) do kinds[k] = true end
+        for _, p in ipairs(opts.skip or {}) do skip[p] = true end
+        local order = { light = 1, switch = 1, dimmer = 1, lock = 1, cover = 2 }
+        local found = {}
+        local E = ExposedObjects
+        for path, h in pairs(E and E.list and E:list() or {}) do
+            local o = h.options or {}
+            local wanted = o.panel == true or (o.panel ~= false and kinds[h.type])
+            if inArea[o.area] and wanted and not skip[path] then
+                found[#found + 1] = { h = h, path = path, key = Panel.map(o.name or path) }
+            end
+        end
+        table.sort(found, function(a, b)
+            local oa, ob = order[a.h.type] or 3, order[b.h.type] or 3
+            if oa ~= ob then return oa < ob end
+            if a.key ~= b.key then return a.key < b.key end
+            return a.path < b.path
+        end)
+        for _, f in ipairs(found) do self:add(f.h.options.name or f.path, f.h.object) end
+    end
+    return m
+end
+
+--- A menu of the areas on a floor (expose(..., { area = "Salon", floor = "Parter" })),
+-- each a Panel.area; areas with nothing for the panel are left out. Filled each time it opens.
+-- @param floor string Floor name
+-- @param opts table|nil { title, order = { area, ... } (first, in this order; the rest by
+--   name), titles = { [area] = title }, kinds, skip }
+-- @api public
+function Panel.floor(floor, opts)
+    opts = opts or {}
+    local m = Panel.menu(opts.title or floor)
+    m._fill = function(self)
+        local seen, list = {}, {}
+        local E = ExposedObjects
+        for _, h in pairs(E and E.list and E:list() or {}) do
+            local o = h.options or {}
+            if o.floor == floor and o.area and not seen[o.area] then
+                seen[o.area] = true
+                list[#list + 1] = o.area
+            end
+        end
+        local rank = {}
+        for i, a in ipairs(opts.order or {}) do rank[a] = i end
+        table.sort(list, function(a, b)
+            local ra, rb = rank[a] or math.huge, rank[b] or math.huge
+            if ra ~= rb then return ra < rb end
+            return Panel.map(a) < Panel.map(b)
+        end)
+        local titles = opts.titles or {}
+        for _, a in ipairs(list) do
+            self:submenu(titles[a] or a, Panel.area(a, { title = titles[a], kinds = opts.kinds, skip = opts.skip }))
+        end
+    end
+    return m
+end
 
 -- ---------- confirm ----------
 
@@ -993,8 +1386,10 @@ Panel._hourly = hourly
 -- @param src table|function An object with history (obj:history(n)) or a function
 --   returning changes newest first ({ value, atMs })
 -- @param opts table { hours = 12, format = "%.1f" }
+-- @return table|nil The page; nil when src has no history (so a menu row gets no OK)
 -- @api public
 function Panel.chart(name, src, opts)
+    if not (type(src) == "function" or (type(src) == "table" and src.history)) then return nil end
     opts = opts or {}
     local hours = opts.hours or 12
     local page = { every = 60, sel = hours }
@@ -1060,12 +1455,12 @@ function Panel.thermostat(o)
     page.keys = { up = { "+" }, down = { "-" } }
     page.draw = function(s)
         local L = Panel.layout
-        title(s, o.name or "Termostat")
+        title(s, o.name or Panel.strings.thermostat)
         s:region("now", 0, L.rows[1] - 1, L.w, L.rowH)
-        s:text(0, L.rows[1], "Teraz"):textRight(L.rows[1], fmt(o.format or "%.1f", read(o.current)))
+        s:text(0, L.rows[1], Panel.strings.now):textRight(L.rows[1], fmt(o.format or "%.1f", read(o.current)))
         local set = page.pending or read(o.get)
         s:region("set", 0, L.rows[2] - 1, L.w, L.rowH)
-        s:text(0, L.rows[2], "Zadana"):textRight(L.rows[2], fmt(o.format or "%.1f", set))
+        s:text(0, L.rows[2], Panel.strings.set):textRight(L.rows[2], fmt(o.format or "%.1f", set))
         if o.min or o.max then
             s:region("range", 0, L.rows[3] - 1, L.w, L.rowH)
             s:textCenter(L.rows[3], fmt("%g", o.min or 0) .. "-" .. fmt("%g", o.max or 0))
@@ -1093,9 +1488,11 @@ end
 --- The last changes of an object, newest first, as a list: when and what.
 -- @param name string Title
 -- @param src table|function Object with :history(n), or a function returning { {value, atMs}, ... }
--- @param opts table|nil { count = 10, format = "%s" | fn(value) }
+-- @param opts table|nil { count = 10, format = "%s" | fn(value) | { [value] = text } }
+-- @return table|nil The page; nil when src has no history
 -- @api public
 function Panel.history(name, src, opts)
+    if not (type(src) == "function" or (type(src) == "table" and src.history)) then return nil end
     opts = opts or {}
     local count = opts.count or 10
     local page = { cursor = 1, scroll = 0 }
@@ -1120,7 +1517,7 @@ function Panel.history(name, src, opts)
         title(s, name)
         local list = entries()
         if #list == 0 then
-            s:textCenter(L.rows[2], "brak zmian")
+            s:textCenter(L.rows[2], Panel.strings.noChanges)
             return
         end
         page.cursor = math.min(page.cursor, #list)
@@ -1144,14 +1541,38 @@ end
 -- ---------- corners ----------
 
 --- A page where each corner is one button, e.g. home with the room's lights; no back.
--- @param opts table { tl = { "Swiatlo", obj|fn }, tr, bl, br, draw = fn(screen, panel), every, watch }
--- A corner with an object switches it, with a function calls fn(panel); a corner with only
--- a label shows it and leaves its LED off. draw fills the middle.
+-- @param opts table { tl = { "Swiatlo", obj|path|fn }, tr, bl, br, clock = true,
+--   draw = fn(screen, panel), every, watch }
+-- A corner with a device does what its row would (a light or dimmer switches, a cover
+-- opens or closes), with a function calls fn(panel); a corner with only a label shows it
+-- and leaves its LED off; a path not in the registry keeps the label only. clock draws
+-- the time in the middle (refreshed every minute), draw anything else there.
 -- @api public
 function Panel.corners(opts)
-    local page = { corners = {}, every = opts.every, align = opts.every ~= nil, watch = opts.watch }
-    for _, c in ipairs(CORNERS) do page.corners[c] = opts[c] end
+    local every = opts.every or (opts.clock and 60) or nil
+    local page = { corners = {}, every = every, align = every ~= nil }
+    local objs = {}
+    for _, c in ipairs(CORNERS) do
+        local spec = opts[c]
+        if spec then
+            local action = spec[2]
+            if type(action) == "string" then action = object(action, spec[1]) end
+            page.corners[c] = { spec[1], action }
+            if type(action) == "table" then objs[#objs + 1] = action end
+        end
+    end
+    page.watch = function(panel)
+        local w = {}
+        for _, o in ipairs(objs) do w[#w + 1] = o end
+        local extra = opts.watch
+        if type(extra) == "function" then extra = extra(panel) end
+        for _, o in ipairs(extra or {}) do w[#w + 1] = o end
+        return w
+    end
     page.draw = function(s, panel)
+        if opts.clock then
+            s:textCenter(24, Panel.timer.clock():match("^(%d+:%d+)") or "", 2)
+        end
         if opts.draw then opts.draw(s, panel) end
     end
     return page
@@ -1214,7 +1635,7 @@ function Panel.cleaning(seconds)
     end
     page.draw = function(s)
         local L = Panel.layout
-        s:region("title", 0, L.top, L.w, 10):textCenter(L.top, "Czyszczenie")
+        s:region("title", 0, L.top, L.w, 10):textCenter(L.top, Panel.strings.cleaning)
         s:region("count", 0, L.rows[1] + 2, L.w, 20):textCenter(L.rows[1] + 4, tostring(page.left or seconds), 3)
     end
     page.input = function() end

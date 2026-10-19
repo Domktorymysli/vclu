@@ -288,7 +288,7 @@ func TestPanelCleaning(t *testing.T) {
 	end)()`)
 	parts := strings.Split(got, "\n#")
 	// the LEDs lit at home (OK and back) go off; the two that were off are left alone
-	mustContain(t, "cleaning start", parts[0], `PAN1:set(13, 0)`, `"Czyszczenie"`, `"3", 3`,
+	mustContain(t, "cleaning start", parts[0], `PAN1:set(13, 0)`, `"Cleaning"`, `"3", 3`,
 		`PAN1B1:execute(2)`, `PAN1B3:execute(2)`)
 	mustNotContain(t, "cleaning start", parts[0], `"<"`, `PAN1B0:execute(2)`, `PAN1B2:execute(2)`)
 	mustContain(t, "countdown", parts[1], `"2", 3`)
@@ -396,7 +396,7 @@ func TestPanelChart(t *testing.T) {
 		`PAN1:execute(4, 57, 13, 57, 52, 1)`, `PAN1:execute(4, 60, 13, 60, 52, 1)`, // the chosen hour, 4 px
 		`PAN1:execute(4, 3, 31, 3, 52, 1)`, `PAN1:execute(4, 4, 31, 4, 52, 1)`, // 21 between 20 and 22
 		`PAN1:execute(4, 38, 50, 38, 52, 1)`, // 20, the lowest: a stub
-		`PAN1B3:execute(2)`) // no OK on the chart
+		`PAN1B3:execute(2)`)                  // no OK on the chart
 	mustNotContain(t, "chart", parts[0], `PAN1:execute(4, 2, 31, 2, 52, 1)`)
 	mustContain(t, "hour before", parts[1], `"11:00"`, `"20.0", 2)`,
 		`PAN1:execute(4, 52, 50, 52, 52, 1)`, `PAN1:execute(4, 55, 50, 55, 52, 1)`)
@@ -483,4 +483,247 @@ func TestPanelHistory(t *testing.T) {
 	// ten entries only: the cursor stops at the tenth (03:00)
 	mustContain(t, "last", parts[2], `PAN1:execute(3, 8, 40, "03:00", 1)`)
 	mustNotContain(t, "last", parts[2], `"02:00"`)
+}
+
+// Helpers for a panel module: the panel by id, rows by registry path (missing ones left
+// out), a dimmer row, a format table, submenus in Panel.menu, no chart without history,
+// texts in the module's language.
+func TestPanelHelpers(t *testing.T) {
+	engine := newPanelEngine(t, `
+		registerObject("CLU1.LAMP", LAMP)
+		DIM = { b = 30 }
+		function DIM:getBrightness() return self.b end
+		function DIM:setBrightness(v) self.b = v end
+		GATE = { v = 0 }
+		function GATE:getValue() return self.v end
+		click = function() end -- what Object Manager uploads in user.lua
+		Panel.strings.noChanges = "brak zmian"
+		ROOM = Panel.menu("Pokoj")
+			:toggle("Swiatlo", "CLU1.LAMP")
+			:toggle("Brak", "CLU1.NOPE")
+			:dimmer("Sciemniacz", DIM)
+			:value("Brama", GATE, { [0] = "zamk.", [1] = "OTWARTA" },
+				Panel.history("Brama", function() return {} end))
+			:value("Temp", function() return 21 end, "%.1f", Panel.chart("Temp", { getValue = function() return 21 end }))
+		PANEL = Panel.new("P1_PANEL_SALON"):home(Panel.menu("Dom", { ROOM, Panel.menu("Pusty") }))`)
+
+	if got := mustExec(t, engine, `return tostring(PANEL.obj == P) .. "|" .. tostring(click == RemotePanel.click)`); got != "true|true" {
+		t.Errorf("panel by name|click restored = %s, want true|true", got)
+	}
+	home := mustExec(t, engine, `(function() T.advance(1000); return sent() end)()`)
+	mustContain(t, "home", home, `"Pokoj"`)
+	mustNotContain(t, "home", home, `"Pusty"`)
+
+	room := mustExec(t, engine, `(function() click("PAN1", "btn4"); T.advance(1000); return sent() end)()`)
+	mustContain(t, "room", room, `"Swiatlo"`, `"OFF"`, `"Sciemniacz"`, `"30%"`, `"Brama"`, `"zamk."`)
+	mustNotContain(t, "room", room, `"Brak"`)
+
+	// the dimmer: OK, + twice, OK sets 50 once; down to 0 shows OFF
+	got := mustExec(t, engine, `(function()
+		click("PAN1", "btn3"); T.advance(100)
+		click("PAN1", "btn4"); click("PAN1", "btn1"); click("PAN1", "btn1"); click("PAN1", "btn4"); T.advance(1000)
+		local a = DIM.b
+		click("PAN1", "btn4"); for _ = 1, 6 do click("PAN1", "btn3") end; T.advance(1000)
+		return a .. "|" .. sent():match('"OFF"') .. "|" .. DIM.b
+	end)()`)
+	if got != `50|"OFF"|50` {
+		t.Errorf("dimmer = %s, want 50|\"OFF\"|50 (set, editing at 0, not set before OK)", got)
+	}
+
+	// history opens and shows the module's text; Temp has no history: no page
+	hist := mustExec(t, engine, `(function()
+		click("PAN1", "btn2"); T.advance(100)
+		click("PAN1", "btn3"); T.advance(100); sent()
+		click("PAN1", "btn4"); T.advance(1000)
+		return sent() .. "|" .. tostring(Panel.chart("x", nil)) .. "|" .. tostring(Panel.history("x", {}))
+	end)()`)
+	mustContain(t, "history", hist, `"brak zmian"`, `|nil|nil`)
+	if got := mustExec(t, engine, `return Panel.format({ [0] = "zamk." }, "0") .. Panel.format({ [0] = "zamk." }, 7)`); got != "zamk.7" {
+		t.Errorf("format table = %s, want zamk.7", got)
+	}
+}
+
+// Device rows by kind (expose type, else Grenton type), a gate, a cover page, a menu of an
+// area from expose (filled when opened, switches and sensors left out), long labels cut.
+func TestPanelDevices(t *testing.T) {
+	engine := newPanelEngine(t, `
+		SW = VirtualSwitch:new("sw")
+		DIMV = VirtualDimmer:new("dim")
+		COVER = VirtualCover:new("cover")
+		DOOR = VirtualSensor:new("door")
+		THERMO = VirtualNumber:new("thermo", { initial = 21.5 })
+		expose(SW, "light", { name = "Swiatlo nad wejsciem domu", area = "Salon" })
+		expose(DIMV, "dimmer", { name = "Kinkiet", area = "Salon" })
+		expose(THERMO, "temperature", { name = "Temperatura", area = "Salon" })
+		expose(DOOR, "sensor", { name = "Okno", area = "Salon" })
+		PUMP = VirtualSwitch:new("pump")
+		expose(PUMP, "switch", { name = "Brama", area = "Salon" })
+		DEV = Panel.menu("Urzadzenia")
+			:add("Lampa", SW)
+			:add(DIMV)
+			:add("Roleta", COVER)
+			:add("Drzwi", DOOR)
+			:gate("Brama", DOOR, { open = 0 })
+		PANEL = Panel.new(P):home(Panel.menu("Dom", { DEV, Panel.area("Salon"), Panel.area("Nigdzie") }))`)
+
+	home := mustExec(t, engine, `(function() T.advance(1000); return sent() end)()`)
+	mustContain(t, "home", home, `"Urzadzenia"`, `"Salon"`)
+	mustNotContain(t, "home", home, `"Nigdzie"`)
+
+	dev := mustExec(t, engine, `(function() click("PAN1", "btn4"); T.advance(1000); return sent() end)()`)
+	mustContain(t, "devices", dev, `"Lampa"`, `"OFF"`, `"Kinkiet"`, `"Roleta"`, `"0%"`)
+	// Drzwi (OFF) and the gate (OPEN at 0) are on the second screen
+	more := mustExec(t, engine, `(function()
+		for _ = 1, 4 do click("PAN1", "btn3") end; T.advance(1000); return sent()
+	end)()`)
+	mustContain(t, "devices below", more, `"Drzwi"`, `"Brama"`, `"OPEN"`)
+
+	// the cover page: up opens, down closes; the name below the long hints
+	cover := mustExec(t, engine, `(function()
+		click("PAN1", "btn1"); click("PAN1", "btn1"); T.advance(100); sent()
+		click("PAN1", "btn4"); T.advance(1000)
+		local a = sent()
+		click("PAN1", "btn1"); T.advance(1000)
+		local b = sent()
+		return a .. "\n#" .. b .. "\n#" .. COVER:getPosition()
+	end)()`)
+	parts := strings.Split(cover, "\n#")
+	mustContain(t, "cover page", parts[0], `"Roleta"`, `"Open"`, `"Close"`, `"Stop"`, `"0%", 2)`)
+	mustContain(t, "cover opened", parts[1], `"100%", 2)`)
+	if parts[2] != "100" {
+		t.Errorf("cover position = %s, want 100", parts[2])
+	}
+
+	// the area: lights and dimmers first, then the temperature; no switch, no sensor
+	area := mustExec(t, engine, `(function()
+		click("PAN1", "btn2"); T.advance(100); click("PAN1", "btn2"); T.advance(100); sent()
+		click("PAN1", "btn3"); T.advance(100); sent()
+		click("PAN1", "btn4"); T.advance(1000); return sent()
+	end)()`)
+	mustContain(t, "area", area, `"Salon"`, `PAN1:execute(3, 8, 14, "Kinkiet", 1)`, `"Temperatura"`, `"21.5"`)
+	mustNotContain(t, "area", area, `"Okno"`, `"Brama"`, `"Swiatlo nad wejsciem domu"`)
+	// the long name is cut before its value
+	mustContain(t, "cut label", area, `PAN1:execute(3, 8, 27, "Swiatlo nad", 1)`)
+
+	if got := mustExec(t, engine, `return Panel.kind(PUMP) .. "|" .. Panel.kind(COVER) .. "|" .. Panel.coverText({ getPosition = function() return 1 end })`); got != "switch|cover|1%" {
+		t.Errorf("kinds|cover text = %s, want switch|cover|1%%", got)
+	}
+}
+
+// Grenton rollers with and without a position, a RemoteLight as a dimmer row, the
+// movement arrow redrawn from its own event, a binary sensor's history from add, an area
+// opened from a corner that shows a device exposed after the panel started.
+func TestPanelDevicesGrenton(t *testing.T) {
+	engine := newPanelEngine(t, `
+		ROL = RemoteCover:new(CLU, "ROL1")
+		ROL._hasPosition = true
+		ROL._lastState = 70
+		OLD = RemoteCover:new(CLU, "ROL2")      -- ROLLER_SH: no position, the movement is the state
+		LIGHT = RemoteLight:new(CLU, "DIM1")
+		expose(LIGHT, "light", { name = "Kinkiet", area = "Biuro" })
+		DOOR = VirtualSensor:new("door2")
+		HIST = { { value = 1, atMs = 3600000 } }
+		DOOR.history = function() return HIST end
+		DEV = Panel.menu("Urzadzenia"):add("Roleta", ROL):add("Stara", OLD):add("Kinkiet", LIGHT):add("Okno", DOOR)
+		AREA = Panel.area("Biuro")
+		PANEL = Panel.new(P):home(Panel.corners{
+			tl = { "Urz", function(p) p:open(DEV) end },
+			br = { "Biuro", function(p) p:open(AREA) end },
+		})`)
+
+	if got := mustExec(t, engine, `return tostring(Panel.find("NOPE")) .. "|" .. Panel.coverText(OLD) .. "|" .. Panel.coverText(ROL)`); got != "nil|--|70%" {
+		t.Errorf("find|old cover|cover = %s, want nil|--|70%%", got)
+	}
+	dev := mustExec(t, engine, `(function() T.advance(100); sent(); click("PAN1", "btn1"); T.advance(1000); return sent() end)()`)
+	mustContain(t, "devices", dev, `"Roleta"`, `"70%"`, `"Stara"`, `"--"`, `"Kinkiet"`)
+
+	// a movement report without a position change redraws the row
+	moving := mustExec(t, engine, `(function()
+		ROL:_setMovement(1); OLD._lastState = 2; T.advance(1000); return sent()
+	end)()`)
+	mustContain(t, "moving", moving, `"^ 70%"`)
+
+	// Kinkiet is a dimmer row: OK edits it (the hints become + and -)
+	dim := mustExec(t, engine, `(function()
+		click("PAN1", "btn3"); click("PAN1", "btn3"); T.advance(100); sent()
+		click("PAN1", "btn4"); T.advance(1000); return sent()
+	end)()`)
+	mustContain(t, "dimmer row", dim, `"+"`, `"-"`)
+
+	// Okno opens its history
+	hist := mustExec(t, engine, `(function()
+		click("PAN1", "btn2"); click("PAN1", "btn3"); T.advance(100); sent()
+		click("PAN1", "btn4"); T.advance(1000); return sent()
+	end)()`)
+	mustContain(t, "history", hist, `"Okno"`, `"ON"`)
+
+	// the area opened from a corner shows a lamp exposed after the start
+	area := mustExec(t, engine, `(function()
+		click("PAN1", "btn2"); T.advance(100); click("PAN1", "btn2"); T.advance(100)
+		LATE = VirtualSwitch:new("late")
+		expose(LATE, "light", { name = "Lampka", area = "Biuro" })
+		sent(); click("PAN1", "btn4"); T.advance(1000); return sent()
+	end)()`)
+	mustContain(t, "area", area, `"Biuro"`, `"Kinkiet"`, `"Lampka"`)
+}
+
+// Polish texts in one call; corners take a path and act by device (a cover opens), with a
+// clock; expose(..., { panel = false/true }) chooses what an area shows; a floor lists its
+// areas in the given order, with titles, leaving out areas with nothing for the panel.
+func TestPanelLangCornersFloors(t *testing.T) {
+	engine := newPanelEngine(t, `
+		Panel.lang("pl")
+		LAMP2 = VirtualSwitch:new("lamp2")
+		registerObject("CLU1.LAMP2", LAMP2)
+		BLIND = VirtualCover:new("blind")
+		local function ex(o, typ, name, area, floor, extra)
+			local opts = { name = name, area = area, floor = floor }
+			for k, v in pairs(extra or {}) do opts[k] = v end
+			expose(o, typ, opts)
+		end
+		ex(VirtualSwitch:new("a"), "light", "Kanapa", "Salon", "Parter")
+		ex(VirtualSwitch:new("b"), "light", "Ukryta", "Salon", "Parter", { panel = false })
+		ex(VirtualSwitch:new("c"), "switch", "Domofon", "Wiatrołap", "Parter", { panel = true })
+		ex(VirtualSwitch:new("d"), "switch", "Pompa", "Kotłownia", "Parter")
+		ex(VirtualSwitch:new("e"), "light", "Lustro", "Łazienka dół", "Parter")
+		ex(VirtualSwitch:new("f"), "light", "Sufit", "Sypialnia", "Piętro")
+		PANEL = Panel.new(P):home(Panel.corners{
+			tl = { "Lampa", "CLU1.LAMP2" },
+			tr = { "Roleta", BLIND },
+			bl = { "Brak", "CLU1.NOPE" },
+			br = { "Menu", function(p) p:open(Panel.floor("Parter", {
+				order = { "Wiatrołap" }, titles = { ["Łazienka dół"] = "Lazienka" } })) end },
+			clock = true,
+		})`)
+
+	home := mustExec(t, engine, `(function() T.advance(1000); return sent() end)()`)
+	mustContain(t, "home", home, `"12:34", 2)`, `"Brak"`, `PAN1B0:execute(1)`, `PAN1B1:execute(1)`, `PAN1B2:execute(2)`)
+
+	got := mustExec(t, engine, `(function()
+		click("PAN1", "btn1"); click("PAN1", "btn2"); T.advance(1000)
+		local a = LAMP2:getValue() .. "|" .. BLIND:getPosition()
+		click("PAN1", "btn2"); T.advance(1000)
+		return a .. "|" .. BLIND:getPosition() .. "|" .. Panel.strings.coverOpen
+	end)()`)
+	if got != "1|100|0|Otworz" {
+		t.Errorf("lamp|cover|cover again|text = %s, want 1|100|0|Otworz", got)
+	}
+
+	floor := mustExec(t, engine, `(function() sent(); click("PAN1", "btn4"); T.advance(1000); return sent() end)()`)
+	mustContain(t, "floor", floor, `"Parter"`, `PAN1:execute(3, 8, 14, "Wiatrolap", 1)`,
+		`PAN1:execute(3, 8, 27, "Lazienka", 1)`, `PAN1:execute(3, 8, 40, "Salon", 1)`)
+	mustNotContain(t, "floor", floor, `"Kotlownia"`, `"Sypialnia"`)
+
+	salon := mustExec(t, engine, `(function()
+		click("PAN1", "btn3"); click("PAN1", "btn3"); T.advance(100); sent()
+		click("PAN1", "btn4"); T.advance(1000); return sent()
+	end)()`)
+	mustContain(t, "salon", salon, `"Kanapa"`)
+	mustNotContain(t, "salon", salon, `"Ukryta"`)
+
+	hall := mustExec(t, engine, `(function()
+		click("PAN1", "btn2"); click("PAN1", "btn3"); T.advance(100); sent()
+		click("PAN1", "btn4"); T.advance(1000); return sent()
+	end)()`)
+	mustContain(t, "intercom by panel = true", hall, `"Wiatrolap"`, `"Domofon"`)
 }

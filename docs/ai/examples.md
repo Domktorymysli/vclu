@@ -666,25 +666,36 @@ creates the panel as `RemotePanel` (class 29) with its buttons attached.
 local Panel = require("lib/panel")
 local temperatury = require("temperatury")       -- read values from domain modules
 
-local PANEL = _:get("CLU470000100.PAN1085")      -- the PANEL object from the OM import
-if not PANEL then return nil end
+Panel.lang("pl")                                 -- the library's own texts in Polish
 
--- OM uploads an empty click(panel, input) to user.lua; modules load after it,
--- so put the runtime entry back
-click = RemotePanel.click
-
-local lampa = _:get("CLU221000290.DOU4157")
 local zadana = VirtualNumber:new("zadana_biuro", { initial = 21, persist = true })
 
-Panel.new(PANEL)
+if not Panel.find("PAN1085") then return nil end -- no OM import of the panel yet
+
+-- a room from expose(..., { area = "Biuro" }) in the house model: lights, the dimmer
+-- and the temperature, named as in HomeKit, each with its widget; refilled each time it
+-- opens, rows added by hand come after the devices
+local biuro = Panel.area("Biuro")
+    :number("Zadana", function() return zadana:getValue() end,
+        function(v) zadana:setValue(v) end, { step = 0.5, min = 19, max = 22, format = "%.1f" })
+
+-- rows by hand: add() picks the widget by what the object is (switch, dimmer, cover,
+-- sensor); a path missing from the registry adds no row, an empty menu is left out
+local bramy = Panel.menu("Bramy")
+    :gate("Brama", "CLU220000592.DIN0095", { open = 0 }) -- an input wired to "closed"
+    :add("Roleta", "CLU220000592.ROL1234")              -- up opens, down closes, OK stops
+
+-- a floor from expose(..., { area = "Salon", floor = "Parter" }): its areas, in this order
+-- first; expose(..., { panel = false }) keeps an object off the panel, panel = true puts
+-- on one that is left out by default (switches such as the intercom)
+local parter = Panel.floor("Parter", { order = { "Wiatrołap", "Hol", "Salon" } })
+
+-- the panel from the OM import by id; this also puts back click(), which the
+-- user.lua from Object Manager hides with an empty one
+Panel.new("PAN1085")
     :buttons{ tl = "btn1", tr = "btn2", bl = "btn3", br = "btn4" }
     :back("tr")                                   -- back top right, OK below it (the default)
-    :home(Panel.menu("Biuro")
-        :toggle("Swiatlo", lampa)                 -- OK switches it, the row follows the object
-        :number("Zadana", function() return zadana:getValue() end,
-            function(v) zadana:setValue(v) end, { step = 0.5, min = 19, max = 22, format = "%.1f" })
-        :submenu("Temperatury", Panel.menu("Temperatury")
-            :value("Biuro", temperatury.all[1].read, "%.1f"))
+    :home(Panel.menu("Dom", { biuro, bramy, parter })
         :action("Czyszczenie", Panel.cleaning(30)))
     :idle(Panel.idle{ { "Biuro", temperatury.all[1].read, "%.1f" } })
     :sleepAfter(30)                               -- idle screen after 30 s without input

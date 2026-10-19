@@ -17,7 +17,7 @@ Only public API is listed — internal/private functions are omitted.
 - [core.Registry](#coreregistry) (9 functions)
 - [core.Metrics](#coremetrics) (1 functions)
 - [Dashboard](#dashboard) (48 functions)
-- [lib.panel](#libpanel) (43 functions)
+- [lib.panel](#libpanel) (54 functions)
 - [objects.RemotePanel](#objectsremotepanel) (6 functions)
 - [GPIO_DOUT](#gpio_dout) (1 functions)
 - [GPIO_DIN](#gpio_din) (1 functions)
@@ -1202,6 +1202,12 @@ Return human-friendly label for a period.
 
 ## lib.panel
 
+### `Panel.lang(code)`
+
+Sets Panel.strings to a language ("pl"); English is the default.
+
+- `code` (string) — Language code from Panel.languages
+
 ### `Panel.map(s)`
 
 Text with the letters the panel lacks replaced.
@@ -1249,6 +1255,10 @@ Takes over a panel.
 - `obj` (RemotePanel) — The panel from the OM import
 
 **Returns:** Panel
+
+### `Panel.find(id)`
+
+A panel from the OM import by its object id or name ("PAN1085"), or nil.
 
 ### `Panel:buttons(map)`
 
@@ -1317,9 +1327,12 @@ Asks for a redraw; changes within REDRAW_MS make one frame.
 
 Adds a page type: Panel.<name>(...) calls factory(...) and returns the page.
 
-### `Panel.menu(name)`
+### `Panel.menu(name, submenus)`
 
 A list of rows; up/down move, OK opens or edits, back leaves (or cancels an edit).
+
+- `name` (string) — Title
+- `submenus` (table) — |nil Menus to add as submenus (empty ones are left out)
 
 ### `Menu:item(label, page)`
 
@@ -1331,7 +1344,7 @@ A row that opens a menu; a menu with no rows adds nothing. Without a label: the 
 
 ### `Menu:toggle(label, obj)`
 
-A row with an on/off object; OK switches it.
+A row with an on/off object (or its registry path); OK switches it. No object: no row.
 
 ### `Menu:value(label, src, format, page)`
 
@@ -1346,6 +1359,13 @@ A number edited in place: OK, then +/-, OK sets it once, back cancels.
 - `set` (function) — Gets the new value once, on OK
 - `opts` (table) — { step = 1, min, max, format = "%.1f", watch = obj }
 
+### `Menu:dimmer(obj, opts)`
+
+A dimmer's brightness edited in place, 0-100 by 10; 0 shows OFF. No object: no row. without them the row switches it on and off
+
+- `obj` (table) — |string Object with getBrightness/setBrightness (percent), or its path;
+- `opts` (table) — |nil { step = 10, format }
+
 ### `Menu:choice(label, get, set, opts)`
 
 One of a list of options edited in place.
@@ -1359,6 +1379,56 @@ One of a list of options edited in place.
 
 A row that runs fn(panel) (or opens a page); opts.confirm asks first.
 
+### `Panel.kind(obj) → string|nil "switch", "light", "dimmer", "cover", "temperature", "sensor", ...`
+
+What device an object is: its expose() type, else the one of its Grenton type (TypeMap).
+
+**Returns:** string|nil "switch", "light", "dimmer", "cover", "temperature", "sensor", ...
+
+### `Panel.press(obj)`
+
+One press on a device: a cover opens (closes when open), anything else switches.
+
+### `Menu:add(label, obj, opts)`
+
+A row for a device, by what it is (Panel.kind): a switch or light switches, a dimmer edits its brightness, a cover opens its page, a sensor's value opens its chart (a binary sensor's its history). No label: the name from expose(). readonly: the state only, nothing switches (expose(..., { readonly = true }) sets it)
+
+- `label` (string) — |nil Row label
+- `obj` (table) — |string Object or registry path; missing: no row
+- `opts` (table) — |nil { kind, format, chart = false, history = false, readonly = true }
+
+### `Menu:gate(obj, opts)`
+
+A gate (or a door, a window): open or closed, OK shows when it changed. "closed" gives 0 when open)
+
+- `obj` (table) — |string A binary input or its path; missing: no row
+- `opts` (table) — |nil { open = 1 } the value that means open (a Grenton input wired to
+
+### `Menu:cover(label, obj)`
+
+A cover: its position (^ or v while it moves); OK opens its page.
+
+### `Panel.cover(name, obj)`
+
+A cover on its own page: up opens, down closes, OK stops; position and movement follow.
+
+- `name` (string) — Title
+- `obj` (table) — |string Cover (open, close, stop, getPosition) or its path
+
+### `Panel.area(area, opts)`
+
+A menu of the devices expose() put in an area, each with its row (Menu:add), named as in Home Assistant and HomeKit; filled each time it opens, so devices a plugin exposes later show up. Rows added by hand come after the devices. Lights, dimmers and covers first, then temperature and humidity; switches (pumps, gates, door openers) and sensors only when asked for in kinds. Like homekit and mqtt, expose(obj, type, { panel = false }) keeps an object off the panels and panel = true puts it on whatever its kind (e.g. the intercom).
+
+- `area` (string) — |table Area name, or several (one room under two names)
+- `opts` (table) — |nil { title, kinds = { "light", "dimmer", "cover", "temperature", "humidity" }, skip = { path } }
+
+### `Panel.floor(floor, opts)`
+
+A menu of the areas on a floor (expose(..., { area = "Salon", floor = "Parter" })), each a Panel.area; areas with nothing for the panel are left out. Filled each time it opens. name), titles = { [area] = title }, kinds, skip }
+
+- `floor` (string) — Floor name
+- `opts` (table) — |nil { title, order = { area, ... } (first, in this order; the rest by
+
 ### `Panel.confirm(text, fn, heading)`
 
 Asks before running fn(panel): OK runs it and closes, back closes.
@@ -1371,7 +1441,7 @@ One on/off object on its own page; OK switches.
 
 One value on its own page.
 
-### `Panel.chart(name, src, opts)`
+### `Panel.chart(name, src, opts) → table|nil The page; nil when src has no history (so a menu row gets no OK)`
 
 Hourly bars of a value's history: up and down pick an hour, its time and value show on the right. Each bar is the time-weighted mean of that hour; the last is the current one. returning changes newest first ({ value, atMs })
 
@@ -1379,25 +1449,29 @@ Hourly bars of a value's history: up and down pick an hour, its time and value s
 - `src` (table) — |function An object with history (obj:history(n)) or a function
 - `opts` (table) — { hours = 12, format = "%.1f" }
 
+**Returns:** table|nil The page; nil when src has no history (so a menu row gets no OK)
+
 ### `Panel.thermostat(o)`
 
 Current and set temperature; +/- change the set point, written 1 s after the last press.
 
 - `o` (table) — { name, current = obj|fn, get = fn, set = fn, step = 0.5, min, max, format = "%.1f" }
 
-### `Panel.history(name, src, opts)`
+### `Panel.history(name, src, opts) → table|nil The page; nil when src has no history`
 
 The last changes of an object, newest first, as a list: when and what.
 
 - `name` (string) — Title
 - `src` (table) — |function Object with :history(n), or a function returning { {value, atMs}, ... }
-- `opts` (table) — |nil { count = 10, format = "%s" | fn(value) }
+- `opts` (table) — |nil { count = 10, format = "%s" | fn(value) | { [value] = text } }
+
+**Returns:** table|nil The page; nil when src has no history
 
 ### `Panel.corners(opts)`
 
-A page where each corner is one button, e.g. home with the room's lights; no back. A corner with an object switches it, with a function calls fn(panel); a corner with only a label shows it and leaves its LED off. draw fills the middle.
+A page where each corner is one button, e.g. home with the room's lights; no back. draw = fn(screen, panel), every, watch } A corner with a device does what its row would (a light or dimmer switches, a cover opens or closes), with a function calls fn(panel); a corner with only a label shows it and leaves its LED off; a path not in the registry keeps the label only. clock draws the time in the middle (refreshed every minute), draw anything else there.
 
-- `opts` (table) — { tl = { "Swiatlo", obj|fn }, tr, bl, br, draw = fn(screen, panel), every, watch }
+- `opts` (table) — { tl = { "Swiatlo", obj|path|fn }, tr, bl, br, clock = true,
 
 ### `Panel.idle(rows)`
 
