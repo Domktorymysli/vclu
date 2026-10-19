@@ -215,6 +215,48 @@ func TestRGBSetColourKeepsBrightness(t *testing.T) {
 	}
 }
 
+// HA keeps the schema of an MQTT light from when it created the entity and refuses a
+// config in the other one: a light whose schema changed (an RGB light that an earlier
+// version announced plain) is removed and announced again, once; the KV store keeps
+// the schema announced last. A plain light is left alone.
+func TestHAExposedLightSchemaChangeRecreates(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+	got := mustExec(t, engine, `(function()
+		_kv = {}
+		__go_kv_get = function(ns, k) local v = _kv[ns .. "/" .. k] return v, v ~= nil end
+		__go_kv_set = function(ns, k, v) _kv[ns .. "/" .. k] = v end
+		_later = {}
+		HAStatePublisher.timer = function(ms, fn) _later[#_later + 1] = { ms = ms, fn = fn } end
+		_pub = {}
+		HAStatePublisher.setup({
+			publish = function(self, topic, payload) table.insert(_pub, topic .. "=" .. (payload == "" and "<empty>" or "cfg")); return true end,
+			subscribe = function() end, unsubscribe = function() end,
+		})
+		local clu = { executeNoReply = function() end }
+		local rgb = RemoteRGBLight:new(clu, "LED1", "tasma")
+		local plain = RemoteLight:new(clu, "DIM1", "hol")
+		local function discovery(topic)
+			local out = {}
+			for _, p in ipairs(_pub) do if p:find(topic, 1, true) == 1 then out[#out + 1] = p:sub(#topic + 2) end end
+			return table.concat(out, ",")
+		end
+		expose(rgb, "light", { name = "Tasma", path = "t:tasma" })
+		expose(plain, "light", { name = "Hol", path = "t:hol" })
+		local first = discovery("homeassistant/light/t_tasma/config") .. "|" .. #_later .. "|" .. discovery("homeassistant/light/t_hol/config")
+		for _, l in ipairs(_later) do l.fn() end
+		local after = discovery("homeassistant/light/t_tasma/config")
+		-- a reload: the same schema, nothing removed
+		_pub = {}; _later = {}
+		HAStatePublisher.refresh()
+		local again = discovery("homeassistant/light/t_tasma/config") .. "|" .. #_later
+		return first .. " " .. after .. " " .. again .. " " .. tostring(_kv["ha-discovery/t_tasma"]) .. "/" .. tostring(_kv["ha-discovery/t_hol"])
+	end)()`)
+	if want := "<empty>|1|cfg <empty>,cfg cfg|0 json/default"; got != want {
+		t.Errorf("discovery\n got: %s\nwant: %s", got, want)
+	}
+}
+
 // Before the first colour report the state has no color_mode (HA warns about a mode
 // without a colour); a read-only RGB light is a binary_sensor and gets ON/OFF.
 func TestHAExposedRGBWithoutColourAndReadonly(t *testing.T) {

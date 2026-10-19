@@ -11,6 +11,17 @@ HAStatePublisher.mqttInstance = nil
 HAStatePublisher.enabled = false
 HAStatePublisher.availabilityTopic = "vclu/status"  -- LWT topic
 
+-- HA picks an MQTT light's schema (default or json) when it creates the entity and
+-- refuses a later config in the other one, so a light whose schema changed (a Grenton
+-- RGB light, plain before #41) is removed first and announced again after this delay.
+-- The schema announced last is kept in the KV store, so this happens once.
+HAStatePublisher.SCHEMA_KV = "ha-discovery"
+HAStatePublisher.RECREATE_DELAY_MS = 2000
+HAStatePublisher.timer = function(ms, fn)
+    if type(setTimeout) == "function" then return setTimeout(fn, ms) end
+    fn()
+end
+
 -- Use central TypeMap for type mappings
 local TypeMap = require("TypeMap")
 
@@ -799,8 +810,32 @@ local function onObjectExposed(data)
         payload = "{" .. table.concat(parts, ",") .. "}"
     end
 
-    -- Publish discovery
-    HAStatePublisher.mqttInstance:publish(discoveryTopic, payload, 0, true)
+    -- Publish discovery; a light announced before in the other schema is removed first
+    -- without the KV store nothing is remembered, and a recreate on every start would be
+    -- worse than none
+    local kv = type(__go_kv_get) == "function" and type(__go_kv_set) == "function"
+    local schema = kv and component == "light" and (discoveryPayload.schema or "default") or nil
+    local prev
+    if schema then prev = __go_kv_get(HAStatePublisher.SCHEMA_KV, uniqueId) end
+    -- unknown before (an earlier version kept nothing): only a json light can have
+    -- been announced otherwise, plain lights stay as they are
+    if schema and ((prev ~= nil and prev ~= schema) or (prev == nil and schema == "json")) then
+        if Logger then
+            Logger:getShared():info("[HA Publisher] %s: schema %s -> %s, entity recreated", path, tostring(prev), schema)
+        end
+        local mqtt = HAStatePublisher.mqttInstance
+        mqtt:publish(discoveryTopic, "", 0, true)
+        HAStatePublisher.timer(HAStatePublisher.RECREATE_DELAY_MS, function()
+            mqtt:publish(discoveryTopic, payload, 0, true)
+            local h = ExposedObjects and ExposedObjects:get(path)
+            if h then publishExposedState(h) end
+        end)
+    else
+        HAStatePublisher.mqttInstance:publish(discoveryTopic, payload, 0, true)
+    end
+    if schema and prev ~= schema then
+        __go_kv_set(HAStatePublisher.SCHEMA_KV, uniqueId, schema, false, 0)
+    end
 
     -- Also publish initial state
     if ExposedObjects then
