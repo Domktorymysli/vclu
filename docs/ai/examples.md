@@ -109,6 +109,23 @@ expose(pump, "switch", {
   :description("Domestic hot water. 3x a day for 5 min. Do not turn on when the boiler is OFF.")
 ```
 
+## Walk the exposed objects
+
+What `expose()` describes once (type, name, area, tags) can be read back instead of keeping a
+second list. `ExposedObjects:list()` is the live map path -> handle: read it, never change it.
+
+```lua
+local function temperatures()
+    local out = {}
+    for path, h in pairs(ExposedObjects:list()) do
+        if h.type == "temperature" then
+            out[path] = { name = h.options.name, area = h.options.area, value = h:getValue() }
+        end
+    end
+    return out
+end
+```
+
 ## MQTT Tasmota
 
 Controlling a Tasmota device over MQTT. `MQTT` is the default client, set up in the web UI (Integrations → MQTT → Client); a client for another broker is `MQTT:new()` with `:setHost(...)`, `:connect()`.

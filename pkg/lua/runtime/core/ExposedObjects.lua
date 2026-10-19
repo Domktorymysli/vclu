@@ -563,15 +563,17 @@ function ExposedObjects:_remove(path)
     end
 end
 
---- Get an exposed handle by path
--- @param path string Path identifier
--- @return ExposedHandle or nil
+--- Get an exposed handle by path (fields as in list())
+-- @api public
+-- @param path string Exposed path
+-- @return ExposedHandle or nil when nothing is exposed at that path
 function ExposedObjects:get(path)
     return self._objects[path]
 end
 
---- Get all exposed objects
--- @return table Map of path -> ExposedHandle
+--- All exposed objects: the live map, read it and never change it
+-- @api public
+-- @return table path -> handle; stable fields: type, options.name, options.area, options.tags, getValue()
 function ExposedObjects:list()
     return self._objects
 end

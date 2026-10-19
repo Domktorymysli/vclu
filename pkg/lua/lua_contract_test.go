@@ -501,7 +501,60 @@ func TestContract_Expose_GetAll(t *testing.T) {
 		return "not_found"
 	`)
 	if result != "found" {
-		t.Error("expected exposed object to appear in ExposedObjects:getAll()")
+		t.Error("expected exposed object to appear in ExposedObjects:list()")
+	}
+}
+
+// Contract: list() is keyed by the exposed path; type, options.name/area/tags and getValue()
+// of a listed handle are what user code may rely on, and get(path) returns the same handle.
+func TestContract_Expose_ListFields(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+
+	result, err := engine.Execute(`
+		local t = VirtualSensor:new("T1", { initial = 21.5 })
+		expose(t, "temperature", { name = "Salon", area = "Parter", tags = { "influx" } })
+		local path, h
+		for p, handle in pairs(ExposedObjects:list()) do
+			if handle.options.name == "Salon" then path, h = p, handle end
+		end
+		if not h then return "not listed" end
+		return table.concat({ tostring(ExposedObjects:get(path) == h), h.type, h.options.area,
+			h.options.tags[1], tostring(h:getValue()) }, " ")
+	`)
+	if err != nil {
+		t.Fatalf("execute failed: %v", err)
+	}
+	if result != "true temperature Parter influx 21.5" {
+		t.Errorf("list() handle fields: got %q", result)
+	}
+}
+
+// Contract: an unexposed object is gone from list() and get(path).
+func TestContract_Expose_ListAfterUnexpose(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+
+	result, err := engine.Execute(`
+		local t = VirtualSensor:new("T2")
+		local h = expose(t, "temperature", { name = "Kuchnia" })
+		unexposedPath = h.path
+		h:unexpose()
+	`)
+	if err != nil {
+		t.Fatalf("execute failed: %v", err)
+	}
+	result, err = engine.Execute(`
+		for _, handle in pairs(ExposedObjects:list()) do
+			if handle.options.name == "Kuchnia" then return "still listed" end
+		end
+		return tostring(ExposedObjects:get(unexposedPath))
+	`)
+	if err != nil {
+		t.Fatalf("execute failed: %v", err)
+	}
+	if result != "nil" {
+		t.Errorf("after unexpose: got %q", result)
 	}
 }
 

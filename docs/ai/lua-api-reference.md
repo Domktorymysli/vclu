@@ -13,7 +13,7 @@ Only public API is listed — internal/private functions are omitted.
 - [objects.VirtualText](#objectsvirtualtext) (3 functions)
 - [objects.VirtualCover](#objectsvirtualcover) (10 functions)
 - [objects.VirtualObject](#objectsvirtualobject) (12 functions)
-- [ExposedObjects](#exposedobjects) (19 functions)
+- [ExposedObjects](#exposedobjects) (21 functions)
 - [core.Registry](#coreregistry) (9 functions)
 - [core.Metrics](#coremetrics) (1 functions)
 - [Dashboard](#dashboard) (48 functions)
@@ -724,6 +724,20 @@ Set value on object
 - `value` (any) — Value to set
 
 **Returns:** boolean Success, false if handle is inactive or readonly
+
+### `ExposedObjects:get(path) → ExposedHandle or nil when nothing is exposed at that path`
+
+Get an exposed handle by path (fields as in list())
+
+- `path` (string) — Exposed path
+
+**Returns:** ExposedHandle or nil when nothing is exposed at that path
+
+### `ExposedObjects:list() → table path -> handle; stable fields: type, options.name, options.area, options.tags, getValue()`
+
+All exposed objects: the live map, read it and never change it
+
+**Returns:** table path -> handle; stable fields: type, options.name, options.area, options.tags, getValue()
 
 ### `expose(obj, objType, options) → ExposedHandle`
 
