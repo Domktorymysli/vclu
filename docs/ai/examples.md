@@ -214,17 +214,16 @@ alarm_status:setValue("ALARM!")
 
 ## Grenton objects without a proxy: call a script on the CLU
 
-vCLU generates proxies only for some Grenton classes (DOUT, DIN, DIMMER, LEDRGB, ROLLER, analog I/O, 1-Wire, panel sensors). For anything else (a thermostat, a module without a proxy) do not invent methods: write a script in Object Manager on the CLU and call it from vCLU. Each imported CLU is a global `CLU<serial>` (a `CLU_REMOTE`, from `imports/proxy_<serial>.lua`).
+vCLU generates proxies only for some Grenton classes (DOUT, DIN, DIMMER, LEDRGB, ROLLER, analog I/O, 1-Wire, panel sensors and buttons, thermostats). A thermostat (`THE…`) is a `RemoteThermostat`: `getValue()` is the temperature at its sensor, `getTarget()` the target in effect, `getSetpoint()`/`setSetpoint(v)` the set point by hand, `getState()`, `getMode()` (add it to Grenton → Sync for values; it is not exposed to Home Assistant or HomeKit). For anything else (a thermostat's schedule, a module without a proxy) do not invent methods: write a script in Object Manager on the CLU and call it from vCLU. Each imported CLU is a global `CLU<serial>` (a `CLU_REMOTE`, from `imports/proxy_<serial>.lua`).
 
 ```lua
---- Thermostat on the CLU: OM script SetThermostat(temp) does the work
+--- An OM script on the CLU does the work (e.g. a thermostat's holiday mode)
 -- execute(_, script) sends the script text to the CLU and returns its reply (string) or nil, err.
 local reply, err = CLU220000592:execute(0, "SetThermostat(21)")
 if err then Logger:getShared():warn("thermostat: " .. err) end
 
--- Read a feature the same way; the reply is a string
--- (THE0855 = thermostat id, 14 = current temperature; check both in OM)
-local temp = tonumber(CLU220000592:execute(0, "THE0855:get(14)"))
+-- Read a feature the same way; the reply is a string (check the id and index in OM)
+local hyst = tonumber(CLU220000592:execute(0, "THE0855:get(5)"))
 
 -- No reply needed: does not wait for the CLU
 CLU220000592:executeNoReply(0, "SetThermostat(19)")
@@ -232,7 +231,7 @@ CLU220000592:executeNoReply(0, "SetThermostat(19)")
 
 - The first argument is ignored; the script is plain Lua run on the CLU.
 - `execute` blocks the vCLU event loop until the CLU replies, up to 5 s when the CLU is offline or the reply is lost (the CLU does drop UDP packets). Do not call it in a loop or from frequent timers; prefer `executeNoReply` for commands.
-- Changes the script makes to proxied objects come back as CLU reports, so history records them with actor `device:<CLU>`, not your automation. Objects without a proxy (the thermostat itself) do not appear in history at all.
+- Changes the script makes to proxied objects come back as CLU reports, so history records them with actor `device:<CLU>`, not your automation. Objects without a proxy do not appear in history at all.
 - In `vclu_draft_test` the script is recorded in `clu_calls` instead of being sent; `execute` returns no reply there.
 - Check the script name and arguments in OM first; a typo only shows up as an error reply from the CLU.
 
@@ -651,6 +650,73 @@ Dashboard.new('settings')
     :tabGroup('dom')     -- visible in group "dom"
     :tabGroup('admin')   -- and in group "admin"
     :build()
+```
+
+## Grenton Smart Panel (screen drawn by vCLU)
+
+A Smart Panel (on the TF-Bus of a CLU, or a Smart Panel WiFi, which is its own CLU) shows
+what a module draws with `require("lib/panel")`. Object Manager only forwards the panel's
+events: on every button's OnClick it calls the script `click` on vCLU with
+`("<panel or button id>", "btn1")`, and on OnLongPress with `"btn1:long"`. The OM import
+creates the panel as `RemotePanel` (class 29) with its buttons attached.
+
+```lua
+-- modules/panel_biuro/init.lua — one panel = one module
+local Panel = require("lib/panel")
+local temperatury = require("temperatury")       -- read values from domain modules
+
+Panel.lang("pl")                                 -- the library's own texts in Polish
+
+local zadana = VirtualNumber:new("zadana_biuro", { initial = 21, persist = true })
+
+if not Panel.find("PAN1085") then return nil end -- no OM import of the panel yet
+
+-- a room from expose(..., { area = "Biuro" }) in the house model: lights, the dimmer
+-- and the temperature, named as in HomeKit, each with its widget; refilled each time it
+-- opens, rows added by hand come after the devices
+local biuro = Panel.area("Biuro")
+    :number("Zadana", function() return zadana:getValue() end,
+        function(v) zadana:setValue(v) end, { step = 0.5, min = 19, max = 22, format = "%.1f" })
+
+-- rows by hand: add() picks the widget by what the object is (switch, dimmer, cover,
+-- sensor); a path missing from the registry adds no row, an empty menu is left out
+local bramy = Panel.menu("Bramy")
+    :gate("Brama", "CLU220000592.DIN0095", { open = 0 }) -- an input wired to "closed"
+    :add("Roleta", "CLU220000592.ROL1234")              -- up opens, down closes, OK stops
+
+-- a floor from expose(..., { area = "Salon", floor = "Parter" }): its areas, in this order
+-- first; expose(..., { panel = false }) keeps an object off the panel, panel = true puts
+-- on one that is left out by default (switches such as the intercom)
+local parter = Panel.floor("Parter", { order = { "Wiatrołap", "Hol", "Salon" } })
+
+-- the panel from the OM import by id; this also puts back click(), which the
+-- user.lua from Object Manager hides with an empty one
+Panel.new("PAN1085")
+    :buttons{ tl = "btn1", tr = "btn2", bl = "btn3", br = "btn4" }
+    :back("tr")                                   -- back top right, OK below it (the default)
+    :home(Panel.menu("Dom", { biuro, bramy, parter })
+        :action("Czyszczenie", Panel.cleaning(30)))
+    :idle(Panel.idle{ { "Biuro", temperatury.all[1].read, "%.1f" } })
+    :sleepAfter(30)                               -- idle screen after 30 s without input
+```
+
+The corners mean the same on every page: up and down on the left (`+` and `-` while editing
+a value), back top right (`<`) and OK bottom right (`>`). Keep the default so every
+panel in a house works alike; the LEDs light the corners that do something. A page type of your own: `Panel.register(name, factory)`, where
+a page is `{ draw = function(screen, panel) ... end, keys = { up = { "+" } }, input = function(role, panel) ... end }`
+and `screen` has `text(x, y, s, font)`, `textRight`, `textCenter`, `line`, `rule(y)`, `icon(x, y, "temp")`.
+
+What the panel can do (measured on a Smart Panel WiFi): 128 × 64 monochrome; fonts 1-3 are
+10, 14 and 28 px high, y is the top; 15 characters per text; Polish letters are replaced
+(`ł` → `l`); boxes are not filled, so text never inverts; icons are the `.bmp` files on the
+panel's card (`temp`, `fan`, `sun`, `lamp1on`... 64 × 32; `arrups`, `arrdowns` 16 × 16).
+Draw only through `lib/panel`: it sends each frame in short spaced messages, one expression
+each, which is what the panel's CLU accepts. Do not loop `PANEL:execute(...)` yourself.
+
+Test a panel module in `vclu_draft_test` with `click` steps; the frames are in `clu_calls`:
+
+```json
+[{"advance": 1}, {"click": "PAN1085", "input": "btn3"}, {"advance": 1}]
 ```
 
 ## Directory convention

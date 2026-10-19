@@ -17,6 +17,8 @@ Only public API is listed — internal/private functions are omitted.
 - [core.Registry](#coreregistry) (9 functions)
 - [core.Metrics](#coremetrics) (1 functions)
 - [Dashboard](#dashboard) (48 functions)
+- [lib.panel](#libpanel) (55 functions)
+- [objects.RemotePanel](#objectsremotepanel) (6 functions)
 - [GPIO_DOUT](#gpio_dout) (1 functions)
 - [GPIO_DIN](#gpio_din) (1 functions)
 - [integrations.mqtt.MqttClient](#integrationsmqttmqttclient) (30 functions)
@@ -555,7 +557,7 @@ Emits an event, invoking all registered handlers.
 
 - `eventName` (string) — The name of the event
 
-### `VirtualObject:addTag() → VirtualObject Self for method chaining`
+### `VirtualObject:addTag(...) → VirtualObject Self for method chaining`
 
 Adds one or more tags to this object.
 
@@ -774,7 +776,7 @@ Get all objects with a specific tag.
 
 **Returns:** RemoteGroup A group containing all matching objects
 
-### `_registry:byTags() → RemoteGroup A group containing all matching objects`
+### `_registry:byTags(...) → RemoteGroup A group containing all matching objects`
 
 Get objects matching any of the specified tags.
 
@@ -938,12 +940,12 @@ Add a dimmer widget to this section.
 
 ### `SectionHandle:color(id, label, icon, fns, opts)`
 
-Add a color picker widget to this section.
+Add a color picker widget to this section. switchOn?, switchOff?, isOn?, getWhite?/setWhite? white 0-100}, or a RemoteRGBLight (white when it has one)
 
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label
 - `icon` (string) — Bootstrap icon name (e.g., "palette")
-- `fns` (table) — {getColor=function()->{r,g,b}, setColor=function(r,g,b), get?/set? brightness 0-100, switchOn?, switchOff?, isOn?, getWhite?/setWhite? white 0-100}, or a RemoteRGBLight (white when it has one)
+- `fns` (table) — {getColor=function()->{r,g,b}, setColor=function(r,g,b), get?/set? brightness 0-100,
 - `opts` (table) — Optional: {disabled=function()->bool}
 
 ### `SectionHandle:when(periods, fn)`
@@ -953,7 +955,7 @@ Conditional block: only execute fn if current time matches any of the given peri
 - `periods` (table) — Array of period names ("morning","afternoon","evening","night")
 - `fn` (function) — Receives self (SectionHandle) as argument
 
-### `SectionHandle:section()`
+### `SectionHandle:section(name, icon, opts)`
 
 Start a new section (delegates to DashboardBuilder:section).
 
@@ -965,19 +967,19 @@ Start a header section (delegates to DashboardBuilder:header).
 
 Finalize and register the dashboard (delegates to DashboardBuilder:build).
 
-### `SectionHandle:name()`
+### `SectionHandle:name(s)`
 
 Set dashboard name (delegates to DashboardBuilder:name).
 
-### `SectionHandle:theme()`
+### `SectionHandle:theme(t)`
 
 Set dashboard name (delegates to DashboardBuilder:name). Set dashboard theme (delegates to DashboardBuilder:theme).
 
-### `SectionHandle:poll()`
+### `SectionHandle:poll(n)`
 
 Set dashboard name (delegates to DashboardBuilder:name). Set dashboard theme (delegates to DashboardBuilder:theme). Set dashboard poll interval (delegates to DashboardBuilder:poll).
 
-### `SectionHandle:tabGroup()`
+### `SectionHandle:tabGroup(g)`
 
 Set dashboard name (delegates to DashboardBuilder:name). Set dashboard theme (delegates to DashboardBuilder:theme). Set dashboard poll interval (delegates to DashboardBuilder:poll). Add dashboard to a tab group (delegates to DashboardBuilder:tabGroup).
 
@@ -1156,12 +1158,12 @@ Add a dimmer widget to the current section.
 
 ### `DashboardBuilder:color(id, label, icon, fns, opts)`
 
-Add a color picker widget to the current section.
+Add a color picker widget to the current section. switchOn?, switchOff?, isOn?, getWhite?/setWhite? white 0-100}, or a RemoteRGBLight (white when it has one)
 
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label
 - `icon` (string) — Bootstrap icon name (e.g., "palette")
-- `fns` (table) — {getColor=function()->{r,g,b}, setColor=function(r,g,b), get?/set? brightness 0-100, switchOn?, switchOff?, isOn?, getWhite?/setWhite? white 0-100}, or a RemoteRGBLight (white when it has one)
+- `fns` (table) — {getColor=function()->{r,g,b}, setColor=function(r,g,b), get?/set? brightness 0-100,
 - `opts` (table) — Optional: {disabled=function()->bool}
 
 ### `DashboardBuilder:when(periods, fn)`
@@ -1175,7 +1177,7 @@ Conditional block: only execute fn if current time matches any of the given peri
 
 Finalize and register the dashboard in the global registry.
 
-### `Dashboard.new()`
+### `Dashboard.new(id)`
 
 Create a new DashboardBuilder for the given ID.
 
@@ -1192,9 +1194,344 @@ Return current time-of-day period name.
 
 **Returns:** string "morning"|"afternoon"|"evening"|"night"
 
-### `Dashboard.periodLabel()`
+### `Dashboard.periodLabel(period)`
 
 Return human-friendly label for a period.
+
+---
+
+## lib.panel
+
+### `Panel.lang(code)`
+
+Sets Panel.strings to a language ("pl"); English is the default.
+
+- `code` (string) — Language code from Panel.languages
+
+### `Panel.map(s)`
+
+Text with the letters the panel lacks replaced.
+
+### `Panel.text(s)`
+
+Text as the panel can print it: letters mapped, cut to MAX_TEXT.
+
+### `Screen:text(x, y, s, font)`
+
+Text at x, y (y is the top), font 1-3; cut to 15 characters.
+
+### `Screen:textRight(y, s, font, right)`
+
+Text aligned to the right edge (or to x as its right end).
+
+### `Screen:textCenter(y, s, font, x0, x1)`
+
+Text centred between x0 and x1 (default: the whole width).
+
+### `Screen:float(x, y, n, precision, font)`
+
+A number printed by the panel itself, with precision 0-2.
+
+### `Screen:line(x, y, xe, ye, color)`
+
+A line from x, y to xe, ye (color 1 white, 0 black).
+
+### `Screen:rule(y)`
+
+A horizontal rule across the screen.
+
+### `Screen:point(x, y, color)`
+
+One pixel.
+
+### `Screen:icon(x, y, file)`
+
+An icon from the panel's card: file name without .bmp (most are 64 x 32, arrows 16 x 16).
+
+### `Panel.new(obj) → Panel`
+
+Takes over a panel.
+
+- `obj` (RemotePanel) — The panel from the OM import
+
+**Returns:** Panel
+
+### `Panel.find(id)`
+
+A panel from the OM import by its object id or name ("PAN1085"), or nil.
+
+### `Panel:buttons(map)`
+
+Which physical button is in which corner.
+
+- `map` (table) — { tl = "btn1", tr = "btn2", bl = "btn3", br = "btn4" }
+
+### `Panel:back(corner)`
+
+The corner that is back on every screen (default "tr"; ok is below or above it).
+
+### `Panel:home(page)`
+
+The home page (a menu); without an argument, goes home.
+
+### `Panel:sleepAfter(seconds)`
+
+After this many seconds without input: the idle screen, or home.
+
+### `Panel:onGesture(name, fn)`
+
+A gesture handler: name "swipe:up" / "swipe:down" / "swipe:left" / "swipe:right".
+
+### `Panel:onProximity(fn)`
+
+Called when someone comes close to the panel.
+
+### `Panel:open(page)`
+
+Opens a page on top of the current one.
+
+### `Panel:goBack()`
+
+Closes the current page; on home, goes to the idle screen.
+
+### `Panel:goHome()`
+
+Closes every page and shows home.
+
+### `Panel:goIdle()`
+
+Closes every page and shows the idle screen (or home).
+
+### `Panel:name(name, page)`
+
+Names a page so panel:open("name") and gestures can open it.
+
+### `Panel:debounce(key, seconds, fn)`
+
+Runs fn once, seconds after the last call with this key.
+
+### `Panel:notify(text, opts)`
+
+Shows a message over the current page; OK, back or the timeout closes it.
+
+- `text` (string)
+- `opts` (table) — |nil { beep = true, seconds = 30, title = "..." }
+
+### `Panel:redraw(full)`
+
+Asks for a redraw; changes within REDRAW_MS make one frame.
+
+- `full` (boolean) — Kept for callers; every frame redraws the whole screen
+
+### `Panel.register(name, factory)`
+
+Adds a page type: Panel.<name>(...) calls factory(...) and returns the page.
+
+### `Panel.menu(name, submenus)`
+
+A list of rows; up/down move, OK opens or edits, back leaves (or cancels an edit).
+
+- `name` (string) — Title
+- `submenus` (table) — |nil Menus to add as submenus (empty ones are left out)
+
+### `Menu:item(label, page)`
+
+A row that opens a page or a submenu (also Menu:submenu).
+
+### `Menu:submenu(label, menu)`
+
+A row that opens a menu; a menu with no rows adds nothing. Without a label: the menu's name.
+
+### `Menu:toggle(label, obj)`
+
+A row with an on/off object (or its registry path); OK switches it. No object: no row.
+
+### `Menu:value(label, src, format, page)`
+
+A read-only value; with a page (e.g. Panel.chart), OK opens it.
+
+### `Menu:number(label, get, set, opts)`
+
+A number edited in place: OK, then +/-, OK sets it once, back cancels.
+
+- `label` (string) — Row label
+- `get` (function) — Returns the current value
+- `set` (function) — Gets the new value once, on OK
+- `opts` (table) — { step = 1, min, max, format = "%.1f", watch = obj }
+
+### `Menu:dimmer(obj, opts)`
+
+A dimmer's brightness edited in place, 0-100 by 10; 0 shows OFF. No object: no row. without them the row switches it on and off
+
+- `obj` (table) — |string Object with getBrightness/setBrightness (percent), or its path;
+- `opts` (table) — |nil { step = 10, format }
+
+### `Menu:choice(label, get, set, opts)`
+
+One of a list of options edited in place.
+
+- `label` (string) — Row label
+- `get` (function) — Returns the current option
+- `set` (function) — Gets the chosen option once, on OK
+- `opts` (table) — { options = { "A", "B" }, watch = obj }
+
+### `Menu:action(label, fn, opts)`
+
+A row that runs fn(panel) (or opens a page); opts.confirm asks first.
+
+### `Panel.kind(obj) → string|nil "switch", "light", "dimmer", "cover", "temperature", "sensor", ...`
+
+What device an object is: its expose() type, else the one of its Grenton type (TypeMap).
+
+**Returns:** string|nil "switch", "light", "dimmer", "cover", "temperature", "sensor", ...
+
+### `Panel.press(obj)`
+
+One press on a device: a cover opens (closes when open), anything else switches.
+
+### `Menu:add(label, obj, opts)`
+
+A row for a device, by what it is (Panel.kind): a switch or light switches, a dimmer edits its brightness, a cover opens its page, a sensor's value opens its chart (a binary sensor's its history). No label: the name from expose(). readonly: the state only, nothing switches (expose(..., { readonly = true }) sets it)
+
+- `label` (string) — |nil Row label
+- `obj` (table) — |string Object or registry path; missing: no row
+- `opts` (table) — |nil { kind, format, chart = false, history = false, readonly = true }
+
+### `Menu:gate(obj, opts)`
+
+A gate (or a door, a window): open or closed, OK shows when it changed. "closed" gives 0 when open)
+
+- `obj` (table) — |string A binary input or its path; missing: no row
+- `opts` (table) — |nil { open = 1 } the value that means open (a Grenton input wired to
+
+### `Menu:thermostat(label, obj, opts)`
+
+A Grenton thermostat: the temperature at its sensor; OK opens its page with the target. + and - write the set point by hand, so only in manual mode (in holiday or auto mode the thermostat follows its own value or the schedule, and the page only shows). min, max (what + and - can reach), format = "%.1f" }
+
+- `label` (string) — Row label and page title
+- `obj` (table) — |string A RemoteThermostat or its path; missing: no row
+- `opts` (table) — |nil { readonly = true (the page shows, nothing changes), step = 0.5,
+
+### `Menu:cover(label, obj)`
+
+A cover: its position (^ or v while it moves); OK opens its page.
+
+### `Panel.cover(name, obj)`
+
+A cover on its own page: up opens, down closes, OK stops; position and movement follow.
+
+- `name` (string) — Title
+- `obj` (table) — |string Cover (open, close, stop, getPosition) or its path
+
+### `Panel.area(area, opts)`
+
+A menu of the devices expose() put in an area, each with its row (Menu:add), named as in Home Assistant and HomeKit; filled each time it opens, so devices a plugin exposes later show up. Rows added by hand come after the devices. Lights, dimmers and covers first, then temperature and humidity; switches (pumps, gates, door openers) and sensors only when asked for in kinds. Like homekit and mqtt, expose(obj, type, { panel = false }) keeps an object off the panels and panel = true puts it on whatever its kind (e.g. the intercom).
+
+- `area` (string) — |table Area name, or several (one room under two names)
+- `opts` (table) — |nil { title, kinds = { "light", "dimmer", "cover", "temperature", "humidity" }, skip = { path } }
+
+### `Panel.floor(floor, opts)`
+
+A menu of the areas on a floor (expose(..., { area = "Salon", floor = "Parter" })), each a Panel.area; areas with nothing for the panel are left out. Filled each time it opens. name), titles = { [area] = title }, kinds, skip }
+
+- `floor` (string) — Floor name
+- `opts` (table) — |nil { title, order = { area, ... } (first, in this order; the rest by
+
+### `Panel.confirm(text, fn, heading)`
+
+Asks before running fn(panel): OK runs it and closes, back closes.
+
+### `Panel.toggle(obj, name)`
+
+One on/off object on its own page; OK switches.
+
+### `Panel.value(name, src, format)`
+
+One value on its own page.
+
+### `Panel.chart(name, src, opts) → table|nil The page; nil when src has no history (so a menu row gets no OK)`
+
+Hourly bars of a value's history: up and down pick an hour, its time and value show on the right. Each bar is the time-weighted mean of that hour; the last is the current one. returning changes newest first ({ value, atMs })
+
+- `name` (string) — Title
+- `src` (table) — |function An object with history (obj:history(n)) or a function
+- `opts` (table) — { hours = 12, format = "%.1f" }
+
+**Returns:** table|nil The page; nil when src has no history (so a menu row gets no OK)
+
+### `Panel.thermostat(o)`
+
+Current and set temperature; +/- change the set point, written 1 s after the last press. Without set (or while canSet() is false) the page only shows them.
+
+- `o` (table) — { name, current = obj|fn, get = fn, set = fn|nil, canSet = fn|nil, step = 0.5, min, max, format = "%.1f" }
+
+### `Panel.history(name, src, opts) → table|nil The page; nil when src has no history`
+
+The last changes of an object, newest first, as a list: when and what.
+
+- `name` (string) — Title
+- `src` (table) — |function Object with :history(n), or a function returning { {value, atMs}, ... }
+- `opts` (table) — |nil { count = 10, format = "%s" | fn(value) | { [value] = text } }
+
+**Returns:** table|nil The page; nil when src has no history
+
+### `Panel.corners(opts)`
+
+A page where each corner is one button, e.g. home with the room's lights; no back. draw = fn(screen, panel), every, watch } A corner with a device does what its row would (a light or dimmer switches, a cover opens or closes), with a function calls fn(panel); a corner with only a label shows it and leaves its LED off; a path not in the registry keeps the label only. clock draws the time in the middle (refreshed every minute), draw anything else there.
+
+- `opts` (table) — { tl = { "Swiatlo", obj|path|fn }, tr, bl, br, clock = true,
+
+### `Panel.idle(rows)`
+
+The idle screen: time, date and a few values; any button opens home.
+
+- `rows` (table) — { { "Salon", obj|fn, "%.1f" }, ... }
+
+### `Panel.cleaning(seconds)`
+
+Locks the panel for cleaning: a countdown, inputs ignored, buzzer and LEDs off.
+
+---
+
+## objects.RemotePanel
+
+### `RemotePanel:addButton(index, button)`
+
+Attaches a PANEL_BUTTON of the same module (the OM import does this).
+
+- `index` (number) — Button index on the module (0-15; 0-3 are page 1)
+- `button` (RemotePanelButton)
+
+### `RemotePanel:getButton(index) → RemotePanelButton|nil`
+
+Gets an attached button.
+
+- `index` (number) — Button index on the module
+
+**Returns:** RemotePanelButton|nil
+
+### `RemotePanel:displayOn()`
+
+Switches the display on.
+
+### `RemotePanel:beep(freq, ms, volume)`
+
+Beeps.
+
+- `freq` (number) — Frequency 30-5700 Hz (default 2000)
+- `ms` (number) — Duration 1-2000 ms (default 100)
+- `volume` (number) — Volume 0-16 (default 8)
+
+### `RemotePanel:setPage(nr)`
+
+Shows one of Grenton's built-in pages (1-4).
+
+### `RemotePanel.click(name, input)`
+
+Entry point for the CLU: every panel event in Object Manager calls click("<panel name>", "<input>"). Never raises into the CLU's request.
+
+- `name` (string) — Panel object name or id
+- `input` (string) — Input (btn1..btn4, btn1:long, swipe:up, proximity, wake, ...)
 
 ---
 
@@ -1228,7 +1565,7 @@ Create a new GPIO_DIN object
 
 ## integrations.mqtt.MqttClient
 
-### `MQTT:new()`
+### `MQTT:new(id)`
 
 Create new MQTT instance (an id already in use destroys the old instance, with a warning).
 

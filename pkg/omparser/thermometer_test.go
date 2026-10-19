@@ -48,8 +48,8 @@ func TestParseThermometers(t *testing.T) {
 		t.Errorf("ONE_WIRE name = %q, want Kuchnia_Temp", oneWire[0].Name)
 	}
 
-	// THE objects (class 18) are thermostats — captured by the parser but not a plain
-	// thermometer. They are NOT exposed yet (climate device, see roadmap).
+	// THE objects (class 18) are thermostats, not plain thermometers. They become
+	// RemoteThermostat objects but are not exposed (no climate type yet, see roadmap).
 	thermostats := parsed.GetObjectsByClass(ClassThermostat)
 	if len(thermostats) != 2 {
 		t.Fatalf("expected 2 thermostats, got %d", len(thermostats))
@@ -91,6 +91,33 @@ func TestGenerateThermometerProxy(t *testing.T) {
 	for _, id := range []string{"THE0855", "THE4346"} {
 		if strings.Contains(code, `RemoteThermometer:new(_clu, "`+id+`"`) {
 			t.Errorf("thermostat %s should not be generated as RemoteThermometer", id)
+		}
+	}
+	// They are RemoteThermostat objects, in the registry for the Sync list and subscriptions
+	for _, want := range []string{
+		`.aSalon = RemoteThermostat:new(_clu, "THE0855", "aSalon")`,
+		`registerObject("CLU220000592.THE0855", `,
+		`registerObject("CLU220000592.THE4346", `,
+	} {
+		if !strings.Contains(code, want) {
+			t.Errorf("generated proxy missing %s", want)
+		}
+	}
+}
+
+// Thermostat v1 (CLU firmware 197, 1f5) has no CurrentTemp: the import marks it.
+func TestGenerateThermostatV1(t *testing.T) {
+	for fw, want := range map[string]bool{"00000197": true, "000001f5": true, "000001f6": false, "00000198": false} {
+		om := strings.Replace(thermometerOM, "-- FwVersion 000001f6", "-- FwVersion "+fw, 1)
+		om = strings.Replace(om, "-- FwType ", "-- FwType 00000003\n-- was ", 1)
+		parsed, err := Parse(om)
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		parsed.CLU.FwType = "00000003"
+		code := GenerateProxy(parsed, DefaultConfig())
+		if got := strings.Contains(code, ".aSalon._version = 1"); got != want {
+			t.Errorf("fw %s: _version = 1 is %v, want %v", fw, got, want)
 		}
 	}
 }

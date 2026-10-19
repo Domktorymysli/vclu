@@ -186,6 +186,21 @@ function RemoteObject:toString()
     return table.concat(lines, "\n")
 end
 
+--- Writes a value as a Lua literal for a script sent to a CLU: strings quoted
+-- and escaped, everything else as tostring.
+-- @param v any The value
+-- @return string The literal
+function RemoteObject.literal(v)
+    if type(v) ~= "string" then return tostring(v) end
+    return '"' .. v:gsub('[%c"\\]', function(c)
+        if c == '"' or c == "\\" then return "\\" .. c end
+        if c == "\n" then return "\\n" end
+        if c == "\r" then return "\\r" end
+        if c == "\t" then return "\\t" end
+        return string.format("\\%03d", c:byte())
+    end) .. '"'
+end
+
 --- Gets a value from the remote object by index.
 -- @param index number The property index to retrieve
 -- @return any The value from the remote object
@@ -200,8 +215,7 @@ end
 function RemoteObject:set(index, value)
     -- a new command overrides what an earlier timed one would do
     if StateChange then StateChange.forgetExpected(self) end
-    local valStr = type(value) == "string" and ('"' .. value .. '"') or tostring(value)
-    self._clu:executeNoReply(0, self._objId .. ":set(" .. index .. ", " .. valStr .. ")")
+    self._clu:executeNoReply(0, self._objId .. ":set(" .. index .. ", " .. RemoteObject.literal(value) .. ")")
     if index == 0 and self.updateState then
         self:updateState(value)
     end
@@ -216,7 +230,7 @@ function RemoteObject:execute(index, ...)
     local argsStr = ""
     for i, v in ipairs(args) do
         if i > 1 then argsStr = argsStr .. ", " end
-        argsStr = argsStr .. tostring(v)
+        argsStr = argsStr .. RemoteObject.literal(v)
     end
     if argsStr ~= "" then
         self._clu:executeNoReply(0, self._objId .. ":execute(" .. index .. ", " .. argsStr .. ")")
@@ -371,6 +385,9 @@ function RemoteObject:expose(options)
 
     -- Determine expose type
     local exposeType = self:_getExposeType()
+    if exposeType == nil then
+        error("expose: " .. tostring(self._objId) .. " (" .. tostring(self._type) .. ") has no expose type yet")
+    end
 
     -- Expose and cache handle
     self._exposeHandle = ExposedObjects:expose(self, exposeType, options)

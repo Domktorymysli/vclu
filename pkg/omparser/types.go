@@ -22,6 +22,8 @@ const (
 	ClassHumidity   ObjectClass = 22 // Humidity sensor (Value@idx0)
 	ClassONE_WIRE   ObjectClass = 23 // 1-Wire temperature sensor (module-based)
 	ClassROLLER     ObjectClass = 24 // Roller Shutter (with position)
+	ClassPanel      ObjectClass = 29 // Smart Panel screen (PANEL)
+	ClassPanelBtn   ObjectClass = 30 // Smart Panel button (PANEL_BUTTON)
 	ClassLEDChannel ObjectClass = 49 // One channel (R, G, B, W) of an LED RGBW 2.0 module
 )
 
@@ -60,6 +62,10 @@ func (c ObjectClass) String() string {
 		return "ONE_WIRE"
 	case ClassROLLER:
 		return "ROLLER_SHUTTER"
+	case ClassPanel:
+		return "PANEL"
+	case ClassPanelBtn:
+		return "PANEL_BUTTON"
 	case ClassLEDChannel:
 		return "LED_CHANNEL"
 	default:

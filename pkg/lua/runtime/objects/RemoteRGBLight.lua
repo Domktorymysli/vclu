@@ -160,7 +160,7 @@ end
 -- @param hex string Color in hex format (e.g., "#FF5500")
 -- @param ramp number Optional ramp time
 function RemoteRGBLight:setRGB(hex, ramp)
-    self:execute(6, '"' .. hex .. '"', ramp)
+    self:execute(6, hex, ramp)
     self:_setColor(RemoteRGBLight.parseHex(hex))
 end
 
@@ -180,7 +180,7 @@ function RemoteRGBLight:setColor(r, g, b, ramp)
     local k = (v and v > 0) and v or 1
     local function out(x, f) return math.max(0, math.min(255, math.floor(x * f + 0.5))) end
     local hex = string.format("#%02x%02x%02x", out(r, 255 * k / m), out(g, 255 * k / m), out(b, 255 * k / m))
-    self:execute(6, '"' .. hex .. '"', ramp)
+    self:execute(6, hex, ramp)
     self:_setColor(out(r, 255 / m), out(g, 255 / m), out(b, 255 / m))
 end
 

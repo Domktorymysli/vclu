@@ -89,6 +89,51 @@ the table (`TypeMap.getExposeType(t) == "dimmer"`); a new class that needs its n
 `if` or a `case` elsewhere is a design error.
 A subscription reports one feature per entry: an object that needs more than its feature 0 lists
 them in `subscribeFeatures()` and turns each into its value with `fromFeature()` (`RemoteCover`).
+What such an object keeps aside from its value changes with an event listed in `CHANGE_EVENTS`
+(`OnMovementChange`, `OnSettingsChange`), which `lib/panel` redraws on.
+`Thermostat` (class 18, a CLU's own object `THE…`, `object_thermostat_v2.xml`): features
+3 PointValue (set by hand, settable with set 3), 6 State (1 active), 8 Mode (0 PointValue,
+1 holiday, 2 auto from the schedule, 3 heat-up), 10 Min, 11 Max, 12 TargetTemp (in effect,
+with the mode), 14 CurrentTemp; execute 0 Start, 1 Stop. `RemoteThermostat` subscribes to
+3, 6, 8, 12 and 14 (five entries of a CLU's 64); its value is CurrentTemp. Thermostat v1
+(CLU firmware 197 and 1f5, FwType 3) has no feature 14; the OM import sets `_version = 1`.
+Feature 0 is Source (the sensor binding), so a thermostat must never be exposed as a switch:
+`_getExposeType()` returns nil, which keeps it out of `exposeRegistry()`.
+
+### Smart Panel (SMART_PANEL_FM_4)
+Indices from the Object Manager definition, fv05 and fv07. PANEL (class 29) execute: 0 SwitchOnDisplay,
+2 ClearScreen, 3 PrintText(x, y, text, font 1-3), 4 DrawLine, 5 DrawPoint, 6 DrawIcon(x, y, file),
+7 DisplayContent, 20 PrintFloat, 21 SetBeep(freq, ms, volume, 0), 22 SetPageNr, 30 DrawBox (fv05 on),
+31 StartCleaningMode (fv07 only); features 13 BuzzerValue, 20 PageControlMode; events
+0-3 gestures, 4 OnProximityDetect, 6 OnDisplayOn. PANEL_BUTTON (class 30, 16 = 4 buttons × 4 pages)
+execute 1 LedSwitchOn, 2 LedSwitchOff, 3 SetLabel; events 3 OnShortPress, 4 OnLongPress, 5 OnHold,
+6 OnClick. Screen 128 × 64, text up to 15 characters. PANEL_PAGE (class 19) is Grenton's own page
+and is not imported.
+
+Measured on a Smart Panel WiFi (its own CLU, `GATE:new` in om.lua, Gate firmware 1.0.2, panel
+module fv05) on 2026-10-18:
+- The CLU runs **one expression per message**: two statements side by side run nothing. `RemotePanel`
+  wraps every message in `(function() ... end)()`. Messages of 337 characters went through whole;
+  `RemotePanel.MAX_MESSAGE` is 300. A frame of 14 DrawLine calls in two messages 150 ms apart arrived.
+- `PrintText`: y is the top of the text; font 1 is 10 px high (capitals), font 2 14 px, font 3 28 px.
+  Every letter gets a black cell behind it, so text does not invert and nothing draws on top of it.
+  The fonts are proportional and keep leading spaces: a row of 128 px holds 16 digits in font 1 and
+  13 in font 2. In font 1 most digits and capitals take 8 px; from a photo of a test screen: 1 and
+  F 7, % 9, `.` `[` `]` 4, a space about 6 (`Panel.layout.narrow`, used to right-align values). Place a column by x (the menu cursor `>` is drawn on its own at
+  x 0, the label at `Panel.layout.indent`), never by padding with spaces. Text past the right edge is
+  cut, and a glyph at y 0 or at the bottom row loses a pixel or two.
+- `DrawBox` (30) draws nothing, with (x, y, w, h, color) and with end coordinates alike; it is not in
+  fv04 (the bus panels). `DrawLine` and `ClearScreen` work; a frame needs `DisplayContent` at the end.
+- Buttons: OnClick does not fire after a long press, so OnClick and OnLongPress are enough.
+  Object Manager tends to pass the button's id as the first argument of `click()`, so
+  `RemotePanel.click` accepts a panel or one of its buttons. The Gate sends the call as broadcast and
+  unicast in turn; every press arrived (4 presses in 1.5 s).
+- `DrawIcon` (6) draws the panel's own `.bmp` files (64 × 32, arrows 16 × 16) by name without the
+  extension.
+- Not yet measured: gestures, OnHold, the proximity range, the width of font 3, which button sits in
+  which corner.
+A frame is several calls in one script, so keep each message under `RemotePanel.MAX_MESSAGE` and
+spaced by `SPACING_MS`; the CLU drops bursts.
 
 ### Untested on hardware
 `RemoteLight` (dimmer), `RemoteLedChannel`, the colour of `RemoteRGBLight` and `RemoteCover` (roller) in

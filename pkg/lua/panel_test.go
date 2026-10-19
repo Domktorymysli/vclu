@@ -1,0 +1,829 @@
+package lua
+
+import (
+	"errors"
+	"strings"
+	"testing"
+	"time"
+)
+
+// Harness for the Smart Panel: a virtual clock for RemotePanel and lib/panel, a CLU that
+// records every script sent (and can lose the answer to a frame), a panel with 4 buttons.
+const panelHarness = `
+T = { now = 0, q = {}, seq = 0 }
+function T.after(ms, fn) T.seq = T.seq + 1; T.q[T.seq] = { at = T.now + ms, fn = fn }; return T.seq end
+function T.cancel(id) if id then T.q[id] = nil end end
+function T.advance(ms)
+	local target = T.now + ms
+	while true do
+		local best, bid
+		for id, t in pairs(T.q) do
+			if t.at <= target and (not best or t.at < best.at or (t.at == best.at and id < bid)) then best, bid = t, id end
+		end
+		if not best then break end
+		T.q[bid] = nil
+		T.now = best.at
+		best.fn()
+	end
+	T.now = target
+end
+RemotePanel.timer = { after = T.after }
+Panel = require("lib/panel")
+Panel.timer = { after = T.after, cancel = T.cancel, now = function() return T.now end,
+	clock = function() return "12:34  16.10" end }
+SENT = {}
+AT = {}
+REPLY = { fail = 0 }
+CLU = {
+	executeNoReply = function(_, _, s) SENT[#SENT + 1] = s; AT[#AT + 1] = T.now end,
+	executeAsync = function(_, s, done)
+		SENT[#SENT + 1] = s; AT[#AT + 1] = T.now
+		if REPLY.fail > 0 then
+			REPLY.fail = REPLY.fail - 1
+			T.after(100, function() done(nil, "timeout") end)
+		else
+			T.after(10, function() done("ok", nil) end)
+		end
+	end,
+}
+function newPanel(id, name)
+	local p = RemotePanel:new(CLU, id, name)
+	for i = 0, 3 do p:addButton(i, RemotePanelButton:new(CLU, id .. "B" .. i)) end
+	return p
+end
+P = newPanel("PAN1", "P1_PANEL_SALON")
+function sent() local s = table.concat(SENT, "\n"); SENT = {}; AT = {}; return s end
+LAMP = VirtualSwitch:new("lamp")
+SET = { n = 0, v = nil }
+TEMP = { v = 21 }
+`
+
+func newPanelEngine(t *testing.T, setup string) *LuaEngine {
+	t.Helper()
+	engine := NewLuaEngine()
+	t.Cleanup(engine.Close)
+	if _, err := engine.Execute(panelHarness); err != nil {
+		t.Fatalf("harness: %v", err)
+	}
+	if setup != "" {
+		if _, err := engine.Execute(setup); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+	}
+	return engine
+}
+
+func mustContain(t *testing.T, what, got string, wants ...string) {
+	t.Helper()
+	for _, w := range wants {
+		if !strings.Contains(got, w) {
+			t.Errorf("%s: missing %q in\n%s", what, w, got)
+		}
+	}
+}
+
+func mustNotContain(t *testing.T, what, got string, nots ...string) {
+	t.Helper()
+	for _, w := range nots {
+		if strings.Contains(got, w) {
+			t.Errorf("%s: unexpected %q in\n%s", what, w, got)
+		}
+	}
+}
+
+// Strings reach the CLU as quoted, escaped Lua literals.
+func TestRemoteObjectStringArguments(t *testing.T) {
+	engine := newPanelEngine(t, "")
+	got := mustExec(t, engine, `(function()
+		P:execute(3, 0, 0, 'a"b\\c' .. "\n" .. "d", 1)
+		P:set(4, "x\"y")
+		return sent()
+	end)()`)
+	want := `PAN1:execute(3, 0, 0, "a\"b\\c\nd", 1)` + "\n" + `PAN1:set(4, "x\"y")`
+	if got != want {
+		t.Errorf("sent\n got: %s\nwant: %s", got, want)
+	}
+	if lit := mustExec(t, engine, `return RemoteObject.literal("\1z")`); lit != `"\001z"` {
+		t.Errorf("control character = %s", lit)
+	}
+}
+
+const menuSetup = `
+PANEL = Panel.new(P)
+	:home(Panel.menu("Dom")
+		:toggle("Światło", LAMP)
+		:number("Zadana", function() return TEMP.v end, function(v) SET.n = SET.n + 1; SET.v = v; TEMP.v = v end,
+			{ step = 0.5, min = 19, max = 22, format = "%.1f" })
+		:item("Sypialnia", Panel.menu("Sypialnia"):value("Temp", function() return 20.5 end, "%.1f")))
+	:idle(Panel.idle{ { "Salon", function() return TEMP.v end } })
+	:sleepAfter(30)
+`
+
+// The home page goes out as short messages spaced on the clock, the last with a reply;
+// the corners show hints and the LEDs follow them.
+func TestPanelHomeFrame(t *testing.T) {
+	engine := newPanelEngine(t, menuSetup)
+	got := mustExec(t, engine, `(function()
+		T.advance(1000)
+		local out, max, spaced = sent(), 0, true
+		return out
+	end)()`)
+	mustContain(t, "home frame", got,
+		`PAN1:set(20, 0)`,
+		`PAN1:execute(2)`,
+		`PAN1:execute(3, 0, 14, ">", 1)`, `PAN1:execute(3, 8, 14, "Swiatlo", 1)`,
+		// right-aligned by the measured widths: O 8 + F 7 + F 7, 2 8 + 1 7 + . 4 + 0 8
+		`PAN1:execute(3, 106, 14, "OFF", 1)`, `PAN1:execute(3, 101, 27, "21.0", 1)`, `"Dom"`,
+		`PAN1:execute(3, 120, 54, ">", 1)`, `PAN1:execute(3, 120, 0, "<", 1)`, `"<"`,
+		`PAN1:execute(7)`,
+		`PAN1B0:execute(1)`, `PAN1B1:execute(1)`, `PAN1B2:execute(1)`, `PAN1B3:execute(1)`)
+
+	// no message over the limit, consecutive messages at least SPACING_MS apart, and each
+	// message one expression: the CLU runs nothing of a message with two statements
+	check := mustExec(t, engine, `(function()
+		RemotePanel.MAX_MESSAGE = 120
+		PANEL:redraw(true)
+		T.advance(1000)
+		local bad = {}
+		for i, s in ipairs(SENT) do
+			if #s > RemotePanel.MAX_MESSAGE then bad[#bad + 1] = "long " .. #s end
+			if i > 1 and AT[i] - AT[i - 1] < RemotePanel.SPACING_MS then bad[#bad + 1] = "close " .. i end
+			if s:sub(1, 12) ~= "(function() " or s:sub(-7) ~= " end)()" then bad[#bad + 1] = "bare " .. i end
+		end
+		RemotePanel.MAX_MESSAGE = 300
+		return #SENT .. "|" .. table.concat(bad, ",")
+	end)()`)
+	if !strings.HasSuffix(check, "|") || strings.HasPrefix(check, "1|") || strings.HasPrefix(check, "0|") {
+		t.Errorf("parts|problems = %s, want several parts and no problems", check)
+	}
+}
+
+// One statement that does not fit the budget still goes out, alone and wrapped.
+func TestRemotePanelPackWrapsEveryPart(t *testing.T) {
+	engine := newPanelEngine(t, "")
+	got := mustExec(t, engine, `(function()
+		local parts = RemotePanel._pack({ "a()", string.rep("b", 400), "c()" })
+		return #parts .. "|" .. parts[1] .. "|" .. #parts[2] .. "|" .. parts[3]
+	end)()`)
+	if want := "3|(function() a() end)()|419|(function() c() end)()"; got != want {
+		t.Errorf("pack = %s, want %s", got, want)
+	}
+}
+
+// Moving the cursor redraws the whole screen (nothing on the panel fills a box) and
+// leaves the LEDs alone; OK on a toggle row switches the object and the row follows it.
+func TestPanelMenuCursorAndToggle(t *testing.T) {
+	engine := newPanelEngine(t, menuSetup)
+	mustExec(t, engine, `T.advance(1000); sent()`)
+
+	moved := mustExec(t, engine, `(function() click("P1_PANEL_SALON", "btn3"); T.advance(1000); return sent() end)()`)
+	mustContain(t, "cursor down", moved, `PAN1:execute(2)`, `PAN1:execute(3, 8, 14, "Swiatlo", 1)`, `PAN1:execute(3, 0, 27, ">", 1)`, `PAN1:execute(3, 8, 27, "Zadana", 1)`, `"Dom"`, `PAN1:execute(7)`)
+	mustNotContain(t, "cursor down", moved, `PAN1B0:execute(1)`, `PAN1B3:execute(1)`)
+
+	toggled := mustExec(t, engine, `(function()
+		click("PAN1B0", "btn1") -- up, back to the toggle row (by the button's id this time)
+		click("PAN1", "btn4")   -- OK
+		T.advance(1000)
+		return LAMP:getValue() .. "|" .. sent()
+	end)()`)
+	mustContain(t, "toggle", toggled, "1|", `"ON"`)
+
+	// a change from elsewhere redraws the row
+	other := mustExec(t, engine, `(function() LAMP:setValue(0); T.advance(1000); return sent() end)()`)
+	mustContain(t, "external change", other, `"OFF"`)
+}
+
+// A number edits in place: OK, +/-, OK sets it once; min/max hold; back cancels.
+func TestPanelMenuNumberEdit(t *testing.T) {
+	engine := newPanelEngine(t, menuSetup)
+	got := mustExec(t, engine, `(function()
+		T.advance(1000)
+		click("PAN1", "btn3")              -- down to Zadana
+		click("PAN1", "btn4")              -- edit
+		T.advance(1000); local editing = sent()
+		for i = 1, 5 do click("PAN1", "btn1") end -- +2.5, held at 22
+		T.advance(1000); local up = sent()
+		local before = SET.n
+		click("PAN1", "btn4")              -- set
+		T.advance(1000)
+		local after1 = SET.n .. "/" .. tostring(SET.v)
+		click("PAN1", "btn4"); click("PAN1", "btn3"); click("PAN1", "btn2") -- edit, -, back = cancel
+		T.advance(1000)
+		return editing .. "\n#" .. up .. "\n#" .. before .. "|" .. after1 .. "|" .. SET.n .. "/" .. TEMP.v
+	end)()`)
+	mustContain(t, "edit mode", got, `"+"`, `"-"`, `"x"`, `"21.0"`)
+	mustNotContain(t, "edit mode", got, `"[`)
+	mustContain(t, "held at max", got, `"22.0"`)
+	if !strings.HasSuffix(got, "0|1/22|1/22") {
+		t.Errorf("set count/value = %s, want 0|1/22|1/22", got[strings.LastIndex(got, "#"):])
+	}
+}
+
+// A device behind HTTP reads back the old value for a while after a set: the row keeps
+// the value set until the device reports it, or until HOLD_S runs out.
+func TestPanelNumberHeldUntilReported(t *testing.T) {
+	engine := newPanelEngine(t, `
+DEV = { v = 20 }
+PANEL = Panel.new(P)
+	:home(Panel.menu("Reku")
+		:number("Zadana", function() return DEV.v end, function(v) SET.v = v end,
+			{ step = 1, min = 19, max = 22, format = "%d C" }))
+`)
+	got := mustExec(t, engine, `(function()
+		T.advance(1000); sent()
+		click("PAN1", "btn4"); click("PAN1", "btn1"); click("PAN1", "btn4") -- edit, +, set
+		T.advance(1000); local set = sent()
+		T.advance(30000); PANEL:redraw(); T.advance(1000); local stale = sent()
+		DEV.v = 21; PANEL:redraw(); T.advance(1000); local reported = sent()
+		DEV.v = 20; PANEL:redraw(); T.advance(1000); local later = sent()
+		click("PAN1", "btn4"); click("PAN1", "btn1"); click("PAN1", "btn4") -- 21 again, never reported
+		T.advance(Panel.HOLD_S * 1000 + 1000); local expired = sent()
+		click("PAN1", "btn4"); click("PAN1", "btn1"); click("PAN1", "btn1"); click("PAN1", "btn4") -- 22
+		T.advance(1000); sent()
+		DEV.v = 21; PANEL:redraw(); T.advance(1000); local clamped = sent() -- device took 21 only
+		return SET.v .. "|" .. set .. "\n#" .. stale .. "\n#" .. reported .. "\n#" .. later .. "\n#" .. expired .. "\n#" .. clamped
+	end)()`)
+	parts := strings.Split(got, "\n#")
+	if len(parts) != 6 {
+		t.Fatalf("parts = %d in\n%s", len(parts), got)
+	}
+	if !strings.HasPrefix(parts[0], "22|") {
+		t.Errorf("last value set = %s, want 22", parts[0][:strings.Index(parts[0], "|")])
+	}
+	mustContain(t, "right after set", parts[0], `"21 C"`)
+	mustContain(t, "device still reads the old value", parts[1], `"21 C"`)
+	mustContain(t, "device reports it", parts[2], `"21 C"`)
+	mustContain(t, "a later change on the device shows", parts[3], `"20 C"`)
+	mustContain(t, "after HOLD_S the device's value shows", parts[4], `"20 C"`)
+	// any other report ends the hold: the device clamped 22 to 21
+	mustContain(t, "a clamped value shows", parts[5], `"21 C"`)
+	mustNotContain(t, "a clamped value shows", parts[5], `"22 C"`)
+}
+
+// A Grenton thermostat: the CLU reports its settings and the temperature in one session;
+// the row shows the temperature, OK opens the page with the target. Read-only shows
+// them without + and -; editable writes SetPointValue and holds it until reported.
+func TestPanelThermostat(t *testing.T) {
+	engine := newPanelEngine(t, `
+TH = RemoteThermostat:new(CLU, "THE1", "aSalon")
+TH._clu.address = "192.168.0.3"
+registerObject("CLU1.THE1", TH)
+RemoteSubscription.activeSubscriptions = {}
+local objs = {}
+for _, f in ipairs(TH:subscribeFeatures()) do objs[#objs + 1] = { objId = "THE1", featureIndex = f } end
+RemoteSubscription.activeSubscriptions["192.168.0.3:5"] = { cluSerial = "CLU1", objects = objs }
+function report(state, mode, point, target, current)
+	RemoteSubscription.updateRegistry("192.168.0.3", 5, { state, mode, point, target, current })
+end
+PANEL = Panel.new(P)
+	:home(Panel.menu("Dom")
+		:thermostat("Salon", "CLU1.THE1", { readonly = true })
+		:add("Edytuj", TH, { kind = "thermostat" }))
+`)
+	got := mustExec(t, engine, `(function()
+		report(1, 0, 21, 21, 20.4)
+		local th = TH:getValue() .. "/" .. TH:getTarget() .. "/" .. TH:getSetpoint() .. "/" .. TH:getState() .. "/" .. TH:getMode()
+		T.advance(1000); local home = sent()
+		click("PAN1", "btn4"); T.advance(1000); local page = sent()  -- read-only page
+		click("PAN1", "btn1"); T.advance(2000); local pressed = sent() -- + does nothing
+		report(1, 2, 21, 19, 20.4); T.advance(1000); local target = sent() -- schedule: 19
+		click("PAN1", "btn2"); click("PAN1", "btn3"); click("PAN1", "btn4") -- back, down, OK
+		T.advance(1000); local auto = sent()
+		click("PAN1", "btn1"); T.advance(2000); local autoPressed = sent() -- auto: + does nothing
+		report(1, 0, 21, 21, 20.4); T.advance(1000); sent()               -- manual again
+		click("PAN1", "btn1"); T.advance(2000); local edited = sent() -- + 0.5, written after 1 s
+		local exposedCount = exposeRegistry()
+		local kind = Panel.kind(TH)
+		local ok = pcall(function() TH:expose() end)
+		return th .. "\n#" .. home .. "\n#" .. page .. "\n#" .. pressed .. "\n#" .. target .. "\n#" .. edited ..
+			"\n#" .. auto .. "\n#" .. autoPressed .. "\n#" .. tostring(ExposedObjects:get("CLU1.THE1")) .. "/" .. kind .. "/" .. tostring(ok)
+	end)()`)
+	parts := strings.Split(got, "\n#")
+	if len(parts) != 9 {
+		t.Fatalf("parts = %d in\n%s", len(parts), got)
+	}
+	if parts[0] != "20.4/21/21/1/0" {
+		t.Errorf("value/target/setpoint/state/mode = %s", parts[0])
+	}
+	mustContain(t, "row shows the temperature", parts[1], `"Salon"`, `"20.4"`)
+	mustContain(t, "read-only page", parts[2], `"21.0"`, `"20.4"`)
+	mustNotContain(t, "read-only page", parts[2], `"+"`, `"-"`)
+	mustNotContain(t, "read-only +", parts[3], "THE1:set")
+	mustContain(t, "target from the schedule redraws the page", parts[4], `"19.0"`)
+	mustContain(t, "editable writes SetPointValue in manual mode", parts[5], "THE1:set(3, 21.5)", `"21.5"`, `"+"`)
+	mustNotContain(t, "auto mode: no + and -", parts[6], `"+"`, `"-"`)
+	mustNotContain(t, "auto mode: + writes nothing", parts[7], "THE1:set")
+	// exposeRegistry must not make it a switch: toggling one would write feature 0 (Source)
+	if parts[8] != "nil/thermostat/false" {
+		t.Errorf("exposed/kind/expose() = %s, want nil/thermostat/false", parts[8])
+	}
+}
+
+// The back corner leaves a submenu; on home it goes to the idle screen; any button there
+// opens home; sleepAfter returns to idle.
+func TestPanelBackAndIdle(t *testing.T) {
+	engine := newPanelEngine(t, menuSetup)
+	got := mustExec(t, engine, `(function()
+		T.advance(1000); sent()
+		click("PAN1", "btn1")             -- up wraps to Sypialnia
+		click("PAN1", "btn4")             -- open
+		T.advance(1000); local sub = sent()
+		click("PAN1", "btn2")             -- back
+		T.advance(1000); local home = sent()
+		click("PAN1", "btn2")             -- back on home: idle
+		T.advance(1000); local idle = sent()
+		click("PAN1", "btn3")             -- any button: home
+		T.advance(1000); local again = sent()
+		T.advance(31000); local slept = sent()
+		return sub .. "\n#1\n" .. home .. "\n#2\n" .. idle .. "\n#3\n" .. again .. "\n#4\n" .. slept
+	end)()`)
+	parts := strings.Split(got, "\n#")
+	if len(parts) != 5 {
+		t.Fatalf("parts: %q", got)
+	}
+	mustContain(t, "submenu", parts[0], `"Sypialnia"`, `"20.5"`)
+	mustContain(t, "back to home", parts[1], `"Dom"`)
+	mustContain(t, "idle", parts[2], `"12:34  16.10"`, `"Salon"`, `"21.0"`)
+	mustNotContain(t, "idle", parts[2], `"<"`)
+	mustContain(t, "home from idle", parts[3], `"Dom"`)
+	mustContain(t, "sleep", parts[4], `"12:34  16.10"`)
+}
+
+// A frame whose last message gets no answer is sent again whole; a newer frame replaces
+// what is left of an older one.
+func TestPanelLostFrameAndCoalescing(t *testing.T) {
+	engine := newPanelEngine(t, menuSetup)
+	got := mustExec(t, engine, `(function()
+		T.advance(1000); sent()
+		REPLY.fail = 1
+		click("PAN1", "btn3")
+		T.advance(2000)
+		local resent = sent()
+		local clears = select(2, resent:gsub("PAN1:execute%(2%)", ""))
+		click("PAN1", "btn3"); T.advance(25); click("PAN1", "btn3")
+		T.advance(2000)
+		local burst = sent()
+		return clears .. "|" .. burst
+	end)()`)
+	// the frame itself and one resend, each a whole screen
+	if !strings.HasPrefix(got, "2|") {
+		t.Errorf("lost frame: clear screens sent = %s, want 2 (frame and resend)", got[:strings.Index(got, "|")])
+	}
+	burst := got[strings.Index(got, "|")+1:]
+	mustContain(t, "after two quick moves", burst, `PAN1:execute(3, 0, 14, ">", 1)`, `PAN1:execute(3, 8, 14, "Swiatlo", 1)`)
+}
+
+// Cleaning: a countdown, inputs ignored, buzzer off and back on, then the page it came from.
+func TestPanelCleaning(t *testing.T) {
+	engine := newPanelEngine(t, `
+		PANEL = Panel.new(P):home(Panel.menu("Dom"):action("Czyszczenie", Panel.cleaning(3)))`)
+	got := mustExec(t, engine, `(function()
+		T.advance(1000); sent()
+		click("PAN1", "btn4")
+		T.advance(500); local start = sent()
+		click("PAN1", "btn2"); click("PAN1", "btn4")
+		T.advance(1000); local tick = sent()
+		T.advance(3000); local done = sent()
+		return start .. "\n#" .. tick .. "\n#" .. done
+	end)()`)
+	parts := strings.Split(got, "\n#")
+	// the LEDs lit at home (OK and back) go off; the two that were off are left alone
+	mustContain(t, "cleaning start", parts[0], `PAN1:set(13, 0)`, `"Cleaning"`, `"3", 3`,
+		`PAN1B1:execute(2)`, `PAN1B3:execute(2)`)
+	mustNotContain(t, "cleaning start", parts[0], `"<"`, `PAN1B0:execute(2)`, `PAN1B2:execute(2)`)
+	mustContain(t, "countdown", parts[1], `"2", 3`)
+	mustNotContain(t, "inputs ignored", parts[1], `"Dom"`)
+	mustContain(t, "cleaning end", parts[2], `PAN1:set(13, 1)`, `"Dom"`, `">", 1)`, `"Czyszczenie"`)
+}
+
+// notify shows over the page and goes away; a registered page type gets the back corner;
+// two panels keep their own state; wake redraws in full; unknown inputs do nothing.
+func TestPanelNotifyRegisterAndState(t *testing.T) {
+	engine := newPanelEngine(t, `
+		Panel.register("counter", function()
+			local page = { n = 0 }
+			page.keys = { up = { "+" } }
+			page.draw = function(s) s:region("n", 0, 26, 128, 12):text(0, 27, "n=" .. page.n) end
+			page.input = function(name) if name == "up" then page.n = page.n + 1 end end
+			return page
+		end)
+		P2 = newPanel("PAN2", "P2_PANEL")
+		A = Panel.new(P):home(Panel.menu("A"):item("Licznik", Panel.counter()):item("B", Panel.menu("x")))
+		B = Panel.new(P2):home(Panel.menu("B"):item("x", Panel.menu("y")):item("z", Panel.menu("w")))`)
+	got := mustExec(t, engine, `(function()
+		T.advance(1000); sent()
+		click("PAN1", "btn4"); click("PAN1", "btn1"); click("PAN1", "btn1")
+		T.advance(1000); local counter = sent()
+		click("PAN2", "btn3")
+		T.advance(1000); local other = sent()
+		click("PAN1", "btn2")
+		T.advance(1000); local back = sent()
+		A:notify("Pranie gotowe", { seconds = 5 })
+		T.advance(1000); local note = sent()
+		T.advance(5000); local gone = sent()
+		click("PAN1", "wake"); T.advance(1000); local wake = sent()
+		local unknown = tostring(click("NOPE", "btn1")) .. tostring(click("PAN1", "btn9"))
+		return counter .. "\n#" .. other .. "\n#" .. back .. "\n#" .. note .. "\n#" .. gone .. "\n#" .. wake .. "\n#" .. unknown
+	end)()`)
+	parts := strings.Split(got, "\n#")
+	mustContain(t, "registered page", parts[0], `"n=2"`)
+	mustContain(t, "other panel", parts[1], `PAN2:`, `">", 1)`, `, "z", 1)`)
+	mustNotContain(t, "other panel", parts[1], `PAN1:`)
+	mustContain(t, "back from registered page", parts[2], `">", 1)`, `"Licznik"`)
+	mustContain(t, "notify", parts[3], `"Pranie gotowe"`, `PAN1:execute(3, 120, 54, ">", 1)`)
+	mustContain(t, "notify gone", parts[4], `">", 1)`, `"Licznik"`)
+	mustContain(t, "wake", parts[5], `PAN1:execute(2)`, `">", 1)`, `"Licznik"`)
+	if parts[6] != "falsetrue" {
+		t.Errorf("unknown panel / input = %s, want falsetrue", parts[6])
+	}
+}
+
+// executeAsync does not block: the answer (or the error) comes back later through
+// __vclu_command_reply to the callback.
+func TestCLURemoteExecuteAsync(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+	engine.SetCommandSender(func(ip, script string) (string, error) {
+		if strings.Contains(script, "lost") {
+			return "", errTimeoutForTest
+		}
+		return "answer:" + ip + ":" + script, nil
+	})
+	mustExec(t, engine, `(function()
+		GOT = {}
+		local clu = CLU_REMOTE:new(1, "192.168.0.9", system:getEventBus())
+		clu:executeAsync("x()", function(r, err) GOT.ok = tostring(r) .. "|" .. tostring(err) end)
+		clu:executeAsync("lost()", function(r, err) GOT.lost = tostring(err) end)
+	end)()`)
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		got := mustExec(t, engine, `return tostring(GOT.ok) .. "#" .. tostring(GOT.lost)`)
+		if got == "answer:192.168.0.9:x()|nil#timeout" {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("replies = %s", got)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+var errTimeoutForTest = errors.New("timeout")
+
+// A value row opens its chart: hourly time-weighted means, the current hour chosen,
+// down picks the hour before; bars scale between the lowest and highest hour.
+func TestPanelChart(t *testing.T) {
+	engine := newPanelEngine(t, `
+		local H = 3600000
+		T.now = 12 * H + H / 2
+		HIST = {
+			{ value = 22, atMs = 12 * H },
+			{ value = 20, atMs = 7 * H + H / 2 },
+			{ value = 21, atMs = 0 },
+		}
+		PANEL = Panel.new(P):home(Panel.menu("Dom")
+			:value("Salon", function() return 22 end, "%.1f", Panel.chart("Salon", function() return HIST end)))`)
+	got := mustExec(t, engine, `(function()
+		T.advance(100); sent()
+		click("PAN1", "btn4"); T.advance(1000)
+		local a = sent()
+		click("PAN1", "btn1"); T.advance(1000)
+		return a .. "\n#" .. sent()
+	end)()`)
+	parts := strings.Split(got, "\n#")
+	mustContain(t, "chart", parts[0], `"Salon"`, `PAN1:execute(3, 86, 52, "12:00", 1)`, `PAN1:execute(3, 86, 24, "22.0", 2)`,
+		`PAN1:execute(4, 56, 57, 58, 55, 1)`, `PAN1:execute(4, 59, 55, 61, 57, 1)`, // ^ under it
+		`PAN1:execute(4, 57, 13, 57, 52, 1)`, `PAN1:execute(4, 60, 13, 60, 52, 1)`, // the chosen hour, 4 px
+		`PAN1:execute(4, 3, 31, 3, 52, 1)`, `PAN1:execute(4, 4, 31, 4, 52, 1)`, // 21 between 20 and 22
+		`PAN1:execute(4, 38, 50, 38, 52, 1)`, // 20, the lowest: a stub
+		`PAN1B3:execute(2)`)                  // no OK on the chart
+	mustNotContain(t, "chart", parts[0], `PAN1:execute(4, 2, 31, 2, 52, 1)`)
+	mustContain(t, "hour before", parts[1], `"11:00"`, `"20.0", 2)`,
+		`PAN1:execute(4, 52, 50, 52, 52, 1)`, `PAN1:execute(4, 55, 50, 55, 52, 1)`)
+
+	first := mustExec(t, engine, `(function()
+		for _ = 1, 11 do click("PAN1", "btn1"); T.advance(1000) end
+		return sent()
+	end)()`)
+	mustContain(t, "first hour", first, `"01:00"`, `PAN1:execute(4, 1, 57, 3, 55, 1)`)
+	mustNotContain(t, "first hour", first, `, -`) // the panel draws a negative x as a long line
+
+	mean := mustExec(t, engine, `(function()
+		local b = Panel._hourly(HIST, 12, T.now)
+		return string.format("%s %s %s %s", b[6], b[7], b[11], b[12])
+	end)()`)
+	if mean != "21 20.5 20 22" {
+		t.Errorf("hourly means = %q, want %q", mean, "21 20.5 20 22")
+	}
+}
+
+// A corners page: each corner is one button with its label, back included; a corner with
+// only a label leaves its LED off. A longer bottom label sits higher than a symbol.
+// An empty submenu adds no row.
+func TestPanelCorners(t *testing.T) {
+	engine := newPanelEngine(t, `
+		CALLS = { n = 0 }
+		MENU = Panel.menu("Menu"):toggle("A", LAMP)
+			:submenu(Panel.menu("Pusty"))
+			:submenu(Panel.menu("Sub"):value("T", function() return 1 end))
+		PANEL = Panel.new(P):home(Panel.corners{
+			tl = { "Swiatlo", LAMP },
+			tr = { "LED", function() CALLS.n = CALLS.n + 1 end },
+			bl = { "Lampka" },
+			br = { "Menu", function(p) p:open(MENU) end },
+			draw = function(s) s:textCenter(24, "12:34", 2) end,
+		})`)
+	home := mustExec(t, engine, `(function() T.advance(1000); return sent() end)()`)
+	mustContain(t, "home", home, `PAN1:execute(3, 0, 0, "Swiatlo", 1)`, `PAN1:execute(3, 104, 0, "LED", 1)`,
+		`PAN1:execute(3, 0, 48, "Lampka", 1)`, `PAN1:execute(3, 96, 48, "Menu", 1)`, `"12:34", 2)`,
+		`PAN1B0:execute(1)`, `PAN1B1:execute(1)`, `PAN1B2:execute(2)`, `PAN1B3:execute(1)`)
+
+	got := mustExec(t, engine, `(function()
+		click("PAN1", "btn1"); click("PAN1", "btn2"); click("PAN1", "btn3"); T.advance(1000)
+		return LAMP:getValue() .. "|" .. CALLS.n .. "|" .. #PANEL._stack
+	end)()`)
+	if got != "1|1|1" {
+		t.Errorf("lamp|calls|pages = %s, want 1|1|1", got)
+	}
+
+	menu := mustExec(t, engine, `(function() sent(); click("PAN1", "btn4"); T.advance(1000); return sent() end)()`)
+	mustContain(t, "menu", menu, `"A"`, `"Sub"`, `PAN1:execute(3, 120, 54, ">", 1)`)
+	mustNotContain(t, "menu", menu, `"Pusty"`)
+
+	back := mustExec(t, engine, `(function() click("PAN1", "btn2"); T.advance(1000); return sent() end)()`)
+	mustContain(t, "back home", back, `"Lampka"`)
+}
+
+// A history page lists the last changes newest first; up/down move the cursor and scroll.
+func TestPanelHistory(t *testing.T) {
+	engine := newPanelEngine(t, `
+		Panel.timer.at = function(ms) return string.format("%02d:00", math.floor(ms / 3600000)) end
+		HIST = {}
+		for h = 12, 1, -1 do HIST[#HIST + 1] = { value = h % 2, atMs = h * 3600000 } end
+		local fmt = function(v) return v == 1 and "OTWARTA" or "zamk." end
+		PANEL = Panel.new(P):home(Panel.menu("Dom")
+			:value("Brama", function() return 1 end, fmt, Panel.history("Brama", function() return HIST end, { format = fmt })))`)
+	got := mustExec(t, engine, `(function()
+		T.advance(100); sent()
+		click("PAN1", "btn4"); T.advance(1000)
+		local a = sent()
+		for _ = 1, 3 do click("PAN1", "btn3") end
+		T.advance(1000)
+		local b = sent()
+		for _ = 1, 20 do click("PAN1", "btn3") end
+		T.advance(1000)
+		return a .. "\n#" .. b .. "\n#" .. sent()
+	end)()`)
+	parts := strings.Split(got, "\n#")
+	mustContain(t, "newest first", parts[0], `"Brama"`, `PAN1:execute(3, 0, 14, ">", 1)`,
+		`PAN1:execute(3, 8, 14, "12:00", 1)`, `"zamk."`, `PAN1:execute(3, 8, 27, "11:00", 1)`, `"OTWARTA"`,
+		`PAN1:execute(3, 8, 40, "10:00", 1)`)
+	mustContain(t, "fourth", parts[1], `PAN1:execute(3, 0, 40, ">", 1)`, `PAN1:execute(3, 8, 40, "09:00", 1)`)
+	mustNotContain(t, "fourth", parts[1], `"12:00"`)
+	// ten entries only: the cursor stops at the tenth (03:00)
+	mustContain(t, "last", parts[2], `PAN1:execute(3, 8, 40, "03:00", 1)`)
+	mustNotContain(t, "last", parts[2], `"02:00"`)
+}
+
+// Helpers for a panel module: the panel by id, rows by registry path (missing ones left
+// out), a dimmer row, a format table, submenus in Panel.menu, no chart without history,
+// texts in the module's language.
+func TestPanelHelpers(t *testing.T) {
+	engine := newPanelEngine(t, `
+		registerObject("CLU1.LAMP", LAMP)
+		DIM = { b = 30 }
+		function DIM:getBrightness() return self.b end
+		function DIM:setBrightness(v) self.b = v end
+		GATE = { v = 0 }
+		function GATE:getValue() return self.v end
+		click = function() end -- what Object Manager uploads in user.lua
+		Panel.strings.noChanges = "brak zmian"
+		ROOM = Panel.menu("Pokoj")
+			:toggle("Swiatlo", "CLU1.LAMP")
+			:toggle("Brak", "CLU1.NOPE")
+			:dimmer("Sciemniacz", DIM)
+			:value("Brama", GATE, { [0] = "zamk.", [1] = "OTWARTA" },
+				Panel.history("Brama", function() return {} end))
+			:value("Temp", function() return 21 end, "%.1f", Panel.chart("Temp", { getValue = function() return 21 end }))
+		PANEL = Panel.new("P1_PANEL_SALON"):home(Panel.menu("Dom", { ROOM, Panel.menu("Pusty") }))`)
+
+	if got := mustExec(t, engine, `return tostring(PANEL.obj == P) .. "|" .. tostring(click == RemotePanel.click)`); got != "true|true" {
+		t.Errorf("panel by name|click restored = %s, want true|true", got)
+	}
+	home := mustExec(t, engine, `(function() T.advance(1000); return sent() end)()`)
+	mustContain(t, "home", home, `"Pokoj"`)
+	mustNotContain(t, "home", home, `"Pusty"`)
+
+	room := mustExec(t, engine, `(function() click("PAN1", "btn4"); T.advance(1000); return sent() end)()`)
+	mustContain(t, "room", room, `"Swiatlo"`, `"OFF"`, `"Sciemniacz"`, `"30%"`, `"Brama"`, `"zamk."`)
+	mustNotContain(t, "room", room, `"Brak"`)
+
+	// the dimmer: OK, + twice, OK sets 50 once; down to 0 shows OFF
+	got := mustExec(t, engine, `(function()
+		click("PAN1", "btn3"); T.advance(100)
+		click("PAN1", "btn4"); click("PAN1", "btn1"); click("PAN1", "btn1"); click("PAN1", "btn4"); T.advance(1000)
+		local a = DIM.b
+		click("PAN1", "btn4"); for _ = 1, 6 do click("PAN1", "btn3") end; T.advance(1000)
+		return a .. "|" .. sent():match('"OFF"') .. "|" .. DIM.b
+	end)()`)
+	if got != `50|"OFF"|50` {
+		t.Errorf("dimmer = %s, want 50|\"OFF\"|50 (set, editing at 0, not set before OK)", got)
+	}
+
+	// history opens and shows the module's text; Temp has no history: no page
+	hist := mustExec(t, engine, `(function()
+		click("PAN1", "btn2"); T.advance(100)
+		click("PAN1", "btn3"); T.advance(100); sent()
+		click("PAN1", "btn4"); T.advance(1000)
+		return sent() .. "|" .. tostring(Panel.chart("x", nil)) .. "|" .. tostring(Panel.history("x", {}))
+	end)()`)
+	mustContain(t, "history", hist, `"brak zmian"`, `|nil|nil`)
+	if got := mustExec(t, engine, `return Panel.format({ [0] = "zamk." }, "0") .. Panel.format({ [0] = "zamk." }, 7)`); got != "zamk.7" {
+		t.Errorf("format table = %s, want zamk.7", got)
+	}
+}
+
+// Device rows by kind (expose type, else Grenton type), a gate, a cover page, a menu of an
+// area from expose (filled when opened, switches and sensors left out), long labels cut.
+func TestPanelDevices(t *testing.T) {
+	engine := newPanelEngine(t, `
+		SW = VirtualSwitch:new("sw")
+		DIMV = VirtualDimmer:new("dim")
+		COVER = VirtualCover:new("cover")
+		DOOR = VirtualSensor:new("door")
+		THERMO = VirtualNumber:new("thermo", { initial = 21.5 })
+		expose(SW, "light", { name = "Swiatlo nad wejsciem domu", area = "Salon" })
+		expose(DIMV, "dimmer", { name = "Kinkiet", area = "Salon" })
+		expose(THERMO, "temperature", { name = "Temperatura", area = "Salon" })
+		expose(DOOR, "sensor", { name = "Okno", area = "Salon" })
+		PUMP = VirtualSwitch:new("pump")
+		expose(PUMP, "switch", { name = "Brama", area = "Salon" })
+		DEV = Panel.menu("Urzadzenia")
+			:add("Lampa", SW)
+			:add(DIMV)
+			:add("Roleta", COVER)
+			:add("Drzwi", DOOR)
+			:gate("Brama", DOOR, { open = 0 })
+		PANEL = Panel.new(P):home(Panel.menu("Dom", { DEV, Panel.area("Salon"), Panel.area("Nigdzie") }))`)
+
+	home := mustExec(t, engine, `(function() T.advance(1000); return sent() end)()`)
+	mustContain(t, "home", home, `"Urzadzenia"`, `"Salon"`)
+	mustNotContain(t, "home", home, `"Nigdzie"`)
+
+	dev := mustExec(t, engine, `(function() click("PAN1", "btn4"); T.advance(1000); return sent() end)()`)
+	mustContain(t, "devices", dev, `"Lampa"`, `"OFF"`, `"Kinkiet"`, `"Roleta"`, `"0%"`)
+	// Drzwi (OFF) and the gate (OPEN at 0) are on the second screen
+	more := mustExec(t, engine, `(function()
+		for _ = 1, 4 do click("PAN1", "btn3") end; T.advance(1000); return sent()
+	end)()`)
+	mustContain(t, "devices below", more, `"Drzwi"`, `"Brama"`, `"OPEN"`)
+
+	// the cover page: up opens, down closes; the name below the long hints
+	cover := mustExec(t, engine, `(function()
+		click("PAN1", "btn1"); click("PAN1", "btn1"); T.advance(100); sent()
+		click("PAN1", "btn4"); T.advance(1000)
+		local a = sent()
+		click("PAN1", "btn1"); T.advance(1000)
+		local b = sent()
+		return a .. "\n#" .. b .. "\n#" .. COVER:getPosition()
+	end)()`)
+	parts := strings.Split(cover, "\n#")
+	mustContain(t, "cover page", parts[0], `"Roleta"`, `"Open"`, `"Close"`, `"Stop"`, `"0%", 2)`)
+	mustContain(t, "cover opened", parts[1], `"100%", 2)`)
+	if parts[2] != "100" {
+		t.Errorf("cover position = %s, want 100", parts[2])
+	}
+
+	// the area: lights and dimmers first, then the temperature; no switch, no sensor
+	area := mustExec(t, engine, `(function()
+		click("PAN1", "btn2"); T.advance(100); click("PAN1", "btn2"); T.advance(100); sent()
+		click("PAN1", "btn3"); T.advance(100); sent()
+		click("PAN1", "btn4"); T.advance(1000); return sent()
+	end)()`)
+	mustContain(t, "area", area, `"Salon"`, `PAN1:execute(3, 8, 14, "Kinkiet", 1)`, `"Temperatura"`, `"21.5"`)
+	mustNotContain(t, "area", area, `"Okno"`, `"Brama"`, `"Swiatlo nad wejsciem domu"`)
+	// the long name is cut before its value
+	mustContain(t, "cut label", area, `PAN1:execute(3, 8, 27, "Swiatlo nad", 1)`)
+
+	if got := mustExec(t, engine, `return Panel.kind(PUMP) .. "|" .. Panel.kind(COVER) .. "|" .. Panel.coverText({ getPosition = function() return 1 end })`); got != "switch|cover|1%" {
+		t.Errorf("kinds|cover text = %s, want switch|cover|1%%", got)
+	}
+}
+
+// Grenton rollers with and without a position, a RemoteLight as a dimmer row, the
+// movement arrow redrawn from its own event, a binary sensor's history from add, an area
+// opened from a corner that shows a device exposed after the panel started.
+func TestPanelDevicesGrenton(t *testing.T) {
+	engine := newPanelEngine(t, `
+		ROL = RemoteCover:new(CLU, "ROL1")
+		ROL._hasPosition = true
+		ROL._lastState = 70
+		OLD = RemoteCover:new(CLU, "ROL2")      -- ROLLER_SH: no position, the movement is the state
+		LIGHT = RemoteLight:new(CLU, "DIM1")
+		expose(LIGHT, "light", { name = "Kinkiet", area = "Biuro" })
+		DOOR = VirtualSensor:new("door2")
+		HIST = { { value = 1, atMs = 3600000 } }
+		DOOR.history = function() return HIST end
+		DEV = Panel.menu("Urzadzenia"):add("Roleta", ROL):add("Stara", OLD):add("Kinkiet", LIGHT):add("Okno", DOOR)
+		AREA = Panel.area("Biuro")
+		PANEL = Panel.new(P):home(Panel.corners{
+			tl = { "Urz", function(p) p:open(DEV) end },
+			br = { "Biuro", function(p) p:open(AREA) end },
+		})`)
+
+	if got := mustExec(t, engine, `return tostring(Panel.find("NOPE")) .. "|" .. Panel.coverText(OLD) .. "|" .. Panel.coverText(ROL)`); got != "nil|--|70%" {
+		t.Errorf("find|old cover|cover = %s, want nil|--|70%%", got)
+	}
+	dev := mustExec(t, engine, `(function() T.advance(100); sent(); click("PAN1", "btn1"); T.advance(1000); return sent() end)()`)
+	mustContain(t, "devices", dev, `"Roleta"`, `"70%"`, `"Stara"`, `"--"`, `"Kinkiet"`)
+
+	// a movement report without a position change redraws the row
+	moving := mustExec(t, engine, `(function()
+		ROL:_setMovement(1); OLD._lastState = 2; T.advance(1000); return sent()
+	end)()`)
+	mustContain(t, "moving", moving, `"^ 70%"`)
+
+	// Kinkiet is a dimmer row: OK edits it (the hints become + and -)
+	dim := mustExec(t, engine, `(function()
+		click("PAN1", "btn3"); click("PAN1", "btn3"); T.advance(100); sent()
+		click("PAN1", "btn4"); T.advance(1000); return sent()
+	end)()`)
+	mustContain(t, "dimmer row", dim, `"+"`, `"-"`)
+
+	// Okno opens its history
+	hist := mustExec(t, engine, `(function()
+		click("PAN1", "btn2"); click("PAN1", "btn3"); T.advance(100); sent()
+		click("PAN1", "btn4"); T.advance(1000); return sent()
+	end)()`)
+	mustContain(t, "history", hist, `"Okno"`, `"ON"`)
+
+	// the area opened from a corner shows a lamp exposed after the start
+	area := mustExec(t, engine, `(function()
+		click("PAN1", "btn2"); T.advance(100); click("PAN1", "btn2"); T.advance(100)
+		LATE = VirtualSwitch:new("late")
+		expose(LATE, "light", { name = "Lampka", area = "Biuro" })
+		sent(); click("PAN1", "btn4"); T.advance(1000); return sent()
+	end)()`)
+	mustContain(t, "area", area, `"Biuro"`, `"Kinkiet"`, `"Lampka"`)
+}
+
+// Polish texts in one call; corners take a path and act by device (a cover opens), with a
+// clock; expose(..., { panel = false/true }) chooses what an area shows; a floor lists its
+// areas in the given order, with titles, leaving out areas with nothing for the panel.
+func TestPanelLangCornersFloors(t *testing.T) {
+	engine := newPanelEngine(t, `
+		Panel.lang("pl")
+		LAMP2 = VirtualSwitch:new("lamp2")
+		registerObject("CLU1.LAMP2", LAMP2)
+		BLIND = VirtualCover:new("blind")
+		local function ex(o, typ, name, area, floor, extra)
+			local opts = { name = name, area = area, floor = floor }
+			for k, v in pairs(extra or {}) do opts[k] = v end
+			expose(o, typ, opts)
+		end
+		ex(VirtualSwitch:new("a"), "light", "Kanapa", "Salon", "Parter")
+		ex(VirtualSwitch:new("b"), "light", "Ukryta", "Salon", "Parter", { panel = false })
+		ex(VirtualSwitch:new("c"), "switch", "Domofon", "Wiatrołap", "Parter", { panel = true })
+		ex(VirtualSwitch:new("d"), "switch", "Pompa", "Kotłownia", "Parter")
+		ex(VirtualSwitch:new("e"), "light", "Lustro", "Łazienka dół", "Parter")
+		ex(VirtualSwitch:new("f"), "light", "Sufit", "Sypialnia", "Piętro")
+		PANEL = Panel.new(P):home(Panel.corners{
+			tl = { "Lampa", "CLU1.LAMP2" },
+			tr = { "Roleta", BLIND },
+			bl = { "Brak", "CLU1.NOPE" },
+			br = { "Menu", function(p) p:open(Panel.floor("Parter", {
+				order = { "Wiatrołap" }, titles = { ["Łazienka dół"] = "Lazienka" } })) end },
+			clock = true,
+		})`)
+
+	home := mustExec(t, engine, `(function() T.advance(1000); return sent() end)()`)
+	mustContain(t, "home", home, `"12:34", 2)`, `"Brak"`, `PAN1B0:execute(1)`, `PAN1B1:execute(1)`, `PAN1B2:execute(2)`)
+
+	got := mustExec(t, engine, `(function()
+		click("PAN1", "btn1"); click("PAN1", "btn2"); T.advance(1000)
+		local a = LAMP2:getValue() .. "|" .. BLIND:getPosition()
+		click("PAN1", "btn2"); T.advance(1000)
+		return a .. "|" .. BLIND:getPosition() .. "|" .. Panel.strings.coverOpen
+	end)()`)
+	if got != "1|100|0|Otworz" {
+		t.Errorf("lamp|cover|cover again|text = %s, want 1|100|0|Otworz", got)
+	}
+
+	floor := mustExec(t, engine, `(function() sent(); click("PAN1", "btn4"); T.advance(1000); return sent() end)()`)
+	mustContain(t, "floor", floor, `"Parter"`, `PAN1:execute(3, 8, 14, "Wiatrolap", 1)`,
+		`PAN1:execute(3, 8, 27, "Lazienka", 1)`, `PAN1:execute(3, 8, 40, "Salon", 1)`)
+	mustNotContain(t, "floor", floor, `"Kotlownia"`, `"Sypialnia"`)
+
+	salon := mustExec(t, engine, `(function()
+		click("PAN1", "btn3"); click("PAN1", "btn3"); T.advance(100); sent()
+		click("PAN1", "btn4"); T.advance(1000); return sent()
+	end)()`)
+	mustContain(t, "salon", salon, `"Kanapa"`)
+	mustNotContain(t, "salon", salon, `"Ukryta"`)
+
+	hall := mustExec(t, engine, `(function()
+		click("PAN1", "btn2"); click("PAN1", "btn3"); T.advance(100); sent()
+		click("PAN1", "btn4"); T.advance(1000); return sent()
+	end)()`)
+	mustContain(t, "intercom by panel = true", hall, `"Wiatrolap"`, `"Domofon"`)
+}

@@ -29,7 +29,7 @@ Sandbox pipeline (vclu_draft_write, vclu_draft_read, vclu_draft_list, vclu_draft
 
 Agent memory: Use vclu_context_save to persist notes between sessions. Read vclu://context/agent-notes at start. Code patterns: vclu_read_file("ai/examples.md").
 
-Runtime schema: Use vclu_runtime_schema to get object types, dashboard widget API, plugin methods, and installed plugins with their sensors/controls. Call this when writing modules or dashboards.
+Runtime schema: Use vclu_runtime_schema to get object types, dashboard widget API, plugin methods, and installed plugins with their sensors/controls. Call this when writing modules or dashboards. Libraries shipped with vCLU are required, never copied into modules/: require("lib/panel") draws a Grenton Smart Panel (see smartPanel in the schema and ai/examples.md).
 
 Reload: Use vclu_reload to reload the Lua runtime after manual file changes (draft_promote auto-reloads).
 

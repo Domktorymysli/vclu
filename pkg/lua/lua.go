@@ -1716,6 +1716,10 @@ func (le *LuaEngine) reinitializeInner(cluName string) error {
 		}))
 	}
 
+	if le.commandSender != nil {
+		le.registerSendAsync(le.state)
+	}
+
 	// Re-register __go_send_command_noreply if noReply sender is set
 	if le.commandNoReply != nil {
 		noReply := le.commandNoReply
@@ -1836,8 +1840,46 @@ func (le *LuaEngine) SetCommandSender(sender CommandSender) {
 			L.Push(lua.LNil)
 			return 2
 		}))
+		le.registerSendAsync(L)
 		return "", nil
 	})
+}
+
+// registerSendAsync registers __go_send_command_async(ip, script, id): the command is
+// sent off the run loop and its answer comes back as __vclu_command_reply(id, result, err),
+// a global looked up when the answer arrives, so a reload in between does no harm.
+func (le *LuaEngine) registerSendAsync(L *lua.LState) {
+	L.SetGlobal("__go_send_command_async", L.NewFunction(func(L *lua.LState) int {
+		targetIP := L.CheckString(1)
+		script := L.CheckString(2)
+		id := L.CheckString(3)
+		sender := le.commandSender
+		if sender == nil {
+			L.Push(lua.LFalse)
+			return 1
+		}
+		go func() {
+			result, err := sender(targetIP, script)
+			errStr := ""
+			if err != nil {
+				errStr = err.Error()
+			}
+			_, _ = le.executeFast("CommandReply", func(L *lua.LState) (string, error) {
+				fn := L.GetGlobal("__vclu_command_reply")
+				if fn == lua.LNil {
+					return "", nil
+				}
+				errVal := lua.LValue(lua.LNil)
+				if errStr != "" {
+					errVal = lua.LString(errStr)
+				}
+				return "", L.CallByParam(lua.P{Fn: fn, NRet: 0, Protect: true},
+					lua.LString(id), lua.LString(result), errVal)
+			})
+		}()
+		L.Push(lua.LTrue)
+		return 1
+	}))
 }
 
 // SetCommandNoReplySender sets the fire-and-forget command sender.

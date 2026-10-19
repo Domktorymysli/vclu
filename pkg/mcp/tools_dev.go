@@ -511,6 +511,10 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 				"methods": []string{"get(feature)", "set(feature,value)", "open()", "close()", "stop()", "setPosition(pos)", "getValue()"},
 				"note":    "Remote CLU roller shutter / cover",
 			},
+			"RemoteThermostat (THERMOSTAT)": map[string]any{
+				"methods": []string{"getValue()", "getTarget()", "getSetpoint()", "setSetpoint(v)", "getState()", "getMode()", "onChange(cb)"},
+				"note":    "A CLU's Thermostat (class 18, THE…): value = temperature at its sensor, getTarget() = target in effect (with auto/holiday mode), setSetpoint writes PointValue; mode 0 set point, 1 holiday, 2 auto, 3 heat-up. In the registry (add it to Grenton → Sync for values), not exposed to Home Assistant",
+			},
 			"VirtualSwitch (DOUT)": map[string]any{
 				"constructor": "VirtualSwitch:new(name, {initial=0, persist=true|'key'})",
 				"methods":     []string{"switchOn()", "switchOff()", "toggle()", "getValue()", "setValue(v)", "onChange(cb)"},
@@ -549,6 +553,31 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 				"methods": []string{"get()", "set(value)", "onChange(cb)"},
 				"note":    "Created via plugin:control(). NOT getValue/setValue!",
 			},
+			"RemotePanel (PANEL)": map[string]any{
+				"methods": []string{"beep(freq, ms, volume)", "displayOn()", "getButton(index)"},
+				"note":    "Grenton Smart Panel screen from the OM import; draw it with require('lib/panel'), not with execute()",
+			},
+		},
+		"smartPanel": map[string]any{
+			"library": "local Panel = require('lib/panel'); Panel.new('PAN…') — the panel from the OM import by object id or name (Panel.new asserts when it is missing; check Panel.find(id) first to skip the module); Panel.new also restores click(), which the user.lua from Object Manager hides with an empty one. Panel.lang('pl') sets Polish texts; Panel.strings = {noChanges, cleaning, thermostat, now, set, on, off, open, closed, openShort, closedShort, coverOpen, coverClose, coverStop} are the library's own texts (English), set them in the module's language",
+			"builder": "Panel.new(panel):buttons{tl='btn1',tr='btn2',bl='btn3',br='btn4'}:back('tr'):home(page):idle(page):sleepAfter(s):onGesture('up', fn):onProximity(fn)",
+			"pages": map[string]any{
+				"devices":    "menu:add(label?, obj|path, {kind, format, chart=false, history=false}?) picks the row by what the object is (Panel.kind: its expose() type, else its Grenton type): switch/light switches, dimmer edits brightness, cover opens a cover page (up opens, down closes, OK stops), temperature/humidity show the value and open a chart, a binary sensor opens its history; no label: the expose() name. menu:gate(label, obj|path, {open=1}) open/closed with history. Panel.floor(floor, {order, titles, kinds, skip}) is a menu of the areas exposed with that floor (expose(..., {area=..., floor=...})), each a Panel.area, empty ones left out. expose(..., {panel=false}) keeps an object off panels, panel=true puts it on whatever its kind. Panel.area(area|{areas}, {title, kinds, skip}) is a menu of what expose() put in that area (lights, dimmers, covers, temperature, humidity by default; switches such as pumps, gates and door openers only through kinds), filled each time it opens (devices a plugin exposes later show up; rows added by hand come after the devices); a readonly expose() shows the state only. Prefer these to building rows by hand",
+				"menu":       "Panel.menu(title, {submenus}?):toggle(label, obj|'CLU….DOU…') (a path not in the registry adds no row):dimmer(label, obj|path) (0-100 by 10, 0 = OFF):number(label, getFn, setFn, {step,min,max,format,watch}):choice(label, getFn, setFn, {options}):value(label, obj|fn, format, page?) (OK opens page, e.g. a chart):submenu(label?, menu) (an empty menu adds no row; no label: its name):action(label, fn|page, {confirm=text}); a format is a string, fn(value) or a table {[0]='closed', [1]='open'}",
+				"value":      "Panel.value(title, obj|fn, format)",
+				"chart":      "Panel.chart(title, obj with history | fn returning changes newest first, {hours=12, format}) — hourly bars (time-weighted mean), up/down pick an hour (up = back), its time and value on the right; nil without history, so the menu row gets no OK",
+				"history":    "Panel.history(title, obj with history | fn returning changes newest first, {count=10, format}) — the last changes as a list, newest first: time and date left, value right (keep the value short, ~5 characters); e.g. when a gate opened, opened from a menu value row; nil without history",
+				"corners":    "Panel.corners{tl={label, obj|path|fn(panel)}, tr=..., bl=..., br=..., clock=true, draw=fn(screen, panel), every=60} — each corner one button (a device does what its row would: a light switches, a cover opens or closes; Panel.press(obj)), clock draws the time in the middle, no back; e.g. home with a room's lights and Menu; a corner with only a label keeps its LED off",
+				"toggle":     "Panel.toggle(obj, title)",
+				"thermostat": "menu:thermostat(label, obj|path, {readonly=true, step=0.5, min, max, format}) — a Grenton thermostat (RemoteThermostat): the row shows the temperature, OK opens a page with the target; readonly shows them without + and -, otherwise + and - write the set point in manual mode only (holiday/auto: the page shows; min/max bound them). Panel.thermostat{name, current=obj|fn, get=fn, set=fn|nil, step, min, max, format} for any other source; without set it only shows",
+				"idle":       "Panel.idle{ {label, obj|fn, format}, ... } — clock and up to 3 values; any button opens home",
+				"cleaning":   "Panel.cleaning(seconds) — inputs ignored, countdown",
+				"own":        "Panel.register(name, factory): a page is {draw=function(screen, panel), keys={up={label,fn},down=…,ok=…}|fn, input=function(role, panel), watch={objs}, every=s}",
+			},
+			"screen":        "screen:text(x, y, s, font 1-3), textRight, textCenter, line, rule(y), point, icon(x, y, 'name' of a .bmp on the panel) — 128x64, fonts 10/14/28 px, y is the top, 15 characters",
+			"helpers":       "panel:notify(text, {seconds, beep}), panel:open(page), panel:goBack(), panel:goHome(), panel:redraw(), panel:debounce(key, s, fn)",
+			"objectManager": "every button event (OnClick 'btn1'..'btn4', OnLongPress 'btn1:long') calls click(panel or button id, input) on vCLU; an empty click() from OM in user.lua hides the runtime one, so the module sets click = RemotePanel.click",
+			"sandbox":       "vclu_draft_test steps {\"click\": \"PAN…\", \"input\": \"btn3\"} then {\"advance\": 1}: the frame drawn is in clu_calls",
 		},
 		"dashboard": map[string]any{
 			"builder":  "Dashboard.new(id):name():icon():columns():auth():pin():poll():theme()",
