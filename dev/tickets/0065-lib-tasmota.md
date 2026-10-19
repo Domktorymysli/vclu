@@ -1,4 +1,4 @@
-# #NNNN: lib/tasmota: a Tasmota device is one line in a module
+# #65: lib/tasmota: a Tasmota device is one line in a module
 
 - **Type:** feature
 - **Area:** mqtt | lua-runtime

@@ -1,10 +1,10 @@
-# #NNNN: An exposed thermostat is a Thermostat in Apple Home
+# #62: An exposed thermostat is a Thermostat in Apple Home
 
 - **Type:** feature
 - **Area:** homekit
 - **Size:** M
 - **Epic:** —
-- **Blocked by:** #NNNN (thermostat in Home Assistant: defines the `climate` expose type and the thermostat object interface)
+- **Blocked by:** #61 (thermostat in Home Assistant: defines the `climate` expose type and the thermostat object interface)
 - **Skill:** `.agents/skills/write-contract-test`
 - **Needs hardware:** — (a check with a Grenton CLU thermostat and the Home app is welcome)
 
@@ -19,7 +19,7 @@ and target temperature; the target set in the Home app reaches it, unless it is 
 - `pkg/homekit/accessory_factory.go` leaves `climate` out on purpose ("a plain switch would let the
   Home app write 0/1"). HomeKit's Thermostat service needs CurrentTemperature, TargetTemperature,
   CurrentHeatingCoolingState, TargetHeatingCoolingState and TemperatureDisplayUnits.
-- Use the object interface and the mode mapping defined in the Home Assistant ticket; keep the two
+- Use the object interface and the mode mapping defined in #61; keep the two
   integrations in agreement (same target, same off/heat meaning).
 - Read-only: HomeKit has no read-only Thermostat. Options: a TemperatureSensor plus nothing to set,
   or a Thermostat whose writes are refused and reverted. Decide, and test the command path

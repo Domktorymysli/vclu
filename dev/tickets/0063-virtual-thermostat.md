@@ -1,10 +1,10 @@
-# #NNNN: VirtualThermostat: a thermostat run by vCLU from any sensor and output
+# #63: VirtualThermostat: a thermostat run by vCLU from any sensor and output
 
 - **Type:** feature
 - **Area:** lua-runtime
 - **Size:** L
 - **Epic:** —
-- **Blocked by:** — (shares the thermostat interface with the HA ticket; agree on it there)
+- **Blocked by:** — (shares the thermostat interface with #61; agree on it there)
 - **Skill:** `.agents/skills/write-contract-test`
 - **Needs hardware:** —
 
@@ -48,4 +48,4 @@ and looks to the panel, Home Assistant, HomeKit and dashboards like a Grenton th
 - [ ] CHANGELOG entry; docs.vclu.pl page with an example (Zigbee sensor + Grenton relay).
 
 ## Contract impact
-New public object class; uses the thermostat interface from the HA ticket.
+New public object class; uses the thermostat interface from #61.

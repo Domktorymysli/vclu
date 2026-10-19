@@ -1,4 +1,4 @@
-# #NNNN: A thermostat widget on dashboards
+# #64: A thermostat widget on dashboards
 
 - **Type:** feature
 - **Area:** web | lua-runtime

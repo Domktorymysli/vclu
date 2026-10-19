@@ -1,4 +1,4 @@
-# #NNNN: A thermostat exposed with expose() works in Home Assistant as a climate entity
+# #61: A thermostat exposed with expose() works in Home Assistant as a climate entity
 
 - **Type:** feature
 - **Area:** home-assistant | lua-runtime
