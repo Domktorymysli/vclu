@@ -141,21 +141,21 @@ OmFilesManager.prototype._renderZipResult = function(data) {
         html += '<ul class="mb-2">';
         data.results.forEach(function(r) {
             html += '<li><i class="bi bi-check text-success"></i> ' +
-                   r.cluName + ' (' + r.objectCount + ' obj, ' + r.moduleCount + ' mod)</li>';
+                   VCLU.esc(r.cluName) + ' (' + r.objectCount + ' obj, ' + r.moduleCount + ' mod)</li>';
         });
         html += '</ul>';
     }
 
     if (data.skippedList && data.skippedList.length > 0) {
         html += '<div class="text-muted small"><i class="bi bi-skip-forward"></i> ' +
-               (this.translations.skipped || 'Skipped') + ': ' + data.skippedList.join(', ') + '</div>';
+               (this.translations.skipped || 'Skipped') + ': ' + data.skippedList.map(VCLU.esc).join(', ') + '</div>';
     }
 
     if (data.errors && data.errors.length > 0) {
         html += '<div class="text-danger mt-2"><strong>' +
                (this.translations.errors || 'Errors') + ':</strong><ul class="mb-0">';
         data.errors.forEach(function(e) {
-            html += '<li>' + e + '</li>';
+            html += '<li>' + VCLU.esc(e) + '</li>';
         });
         html += '</ul></div>';
     }

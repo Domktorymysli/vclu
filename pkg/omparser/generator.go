@@ -98,6 +98,7 @@ func GenerateProxy(parsed *ParsedOM, config GeneratorConfig) string {
 	generateObjectsForClass(&sb, parsed, namespace, ClassDIN, "RemoteSensor")
 	generateObjectsForClass(&sb, parsed, namespace, ClassDIMMER, "RemoteLight")
 	generateObjectsForClass(&sb, parsed, namespace, ClassLEDRGB, "RemoteRGBLight")
+	generateObjectsForClass(&sb, parsed, namespace, ClassLEDChannel, "RemoteLedChannel")
 	generateObjectsForClass(&sb, parsed, namespace, ClassROLLER_SH, "RemoteCover")
 	generateObjectsForClass(&sb, parsed, namespace, ClassROLLER, "RemoteCover")
 	generateObjectsForClass(&sb, parsed, namespace, ClassAnalogIN, "RemoteSensor")
@@ -153,6 +154,10 @@ func generateObjectsForClass(sb *strings.Builder, parsed *ParsedOM, namespace st
 		if class == ClassThermostat && thermostatV1(parsed.CLU) {
 			// Thermostat v1 has no feature 14 CurrentTemp
 			fmt.Fprintf(sb, "%s.%s._version = 1\n", namespace, objName)
+		}
+		if class == ClassLEDRGB && parsed.HasWhite(obj) {
+			// an LED RGBW module: feature 15 WhiteValue, SetWhiteValue
+			fmt.Fprintf(sb, "%s.%s._hasWhite = true\n", namespace, objName)
 		}
 	}
 	sb.WriteString("\n")

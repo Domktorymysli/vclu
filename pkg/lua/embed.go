@@ -24,6 +24,9 @@ var remoteLight string
 //go:embed runtime/objects/RemoteRGBLight.lua
 var remoteRGBLight string
 
+//go:embed runtime/objects/RemoteLedChannel.lua
+var remoteLedChannel string
+
 //go:embed runtime/objects/RemoteCover.lua
 var remoteCover string
 
@@ -70,7 +73,7 @@ var virtualText string
 
 // BaseClasses returns combined Lua code for all object classes.
 // Combines: RemoteObject, RemoteSwitch, RemoteSensor, RemoteLight,
-// RemoteRGBLight, RemoteCover, RemoteNumber, VirtualObject, VirtualSwitch,
+// RemoteRGBLight, RemoteLedChannel, RemoteCover, RemoteNumber, VirtualObject, VirtualSwitch,
 // VirtualDimmer, VirtualCover, VirtualSensor, VirtualNumber, VirtualText.
 func BaseClasses() string {
 	var sb strings.Builder
@@ -84,6 +87,8 @@ func BaseClasses() string {
 	sb.WriteString(remoteLight)
 	sb.WriteString("\n")
 	sb.WriteString(remoteRGBLight)
+	sb.WriteString("\n")
+	sb.WriteString(remoteLedChannel)
 	sb.WriteString("\n")
 	sb.WriteString(remoteCover)
 	sb.WriteString("\n")

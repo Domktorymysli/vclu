@@ -10,6 +10,7 @@ require("RemoteSwitch")
 require("RemoteSensor")
 require("RemoteLight")
 require("RemoteRGBLight")  -- Depends on RemoteLight
+require("RemoteLedChannel")  -- Depends on RemoteLight
 require("RemoteCover")
 require("RemoteNumber")
 require("RemoteThermometer")
@@ -35,6 +36,7 @@ return {
     RemoteSensor = RemoteSensor,
     RemoteLight = RemoteLight,
     RemoteRGBLight = RemoteRGBLight,
+    RemoteLedChannel = RemoteLedChannel,
     RemoteCover = RemoteCover,
     RemoteNumber = RemoteNumber,
     RemoteThermometer = RemoteThermometer,

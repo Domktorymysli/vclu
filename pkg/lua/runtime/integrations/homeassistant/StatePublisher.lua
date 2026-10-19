@@ -11,6 +11,17 @@ HAStatePublisher.mqttInstance = nil
 HAStatePublisher.enabled = false
 HAStatePublisher.availabilityTopic = "vclu/status"  -- LWT topic
 
+-- HA picks an MQTT light's schema (default or json) when it creates the entity and
+-- refuses a later config in the other one, so a light whose schema changed (a Grenton
+-- RGB light, plain before #41) is removed first and announced again after this delay.
+-- The schema announced last is kept in the KV store, so this happens once.
+HAStatePublisher.SCHEMA_KV = "ha-discovery"
+HAStatePublisher.RECREATE_DELAY_MS = 2000
+HAStatePublisher.timer = function(ms, fn)
+    if type(setTimeout) == "function" then return setTimeout(fn, ms) end
+    fn()
+end
+
 -- Use central TypeMap for type mappings
 local TypeMap = require("TypeMap")
 
@@ -66,6 +77,39 @@ local function clearDiscovery(path)
     end
 end
 
+-- A Grenton type that is a dimmer for HA (DIMMER, LED_CHANNEL): value 0..1, brightness
+local function isDimmer(objType)
+    return TypeMap.getExposeType(objType) == "dimmer"
+end
+
+-- The colour mode of an exposed light whose object has a colour (RemoteRGBLight): rgbw on
+-- an RGBW module, rgb otherwise; nil for a plain light and for a read-only one, which
+-- is a binary_sensor to HA (exposedComponent) and gets ON/OFF
+local function colorMode(handle)
+    local o = handle and handle.object
+    if handle.type ~= "light" or type(o) ~= "table" or type(o.setColor) ~= "function" then return nil end
+    if isReadonly(handle.path, handle.options) then return nil end
+    return o._hasWhite and "rgbw" or "rgb"
+end
+
+-- schema json: the state, the brightness (0..100) and the colour in one payload; no
+-- color_mode before the first colour report (HA warns about a mode without a colour)
+local function formatColorState(handle, value, mode)
+    local o = handle.object
+    local brightness = math.floor((tonumber(value) or 0) * 100 + 0.5)
+    local parts = { string.format('"state":"%s","brightness":%d', brightness > 0 and "ON" or "OFF", brightness) }
+    local r, g, b = o:getColor()
+    if r then
+        parts[#parts + 1] = string.format('"color_mode":"%s"', mode)
+        if mode == "rgbw" then
+            parts[#parts + 1] = string.format('"color":{"r":%d,"g":%d,"b":%d,"w":%d}', r, g, b, o._white or 0)
+        else
+            parts[#parts + 1] = string.format('"color":{"r":%d,"g":%d,"b":%d}', r, g, b)
+        end
+    end
+    return "{" .. table.concat(parts, ",") .. "}"
+end
+
 -- Format state value for MQTT based on type
 local function formatState(value, objType)
     if objType == "DOUT" or objType == "DIN" then
@@ -76,7 +120,7 @@ local function formatState(value, objType)
             return "OFF"
         end
 
-    elseif objType == "DIMMER" then
+    elseif isDimmer(objType) then
         -- Dimmer: 0-1 float -> OFF/ON
         local numVal = tonumber(value) or 0
         if numVal > 0 then
@@ -135,7 +179,7 @@ end
 
 -- Build brightness topic for dimmers
 local function buildBrightnessTopic(path, objType)
-    if objType ~= "DIMMER" then
+    if not isDimmer(objType) then
         return nil
     end
 
@@ -386,7 +430,9 @@ local function publishExposedState(handle)
     end
 
     local topic = buildExposedTopic(handle.path, handle.type)
-    local payload = coverState or formatExposedState(value, handle.type)
+    local mode = colorMode(handle)
+    local payload = coverState or (mode and formatColorState(handle, value, mode))
+        or formatExposedState(value, handle.type)
 
     local ok, err = HAStatePublisher.mqttInstance:publish(topic, payload, 0, true)
     if ok then
@@ -399,8 +445,8 @@ local function publishExposedState(handle)
         end
     end
 
-    -- Publish brightness for dimmers/lights
-    if ExposedObjects.hasBrightness(handle) then
+    -- Publish brightness for dimmers/lights (a colour light has it in the JSON state)
+    if not mode and ExposedObjects.hasBrightness(handle) then
         local brightnessTopic = buildExposedBrightnessTopic(handle.path, handle.type)
         if brightnessTopic then
             local numVal = tonumber(value) or 0
@@ -483,7 +529,7 @@ local function onStateChanged(data)
     end
 
     -- Publish brightness for dimmers
-    if objType == "DIMMER" then
+    if isDimmer(objType) then
         local brightnessTopic = buildBrightnessTopic(path, objType)
         if brightnessTopic then
             local numVal = tonumber(value) or 0
@@ -600,7 +646,27 @@ local function onObjectExposed(data)
 
     -- Add brightness for dimmers/lights (not when remapped to a read-only component)
     local handle = ExposedObjects and ExposedObjects:get(path)
-    if not readonlyRemapped and handle and ExposedObjects.hasBrightness(handle) then
+    local mode = not readonlyRemapped and handle and colorMode(handle)
+    if mode then
+        -- a colour light: state, brightness and colour travel in one JSON (Commands.lightJSON)
+        discoveryPayload.schema = "json"
+        discoveryPayload.brightness = true
+        discoveryPayload.brightness_scale = 100
+        discoveryPayload.supported_color_modes = { mode }
+        local obj = handle.object
+        if obj.onEvent and not obj._haColorHook then
+            obj._haColorHook = true
+            obj:onEvent("OnColorChange", function()
+                local h = ExposedObjects:get(StateChange.pathOf(obj))
+                if h and h.type == "light" then publishExposedState(h) end
+            end)
+        end
+        -- drop a brightness retained by an earlier version, which announced a plain dimmer
+        local brightnessTopic = buildExposedBrightnessTopic(path, exposedType)
+        if brightnessTopic then
+            HAStatePublisher.mqttInstance:publish(brightnessTopic, "", 0, true)
+        end
+    elseif not readonlyRemapped and handle and ExposedObjects.hasBrightness(handle) then
         local brightnessTopic = buildExposedBrightnessTopic(path, exposedType)
         discoveryPayload.brightness_state_topic = brightnessTopic
         discoveryPayload.brightness_command_topic = brightnessTopic .. "/set"
@@ -744,8 +810,32 @@ local function onObjectExposed(data)
         payload = "{" .. table.concat(parts, ",") .. "}"
     end
 
-    -- Publish discovery
-    HAStatePublisher.mqttInstance:publish(discoveryTopic, payload, 0, true)
+    -- Publish discovery; a light announced before in the other schema is removed first
+    -- without the KV store nothing is remembered, and a recreate on every start would be
+    -- worse than none
+    local kv = type(__go_kv_get) == "function" and type(__go_kv_set) == "function"
+    local schema = kv and component == "light" and (discoveryPayload.schema or "default") or nil
+    local prev
+    if schema then prev = __go_kv_get(HAStatePublisher.SCHEMA_KV, uniqueId) end
+    -- unknown before (an earlier version kept nothing): only a json light can have
+    -- been announced otherwise, plain lights stay as they are
+    if schema and ((prev ~= nil and prev ~= schema) or (prev == nil and schema == "json")) then
+        if Logger then
+            Logger:getShared():info("[HA Publisher] %s: schema %s -> %s, entity recreated", path, tostring(prev), schema)
+        end
+        local mqtt = HAStatePublisher.mqttInstance
+        mqtt:publish(discoveryTopic, "", 0, true)
+        HAStatePublisher.timer(HAStatePublisher.RECREATE_DELAY_MS, function()
+            mqtt:publish(discoveryTopic, payload, 0, true)
+            local h = ExposedObjects and ExposedObjects:get(path)
+            if h then publishExposedState(h) end
+        end)
+    else
+        HAStatePublisher.mqttInstance:publish(discoveryTopic, payload, 0, true)
+    end
+    if schema and prev ~= schema then
+        __go_kv_set(HAStatePublisher.SCHEMA_KV, uniqueId, schema, false, 0)
+    end
 
     -- Also publish initial state
     if ExposedObjects then

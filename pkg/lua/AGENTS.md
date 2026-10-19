@@ -68,8 +68,25 @@ which firmware a module runs, so the OM import only marks class 24 with `_hasPos
 2 SwitchOn, 3 SwitchOff. It has no SetValue with a ramp.
 `LEDRGB` (class 9, LED RGB and LED RGBW 2.0) numbers its methods otherwise: Value is read-only,
 execute 0 SetValue, 1 SetHue, 2 SetSaturation, 6 SetRGBvalue, 7 HoldValue, 9 SwitchOn,
-10 SwitchOff, 11 Switch, 12 SetWhiteValue (feature 15 WhiteValue, RGBW only). A subclass
-inherits its parent's indexes: check them (`RemoteLight.METHODS`).
+10 SwitchOff, 11 Switch, 12 SetWhiteValue (feature 15 WhiteValue, RGBW only). An RGBW module
+is told apart in om.lua by its module type (third argument of the module's `OBJECT:new`): 0x18
+LED RGBW DIN, 0x1d LED RGBW FM, 0x04 the old LED RGB. `LED_CHANNEL` (class 49, four per RGBW
+module): feature 0 Value 0..255, read-only; execute 0 SetValue(0..255, ramp), 1 SwitchOn,
+2 SwitchOff, 3 Switch, 4 HoldValue. `RemoteLedChannel` converts to 0..1 in `fromFeature`. A subclass
+inherits its parent's indexes: check them (`RemoteLight.METHODS`). Feature 6 RGB is reported
+as a quoted string (`"#7c0000"`) and is the colour the module outputs, scaled by Value: a red at
+0.49 is `#7c0000`, off is `#000000` (LED RGBW DIN fv01, 2026-10-19). `RemoteRGBLight` subscribes
+to the value before the colour and divides by it. The other way too: SetRGBvalue makes the
+brightest channel / 255 the value (`#00005a` gave 0.35, `#0000ff` 1), so `setColor` sends the
+colour scaled by the brightness; SwitchOn goes to full brightness, the colour stays. `RemoteRGBLight` subscribes
+feature 6 RGB (and 15 on `_hasWhite`) next to its value and keeps them aside; Home Assistant
+listens for `OnColorChange`.
+
+### A class's traits live in one table
+What a Grenton class is for an integration (a dimmer, a light, a cover) is declared once:
+`runtime/utils/TypeMap.lua` for Lua, `MQTTType()` in `pkg/omparser/types.go` for Go. Code asks
+the table (`TypeMap.getExposeType(t) == "dimmer"`); a new class that needs its name added to an
+`if` or a `case` elsewhere is a design error.
 A subscription reports one feature per entry: an object that needs more than its feature 0 lists
 them in `subscribeFeatures()` and turns each into its value with `fromFeature()` (`RemoteCover`).
 What such an object keeps aside from its value changes with an event listed in `CHANGE_EVENTS`
@@ -119,8 +136,8 @@ A frame is several calls in one script, so keep each message under `RemotePanel.
 spaced by `SPACING_MS`; the CLU drops bursts.
 
 ### Untested on hardware
-`RemoteLight` (dimmer) and `RemoteCover` (roller) in `runtime/objects/` follow the documentation, not a
-real module. Say so in the PR when you change them; a hardware report is welcome.
+`RemoteLight` (dimmer), `RemoteLedChannel`, the colour of `RemoteRGBLight` and `RemoteCover` (roller) in
+`runtime/objects/` follow the documentation, not a real module. Say so in the PR when you change them; a hardware report is welcome.
 
 ## runtime/integrations: Home Assistant, MQTT, HTTP
 

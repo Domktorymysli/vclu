@@ -24,6 +24,7 @@ const (
 	ClassROLLER     ObjectClass = 24 // Roller Shutter (with position)
 	ClassPanel      ObjectClass = 29 // Smart Panel screen (PANEL)
 	ClassPanelBtn   ObjectClass = 30 // Smart Panel button (PANEL_BUTTON)
+	ClassLEDChannel ObjectClass = 49 // One channel (R, G, B, W) of an LED RGBW 2.0 module
 )
 
 // String returns the human-readable name of the object class
@@ -65,6 +66,8 @@ func (c ObjectClass) String() string {
 		return "PANEL"
 	case ClassPanelBtn:
 		return "PANEL_BUTTON"
+	case ClassLEDChannel:
+		return "LED_CHANNEL"
 	default:
 		return "UNKNOWN"
 	}
@@ -79,7 +82,7 @@ func (c ObjectClass) MQTTType() string {
 		return "binary_sensor"
 	case ClassDIMMER:
 		return "light"
-	case ClassLEDRGB:
+	case ClassLEDRGB, ClassLEDChannel:
 		return "light"
 	case ClassROLLER_SH, ClassROLLER:
 		return "cover"
@@ -172,6 +175,23 @@ func (p *ParsedOM) GetObjectsByClass(class ObjectClass) []GrentonObject {
 		}
 	}
 	return result
+}
+
+// Module type ids (the third argument of a module's OBJECT:new in om.lua) of the LED RGBW
+// 2.0 modules, DIN and FM; the older LED RGB module (0x04) has no white channel.
+var rgbwModuleTypes = map[int]bool{0x18: true, 0x1d: true}
+
+// HasWhite tells whether an LEDRGB object sits on an RGBW module.
+func (p *ParsedOM) HasWhite(obj GrentonObject) bool {
+	if obj.Class != ClassLEDRGB {
+		return false
+	}
+	for _, m := range p.Modules {
+		if m.ID == obj.ModuleID {
+			return rgbwModuleTypes[m.ModuleType]
+		}
+	}
+	return false
 }
 
 // GetExposableObjects returns all objects that can be exposed via MQTT
