@@ -78,7 +78,8 @@ func TestDashboardColorWidgetFromLight(t *testing.T) {
 		}
 	}
 	got := mustExec(t, engine, `table.concat(_sent, ";")`)
-	for _, want := range []string{`LED2:execute(6, "#0080ff")`, `LED2:execute(0, 0.25)`, `LED2:execute(12, 255)`, `LED2:execute(10, 0)`} {
+	// the colour goes out at the brightness the light has (0.5): the CLU takes it as output
+	for _, want := range []string{`LED2:execute(6, "#004080")`, `LED2:execute(0, 0.25)`, `LED2:execute(12, 255)`, `LED2:execute(10, 0)`} {
 		if !strings.Contains(got, want) {
 			t.Errorf("sent %s, missing %s", got, want)
 		}

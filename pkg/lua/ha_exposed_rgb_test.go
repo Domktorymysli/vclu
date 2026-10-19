@@ -114,12 +114,13 @@ func TestHAExposedRGBCommands(t *testing.T) {
 		local r, g, b = _rgbw:getColor()
 		return table.concat(_sent, ";") .. "|" .. r .. "," .. g .. "," .. b .. "," .. _rgbw:getWhite()
 	end)()`)
-	if want := `LED2:execute(6, "#010203");LED2:execute(12, 9);LED2:execute(0, 0.4)|1,2,3,9`; got != want {
+	// the colour is kept with its brightest channel at 255; the brightness is HA's
+	if want := `LED2:execute(6, "#55aaff");LED2:execute(12, 9);LED2:execute(0, 0.4)|85,170,255,9`; got != want {
 		t.Errorf("rgbw command sent %s, want %s", got, want)
 	}
 	// the state HA gets right after the command carries the new colour
 	state := mustExec(t, engine, `_last("vclu/exposed/t/light/kuchnia/state")`)
-	if want := `{"state":"ON","brightness":40,"color_mode":"rgbw","color":{"r":1,"g":2,"b":3,"w":9}}`; state != want {
+	if want := `{"state":"ON","brightness":40,"color_mode":"rgbw","color":{"r":85,"g":170,"b":255,"w":9}}`; state != want {
 		t.Errorf("state after the command = %s, want %s", state, want)
 	}
 	got = mustExec(t, engine, `(function()
@@ -190,6 +191,30 @@ func TestRGBColourScaledByValue(t *testing.T) {
 	}
 }
 
+// The CLU makes the brightest channel of a colour its value (#00005a gave 0.35, LED RGBW
+// DIN fv01): a colour set from vCLU goes out scaled by the brightness, so it does not
+// change it; off, it goes out full and switches the light on.
+func TestRGBSetColourKeepsBrightness(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+	got := mustExec(t, engine, `(function()
+		local sent = {}
+		local clu = { executeNoReply = function(_, _, cmd) sent[#sent + 1] = cmd end }
+		local l = RemoteRGBLight:new(clu, "LED1", "tasma")
+		l:updateState(0.5)
+		l:setColor(0, 0, 255)
+		l:setColor(128, 64, 0) -- a dark orange is orange: the brightness stays the light's
+		local c1 = table.concat({ l:getColor() }, ",")
+		l:updateState(0)
+		l:setColor(255, 0, 0)
+		return table.concat(sent, " ") .. " | " .. c1
+	end)()`)
+	want := `LED1:execute(6, "#000080") LED1:execute(6, "#804000") LED1:execute(6, "#ff0000") | 255,128,0`
+	if got != want {
+		t.Errorf("sent\n got: %s\nwant: %s", got, want)
+	}
+}
+
 // Before the first colour report the state has no color_mode (HA warns about a mode
 // without a colour); a read-only RGB light is a binary_sensor and gets ON/OFF.
 func TestHAExposedRGBWithoutColourAndReadonly(t *testing.T) {
@@ -236,8 +261,8 @@ func TestHAExposedRGBColourOnOffLightSwitchesOn(t *testing.T) {
 		HACommands.handleExposedMessage("vclu/exposed/t/light/salon/set", '{"state":"ON","color":{"r":0,"g":255,"b":0}}')
 		return off .. "|" .. table.concat(_sent, ";")
 	end)()`)
-	// off: colour, then SwitchOn; already on: the colour alone
-	if want := `LED1:execute(6, "#ff000c");LED1:execute(9, 0)|LED1:execute(6, "#00ff00")`; got != want {
+	// off: colour, then SwitchOn; already on: the colour alone, at the light's brightness
+	if want := `LED1:execute(6, "#ff000c");LED1:execute(9, 0)|LED1:execute(6, "#008000")`; got != want {
 		t.Errorf("sent %s, want %s", got, want)
 	}
 }

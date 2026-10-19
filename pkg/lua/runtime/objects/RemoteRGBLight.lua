@@ -170,8 +170,18 @@ end
 -- @param b number Blue component (0 to 255)
 -- @param ramp number Optional ramp time
 function RemoteRGBLight:setColor(r, g, b, ramp)
-    local hex = string.format("#%02x%02x%02x", r, g, b)
-    self:setRGB(hex, ramp)
+    -- The CLU takes the colour as its output and makes the brightest channel / 255 the
+    -- value, so the colour goes out scaled by the brightness now (off: full, which
+    -- switches it on); the light's colour is kept with its brightest channel at 255.
+    r, g, b = tonumber(r) or 0, tonumber(g) or 0, tonumber(b) or 0
+    local m = math.max(r, g, b)
+    if m <= 0 then return end
+    local v = tonumber(self._lastState)
+    local k = (v and v > 0) and v or 1
+    local function out(x, f) return math.max(0, math.min(255, math.floor(x * f + 0.5))) end
+    local hex = string.format("#%02x%02x%02x", out(r, 255 * k / m), out(g, 255 * k / m), out(b, 255 * k / m))
+    self:execute(6, '"' .. hex .. '"', ramp)
+    self:_setColor(out(r, 255 / m), out(g, 255 / m), out(b, 255 / m))
 end
 
 return RemoteRGBLight
