@@ -539,3 +539,27 @@ func TestRegistryTags(t *testing.T) {
 		t.Errorf("tags count is %q, expected '3' (lights, floor1, floor2)", result)
 	}
 }
+
+// group:expose(type, options) exposes every object of the group; it used to be forwarded to
+// each object as obj:expose("switch", {...}), which takes only options and failed.
+func TestRegistryGroupExpose(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+	got := mustExec(t, engine, `(function()
+		local clu = { execute = function() end, executeNoReply = function() end }
+		local a = RemoteSwitch:new(clu, "DOU1", "a")
+		local b = RemoteSwitch:new(clu, "DOU2", "b")
+		registerObject("CLU123.DOU1", a)
+		registerObject("CLU123.DOU2", b)
+		a:addTag("grp"); b:addTag("grp")
+		local ok, err = pcall(function() _:byTag("grp"):expose("light", { area = "Dom" }) end)
+		local h = ExposedObjects:get("CLU123.DOU1")
+		local h2 = ExposedObjects:get("CLU123.DOU2")
+		local out = tostring(ok) .. " " .. tostring(h and h.type) .. " " .. tostring(h and h.options.area) .. " " .. tostring(h2 and h2.type)
+		_:byTag("grp"):unexpose()
+		return out .. " " .. tostring(ExposedObjects:get("CLU123.DOU1") ~= nil and ExposedObjects:get("CLU123.DOU1"):isExposed()) .. (ok and "" or (" " .. tostring(err)))
+	end)()`)
+	if got != "true light Dom light false" {
+		t.Errorf("group expose/unexpose = %q, want %q", got, "true light Dom light false")
+	}
+}

@@ -11,9 +11,9 @@ RemoteGroup = {}
 -- @param key string The method or property name being accessed
 -- @return function|any Returns the actual property or a wrapper function
 RemoteGroup.__index = function(self, key)
-    if key == "_objects" or key == "each" or key == "filter" or key == "count" then
-        return rawget(RemoteGroup, key)
-    end
+    -- the group's own methods (each, filter, count, expose, unexpose...) are not forwarded
+    local own = rawget(RemoteGroup, key)
+    if own ~= nil then return own end
     return function(self, ...)
         local args = {...}
         for _, obj in ipairs(self._objects) do
@@ -167,12 +167,16 @@ end
 -- @return RemoteGroup Returns self for method chaining
 function RemoteGroup:unexpose()
     for _, obj in ipairs(self._objects) do
-        -- Try object's unexpose method if available
+        -- the object's own handle (obj:expose), else the one expose(obj, ...) registered
+        local done = false
         if type(obj.unexpose) == "function" then
-            pcall(function() obj:unexpose() end)
-        -- Or try to find handle in ExposedObjects
-        elseif ExposedObjects and obj._exposeHandle then
-            pcall(function() obj._exposeHandle:unexpose() end)
+            local ok, r = pcall(function() return obj:unexpose() end)
+            done = ok and r == true
+        end
+        if not done and ExposedObjects then
+            local path = ExposedObjects._objectToPath and ExposedObjects._objectToPath[obj]
+            local h = path and ExposedObjects:get(path)
+            if h and h.unexpose then pcall(function() h:unexpose() end) end
         end
     end
     return self

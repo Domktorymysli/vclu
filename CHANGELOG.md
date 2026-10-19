@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Lua runtime
+
+- **`_:byTag(...):expose(type, options)` exposes the group** - the call was forwarded to each object as `obj:expose("switch", {...})`, which takes only options, and failed. The group's own methods (`expose`, `unexpose`, `each`, `filter`, `count`) are now used, and `group:unexpose()` also removes objects exposed through `expose(obj, ...)`.
+
 ## v1.6.0 (2026-10-19)
 
 ### Grenton
