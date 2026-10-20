@@ -23,7 +23,7 @@ The minimum the implementer must know. Link to `dev/plans/`, `dev/decisions/`, c
 ## Acceptance criteria
 - [ ] Each item can be checked by running a command or reading a test.
 - [ ] `go test ./...` and `go test -race ./...` pass.
-- [ ] CHANGELOG entry (in an "Unreleased" section at the top) if users notice the change.
+- [ ] A changelog entry in `changelog.d/<ticket>-<slug>.md` if users notice the change (see `changelog.d/README.md`).
 
 ## Contract impact
 Which contract (see CONTRIBUTING.md) this touches and whether it needs a decision record. Or: none.
