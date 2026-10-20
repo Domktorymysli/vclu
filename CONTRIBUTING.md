@@ -120,6 +120,7 @@ contract tests. A change that breaks one of them breaks someone's house.
 | History | Changes survive a restart without fake entries; a torn file loses at most its last line; deleting data needs a web session | `pkg/history/`, `pkg/lua/history_test.go`, `pkg/web/handlers_history_test.go` |
 | Async HTTP | Every async HTTP request from Lua (plugins, `HTTP:async*`, `HTTPRequest`) gets its own response and the transport error, however many are in flight | `pkg/lua/http_async_contract_test.go` |
 | Plugin HTTP errors | A plugin's HTTP callback gets the error as its second argument and as `resp.err`; a poller's `done(data, err)` counts a tick as failed only with `err` | `pkg/lua/plugin_errors_contract_test.go` |
+| MCP device tools | `vclu_devices`, `vclu_device_set`, `vclu_device_execute`, `vclu_scenes`, `vclu_scene_execute` keep their JSON field names and types; dimmer `state` is 0..1, cover 0..100 | `pkg/mcp/tools_contract_test.go` |
 | Sandbox | `vclu_draft_test` has no real side effects and runs on a virtual clock | `pkg/mcp/sandbox_*_test.go` |
 | Grenton protocol | Discovery encryption stays compatible with real CLUs; CLU state subscriptions are kept and renewed; the CLU's answer to a renewal corrects a state whose report was lost | `pkg/cipher/`, `pkg/server/`, `pkg/server/renew_reply_test.go` |
 
