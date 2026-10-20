@@ -407,18 +407,19 @@ end
 
 -- Add to RemoteGroup (only if exists)
 if RemoteGroup then
+    -- states in the group's order: the same id can be on two CLUs
     function RemoteGroup:saveState()
         local states = {}
-        for _, obj in ipairs(self._objects) do
-            states[obj._objId] = obj:saveState()
+        for i, obj in ipairs(self._objects) do
+            if type(obj.saveState) == "function" then states[i] = obj:saveState() end
         end
         return states
     end
 
     function RemoteGroup:restoreState(states)
-        for _, obj in ipairs(self._objects) do
-            local state = states[obj._objId]
-            if state then
+        for i, obj in ipairs(self._objects) do
+            local state = states and states[i]
+            if state and state._objId == obj._objId and type(obj.restoreState) == "function" then
                 obj:restoreState(state)
             end
         end
