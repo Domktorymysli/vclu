@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -346,6 +347,33 @@ func (s *Server) handleAPIDashboardValues(c *gin.Context) {
 	// Cache with TTL = 1s (half of default poll interval)
 	dashCache.setValues(id, result, 1*time.Second)
 
+	c.Data(http.StatusOK, "application/json", []byte(result))
+}
+
+var calendarDate = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
+
+// handleAPIDashboardCalendar returns the occurrences a calendar widget shows for the days
+// from..to, under the dashboard's own auth.
+func (s *Server) handleAPIDashboardCalendar(c *gin.Context) {
+	id := c.Param("id")
+	if s.luaExecutor == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Lua engine not ready"})
+		return
+	}
+	if !s.checkDashboardAuth(c, id) {
+		return
+	}
+	widget, from, to := c.Query("widget"), c.Query("from"), c.Query("to")
+	if widget == "" || len(widget) > 128 || !calendarDate.MatchString(from) || !calendarDate.MatchString(to) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "widget, from and to (YYYY-MM-DD) are required"})
+		return
+	}
+	result, err := s.luaExecutor.Execute(fmt.Sprintf(`Dashboard.API.calendarRange("%s", "%s", "%s", "%s")`,
+		luaEscape(id), luaEscape(widget), from, to))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 	c.Data(http.StatusOK, "application/json", []byte(result))
 }
 

@@ -310,6 +310,10 @@
             return el; // image has its own label placement
         } else if (w.type === 'group') {
             return renderGroup(w);
+        } else if (w.type === 'calendar') {
+            renderCalendar(el, w);
+            widgetEls[w.id] = el;
+            return el; // the label sits in the calendar's own toolbar
         }
 
         // Label
@@ -375,10 +379,16 @@
         el.appendChild(row);
     }
 
+    // A long text value ("closed · until 16:00") gets its own line on a phone
+    function markStatusText(el, display) {
+        el.classList.toggle('dash-status-text', typeof display === 'string' && display.length > 8);
+    }
+
     function renderStatus(el, w) {
         var valEl = document.createElement('div');
         valEl.className = 'dash-status-value';
         var display = w.value != null ? w.value : '--';
+        markStatusText(el, display);
         valEl.innerHTML = esc(String(display));
         if (w.unit) {
             valEl.innerHTML += ' <span class="dash-status-unit">' + esc(w.unit) + '</span>';
@@ -465,6 +475,363 @@
             }, w.refresh * 1000);
         }
         return el;
+    }
+
+    // ---- Calendar widget: a month grid and the day of a tapped date ----
+    var calendars = {}; // widgetId -> {refresh}
+
+    function pad2(n) { return (n < 10 ? '0' : '') + n; }
+    function ymd(d) { return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
+    function parseYmd(s) { var p = s.split('-'); return new Date(+p[0], +p[1] - 1, +p[2]); }
+    function addDays(d, n) { return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n); }
+    function hhmm(ts) { return new Date(ts * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}); }
+
+    var calHues = [168, 215, 32, 280, 340, 95];
+    function calHue(id) {
+        var h = 0;
+        for (var i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 9973;
+        return calHues[h % calHues.length];
+    }
+
+    function calEl(tag, cls, text) {
+        var e = document.createElement(tag);
+        if (cls) e.className = cls;
+        if (text != null) e.textContent = text;
+        return e;
+    }
+
+    function calIconBtn(icon, title, onClick) {
+        var b = calEl('button', 'dash-cal-btn');
+        b.type = 'button';
+        b.title = title;
+        b.setAttribute('aria-label', title);
+        b.innerHTML = '<i class="bi bi-' + icon + '"></i>';
+        b.addEventListener('click', function(ev) { ev.stopPropagation(); onClick(); });
+        return b;
+    }
+
+    function renderCalendar(el, w) {
+        el.classList.add('dash-widget-calendar');
+        el.style.cursor = 'default';
+        if (!w.span) el.style.gridColumn = '1 / -1';
+
+        var today = ymd(new Date());
+        var st = { view: w.view === 'day' ? 'day' : 'month', day: today, month: today.slice(0, 7) + '-01', data: null };
+        // What to show besides events: defaults from Lua, the viewer's choice kept per device
+        var showKey = 'vclu.cal.' + dashId + '.' + w.id;
+        st.show = { holidays: w.holidays !== false, namedays: !!w.namedays, sun: w.sun !== false };
+        try {
+            var saved = JSON.parse(localStorage.getItem(showKey) || 'null');
+            if (saved) {
+                if (typeof saved.holidays === 'boolean') st.show.holidays = saved.holidays;
+                if (typeof saved.namedays === 'boolean') st.show.namedays = saved.namedays;
+                if (typeof saved.sun === 'boolean') st.show.sun = saved.sun;
+            }
+        } catch (e) { /* no storage: defaults */ }
+        var pl = /^pl/i.test(navigator.language || '');
+        var txt = pl ? { holidays: 'Święta', namedays: 'Imieniny', sun: 'Słońce', show: 'Pokaż', polarDay: 'dzień polarny', polarNight: 'noc polarna' }
+                     : { holidays: 'Holidays', namedays: 'Name days', sun: 'Sun', show: 'Show', polarDay: 'polar day', polarNight: 'polar night' };
+        var rel = (window.Intl && Intl.RelativeTimeFormat) ? new Intl.RelativeTimeFormat([], {numeric: 'auto'}) : null;
+        var cap = function(t) { return t.charAt(0).toUpperCase() + t.slice(1); };
+
+        var bar = calEl('div', 'dash-cal-bar');
+        var label = calEl('div', 'dash-cal-label', w.label || '');
+        var nav = calEl('div', 'dash-cal-nav');
+        var title = calEl('div', 'dash-cal-title');
+        nav.appendChild(calIconBtn('chevron-left', '-', function() { step(-1); }));
+        nav.appendChild(title);
+        nav.appendChild(calIconBtn('chevron-right', '+', function() { step(1); }));
+        var tools = calEl('div', 'dash-cal-tools');
+        var todayBtn = calEl('button', 'dash-cal-today', rel ? cap(rel.format(0, 'day')) : 'Today');
+        todayBtn.type = 'button';
+        todayBtn.addEventListener('click', function() { st.day = ymd(new Date()); st.month = st.day.slice(0, 7) + '-01'; load(); });
+        var seg = calEl('div', 'dash-cal-seg');
+        var segMonth = calIconBtn('calendar3', 'Month', function() { st.view = 'month'; st.month = st.day.slice(0, 7) + '-01'; load(); });
+        var segDay = calIconBtn('calendar-day', 'Day', function() { st.view = 'day'; load(); });
+        seg.appendChild(segMonth);
+        seg.appendChild(segDay);
+        var menuWrap = calEl('div', 'dash-cal-menu-wrap');
+        var menu = calEl('div', 'dash-cal-menu');
+        menu.hidden = true;
+        function optionRow(key) {
+            var b = calEl('button', 'dash-cal-opt');
+            b.type = 'button';
+            b.setAttribute('role', 'switch');
+            b.appendChild(calEl('span', 'dash-cal-opt-label', txt[key]));
+            b.appendChild(calEl('span', 'dash-cal-opt-switch'));
+            function sync() { b.setAttribute('aria-checked', st.show[key] ? 'true' : 'false'); }
+            sync();
+            b.addEventListener('click', function(ev) {
+                ev.stopPropagation();
+                st.show[key] = !st.show[key];
+                sync();
+                try { localStorage.setItem(showKey, JSON.stringify(st.show)); } catch (e) { /* per session only */ }
+                if (st.data) draw();
+            });
+            return b;
+        }
+        menu.appendChild(optionRow('holidays'));
+        menu.appendChild(optionRow('namedays'));
+        menu.appendChild(optionRow('sun'));
+        var menuBtn = calIconBtn('sliders', txt.show, function() {
+            menu.hidden = !menu.hidden;
+            menuBtn.setAttribute('aria-expanded', menu.hidden ? 'false' : 'true');
+        });
+        menuBtn.setAttribute('aria-haspopup', 'true');
+        menuBtn.setAttribute('aria-expanded', 'false');
+        document.addEventListener('click', function(ev) {
+            if (!menu.hidden && !menuWrap.contains(ev.target)) {
+                menu.hidden = true;
+                menuBtn.setAttribute('aria-expanded', 'false');
+            }
+        });
+        menuWrap.appendChild(menuBtn);
+        menuWrap.appendChild(menu);
+        tools.appendChild(menuWrap);
+        tools.appendChild(todayBtn);
+        tools.appendChild(seg);
+        bar.appendChild(label);
+        bar.appendChild(nav);
+        bar.appendChild(tools);
+        var body = calEl('div', 'dash-cal-body');
+        el.appendChild(bar);
+        el.appendChild(body);
+
+        function step(n) {
+            if (st.view === 'day') {
+                st.day = ymd(addDays(parseYmd(st.day), n));
+            } else {
+                var m = parseYmd(st.month);
+                st.month = ymd(new Date(m.getFullYear(), m.getMonth() + n, 1));
+            }
+            load();
+        }
+
+        function range() {
+            if (st.view === 'day') return [st.day, st.day];
+            var first = parseYmd(st.month);
+            var start = addDays(first, -((first.getDay() + 6) % 7)); // Monday
+            return [ymd(start), ymd(addDays(start, 41))];
+        }
+
+        function load() {
+            var r = range();
+            segMonth.classList.toggle('active', st.view === 'month');
+            segDay.classList.toggle('active', st.view === 'day');
+            var url = '/api/dashboard/' + dashId + '/calendar?widget=' + encodeURIComponent(w.id) + '&from=' + r[0] + '&to=' + r[1];
+            fetchJSON(url).then(function(data) {
+                if (r[0] !== range()[0]) return; // navigated meanwhile
+                st.data = data;
+                draw();
+            }).catch(function() {
+                body.textContent = '';
+                body.appendChild(calEl('div', 'dash-cal-empty', '!'));
+            });
+        }
+
+        function itemsOn(date) {
+            var out = [];
+            var items = (st.data && st.data.items) || [];
+            for (var i = 0; i < items.length; i++) {
+                var it = items[i];
+                if (it.date <= date && (it.last || it.date) >= date) out.push(it);
+            }
+            return out;
+        }
+
+        function dayInfo(date) {
+            var days = (st.data && st.data.days) || [];
+            for (var i = 0; i < days.length; i++) if (days[i].date === date) return days[i];
+            return null;
+        }
+
+        function draw() {
+            body.textContent = '';
+            el.classList.toggle('has-error', !!(st.data && st.data.error));
+            if (st.data && st.data.error) {
+                body.appendChild(calEl('div', 'dash-cal-empty', st.data.error));
+                return;
+            }
+            if (st.view === 'day') drawDay(); else drawMonth();
+        }
+
+        function drawMonth() {
+            var m = parseYmd(st.month);
+            title.textContent = cap(m.toLocaleDateString([], {month: 'long', year: 'numeric'}));
+            var now = st.data.today || ymd(new Date());
+            var grid = calEl('div', 'dash-cal-month');
+            var start = parseYmd(range()[0]);
+            for (var i = 0; i < 7; i++) {
+                grid.appendChild(calEl('div', 'dash-cal-wd', addDays(start, i).toLocaleDateString([], {weekday: 'short'})));
+            }
+            for (var c = 0; c < 42; c++) {
+                var d = addDays(start, c);
+                var date = ymd(d);
+                var info = dayInfo(date) || {};
+                var cell = calEl('button', 'dash-cal-cell');
+                cell.type = 'button';
+                if (d.getMonth() !== m.getMonth()) cell.classList.add('other');
+                if (date === now) cell.classList.add('today');
+                if (info.holiday && st.show.holidays) cell.classList.add('holiday');
+                else if (d.getDay() === 0 || d.getDay() === 6) cell.classList.add('weekend');
+                cell.appendChild(calEl('span', 'dash-cal-num', String(d.getDate())));
+                if (info.holidayName && st.show.holidays) cell.appendChild(calEl('span', 'dash-cal-holname', info.holidayName));
+                var its = itemsOn(date);
+                var list = calEl('div', 'dash-cal-chips');
+                for (var k = 0; k < its.length && k < 3; k++) {
+                    var chip = calEl('div', 'dash-cal-chip' + (its[k].paused ? ' paused' : ''), its[k].title);
+                    chip.style.setProperty('--hue', calHue(its[k].id));
+                    if (!its[k].allDay) chip.title = hhmm(its[k].at) + ' ' + its[k].title;
+                    list.appendChild(chip);
+                }
+                if (its.length > 3) list.appendChild(calEl('div', 'dash-cal-more', '+' + (its.length - 3)));
+                cell.appendChild(list);
+                if (its.length) cell.setAttribute('aria-label', d.toLocaleDateString() + ': ' + its.map(function(x) { return x.title; }).join(', '));
+                cell.addEventListener('click', (function(dt) {
+                    return function() { st.day = dt; st.view = 'day'; load(); };
+                })(date));
+                grid.appendChild(cell);
+            }
+            body.appendChild(grid);
+        }
+
+        function drawDay() {
+            var d = parseYmd(st.day);
+            var info = dayInfo(st.day) || {};
+            title.textContent = cap(d.toLocaleDateString([], {weekday: 'long', day: 'numeric', month: 'long'}));
+            if (rel && st.data.today) {
+                var diff = Math.round((d - parseYmd(st.data.today)) / 86400000);
+                if (Math.abs(diff) <= 1) title.textContent = cap(rel.format(diff, 'day')) + ', ' + d.toLocaleDateString([], {day: 'numeric', month: 'long'});
+            }
+            var wrap = calEl('div', 'dash-cal-day');
+            var notes = calEl('div', 'dash-cal-notes');
+            if (info.holidayName && st.show.holidays) {
+                var hol = calEl('div', 'dash-cal-note holiday');
+                hol.appendChild(calEl('i', 'bi bi-flag-fill'));
+                hol.appendChild(document.createTextNode(info.holidayName));
+                notes.appendChild(hol);
+            }
+            if ((info.sunrise || info.polar) && st.show.sun) {
+                var sn = calEl('div', 'dash-cal-note sun');
+                if (info.polar) {
+                    sn.appendChild(calEl('i', 'bi bi-sun'));
+                    sn.appendChild(document.createTextNode(info.polar === 'day' ? txt.polarDay : txt.polarNight));
+                } else {
+                    sn.appendChild(calEl('i', 'bi bi-sunrise'));
+                    sn.appendChild(document.createTextNode(hhmm(info.sunrise)));
+                    sn.appendChild(calEl('i', 'bi bi-sunset dash-cal-note-gap'));
+                    sn.appendChild(document.createTextNode(hhmm(info.sunset)));
+                }
+                notes.appendChild(sn);
+            }
+            if (info.namedays && info.namedays.length && st.show.namedays) {
+                var nd = calEl('div', 'dash-cal-note');
+                nd.appendChild(calEl('i', 'bi bi-balloon'));
+                nd.appendChild(calEl('span', 'dash-cal-note-label', txt.namedays + ':'));
+                nd.appendChild(document.createTextNode(' ' + info.namedays.join(', ')));
+                notes.appendChild(nd);
+            }
+            if (notes.childNodes.length) wrap.appendChild(notes);
+            if (st.data.schedules && st.data.schedules.length) wrap.appendChild(drawSchedules(st.data.schedules, st.day === st.data.today));
+            var its = itemsOn(st.day);
+            var allDay = its.filter(function(x) { return x.allDay; });
+            var timed = its.filter(function(x) { return !x.allDay; });
+            if (allDay.length) {
+                var row = calEl('div', 'dash-cal-allday');
+                allDay.forEach(function(it) {
+                    var chip = calEl('div', 'dash-cal-chip' + (it.paused ? ' paused' : ''), it.title);
+                    chip.style.setProperty('--hue', calHue(it.id));
+                    row.appendChild(chip);
+                });
+                wrap.appendChild(row);
+            }
+            var nowTs = Date.now() / 1000;
+            var isToday = st.day === st.data.today;
+            var lineDrawn = false;
+            var listEl = calEl('div', 'dash-cal-list');
+            function nowLine() {
+                var l = calEl('div', 'dash-cal-now');
+                l.appendChild(calEl('span', null, hhmm(nowTs)));
+                listEl.appendChild(l);
+                lineDrawn = true;
+            }
+            timed.forEach(function(it) {
+                if (isToday && !lineDrawn && it.at > nowTs) nowLine();
+                var row = calEl('div', 'dash-cal-item');
+                row.style.setProperty('--hue', calHue(it.id));
+                if (it.ends ? it.ends <= nowTs : it.at < nowTs) row.classList.add('past');
+                if (it.at <= nowTs && it.ends && it.ends > nowTs) row.classList.add('now');
+                if (it.paused) row.classList.add('paused');
+                var time = hhmm(it.at) + (it.ends ? '–' + hhmm(it.ends) : '');
+                row.appendChild(calEl('div', 'dash-cal-time', time));
+                var name = calEl('div', 'dash-cal-name');
+                if (it.icon) {
+                    var ic = calEl('i', 'bi bi-' + String(it.icon).replace(/[^a-z0-9-]/gi, ''));
+                    name.appendChild(ic);
+                }
+                name.appendChild(document.createTextNode(it.title));
+                row.appendChild(name);
+                listEl.appendChild(row);
+            });
+            if (isToday && !lineDrawn && timed.length) nowLine();
+            if (!its.length && !(st.data.schedules && st.data.schedules.length)) {
+                var empty = calEl('div', 'dash-cal-empty');
+                empty.innerHTML = '<i class="bi bi-calendar-check"></i>';
+                wrap.appendChild(empty);
+            }
+            wrap.appendChild(listEl);
+            body.appendChild(wrap);
+        }
+
+        // A schedule as a 24 h bar: one segment per value, the current time marked
+        function drawSchedules(list, isToday) {
+            var box = calEl('div', 'dash-cal-sched');
+            var nowTs = Date.now() / 1000;
+            list.forEach(function(sc) {
+                var segs = sc.segments || [];
+                if (!segs.length) return;
+                var start = segs[0].from, span = segs[segs.length - 1].to - start;
+                var row = calEl('div', 'dash-cal-sched-row');
+                row.appendChild(calEl('div', 'dash-cal-sched-title', sc.title || sc.id));
+                var bar = calEl('div', 'dash-cal-sched-bar');
+                // with colours set, a value without one is neutral (e.g. "closed")
+                var anyColor = segs.some(function(x) { return !!x.color; });
+                segs.forEach(function(sg) {
+                    var seg = calEl('div', 'dash-cal-seg-v', sg.value);
+                    seg.style.left = ((sg.from - start) / span * 100) + '%';
+                    seg.style.width = ((sg.to - sg.from) / span * 100) + '%';
+                    var c = resolveColor(sg.color);
+                    if (c) seg.style.setProperty('--seg', c);
+                    else if (anyColor) seg.classList.add('neutral');
+                    else seg.style.setProperty('--seg', 'hsl(' + calHue(sg.value) + ', 55%, 50%)');
+                    seg.title = sg.value + '  ' + hhmm(sg.from) + '\u2013' + hhmm(sg.to);
+                    if (isToday && sg.from <= nowTs && sg.to > nowTs) seg.classList.add('now');
+                    bar.appendChild(seg);
+                });
+                if (isToday && nowTs >= start && nowTs < start + span) {
+                    var mark = calEl('div', 'dash-cal-sched-now');
+                    mark.style.left = ((nowTs - start) / span * 100) + '%';
+                    bar.appendChild(mark);
+                }
+                row.appendChild(bar);
+                box.appendChild(row);
+            });
+            var ticks = calEl('div', 'dash-cal-sched-ticks');
+            ticks.appendChild(calEl('div'));
+            var axis = calEl('div', 'dash-cal-sched-axis');
+            [0, 6, 12, 18, 24].forEach(function(h) {
+                var t = calEl('span', null, pad2(h % 24 === 0 && h ? 24 : h));
+                t.style.left = (h / 24 * 100) + '%';
+                axis.appendChild(t);
+            });
+            ticks.appendChild(axis);
+            box.appendChild(ticks);
+            return box;
+        }
+
+        calendars[w.id] = { refresh: load };
+        load();
+        startChartTimer('cal-' + w.id, load, 60000);
     }
 
     function renderGroup(w) {
@@ -1189,6 +1556,7 @@
             var valEl = el.querySelector('.dash-status-value');
             if (valEl) {
                 var display = value != null ? value : '--';
+                markStatusText(el, display);
                 var unit = wDef && wDef.unit ? wDef.unit : '';
                 valEl.innerHTML = esc(String(display));
                 if (unit) {
@@ -1312,6 +1680,10 @@
             if (definition) {
                 for (var i = 0; i < definition.widgets.length; i++) {
                     var w = definition.widgets[i];
+                    if (w.type === 'calendar' && calendars[w.id]) {
+                        calendars[w.id].refresh();
+                        startChartTimer('cal-' + w.id, calendars[w.id].refresh, 60000);
+                    }
                     if (w.type === 'chart') {
                         var canvas = document.getElementById('chart-' + w.id);
                         if (canvas) {
