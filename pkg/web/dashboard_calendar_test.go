@@ -17,7 +17,10 @@ import (
 func TestDashboardCalendarRange(t *testing.T) {
 	dir := t.TempDir()
 	hash, _ := config.HashPassword("secret")
-	if err := config.WriteMasterConfig(dir, &config.VCLUConfig{Auth: &config.VCLUAuthConfig{Username: "u", PasswordHash: hash}}); err != nil {
+	if err := config.UpdateMasterConfig(dir, func(mc *config.VCLUConfig) error {
+		mc.Auth = &config.VCLUAuthConfig{Username: "u", PasswordHash: hash}
+		return nil
+	}); err != nil {
 		t.Fatal(err)
 	}
 	dashCache.Invalidate()
