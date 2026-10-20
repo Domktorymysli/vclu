@@ -111,25 +111,38 @@ expose(pump, "switch", {
 
 ## MQTT Tasmota
 
-Controlling a Tasmota device over MQTT. `MQTT` is the default client, set up in the web UI (Integrations → MQTT → Client); a client for another broker is `MQTT:new()` with `:setHost(...)`, `:connect()`.
-Subscribe callback: `function(topic, payload, qos, retain)`.
-Use `VirtualSwitch` instead of hand-building a table with `_cbs`, `get()`, `set()`.
+A Tasmota device is one line with `lib/tasmota`; the topic is the device's Topic (Tasmota:
+Configuration → MQTT). The library keeps the state from the device (`stat/<topic>/POWER`,
+`RESULT`, `tele/<topic>/STATE`), sends commands, never sends a state from the device back, and
+asks for the state on start and when the device comes back online. `expose` stays in the module.
+A sensor is read-only (expose it with `readonly = true`). The device keeps Tasmota's default
+Full Topic (`%prefix%/%topic%/`). The library subscribes `stat/<topic>/+` and `tele/<topic>/+`; MQTT keeps one callback per
+pattern, so do not subscribe those patterns in the module (a single topic such as
+`tele/<topic>/SENSOR` is fine).
+
+So far only a Sonoff Basic (one relay, Tasmota 13.3.0) is used with vCLU, and the tests replay
+its messages. Relays 2 and up, the dimmer and sensors follow Tasmota's documented messages but no
+such device has been tried; colour lights, shutters and button events are not supported.
 
 ```lua
---- Tasmota: desk lamp (switch with state)
-local lamp = VirtualSwitch:new("Lampka biurko")
+--- modules/tasmota/init.lua
+local tasmota = require("lib/tasmota")
 
--- State feedback from Tasmota
-MQTT:subscribe("stat/tasmota_desk/POWER", function(topic, payload)
-    lamp:updateState(payload == "ON" and 1 or 0)
-end)
+local lamp = tasmota.switch("tasmota_75088A")                    -- { relay = 2 } for POWER2
+expose(lamp, "light", { path = "tasmota.biurko", name = "Lampka biurko", area = "Biuro" })
 
--- Commands to Tasmota
-lamp:onSwitchOn(function() MQTT:publish("cmnd/tasmota_desk/Power", "ON") end)
-lamp:onSwitchOff(function() MQTT:publish("cmnd/tasmota_desk/Power", "OFF") end)
+local plug = tasmota.sensor("tasmota_gniazdko", "ENERGY.Power", { unit = "W" })
+expose(plug, "number", { path = "tasmota.gniazdko_moc", name = "Gniazdko moc", area = "Biuro",
+    readonly = true, unit = "W", device_class = "power", state_class = "measurement" })
 
-expose(lamp, "switch", { name = "Lampka biurko", path = "tasmota:desk", area = "Biuro" })
+-- tasmota.dimmer(topic) for a dimmer, tasmota.online(topic) from LWT,
+-- tasmota.devices() lists what Tasmota's own discovery announced (nothing is created from it)
 ```
+
+For any other MQTT device, `MQTT` is the default client, set up in the web UI (Integrations →
+MQTT → Client); a client for another broker is `MQTT:new()` with `:setHost(...)`, `:connect()`.
+Subscribe callback: `function(topic, payload, qos, retain)`. In `vclu_draft_test`, the step
+`{"mqtt": "stat/tasmota_75088A/POWER", "payload": "ON"}` delivers a message to the module.
 
 ### Virtual Objects
 
@@ -655,9 +668,9 @@ Dashboard.new('settings')
 ## Grenton Smart Panel (screen drawn by vCLU)
 
 A Smart Panel (on the TF-Bus of a CLU, or a Smart Panel WiFi, which is its own CLU) shows
-what a module draws with `require("lib/panel")`. Object Manager only forwards the panel's
-events: on every button's OnClick it calls the script `click` on vCLU with
-`("<panel or button id>", "btn1")`, and on OnLongPress with `"btn1:long"`. The OM import
+what a module draws with `require("lib/panel")`. The panel sends its presses (and gestures, proximity,
+wake) through its CLU: every button's OnClick is set in Object Manager to call the script `click`
+on vCLU with `("<panel or button id>", "btn1")`, and OnLongPress with `"btn1:long"`. The OM import
 creates the panel as `RemotePanel` (class 29) with its buttons attached.
 
 ```lua
