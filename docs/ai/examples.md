@@ -655,9 +655,9 @@ Dashboard.new('settings')
 ## Grenton Smart Panel (screen drawn by vCLU)
 
 A Smart Panel (on the TF-Bus of a CLU, or a Smart Panel WiFi, which is its own CLU) shows
-what a module draws with `require("lib/panel")`. Object Manager only forwards the panel's
-events: on every button's OnClick it calls the script `click` on vCLU with
-`("<panel or button id>", "btn1")`, and on OnLongPress with `"btn1:long"`. The OM import
+what a module draws with `require("lib/panel")`. The panel sends its presses (and gestures, proximity,
+wake) through its CLU: every button's OnClick is set in Object Manager to call the script `click`
+on vCLU with `("<panel or button id>", "btn1")`, and OnLongPress with `"btn1:long"`. The OM import
 creates the panel as `RemotePanel` (class 29) with its buttons attached.
 
 ```lua
