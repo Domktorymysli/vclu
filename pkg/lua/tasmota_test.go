@@ -219,7 +219,6 @@ func TestTasmotaErrorInHandlerRecovers(t *testing.T) {
 	`)
 }
 
-
 // the docs example exposes the switch as "light": HA ON/OFF reach the device once.
 func TestTasmotaSwitchExposedAsLightFromHA(t *testing.T) {
 	runStateChange(t, tasmotaHarness+`
