@@ -73,12 +73,12 @@ Rules: `every` = `day`, `workday`, `weekend`, `holiday`, weekdays, `month` (`day
 - [x] Checked on a running house: reminder, start and end fired at the second; month and day
   views on a desktop and at 390 px.
 - [x] `go test ./...` and `go test -race ./...` pass.
-- [x] CHANGELOG entry.
+- [x] Changelog entry (`changelog.d/0076-calendar.md`).
 
 ## Before merging
-- [ ] Merge PR #69 (ticket #20) first: `vclu_draft_promote` warns that a module's own file
+- [x] Merge PR #69 (ticket #20) first: `vclu_draft_promote` warns that a module's own file
   (`modules/kalendarz/smieci.lua`, required by `modules/kalendarz/init.lua`) will not load.
-  Then rebase this branch on `main`.
+  Then merge `main` into this branch (done 2026-10-20).
 
 ## Follow-ups (separate tickets)
 - MCP tool `vclu_calendar`: agenda for agents ("what is tomorrow?") without `vclu_exec`, proposing
