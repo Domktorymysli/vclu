@@ -99,16 +99,20 @@ func (s *Server) Start() error {
 // Stop stops the TFTP server
 func (s *Server) Stop() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if !s.running {
+		s.mu.Unlock()
 		return
 	}
-
-	s.server.Shutdown()
-	// Shutdown misses the socket if Serve has not stored it yet
-	_ = s.conn.Close()
+	srv, conn := s.server, s.conn
 	s.conn = nil
 	s.running = false
+	// closed here too: Shutdown misses the socket if Serve has not stored it yet
+	_ = conn.Close()
+	s.mu.Unlock()
+
+	// waits for transfers in progress (a stalled one up to ~30 s); outside the lock, so
+	// IsRunning and a new Start do not wait with it
+	srv.Shutdown()
 }
 
 // IsRunning returns whether the server is running

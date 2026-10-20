@@ -125,3 +125,52 @@ func TestStartStopConcurrent(t *testing.T) {
 	}
 	stopWithin(t, s)
 }
+
+// A Stop waiting for a stalled upload must not hold IsRunning and a new Start: the UDP command
+// handlers call them, and two blocked handlers stop all Grenton commands.
+func TestStopWaitingForStalledUploadDoesNotBlock(t *testing.T) {
+	port, held := takePort(t)
+	_ = held.Close()
+	s := NewServer(t.TempDir(), "127.0.0.1", port, GetAndReplace)
+	if err := s.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	// a client that sends a write request, reads ACK 0, then goes silent
+	cl, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = cl.Close() }()
+	wrq := append([]byte{0, 2}, []byte("a:\\OM.LUA\x00octet\x00")...)
+	if _, err := cl.WriteToUDP(wrq, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port}); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 600)
+	if err := cl.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if n, _, err := cl.ReadFromUDP(buf); err != nil || n < 4 || buf[1] != 4 {
+		t.Fatalf("no ACK 0: n=%d err=%v", n, err)
+	}
+
+	go s.Stop() // waits for the stalled transfer
+	time.Sleep(200 * time.Millisecond)
+
+	done := make(chan bool)
+	go func() {
+		running := s.IsRunning()
+		err := s.Start()
+		done <- !running && err == nil
+	}()
+	select {
+	case ok := <-done:
+		if !ok {
+			t.Error("during the stop: want IsRunning false and a new Start to succeed")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("IsRunning/Start blocked while Stop waited for a stalled upload")
+	}
+	// the restarted server; the first Stop still waits for the stalled client
+	t.Cleanup(func() { go s.Stop() })
+}
