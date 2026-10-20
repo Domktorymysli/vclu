@@ -143,6 +143,8 @@ func Compile(s Spec, holidays Holidays) (*Rule, error) {
 			return nil, errors.New("sun (a part of the sky) sets its own hours: drop time, hours and duration")
 		case k.AzimuthFrom < 0 || k.AzimuthFrom > 360 || k.AzimuthTo < 0 || k.AzimuthTo > 360:
 			return nil, errors.New("sun azimuth expects degrees 0..360 from north (90 east, 180 south)")
+		case k.AzimuthFrom != k.AzimuthFrom || k.AzimuthTo != k.AzimuthTo || k.ElevationLow != k.ElevationLow || k.ElevationHigh != k.ElevationHigh:
+			return nil, errors.New("sun expects numbers, got NaN")
 		case k.ElevationLow < -90 || k.ElevationHigh > 90 || k.ElevationLow >= k.ElevationHigh:
 			return nil, errors.New("sun elevation expects low < high within -90..90 degrees")
 		}
@@ -152,6 +154,9 @@ func Compile(s Spec, holidays Holidays) (*Rule, error) {
 	r.lat, r.lon = s.Lat, s.Lon
 	if s.Duration < 0 {
 		return nil, errors.New("duration must not be negative")
+	}
+	if s.Duration > MaxDuration {
+		return nil, errors.New("duration must be at most 366 days")
 	}
 	if s.From != "" {
 		d, err := ParseDate(s.From)
@@ -532,10 +537,14 @@ func (r *Rule) occurrence(orig Date, loc *time.Location) (Occurrence, bool) {
 	switch {
 	case r.until >= 0:
 		end, ok := r.moment(d, r.until, r.untilSun, r.untilOff, loc)
-		if ok && !end.After(start) {
+		next := ok && !end.After(start)
+		if r.timeSun == noSun && r.untilSun == noSun {
+			next = r.until <= r.time // by the wall clock: a window inside the spring gap is empty that day
+		}
+		if next {
 			end, ok = r.moment(d+1, r.until, r.untilSun, r.untilOff, loc)
 		}
-		if !ok {
+		if !ok || !end.After(start) {
 			return Occurrence{}, false
 		}
 		o.End = end
@@ -573,10 +582,11 @@ func (r *Rule) skySpan(d Date, loc *time.Location) skySpan {
 
 // span is how far (in days) an occurrence can reach past its start day.
 func (r *Rule) span() Date {
+	n := Date(r.duration / (24 * time.Hour))
 	if r.kind == kindOnce {
-		return r.onceTo - r.onceFrom + 2
+		n = max(n, r.onceTo-r.onceFrom)
 	}
-	return Date(r.duration/(24*time.Hour)) + 2
+	return n + 2
 }
 
 // Between returns the occurrences that start in [from, to) or, with overlapping, are still

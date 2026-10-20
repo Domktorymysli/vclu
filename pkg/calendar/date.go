@@ -106,7 +106,11 @@ func ParseTime(s string) (int, error) {
 	return sec, nil
 }
 
-// ParseDuration parses "90m", "6h", "1h30m", "2d", "30s", with an optional sign ("-12h").
+// MaxDuration bounds durations and offsets: longer ones are mistakes and make expansion slow.
+const MaxDuration = 366 * 24 * time.Hour
+
+// ParseDuration parses "90m", "6h", "1h30m", "2d", "30s", with an optional sign ("-12h"),
+// at most MaxDuration.
 func ParseDuration(s string) (time.Duration, error) {
 	str := strings.TrimSpace(s)
 	sign := time.Duration(1)
@@ -127,7 +131,10 @@ func ParseDuration(s string) (time.Duration, error) {
 		if i == 0 || i == len(str) {
 			return 0, fmt.Errorf("duration %q: expected e.g. 30m, 6h, 1d", s)
 		}
-		n, _ := strconv.Atoi(str[:i])
+		n, err := strconv.Atoi(str[:i])
+		if err != nil || n > int(MaxDuration/time.Second) {
+			return 0, fmt.Errorf("duration %q: at most 366 days", s)
+		}
 		var unit time.Duration
 		switch str[i] {
 		case 's':
@@ -142,6 +149,9 @@ func ParseDuration(s string) (time.Duration, error) {
 			return 0, fmt.Errorf("duration %q: unknown unit %q", s, str[i])
 		}
 		total += time.Duration(n) * unit
+		if total > MaxDuration {
+			return 0, fmt.Errorf("duration %q: at most 366 days", s)
+		}
 		str = str[i+1:]
 	}
 	return sign * total, nil

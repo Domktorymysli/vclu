@@ -355,3 +355,78 @@ func TestClockTrusted(t *testing.T) {
 		t.Fatal("1970 is not a set clock")
 	}
 }
+
+func TestOneOffLongerThanThreeDaysStaysActive(t *testing.T) {
+	r, err := Compile(Spec{Date: "2026-11-14", Time: "18:00", Duration: 5 * 24 * time.Hour}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, 11, 18, 12, 0, 0, 0, warsaw)
+	if got := r.Between(at, at.Add(time.Second), warsaw, true); len(got) != 1 {
+		t.Errorf("going on at 11-18 12:00: %d occurrences, want 1", len(got))
+	}
+	end := time.Date(2026, 11, 19, 18, 0, 0, 0, warsaw)
+	if got := r.Between(end.Add(-time.Minute), end.Add(time.Minute), warsaw, true); len(got) != 1 || !got[0].End.Equal(end) {
+		t.Errorf("around its end: %+v", got)
+	}
+}
+
+// windows lists a daily window's occurrences from..to as "MM-DD HH:MM+duration".
+func windows(t *testing.T, from, until, a, b string) string {
+	t.Helper()
+	r, err := Compile(Spec{Every: []string{"day"}, Time: from, Until: until}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, o := range r.Between(day(a), day(b), warsaw, false) {
+		out = append(out, o.Start.In(warsaw).Format("01-02 15:04")+"+"+o.End.Sub(o.Start).String())
+	}
+	return strings.Join(out, ", ")
+}
+
+func TestSpringGapWindowIsEmptyThatDay(t *testing.T) {
+	// 2026-03-29: 02:00 CET jumps to 03:00 CEST; a window inside the gap does not happen that day
+	for _, c := range []struct{ from, until, want string }{
+		{"02:00", "03:00", "03-28 02:00+1h0m0s, 03-30 02:00+1h0m0s"},
+		{"02:15", "02:45", "03-28 02:15+30m0s, 03-30 02:15+30m0s"},
+		{"01:30", "02:30", "03-28 01:30+1h0m0s, 03-29 01:30+30m0s, 03-30 01:30+1h0m0s"},
+		{"22:00", "02:30", "03-28 22:00+4h0m0s, 03-29 22:00+4h30m0s, 03-30 22:00+4h30m0s"},
+	} {
+		if got := windows(t, c.from, c.until, "2026-03-28", "2026-03-31"); got != c.want {
+			t.Errorf("%s-%s:\n got %s\nwant %s", c.from, c.until, got, c.want)
+		}
+	}
+	r, _ := Compile(Spec{Every: []string{"day"}, Time: "02:00", Until: "03:00"}, nil)
+	s := &Schedule{Windows: []*Rule{r}}
+	if got := s.At(time.Date(2026, 3, 29, 12, 0, 0, 0, warsaw), warsaw); got != -1 {
+		t.Errorf("window in effect at noon of the change: %d", got)
+	}
+}
+
+func TestAutumnRepeatedHourWindows(t *testing.T) {
+	// 2026-10-25: 03:00 CEST goes back to 02:00 CET; the repeated hour counts once
+	for _, c := range []struct{ from, until, want string }{
+		{"02:00", "03:00", "10-24 02:00+1h0m0s, 10-25 02:00+1h0m0s, 10-26 02:00+1h0m0s"},
+		{"01:30", "02:30", "10-24 01:30+1h0m0s, 10-25 01:30+2h0m0s, 10-26 01:30+1h0m0s"},
+		{"02:30", "02:15", "10-24 02:30+24h45m0s, 10-25 02:30+23h45m0s, 10-26 02:30+23h45m0s"},
+	} {
+		if got := windows(t, c.from, c.until, "2026-10-24", "2026-10-27"); got != c.want {
+			t.Errorf("%s-%s:\n got %s\nwant %s", c.from, c.until, got, c.want)
+		}
+	}
+}
+
+func TestDurationAtMost366Days(t *testing.T) {
+	if d, err := ParseDuration("366d"); err != nil || d != MaxDuration {
+		t.Errorf("366d: %v %v", d, err)
+	}
+	for _, s := range []string{"367d", "8784h1s", "99999999999999999999d", "9223372036s", "200d200d"} {
+		if _, err := ParseDuration(s); err == nil || !strings.Contains(err.Error(), "366 days") {
+			t.Errorf("%s: %v, want an error about 366 days", s, err)
+		}
+	}
+	if _, err := Compile(Spec{Date: "2026-11-14", Time: "18:00", Duration: MaxDuration + time.Second}, nil); err == nil {
+		t.Error("a duration over 366 days compiled")
+	}
+}
