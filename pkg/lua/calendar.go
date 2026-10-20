@@ -21,6 +21,18 @@ func registerCalendarFunctions(L *lua.LState) {
 	L.SetGlobal("__go_calendar_clock", L.NewFunction(calendarClock))
 	L.SetGlobal("__go_calendar_sun", L.NewFunction(calendarSun))
 	L.SetGlobal("__go_calendar_sun_position", L.NewFunction(calendarSunPosition))
+	L.SetGlobal("__go_calendar_add_days", L.NewFunction(calendarAddDays))
+}
+
+// __go_calendar_add_days(timestamp, n) -> the same wall-clock time n days away (DST aware).
+func calendarAddDays(L *lua.LState) int {
+	t := unixSec(float64(L.CheckNumber(1))).In(calendarZone(L))
+	n := L.CheckInt(2)
+	if n < -366 || n > 366 {
+		L.ArgError(2, "at most 366 days")
+	}
+	L.Push(lua.LNumber(t.AddDate(0, 0, n).Unix()))
+	return 1
 }
 
 func calendarZone(L *lua.LState) *time.Location {
@@ -68,8 +80,8 @@ func luaInt(t *lua.LTable, key string) (int, error) {
 	case *lua.LNilType:
 		return 0, nil
 	case lua.LNumber:
-		if float64(v) != math.Trunc(float64(v)) {
-			return 0, fmt.Errorf("%s must be a whole number", key)
+		if float64(v) != math.Trunc(float64(v)) || math.Abs(float64(v)) > 1e6 {
+			return 0, fmt.Errorf("%s must be a whole number up to a million", key)
 		}
 		return int(v), nil
 	default:
@@ -94,6 +106,9 @@ func luaDuration(v lua.LValue, key string) (time.Duration, error) {
 	case *lua.LNilType:
 		return 0, nil
 	case lua.LNumber:
+		if f := math.Abs(float64(t)); f != f || f > calendar.MaxDuration.Seconds() {
+			return 0, fmt.Errorf("%s must be at most 366 days, got %v", key, float64(t))
+		}
 		return time.Duration(float64(t) * float64(time.Second)), nil
 	case lua.LString:
 		d, err := calendar.ParseDuration(string(t))
@@ -198,7 +213,8 @@ func skyFromLua(v lua.LValue) (*calendar.Sky, error) {
 	return k, bad
 }
 
-// __go_calendar_rule(spec, holidays, lat, lon) -> rule userdata; raises the error of a bad spec.
+// __go_calendar_rule(spec, holidays, lat, lon) -> rule userdata, or nil and the error of a bad
+// spec (returned, not raised: a caught error splits the closures of a module being loaded).
 func calendarRule(L *lua.LState) int {
 	s, err := specFromTable(L.CheckTable(1))
 	if lat, ok := L.Get(3).(lua.LNumber); ok {
@@ -207,16 +223,23 @@ func calendarRule(L *lua.LState) int {
 		}
 	}
 	if err == nil {
+		var hol calendar.Holidays
+		if c, ok := L.Get(2).(lua.LString); ok && c != "" {
+			hol, err = calendar.HolidaysFor(string(c))
+		}
 		var r *calendar.Rule
-		if r, err = calendar.Compile(s, calendarHolidays(L, L.Get(2))); err == nil {
-			ud := L.NewUserData()
-			ud.Value = r
-			L.Push(ud)
-			return 1
+		if err == nil {
+			if r, err = calendar.Compile(s, hol); err == nil {
+				ud := L.NewUserData()
+				ud.Value = r
+				L.Push(ud)
+				return 1
+			}
 		}
 	}
-	L.RaiseError("%s", err.Error())
-	return 0
+	L.Push(lua.LNil)
+	L.Push(lua.LString(err.Error()))
+	return 2
 }
 
 func checkRule(L *lua.LState, n int) *calendar.Rule {

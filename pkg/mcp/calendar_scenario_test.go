@@ -1,6 +1,8 @@
 package mcp
 
 import (
+	"os"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -23,11 +25,20 @@ end
 
 func runCalendar(t *testing.T, at, module, steps string) []string {
 	t.Helper()
+	return calLines(runCalendarResult(t, at, module, steps))
+}
+
+func runCalendarResult(t *testing.T, at, module, steps string) *SandboxResult {
+	t.Helper()
 	se, ws, _ := newTestSandbox(t)
 	writeDraft(t, ws, "modules/tz.lua", `datetime.setTimezone("Europe/Warsaw")`+calendarLog)
 	writeDraft(t, ws, "modules/kal.lua", module)
 	res := runScenario(t, se, []string{"modules/tz.lua", "modules/kal.lua"}, at, steps)
 	requireSuccess(t, res)
+	return res
+}
+
+func calLines(res *SandboxResult) []string {
 	var out []string
 	for _, l := range res.Logs {
 		if i := strings.Index(l, "CAL "); i >= 0 {
@@ -175,13 +186,19 @@ end)`, `[{"advance": 1}]`)
 
 func TestCalendar_BuildErrorsNameTheEvent(t *testing.T) {
 	for module, want := range map[string]string{
-		`Calendar.new('dom'):event('bio', { every = 'tue', time = '06:30' }):build()`:                  `event bio: every "tue"`,
-		`Calendar.new('dom'):event('bio', { every = 'tu', tme = '06:30' }):build()`:                    `event bio: unknown option "tme"`,
-		`Calendar.new('dom'):event('a', { date = '2026-01-01' }):event('a', { date = '2026-01-02' })`:  `duplicate id "a"`,
-		`Calendar.new('dom'):event('bio', { every = 'tu', weeks = 2 }):build()`:                        `event bio: an interval`,
-		`Calendar.new('dom'):schedule('t', { { every = 'day', hours = '13-15', value = 1 } }):build()`: `hours expected`,
-		`Calendar.new('dom'):holidays('de')`:                                                           `unknown holidays "de"`,
-		`Calendar.new('dom'):event('x', { date = '2026-01-01' }):build():on('stat', function() end)`:   `unknown kind "stat"`,
+		`Calendar.new('dom'):event('bio', { every = 'tue', time = '06:30' }):build()`:                             `event bio: every "tue"`,
+		`Calendar.new('dom'):event('bio', { every = 'tu', tme = '06:30' }):build()`:                               `event bio: unknown option "tme"`,
+		`Calendar.new('dom'):event('a', { date = '2026-01-01' }):event('a', { date = '2026-01-02' })`:             `duplicate id "a"`,
+		`Calendar.new('dom'):event('bio', { every = 'tu', weeks = 2 }):build()`:                                   `event bio: an interval`,
+		`Calendar.new('dom'):schedule('t', { { every = 'day', hours = '13-15', value = 1 } }):build()`:            `hours expected`,
+		`Calendar.new('dom'):holidays('de')`:                                                                      `unknown holidays "de"`,
+		`Calendar.new('dom'):event('x', { date = '2026-01-01' }):build():on('stat', function() end)`:              `unknown kind "stat"`,
+		`Calendar.new('dom'):event('wyjazd', { date = '2026-11-14', time = '18:00', duration = 1e300 }):build()`:  `event wyjazd: duration must be at most 366 days`,
+		`Calendar.new('dom'):event('wyjazd', { date = '2026-11-14', time = '18:00', duration = 0/0 }):build()`:    `event wyjazd: duration must be at most 366 days`,
+		`Calendar.new('dom'):event('wyjazd', { date = '2026-11-14', time = '18:00', duration = '400d' }):build()`: `event wyjazd: duration: duration "400d": at most 366 days`,
+		`Calendar.new('dom'):event('bio', { every = 'tu', time = '06:30', remind = 1e300 }):build()`:              `event bio remind: at most 366 days`,
+		`Calendar.new('dom'):event('bio', { every = 'tu', time = '06:30', remind = '-400d' }):build()`:            `event bio remind: at most 366 days`,
+		`Calendar.new('dom'):event('bio', { every = 'tu', time = '06:30', jitter = 0/0 }):build()`:                `event bio jitter: at most 366 days`,
 	} {
 		se, ws, _ := newTestSandbox(t)
 		writeDraft(t, ws, "modules/kal.lua", module)
@@ -363,4 +380,111 @@ print('CAL bad ' .. tostring(ok) .. ' ' .. tostring(err:find('azimuth expects', 
 		t.Fatalf("got:\n%s", strings.Join(got, "\n"))
 	}
 	t.Log(strings.Join(got, "\n"))
+}
+
+func TestCalendar_OneOffLongerThanThreeDaysEnds(t *testing.T) {
+	got := runCalendar(t, "2026-11-14T12:00:00+01:00", `
+local dom = Calendar.new('dom')
+  :event('wyjazd', { date = '2026-11-14', time = '18:00', duration = '5d' })
+  :build()
+calLog(dom)
+EventBus:getShared():setTimeout(function()
+  print('CAL active ' .. tostring(dom:isActive('wyjazd')) .. ' today ' .. #dom:today())
+end, 4 * 86400 * 1000)`, `[{"advance": 518400}]`)
+	expectLines(t, got,
+		"11-14 12:00 ready",
+		"11-14 18:00 start wyjazd",
+		"active true today 1",
+		"11-19 18:00 end wyjazd",
+	)
+}
+
+func TestCalendar_ClockStepBackDoesNotReplay(t *testing.T) {
+	got := runCalendar(t, "2026-10-20T10:00:00+02:00", `
+local real = __go_time_ms
+jump = { ms = 0 }
+__go_time_ms = function() return real() + jump.ms end
+local dom = Calendar.new('dom')
+  :event('a', { every = 'day', time = '10:05' })
+  :event('b', { every = 'day', time = '10:40' })
+  :event('lekcja', { every = 'day', time = '09:00', duration = '3h', catchup = true })
+  :build()
+calLog(dom)
+-- at 10:10 the clock is stepped back by 1 h (an RTC ahead, NTP corrects it), at 10:20 by half a second
+EventBus:getShared():setTimeout(function() jump.ms = -3600 * 1000 end, 10 * 60 * 1000)
+EventBus:getShared():setTimeout(function() jump.ms = jump.ms - 500 end, 20 * 60 * 1000)`, `[{"advance": 11000}]`)
+	// printed times are the virtual clock; the wall clock is 1 h behind after 10:10
+	expectLines(t, got,
+		"10-20 10:00 start lekcja catchup", "10-20 10:00 ready",
+		"10-20 10:05 start a",
+		// 10:05 and the catch-up do not fire again; 10:40 and 12:00 come once, by the wall clock
+		"10-20 11:40 start b",
+		"10-20 13:00 end lekcja",
+	)
+}
+
+func TestCalendar_BadSavedEventIsSkippedWithoutBreakingTheModule(t *testing.T) {
+	res := runCalendarResult(t, "2026-10-20T10:00:00+02:00", `
+local st = persist('calendar.dom', { events = {}, skips = {}, pauses = {}, seq = 0 })
+st.events = { zachod = { every = 'day', time = 'sunset' } }   -- saved when the calendar had :location()
+local n = 0
+local inc = function() n = n + 1 end
+local dom = Calendar.new('dom'):event('a', { every = 'day', time = '10:05' }):build()
+inc()
+print('CAL n=' .. n)`, `[{"advance": 1}]`)
+	expectLines(t, calLines(res), "n=1")
+	logs := strings.Join(res.Logs, "\n")
+	if !strings.Contains(logs, "saved event zachod skipped") || !strings.Contains(logs, "location") {
+		t.Errorf("no log line naming the skipped event:\n%s", logs)
+	}
+}
+
+func TestCalendar_BuildingTheSameIdAgainWarns(t *testing.T) {
+	res := runCalendarResult(t, "2026-10-20T10:00:00+02:00", `
+local first = Calendar.new('dom'):event('a', { every = 'day', time = '10:05' }):build()
+first:on('start', function(e) print('CAL first ' .. e.id) end)
+local second = Calendar.new('dom'):event('b', { every = 'day', time = '10:06' }):build()
+second:on('start', function(e) print('CAL second ' .. e.id) end)`, `[{"advance": 600}]`)
+	expectLines(t, calLines(res), "second b")
+	logs := strings.Join(res.Logs, "\n")
+	if !strings.Contains(logs, `calendar "dom" built again`) || !strings.Contains(logs, "earlier one stops") {
+		t.Errorf("no warning about the replaced calendar:\n%s", logs)
+	}
+}
+
+func TestCalendar_DayRemindersKeepTheWallClockOverDST(t *testing.T) {
+	// 2026-10-25 03:00 CEST goes back to 02:00 CET
+	got := runCalendar(t, "2026-10-24T12:00:00+02:00", `
+local dom = Calendar.new('dom')
+  :event('wizyta', { date = '2026-10-25', time = '18:00', remind = { '-1d', '-12h' } })
+  :build()
+calLog(dom)`, `[{"advance": 129600}]`)
+	expectLines(t, got,
+		"10-24 12:00 ready",
+		"10-24 18:00 reminder wizyta | wizyta 25.10 18:00", // a day before, by the wall clock
+		"10-25 06:00 reminder wizyta | wizyta 25.10 18:00", // 12 h exactly
+		"10-25 18:00 start wizyta",
+	)
+}
+
+// The status tile from docs/ai/examples.md, run before the clock is trusted.
+func TestCalendar_StatusTileExampleBeforeTheClockIsTrusted(t *testing.T) {
+	doc, err := os.ReadFile("../../docs/ai/examples.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tile := regexp.MustCompile("(?s):status\\('taryfa', 'Taryfa', 'lightning', (function\\(\\).*?end), nil,").FindSubmatch(doc)
+	if tile == nil {
+		t.Fatal("status tile example not found in docs/ai/examples.md")
+	}
+	got := runCalendar(t, "2026-10-20T10:00:00+02:00", `
+__go_calendar_clock = function() return false, 'not synchronised' end
+local dom = Calendar.new('dom')
+  :schedule('taryfa', { default = 'droga', { every = 'workday', hours = '13:00-15:00', value = 'tania' } })
+  :build()
+local tile = `+string(tile[1])+`
+print('CAL ' .. tile())`, `[{"advance": 1}]`)
+	if len(got) != 1 || got[0] == "" {
+		t.Fatalf("tile: %q", got)
+	}
 }

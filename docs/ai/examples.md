@@ -54,7 +54,9 @@ return dom
 
 ## Calendar: events and schedules of values
 
-One calendar per house; modules add `:on()` handlers. Rules: `every` = `'day'`, `'workday'`,
+One calendar per house, built in one module; other modules take it with `Calendar.get('dom')` (or
+`require('kalendarz')`) and add `:on()` handlers. Building the same id again replaces the calendar,
+and the handlers of the earlier one stop. Rules: `every` = `'day'`, `'workday'`,
 `'weekend'`, `'holiday'`, a weekday (`'mo'`..`'su'`) or a list of them, `'month'` (with `day = 10`,
 `day = -1` the last, or `on = 'first mo'` / `'last fr'` / `'last workday'`), `'year'` (with
 `date = 'MM-DD'`, or `month = 10, on = 'last su'`); `dates = { 'YYYY-MM-DD', ... }` for a schedule published as a list of days (waste collection); `weeks`/`months`/`years = n` every n-th (needs `from`); `from`, `to`, `times`
@@ -74,6 +76,7 @@ dusk; `dom:sunPosition()` the azimuth and elevation now. Use these instead of th
 `except` drops dates or ranges, `moves = { ['2026-11-10'] = '2026-11-12' }` moves one.
 
 ```lua
+-- File: modules/kalendarz/init.lua, the whole calendar in one place
 local dom = Calendar.new('dom'):name('Dom'):holidays('pl'):location(52.23, 21.01)
     :event('ogrod', { every = 'day', time = 'sunset-30m' })              -- garden lights before dark
     :notify(function(e) Logger:getShared():info('%s', e.text) end)   -- or an object with :send(e)
@@ -326,9 +329,10 @@ Public dashboard for a tablet/wall. Defined in Lua, available at `/d/:id`.
 Widget types: button, toggle, slider, status, link, select, chart, image, group, cover, dimmer, color, calendar.
 `:calendar(id, label, cal, { view = 'month' | 'day', tags = {...}, schedules = { 'taryfa' } })` shows a calendar
 built with `Calendar`: a month grid and the day of a tapped date (full width); `schedules` adds a 24 h bar per schedule
-to the day view; `holidays` (holiday names, default on) and `namedays` (name days in the day view, default off)
-set what a viewer sees first, and each viewer switches them on the widget (kept per device). A schedule as a tile: `:status('taryfa', 'Taryfa', 'lightning', function() local n = dom:nextChange('taryfa')
-return dom:value('taryfa') .. (n and (' · do ' .. datetime.format(datetime.fromTimestamp(n.at), '15:04')) or '') end, nil,
+to the day view; `holidays` (holiday names, default on), `namedays` (name days in the day view, default off) and
+`sun` (sunrise and sunset in the day view, default on) set what the widget may show: what is off is not sent to the
+browser (a public page would give away the house's location), and a viewer can hide the rest on the widget (kept per device). A schedule as a tile: `:status('taryfa', 'Taryfa', 'lightning', function() local n = dom:nextChange('taryfa')
+return (dom:value('taryfa') or '--') .. (n and (' · do ' .. datetime.format(datetime.fromTimestamp(n.at), '15:04')) or '') end, nil,
 { color = function() return dom:color('taryfa') end })`.
 
 **IMPORTANT**: After creating a dashboard file you MUST add a `require()` in `modules/init.lua`.

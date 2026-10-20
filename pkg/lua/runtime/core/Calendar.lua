@@ -45,9 +45,15 @@ local function list(v)
     return { v }
 end
 
-local function seconds(v, what)
-    if type(v) == 'number' then return v end
-    if type(v) ~= 'string' then error(what .. ': expected e.g. "-12h" or seconds', 3) end
+local MAX_S = 366 * 86400
+
+-- Seconds of "-12h" or a number, at most 366 days; nil and the error otherwise (does not raise).
+local function parseSeconds(v, what)
+    if type(v) == 'number' then
+        if v - v ~= 0 or math.abs(v) > MAX_S then return nil, what .. ': at most 366 days' end
+        return v
+    end
+    if type(v) ~= 'string' then return nil, what .. ': expected e.g. "-12h" or seconds' end
     local sign, rest = 1, v
     if rest:sub(1, 1) == '-' then sign, rest = -1, rest:sub(2) elseif rest:sub(1, 1) == '+' then rest = rest:sub(2) end
     local total, any = 0, false
@@ -55,20 +61,28 @@ local function seconds(v, what)
         total = total + tonumber(n) * ({ s = 1, m = 60, h = 3600, d = 86400 })[unit]
         any = true
     end
-    if not any or rest:gsub('%d+[smhd]', '') ~= '' then error(what .. ': bad duration "' .. v .. '"', 3) end
+    if not any or rest:gsub('%d+[smhd]', '') ~= '' then return nil, what .. ': bad duration "' .. v .. '"' end
+    if total > MAX_S then return nil, what .. ': at most 366 days' end
     return sign * total
 end
 
--- Checks the keys of an event or a window and compiles its rule.
-local function compile(where, opts, allowed, ctx)
-    if type(opts) ~= 'table' then error(where .. ': options table expected', 3) end
+local function seconds(v, what)
+    local n, err = parseSeconds(v, what)
+    if not n then error(err, 3) end
+    return n
+end
+
+-- Checks the keys of an event or a window and compiles its rule: the rule, or nil and the
+-- error (does not raise, so that a saved event can be skipped during a module's load).
+local function tryCompile(where, opts, allowed, ctx)
+    if type(opts) ~= 'table' then return nil, where .. ': options table expected' end
     local spec = {}
     for k, v in pairs(opts) do
         if type(k) == 'string' then
             if RULE_KEYS[k] then
                 spec[k] = v
             elseif not allowed[k] then
-                error(where .. ': unknown option "' .. k .. '"', 3)
+                return nil, where .. ': unknown option "' .. k .. '"'
             end
         end
     end
@@ -80,14 +94,20 @@ local function compile(where, opts, allowed, ctx)
             a, b = tostring(spec.hours):match('^(%d+:%d+)%s*%-%s*(%d+:%d+)$')
         end
         if type(a) ~= 'string' or type(b) ~= 'string' then
-            error(where .. ': hours expected as "13:00-15:00" or { "sunset", "sunrise" }', 3)
+            return nil, where .. ': hours expected as "13:00-15:00" or { "sunset", "sunrise" }'
         end
-        if spec.time or spec.duration then error(where .. ': give hours or time/duration, not both', 3) end
+        if spec.time or spec.duration then return nil, where .. ': give hours or time/duration, not both' end
         spec.time, spec['until'], spec.hours = a, b, nil
     end
     ctx = ctx or {}
-    local ok, rule = pcall(__go_calendar_rule, spec, ctx.holidays, ctx.lat, ctx.lon)
-    if not ok then error(where .. ': ' .. clean(rule), 3) end
+    local rule, err = __go_calendar_rule(spec, ctx.holidays, ctx.lat, ctx.lon)
+    if not rule then return nil, where .. ': ' .. tostring(err) end
+    return rule
+end
+
+local function compile(where, opts, allowed, ctx)
+    local rule, err = tryCompile(where, opts, allowed, ctx)
+    if not rule then error(err, 3) end
     return rule
 end
 
@@ -250,7 +270,12 @@ function Builder:build()
     cal:_loadUserEvents()
 
     local old = calendars[cal.id]
-    if old then old:_stop() else order[#order + 1] = cal.id end
+    if old then
+        old:_stop()
+        log():warn('[CALENDAR] calendar "%s" built again: the earlier one stops, its handlers no longer fire', cal.id)
+    else
+        order[#order + 1] = cal.id
+    end
     calendars[cal.id] = cal
     -- first check on the next turn of the loop, after the module subscribed with :on()
     cal._s.timer = EventBus:getShared():setTimeout(function() cal:_check() end, 1)
@@ -273,20 +298,21 @@ function Cal:_stop()
     self._s.stopped = true
 end
 
+-- No pcall here: build() runs while a module loads (see pkg/lua/AGENTS.md).
 function Cal:_loadUserEvents()
     for id, o in pairs(self._st.events or {}) do
-        local ok, rule = pcall(compile, 'Calendar ' .. self.id .. ' user event ' .. id, o, USER_KEYS, self._ctx)
-        if ok and not self._byId[id] then
+        local rule, err = tryCompile('Calendar ' .. self.id .. ' user event ' .. id, o, USER_KEYS, self._ctx)
+        if rule and not self._byId[id] then
             local ev = { id = id, source = 'user', title = o.title or id, icon = o.icon, tags = list(o.tags),
                 rule = rule, remind = {}, jitter = 0 }
             for _, r in ipairs(list(o.remind)) do
-                local ok2, s = pcall(seconds, r, 'remind')
-                if ok2 then ev.remind[#ev.remind + 1] = { s = s, label = r } end
+                local s = parseSeconds(r, 'remind')
+                if s then ev.remind[#ev.remind + 1] = { s = s, label = r } end
             end
             self._events[#self._events + 1] = ev
             self._byId[id] = ev
-        elseif not ok then
-            log():error('[CALENDAR] %s: saved event %s skipped: %s', self.id, id, tostring(rule))
+        elseif not rule then
+            log():error('[CALENDAR] %s: saved event %s skipped: %s', self.id, id, tostring(err))
         end
     end
 end
@@ -620,6 +646,12 @@ end
 
 -- ---------- firing ----------
 
+-- Whole days ('-1d') keep the wall-clock time across a DST change; hours are exact.
+local function remindAt(at, s)
+    if s ~= 0 and s % 86400 == 0 then return __go_calendar_add_days(at, s / 86400) end
+    return at + s
+end
+
 -- Moments in (a, b]: { t, kind, ev, occ, offset }.
 function Cal:_moments(a, b)
     local out = {}
@@ -627,7 +659,7 @@ function Cal:_moments(a, b)
     for _, ev in ipairs(self._events) do
         local lead, lag = ev.jitter, ev.jitter
         for _, r in ipairs(ev.remind) do
-            if r.s < 0 then lead = math.max(lead, -r.s) else lag = math.max(lag, r.s) end
+            if r.s < 0 then lead = math.max(lead, -r.s + 3600) else lag = math.max(lag, r.s + 3600) end   -- an hour for DST
         end
         for _, o in ipairs(__go_calendar_between(ev.rule, a - lag, b + lead + 1, true)) do
             if not skips[skipKey(ev.id, o.date)] then
@@ -638,7 +670,7 @@ function Cal:_moments(a, b)
                 end
                 add(start, 'start')
                 if o.ends then add(o.ends, 'end') end
-                for _, r in ipairs(ev.remind) do add(o.at + r.s, 'reminder', r) end
+                for _, r in ipairs(ev.remind) do add(remindAt(o.at, r.s), 'reminder', r) end
             end
         end
     end
@@ -700,7 +732,7 @@ end
 function Cal:_next(t)
     local s = self._s
     local wake = Calendar.CHECK_S
-    local m = self:_moments(t, t + wake)
+    local m = self:_moments(math.max(t, s.last or t), t + wake)
     if m[1] then wake = m[1].t - t end
     for _, sc in ipairs(self._schedules) do
         local _, at = __go_calendar_schedule(sc.rules, t, wake)
@@ -739,17 +771,20 @@ function Cal:_check()
         if s.stopped then return end
         return self:_next(t)
     end
-    if t < s.last or (s.expect and math.abs(t - s.expect) > Calendar.JUMP_S) then
-        log():warn('[CALENDAR] %s: clock jumped by %d s; skipped moments do not fire', self.id, math.floor(t - (s.expect or s.last)))
-        s.last = t
+    -- s.last only grows: after a step back, moments up to it do not fire again
+    if s.expect and math.abs(t - s.expect) > Calendar.JUMP_S then
+        log():warn('[CALENDAR] %s: clock jumped by %d s; skipped moments do not fire', self.id, math.floor(t - s.expect))
         self:_schedulesChanged(t)
-        self:_catchup(t)
+        if t > s.last then
+            s.last = t
+            self:_catchup(t)
+        end
     else
         for _, m in ipairs(self:_moments(s.last, t)) do
             if s.stopped then return end
             self:_fire(m)
         end
-        s.last = t
+        s.last = math.max(s.last, t)
         self:_schedulesChanged(t)
     end
     if s.stopped then return end
