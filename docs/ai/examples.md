@@ -115,7 +115,8 @@ A Tasmota device is one line with `lib/tasmota`; the topic is the device's Topic
 Configuration → MQTT). The library keeps the state from the device (`stat/<topic>/POWER`,
 `RESULT`, `tele/<topic>/STATE`), sends commands, never sends a state from the device back, and
 asks for the state on start and when the device comes back online. `expose` stays in the module.
-The library subscribes `stat/<topic>/+` and `tele/<topic>/+`; MQTT keeps one callback per
+A sensor is read-only (expose it with `readonly = true`). The device keeps Tasmota's default
+Full Topic (`%prefix%/%topic%/`). The library subscribes `stat/<topic>/+` and `tele/<topic>/+`; MQTT keeps one callback per
 pattern, so do not subscribe those patterns in the module (a single topic such as
 `tele/<topic>/SENSOR` is fine).
 

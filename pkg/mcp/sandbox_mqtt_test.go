@@ -16,7 +16,8 @@ expose(plug, "number", { path = "tasmota.gniazdko_moc", name = "Gniazdko moc",
 `
 
 // An agent checks a Tasmota module in the sandbox: a message from the device changes the
-// object with the device as the actor, a command from the module shows as a blocked publish.
+// object with the device as the actor, a change of the object
+// (a set step, as any change not from the device) shows as a blocked publish.
 func TestScenario_MQTTMessageReachesSubscription(t *testing.T) {
 	se, ws, _ := newTestSandbox(t)
 	writeDraft(t, ws, "modules/tasmota.lua", testTasmotaModule)
@@ -81,6 +82,22 @@ func TestScenario_MQTTAfterReload(t *testing.T) {
 		{"reload": true},
 		{"mqtt": "stat/tasmota_75088A/POWER", "payload": "ON"},
 		{"expect_state": {"tasmota.biurko": 1}}
+	]`)
+	requireSuccess(t, res)
+}
+
+// the step reaches a module's own client (MQTT:new) as well
+func TestScenario_MQTTSecondClient(t *testing.T) {
+	se, ws, _ := newTestSandbox(t)
+	writeDraft(t, ws, "modules/zigbee.lua", `
+local zb = MQTT:new("zigbee")
+LAMPA_ZB = VirtualSwitch:new("lampa_zb")
+expose(LAMPA_ZB, "switch", { path = "zb.lampa" })
+zb:subscribe("zigbee2mqtt/lampa", function(_, payload) LAMPA_ZB:setValue(payload == "ON" and 1 or 0) end)
+`)
+	res := runScenario(t, se, []string{"modules/zigbee.lua"}, "2026-10-19T23:00:00+02:00", `[
+		{"mqtt": "zigbee2mqtt/lampa", "payload": "ON"},
+		{"expect_state": {"zb.lampa": 1}}
 	]`)
 	requireSuccess(t, res)
 }

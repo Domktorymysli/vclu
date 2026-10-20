@@ -235,6 +235,13 @@ const sandboxHelpers = `
 		stepPath = nil
 		if not ok then error(err, 0) end
 	end
+	function __sandbox_mqtt(topic, payload)
+		local seen = {}
+		for _, c in pairs(MQTT._instances or {}) do
+			if not seen[c] then seen[c] = true; c:_handleMessage(topic, payload, 0, false) end
+		end
+		if not seen[MQTT] then MQTT:_handleMessage(topic, payload, 0, false) end
+	end
 	function __sandbox_history_path(path)
 		path = resolve(path)
 		return StateChange.pathOf(rawget(_registry, path), path)
@@ -331,14 +338,14 @@ func (run *sandboxRun) runSteps(L *lua.LState, steps []SandboxStep, cluMark int)
 			}
 
 		case "mqtt":
-			// as the broker delivers it; the client is blocked here, subscriptions are kept
-			mq, _ := L.GetGlobal("MQTT").(*lua.LTable)
-			if mq == nil {
+			// as the broker delivers it, to every client (MQTT and MQTT:new ones);
+			// the clients are blocked here, their subscriptions are kept
+			if L.GetGlobal("MQTT") == lua.LNil {
 				fail(i, op, "MQTT is not loaded")
 				continue
 			}
-			if err := L.CallByParam(lua.P{Fn: L.GetField(mq, "_handleMessage"), NRet: 0, Protect: true},
-				mq, lua.LString(*s.MQTT), lua.LString(*s.Payload), lua.LNumber(0), lua.LFalse); err != nil {
+			if err := L.CallByParam(lua.P{Fn: L.GetGlobal("__sandbox_mqtt"), NRet: 0, Protect: true},
+				lua.LString(*s.MQTT), lua.LString(*s.Payload)); err != nil {
 				fail(i, op, "%v", err)
 			}
 

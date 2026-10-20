@@ -12,7 +12,8 @@
 -- is recorded with the device as the actor (device:<topic>).
 -- The library subscribes stat/<topic>/+ and tele/<topic>/+; MQTT keeps one callback per
 -- pattern, so a module must not subscribe those patterns itself (subscribe e.g.
--- tele/<topic>/SENSOR). It needs the default client without a topic prefix.
+-- tele/<topic>/SENSOR). It needs the default client without a topic prefix, and the device's
+-- Full Topic as Tasmota sets it (%prefix%/%topic%/).
 -- @module lib.tasmota
 
 local M = {}
@@ -108,13 +109,14 @@ local function start()
     c:subscribe("tasmota/discovery/+/config", function(_, payload)
         local d = decode(payload)
         if not d or type(d.t) ~= "string" then return end
-        local relays = 0
+        -- rl: 1 relay, 2 light, 3 shutter
+        local relays, lights = 0, 0
         for _, r in ipairs(type(d.rl) == "table" and d.rl or {}) do
-            if r ~= 0 then relays = relays + 1 end
+            if r == 1 then relays = relays + 1 elseif r == 2 then lights = lights + 1 end
         end
         local names = type(d.fn) == "table" and d.fn or {}
         discovered[d.t] = { topic = d.t, name = names[1] or d.dn, device = d.dn,
-            relays = relays, ip = d.ip, mac = d.mac }
+            relays = relays, lights = lights, ip = d.ip, mac = d.mac }
     end)
 end
 
@@ -172,7 +174,8 @@ end
 function M.switch(topic, opts)
     opts = opts or {}
     local dev = device(topic)
-    local key = (opts.relay and opts.relay > 1) and ("POWER" .. opts.relay) or "POWER"
+    local relay = tonumber(opts.relay) or 1
+    local key = relay > 1 and ("POWER" .. relay) or "POWER"
     local sw = VirtualSwitch:new(opts.name or (topic .. "_" .. key))
     local apply = bind(dev, sw, function(v)
         publish(topic, key, (v == 1 or v == true) and "ON" or "OFF")
@@ -210,7 +213,7 @@ function M.dimmer(topic, opts)
         -- switchOn after the device switched off restores the device's level
         if st.level and st.level > 0 then dim._lastBrightness = st.level / 100 end
         if st.power == 0 then apply(0)
-        elseif st.power == 1 and st.level then apply(st.level / 100) end
+        elseif st.power == 1 then apply(st.level and st.level / 100 or dim._lastBrightness or 1) end
     end
     dev.listeners[#dev.listeners + 1] = {
         power = function(name, payload)
@@ -245,10 +248,15 @@ function M.sensor(topic, path, opts)
     -- read-only: the value is the device's (expose it with readonly = true as well)
     num._allowedMethods = { "getValue" }
     local function refuse()
-        if Logger then Logger:warn("[tasmota] %s %s is read-only, the value comes from the device", topic, path) end
+        error("tasmota: " .. topic .. " " .. path .. " is read-only, the value comes from the device", 2)
     end
     num.setValue = refuse
     num.set = refuse
+    num.expose = function(self, o)
+        o = o or {}
+        o.readonly = true
+        return VirtualNumber.expose(self, o)
+    end
     local apply = bind(dev, num, function() end)
     dev.listeners[#dev.listeners + 1] = {
         sensor = function(d)
@@ -274,7 +282,7 @@ end
 --- Tasmota devices seen on MQTT discovery (tasmota/discovery/<mac>/config), sorted by topic.
 -- Nothing is created from them; add a device with a line in a module.
 -- @api public
--- @return table list of { topic, name, device, relays, ip, mac }
+-- @return table list of { topic, name, device, relays, lights, ip, mac }
 function M.devices()
     start()
     local out = {}

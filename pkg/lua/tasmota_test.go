@@ -218,3 +218,150 @@ func TestTasmotaErrorInHandlerRecovers(t *testing.T) {
 		eq("command after error", sent(), "cmnd/tasmota_75088A/POWER=ON")
 	`)
 }
+
+
+// the docs example exposes the switch as "light": HA ON/OFF reach the device once.
+func TestTasmotaSwitchExposedAsLightFromHA(t *testing.T) {
+	runStateChange(t, tasmotaHarness+`
+		local sw = tasmota.switch("tasmota_75088A")
+		expose(sw, "light", { path = "tasmota.biurko", name = "Lampka" })
+		MQTT._outbox = {}
+		HACommands.handleExposedMessage("vclu/exposed/vclu/light/tasmota_biurko/set", "ON")
+		eq("HA ON", sent(), "cmnd/tasmota_75088A/POWER=ON")
+		eq("state", sw:getValue(), 1)
+		HACommands.handleExposedMessage("vclu/exposed/vclu/light/tasmota_biurko/set", "OFF")
+		eq("HA OFF", sent(), "cmnd/tasmota_75088A/POWER=OFF")
+		local ok = HACommands.handleExposedMessage("vclu/exposed/vclu/light/tasmota_biurko/brightness/set", "50")
+		eq("no brightness on a relay", ok, false)
+		eq("nothing for brightness", sent(), "")
+	`)
+}
+
+// MCP vclu_device_set (MCP.set_value -> ExposedHandle:setValue) on a switch and a dimmer.
+func TestTasmotaMCPSetValue(t *testing.T) {
+	runStateChange(t, tasmotaHarness+`
+		local sw = tasmota.switch("t1")
+		local d = tasmota.dimmer("d1")
+		expose(sw, "switch", { path = "t:sw" })
+		expose(d, "dimmer", { path = "t:dim" })
+		MQTT._outbox = {}
+		MCP.set_value("t:sw", 1)
+		eq("switch", sent(), "cmnd/t1/POWER=ON")
+		MCP.set_value("t:dim", 0.3)
+		eq("dimmer", sent(), "cmnd/d1/Dimmer=30")
+	`)
+}
+
+// HA brightness on a Tasmota dimmer goes through setBrightness and the following ON is dropped.
+func TestTasmotaDimmerHABrightness(t *testing.T) {
+	runStateChange(t, tasmotaHarness+`
+		local d = tasmota.dimmer("dim1")
+		expose(d, "dimmer", { path = "t:dim" })
+		msg("stat/dim1/RESULT", '{"POWER":"OFF","Dimmer":40}')
+		MQTT._outbox = {}
+		HACommands.handleExposedMessage("vclu/exposed/t/light/dim/brightness/set", "30")
+		HACommands.handleExposedMessage("vclu/exposed/t/light/dim/set", "ON")
+		eq("brightness then ON", sent(), "cmnd/dim1/Dimmer=30")
+		msg("stat/dim1/RESULT", '{"POWER":"ON","Dimmer":30}')
+		eq("answer not echoed", sent(), "")
+		HACommands.handleExposedMessage("vclu/exposed/t/light/dim/set", "OFF")
+		eq("HA OFF", sent(), "cmnd/dim1/POWER=OFF")
+		HACommands.handleExposedMessage("vclu/exposed/t/light/dim/set", "ON")
+		eq("HA ON restores", sent(), "cmnd/dim1/Dimmer=30")
+		d:setValue(1.0)
+		eq("full", sent(), "cmnd/dim1/Dimmer=100")
+		msg("stat/dim1/RESULT", '{"POWER":"ON","Dimmer":0}')
+		eq("Dimmer 0 is off", d:getValue(), 0)
+		eq("no echo", sent(), "")
+	`)
+}
+
+// the device switched on by its button before vCLU learned its Dimmer (STATE answer lost or
+// late): the object should be on, not stay at 0.
+func TestTasmotaDimmerPowerOnBeforeAnyDimmer(t *testing.T) {
+	runStateChange(t, tasmotaHarness+`
+		local d = tasmota.dimmer("dim1")
+		msg("stat/dim1/POWER", "ON")
+		assert(d:getValue() > 0, "device is ON, object value " .. tostring(d:getValue()))
+	`)
+}
+
+// Dimmer reported alone (no POWER key, e.g. a Fade/Dimmer answer with SetOption20) after the
+// device is known to be on.
+func TestTasmotaDimmerWithoutPower(t *testing.T) {
+	runStateChange(t, tasmotaHarness+`
+		local d = tasmota.dimmer("dim1")
+		msg("stat/dim1/RESULT", '{"POWER":"ON","Dimmer":40}')
+		msg("stat/dim1/RESULT", '{"Dimmer":60}')
+		eq("level alone", d:getValue(), 0.6)
+		eq("no echo", sent():gsub("cmnd/dim1/STATE=%s*", ""), "")
+	`)
+}
+
+// the state is asked for again when the MQTT client (re)connects.
+func TestTasmotaAskOnConnect(t *testing.T) {
+	runStateChange(t, tasmotaHarness+`
+		tasmota.switch("a1")
+		tasmota.sensor("p1", "ENERGY.Power")
+		MQTT._outbox = {}
+		MQTT:_emit("connect")
+		local out = sent()
+		assert(out:find("cmnd/a1/STATE=", 1, true) and out:find("cmnd/p1/STATE=", 1, true)
+			and out:find("cmnd/p1/Status=10", 1, true), "on connect: " .. out)
+	`)
+}
+
+// a read-only sensor written through vclu_device_set (exposed without readonly = true):
+// the write changes nothing, so it must not be reported as a success.
+func TestTasmotaSensorWriteReportedAsSuccess(t *testing.T) {
+	runStateChange(t, tasmotaHarness+`
+		local p = tasmota.sensor("plug1", "ENERGY.Power", { unit = "W" })
+		expose(p, "number", { path = "t:moc" })
+		msg("tele/plug1/SENSOR", '{"ENERGY":{"Power":12}}')
+		local res = JSON.decode(MCP.set_value("t:moc", 500))
+		eq("value", p:getValue(), 12)
+		eq("MCP reports the refused write as ok", res.ok, false)
+	`)
+}
+
+// obj:expose() (and exposeRegistry) take the type from _type: AnalogOUT is a writable number.
+func TestTasmotaSensorSelfExposeIsWritable(t *testing.T) {
+	runStateChange(t, tasmotaHarness+`
+		local p = tasmota.sensor("plug1", "ENERGY.Power", { unit = "W" })
+		registerObject("tasmota.moc", p)
+		local h = p:expose()
+		local caps = ExposedObjects:getHandleCapabilities(h)
+		assert(h.options.readonly or not caps.write,
+			"sensor exposed as '" .. h.type .. "', writable, readonly=" .. tostring(h.options.readonly))
+	`)
+}
+
+// Tasmota discovery rl: 1 relay, 2 light, 3 shutter; a dimmer has no relay.
+func TestTasmotaDiscoveryLightIsNotARelay(t *testing.T) {
+	runStateChange(t, tasmotaHarness+`
+		tasmota.devices()
+		MQTT:_handleMessage("tasmota/discovery/AABBCC/config",
+			'{"ip":"192.168.0.78","dn":"Dimmer","fn":["Lampa",null],"mac":"AABBCC","t":"tasmota_dim","rl":[2,0,0,0,0,0,0,0]}', 0, true)
+		eq("relays of a light", tasmota.devices()[1].relays, 0)
+	`)
+}
+
+// a device value equal to the one a nested callback sets must not leave the echo guard armed
+func TestTasmotaNestedSameValue(t *testing.T) {
+	runStateChange(t, tasmotaHarness+`
+		local sw = tasmota.switch("t1")
+		local f = { n = 0 }
+		sw:onChange(function(v)
+			f.n = f.n + 1
+			if f.n == 1 and v == 1 then sw:switchOff(); sw:switchOn() end
+		end)
+		MQTT._outbox = {}
+		msg("stat/t1/POWER", "ON")
+		eq("both commands sent", sent(), "cmnd/t1/POWER=OFF cmnd/t1/POWER=ON")
+		msg("stat/t1/POWER", "OFF")
+		msg("stat/t1/POWER", "ON")
+		eq("quick reports, no echo", sent(), "")
+		sw:switchOff()
+		eq("command after", sent(), "cmnd/t1/POWER=OFF")
+	`)
+}
