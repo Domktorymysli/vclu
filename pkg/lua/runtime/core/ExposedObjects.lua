@@ -19,12 +19,27 @@ ExposedHandle.__index = ExposedHandle
 -- @param objType string Type of object (switch, light, sensor, etc.)
 -- @param options table Options passed to expose()
 -- @return ExposedHandle
+-- a handle's own copy of the options (plain tables such as tags one level deep), so
+-- objects exposed with one table do not share names, tags or later changes
+local function copyOptions(options)
+    local out = {}
+    for k, v in pairs(options or {}) do
+        if type(v) == "table" and getmetatable(v) == nil then
+            local t = {}
+            for k2, v2 in pairs(v) do t[k2] = v2 end
+            v = t
+        end
+        out[k] = v
+    end
+    return out
+end
+
 function ExposedHandle:new(path, obj, objType, options)
     local h = {
         path = path,
         object = obj,
         type = objType,
-        options = options or {},
+        options = copyOptions(options),
         _exposed = true,
         _lastChanged = nil,  -- timestamp (epoch seconds), nil = never changed
         _lastExecute = 0,    -- for scene debounce
@@ -563,15 +578,17 @@ function ExposedObjects:_remove(path)
     end
 end
 
---- Get an exposed handle by path
--- @param path string Path identifier
--- @return ExposedHandle or nil
+--- Get an exposed handle by path (fields as in list())
+-- @api public
+-- @param path string Exposed path
+-- @return ExposedHandle or nil when nothing is exposed at that path
 function ExposedObjects:get(path)
     return self._objects[path]
 end
 
---- Get all exposed objects
--- @return table Map of path -> ExposedHandle
+--- All exposed objects: the live map, read it and never change it
+-- @api public
+-- @return table path -> handle; stable fields: type, options.name, options.area, options.tags, getValue()
 function ExposedObjects:list()
     return self._objects
 end

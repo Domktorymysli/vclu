@@ -480,7 +480,7 @@ func TestContract_Expose_StateChanged(t *testing.T) {
 	}
 }
 
-// Contract: expose() registers object so ExposedObjects:getAll() includes it.
+// Contract: expose() registers object so ExposedObjects:list() includes it.
 func TestContract_Expose_GetAll(t *testing.T) {
 	engine := NewLuaEngine()
 	defer engine.Close()
@@ -501,7 +501,60 @@ func TestContract_Expose_GetAll(t *testing.T) {
 		return "not_found"
 	`)
 	if result != "found" {
-		t.Error("expected exposed object to appear in ExposedObjects:getAll()")
+		t.Error("expected exposed object to appear in ExposedObjects:list()")
+	}
+}
+
+// Contract: list() is keyed by the exposed path; type, options.name/area/tags and getValue()
+// of a listed handle are what user code may rely on, and get(path) returns the same handle.
+func TestContract_Expose_ListFields(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+
+	result, err := engine.Execute(`
+		local t = VirtualNumber:new("T1", { initial = 21.5 })
+		expose(t, "temperature", { name = "Salon", area = "Parter", tags = { "influx" } })
+		local path, h
+		for p, handle in pairs(ExposedObjects:list()) do
+			if handle.options.name == "Salon" then path, h = p, handle end
+		end
+		if not h then return "not listed" end
+		return table.concat({ tostring(ExposedObjects:get(path) == h), h.type, h.options.area,
+			h.options.tags[1], tostring(h:getValue()) }, " ")
+	`)
+	if err != nil {
+		t.Fatalf("execute failed: %v", err)
+	}
+	if result != "true temperature Parter influx 21.5" {
+		t.Errorf("list() handle fields: got %q", result)
+	}
+}
+
+// Contract: an unexposed object is gone from list() and get(path).
+func TestContract_Expose_ListAfterUnexpose(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+
+	_, err := engine.Execute(`
+		local t = VirtualSensor:new("T2")
+		local h = expose(t, "temperature", { name = "Kuchnia" })
+		unexposedPath = h.path
+		h:unexpose()
+	`)
+	if err != nil {
+		t.Fatalf("execute failed: %v", err)
+	}
+	result, err := engine.Execute(`
+		for _, handle in pairs(ExposedObjects:list()) do
+			if handle.options.name == "Kuchnia" then return "still listed" end
+		end
+		return tostring(ExposedObjects:get(unexposedPath))
+	`)
+	if err != nil {
+		t.Fatalf("execute failed: %v", err)
+	}
+	if result != "nil" {
+		t.Errorf("after unexpose: got %q", result)
 	}
 }
 
@@ -709,5 +762,124 @@ func assertLua(t *testing.T, engine *LuaEngine, expr string, expected string) {
 	}
 	if result != expected {
 		t.Errorf("assertLua(%s): expected %q, got %q", expr, expected, result)
+	}
+}
+
+// the docs/ai/examples.md example, verbatim, over every way of exposing.
+func TestContract_Expose_ListExampleAllForms(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+
+	result, err := engine.Execute(`
+		local function temperatures()
+		    local out = {}
+		    for path, h in pairs(ExposedObjects:list()) do
+		        if h.type == "temperature" then
+		            out[path] = { name = h.options.name, area = h.options.area, value = h:getValue() }
+		        end
+		    end
+		    return out
+		end
+		local a = VirtualNumber:new("A1", { initial = 20 })
+		expose(a, "temperature", { name = "A", area = "Parter", tags = { "influx" } })
+		local b = VirtualNumber:new("B1", { initial = 21 })
+		local hb = expose(b, "temperature"):name("B"):area("Pietro"):tags({ "influx" })
+		local p = Plugin:new("rev-test", { name = "Rev" })
+		local c = p:sensor("temp", function() return 22 end)
+		local hc = p:expose(c, "temperature", { name = "C", area = "Ogrod" })
+		local d = { get = function() error("boom") end }
+		local hd = expose(d, "temperature", { name = "D" })
+		local out = temperatures()
+		local bad = {}
+		for path, h in pairs(ExposedObjects:list()) do
+			if h.path ~= path then bad[#bad+1] = "path " .. path end
+		end
+		local function row(h) local r = out[h.path]; return r and (tostring(r.name) .. "/" .. tostring(r.area) .. "/" .. tostring(r.value)) or "missing" end
+		return table.concat({ row(ExposedObjects:get(ExposedObjects._objectToPath[a])), row(hb), row(hc), row(hd),
+			tostring(hb.options.tags and hb.options.tags[1]), #bad }, " ")
+	`)
+	if err != nil {
+		t.Fatalf("execute failed: %v", err)
+	}
+	want := "A/Parter/20 B/Pietro/21 C/Ogrod/22 D/nil/nil influx 0"
+	if result != want {
+		t.Errorf("example over all forms: got %q, want %q", result, want)
+	}
+}
+
+// obj:expose(opts) writes name/path into the caller's table, so a shared
+// options table gives the second object the first one's name.
+func TestContract_Expose_ListSharedOptionsTable(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+
+	result, err := engine.Execute(`
+		local o = { area = "Salon" }
+		local n1 = VirtualNumber:new("N1")
+		local n2 = VirtualNumber:new("N2")
+		local ok, err = pcall(function()
+			local h1 = n1:expose(o)
+			local h2 = n2:expose(o)
+			return h1, h2
+		end)
+		if not ok then return "error: " .. tostring(err) end
+		local names = {}
+		for _, h in pairs(ExposedObjects:list()) do
+			if h.object == n1 then names[1] = h.options.name end
+			if h.object == n2 then names[2] = h.options.name end
+		end
+		return tostring(names[1]) .. " " .. tostring(names[2])
+	`)
+	if err != nil {
+		t.Fatalf("execute failed: %v", err)
+	}
+	if result != "N1 N2" {
+		t.Errorf("shared options table: got %q, want %q", result, "N1 N2")
+	}
+}
+
+// generic expose() with one options table for two objects: renaming one
+// renames the other in list().
+func TestContract_Expose_ListSharedOptionsRename(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+
+	result, err := engine.Execute(`
+		local o = { area = "Salon" }
+		local h1 = expose(VirtualNumber:new("S1"), "temperature", o)
+		local h2 = expose(VirtualNumber:new("S2"), "temperature", o)
+		h1:rename("Lewy")
+		return tostring(h1.options.name) .. " " .. tostring(h2.options.name)
+	`)
+	if err != nil {
+		t.Fatalf("execute failed: %v", err)
+	}
+	if result != "Lewy nil" {
+		t.Errorf("shared options rename: got %q", result)
+	}
+}
+
+// exposeRegistry(): key == handle.path, type from TypeMap, name set, default tags copied per handle.
+func TestContract_Expose_ListExposeRegistry(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+
+	result, err := engine.Execute(`
+		_registry = _registry or {}
+		local t1 = VirtualNumber:new("R1"); _registry["CLU1.R1"] = t1
+		local t2 = VirtualNumber:new("R2"); _registry["CLU1.R2"] = t2
+		exposeRegistry({ area = "Dom", tags = { "auto" } })
+		local h1, h2 = ExposedObjects:get("CLU1.R1"), ExposedObjects:get("CLU1.R2")
+		if not h1 or not h2 then return "not listed" end
+		table.insert(h1.options.tags, "x")
+		return table.concat({ h1.path, tostring(h1.type), tostring(h1.options.name), tostring(h1.options.area),
+			tostring(#h2.options.tags) }, " ")
+	`)
+	if err != nil {
+		t.Fatalf("execute failed: %v", err)
+	}
+	t.Logf("exposeRegistry: %s", result)
+	if result != "CLU1.R1 number R1 Dom 1" {
+		t.Errorf("exposeRegistry handle: got %q", result)
 	}
 }
