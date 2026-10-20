@@ -106,7 +106,9 @@ func TestDashboardCalendarRange(t *testing.T) {
 			}
 		}
 	}
-	json.Unmarshal([]byte(day), &d)
+	if err := json.Unmarshal([]byte(day), &d); err != nil {
+		t.Fatalf("day: %v: %s", err, day)
+	}
 	if len(d.Schedules) != 1 || d.Schedules[0].Title != "PSZOK" || len(d.Schedules[0].Segments) != 3 ||
 		d.Schedules[0].Segments[1].Value != "otwarty" || d.Schedules[0].Segments[1].Color != "success" {
 		t.Errorf("schedules: %s", day)
