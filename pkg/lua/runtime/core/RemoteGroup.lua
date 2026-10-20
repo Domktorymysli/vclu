@@ -73,6 +73,11 @@ end
 -- @param options table|nil Optional options (area, name prefix, etc.)
 -- @return table Array of ExposedHandle objects
 function RemoteGroup:expose(exposeType, options)
+    -- group:expose({ area = ... }) as obj:expose(options) takes it
+    if type(exposeType) == "table" then
+        options = exposeType
+        exposeType = nil
+    end
     options = options or {}
     local handles = {}
 
@@ -91,11 +96,18 @@ function RemoteGroup:expose(exposeType, options)
         -- Skip objects without get() method
         if type(obj.get) ~= "function" then
             stats.skipped = stats.skipped + 1
+        elseif not exposeType and type(obj._getExposeType) == "function" and obj:_getExposeType() == nil then
+            stats.skipped = stats.skipped + 1
         else
             -- Determine type
+            -- the object's own type first: a thermostat has none and is never a switch
             local objType = exposeType
             if not objType then
-                objType = TypeMap.getExposeType(obj._type, "switch")
+                if type(obj._getExposeType) == "function" then
+                    objType = obj:_getExposeType()
+                else
+                    objType = TypeMap.getExposeType(obj._type, "switch")
+                end
             end
 
             -- Build options for this object
@@ -176,7 +188,8 @@ function RemoteGroup:unexpose()
         if not done and ExposedObjects then
             local path = ExposedObjects._objectToPath and ExposedObjects._objectToPath[obj]
             local h = path and ExposedObjects:get(path)
-            if h and h.unexpose then pcall(function() h:unexpose() end) end
+            -- the path may have gone to another object since
+            if h and h.object == obj and h.unexpose then pcall(function() h:unexpose() end) end
         end
     end
     return self

@@ -563,3 +563,87 @@ func TestRegistryGroupExpose(t *testing.T) {
 		t.Errorf("group expose/unexpose = %q, want %q", got, "true light Dom light false")
 	}
 }
+
+// obj:expose(options) took a group call with options only; it still has to work.
+func TestRegistryGroupExposeOptionsOnly(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+	got := mustExec(t, engine, `(function()
+		local clu = { execute = function() end, executeNoReply = function() end }
+		local a = RemoteSwitch:new(clu, "DOU1", "a")
+		registerObject("CLU1.DOU1", a)
+		a:addTag("g")
+		pcall(function() _:byTag("g"):expose({ area = "Dom" }) end)
+	end)()`)
+	got = mustExec(t, engine, `local h = ExposedObjects:get("CLU1.DOU1") return tostring(h and h.options.area)`)
+	if got != "Dom" {
+		t.Errorf("group:expose({area}) exposed area = %q, want Dom", got)
+	}
+}
+
+// obj:expose() refuses a thermostat (no expose type); group:expose() must not make it a switch.
+func TestRegistryGroupExposeThermostatNotSwitch(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+	got := mustExec(t, engine, `(function()
+		local clu = { execute = function() end, executeNoReply = function() end }
+		local th = RemoteThermostat:new(clu, "THE1", "t")
+		registerObject("CLU1.THE1", th)
+		th:addTag("g")
+		pcall(function() _:byTag("g"):expose() end)
+	end)()`)
+	got = mustExec(t, engine, `local h = ExposedObjects:get("CLU1.THE1") return tostring(h and h.type)`)
+	if got != "nil" {
+		t.Errorf("thermostat exposed through group as %q, want not exposed", got)
+	}
+}
+
+// _objectToPath keeps a stale path after unexpose; the group must not unexpose the
+// object that took that path later.
+func TestRegistryGroupUnexposeStalePath(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+	got := mustExec(t, engine, `(function()
+		local a = VirtualObject:new("a")
+		local b = VirtualObject:new("b")
+		expose(a, "switch", { path = "x:shared" }):unexpose()
+		expose(b, "switch", { path = "x:shared" })
+		RemoteGroup:new({ a }):unexpose()
+		local h = ExposedObjects:get("x:shared")
+		return tostring(h ~= nil and h:isExposed())
+	end)()`)
+	if got != "true" {
+		t.Errorf("b exposed after unexposing a group with a = %q, want true", got)
+	}
+}
+
+// saveState/restoreState used to be forwarded; now the group's own version keys states
+// by _objId, so the same DOU id on two CLUs collides.
+func TestRegistryGroupSaveStateSameObjId(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+	got := mustExec(t, engine, `(function()
+		local clu = { execute = function() end, executeNoReply = function() end }
+		local a = RemoteSwitch:new(clu, "DOU1", "a")
+		local b = RemoteSwitch:new(clu, "DOU1", "b")
+		local n = 0
+		for _ in pairs(RemoteGroup:new({ a, b }):saveState()) do n = n + 1 end
+		return tostring(n)
+	end)()`)
+	if got != "2" {
+		t.Errorf("saved states = %q, want 2", got)
+	}
+}
+
+// a group with a virtual object (no saveState) used to skip it; now saveState errors.
+func TestRegistryGroupSaveStateVirtual(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+	got := mustExec(t, engine, `(function()
+		local ok, err = pcall(function() return RemoteGroup:new({ VirtualObject:new("v") }):saveState() end)
+		return tostring(ok) .. (ok and "" or (" " .. tostring(err)))
+	end)()`)
+	if got != "true" {
+		t.Errorf("group:saveState with a virtual object = %q, want true", got)
+	}
+}
