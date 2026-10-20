@@ -96,6 +96,8 @@ func (s *MCPServer) registerSandboxTools() {
 					`{"set": path or name, "value": v} (same path as a CLU report: _:sync), {"emit": event, "data": {...}}, ` +
 					`{"advance": seconds}, {"click": panel or button id, "input": "btn1"} (a Smart Panel input as the CLU sends it: ` +
 					"btn1..btn4, btn1:long, swipe:up; the frame drawn shows in clu_calls after an advance), " +
+					`{"mqtt": topic, "payload": "ON"} (a message as the broker delivers it, to the subscriptions of every MQTT client; ` +
+					"what the module publishes shows in blocked_calls), " +
 					`{"reload": true} (new Lua state; clock and KV kept, timers dropped, ` +
 					"integration objects back to the starting snapshot), " +
 					`{"expect_state": {path: value}}, {"expect_clu_calls": [{"script": "DOU4992:execute(1, 60000)", "target": "192.168.0.5"}]} ` +
@@ -517,28 +519,7 @@ func (s *MCPServer) handleDraftPromote(ctx context.Context, req mcplib.CallToolR
 	}
 
 	// Check for subdirectory modules that may not be loaded without require() in init.lua
-	var warnings []string
-	for _, p := range paths {
-		if strings.HasPrefix(p, "modules/") && strings.Count(p, "/") >= 2 {
-			// This is a subdirectory module — check if init.lua has a matching require.
-			// The file provider is optional wiring; without it the check is skipped
-			// rather than dereferenced.
-			if s.files == nil {
-				continue
-			}
-			initContent, err := s.files.ReadFile("modules/init.lua")
-			if err != nil {
-				warnings = append(warnings, fmt.Sprintf("%s is in a subdirectory — modules/init.lua not found. Add require() to load it.", p))
-				continue
-			}
-			// Extract the require path: "modules/scenes/movie.lua" -> "scenes/movie"
-			reqPath := strings.TrimPrefix(p, "modules/")
-			reqPath = strings.TrimSuffix(reqPath, ".lua")
-			if !hasRequire(initContent, reqPath) {
-				warnings = append(warnings, fmt.Sprintf("%s is in a subdirectory but modules/init.lua has no require('%s'). It will NOT be loaded automatically.", p, reqPath))
-			}
-		}
-	}
+	warnings := s.subdirRequireWarnings(paths)
 
 	// The files are on disk, but if the reload could not load them the promoted
 	// code is not actually running — say so rather than reporting plain success.
@@ -685,6 +666,57 @@ func hasRequire(luaSrc, modPath string) bool {
 		}
 	}
 	return false
+}
+
+// subdirRequireWarnings warns about promoted files in a subdirectory of modules/ that no
+// module requires, so they would not load. modules/init.lua requires a domain
+// (require("energia")), and the domain's own files require its other files
+// (require("energia/power") in modules/energia/init.lua): a require in any module counts.
+// The file provider is optional wiring; without it the check is skipped.
+func (s *MCPServer) subdirRequireWarnings(paths []string) []string {
+	var warnings []string
+	if s.files == nil {
+		return nil
+	}
+	initContent, initErr := s.files.ReadFile("modules/init.lua")
+	var others []string
+	for _, pattern := range []string{"modules/*.lua", "modules/*/*.lua", "modules/*/*/*.lua"} {
+		files, _ := s.files.ListFiles(pattern)
+		for _, f := range files {
+			if f.Path != "modules/init.lua" {
+				others = append(others, f.Path)
+			}
+		}
+	}
+	for _, p := range paths {
+		if !strings.HasPrefix(p, "modules/") || strings.Count(p, "/") < 2 {
+			continue
+		}
+		// "modules/scenes/movie.lua" -> "scenes/movie"
+		reqPath := strings.TrimSuffix(strings.TrimPrefix(p, "modules/"), ".lua")
+		if initErr == nil && hasRequire(initContent, reqPath) {
+			continue
+		}
+		requiredElsewhere := false
+		for _, o := range others {
+			if o == p {
+				continue
+			}
+			if src, err := s.files.ReadFile(o); err == nil && hasRequire(src, reqPath) {
+				requiredElsewhere = true
+				break
+			}
+		}
+		if requiredElsewhere {
+			continue
+		}
+		if initErr != nil {
+			warnings = append(warnings, fmt.Sprintf("%s is in a subdirectory — modules/init.lua not found. Add require() to load it.", p))
+			continue
+		}
+		warnings = append(warnings, fmt.Sprintf("%s is in a subdirectory but no module requires it (modules/init.lua has no require('%s')). It will NOT be loaded automatically.", p, reqPath))
+	}
+	return warnings
 }
 
 func (s *MCPServer) handleDiff(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {

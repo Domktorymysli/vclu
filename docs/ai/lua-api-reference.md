@@ -13,7 +13,7 @@ Only public API is listed — internal/private functions are omitted.
 - [objects.VirtualText](#objectsvirtualtext) (3 functions)
 - [objects.VirtualCover](#objectsvirtualcover) (10 functions)
 - [objects.VirtualObject](#objectsvirtualobject) (12 functions)
-- [ExposedObjects](#exposedobjects) (19 functions)
+- [ExposedObjects](#exposedobjects) (21 functions)
 - [core.Registry](#coreregistry) (9 functions)
 - [core.Metrics](#coremetrics) (1 functions)
 - [core.Calendar](#corecalendar) (36 functions)
@@ -23,6 +23,7 @@ Only public API is listed — internal/private functions are omitted.
 - [GPIO_DOUT](#gpio_dout) (1 functions)
 - [GPIO_DIN](#gpio_din) (1 functions)
 - [integrations.mqtt.MqttClient](#integrationsmqttmqttclient) (30 functions)
+- [lib.tasmota](#libtasmota) (5 functions)
 
 ---
 
@@ -725,6 +726,20 @@ Set value on object
 - `value` (any) — Value to set
 
 **Returns:** boolean Success, false if handle is inactive or readonly
+
+### `ExposedObjects:get(path) → ExposedHandle or nil when nothing is exposed at that path`
+
+Get an exposed handle by path (fields as in list())
+
+- `path` (string) — Exposed path
+
+**Returns:** ExposedHandle or nil when nothing is exposed at that path
+
+### `ExposedObjects:list() → table path -> handle; stable fields: type, options.name, options.area, options.tags, getValue()`
+
+All exposed objects: the live map, read it and never change it
+
+**Returns:** table path -> handle; stable fields: type, options.name, options.area, options.tags, getValue()
 
 ### `expose(obj, objType, options) → ExposedHandle`
 
@@ -1963,6 +1978,52 @@ Publish state update for object
 - `state` (any) — State value
 
 **Returns:** boolean Success
+
+---
+
+## lib.tasmota
+
+### `M.switch(topic, opts) → VirtualSwitch`
+
+A relay as a VirtualSwitch (1 on, 0 off).
+
+- `topic` (string) — The device's Topic, e.g. "tasmota_75088A"
+- `opts` (table) — Optional: relay (1 = POWER, 2 = POWER2...), name (object name)
+
+**Returns:** VirtualSwitch
+
+### `M.dimmer(topic, opts) → VirtualDimmer`
+
+A dimmer (Tasmota Dimmer 0..100) as a VirtualDimmer (0..1; 0 = off).
+
+- `topic` (string) — The device's Topic
+- `opts` (table) — Optional: name (object name)
+
+**Returns:** VirtualDimmer
+
+### `M.sensor(topic, path, opts) → VirtualNumber`
+
+A sensor value as a VirtualNumber, from tele/<topic>/SENSOR and the answer to Status 10.
+
+- `topic` (string) — The device's Topic
+- `path` (string) — Field in the SENSOR JSON, e.g. "ENERGY.Power" or "DS18B20.Temperature"
+- `opts` (table) — Optional: unit, name (object name)
+
+**Returns:** VirtualNumber
+
+### `M.online(topic) → boolean`
+
+Whether the device is online (its LWT is Online).
+
+- `topic` (string) — The device's Topic
+
+**Returns:** boolean
+
+### `M.devices() → table list of { topic, name, device, relays, lights, ip, mac }`
+
+Tasmota devices seen on MQTT discovery (tasmota/discovery/<mac>/config), sorted by topic. Nothing is created from them; add a device with a line in a module.
+
+**Returns:** table list of { topic, name, device, relays, lights, ip, mac }
 
 ---
 

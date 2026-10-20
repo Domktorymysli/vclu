@@ -125,7 +125,7 @@ module fv05) on 2026-10-18:
 - `DrawBox` (30) draws nothing, with (x, y, w, h, color) and with end coordinates alike; it is not in
   fv04 (the bus panels). `DrawLine` and `ClearScreen` work; a frame needs `DisplayContent` at the end.
 - Buttons: OnClick does not fire after a long press, so OnClick and OnLongPress are enough.
-  Object Manager tends to pass the button's id as the first argument of `click()`, so
+  The OnClick configured in Object Manager tends to pass the button's id as the first argument of `click()`, so
   `RemotePanel.click` accepts a panel or one of its buttons. The Gate sends the call as broadcast and
   unicast in turn; every press arrived (4 presses in 1.5 s).
 - `DrawIcon` (6) draws the panel's own `.bmp` files (64 × 32, arrows 16 × 16) by name without the
