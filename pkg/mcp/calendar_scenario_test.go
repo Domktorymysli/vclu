@@ -473,7 +473,7 @@ func TestCalendar_StatusTileExampleBeforeTheClockIsTrusted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tile := regexp.MustCompile("(?s):status\\('taryfa', 'Taryfa', 'lightning', (function\\(\\).*?end), nil,").FindSubmatch(doc)
+	tile := regexp.MustCompile(`(?s):status\('taryfa', 'Taryfa', 'lightning', (function\(\).*?end), nil,`).FindSubmatch(doc)
 	if tile == nil {
 		t.Fatal("status tile example not found in docs/ai/examples.md")
 	}
