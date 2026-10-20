@@ -568,14 +568,14 @@ func TestRegistryGroupExpose(t *testing.T) {
 func TestRegistryGroupExposeOptionsOnly(t *testing.T) {
 	engine := NewLuaEngine()
 	defer engine.Close()
-	got := mustExec(t, engine, `(function()
+	mustExec(t, engine, `(function()
 		local clu = { execute = function() end, executeNoReply = function() end }
 		local a = RemoteSwitch:new(clu, "DOU1", "a")
 		registerObject("CLU1.DOU1", a)
 		a:addTag("g")
 		pcall(function() _:byTag("g"):expose({ area = "Dom" }) end)
 	end)()`)
-	got = mustExec(t, engine, `local h = ExposedObjects:get("CLU1.DOU1") return tostring(h and h.options.area)`)
+	got := mustExec(t, engine, `local h = ExposedObjects:get("CLU1.DOU1") return tostring(h and h.options.area)`)
 	if got != "Dom" {
 		t.Errorf("group:expose({area}) exposed area = %q, want Dom", got)
 	}
@@ -585,14 +585,14 @@ func TestRegistryGroupExposeOptionsOnly(t *testing.T) {
 func TestRegistryGroupExposeThermostatNotSwitch(t *testing.T) {
 	engine := NewLuaEngine()
 	defer engine.Close()
-	got := mustExec(t, engine, `(function()
+	mustExec(t, engine, `(function()
 		local clu = { execute = function() end, executeNoReply = function() end }
 		local th = RemoteThermostat:new(clu, "THE1", "t")
 		registerObject("CLU1.THE1", th)
 		th:addTag("g")
 		pcall(function() _:byTag("g"):expose() end)
 	end)()`)
-	got = mustExec(t, engine, `local h = ExposedObjects:get("CLU1.THE1") return tostring(h and h.type)`)
+	got := mustExec(t, engine, `local h = ExposedObjects:get("CLU1.THE1") return tostring(h and h.type)`)
 	if got != "nil" {
 		t.Errorf("thermostat exposed through group as %q, want not exposed", got)
 	}
