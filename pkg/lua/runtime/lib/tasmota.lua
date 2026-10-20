@@ -14,6 +14,8 @@
 -- pattern, so a module must not subscribe those patterns itself (subscribe e.g.
 -- tele/<topic>/SENSOR). It needs the default client without a topic prefix, and the device's
 -- Full Topic as Tasmota sets it (%prefix%/%topic%/).
+-- Used so far with a Sonoff Basic only (one relay); relays 2+, the dimmer and sensors follow
+-- Tasmota's documented messages, untried on a device.
 -- @module lib.tasmota
 
 local M = {}

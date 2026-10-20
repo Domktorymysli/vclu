@@ -120,6 +120,10 @@ Full Topic (`%prefix%/%topic%/`). The library subscribes `stat/<topic>/+` and `t
 pattern, so do not subscribe those patterns in the module (a single topic such as
 `tele/<topic>/SENSOR` is fine).
 
+So far only a Sonoff Basic (one relay, Tasmota 13.3.0) is used with vCLU, and the tests replay
+its messages. Relays 2 and up, the dimmer and sensors follow Tasmota's documented messages but no
+such device has been tried; colour lights, shutters and button events are not supported.
+
 ```lua
 --- modules/tasmota/init.lua
 local tasmota = require("lib/tasmota")

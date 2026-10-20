@@ -1832,11 +1832,11 @@ Whether the device is online (its LWT is Online).
 
 **Returns:** boolean
 
-### `M.devices() → table list of { topic, name, device, relays, ip, mac }`
+### `M.devices() → table list of { topic, name, device, relays, lights, ip, mac }`
 
 Tasmota devices seen on MQTT discovery (tasmota/discovery/<mac>/config), sorted by topic. Nothing is created from them; add a device with a line in a module.
 
-**Returns:** table list of { topic, name, device, relays, ip, mac }
+**Returns:** table list of { topic, name, device, relays, lights, ip, mac }
 
 ---
 
