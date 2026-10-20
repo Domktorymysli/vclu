@@ -49,6 +49,8 @@ type SandboxStep struct {
 	Advance        *float64         `json:"advance,omitempty"` // seconds
 	Click          *string          `json:"click,omitempty"`   // Smart Panel or one of its buttons
 	Input          string           `json:"input,omitempty"`   // btn1..btn4, btn1:long, swipe:up...
+	MQTT           *string          `json:"mqtt,omitempty"`    // a message on this topic, to subscriptions
+	Payload        *string          `json:"payload,omitempty"`
 	Reload         *bool            `json:"reload,omitempty"`
 	ExpectState    map[string]any   `json:"expect_state,omitempty"`
 	ExpectCluCalls *[]CluCallExpect `json:"expect_clu_calls,omitempty"`
@@ -81,6 +83,9 @@ func (s SandboxStep) op() string {
 	}
 	if s.Click != nil {
 		ops = append(ops, "click")
+	}
+	if s.MQTT != nil {
+		ops = append(ops, "mqtt")
 	}
 	if s.Reload != nil {
 		ops = append(ops, "reload")
@@ -121,7 +126,7 @@ func ParseSteps(raw []byte) ([]SandboxStep, error) {
 		op := s.op()
 		switch {
 		case op == "":
-			return nil, fmt.Errorf("step %d: needs exactly one of set, emit, advance, click, reload, expect_state, expect_clu_calls, expect_history", i+1)
+			return nil, fmt.Errorf("step %d: needs exactly one of set, emit, advance, click, mqtt, reload, expect_state, expect_clu_calls, expect_history", i+1)
 		case op == "set" && (*s.Set == "" || len(s.Value) == 0):
 			return nil, fmt.Errorf("step %d: set needs a path and a value", i+1)
 		case op != "set" && len(s.Value) > 0:
@@ -134,6 +139,10 @@ func ParseSteps(raw []byte) ([]SandboxStep, error) {
 			return nil, fmt.Errorf("step %d: click needs a panel and an input", i+1)
 		case op != "click" && s.Input != "":
 			return nil, fmt.Errorf("step %d: input is only allowed with click", i+1)
+		case op == "mqtt" && (*s.MQTT == "" || s.Payload == nil):
+			return nil, fmt.Errorf("step %d: mqtt needs a topic and a payload", i+1)
+		case op != "mqtt" && s.Payload != nil:
+			return nil, fmt.Errorf("step %d: payload is only allowed with mqtt", i+1)
 		case op == "advance" && (*s.Advance <= 0 || *s.Advance > maxAdvance.Seconds()):
 			return nil, fmt.Errorf("step %d: advance must be between 0 and %s", i+1, maxAdvance)
 		case op == "reload" && !*s.Reload:
@@ -225,6 +234,13 @@ const sandboxHelpers = `
 		local ok, err = pcall(_.sync, _, path, value)
 		stepPath = nil
 		if not ok then error(err, 0) end
+	end
+	function __sandbox_mqtt(topic, payload)
+		local seen = {}
+		for _, c in pairs(MQTT._instances or {}) do
+			if not seen[c] then seen[c] = true; c:_handleMessage(topic, payload, 0, false) end
+		end
+		if not seen[MQTT] then MQTT:_handleMessage(topic, payload, 0, false) end
 	end
 	function __sandbox_history_path(path)
 		path = resolve(path)
@@ -319,6 +335,18 @@ func (run *sandboxRun) runSteps(L *lua.LState, steps []SandboxStep, cluMark int)
 			L.Pop(1)
 			if ok != lua.LTrue {
 				fail(i, op, "no panel %q handles input %q (a Panel.new on its RemotePanel, from the OM import?)", *s.Click, s.Input)
+			}
+
+		case "mqtt":
+			// as the broker delivers it, to every client (MQTT and MQTT:new ones);
+			// the clients are blocked here, their subscriptions are kept
+			if L.GetGlobal("MQTT") == lua.LNil {
+				fail(i, op, "MQTT is not loaded")
+				continue
+			}
+			if err := L.CallByParam(lua.P{Fn: L.GetGlobal("__sandbox_mqtt"), NRet: 0, Protect: true},
+				lua.LString(*s.MQTT), lua.LString(*s.Payload)); err != nil {
+				fail(i, op, "%v", err)
 			}
 
 		case "advance":
