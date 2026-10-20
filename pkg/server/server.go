@@ -804,23 +804,21 @@ func (s *Server) persistKeys() error {
 	}
 
 	// Update .vclu.json (source of truth for LoadAndPropagateConfig at startup)
-	masterConfig, err := config.ReadMasterConfig(s.serverDir)
-	if err != nil || masterConfig == nil {
-		masterConfig = &config.VCLUConfig{}
-	}
-	if masterConfig.Keys == nil {
-		masterConfig.Keys = &config.VCLUKeysConfig{}
-	}
-	masterConfig.Keys.Key = base64.StdEncoding.EncodeToString(s.keys.Key)
-	masterConfig.Keys.IV = base64.StdEncoding.EncodeToString(s.keys.IV)
-	masterConfig.Keys.DefaultIV = base64.StdEncoding.EncodeToString(s.keys.DefaultIV)
-	masterConfig.Keys.PIN = string(s.keys.PIN)
-	masterConfig.Keys.BroadcastEnabled = s.keys.BroadcastEnabled
-	if len(s.keys.BroadcastKey) > 0 {
-		masterConfig.Keys.BroadcastKey = base64.StdEncoding.EncodeToString(s.keys.BroadcastKey)
-	}
-	if len(s.keys.BroadcastIV) > 0 {
-		masterConfig.Keys.BroadcastIV = base64.StdEncoding.EncodeToString(s.keys.BroadcastIV)
-	}
-	return config.WriteMasterConfig(s.serverDir, masterConfig)
+	return config.UpdateMasterConfig(s.serverDir, func(masterConfig *config.VCLUConfig) error {
+		if masterConfig.Keys == nil {
+			masterConfig.Keys = &config.VCLUKeysConfig{}
+		}
+		masterConfig.Keys.Key = base64.StdEncoding.EncodeToString(s.keys.Key)
+		masterConfig.Keys.IV = base64.StdEncoding.EncodeToString(s.keys.IV)
+		masterConfig.Keys.DefaultIV = base64.StdEncoding.EncodeToString(s.keys.DefaultIV)
+		masterConfig.Keys.PIN = string(s.keys.PIN)
+		masterConfig.Keys.BroadcastEnabled = s.keys.BroadcastEnabled
+		if len(s.keys.BroadcastKey) > 0 {
+			masterConfig.Keys.BroadcastKey = base64.StdEncoding.EncodeToString(s.keys.BroadcastKey)
+		}
+		if len(s.keys.BroadcastIV) > 0 {
+			masterConfig.Keys.BroadcastIV = base64.StdEncoding.EncodeToString(s.keys.BroadcastIV)
+		}
+		return nil
+	})
 }

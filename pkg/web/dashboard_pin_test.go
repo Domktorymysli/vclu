@@ -25,7 +25,7 @@ func TestDashboardPinCookie(t *testing.T) {
 	// with no login configured a PIN page is open anyway
 	dir := t.TempDir()
 	hash, _ := config.HashPassword("secret")
-	if err := config.WriteMasterConfig(dir, &config.VCLUConfig{Auth: &config.VCLUAuthConfig{Username: "u", PasswordHash: hash}}); err != nil {
+	if err := writeTestConfig(dir, &config.VCLUConfig{Auth: &config.VCLUAuthConfig{Username: "u", PasswordHash: hash}}); err != nil {
 		t.Fatal(err)
 	}
 	s := &Server{serverDir: dir, sessions: newSessionStore(), luaExecutor: engine}

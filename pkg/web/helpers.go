@@ -1,8 +1,39 @@
 package web
 
 import (
+	"errors"
 	"net"
+
+	"github.com/Domktorymysli/vclu/pkg/config"
 )
+
+// errUnchanged returned from an updateMasterConfig fn skips the write.
+var errUnchanged = errors.New("config unchanged")
+
+// updateMasterConfig is config.UpdateMasterConfig where fn may return
+// errUnchanged to leave the file as it is.
+func updateMasterConfig(dir string, fn func(*config.VCLUConfig) error) error {
+	err := config.UpdateMasterConfig(dir, fn)
+	if errors.Is(err, errUnchanged) {
+		return nil
+	}
+	return err
+}
+
+// configError aborts an UpdateMasterConfig fn (no write) with the HTTP answer to give.
+type configError struct {
+	status int
+	msg    string
+}
+
+func (e *configError) Error() string { return e.msg }
+
+// asConfigError reports whether err is a configError for the handler to answer with.
+func asConfigError(err error) (*configError, bool) {
+	var ce *configError
+	ok := errors.As(err, &ce)
+	return ce, ok
+}
 
 // getLocalIP returns the local IP address from the primary network interface
 func (s *Server) getLocalIP() string {

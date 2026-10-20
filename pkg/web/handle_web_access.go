@@ -421,8 +421,10 @@ func (s *Server) handleAPIAccessProfileDelete(c *gin.Context) {
 	}
 
 	// Also remove from bot profiles in .vclu.json
-	masterConfig, _ := config.ReadMasterConfig(s.serverDir)
-	if masterConfig != nil && masterConfig.MCP != nil {
+	_ = updateMasterConfig(s.serverDir, func(masterConfig *config.VCLUConfig) error {
+		if masterConfig.MCP == nil {
+			return errUnchanged
+		}
 		changed := false
 		for i, bot := range masterConfig.MCP.Bots {
 			var filtered []string
@@ -439,10 +441,11 @@ func (s *Server) handleAPIAccessProfileDelete(c *gin.Context) {
 				masterConfig.MCP.Bots[i].Profiles = filtered
 			}
 		}
-		if changed {
-			_ = config.WriteMasterConfig(s.serverDir, masterConfig)
+		if !changed {
+			return errUnchanged
 		}
-	}
+		return nil
+	})
 
 	s.applyAccessChange()
 
@@ -542,13 +545,15 @@ func (s *Server) handleAPIAccessReset(c *gin.Context) {
 	}
 
 	// Also reset bot profiles in config
-	masterConfig, _ := config.ReadMasterConfig(s.serverDir)
-	if masterConfig != nil && masterConfig.MCP != nil {
+	_ = updateMasterConfig(s.serverDir, func(masterConfig *config.VCLUConfig) error {
+		if masterConfig.MCP == nil {
+			return errUnchanged
+		}
 		for i := range masterConfig.MCP.Bots {
 			masterConfig.MCP.Bots[i].Profiles = []string{accesscontrol.BuiltinProfileFullAccess}
 		}
-		_ = config.WriteMasterConfig(s.serverDir, masterConfig)
-	}
+		return nil
+	})
 
 	s.applyAccessChange()
 
@@ -598,81 +603,83 @@ func (s *Server) handleAPIAccessBotSet(c *gin.Context) {
 		return
 	}
 
-	// Read config to find the bot
-	masterConfig, err := config.ReadMasterConfig(s.serverDir)
-	if err != nil || masterConfig == nil || masterConfig.MCP == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Bot not found"})
-		return
-	}
-
-	botIdx := -1
-	for i, b := range masterConfig.MCP.Bots {
-		if b.ID == req.BotID {
-			botIdx = i
-			break
+	// The access file is saved inside fn, so a failure there leaves .vclu.json as it was
+	err := config.UpdateMasterConfig(s.serverDir, func(masterConfig *config.VCLUConfig) error {
+		// Find the bot
+		if masterConfig.MCP == nil {
+			return &configError{http.StatusNotFound, "Bot not found"}
 		}
-	}
-	if botIdx < 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Bot not found"})
-		return
-	}
 
-	bot := &masterConfig.MCP.Bots[botIdx]
-	autoProfileName := "_" + bot.ID
-
-	// Find or create auto profile for this bot
-	profile := s.accessManager.GetProfile(autoProfileName)
-	if profile == nil {
-		// Create auto profile: default full (same as full-access base)
-		profile = &accesscontrol.Profile{
-			Default: accesscontrol.AccessFull,
-			Objects: map[string]accesscontrol.AccessLevel{},
+		botIdx := -1
+		for i, b := range masterConfig.MCP.Bots {
+			if b.ID == req.BotID {
+				botIdx = i
+				break
+			}
 		}
+		if botIdx < 0 {
+			return &configError{http.StatusNotFound, "Bot not found"}
+		}
+
+		bot := &masterConfig.MCP.Bots[botIdx]
+		autoProfileName := "_" + bot.ID
+
+		// Find or create auto profile for this bot
+		profile := s.accessManager.GetProfile(autoProfileName)
+		if profile == nil {
+			// Create auto profile: default full (same as full-access base)
+			profile = &accesscontrol.Profile{
+				Default: accesscontrol.AccessFull,
+				Objects: map[string]accesscontrol.AccessLevel{},
+			}
+			if err := s.accessManager.SaveProfile(autoProfileName, *profile); err != nil {
+				return &configError{http.StatusInternalServerError, fmt.Sprintf("Failed to create bot profile: %v", err)}
+			}
+		}
+
+		// Set the access level for this object
+		if access == profile.Default || (access == accesscontrol.AccessFull && profile.Default == "") {
+			// Remove override if it matches default
+			delete(profile.Objects, req.Path)
+		} else {
+			if profile.Objects == nil {
+				profile.Objects = map[string]accesscontrol.AccessLevel{}
+			}
+			profile.Objects[req.Path] = access
+		}
+
 		if err := s.accessManager.SaveProfile(autoProfileName, *profile); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create bot profile: %v", err)})
-			return
+			return &configError{http.StatusInternalServerError, fmt.Sprintf("Failed to update bot profile: %v", err)}
 		}
-	}
 
-	// Set the access level for this object
-	if access == profile.Default || (access == accesscontrol.AccessFull && profile.Default == "") {
-		// Remove override if it matches default
-		delete(profile.Objects, req.Path)
-	} else {
-		if profile.Objects == nil {
-			profile.Objects = map[string]accesscontrol.AccessLevel{}
+		// Ensure bot has the auto profile assigned (and remove full-access if present)
+		hasAutoProfile := false
+		var newProfiles []string
+		for _, p := range bot.Profiles {
+			if p == autoProfileName {
+				hasAutoProfile = true
+			}
+			if p == accesscontrol.BuiltinProfileFullAccess {
+				continue // remove full-access — auto profile replaces it
+			}
+			newProfiles = append(newProfiles, p)
 		}
-		profile.Objects[req.Path] = access
-	}
+		if !hasAutoProfile {
+			newProfiles = append(newProfiles, autoProfileName)
+		}
+		bot.Profiles = newProfiles
 
-	if err := s.accessManager.SaveProfile(autoProfileName, *profile); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to update bot profile: %v", err)})
+		// Save both config files
+		if err := s.accessManager.Save(); err != nil {
+			return &configError{http.StatusInternalServerError, fmt.Sprintf("Failed to save access control: %v", err)}
+		}
+		return nil
+	})
+	if ce, ok := asConfigError(err); ok {
+		c.JSON(ce.status, gin.H{"error": ce.msg})
 		return
 	}
-
-	// Ensure bot has the auto profile assigned (and remove full-access if present)
-	hasAutoProfile := false
-	var newProfiles []string
-	for _, p := range bot.Profiles {
-		if p == autoProfileName {
-			hasAutoProfile = true
-		}
-		if p == accesscontrol.BuiltinProfileFullAccess {
-			continue // remove full-access — auto profile replaces it
-		}
-		newProfiles = append(newProfiles, p)
-	}
-	if !hasAutoProfile {
-		newProfiles = append(newProfiles, autoProfileName)
-	}
-	bot.Profiles = newProfiles
-
-	// Save both config files
-	if err := s.accessManager.Save(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to save access control: %v", err)})
-		return
-	}
-	if err := config.WriteMasterConfig(s.serverDir, masterConfig); err != nil {
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to save bot config: %v", err)})
 		return
 	}

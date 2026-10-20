@@ -16,6 +16,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+var errBotNotFound = &configError{http.StatusNotFound, "Bot not found"}
+
 // handleMCPDashboard renders the MCP dashboard page.
 func (s *Server) handleMCPDashboard(c *gin.Context) {
 	masterConfig, _ := config.ReadMasterConfig(s.serverDir)
@@ -77,22 +79,20 @@ func (s *Server) handleAPIMCPSave(c *gin.Context) {
 		return
 	}
 
-	masterConfig, err := config.ReadMasterConfig(s.serverDir)
-	if err != nil || masterConfig == nil {
-		masterConfig = &config.VCLUConfig{}
-	}
-
-	if masterConfig.MCP == nil {
-		masterConfig.MCP = &config.VCLUMCPConfig{}
-	}
-	if req.Enabled != nil {
-		masterConfig.MCP.Enabled = *req.Enabled
-	}
-	if req.DevModeEnabled != nil {
-		masterConfig.MCP.DevModeEnabled = *req.DevModeEnabled
-	}
-
-	if err := config.WriteMasterConfig(s.serverDir, masterConfig); err != nil {
+	var mcpCfg config.VCLUMCPConfig
+	if err := config.UpdateMasterConfig(s.serverDir, func(masterConfig *config.VCLUConfig) error {
+		if masterConfig.MCP == nil {
+			masterConfig.MCP = &config.VCLUMCPConfig{}
+		}
+		if req.Enabled != nil {
+			masterConfig.MCP.Enabled = *req.Enabled
+		}
+		if req.DevModeEnabled != nil {
+			masterConfig.MCP.DevModeEnabled = *req.DevModeEnabled
+		}
+		mcpCfg = *masterConfig.MCP
+		return nil
+	}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save config"})
 		return
 	}
@@ -104,8 +104,8 @@ func (s *Server) handleAPIMCPSave(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":        true,
-		"enabled":        masterConfig.MCP.Enabled,
-		"devModeEnabled": masterConfig.MCP.DevModeEnabled,
+		"enabled":        mcpCfg.Enabled,
+		"devModeEnabled": mcpCfg.DevModeEnabled,
 	})
 }
 
@@ -228,17 +228,13 @@ func (s *Server) handleAPIMCPBotCreate(c *gin.Context) {
 		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
 	}
 
-	masterConfig, err := config.ReadMasterConfig(s.serverDir)
-	if err != nil || masterConfig == nil {
-		masterConfig = &config.VCLUConfig{}
-	}
-	if masterConfig.MCP == nil {
-		masterConfig.MCP = &config.VCLUMCPConfig{}
-	}
-
-	masterConfig.MCP.Bots = append(masterConfig.MCP.Bots, bot)
-
-	if err := config.WriteMasterConfig(s.serverDir, masterConfig); err != nil {
+	if err := config.UpdateMasterConfig(s.serverDir, func(masterConfig *config.VCLUConfig) error {
+		if masterConfig.MCP == nil {
+			masterConfig.MCP = &config.VCLUMCPConfig{}
+		}
+		masterConfig.MCP.Bots = append(masterConfig.MCP.Bots, bot)
+		return nil
+	}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save config"})
 		return
 	}
@@ -271,38 +267,34 @@ func (s *Server) handleAPIMCPBotUpdate(c *gin.Context) {
 		return
 	}
 
-	masterConfig, err := config.ReadMasterConfig(s.serverDir)
-	if err != nil || masterConfig == nil || masterConfig.MCP == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Bot not found"})
-		return
-	}
-
-	found := false
-	for i := range masterConfig.MCP.Bots {
-		if masterConfig.MCP.Bots[i].ID == botID {
-			if req.Name != "" {
-				masterConfig.MCP.Bots[i].Name = req.Name
-			}
-			if len(req.Profiles) > 0 {
-				masterConfig.MCP.Bots[i].Profiles = req.Profiles
-			}
-			if req.DevMode != nil {
-				masterConfig.MCP.Bots[i].DevMode = *req.DevMode
-			}
-			if req.ExecMode != nil {
-				masterConfig.MCP.Bots[i].ExecMode = *req.ExecMode
-			}
-			found = true
-			break
+	err := config.UpdateMasterConfig(s.serverDir, func(masterConfig *config.VCLUConfig) error {
+		if masterConfig.MCP == nil {
+			return errBotNotFound
 		}
-	}
-
-	if !found {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Bot not found"})
+		for i := range masterConfig.MCP.Bots {
+			if masterConfig.MCP.Bots[i].ID == botID {
+				if req.Name != "" {
+					masterConfig.MCP.Bots[i].Name = req.Name
+				}
+				if len(req.Profiles) > 0 {
+					masterConfig.MCP.Bots[i].Profiles = req.Profiles
+				}
+				if req.DevMode != nil {
+					masterConfig.MCP.Bots[i].DevMode = *req.DevMode
+				}
+				if req.ExecMode != nil {
+					masterConfig.MCP.Bots[i].ExecMode = *req.ExecMode
+				}
+				return nil
+			}
+		}
+		return errBotNotFound
+	})
+	if ce, ok := asConfigError(err); ok {
+		c.JSON(ce.status, gin.H{"error": ce.msg})
 		return
 	}
-
-	if err := config.WriteMasterConfig(s.serverDir, masterConfig); err != nil {
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save config"})
 		return
 	}
@@ -314,30 +306,33 @@ func (s *Server) handleAPIMCPBotUpdate(c *gin.Context) {
 func (s *Server) handleAPIMCPBotDelete(c *gin.Context) {
 	botID := c.Param("id")
 
-	masterConfig, err := config.ReadMasterConfig(s.serverDir)
-	if err != nil || masterConfig == nil || masterConfig.MCP == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Bot not found"})
-		return
-	}
-
-	var newBots []config.MCPBot
-	found := false
-	for _, b := range masterConfig.MCP.Bots {
-		if b.ID == botID {
-			found = true
-			continue
+	err := config.UpdateMasterConfig(s.serverDir, func(masterConfig *config.VCLUConfig) error {
+		if masterConfig.MCP == nil {
+			return errBotNotFound
 		}
-		newBots = append(newBots, b)
-	}
 
-	if !found {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Bot not found"})
+		var newBots []config.MCPBot
+		found := false
+		for _, b := range masterConfig.MCP.Bots {
+			if b.ID == botID {
+				found = true
+				continue
+			}
+			newBots = append(newBots, b)
+		}
+
+		if !found {
+			return errBotNotFound
+		}
+
+		masterConfig.MCP.Bots = newBots
+		return nil
+	})
+	if ce, ok := asConfigError(err); ok {
+		c.JSON(ce.status, gin.H{"error": ce.msg})
 		return
 	}
-
-	masterConfig.MCP.Bots = newBots
-
-	if err := config.WriteMasterConfig(s.serverDir, masterConfig); err != nil {
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save config"})
 		return
 	}
@@ -357,35 +352,32 @@ func (s *Server) handleAPIMCPBotDelete(c *gin.Context) {
 func (s *Server) handleAPIMCPBotRegenerate(c *gin.Context) {
 	botID := c.Param("id")
 
-	masterConfig, err := config.ReadMasterConfig(s.serverDir)
-	if err != nil || masterConfig == nil || masterConfig.MCP == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Bot not found"})
-		return
-	}
-
-	keyBytes := make([]byte, 32)
-	if _, err := rand.Read(keyBytes); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate key"})
-		return
-	}
-	plainKey := "vclu_mcp_" + hex.EncodeToString(keyBytes)
-	hash := config.HashAPIKey(plainKey)
-
-	found := false
-	for i := range masterConfig.MCP.Bots {
-		if masterConfig.MCP.Bots[i].ID == botID {
-			masterConfig.MCP.Bots[i].APIKeyHash = hash
-			found = true
-			break
+	var plainKey string
+	err := config.UpdateMasterConfig(s.serverDir, func(masterConfig *config.VCLUConfig) error {
+		if masterConfig.MCP == nil {
+			return errBotNotFound
 		}
-	}
 
-	if !found {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Bot not found"})
+		keyBytes := make([]byte, 32)
+		if _, err := rand.Read(keyBytes); err != nil {
+			return &configError{http.StatusInternalServerError, "Failed to generate key"}
+		}
+		plainKey = "vclu_mcp_" + hex.EncodeToString(keyBytes)
+		hash := config.HashAPIKey(plainKey)
+
+		for i := range masterConfig.MCP.Bots {
+			if masterConfig.MCP.Bots[i].ID == botID {
+				masterConfig.MCP.Bots[i].APIKeyHash = hash
+				return nil
+			}
+		}
+		return errBotNotFound
+	})
+	if ce, ok := asConfigError(err); ok {
+		c.JSON(ce.status, gin.H{"error": ce.msg})
 		return
 	}
-
-	if err := config.WriteMasterConfig(s.serverDir, masterConfig); err != nil {
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save config"})
 		return
 	}

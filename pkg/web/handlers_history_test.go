@@ -28,7 +28,7 @@ func newHistoryEnv(t *testing.T) *historyEnv {
 	dir := t.TempDir()
 	hash, _ := config.HashPassword("secret")
 	key, keyHash, _ := config.GenerateAPIKey()
-	if err := config.WriteMasterConfig(dir, &config.VCLUConfig{
+	if err := writeTestConfig(dir, &config.VCLUConfig{
 		Auth: &config.VCLUAuthConfig{Username: "tytus", PasswordHash: hash, APIKeyHash: keyHash},
 	}); err != nil {
 		t.Fatal(err)

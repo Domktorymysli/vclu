@@ -117,32 +117,29 @@ func (s *Server) handleAPIWizardSetDeviceType(c *gin.Context) {
 		return
 	}
 
-	vcluConfig, err := config.ReadMasterConfig(s.serverDir)
-	if err != nil || vcluConfig == nil {
-		vcluConfig = &config.VCLUConfig{}
-	}
-	if vcluConfig.Device == nil {
-		vcluConfig.Device = &config.VCLUDeviceConfig{}
-	}
+	if err := config.UpdateMasterConfig(s.serverDir, func(vcluConfig *config.VCLUConfig) error {
+		if vcluConfig.Device == nil {
+			vcluConfig.Device = &config.VCLUDeviceConfig{}
+		}
 
-	vcluConfig.Device.DeviceTypeID = deviceType.ID
-	vcluConfig.Device.Category = deviceType.Category
-	vcluConfig.Device.HardwareType = deviceType.HardwareType
-	vcluConfig.Device.HardwareVersion = deviceType.HardwareVersion
-	vcluConfig.Device.FirmwareType = deviceType.FirmwareType
-	vcluConfig.Device.FirmwareVersion = deviceType.FirmwareVersion
-	vcluConfig.Device.FirmwareVersionStr = deviceType.FirmwareVersionStr
+		vcluConfig.Device.DeviceTypeID = deviceType.ID
+		vcluConfig.Device.Category = deviceType.Category
+		vcluConfig.Device.HardwareType = deviceType.HardwareType
+		vcluConfig.Device.HardwareVersion = deviceType.HardwareVersion
+		vcluConfig.Device.FirmwareType = deviceType.FirmwareType
+		vcluConfig.Device.FirmwareVersion = deviceType.FirmwareVersion
+		vcluConfig.Device.FirmwareVersionStr = deviceType.FirmwareVersionStr
 
-	if vcluConfig.Device.SerialNumber == 0 {
-		vcluConfig.Device.SerialNumber = config.GenerateGrentonLikeSerial(deviceType.SerialPrefix)
-	}
+		if vcluConfig.Device.SerialNumber == 0 {
+			vcluConfig.Device.SerialNumber = config.GenerateGrentonLikeSerial(deviceType.SerialPrefix)
+		}
 
-	if !deviceType.SupportsModules {
-		vcluConfig.Device.Modules = nil
-		vcluConfig.Device.IOObjects = nil
-	}
-
-	if err := config.WriteMasterConfig(s.serverDir, vcluConfig); err != nil {
+		if !deviceType.SupportsModules {
+			vcluConfig.Device.Modules = nil
+			vcluConfig.Device.IOObjects = nil
+		}
+		return nil
+	}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save configuration: " + err.Error()})
 		return
 	}
@@ -168,35 +165,40 @@ func (s *Server) handleAPIWizardAddModule(c *gin.Context) {
 		return
 	}
 
-	vcluConfig, err := config.ReadMasterConfig(s.serverDir)
-	if err != nil || vcluConfig == nil || vcluConfig.Device == nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Device not configured. Please select device type first."})
+	var moduleInstance config.ModuleInstance
+	var ioObjects []config.IOInstance
+	err := config.UpdateMasterConfig(s.serverDir, func(vcluConfig *config.VCLUConfig) error {
+		if vcluConfig.Device == nil {
+			return &configError{http.StatusBadRequest, "Device not configured. Please select device type first."}
+		}
+
+		if !vcluConfig.Device.SupportsModules() {
+			return &configError{http.StatusForbidden, "This device type does not support modules"}
+		}
+
+		moduleInstance = config.ModuleInstance{
+			ID:           uuid.New().String(),
+			TypeID:       moduleType.ID,
+			Serial:       config.GenerateModuleSerial(moduleType),
+			Name:         req.Name,
+			HardwareType: moduleType.HardwareType,
+		}
+
+		if moduleInstance.Name == "" {
+			moduleInstance.Name = fmt.Sprintf("%s_%d", moduleType.Name, len(vcluConfig.Device.Modules)+1)
+		}
+
+		ioObjects = config.GenerateIOObjectsForModule(&moduleInstance, moduleType)
+
+		vcluConfig.Device.Modules = append(vcluConfig.Device.Modules, moduleInstance)
+		vcluConfig.Device.IOObjects = append(vcluConfig.Device.IOObjects, ioObjects...)
+		return nil
+	})
+	if ce, ok := asConfigError(err); ok {
+		c.JSON(ce.status, gin.H{"error": ce.msg})
 		return
 	}
-
-	if !vcluConfig.Device.SupportsModules() {
-		c.JSON(http.StatusForbidden, gin.H{"error": "This device type does not support modules"})
-		return
-	}
-
-	moduleInstance := config.ModuleInstance{
-		ID:           uuid.New().String(),
-		TypeID:       moduleType.ID,
-		Serial:       config.GenerateModuleSerial(moduleType),
-		Name:         req.Name,
-		HardwareType: moduleType.HardwareType,
-	}
-
-	if moduleInstance.Name == "" {
-		moduleInstance.Name = fmt.Sprintf("%s_%d", moduleType.Name, len(vcluConfig.Device.Modules)+1)
-	}
-
-	ioObjects := config.GenerateIOObjectsForModule(&moduleInstance, moduleType)
-
-	vcluConfig.Device.Modules = append(vcluConfig.Device.Modules, moduleInstance)
-	vcluConfig.Device.IOObjects = append(vcluConfig.Device.IOObjects, ioObjects...)
-
-	if err := config.WriteMasterConfig(s.serverDir, vcluConfig); err != nil {
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save configuration: " + err.Error()})
 		return
 	}
@@ -216,39 +218,42 @@ func (s *Server) handleAPIWizardRemoveModule(c *gin.Context) {
 		return
 	}
 
-	vcluConfig, err := config.ReadMasterConfig(s.serverDir)
-	if err != nil || vcluConfig == nil || vcluConfig.Device == nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Device not configured"})
+	err := config.UpdateMasterConfig(s.serverDir, func(vcluConfig *config.VCLUConfig) error {
+		if vcluConfig.Device == nil {
+			return &configError{http.StatusBadRequest, "Device not configured"}
+		}
+
+		found := false
+		newModules := make([]config.ModuleInstance, 0, len(vcluConfig.Device.Modules))
+		for _, m := range vcluConfig.Device.Modules {
+			if m.ID == moduleID {
+				found = true
+				log.Printf("Wizard: Removing module %s (%s)", m.Name, m.Serial)
+			} else {
+				newModules = append(newModules, m)
+			}
+		}
+
+		if !found {
+			return &configError{http.StatusNotFound, "Module not found"}
+		}
+
+		newIOObjects := make([]config.IOInstance, 0, len(vcluConfig.Device.IOObjects))
+		for _, io := range vcluConfig.Device.IOObjects {
+			if io.ModuleID != moduleID {
+				newIOObjects = append(newIOObjects, io)
+			}
+		}
+
+		vcluConfig.Device.Modules = newModules
+		vcluConfig.Device.IOObjects = newIOObjects
+		return nil
+	})
+	if ce, ok := asConfigError(err); ok {
+		c.JSON(ce.status, gin.H{"error": ce.msg})
 		return
 	}
-
-	found := false
-	newModules := make([]config.ModuleInstance, 0, len(vcluConfig.Device.Modules))
-	for _, m := range vcluConfig.Device.Modules {
-		if m.ID == moduleID {
-			found = true
-			log.Printf("Wizard: Removing module %s (%s)", m.Name, m.Serial)
-		} else {
-			newModules = append(newModules, m)
-		}
-	}
-
-	if !found {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Module not found"})
-		return
-	}
-
-	newIOObjects := make([]config.IOInstance, 0, len(vcluConfig.Device.IOObjects))
-	for _, io := range vcluConfig.Device.IOObjects {
-		if io.ModuleID != moduleID {
-			newIOObjects = append(newIOObjects, io)
-		}
-	}
-
-	vcluConfig.Device.Modules = newModules
-	vcluConfig.Device.IOObjects = newIOObjects
-
-	if err := config.WriteMasterConfig(s.serverDir, vcluConfig); err != nil {
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save configuration: " + err.Error()})
 		return
 	}
@@ -302,44 +307,43 @@ func (s *Server) handleAPIWizardSetKeys(c *gin.Context) {
 		}
 	}
 
-	vcluConfig, err := config.ReadMasterConfig(s.serverDir)
-	if err != nil || vcluConfig == nil {
-		vcluConfig = &config.VCLUConfig{}
-	}
-
-	// Auto-generate Key/IV if not set
-	if vcluConfig.Keys == nil {
-		key := make([]byte, 16)
-		iv := make([]byte, 16)
-		if _, err := rand.Read(key); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate keys"})
-			return
+	err := config.UpdateMasterConfig(s.serverDir, func(vcluConfig *config.VCLUConfig) error {
+		// Auto-generate Key/IV if not set
+		if vcluConfig.Keys == nil {
+			key := make([]byte, 16)
+			iv := make([]byte, 16)
+			if _, err := rand.Read(key); err != nil {
+				return &configError{http.StatusInternalServerError, "Failed to generate keys"}
+			}
+			if _, err := rand.Read(iv); err != nil {
+				return &configError{http.StatusInternalServerError, "Failed to generate keys"}
+			}
+			vcluConfig.Keys = &config.VCLUKeysConfig{
+				Key:       base64.StdEncoding.EncodeToString(key),
+				IV:        base64.StdEncoding.EncodeToString(iv),
+				DefaultIV: base64.StdEncoding.EncodeToString(iv),
+			}
 		}
-		if _, err := rand.Read(iv); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate keys"})
-			return
-		}
-		vcluConfig.Keys = &config.VCLUKeysConfig{
-			Key:       base64.StdEncoding.EncodeToString(key),
-			IV:        base64.StdEncoding.EncodeToString(iv),
-			DefaultIV: base64.StdEncoding.EncodeToString(iv),
-		}
-	}
 
-	vcluConfig.Keys.PIN = req.PIN
-	vcluConfig.Keys.BroadcastEnabled = req.BroadcastEnabled
-	if req.BroadcastEnabled {
-		vcluConfig.Keys.BroadcastKey = req.BroadcastKey
-		vcluConfig.Keys.DefaultIV = req.DefaultIV
-		vcluConfig.Keys.BroadcastIV = req.BroadcastIV
-	} else {
-		vcluConfig.Keys.BroadcastKey = ""
-		vcluConfig.Keys.BroadcastIV = ""
-		// Keep DefaultIV — it's auto-generated and needed for discovery handshake
-		// independently of broadcast keys
+		vcluConfig.Keys.PIN = req.PIN
+		vcluConfig.Keys.BroadcastEnabled = req.BroadcastEnabled
+		if req.BroadcastEnabled {
+			vcluConfig.Keys.BroadcastKey = req.BroadcastKey
+			vcluConfig.Keys.DefaultIV = req.DefaultIV
+			vcluConfig.Keys.BroadcastIV = req.BroadcastIV
+		} else {
+			vcluConfig.Keys.BroadcastKey = ""
+			vcluConfig.Keys.BroadcastIV = ""
+			// Keep DefaultIV — it's auto-generated and needed for discovery handshake
+			// independently of broadcast keys
+		}
+		return nil
+	})
+	if ce, ok := asConfigError(err); ok {
+		c.JSON(ce.status, gin.H{"error": ce.msg})
+		return
 	}
-
-	if err := config.WriteMasterConfig(s.serverDir, vcluConfig); err != nil {
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save keys: " + err.Error()})
 		return
 	}
@@ -378,45 +382,47 @@ func (s *Server) handleAPIWizardSetSecurity(c *gin.Context) {
 }
 
 func (s *Server) handleAPIWizardFinish(c *gin.Context) {
-	vcluConfig, err := config.ReadMasterConfig(s.serverDir)
-	if err != nil || vcluConfig == nil || vcluConfig.Device == nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Device not configured"})
+	var vcluConfig *config.VCLUConfig
+	err := config.UpdateMasterConfig(s.serverDir, func(mc *config.VCLUConfig) error {
+		if mc.Device == nil {
+			return &configError{http.StatusBadRequest, "Device not configured"}
+		}
+
+		if mc.Device.DeviceTypeID == "" {
+			return &configError{http.StatusBadRequest, "Please select a device type first"}
+		}
+
+		if mc.Auth == nil || mc.Auth.Username == "" || mc.Auth.PasswordHash == "" {
+			return &configError{http.StatusBadRequest, "Password is required. Please go back to the Security step."}
+		}
+
+		mc.SetupCompleted = true
+
+		// Ensure keys are generated if not set during wizard
+		if mc.Keys == nil {
+			key := make([]byte, 16)
+			iv := make([]byte, 16)
+			if _, err := rand.Read(key); err != nil {
+				return &configError{http.StatusInternalServerError, "Failed to generate keys"}
+			}
+			if _, err := rand.Read(iv); err != nil {
+				return &configError{http.StatusInternalServerError, "Failed to generate keys"}
+			}
+			mc.Keys = &config.VCLUKeysConfig{
+				Key:       base64.StdEncoding.EncodeToString(key),
+				IV:        base64.StdEncoding.EncodeToString(iv),
+				DefaultIV: base64.StdEncoding.EncodeToString(iv),
+				PIN:       "00000000",
+			}
+		}
+		vcluConfig = mc
+		return nil
+	})
+	if ce, ok := asConfigError(err); ok {
+		c.JSON(ce.status, gin.H{"error": ce.msg})
 		return
 	}
-
-	if vcluConfig.Device.DeviceTypeID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Please select a device type first"})
-		return
-	}
-
-	if vcluConfig.Auth == nil || vcluConfig.Auth.Username == "" || vcluConfig.Auth.PasswordHash == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Password is required. Please go back to the Security step."})
-		return
-	}
-
-	vcluConfig.SetupCompleted = true
-
-	// Ensure keys are generated if not set during wizard
-	if vcluConfig.Keys == nil {
-		key := make([]byte, 16)
-		iv := make([]byte, 16)
-		if _, err := rand.Read(key); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate keys"})
-			return
-		}
-		if _, err := rand.Read(iv); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate keys"})
-			return
-		}
-		vcluConfig.Keys = &config.VCLUKeysConfig{
-			Key:       base64.StdEncoding.EncodeToString(key),
-			IV:        base64.StdEncoding.EncodeToString(iv),
-			DefaultIV: base64.StdEncoding.EncodeToString(iv),
-			PIN:       "00000000",
-		}
-	}
-
-	if err := config.WriteMasterConfig(s.serverDir, vcluConfig); err != nil {
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save configuration: " + err.Error()})
 		return
 	}

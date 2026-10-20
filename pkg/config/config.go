@@ -720,11 +720,11 @@ func UpdateMasterConfig(cluDir string, fn func(*VCLUConfig) error) error {
 	if err := fn(cfg); err != nil {
 		return err
 	}
-	return WriteMasterConfig(cluDir, cfg)
+	return writeMasterConfig(cluDir, cfg)
 }
 
-// WriteMasterConfig writes the master configuration to .vclu.json
-func WriteMasterConfig(cluDir string, config *VCLUConfig) error {
+// writeMasterConfig writes .vclu.json; call it only under masterConfigMu.
+func writeMasterConfig(cluDir string, config *VCLUConfig) error {
 	configPath := filepath.Join(cluDir, ".vclu.json")
 
 	config.LastModified = time.Now()
@@ -909,6 +909,8 @@ func masterConfigToKeys(masterConfig *VCLUConfig) *CLUKeys {
 // SaveToMasterConfig converts runtime config to master config and saves to .vclu.json
 // This should be called whenever device config or keys are modified
 func SaveToMasterConfig(cluDir string, deviceConfig *CLUDeviceConfig, keys *CLUKeys) error {
+	masterConfigMu.Lock()
+	defer masterConfigMu.Unlock()
 	// Read existing config to preserve wizard/pairing/auth data
 	masterConfig, err := ReadMasterConfig(cluDir)
 	if err != nil || masterConfig == nil {
@@ -947,7 +949,7 @@ func SaveToMasterConfig(cluDir string, deviceConfig *CLUDeviceConfig, keys *CLUK
 		masterConfig.Keys.BroadcastIV = base64.StdEncoding.EncodeToString(keys.BroadcastIV)
 	}
 
-	return WriteMasterConfig(cluDir, masterConfig)
+	return writeMasterConfig(cluDir, masterConfig)
 }
 
 // PropagateConfig generates derived config files in a/ directory from master config
@@ -1140,6 +1142,8 @@ func GetMQTTBrokerConfig(cluDir string) *VCLUMQTTBrokerConfig {
 
 // SaveMQTTBrokerConfig saves MQTT broker configuration to master config
 func SaveMQTTBrokerConfig(cluDir string, brokerConfig *VCLUMQTTBrokerConfig) error {
+	masterConfigMu.Lock()
+	defer masterConfigMu.Unlock()
 	masterConfig, err := ReadMasterConfig(cluDir)
 	if err != nil {
 		return fmt.Errorf("failed to read master config: %w", err)
@@ -1149,7 +1153,7 @@ func SaveMQTTBrokerConfig(cluDir string, brokerConfig *VCLUMQTTBrokerConfig) err
 	}
 
 	masterConfig.MQTTBroker = brokerConfig
-	return WriteMasterConfig(cluDir, masterConfig)
+	return writeMasterConfig(cluDir, masterConfig)
 }
 
 // GetMQTTClientConfig returns MQTT client configuration from master config
@@ -1163,6 +1167,8 @@ func GetMQTTClientConfig(cluDir string) *VCLUMQTTClientConfig {
 
 // SaveMQTTClientConfig saves MQTT client configuration to master config
 func SaveMQTTClientConfig(cluDir string, clientConfig *VCLUMQTTClientConfig) error {
+	masterConfigMu.Lock()
+	defer masterConfigMu.Unlock()
 	masterConfig, err := ReadMasterConfig(cluDir)
 	if err != nil {
 		return fmt.Errorf("failed to read master config: %w", err)
@@ -1172,7 +1178,7 @@ func SaveMQTTClientConfig(cluDir string, clientConfig *VCLUMQTTClientConfig) err
 	}
 
 	masterConfig.MQTTClient = clientConfig
-	return WriteMasterConfig(cluDir, masterConfig)
+	return writeMasterConfig(cluDir, masterConfig)
 }
 
 // GetMetricsConfig returns Prometheus metrics configuration from master config
@@ -1205,6 +1211,8 @@ func GetOMFiles(cluDir string) []OMFileConfig {
 
 // AddOMFile adds an OM file config to master config
 func AddOMFile(cluDir string, omFile OMFileConfig) error {
+	masterConfigMu.Lock()
+	defer masterConfigMu.Unlock()
 	masterConfig, err := ReadMasterConfig(cluDir)
 	if err != nil {
 		return fmt.Errorf("failed to read master config: %w", err)
@@ -1227,11 +1235,13 @@ func AddOMFile(cluDir string, omFile OMFileConfig) error {
 		masterConfig.OMFiles = append(masterConfig.OMFiles, omFile)
 	}
 
-	return WriteMasterConfig(cluDir, masterConfig)
+	return writeMasterConfig(cluDir, masterConfig)
 }
 
 // DeleteOMFile removes an OM file config from master config
 func DeleteOMFile(cluDir string, serial uint64) error {
+	masterConfigMu.Lock()
+	defer masterConfigMu.Unlock()
 	masterConfig, err := ReadMasterConfig(cluDir)
 	if err != nil {
 		return fmt.Errorf("failed to read master config: %w", err)
@@ -1249,12 +1259,14 @@ func DeleteOMFile(cluDir string, serial uint64) error {
 	}
 
 	masterConfig.OMFiles = newFiles
-	return WriteMasterConfig(cluDir, masterConfig)
+	return writeMasterConfig(cluDir, masterConfig)
 }
 
 // DeleteOMFileAndCleanSync deletes an OM file entry and removes related sync objects.
 // Sync object paths start with "CLU<serial>." so we filter those out.
 func DeleteOMFileAndCleanSync(cluDir string, serial uint64) error {
+	masterConfigMu.Lock()
+	defer masterConfigMu.Unlock()
 	masterConfig, err := ReadMasterConfig(cluDir)
 	if err != nil {
 		return fmt.Errorf("failed to read master config: %w", err)
@@ -1284,7 +1296,7 @@ func DeleteOMFileAndCleanSync(cluDir string, serial uint64) error {
 		masterConfig.Sync.Objects = cleaned
 	}
 
-	return WriteMasterConfig(cluDir, masterConfig)
+	return writeMasterConfig(cluDir, masterConfig)
 }
 
 // GetOMFilesDir returns the directory where OM files are stored

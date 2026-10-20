@@ -52,6 +52,8 @@ func ValidateAuth(cluDir string, username, password string) bool {
 
 // SaveAuth saves authentication credentials to master config
 func SaveAuth(cluDir string, username, password string) error {
+	masterConfigMu.Lock()
+	defer masterConfigMu.Unlock()
 	masterConfig, err := ReadMasterConfig(cluDir)
 	if err != nil {
 		return err
@@ -72,7 +74,7 @@ func SaveAuth(cluDir string, username, password string) error {
 		PasswordHash: hash,
 	}
 
-	return WriteMasterConfig(cluDir, masterConfig)
+	return writeMasterConfig(cluDir, masterConfig)
 }
 
 // GenerateAPIKey generates a new API key and returns the plaintext key and its SHA-256 hash.
