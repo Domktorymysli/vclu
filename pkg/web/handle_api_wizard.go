@@ -100,11 +100,6 @@ func (s *Server) handleAPIWizardState(c *gin.Context) {
 }
 
 func (s *Server) handleAPIWizardSetDeviceType(c *gin.Context) {
-	if config.IsSetupComplete(s.serverDir) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Setup already completed. Device type cannot be changed."})
-		return
-	}
-
 	var req SetDeviceTypeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request: " + err.Error()})
@@ -118,6 +113,10 @@ func (s *Server) handleAPIWizardSetDeviceType(c *gin.Context) {
 	}
 
 	if err := config.UpdateMasterConfig(s.serverDir, func(vcluConfig *config.VCLUConfig) error {
+		// under the lock, so a finish that lands first wins
+		if vcluConfig.SetupCompleted {
+			return &configError{http.StatusForbidden, "Setup already completed. Device type cannot be changed."}
+		}
 		if vcluConfig.Device == nil {
 			vcluConfig.Device = &config.VCLUDeviceConfig{}
 		}
@@ -140,6 +139,10 @@ func (s *Server) handleAPIWizardSetDeviceType(c *gin.Context) {
 		}
 		return nil
 	}); err != nil {
+		if ce, ok := asConfigError(err); ok {
+			c.JSON(ce.status, gin.H{"error": ce.msg})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save configuration: " + err.Error()})
 		return
 	}

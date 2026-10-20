@@ -110,3 +110,28 @@ func TestConfigRefusedSaveDoesNotWrite(t *testing.T) {
 		t.Errorf(".vclu.json changed:\n%s\n->\n%s", before, after)
 	}
 }
+
+// After setup the device type is refused, checked under the lock, and the file stays as it was.
+func TestWizardDeviceTypeRefusedAfterSetup(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	dir := t.TempDir()
+	if err := writeTestConfig(dir, &config.VCLUConfig{SetupCompleted: true,
+		Device: &config.VCLUDeviceConfig{DeviceTypeID: "gate"}}); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(filepath.Join(dir, ".vclu.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{serverDir: dir}
+	if w := postJSON(t, s.handleAPIWizardSetDeviceType, `{"deviceTypeId":"standalone"}`); w.Code != http.StatusForbidden {
+		t.Fatalf("set device type after setup: %d %s, want 403", w.Code, w.Body.String())
+	}
+	after, err := os.ReadFile(filepath.Join(dir, ".vclu.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Errorf(".vclu.json changed on a refused device type")
+	}
+}

@@ -52,6 +52,12 @@ func ValidateAuth(cluDir string, username, password string) bool {
 
 // SaveAuth saves authentication credentials to master config
 func SaveAuth(cluDir string, username, password string) error {
+	// bcrypt takes a while; hash before taking the lock every save waits on
+	hash, err := HashPassword(password)
+	if err != nil {
+		return err
+	}
+
 	masterConfigMu.Lock()
 	defer masterConfigMu.Unlock()
 	masterConfig, err := ReadMasterConfig(cluDir)
@@ -62,11 +68,6 @@ func SaveAuth(cluDir string, username, password string) error {
 		masterConfig = &VCLUConfig{
 			CreatedAt: time.Now(),
 		}
-	}
-
-	hash, err := HashPassword(password)
-	if err != nil {
-		return err
 	}
 
 	masterConfig.Auth = &VCLUAuthConfig{
