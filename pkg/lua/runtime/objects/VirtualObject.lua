@@ -340,7 +340,10 @@ function VirtualObject:expose(options)
         error("ExposedObjects not available - expose API requires ExposedObjects module")
     end
 
-    options = options or {}
+    -- a copy: the caller's table may be used for other objects
+    local opts = {}
+    for k, v in pairs(options or {}) do opts[k] = v end
+    options = opts
 
     local path = self:_getRegistryPath()
     if path then
