@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/pin/tftp/v3"
@@ -29,7 +31,9 @@ const (
 
 // Server represents a TFTP server
 type Server struct {
+	mu        sync.Mutex // guards server, conn and running
 	server    *tftp.Server
+	conn      *net.UDPConn
 	rootDir   string
 	mode      ServerMode
 	localAddr string
@@ -51,8 +55,11 @@ func NewServer(rootDir string, localAddr string, port int, mode ServerMode) *Ser
 	return s
 }
 
-// Start starts the TFTP server
+// Start opens the UDP socket and serves it in the background.
+// A failed bind is returned, and the server stays stopped.
 func (s *Server) Start() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.running {
 		return nil
 	}
@@ -64,32 +71,50 @@ func (s *Server) Start() error {
 
 	log.Printf("[TFTP] starting on %s, root: %s", s.localAddr, s.rootDir)
 
+	addr, err := net.ResolveUDPAddr("udp", s.localAddr)
+	if err != nil {
+		return fmt.Errorf("failed to resolve TFTP address %s: %w", s.localAddr, err)
+	}
+	conn, err := net.ListenUDP("udp", addr)
+	if err != nil {
+		return fmt.Errorf("failed to listen on %s: %w", s.localAddr, err)
+	}
+
 	// Create new TFTP server instance (required after Shutdown)
-	s.server = tftp.NewServer(s.readHandler, s.writeHandler)
-	s.server.SetTimeout(DefaultTimeout)
+	srv := tftp.NewServer(s.readHandler, s.writeHandler)
+	srv.SetTimeout(DefaultTimeout)
 
 	go func() {
-		if err := s.server.ListenAndServe(s.localAddr); err != nil {
+		if err := srv.Serve(conn); err != nil {
 			log.Printf("[TFTP] server error: %v", err)
 		}
 	}()
 
+	s.server = srv
+	s.conn = conn
 	s.running = true
 	return nil
 }
 
 // Stop stops the TFTP server
 func (s *Server) Stop() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if !s.running {
 		return
 	}
 
 	s.server.Shutdown()
+	// Shutdown misses the socket if Serve has not stored it yet
+	_ = s.conn.Close()
+	s.conn = nil
 	s.running = false
 }
 
 // IsRunning returns whether the server is running
 func (s *Server) IsRunning() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.running
 }
 
