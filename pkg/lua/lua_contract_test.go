@@ -535,7 +535,7 @@ func TestContract_Expose_ListAfterUnexpose(t *testing.T) {
 	engine := NewLuaEngine()
 	defer engine.Close()
 
-	result, err := engine.Execute(`
+	_, err := engine.Execute(`
 		local t = VirtualSensor:new("T2")
 		local h = expose(t, "temperature", { name = "Kuchnia" })
 		unexposedPath = h.path
@@ -544,7 +544,7 @@ func TestContract_Expose_ListAfterUnexpose(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execute failed: %v", err)
 	}
-	result, err = engine.Execute(`
+	result, err := engine.Execute(`
 		for _, handle in pairs(ExposedObjects:list()) do
 			if handle.options.name == "Kuchnia" then return "still listed" end
 		end
