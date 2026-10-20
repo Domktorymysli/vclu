@@ -44,7 +44,7 @@ dom:between(from, to, { tags }), dom:day(date)          -- dates ('YYYY-MM-DD') 
 dom:add(opts), dom:remove(id), dom:skip(id, date), dom:pause('a..b', { tags }), dom:resume()
 dom:nextChange(id), dom:color(id[, value]), dom:segments(id, from, to)   -- schedules: { title, colors = { value = color } }
 Dashboard ...:calendar('kal', 'Kalendarz', dom, { view = 'month' | 'day', tags = { ... }, schedules = { 'taryfa' },
-    holidays = true, namedays = false })   -- defaults; a viewer switches them on the widget
+    holidays = true, namedays = false })   -- what the widget may show; a viewer hides them on the widget
 ```
 Rules: `every` = `day`, `workday`, `weekend`, `holiday`, weekdays, `month` (`day`, `on`),
 `year` (`date = 'MM-DD'`, or `month` with `on`); `time = 'sunset-30m'`, `'dusk'`, `hours = { 'sunset', 'sunrise' }`, `sun = { azimuth = {135, 225}, elevation = 15 }` with a location; `dates` (a list of days, e.g. a municipality's waste PDF); `weeks`/`months`/`years` with `from`; `from`, `to`, `times`; one-off

@@ -598,7 +598,7 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 				"cover":    "section:cover(id, label, icon, fns, opts) — fns={getPosition,getState,open,close,stop,set?}",
 				"dimmer":   "section:dimmer(id, label, icon, fns, opts) — fns={get?,set,switchOn?,switchOff?,isOn?}",
 				"color":    "section:color(id, label, icon, fns, opts) — fns={getColor,setColor,get?,set?,switchOn?,switchOff?,isOn?,getWhite?,setWhite?} or a RemoteRGBLight object, opts.presets=[{label,r,g,b}]",
-				"calendar": "section:calendar(id, label, calendar or its id, {view='month'|'day', tags, schedules={ids}, holidays=true, namedays=false, sun=true}) — month grid, a tapped day shows the day with a 24 h bar per schedule; full width",
+				"calendar": "section:calendar(id, label, calendar or its id, {view='month'|'day', tags, schedules={ids}, holidays=true, namedays=false, sun=true}) (what is off is not sent; a viewer hides the rest) — month grid, a tapped day shows the day with a 24 h bar per schedule; full width",
 			},
 			"opts":       "{ span=n, size='lg', color='#hex', disabled=function() }",
 			"auth_types": "public | pin | session",

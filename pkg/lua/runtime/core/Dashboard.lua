@@ -165,7 +165,7 @@ end
 -- @param cal table Calendar from Calendar.new(...):build(), or its id
 -- @param opts table Optional: {view="month"|"day", tags={...}, schedules={ids drawn as 24 h bars in the day view},
 --   holidays=true (holiday names, on by default), namedays=false (name days in the day view),
---   sun=true (sunrise and sunset in the day view, with :location()), span=n}
+--   sun=true (sunrise and sunset in the day view, with :location()), span=n}; what is off is not sent to the browser
 -- @api public
 function SectionHandle:calendar(id, label, cal, opts)
     self._builder:_addWidget(self._sectionIndex, calendarWidget(id, label, cal, opts))
@@ -553,7 +553,7 @@ end
 -- @param cal table Calendar from Calendar.new(...):build(), or its id
 -- @param opts table Optional: {view="month"|"day", tags={...}, schedules={ids drawn as 24 h bars in the day view},
 --   holidays=true (holiday names, on by default), namedays=false (name days in the day view),
---   sun=true (sunrise and sunset in the day view, with :location()), span=n}
+--   sun=true (sunrise and sunset in the day view, with :location()), span=n}; what is off is not sent to the browser
 -- @api public
 function DashboardBuilder:calendar(id, label, cal, opts)
     if not self._currentSection then
@@ -828,37 +828,46 @@ function DashboardAPI.usesMetric(id, path)
 end
 
 --- Occurrences of a calendar widget's calendar for the days from..to ('YYYY-MM-DD', at most 42)
--- @return string JSON {today, now, ready, days=[{date, weekday, workday, holiday}], items=[...]}
+-- @return string JSON {today, now, ready, days=[{date, weekday, workday, holiday}], items=[...]},
+--   or {error, status} with the HTTP status of a bad request
 function DashboardAPI.calendarRange(id, widgetId, from, to)
+    local function fail(status, msg) return JSON.encode({ error = msg, status = status }) end
     local dash = resolveDashboard(id)
-    if not dash then return JSON.encode({ error = 'Dashboard not found' }) end
+    if not dash then return fail(404, 'Dashboard not found') end
     local w
     for _, sec in ipairs(dash._sections) do
         for _, x in ipairs(sec.widgets) do
             if x.id == widgetId and x.type == 'calendar' then w = x end
         end
     end
-    if not w then return JSON.encode({ error = 'calendar widget not on this dashboard' }) end
+    if not w then return fail(403, 'calendar widget not on this dashboard') end
     local cal = Calendar.get(w.calendar)
-    if not cal then return JSON.encode({ error = 'calendar "' .. w.calendar .. '" not built' }) end
+    if not cal then return fail(404, 'calendar "' .. w.calendar .. '" not built') end
     local okA, a = pcall(cal.day, cal, from)
     local okB, b = pcall(cal.day, cal, to)
-    if not okA or not okB or b.starts < a.starts then return JSON.encode({ error = 'from and to expected as YYYY-MM-DD' }) end
-    if b.starts - a.starts > 42 * 86400 then return JSON.encode({ error = 'at most 42 days' }) end
+    if not okA or not okB or b.starts < a.starts then return fail(400, 'from and to expected as YYYY-MM-DD') end
 
+    -- what the author switched off is not sent at all (a public page would show the house's location)
+    local showHol, showNames, showSun = w.opts.holidays ~= false, w.opts.namedays == true, w.opts.sun ~= false
+    local function minute(ts) return ts and math.floor(ts / 60 + 0.5) * 60 end
     local days = {}
     local d = a
-    while d.starts <= b.starts and #days < 43 do
+    while d.starts <= b.starts do
+        if #days == 42 then return fail(400, 'at most 42 days') end
         local one = a.date == b.date
-        local sun = one and cal:sun(d.date) or nil
-        days[#days + 1] = { date = d.date, weekday = d.weekday, workday = d.workday, holiday = d.holiday,
-            holidayName = d.holidayName, namedays = one and d.namedays or nil,
-            sunrise = sun and sun.sunrise, sunset = sun and sun.sunset, polar = sun and sun.polar }
+        local sun = one and showSun and cal:sun(d.date) or nil
+        days[#days + 1] = { date = d.date, weekday = d.weekday, workday = d.workday,
+            holiday = showHol and d.holiday or false, holidayName = showHol and d.holidayName or nil,
+            namedays = one and showNames and d.namedays or nil,
+            sunrise = sun and minute(sun.sunrise), sunset = sun and minute(sun.sunset), polar = sun and sun.polar }
         d = cal:day(d.ends)
     end
     local items = {}
     local ok, list = pcall(cal.between, cal, a.date, b.date, { tags = w.opts.tags })
-    if not ok then return JSON.encode({ error = tostring(list) }) end
+    if not ok then
+        Logger:getShared():error('[DASHBOARD] %s calendar %s: %s', tostring(id), tostring(widgetId), tostring(list))
+        return fail(500, 'calendar unavailable')
+    end
     for _, e in ipairs(list) do
         items[#items + 1] = { id = e.id, title = e.title, icon = e.icon, at = e.at, ends = e.ends,
             allDay = e.allDay, date = e.date, last = e.last, paused = e.paused, source = e.source }

@@ -371,7 +371,16 @@ func (s *Server) handleAPIDashboardCalendar(c *gin.Context) {
 	result, err := s.luaExecutor.Execute(fmt.Sprintf(`Dashboard.API.calendarRange("%s", "%s", "%s", "%s")`,
 		luaEscape(id), luaEscape(widget), from, to))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		// public dashboards reach this: the Lua error (paths, stack) goes to the log only
+		log.Printf("[DASHBOARD] %s calendar %s: %v", id, widget, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "calendar unavailable"})
+		return
+	}
+	var r struct {
+		Status int `json:"status"`
+	}
+	if err := json.Unmarshal([]byte(result), &r); err == nil && r.Status >= 400 && r.Status < 600 {
+		c.Data(r.Status, "application/json", []byte(result))
 		return
 	}
 	c.Data(http.StatusOK, "application/json", []byte(result))

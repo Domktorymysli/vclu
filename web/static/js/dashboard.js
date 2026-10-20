@@ -510,6 +510,19 @@
         return b;
     }
 
+    // One listener for all calendars: closes an open options menu on a click outside it
+    // (a listener per render would keep every replaced widget alive).
+    var calMenusListening = false;
+    function closeCalMenus(ev) {
+        document.querySelectorAll('.dash-cal-menu-wrap').forEach(function(wrap) {
+            var menu = wrap.querySelector('.dash-cal-menu');
+            if (menu && !menu.hidden && !wrap.contains(ev.target)) {
+                menu.hidden = true;
+                wrap.querySelector('.dash-cal-btn').setAttribute('aria-expanded', 'false');
+            }
+        });
+    }
+
     function renderCalendar(el, w) {
         el.classList.add('dash-widget-calendar');
         el.style.cursor = 'default';
@@ -517,15 +530,17 @@
 
         var today = ymd(new Date());
         var st = { view: w.view === 'day' ? 'day' : 'month', day: today, month: today.slice(0, 7) + '-01', data: null };
-        // What to show besides events: defaults from Lua, the viewer's choice kept per device
+        // What to show besides events: what Lua allows (the server sends nothing else),
+        // the viewer's choice kept per device
         var showKey = 'vclu.cal.' + dashId + '.' + w.id;
-        st.show = { holidays: w.holidays !== false, namedays: !!w.namedays, sun: w.sun !== false };
+        var allowed = { holidays: w.holidays !== false, namedays: !!w.namedays, sun: w.sun !== false };
+        st.show = { holidays: allowed.holidays, namedays: allowed.namedays, sun: allowed.sun };
         try {
             var saved = JSON.parse(localStorage.getItem(showKey) || 'null');
             if (saved) {
-                if (typeof saved.holidays === 'boolean') st.show.holidays = saved.holidays;
-                if (typeof saved.namedays === 'boolean') st.show.namedays = saved.namedays;
-                if (typeof saved.sun === 'boolean') st.show.sun = saved.sun;
+                ['holidays', 'namedays', 'sun'].forEach(function(k) {
+                    if (allowed[k] && typeof saved[k] === 'boolean') st.show[k] = saved[k];
+                });
             }
         } catch (e) { /* no storage: defaults */ }
         var pl = /^pl/i.test(navigator.language || '');
@@ -570,24 +585,20 @@
             });
             return b;
         }
-        menu.appendChild(optionRow('holidays'));
-        menu.appendChild(optionRow('namedays'));
-        menu.appendChild(optionRow('sun'));
+        ['holidays', 'namedays', 'sun'].forEach(function(k) { if (allowed[k]) menu.appendChild(optionRow(k)); });
         var menuBtn = calIconBtn('sliders', txt.show, function() {
             menu.hidden = !menu.hidden;
             menuBtn.setAttribute('aria-expanded', menu.hidden ? 'false' : 'true');
         });
         menuBtn.setAttribute('aria-haspopup', 'true');
         menuBtn.setAttribute('aria-expanded', 'false');
-        document.addEventListener('click', function(ev) {
-            if (!menu.hidden && !menuWrap.contains(ev.target)) {
-                menu.hidden = true;
-                menuBtn.setAttribute('aria-expanded', 'false');
-            }
-        });
+        if (!calMenusListening) {
+            document.addEventListener('click', closeCalMenus);
+            calMenusListening = true;
+        }
         menuWrap.appendChild(menuBtn);
         menuWrap.appendChild(menu);
-        tools.appendChild(menuWrap);
+        if (menu.childNodes.length) tools.appendChild(menuWrap);
         tools.appendChild(todayBtn);
         tools.appendChild(seg);
         bar.appendChild(label);
@@ -619,7 +630,13 @@
             segMonth.classList.toggle('active', st.view === 'month');
             segDay.classList.toggle('active', st.view === 'day');
             var url = '/api/dashboard/' + dashId + '/calendar?widget=' + encodeURIComponent(w.id) + '&from=' + r[0] + '&to=' + r[1];
-            fetchJSON(url).then(function(data) {
+            // a refused request (400, 403, 404) carries {error}: shown in the widget
+            fetch(url).then(function(resp) {
+                return resp.json().catch(function() { return {}; }).then(function(data) {
+                    if (!resp.ok) return { error: (data && data.error) || ('HTTP ' + resp.status) };
+                    return data;
+                });
+            }).then(function(data) {
                 if (r[0] !== range()[0]) return; // navigated meanwhile
                 st.data = data;
                 draw();

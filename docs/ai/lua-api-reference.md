@@ -1062,7 +1062,7 @@ Add a chart widget to this section.
 
 ### `SectionHandle:calendar(id, label, cal, opts)`
 
-Add a calendar widget to this section: a month grid and the day of a tapped date. holidays=true (holiday names, on by default), namedays=false (name days in the day view), sun=true (sunrise and sunset in the day view, with :location()), span=n}
+Add a calendar widget to this section: a month grid and the day of a tapped date. holidays=true (holiday names, on by default), namedays=false (name days in the day view), sun=true (sunrise and sunset in the day view, with :location()), span=n}; what is off is not sent to the browser
 
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label
@@ -1289,7 +1289,7 @@ Add a chart widget to the current section.
 
 ### `DashboardBuilder:calendar(id, label, cal, opts)`
 
-Add a calendar widget to the current section: a month grid and the day of a tapped date. holidays=true (holiday names, on by default), namedays=false (name days in the day view), sun=true (sunrise and sunset in the day view, with :location()), span=n}
+Add a calendar widget to the current section: a month grid and the day of a tapped date. holidays=true (holiday names, on by default), namedays=false (name days in the day view), sun=true (sunrise and sunset in the day view, with :location()), span=n}; what is off is not sent to the browser
 
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label
