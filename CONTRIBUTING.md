@@ -67,7 +67,8 @@ chore: update bootstrap to 5.3.3
 2. Make your changes
 3. Ensure `gofmt -l .` prints nothing, `go vet ./...` reports no issues and `go test ./...` passes
 4. Run `go test -race` on the packages you touched (CI runs it on everything)
-5. Open a PR against `main`
+5. If users notice the change, add a file to `changelog.d/` (see its README); do not edit `CHANGELOG.md`, the release assembles it
+6. Open a PR against `main`
 
 Keep PRs focused — one feature or fix per PR. If your change is large, consider splitting it into smaller PRs.
 
@@ -77,6 +78,7 @@ If the `vulncheck` job fails, upgrade the module that brings in the vulnerabilit
 
 - [ ] Code builds without errors
 - [ ] Tests pass, also with `-race`
+- [ ] User-visible changes have an entry in `changelog.d/`
 - [ ] New user-visible behaviour has a contract test (see [Contracts](#contracts))
 - [ ] No contract test weakened or removed, or the PR says `Contract change:` and why
 - [ ] No unrelated changes mixed in
