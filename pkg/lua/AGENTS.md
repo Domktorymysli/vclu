@@ -96,7 +96,14 @@ What such an object keeps aside from its value changes with an event listed in `
 1 holiday, 2 auto from the schedule, 3 heat-up), 10 Min, 11 Max, 12 TargetTemp (in effect,
 with the mode), 14 CurrentTemp; execute 0 Start, 1 Stop. `RemoteThermostat` subscribes to
 3, 6, 8, 12 and 14 (five entries of a CLU's 64); its value is CurrentTemp. Thermostat v1
-(CLU firmware 197 and 1f5, FwType 3) has no feature 14; the OM import sets `_version = 1`.
+(CLU firmware 197 and 1f5, FwType 3) has no feature 14.
+Which version a CLU runs and whether its thermostats are subscribed or polled is one table,
+`RemoteThermostat.FIRMWARE`: rows by om.lua FwType/FwVersion (the OM import writes
+`CLU…._omFirmware`) and by the firmware the CLU reports for `CLU…:get(17)` (`clu:firmware()`,
+asked by `autoSubscribe`). Firmware 4.x (CLU v1.0, e.g. 04.08.05) is polled with `get` every
+`pollInterval` s, not subscribed, until the hardware test says which features are safe; a CLU
+that has not answered get(17) is polled too. A new firmware rule is a row there, not an `if`.
+Hardware test on CLU220000592 (04.08.05), one feature per fresh session: result pending (#67).
 Feature 0 is Source (the sensor binding), so a thermostat must never be exposed as a switch:
 `_getExposeType()` returns nil, which keeps it out of `exposeRegistry()`.
 

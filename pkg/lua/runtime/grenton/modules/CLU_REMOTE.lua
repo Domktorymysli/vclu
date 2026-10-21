@@ -1,9 +1,10 @@
---
--- CLU_REMOTE - Remote CLU reference
--- Represents a CLU on another device in the network
---
+--- CLU_REMOTE - a CLU on another device in the network (a global CLU<serial> from the OM import).
+-- @module grenton.CLU_REMOTE
 
 CLU_REMOTE = {}
+
+-- FirmwareVersion of the CLU object (Object Manager clu_*.xml), e.g. "04.08.05"
+CLU_REMOTE.FEATURE_FIRMWARE = 17
 
 function CLU_REMOTE:new(id, address, eventBus)
     if (id == nil) then
@@ -107,6 +108,65 @@ function __vclu_command_reply(id, result, err)
     local done = CLU_REMOTE._pending[id]
     CLU_REMOTE._pending[id] = nil
     if done then done(result, err) end
+end
+
+--- The firmware the CLU reported for get(17), e.g. "04.08.05" or "05.15.12-2607".
+-- Asked when its objects are subscribed; nil until the CLU answered.
+-- @api public
+-- @return string|nil Firmware version
+function CLU_REMOTE:firmware()
+    return self._firmware
+end
+
+-- The firmware in om.lua at import ("4/198"; FwType/FwVersion without leading zeros), or nil
+function CLU_REMOTE:_omFirmwareKey()
+    local om = self._omFirmware
+    if not om or not om.type or not om.version then return nil end
+    local t = tostring(om.type):lower():gsub("^0+", "")
+    local v = tostring(om.version):lower():gsub("^0+", "")
+    return t .. "/" .. v
+end
+
+-- Major version of the reported firmware ("04.08.05" -> 4), or nil
+function CLU_REMOTE:_firmwareMajor()
+    return self._firmware and tonumber(self._firmware:match("^(%d+)%.")) or nil
+end
+
+function CLU_REMOTE:_firmwareScript()
+    local name = tostring(self.id)
+    if not name:match("^CLU") then name = "CLU" .. name end
+    return name .. ":get(" .. CLU_REMOTE.FEATURE_FIRMWARE .. ")"
+end
+
+-- Keeps an answer to get(17) that looks like a version; anything else forgets it
+function CLU_REMOTE:_setFirmware(result)
+    local s = type(result) == "string" and result:match('^%s*"?([^"]-)"?%s*$') or nil
+    if s and s:match("^%d+%.%d+") then self._firmware = s else self._firmware = nil end
+    return self._firmware
+end
+
+-- Forgets the firmware (the CLU stopped answering); the next subscribe or poll asks again
+function CLU_REMOTE:_forgetFirmware()
+    self._firmware = nil
+end
+
+-- Asks the CLU for its firmware, blocking; delayMs spaces the next message to this CLU
+function CLU_REMOTE:_checkFirmware(delayMs)
+    if not __go_send_command then return nil end
+    local result, err = __go_send_command(numericIPToString(self.address), self:_firmwareScript(), delayMs or 0)
+    if err then
+        Logger:getShared():warn("CLU_REMOTE %s: no answer to get(17): %s", tostring(self.id), tostring(err))
+        return self:_setFirmware(nil)
+    end
+    return self:_setFirmware(result)
+end
+
+-- Asks without blocking; done(firmware) gets nil when the CLU did not answer
+function CLU_REMOTE:_checkFirmwareAsync(done)
+    self:executeAsync(self:_firmwareScript(), function(result, err)
+        local fw = self:_setFirmware(not err and result or nil)
+        if done then done(fw) end
+    end)
 end
 
 function CLU_REMOTE:add_event(eventName, callback)

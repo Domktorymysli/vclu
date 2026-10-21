@@ -71,11 +71,11 @@ the CLU and whether a fresh session (not a renewal) is what does it; put the res
 - `pkg/omparser/generator.go` (firmware in the proxy), `pkg/lua/AGENTS.md`
 
 ## Acceptance criteria
-- [ ] A remote object can tell its CLU's firmware; a test with a fake CLU answering `get(17)`.
-- [ ] Subscribing a thermostat on a CLU marked unsafe for a feature leaves that feature out (or polls); a test checks the registered script.
+- [x] A remote object can tell its CLU's firmware; a test with a fake CLU answering `get(17)`.
+- [x] Subscribing a thermostat on a CLU marked unsafe for a feature leaves that feature out (or polls); a test checks the registered script.
 - [ ] The hardware test is done and its result recorded; on the maintainer's CLU a reload and "Sync now" with the thermostats on the Sync list do not reset it (uptime checked).
-- [ ] `go test ./...` and `go test -race ./...` pass.
-- [ ] CHANGELOG entry.
+- [x] `go test ./...` and `go test -race ./...` pass.
+- [x] CHANGELOG entry.
 
 ## Contract impact
 Internal to the runtime; `clu:firmware()` would be a new public method of `CLU_REMOTE`.

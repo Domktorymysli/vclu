@@ -23,6 +23,7 @@ Only public API is listed — internal/private functions are omitted.
 - [GPIO_DIN](#gpio_din) (1 functions)
 - [integrations.mqtt.MqttClient](#integrationsmqttmqttclient) (30 functions)
 - [lib.tasmota](#libtasmota) (5 functions)
+- [grenton.CLU_REMOTE](#grentonclu_remote) (1 functions)
 
 ---
 
@@ -1851,6 +1852,16 @@ Whether the device is online (its LWT is Online).
 Tasmota devices seen on MQTT discovery (tasmota/discovery/<mac>/config), sorted by topic. Nothing is created from them; add a device with a line in a module.
 
 **Returns:** table list of { topic, name, device, relays, lights, ip, mac }
+
+---
+
+## grenton.CLU_REMOTE
+
+### `CLU_REMOTE:firmware() → string|nil Firmware version`
+
+The firmware the CLU reported for get(17), e.g. "04.08.05" or "05.15.12-2607". Asked when its objects are subscribed; nil until the CLU answered.
+
+**Returns:** string|nil Firmware version
 
 ---
 

@@ -1,0 +1,3 @@
+### Grenton
+
+- **A thermostat follows its CLU's firmware** - vCLU asks each CLU with thermostats on the Sync list for its firmware (`get(17)`) and picks the thermostat's features from a table built from Object Manager's device definitions. On firmware 4.x (CLU v1.0, e.g. 04.08.05) thermostats are no longer subscribed: their values are read with `get` every 30 s, one feature at a time, until a hardware test shows which features can be subscribed there. A CLU that has not answered yet is read the same way and subscribed once it reports a firmware other than 4.x. The log names each CLU, its firmware and the choice once. 5.x CLUs keep the subscription as before. `clu:firmware()` returns what the CLU reported ([#67](https://github.com/Domktorymysli/vclu/issues/67)).
