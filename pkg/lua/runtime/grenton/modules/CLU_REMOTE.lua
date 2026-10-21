@@ -86,6 +86,8 @@ end
 -- Answers to executeAsync, by request id
 CLU_REMOTE._pending = {}
 CLU_REMOTE._nextId = 0
+-- Per Lua state: an answer to a request sent before a reload must not match a new request
+CLU_REMOTE._idPrefix = string.format("%d.%d.", os.time(), math.floor(os.clock() * 1000000))
 
 -- Sends a command without blocking the run loop; done(result, err) is called when the
 -- answer comes (err set on a timeout). Without the async sender it falls back to
@@ -99,7 +101,7 @@ function CLU_REMOTE:executeAsync(script, done)
         return
     end
     CLU_REMOTE._nextId = CLU_REMOTE._nextId + 1
-    local id = tostring(CLU_REMOTE._nextId)
+    local id = CLU_REMOTE._idPrefix .. tostring(CLU_REMOTE._nextId)
     CLU_REMOTE._pending[id] = done or false
     __go_send_command_async(targetIP, script, id)
 end
@@ -138,10 +140,11 @@ function CLU_REMOTE:_firmwareScript()
     return name .. ":get(" .. CLU_REMOTE.FEATURE_FIRMWARE .. ")"
 end
 
--- Keeps an answer to get(17) that looks like a version; anything else forgets it
+-- Keeps an answer to get(17) shaped like a version (04.08.05, 05.15.12-2607); anything
+-- else, a value like 21.5 included, forgets it
 function CLU_REMOTE:_setFirmware(result)
     local s = type(result) == "string" and result:match('^%s*"?([^"]-)"?%s*$') or nil
-    if s and s:match("^%d+%.%d+") then self._firmware = s else self._firmware = nil end
+    if s and s:match("^%d+%.%d+%.%d+%-?%w*$") then self._firmware = s else self._firmware = nil end
     return self._firmware
 end
 
