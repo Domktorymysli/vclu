@@ -378,19 +378,19 @@ Dashboard.new('home')
   -- Header bar — compact bar with values (before the sections!)
   :header()
     :status('temp_out', 'Zewn', 'thermometer-half',
-      function() return r:get("CLU212345678.ANA4201"):getValue() end, '°C')
+      function() return r:value("CLU212345678.ANA4201") end, '°C')
     :status('hum_out', 'Wilg', 'droplet',
-      function() return r:get("CLU212345678.ANA4202"):getValue() end, '%')
+      function() return r:value("CLU212345678.ANA4202") end, '%')
   -- Salon — 3 columns (default)
   :section('Salon', 'lamp')
     :toggle('salon_kanapa', 'Kanapa', 'lamp',
-      function() return r:get("CLU220000592.DOU0789"):getValue() end,
+      function() return r:value("CLU220000592.DOU0789") end,
       function(v)
         local obj = r:get("CLU220000592.DOU0789")
         if v then obj:switchOn() else obj:switchOff() end
       end)
     :toggle('salon_sufit', 'Sufit', 'lightbulb',
-      function() return r:get("CLU220000592.DOU0790"):getValue() end,
+      function() return r:value("CLU220000592.DOU0790") end,
       function(v)
         local obj = r:get("CLU220000592.DOU0790")
         if v then obj:switchOn() else obj:switchOff() end
@@ -401,13 +401,13 @@ Dashboard.new('home')
   -- Temperatures — 4 columns (compact statuses)
   :section('Temperatury', 'thermometer-half', { columns = 4 })
     :status('temp_salon', 'Salon', 'thermometer-half',
-      function() return r:get("CLU212345678.ANA4201"):getValue() end, '°C')
+      function() return r:value("CLU212345678.ANA4201") end, '°C')
     :status('temp_kuchnia', 'Kuchnia', 'thermometer-half',
-      function() return r:get("CLU212345678.ANA4203"):getValue() end, '°C')
+      function() return r:value("CLU212345678.ANA4203") end, '°C')
     :status('temp_sypialnia', 'Sypialnia', 'thermometer-half',
-      function() return r:get("CLU212345678.ANA4204"):getValue() end, '°C')
+      function() return r:value("CLU212345678.ANA4204") end, '°C')
     :status('temp_biuro', 'Biuro', 'thermometer-half',
-      function() return r:get("CLU212345678.ANA4205"):getValue() end, '°C')
+      function() return r:value("CLU212345678.ANA4205") end, '°C')
   -- Tools — 2 columns (wide links)
   :section('Narzedzia', 'tools', { columns = 2 })
     :link('grafana', 'Grafana', 'graph-up', 'http://192.168.1.50:3000')
