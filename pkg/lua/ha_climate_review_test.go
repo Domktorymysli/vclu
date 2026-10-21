@@ -133,3 +133,17 @@ func TestHAClimateExposeSendsNoRegister(t *testing.T) {
 		t.Errorf("sent|objects before|after|sessions|CLU calls = %s, want 0|5|5|1|THE1:set(3, 22)", got)
 	}
 }
+
+// Bounds given as strings are numbers in discovery, as in the clamp.
+func TestHAClimateDiscoveryNumericBounds(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+	if _, err := engine.Execute(haClimateSetup); err != nil {
+		t.Fatalf("setup failed: %v", err)
+	}
+	mustExec(t, engine, `return TH:expose({ name = "Salon", min = "16", max = "24", step = "0.5" }).type`)
+	d := climateDiscovery(t, engine)
+	if d["min_temp"] != 16.0 || d["max_temp"] != 24.0 || d["temp_step"] != 0.5 {
+		t.Errorf("min/max/step = %#v/%#v/%#v, want numbers 16/24/0.5", d["min_temp"], d["max_temp"], d["temp_step"])
+	}
+}

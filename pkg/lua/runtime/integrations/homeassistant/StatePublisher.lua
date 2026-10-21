@@ -803,9 +803,10 @@ local function onObjectExposed(data)
         discoveryPayload.state_topic = nil
         discoveryPayload.command_topic = nil
         discoveryPayload.temperature_unit = "C"
-        discoveryPayload.temp_step = options.step or 0.5
-        discoveryPayload.min_temp = options.min or range[1]
-        discoveryPayload.max_temp = options.max or range[2]
+        discoveryPayload.temp_step = tonumber(options.step) or 0.5
+        -- the same bounds as the clamp in ExposedHandle:setValue
+        discoveryPayload.min_temp = tonumber(options.min) or range[1]
+        discoveryPayload.max_temp = tonumber(options.max) or range[2]
         discoveryPayload.current_temperature_topic = baseTopic .. "/current_temp"
         if type(obj) == "table" and type(obj.getTarget) == "function" then
             discoveryPayload.temperature_state_topic = baseTopic .. "/target_temp"
