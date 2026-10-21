@@ -59,6 +59,16 @@ RemoteSubscription._pollRun = nil
 --- A poll chain running longer than this (s) is treated as lost
 RemoteSubscription.POLL_STALE_SECONDS = 120
 
+--- A renew waits for a running poll chain at most this long (s); the sessions' TTL is 60
+RemoteSubscription.RENEW_WAIT_SECONDS = 20
+
+--- Delay (ms) of the first poll after autoSubscribe, past its clientDestroy series
+RemoteSubscription.POLL_FIRST_DELAY_MS = 1000
+
+--- A poll or renew postponed until the other chain ends (the two never interleave)
+RemoteSubscription._pollAfterRenew = false
+RemoteSubscription._renewAfterPoll = false
+
 --- Entries autoSubscribe last meant to subscribe (nil before the first run); 0 means
 -- every Sync object is polled, so no session is not a lost subscription
 RemoteSubscription._subscribable = nil
@@ -675,6 +685,13 @@ function RemoteSubscription.refreshAll()
         Logger:getShared():warn("[RemoteSub] Previous renew never finished, starting a new one")
     end
 
+    -- A running poll chain sends to the same CLUs: renew when it ends
+    local polling = RemoteSubscription._pollRun
+    if polling and os.time() - polling.startedAt < RemoteSubscription.RENEW_WAIT_SECONDS then
+        RemoteSubscription._renewAfterPoll = true
+        return
+    end
+
     local subs = {}
     for key, sub in pairs(RemoteSubscription.activeSubscriptions) do
         subs[#subs + 1] = { key = key, sub = sub }
@@ -689,6 +706,10 @@ function RemoteSubscription.refreshAll()
 
     local function finish()
         RemoteSubscription._renewRun = nil
+        if RemoteSubscription._pollAfterRenew then
+            RemoteSubscription._pollAfterRenew = false
+            EventBus:getShared():setTimeout(RemoteSubscription.pollAll, delay)
+        end
         if failed > 0 then
             Logger:getShared():info("[RemoteSub] %d re-registered, %d failed — running full re-subscribe", count, failed)
             RemoteSubscription.autoSubscribe()
@@ -812,6 +833,12 @@ function RemoteSubscription.pollAll()
         Logger:getShared():debug("[RemoteSub] Previous poll still running, skipping this one")
         return
     end
+    -- A running renew chain sends to the same CLUs: poll when it ends
+    local renewing = RemoteSubscription._renewRun
+    if renewing and os.time() - renewing.startedAt < RemoteSubscription.RENEW_STALE_SECONDS then
+        RemoteSubscription._pollAfterRenew = true
+        return
+    end
 
     -- Steps grouped by CLU, in path order
     local paths = {}
@@ -848,6 +875,10 @@ function RemoteSubscription.pollAll()
         if RemoteSubscription._pollRun ~= run then return end
         RemoteSubscription._pollRun = nil
         for _, clu in ipairs(run.upgradeOrder) do RemoteSubscription.subscribeUpgraded(clu) end
+        if RemoteSubscription._renewAfterPoll then
+            RemoteSubscription._renewAfterPoll = false
+            EventBus:getShared():setTimeout(RemoteSubscription.refreshAll, delay)
+        end
     end
 
     -- run.step, not a local: a caught error can split a closure's shared local (AGENTS.md)
@@ -908,14 +939,14 @@ function RemoteSubscription.pollAll()
     run.step(1)
 end
 
---- Start the poll timer (config.pollInterval) and a first poll right away.
+--- Start the poll timer (config.pollInterval) and a first poll after POLL_FIRST_DELAY_MS.
 function RemoteSubscription.startPollTimer()
     if not RemoteSubscription._pollTimer then
         local interval = math.max(RemoteSubscription.config.pollInterval or 30, 5) * 1000
         RemoteSubscription._pollTimer = EventBus:getShared():setInterval(RemoteSubscription.pollAll, interval)
         Logger:getShared():info("[RemoteSub] Poll timer started, interval=%dms", interval)
     end
-    EventBus:getShared():setTimeout(RemoteSubscription.pollAll, RemoteSubscription.config.batchDelay or 50)
+    EventBus:getShared():setTimeout(RemoteSubscription.pollAll, RemoteSubscription.POLL_FIRST_DELAY_MS)
 end
 
 --- Stop the poll timer

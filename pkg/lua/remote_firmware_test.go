@@ -199,8 +199,8 @@ func TestRemoteFirmware4xPollsThermostat(t *testing.T) {
 	if parts[1] != "THE0855:get(6),THE0855:get(8),THE0855:get(3),THE0855:get(12),THE0855:get(14)" {
 		t.Errorf("polled reads = %s", parts[1])
 	}
-	// first poll after batchDelay, then one timeout between reads
-	if parts[2] != "50,50,50,50,50,50" {
+	// first poll 1 s after autoSubscribe, then one timeout between reads
+	if parts[2] != "1000,50,50,50,50,50" {
 		t.Errorf("poll spacing = %s", parts[2])
 	}
 	if parts[3] != "20.4/21.5/21/1/0" {
