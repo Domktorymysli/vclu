@@ -33,7 +33,7 @@ Runtime schema: Use vclu_runtime_schema to get object types, dashboard widget AP
 
 Reload: Use vclu_reload to reload the Lua runtime after manual file changes (draft_promote auto-reloads).
 
-Live execution: Use vclu_exec to run Lua snippets on the live runtime (requires ExecMode on bot). Use vclu_dashboards to list registered dashboards with widgets. Use vclu_plugin_config to read plugin configuration (secrets redacted). Use vclu_device_history to see recent state changes. Use vclu_metrics to list registered metrics or query time-series data for charts (temperature, humidity, fan speed, etc.).
+Live execution: Use vclu_exec to run Lua snippets on the live runtime (requires ExecMode on bot). Use vclu_dashboards to list registered dashboards with widgets. Use vclu_calendar for the house calendar (what is today or tomorrow, schedules and their next change) instead of vclu_exec. Use vclu_plugin_config to read plugin configuration (secrets redacted). Use vclu_device_history to see recent state changes. Use vclu_metrics to list registered metrics or query time-series data for charts (temperature, humidity, fan speed, etc.).
 
 MQTT discovery: Use vclu_mqtt_discover to scan MQTT brokers for smart home devices (Zigbee2MQTT, Tasmota, ESPHome, Shelly, HA Discovery). Returns discovered devices with suggested Lua integration snippets. Use the sandbox pipeline (draft_write → draft_test → draft_promote) to deploy the generated code.
 
