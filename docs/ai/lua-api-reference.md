@@ -17,7 +17,7 @@ Only public API is listed — internal/private functions are omitted.
 - [core.Registry](#coreregistry) (10 functions)
 - [core.Metrics](#coremetrics) (1 functions)
 - [core.Calendar](#corecalendar) (36 functions)
-- [Dashboard](#dashboard) (50 functions)
+- [Dashboard](#dashboard) (53 functions)
 - [lib.panel](#libpanel) (55 functions)
 - [objects.RemotePanel](#objectsremotepanel) (6 functions)
 - [GPIO_DOUT](#gpio_dout) (1 functions)
@@ -1135,6 +1135,17 @@ Add a color picker widget to this section. switchOn?, switchOff?, isOn?, getWhit
 - `fns` (table) — {getColor=function()->{r,g,b}, setColor=function(r,g,b), get?/set? brightness 0-100,
 - `opts` (table) — Optional: {disabled=function()->bool}
 
+### `SectionHandle:area(area, opts)`
+
+Fill this section with a widget for every device expose() put in an area, picked by kind: a light, switch or lock a toggle, a dimmer a dimmer, an RGB light the colour widget, a cover a cover, temperature and humidity a status; lights first, then covers, then the rest by name. Filled each time the dashboard is read, so devices a plugin exposes later show up; widgets added by hand come after them; a read-only device's widget is disabled. Like the panel, expose(obj, type, { dashboard = false }) keeps an object off dashboards and dashboard = true puts it on whatever its kind. Widget ids are "area:" .. path.
+
+- `area` (string) — Area name, or a list of names (one room under two names)
+- `opts` (table) — Optional: {kinds={"light","dimmer","cover","temperature","humidity"} (also "switch", "lock"), skip={path, ...}}
+
+### `SectionHandle:floor(floor, opts)`
+
+Add one section per area on a floor (delegates to DashboardBuilder:floor).
+
 ### `SectionHandle:when(periods, fn)`
 
 Conditional block: only execute fn if current time matches any of the given periods.
@@ -1231,6 +1242,13 @@ Start a new named section for grouping widgets.
 - `opts` (table) — Optional: {columns=number}
 
 **Returns:** SectionHandle Handle for adding widgets to this section
+
+### `DashboardBuilder:floor(floor, opts)`
+
+Add one section per area on a floor (expose(..., { area = "Salon", floor = "Parter" })), each filled as section:area; areas with nothing to show are left out. Read each time the dashboard is, so new areas show up. Start a section() to add widgets by hand after it.
+
+- `floor` (string) — Floor name
+- `opts` (table) — Optional: {order={area, ...} (first, in this order; the rest by name), titles={[area]=title}, kinds, skip}
 
 ### `DashboardBuilder:button(id, label, icon, onTap, opts)`
 

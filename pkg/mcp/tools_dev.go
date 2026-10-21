@@ -590,6 +590,7 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 		"dashboard": map[string]any{
 			"builder":  "Dashboard.new(id):name():icon():columns():auth():pin():poll():theme()",
 			"sections": "dash:header() first, then dash:section(name, icon, {columns=n})",
+			"rooms":    "section:area(area|{areas}, {kinds, skip={paths}}) fills the section with a widget per device expose() put in that area (expose(..., {area=..., floor=...})): light/switch/lock a toggle, dimmer a dimmer, RGB light a colour widget, cover a cover, temperature/humidity a status; kinds default light, dimmer, cover, temperature, humidity (switch and lock only through kinds); lights first, then covers, then by name; widget ids 'area:'..path (stable; actions use them); filled on every read, so devices exposed later show up; widgets added by hand come after them; a readonly expose() makes the widget disabled; a thermostat gets none yet. dash:floor(floor, {order, titles={[area]=title}, kinds, skip}) adds one section per area of that floor, empty ones left out. expose(..., {dashboard=false}) keeps an object off dashboards, dashboard=true puts it on whatever its kind (independent of panel=). Prefer these to building room widgets by hand",
 			"widgets": map[string]any{
 				"toggle":   "section:toggle(id, label, icon, getValueFn, onToggleFn, opts)",
 				"slider":   "section:slider(id, label, min, max, getValueFn, onSetFn, opts)",

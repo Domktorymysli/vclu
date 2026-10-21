@@ -310,6 +310,9 @@ checkOptions = function(objType, opts)
     if opts.history ~= nil and type(opts.history) ~= "boolean" then
         error("ExposedObjects:expose() - history must be true or false", 3)
     end
+    if opts.dashboard ~= nil and type(opts.dashboard) ~= "boolean" then
+        error("ExposedObjects:expose() - dashboard must be true or false", 3)
+    end
 end
 
 -- ==========================================================================
@@ -393,6 +396,8 @@ end
 -- @param options table Optional settings: name, path, id, readonly, hidden, mqtt, homekit, group,
 --   filter = {delta, heartbeat} for noisy numeric sensors (see StateChange.setFilter),
 --   history = false to keep the object's changes out of the history store
+--   area, floor (the house model: lib/panel, section:area, dash:floor),
+--   panel/dashboard = false keeps it off panels/dashboards, true puts it on whatever its kind
 -- @return ExposedHandle Handle for managing the exposed object
 function ExposedObjects:expose(obj, objType, options)
     options = options or {}
@@ -597,6 +602,60 @@ end
 -- @return table path -> handle; stable fields: type, options.name, options.area, options.tags, getValue()
 function ExposedObjects:list()
     return self._objects
+end
+
+local function setOf(list)
+    local s = {}
+    for _, v in ipairs(list or {}) do s[v] = true end
+    return s
+end
+
+-- Lights, switches, dimmers and locks first, then covers, then the rest
+local SCREEN_ORDER = { light = 1, switch = 1, dimmer = 1, lock = 1, cover = 2 }
+
+-- What a screen (lib/panel, a dashboard section) shows of the given areas: objects of a kind
+-- in opts.kinds or with options[opts.flag] = true, not flag = false, not in opts.skip; sorted
+-- as SCREEN_ORDER, then by opts.key(name), then by path.
+-- @return table { { path, handle }, ... }
+function ExposedObjects:_inArea(areas, opts)
+    local inArea, kinds, skip = setOf(areas), setOf(opts.kinds), setOf(opts.skip)
+    local key = opts.key or tostring
+    local found = {}
+    for path, h in pairs(self._objects) do
+        local o = h.options or {}
+        local flag = o[opts.flag]
+        if inArea[o.area] and (flag == true or (flag ~= false and kinds[h.type])) and not skip[path] then
+            found[#found + 1] = { path = path, handle = h, key = key(o.name or path) }
+        end
+    end
+    table.sort(found, function(a, b)
+        local oa, ob = SCREEN_ORDER[a.handle.type] or 3, SCREEN_ORDER[b.handle.type] or 3
+        if oa ~= ob then return oa < ob end
+        if a.key ~= b.key then return a.key < b.key end
+        return a.path < b.path
+    end)
+    return found
+end
+
+-- The areas on a floor: those in order first, in that order, then the rest by key(area)
+function ExposedObjects:_areasOn(floor, order, key)
+    key = key or tostring
+    local seen, list = {}, {}
+    for _, h in pairs(self._objects) do
+        local o = h.options or {}
+        if o.floor == floor and o.area and not seen[o.area] then
+            seen[o.area] = true
+            list[#list + 1] = o.area
+        end
+    end
+    local rank = {}
+    for i, a in ipairs(order or {}) do rank[a] = i end
+    table.sort(list, function(a, b)
+        local ra, rb = rank[a] or math.huge, rank[b] or math.huge
+        if ra ~= rb then return ra < rb end
+        return key(a) < key(b)
+    end)
+    return list
 end
 
 --- Get count of exposed objects

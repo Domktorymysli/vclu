@@ -424,6 +424,32 @@ Dashboard.new('home')
 -- { columns = 4 }        -- override the column count for this section
 ```
 
+### A room from the house model (section:area, dash:floor)
+
+One line per room: the section gets a widget for every device `expose()` put in that area
+(`expose(obj, type, { area = "Salon", floor = "Parter" })`), picked by kind. Filled each time the
+dashboard is read, so devices a plugin exposes later show up without a rebuild.
+
+```lua
+Dashboard.new('parter')
+  :section('Salon', 'lamp'):area('Salon')       -- lights, dimmers, covers, temperature, humidity
+    :button('kino', 'Kino', 'film', function() scenaKino() end)  -- by hand: after the area's
+  :section('Wiatrołap', 'door-open'):area('Wiatrołap', { kinds = { 'light', 'lock' }, skip = { 'vclu:kinkiet' } })
+  :floor('Piętro', { order = { 'Sypialnia' }, titles = { ['Łazienka gór'] = 'Łazienka' } }) -- a section per area
+  :build()
+
+expose(domofon, 'switch', { area = 'Wiatrołap', dashboard = true })  -- on dashboards whatever its kind
+expose(pompa, 'switch', { area = 'Kotłownia', dashboard = false })   -- never on a dashboard
+```
+
+- **Widgets:** light, switch, lock a toggle; dimmer a dimmer; RGB light the colour widget; cover a
+  cover; temperature and humidity a status. A thermostat gets none yet. Labels are `name` from
+  `expose()`; lights first, then covers, then the rest by name; a `readonly` device is disabled.
+- **Ids** are `area:` + the path (`area:CLU220000592.DOU0789`), the same after a reload; ids
+  starting with `area:` cannot be given by hand.
+- `dashboard = false/true` is separate from `panel = false/true`: a device can be on the wall
+  tablet and not on the Smart Panel, or the other way.
+
 ### Cover widget (blind)
 
 Buttons up / stop / down, and a 0-100% position slider when `set` is given.
