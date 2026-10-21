@@ -14,7 +14,9 @@ FW = { version = "04.08.05", fail = false }
 VALUES = { [3] = "21", [6] = "1", [8] = "0", [12] = "21.5", [14] = "20.4" }
 POLLFAIL = { n = 0 }
 LOG = {}
+OFFLINE = { on = false }
 local function answer(script)
+	if OFFLINE.on then return nil, "timeout" end
 	if script:match("^CLU220000592:get%(17%)$") then
 		if FW.version == nil then return nil, "timeout" end
 		return '"' .. FW.version .. '"', nil
@@ -28,8 +30,10 @@ local function answer(script)
 	if sid then return "clientReport:" .. sid .. ":{0}", nil end
 	return "ok", nil
 end
+BLOCKING = {}
 __go_send_command = function(ip, script, delay)
 	SENT[#SENT + 1] = script
+	BLOCKING[#BLOCKING + 1] = ip .. " " .. script
 	return answer(script)
 end
 __go_send_command_noreply = function(ip, script)
@@ -58,7 +62,12 @@ EventBus:getShared().setTimeout = function(self, fn, ms)
 	table.insert(_timeoutDelays, ms)
 	return #_timeouts
 end
-EventBus:getShared().setInterval = function() return 1 end
+INTERVALS = {}
+EventBus:getShared().setInterval = function(self, fn, ms)
+	INTERVALS[#INTERVALS + 1] = fn
+	return #INTERVALS
+end
+EventBus:getShared().clearInterval = function(self, id) INTERVALS[id] = function() end end
 function runTimeouts()
 	while #_timeouts > 0 do table.remove(_timeouts, 1)() end
 end

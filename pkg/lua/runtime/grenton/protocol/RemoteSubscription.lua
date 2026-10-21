@@ -59,6 +59,16 @@ RemoteSubscription._pollRun = nil
 --- A poll chain running longer than this (s) is treated as lost
 RemoteSubscription.POLL_STALE_SECONDS = 120
 
+--- Entries autoSubscribe last meant to subscribe (nil before the first run); 0 means
+-- every Sync object is polled, so no session is not a lost subscription
+RemoteSubscription._subscribable = nil
+
+--- Subscription entries per CLU (a CLU's limit)
+RemoteSubscription.MAX_PER_CLU = 64
+
+--- Time (s) one autoSubscribe may spend on blocking get(17) questions
+RemoteSubscription.FIRMWARE_CHECK_SECONDS = 30
+
 --- Last plan logged per CLU and class, so each is logged once
 RemoteSubscription._planLogged = {}
 
@@ -445,6 +455,32 @@ local function logPlan(cluSerial, obj)
     end
 end
 
+--- Subscribes objects of one CLU in batches of config.batchSize; stops at the first failure
+-- and forgets the CLU's firmware (it may come back with another).
+-- @return number sessions, number entries subscribed, boolean all subscribed
+local function subscribeBatches(cluIP, cluSerial, clu, objects)
+    local batchSize = math.max(2, math.min(8, RemoteSubscription.config.batchSize or 4))
+    local sessions, entries = 0, 0
+    for i = 1, #objects, batchSize do
+        local batch = {}
+        for j = i, math.min(i + batchSize - 1, #objects) do
+            table.insert(batch, objects[j])
+        end
+
+        local sessionID, err = RemoteSubscription.subscribe(cluIP, batch, cluSerial)
+        if sessionID then
+            sessions = sessions + 1
+            entries = entries + #batch
+        else
+            Logger:getShared():error("[RemoteSub] Failed to subscribe to %s: %s — skipping remaining batches",
+                cluIP, tostring(err))
+            if clu and clu._forgetFirmware then clu:_forgetFirmware() end
+            return sessions, entries, false
+        end
+    end
+    return sessions, entries, true
+end
+
 --- Auto-subscribe to whitelisted remote objects
 -- Uses whitelist from config to determine which objects to subscribe to.
 -- If no whitelist is configured, nothing syncs.
@@ -476,10 +512,10 @@ function RemoteSubscription.autoSubscribe()
 
     -- Group whitelisted objects by CLU
     local cluObjects = {}  -- key = cluIP, value = {cluSerial, clu, objects}
-    local MAX_PER_CLU = 64
+    local MAX_PER_CLU = RemoteSubscription.MAX_PER_CLU
     local polled = {}
-    local firmwareAsked = {}
     local spacing = math.max(30, math.min(100, RemoteSubscription.config.batchDelay or 50))
+    local checkStart = os.time()
 
     for path, _ in pairs(wl) do
         local cluId, objId = path:match("^(.-)%.(.+)$")
@@ -499,10 +535,13 @@ function RemoteSubscription.autoSubscribe()
             -- A class whose features depend on the CLU's firmware needs it asked first
             local follow = "subscribe"
             if obj._plan then
-                if not firmwareAsked[cluIP] and obj._clu._checkFirmware and not obj._clu:firmware() then
-                    obj._clu:_checkFirmware(spacing)
+                -- Blocking once per CLU in a Lua state, within the budget; later the poll asks
+                local clu = obj._clu
+                if clu._checkFirmware and not clu._firmwareAsked and not clu:firmware()
+                   and os.time() - checkStart <= RemoteSubscription.FIRMWARE_CHECK_SECONDS then
+                    clu._firmwareAsked = true
+                    clu:_checkFirmware(spacing)
                 end
-                firmwareAsked[cluIP] = true
                 follow = select(2, obj:_plan())
                 logPlan(cluId, obj)
             end
@@ -529,7 +568,7 @@ function RemoteSubscription.autoSubscribe()
     local skippedCLUs = 0
     local startTime = os.time()
     local MAX_TOTAL_SECONDS = 30
-    local batchSize = math.max(2, math.min(8, RemoteSubscription.config.batchSize or 4))
+    local subscribable = 0
 
     for cluIP, cluData in pairs(cluObjects) do
         if os.time() - startTime > MAX_TOTAL_SECONDS then
@@ -543,27 +582,14 @@ function RemoteSubscription.autoSubscribe()
         if #objects > 0 then
             Logger:getShared():info("[RemoteSub] CLU %s (%s): %d objects to subscribe", cluSerial, cluIP, #objects)
         end
+        subscribable = subscribable + #objects
 
-        for i = 1, #objects, batchSize do
-            local batch = {}
-            for j = i, math.min(i + batchSize - 1, #objects) do
-                table.insert(batch, objects[j])
-            end
-
-            local sessionID, err = RemoteSubscription.subscribe(cluIP, batch, cluSerial)
-            if sessionID then
-                totalSubscriptions = totalSubscriptions + 1
-                totalObjects = totalObjects + #batch
-            else
-                Logger:getShared():error("[RemoteSub] Failed to subscribe to %s: %s — skipping remaining batches",
-                    cluIP, tostring(err))
-                skippedCLUs = skippedCLUs + 1
-                -- the CLU may come back with other firmware: ask again then
-                if cluData.clu and cluData.clu._forgetFirmware then cluData.clu:_forgetFirmware() end
-                break
-            end
-        end
+        local sessions, entries, ok = subscribeBatches(cluIP, cluSerial, cluData.clu, objects)
+        totalSubscriptions = totalSubscriptions + sessions
+        totalObjects = totalObjects + entries
+        if not ok then skippedCLUs = skippedCLUs + 1 end
     end
+    RemoteSubscription._subscribable = subscribable
 
     -- Now destroy old subscriptions (best-effort, fire-and-forget after new ones are active)
     if oldCount > 0 and __go_send_command_noreply then
@@ -712,7 +738,8 @@ function RemoteSubscription.startRenewTimer()
         Logger:getShared():debug("[RemoteSub] Renew timer fired")
         if next(RemoteSubscription.activeSubscriptions) then
             RemoteSubscription.refreshAll()
-        else
+        elseif RemoteSubscription._subscribable ~= 0 then
+            -- no session although something should be subscribed (a CLU was offline)
             RemoteSubscription.autoSubscribe()
         end
     end, interval)
@@ -727,6 +754,43 @@ function RemoteSubscription.stopRenewTimer()
     end
 end
 
+--- Subscribes the polled objects of one CLU whose plan now says "subscribe" (the CLU just
+-- reported its firmware), next to the sessions it has; nothing else is re-registered.
+-- On a failure they stay polled.
+-- @param clu CLU_REMOTE
+function RemoteSubscription.subscribeUpgraded(clu)
+    local paths = {}
+    for path, entry in pairs(RemoteSubscription.polled) do
+        if entry.clu == clu and select(2, entry.obj:_plan()) ~= "poll" then paths[#paths + 1] = path end
+    end
+    if #paths == 0 then return end
+    table.sort(paths)
+
+    local cluIP = numericIPToString(clu.address)
+    local used = 0
+    for _, sub in pairs(RemoteSubscription.activeSubscriptions) do
+        if sub.cluIP == cluIP then used = used + #sub.objects end
+    end
+    local objects, cluSerial, moved = {}, nil, {}
+    for _, path in ipairs(paths) do
+        local entry = RemoteSubscription.polled[path]
+        local features = entry.obj:subscribeFeatures()
+        if used + #objects + #features <= RemoteSubscription.MAX_PER_CLU then
+            for _, f in ipairs(features) do objects[#objects + 1] = { objId = entry.obj._objId, featureIndex = f } end
+            cluSerial = entry.cluSerial
+            moved[path] = entry
+        end
+    end
+    if #objects == 0 then return end
+
+    Logger:getShared():info("[RemoteSub] CLU %s (%s): %d polled entries to subscribe", tostring(cluSerial), cluIP, #objects)
+    local _, _, ok = subscribeBatches(cluIP, cluSerial, clu, objects)
+    if not ok then return end
+    for path in pairs(moved) do RemoteSubscription.polled[path] = nil end
+    RemoteSubscription._subscribable = (RemoteSubscription._subscribable or 0) + #objects
+    if not next(RemoteSubscription.polled) then RemoteSubscription.stopPollTimer() end
+end
+
 --- A value read with get: a number, a string without quotes, or nil for none
 local function parsePolled(result)
     if type(result) ~= "string" then return nil end
@@ -737,7 +801,8 @@ end
 
 --- Reads every feature of the polled objects with get, one message at a time spaced by
 -- batchDelay, and applies the values as a report would. A CLU whose firmware is not known
--- is asked first; when the answer makes an object subscribable, autoSubscribe runs after.
+-- is asked first; when the answer makes its objects subscribable, they are subscribed at
+-- the end of the run (subscribeUpgraded), not read.
 -- A CLU that does not answer is skipped for the rest of the run and its firmware forgotten.
 function RemoteSubscription.pollAll()
     if not RemoteSubscription.config.enabled or not next(RemoteSubscription.polled) then return end
@@ -776,16 +841,13 @@ function RemoteSubscription.pollAll()
 
     local delay = math.max(RemoteSubscription.RENEW_MIN_SPACING_MS,
         math.min(100, RemoteSubscription.config.batchDelay or 50))
-    local run = { startedAt = os.time(), down = {}, resubscribe = false }
+    local run = { startedAt = os.time(), down = {}, upgrade = {}, upgradeOrder = {} }
     RemoteSubscription._pollRun = run
 
     local function finish()
         if RemoteSubscription._pollRun ~= run then return end
         RemoteSubscription._pollRun = nil
-        if run.resubscribe then
-            Logger:getShared():info("[RemoteSub] A polled CLU reported firmware that can be subscribed, re-subscribing")
-            RemoteSubscription.autoSubscribe()
-        end
+        for _, clu in ipairs(run.upgradeOrder) do RemoteSubscription.subscribeUpgraded(clu) end
     end
 
     -- run.step, not a local: a caught error can split a closure's shared local (AGENTS.md)
@@ -801,8 +863,8 @@ function RemoteSubscription.pollAll()
         if RemoteSubscription._pollRun ~= run then return end
         local st = steps[i]
         if not st then return finish() end
-        -- Skip a CLU that did not answer, and objects no longer polled (no message, no delay)
-        if run.down[st.clu] or (st.entry and RemoteSubscription.polled[st.path] ~= st.entry) then
+        -- Skip a CLU that did not answer or will be subscribed, and objects no longer polled
+        if run.down[st.clu] or run.upgrade[st.clu] or (st.entry and RemoteSubscription.polled[st.path] ~= st.entry) then
             return run.step(i + 1)
         end
 
@@ -813,7 +875,10 @@ function RemoteSubscription.pollAll()
                 else
                     for _, item in ipairs(st.entries) do
                         logPlan(item.entry.cluSerial, item.entry.obj)
-                        if select(2, item.entry.obj:_plan()) ~= "poll" then run.resubscribe = true end
+                        if select(2, item.entry.obj:_plan()) ~= "poll" and not run.upgrade[st.clu] then
+                            run.upgrade[st.clu] = true
+                            table.insert(run.upgradeOrder, st.clu)
+                        end
                     end
                 end
                 nextStep(i)
