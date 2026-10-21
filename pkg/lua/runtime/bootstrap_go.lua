@@ -88,6 +88,7 @@ Plugin = require("PluginAPI")
 
 -- LAYER 7b: Dashboards
 Dashboard = require("Dashboard")
+Calendar = require("Calendar")
 
 -- LAYER 7c: Metrics
 Metrics = require("Metrics")

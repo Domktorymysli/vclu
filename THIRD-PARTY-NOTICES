@@ -157,3 +157,14 @@ github.com/vishvananda/netlink v1.2.1-beta.2
 github.com/vishvananda/netns v0.0.0
   License: Apache-2.0
   https://github.com/vishvananda/netns
+
+Data
+----
+
+pkg/calendar/namedays_pl.txt (Polish name days)
+  Names per day from the Polish Wikipedia day articles ("Imieniny obchodzą"),
+  https://pl.wikipedia.org, License: CC BY-SA 4.0
+  (https://creativecommons.org/licenses/by-sa/4.0/). Fetched 2026-10-20; the file is
+  that list reordered and is distributed under the same license.
+  Order by the number of people with each first name: "Lista imion występujących
+  w rejestrze PESEL", https://dane.gov.pl (dataset 1667, 2020-01-21), open government data.
