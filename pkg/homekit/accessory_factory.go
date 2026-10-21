@@ -18,7 +18,7 @@ import (
 var readonlyPerms = []string{characteristic.PermissionRead, characteristic.PermissionEvents}
 
 // command runs a write from the Home app on the exposed object at path:
-// luaCall is Lua run with the handle h and hk, the operations of lua/command.lua.
+// luaCall is fixed Lua (only Go ints in it) run with the handle h and hk, the operations of lua/command.lua.
 // The HomeKit access level is read again here (the profile may have changed since the bridge was built); a
 // refused or failed write puts the tile back to the real state.
 func (s *Server) command(path, luaCall string, update func(float64)) bool {
@@ -34,7 +34,7 @@ func (s *Server) command(path, luaCall string, update func(float64)) bool {
 	if s.metrics != nil {
 		s.metrics.RecordHomeKitRequest(false)
 	}
-	script := commandLua + "\n" + fmt.Sprintf("return command(ExposedObjects:get(%s), %s)", luaString(path), luaString(luaCall))
+	script := commandLua + "\n" + fmt.Sprintf("return command(ExposedObjects:get(%s), function(h) %s end)", luaString(path), luaCall)
 	res, err := s.executeCommand(script)
 	if err == nil && res == "missing" {
 		err = fmt.Errorf("object no longer exposed")

@@ -1,5 +1,5 @@
 -- A write from the Home app; accessory_factory.go appends
--- return command(ExposedObjects:get(path), call), call being Lua run with h and hk.
+-- return command(ExposedObjects:get(path), function(h) <call> end), the call using h and hk.
 local hk = {}
 
 -- a dimmer keeps its last brightness when switched on or off
@@ -30,6 +30,6 @@ end
 
 local function command(h, call)
 	if not h then return "missing" end
-	assert(loadstring("local h, hk = ...\n" .. call))(h, hk)
+	call(h)
 	return "ok"
 end

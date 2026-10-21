@@ -15,9 +15,9 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-// luaLogic matches a Lua `local` statement or a function definition
-// (`function name(`, `function(`, `local function f(`).
-var luaLogic = regexp.MustCompile(`(?m)^\s*local\s|\bfunction\s*[\w.:]*\s*\(`)
+// luaLogic matches a Lua `local` statement, a function definition
+// (`function name(`, `function(`, `local function f(`) or a line `if ... then` that opens a block.
+var luaLogic = regexp.MustCompile(`(?m)^\s*local\s|\bfunction\s*[\w.:]*\s*\(|^\s*if\s.*\bthen\s*$`)
 
 // luaInGoAllowed lists Lua that Go writes for the user, not runs: the om.lua
 // templates and the MQTT discovery snippets ("file" or "file:function").
@@ -31,8 +31,29 @@ var luaInGoAllowed = map[string]bool{
 // TestNoLuaLogicInGoStrings keeps AGENTS.md rule 4 (#55): Lua with its own logic lives in a
 // .lua file loaded with go:embed; a Go raw string holds at most a call into Lua.
 func TestNoLuaLogicInGoStrings(t *testing.T) {
+	chdirRepoRoot(t)
 	for _, f := range scanLuaInGoStrings(t, "pkg") {
 		t.Errorf("%s: raw string with Lua logic; move it to a .lua file with go:embed (AGENTS.md rule 4)", f)
+	}
+}
+
+// chdirRepoRoot runs the test from the directory with go.mod, so paths are "pkg/...".
+func chdirRepoRoot(t *testing.T) {
+	t.Helper()
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			t.Chdir(dir)
+			return
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("go.mod not found above the working directory")
+		}
+		dir = parent
 	}
 }
 
@@ -106,6 +127,7 @@ func TestLooksLikeLuaLogic(t *testing.T) {
 		"function M.run(a) end",
 		"return function(x) return x end",
 		"function obj:method() end",
+		"\n\t\tif MQTT and MQTT._pollTimerId then\n\t\t\tMQTT._pollTimerId = nil\n\t\tend",
 	} {
 		if !looksLikeLuaLogic(s) {
 			t.Errorf("not detected: %q", s)
@@ -118,6 +140,8 @@ func TestLooksLikeLuaLogic(t *testing.T) {
 		"the function returns a value",
 		`{"type": "object", "description": "a Lua function name"}`,
 		"localhost:8080",
+		"if the file is missing, then nothing loads",
+		`if AccessControl then AccessControl.DEFAULT_MQTT = "readonly" end`,
 	} {
 		if looksLikeLuaLogic(s) {
 			t.Errorf("false positive: %q", s)
@@ -129,6 +153,7 @@ func TestLooksLikeLuaLogic(t *testing.T) {
 // names, without running it, so a syntax error fails go test and not a draft test.
 // The om.lua templates (pkg/config/templates) are text/template sources, not Lua.
 func TestEmbeddedLuaCompiles(t *testing.T) {
+	chdirRepoRoot(t)
 	files := map[string]bool{}
 	err := walkGoFiles("pkg", func(path string, _ *token.FileSet, file *ast.File) {
 		for _, group := range file.Comments {
@@ -138,7 +163,10 @@ func TestEmbeddedLuaCompiles(t *testing.T) {
 					continue
 				}
 				for _, pattern := range strings.Fields(patterns) {
-					matches, _ := filepath.Glob(filepath.Join(filepath.Dir(path), strings.Trim(pattern, "`\"")))
+					matches, err := filepath.Glob(filepath.Join(filepath.Dir(path), strings.Trim(pattern, "`\"")))
+					if err != nil || len(matches) == 0 {
+						t.Errorf("%s: go:embed %s matches nothing (%v)", path, pattern, err)
+					}
 					for _, m := range matches {
 						_ = filepath.WalkDir(m, func(p string, d fs.DirEntry, err error) error {
 							if err == nil && !d.IsDir() && strings.HasSuffix(p, ".lua") {

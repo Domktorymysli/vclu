@@ -7,3 +7,6 @@ import _ "embed"
 //
 //go:embed lua/connect_broker.lua
 var connectBrokerLua string
+
+//go:embed lua/auto_subscribe.lua
+var autoSubscribeLua string

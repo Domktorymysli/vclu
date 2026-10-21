@@ -368,14 +368,7 @@ func (run *sandboxRun) load() (*lua.LState, error) {
 		return L, fmt.Errorf("bootstrap failed: %w", err)
 	}
 
-	// MQTT is blocked here, so its 100 ms poller would only burn timer
-	// callbacks on every advance step
-	if err := L.DoString(`
-		if MQTT and MQTT._pollTimerId then
-			__go_clearTimer(MQTT._pollTimerId)
-			MQTT._pollTimerId = nil
-		end
-	`); err != nil {
+	if err := L.DoString(sandboxStopMQTTPollerLua); err != nil {
 		return L, fmt.Errorf("sandbox MQTT poller: %w", err)
 	}
 

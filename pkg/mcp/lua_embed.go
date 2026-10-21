@@ -23,6 +23,9 @@ var sandboxClockLua string
 //go:embed lua/helpers.lua
 var sandboxHelpers string
 
+//go:embed lua/stop_mqtt_poller.lua
+var sandboxStopMQTTPollerLua string
+
 // runLuaChunk runs an embedded chunk with args as its `...`.
 func runLuaChunk(L *lua.LState, src string, args ...lua.LValue) error {
 	fn, err := L.LoadString(src)
