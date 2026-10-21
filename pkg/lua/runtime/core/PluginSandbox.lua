@@ -211,14 +211,16 @@ function PluginSandbox:buildAPI(sandbox)
         if sandbox.dataObjects[path] then
             return sandbox.dataObjects[path]
         end
-        -- Try global _registry (external objects — read-only proxy)
-        if _registry and _registry[path] then
-            return readOnlyProxy(_registry[path])
+        -- Try global _registry (external objects — read-only proxy). rawget and the table
+        -- check: a name such as "list" is a registry method, not an object.
+        local obj = _registry and rawget(_registry, path)
+        if type(obj) == "table" then
+            return readOnlyProxy(obj)
         end
         -- Try Registry:get (always external scope)
         if _ and _.get then
-            local obj = _:get(path)
-            if obj then return readOnlyProxy(obj) end
+            obj = _:get(path)
+            if type(obj) == "table" then return readOnlyProxy(obj) end
         end
         return nil
     end
@@ -539,6 +541,16 @@ function PluginSandbox:buildEnvironment(sandbox)
         __index = function(_, key)
             if key == "get" then
                 return function(_, path) return api.getObject(path) end
+            end
+            if key == "value" then
+                return function(_, path)
+                    if type(path) ~= "string" then
+                        error("_:value: path must be a string, got " .. type(path), 2)
+                    end
+                    local obj = api.getObject(path)
+                    if type(obj) ~= "table" or type(obj.getValue) ~= "function" then return nil end
+                    return obj:getValue()
+                end
             end
             if _ and _[key] then
                 return _[key]
