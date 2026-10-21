@@ -1594,7 +1594,8 @@
         el.hidden = !d;
         if (!d) return;
         var text = d.error ? '--' : (d.text != null ? fmtNum(d.text) : '');
-        el.querySelector('.dash-header-icon i').className = 'bi bi-' + (d.icon || w.icon || 'circle');
+        var ic = String(d.icon || w.icon || 'circle').replace(/[^a-z0-9-]/gi, '');
+        el.querySelector('.dash-header-icon i').className = 'bi bi-' + ic;
         el.querySelector('.dash-header-value').textContent = text;
         el.classList.toggle('dash-chip-icon-only', text === '');
         el.dataset.state = d.error ? 'unknown' : (isAlarm(d.color) ? 'alarm' : 'value');

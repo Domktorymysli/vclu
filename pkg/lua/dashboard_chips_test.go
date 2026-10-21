@@ -20,6 +20,7 @@ const dashChipsSetup = `
 				return { text = 'Off' }
 			end, { color = function() return 'success' end, link = 'https://example.com/alarm' })
 			:chip('broken', 'bug', function() error('no sensor') end)
+			:chip('upper', 'link', function() return nil end, { link = 'HTTPS://example.com/' })
 			:chip('bare', 'moon', function() return { icon = 'moon-stars' } end)
 			:chip('who', 'people', function() return 'Anna, Piotr' end,
 				{ link = '/history', disabled = function() return _chip.away == true end })
@@ -62,6 +63,9 @@ func TestDashboardHeaderChips(t *testing.T) {
 	}
 	if c := chipOf(def.widget("broken")); !strings.Contains(c["error"].(string), "no sensor") || c["text"] != nil {
 		t.Errorf("broken chip = %v", c)
+	}
+	if w := def.widget("upper"); w["link"] != "HTTPS://example.com/" {
+		t.Errorf("upper = %v", w)
 	}
 	if w := def.widget("who"); w["link"] != "/history" || w["disabled"] != false {
 		t.Errorf("who = %v", w)
@@ -140,6 +144,10 @@ func TestDashboardChipArgumentErrors(t *testing.T) {
 		{`:header():chip('a', 'x', function() end, { disabled = true })`, "opts.disabled"},
 		{`:header():chip('a', 'x', function() end, { link = 'javascript:alert(1)' })`, "opts.link"},
 		{`:header():chip('a', 'x', function() end, { link = '' })`, "opts.link"},
+		{`:header():chip('a', 'x', function() end, { link = '//evil.example/x' })`, "leaves the site"},
+		{`:header():chip('a', 'x', function() end, { link = '/\\evil.example/x' })`, "leaves the site"},
+		{`:header():chip('a', 'x dash-overlay', function() end)`, "icon must be"},
+		{`:header():chip('a', '', function() end)`, "icon must be"},
 	}
 	for _, c := range cases {
 		engine := NewLuaEngine()
@@ -153,5 +161,58 @@ func TestDashboardChipArgumentErrors(t *testing.T) {
 		if !strings.Contains(msg, "<string>:3: ") || !strings.Contains(msg, "header:chip") || !strings.Contains(msg, c.want) {
 			t.Errorf("%s: %s", c.call, msg)
 		}
+	}
+}
+
+// What fn returns ends up in a class and a CSS value: an icon or colour that is not a plain
+// name, #hex or rgb()/hsl() is dropped (the icon falls back to the definition's).
+func TestDashboardChipStateIsSanitised(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+	mustExec(t, engine, `
+		_dashboards = {}
+		Dashboard.new('s'):header()
+			:chip('bad', 'shield', function() return { text = 'x', icon = 'x dash-overlay', color = 'red;background:url(//e.com)' } end)
+			:chip('fncol', 'sun', function() return 'y' end, { color = function() return 'url(//e.com/a.png)' end })
+			:chip('good', 'sun', function() return { text = 'z', icon = 'sun-fill', color = 'rgb(10, 20, 30)' } end)
+			:chip('hex', 'sun', function() return { text = 'h', color = '#ff9500' } end, { color = 'danger' })
+		:build()
+	`)
+	var vals map[string]map[string]interface{}
+	dashJSON(t, engine, `Dashboard.API.getValues("s")`, &vals)
+	if v := vals["bad"]; v["text"] != "x" || v["icon"] != nil || v["color"] != nil {
+		t.Errorf("bad = %v", v)
+	}
+	if v := vals["fncol"]; v["color"] != nil {
+		t.Errorf("fncol = %v", v)
+	}
+	if v := vals["good"]; v["icon"] != "sun-fill" || v["color"] != "rgb(10, 20, 30)" {
+		t.Errorf("good = %v", v)
+	}
+	if v := vals["hex"]; v["color"] != "#ff9500" {
+		t.Errorf("hex = %v", v)
+	}
+	var def dashDef
+	dashJSON(t, engine, `Dashboard.API.getDefinition("s")`, &def)
+	if w := def.widget("bad"); w["icon"] != "shield" || w["color"] != nil {
+		t.Errorf("bad definition = %v", w)
+	}
+}
+
+// opts.color as a function is read once per chip when the definition is built.
+func TestDashboardChipColorReadOnce(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+	mustExec(t, engine, `
+		_dashboards = {}
+		_calls = { n = 0 }
+		Dashboard.new('c'):header()
+			:chip('a', 'sun', function() return 'a' end, { color = function() _calls.n = _calls.n + 1; return 'info' end })
+		:build()
+	`)
+	var def dashDef
+	dashJSON(t, engine, `Dashboard.API.getDefinition("c")`, &def)
+	if n := mustExec(t, engine, `return tostring(_calls.n)`); n != "1" {
+		t.Errorf("opts.color called %s times", n)
 	}
 }
