@@ -773,6 +773,37 @@ body {
     opacity: 0.6;
 }
 
+/* Header chips (#93): hidden while their function gives nil; a long text is cut */
+.dash-header-bar[hidden],
+.dash-header-item[hidden] {
+    display: none;
+}
+
+.dash-header-chip {
+    min-width: 0;
+    max-width: 100%;
+}
+
+.dash-header-chip .dash-header-icon {
+    flex-shrink: 0;
+}
+
+.dash-header-chip .dash-header-value {
+    min-width: 0;
+    max-width: 18em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dash-header-chip.dash-chip-icon-only {
+    padding-right: 4px;
+}
+
+.dash-header-chip.dash-chip-icon-only .dash-header-value {
+    display: none;
+}
+
 /* ---- Overlay ---- */
 .dash-overlay {
     position: fixed;

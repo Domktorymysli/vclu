@@ -590,6 +590,7 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 		"dashboard": map[string]any{
 			"builder":  "Dashboard.new(id):name():icon():columns():auth():pin():poll():theme()",
 			"sections": "dash:header() first, then dash:section(name, icon, {columns=n})",
+			"header":   "header:status/toggle/button/link as small chips, and header:chip(id, icon, fn, {color=string|fn, link=URL|'/path'|dashboard id, disabled=fn}) — fn() -> text, nil (chip hidden) or {text, icon, color}; header only",
 			"widgets": map[string]any{
 				"toggle":   "section:toggle(id, label, icon, getValueFn, onToggleFn, opts)",
 				"slider":   "section:slider(id, label, min, max, getValueFn, onSetFn, opts)",

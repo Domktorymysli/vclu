@@ -17,7 +17,7 @@ Only public API is listed — internal/private functions are omitted.
 - [core.Registry](#coreregistry) (10 functions)
 - [core.Metrics](#coremetrics) (1 functions)
 - [core.Calendar](#corecalendar) (36 functions)
-- [Dashboard](#dashboard) (50 functions)
+- [Dashboard](#dashboard) (51 functions)
 - [lib.panel](#libpanel) (55 functions)
 - [objects.RemotePanel](#objectsremotepanel) (6 functions)
 - [GPIO_DOUT](#gpio_dout) (1 functions)
@@ -1134,6 +1134,15 @@ Add a color picker widget to this section. switchOn?, switchOff?, isOn?, getWhit
 - `icon` (string) — Bootstrap icon name (e.g., "palette")
 - `fns` (table) — {getColor=function()->{r,g,b}, setColor=function(r,g,b), get?/set? brightness 0-100,
 - `opts` (table) — Optional: {disabled=function()->bool}
+
+### `SectionHandle:chip(id, icon, fn, opts)`
+
+Add a chip to the header: an icon and a short text from fn, hidden while fn returns nil.
+
+- `id` (string) — Unique widget identifier
+- `icon` (string) — Bootstrap icon name (e.g., "alarm", "water", "shield")
+- `fn` (function) — function() -> string|nil|{text=string, icon=string, color=string}; nil hides the chip
+- `opts` (table) — Optional: {color=string|function()->string|nil, link=URL or dashboard id, disabled=function()->bool}
 
 ### `SectionHandle:when(periods, fn)`
 
