@@ -192,10 +192,10 @@ Dashboard.new("home")
   :name("Dom"):icon("house-door"):auth("pin"):pin("1234")
   :section("Salon", "lamp")
     :toggle("sofa", "Sofa", "lamp",
-      function() return r:get("CLU220000592.DOU0789"):getValue() end,
+      function() return r:value("CLU220000592.DOU0789") end,
       function(v) local o = r:get("CLU220000592.DOU0789"); if v then o:switchOn() else o:switchOff() end end)
     :status("temp", "Temperatura", "thermometer-half",
-      function() return r:get("CLU220000592.ONE6305"):getValue() end, "°C")
+      function() return r:value("CLU220000592.ONE6305") end, "°C")
   :build()
 ```
 
