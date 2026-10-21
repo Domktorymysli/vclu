@@ -913,12 +913,18 @@ function RemoteSubscription.pollAll()
                 if not fw then
                     run.down[st.clu] = true
                 else
-                    for _, item in ipairs(st.entries) do
-                        logPlan(item.entry.cluSerial, item.entry.obj)
-                        if select(2, item.entry.obj:_plan()) ~= "poll" and not run.upgrade[st.clu] then
-                            run.upgrade[st.clu] = true
-                            table.insert(run.upgradeOrder, st.clu)
+                    -- an error here must not stop the chain: a waiting renew depends on it
+                    local ok, perr = pcall(function()
+                        for _, item in ipairs(st.entries) do
+                            logPlan(item.entry.cluSerial, item.entry.obj)
+                            if select(2, item.entry.obj:_plan()) ~= "poll" and not run.upgrade[st.clu] then
+                                run.upgrade[st.clu] = true
+                                table.insert(run.upgradeOrder, st.clu)
+                            end
                         end
+                    end)
+                    if not ok then
+                        Logger:getShared():warn("[RemoteSub] Firmware plan failed: %s", tostring(perr))
                     end
                 end
                 nextStep(i)

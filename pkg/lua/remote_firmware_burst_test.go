@@ -114,3 +114,22 @@ func TestRemoteFirmwareRenewWaitIsBounded(t *testing.T) {
 		t.Errorf("sends while waiting#fallback delay#sends after = %s, want G#16000#GRR", got)
 	}
 }
+
+// An error while the poll applies a firmware answer ends the chain normally: the next
+// poll can start and a waiting renew is not left to its timeout.
+func TestRemoteFirmwarePlanErrorKeepsChain(t *testing.T) {
+	engine := newFirmwareEngine(t)
+	mustExec(t, engine, `FW.version = nil`)
+	mustExec(t, engine, burstSetup)
+	got := mustExec(t, engine, `
+		FW.version = "05.15.12-2607"
+		TH._plan = function() error("plan failed") end
+		SENT = {}
+		RemoteSubscription.pollAll()
+		RemoteSubscription.refreshAll()
+		runTimeouts()
+		return tostring(RemoteSubscription._pollRun) .. "#" .. kinds()`)
+	if got != "nil#GGGGGRR" {
+		t.Errorf("poll run#sends = %s, want nil#GGGGGRR (chain finished, then the renewals)", got)
+	}
+}
