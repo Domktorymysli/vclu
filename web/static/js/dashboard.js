@@ -176,6 +176,7 @@
         var st = tileState(type, w, d);
         setState(el, st[0], st[1]);
         if (el.classList.contains('dash-header-item')) el.title = (w.label || '') + ': ' + st[1];
+        if (el.getAttribute('role') === 'switch') el.setAttribute('aria-checked', d.value ? 'true' : 'false');
     }
 
     // Icon in a circle, the name, the state line
@@ -444,15 +445,18 @@
         var input = document.createElement('input');
         input.type = 'checkbox';
         input.className = 'form-check-input';
+        input.setAttribute('role', 'switch');
+        input.setAttribute('aria-label', el.querySelector('.dash-widget-label').textContent);
         input.checked = checked;
         input.addEventListener('change', function(e) {
             e.stopPropagation();
+            if (el.classList.contains('disabled')) { input.checked = !input.checked; return; }
             onChange(input.checked);
         });
         sw.appendChild(input);
         el.querySelector('.dash-tile-head').appendChild(sw);
         (target || el).addEventListener('click', function(e) {
-            if (sw.contains(e.target)) return;
+            if (sw.contains(e.target) || el.classList.contains('disabled')) return;
             input.checked = !input.checked;
             onChange(input.checked);
         });
@@ -1565,21 +1569,39 @@
             el.appendChild(calEl('span', 'dash-header-value', w.label));
         }
 
+        var tap = null;
         if (w.type === 'link') {
-            el.addEventListener('click', function() { window.open(w.url, '_blank'); });
+            tap = function() { window.open(w.url, '_blank'); };
         } else if (w.type === 'toggle') {
-            el.addEventListener('click', function() {
+            tap = function() {
                 var on = !el._data.value;
                 refreshTile(el, w, { value: on });
                 executeAction(w.id, 'toggle', on);
-            });
+            };
         } else if (w.type === 'button') {
-            el.addEventListener('click', function() {
+            tap = function() {
                 if (w.confirm && !confirm(w.confirm)) return;
                 executeAction(w.id, 'tap');
+            };
+        }
+        if (tap) {
+            el.classList.add('dash-header-tap');
+            el.setAttribute('role', w.type === 'toggle' ? 'switch' : (w.type === 'link' ? 'link' : 'button'));
+            el.setAttribute('aria-label', w.label || '');
+            el.tabIndex = 0;
+            var run = function() { if (!el.classList.contains('disabled')) tap(); };
+            el.addEventListener('click', run);
+            // one action per key press
+            el.addEventListener('keydown', function(e) {
+                if (e.key !== 'Enter' && e.key !== ' ') return;
+                e.preventDefault();
+                if (!e.repeat) run();
             });
         }
-        if (w.type === 'link' || w.type === 'toggle' || w.type === 'button') el.classList.add('dash-header-tap');
+        if (w.disabled) {
+            el.classList.add('disabled');
+            el.setAttribute('aria-disabled', 'true');
+        }
 
         refreshTile(el, w, w);
         widgetEls[w.id] = el;
@@ -1612,6 +1634,8 @@
         // Disabled state
         if (data.disabled !== undefined) {
             el.classList.toggle('disabled', !!data.disabled);
+            if (data.disabled) el.setAttribute('aria-disabled', 'true');
+            else el.removeAttribute('aria-disabled');
         }
 
         // Colour from a function (false: none)
@@ -1751,13 +1775,22 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body)
         }).then(function(result) {
+            if (result && result.error) {
+                revert();
+                return;
+            }
             if (result && result.value !== undefined) {
                 updateWidget(widgetId, result, true);
             }
             if (result && result.message) {
                 VCLU.showToast(result.message, 'success');
             }
-        });
+        }).catch(revert);
+
+        function revert() {
+            delete actionGrace[widgetId];
+            pollValues();
+        }
     }
 
     // ---- Overlay ----

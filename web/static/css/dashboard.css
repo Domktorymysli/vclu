@@ -196,10 +196,7 @@ body {
     font-size: 1.3rem;
     line-height: 1;
     color: var(--tile-c);
-    /* towards the text colour: darker on a light theme, lighter on a dark one */
-    color: color-mix(in srgb, var(--tile-c) 75%, var(--dash-text));
     background: rgba(128,128,128,0.16);
-    background: color-mix(in srgb, var(--tile-c) 18%, transparent);
     transition: background 0.2s, color 0.2s;
 }
 
@@ -239,7 +236,6 @@ body {
 
 .dash-widget[data-state="on"] {
     border-color: rgba(128,128,128,0.22);
-    border-color: color-mix(in srgb, var(--tile-c) 35%, transparent);
 }
 
 .dash-widget[data-state="off"] .dash-widget-icon,
@@ -263,7 +259,7 @@ body {
 }
 
 @keyframes dashPulse {
-    0% { box-shadow: 0 0 0 0 rgba(128,128,128,0.5); box-shadow: 0 0 0 0 color-mix(in srgb, var(--tile-c) 55%, transparent); }
+    0% { box-shadow: 0 0 0 0 rgba(128,128,128,0.5); }
     100% { box-shadow: 0 0 0 10px transparent; }
 }
 
@@ -727,6 +723,16 @@ body {
     cursor: pointer;
 }
 
+.dash-header-tap:focus-visible {
+    outline: 2px solid var(--tile-c);
+    outline-offset: 2px;
+}
+
+.dash-header-item.disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
 .dash-header-icon {
     position: relative;
     width: 28px;
@@ -738,7 +744,6 @@ body {
     font-size: 0.85rem;
     color: var(--tile-c);
     background: rgba(128,128,128,0.16);
-    background: color-mix(in srgb, var(--tile-c) 18%, transparent);
 }
 
 .dash-header-item[data-state="on"] .dash-header-icon,
@@ -1014,9 +1019,18 @@ body {
     .dash-grid > .dash-widget-calendar {
         grid-column: 1 / -1 !important;
     }
-    /* a half-width toggle: the whole tile switches, the circle shows the state */
+    /* a half-width toggle: the whole tile switches, the circle shows the state;
+       the switch stays for the keyboard and screen readers */
     .dash-toggle-switch {
-        display: none;
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+    }
+    .dash-widget-toggle:focus-within {
+        outline: 2px solid var(--tile-c);
+        outline-offset: 2px;
     }
     .dash-widget.size-large {
         min-height: 96px;
@@ -1163,7 +1177,7 @@ body {
 .dash-cal-btn, .dash-cal-today {
     border: 0;
     background: transparent;
-    color: color-mix(in srgb, var(--dash-text) 65%, transparent);
+    color: rgba(255,255,255,0.65);
     border-radius: 8px;
     min-width: 34px;
     height: 34px;
@@ -1172,8 +1186,8 @@ body {
     cursor: pointer;
     transition: background 0.15s, color 0.15s;
 }
-.dash-cal-btn:hover, .dash-cal-today:hover { background: color-mix(in srgb, var(--dash-text) 8%, transparent); color: var(--dash-text); }
-.dash-cal-today { border: 1px solid color-mix(in srgb, var(--dash-text) 12%, transparent); }
+.dash-cal-btn:hover, .dash-cal-today:hover { background: rgba(255,255,255,0.08); color: var(--dash-text); }
+.dash-cal-today { border: 1px solid rgba(255,255,255,0.12); }
 .dash-cal-seg {
     display: flex;
     background: rgba(0,0,0,0.2);
@@ -1181,7 +1195,7 @@ body {
     padding: 2px;
 }
 .dash-cal-seg .dash-cal-btn { height: 30px; min-width: 32px; }
-.dash-cal-seg .dash-cal-btn.active { background: color-mix(in srgb, var(--dash-text) 12%, transparent); color: var(--dash-accent); }
+.dash-cal-seg .dash-cal-btn.active { background: rgba(255,255,255,0.12); color: var(--dash-accent); }
 .dash-cal-btn:focus-visible, .dash-cal-today:focus-visible, .dash-cal-cell:focus-visible {
     outline: 2px solid var(--dash-accent);
     outline-offset: 1px;
@@ -1199,7 +1213,7 @@ body {
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    color: color-mix(in srgb, var(--dash-text) 40%, transparent);
+    color: rgba(255,255,255,0.4);
     padding-bottom: 2px;
 }
 .dash-cal-cell {
@@ -1212,14 +1226,14 @@ body {
     padding: 6px;
     border: 1px solid transparent;
     border-radius: 9px;
-    background: color-mix(in srgb, var(--dash-text) 3%, transparent);
+    background: rgba(255,255,255,0.03);
     color: var(--dash-text);
     text-align: left;
     cursor: pointer;
     overflow: hidden;
     transition: background 0.15s;
 }
-.dash-cal-cell:hover { background: color-mix(in srgb, var(--dash-text) 7%, transparent); }
+.dash-cal-cell:hover { background: rgba(255,255,255,0.07); }
 .dash-cal-cell.other { opacity: 0.35; }
 .dash-cal-num {
     align-self: flex-start;
@@ -1231,7 +1245,7 @@ body {
     border-radius: 11px;
     font-variant-numeric: tabular-nums;
 }
-.dash-cal-cell.weekend .dash-cal-num { color: color-mix(in srgb, var(--dash-text) 50%, transparent); }
+.dash-cal-cell.weekend .dash-cal-num { color: rgba(255,255,255,0.5); }
 .dash-cal-cell.holiday .dash-cal-num { color: #ff7a7a; }
 .dash-cal-cell.today { border-color: var(--dash-accent); }
 .dash-cal-cell.today .dash-cal-num { background: var(--dash-accent); color: #0b1a17; }
@@ -1243,22 +1257,22 @@ body {
     border-radius: 5px;
     background: hsla(var(--hue, 168), 70%, 55%, 0.18);
     border-left: 3px solid hsl(var(--hue, 168), 70%, 58%);
-    color: color-mix(in srgb, var(--dash-text) 90%, transparent);
+    color: rgba(255,255,255,0.9);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 .dash-cal-chip.paused, .dash-cal-item.paused .dash-cal-name { text-decoration: line-through; opacity: 0.55; }
-.dash-cal-more { font-size: 0.66rem; color: color-mix(in srgb, var(--dash-text) 50%, transparent); padding-left: 4px; }
+.dash-cal-more { font-size: 0.66rem; color: rgba(255,255,255,0.5); padding-left: 4px; }
 
 /* Day */
 .dash-cal-day { display: flex; flex-direction: column; gap: 8px; position: relative; min-height: 120px; }
 .dash-cal-notes { display: flex; flex-direction: column; gap: 4px; }
-.dash-cal-note { font-size: 0.82rem; color: color-mix(in srgb, var(--dash-text) 70%, transparent); line-height: 1.35; }
-.dash-cal-note i { margin-right: 8px; color: color-mix(in srgb, var(--dash-text) 45%, transparent); }
+.dash-cal-note { font-size: 0.82rem; color: rgba(255,255,255,0.7); line-height: 1.35; }
+.dash-cal-note i { margin-right: 8px; color: rgba(255,255,255,0.45); }
 .dash-cal-note.holiday { color: #ff9a9a; font-weight: 600; }
 .dash-cal-note.holiday i { color: #ff7a7a; }
-.dash-cal-note-label { font-weight: 600; color: color-mix(in srgb, var(--dash-text) 85%, transparent); }
+.dash-cal-note-label { font-weight: 600; color: rgba(255,255,255,0.85); }
 .dash-cal-note.sun { font-variant-numeric: tabular-nums; }
 .dash-cal-note.sun i { color: #ffc107; }
 .dash-cal-note .dash-cal-note-gap { margin-left: 16px; }
@@ -1281,7 +1295,7 @@ body {
     padding: 6px;
     border-radius: 12px;
     background: var(--dash-card-bg);
-    border: 1px solid color-mix(in srgb, var(--dash-text) 12%, transparent);
+    border: 1px solid rgba(255,255,255,0.12);
     box-shadow: 0 8px 24px rgba(0,0,0,0.45);
 }
 .dash-cal-opt {
@@ -1298,7 +1312,7 @@ body {
     font-size: 0.88rem;
     cursor: pointer;
 }
-.dash-cal-opt:hover { background: color-mix(in srgb, var(--dash-text) 6%, transparent); }
+.dash-cal-opt:hover { background: rgba(255,255,255,0.06); }
 .dash-cal-opt:focus-visible { outline: 2px solid var(--dash-accent); outline-offset: -2px; }
 .dash-cal-opt-switch {
     position: relative;
@@ -1306,7 +1320,7 @@ body {
     height: 20px;
     flex-shrink: 0;
     border-radius: 10px;
-    background: color-mix(in srgb, var(--dash-text) 18%, transparent);
+    background: rgba(255,255,255,0.18);
     transition: background 0.15s;
 }
 .dash-cal-opt-switch::after {
@@ -1332,7 +1346,7 @@ body {
     gap: 12px;
     padding: 10px 12px;
     border-radius: 10px;
-    background: color-mix(in srgb, var(--dash-text) 4%, transparent);
+    background: rgba(255,255,255,0.04);
     border-left: 3px solid hsl(var(--hue, 168), 70%, 58%);
 }
 .dash-cal-item.past { opacity: 0.45; }
@@ -1340,7 +1354,7 @@ body {
 .dash-cal-time {
     font-size: 0.85rem;
     font-weight: 600;
-    color: color-mix(in srgb, var(--dash-text) 70%, transparent);
+    color: rgba(255,255,255,0.7);
     font-variant-numeric: tabular-nums;
 }
 .dash-cal-name { font-size: 0.95rem; color: var(--dash-text); min-width: 0; overflow-wrap: anywhere; }
@@ -1370,7 +1384,7 @@ body {
     justify-content: center;
     min-height: 100px;
     font-size: 1.8rem;
-    color: color-mix(in srgb, var(--dash-text) 25%, transparent);
+    color: rgba(255,255,255,0.25);
 }
 
 @media (max-width: 600px) {
@@ -1402,7 +1416,7 @@ body {
 .dash-cal-sched-title {
     font-size: 0.75rem;
     font-weight: 600;
-    color: color-mix(in srgb, var(--dash-text) 60%, transparent);
+    color: rgba(255,255,255,0.6);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1412,7 +1426,7 @@ body {
     height: 26px;
     border-radius: 7px;
     overflow: hidden;
-    background: color-mix(in srgb, var(--dash-text) 4%, transparent);
+    background: rgba(255,255,255,0.04);
 }
 .dash-cal-seg-v {
     position: absolute;
@@ -1426,12 +1440,12 @@ body {
     color: rgba(255,255,255,0.92);
     white-space: nowrap;
     overflow: hidden;
-    background: color-mix(in srgb, var(--seg) 32%, transparent);
+    background: var(--seg);
     border-right: 1px solid rgba(0,0,0,0.25);
 }
-.dash-cal-seg-v.now { background: color-mix(in srgb, var(--seg) 55%, transparent); }
-.dash-cal-seg-v.neutral { background: color-mix(in srgb, var(--dash-text) 5%, transparent); color: color-mix(in srgb, var(--dash-text) 55%, transparent); font-weight: 500; }
-.dash-cal-seg-v.neutral.now { background: color-mix(in srgb, var(--dash-text) 10%, transparent); }
+.dash-cal-seg-v.now { background: var(--seg); }
+.dash-cal-seg-v.neutral { background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.55); font-weight: 500; }
+.dash-cal-seg-v.neutral.now { background: rgba(255,255,255,0.1); }
 .dash-cal-sched-now {
     position: absolute;
     top: -2px;
@@ -1446,11 +1460,50 @@ body {
     position: absolute;
     transform: translateX(-50%);
     font-size: 0.62rem;
-    color: color-mix(in srgb, var(--dash-text) 40%, transparent);
+    color: rgba(255,255,255,0.4);
     font-variant-numeric: tabular-nums;
 }
 .dash-cal-sched-axis span:first-child { transform: none; }
 .dash-cal-sched-axis span:last-child { transform: translateX(-100%); }
 @media (max-width: 600px) {
     .dash-cal-sched-row, .dash-cal-sched-ticks { grid-template-columns: 5.2em 1fr; gap: 8px; }
+}
+
+/* Tints mixed from the theme; browsers without color-mix keep the plain colours above */
+@supports (color: color-mix(in srgb, red 50%, blue)) {
+    /* the icon towards the text colour: darker on a light theme, lighter on a dark one */
+    .dash-widget-icon { color: color-mix(in srgb, var(--tile-c) 75%, var(--dash-text)); background: color-mix(in srgb, var(--tile-c) 18%, transparent); }
+    .dash-widget[data-state="on"] { border-color: color-mix(in srgb, var(--tile-c) 35%, transparent); }
+    .dash-header-icon { background: color-mix(in srgb, var(--tile-c) 18%, transparent); }
+    .dash-cal-btn, .dash-cal-today { color: color-mix(in srgb, var(--dash-text) 65%, transparent); }
+    .dash-cal-btn:hover, .dash-cal-today:hover { background: color-mix(in srgb, var(--dash-text) 8%, transparent); }
+    .dash-cal-today { border: 1px solid color-mix(in srgb, var(--dash-text) 12%, transparent); }
+    .dash-cal-seg .dash-cal-btn.active { background: color-mix(in srgb, var(--dash-text) 12%, transparent); }
+    .dash-cal-wd { color: color-mix(in srgb, var(--dash-text) 40%, transparent); }
+    .dash-cal-cell { background: color-mix(in srgb, var(--dash-text) 3%, transparent); }
+    .dash-cal-cell:hover { background: color-mix(in srgb, var(--dash-text) 7%, transparent); }
+    .dash-cal-cell.weekend .dash-cal-num { color: color-mix(in srgb, var(--dash-text) 50%, transparent); }
+    .dash-cal-chip { color: color-mix(in srgb, var(--dash-text) 90%, transparent); }
+    .dash-cal-more { color: color-mix(in srgb, var(--dash-text) 50%, transparent); }
+    .dash-cal-note { color: color-mix(in srgb, var(--dash-text) 70%, transparent); }
+    .dash-cal-note i { color: color-mix(in srgb, var(--dash-text) 45%, transparent); }
+    .dash-cal-note-label { color: color-mix(in srgb, var(--dash-text) 85%, transparent); }
+    .dash-cal-menu { border: 1px solid color-mix(in srgb, var(--dash-text) 12%, transparent); }
+    .dash-cal-opt:hover { background: color-mix(in srgb, var(--dash-text) 6%, transparent); }
+    .dash-cal-opt-switch { background: color-mix(in srgb, var(--dash-text) 18%, transparent); }
+    .dash-cal-item { background: color-mix(in srgb, var(--dash-text) 4%, transparent); }
+    .dash-cal-time { color: color-mix(in srgb, var(--dash-text) 70%, transparent); }
+    .dash-cal-empty { color: color-mix(in srgb, var(--dash-text) 25%, transparent); }
+    .dash-cal-sched-title { color: color-mix(in srgb, var(--dash-text) 60%, transparent); }
+    .dash-cal-sched-bar { background: color-mix(in srgb, var(--dash-text) 4%, transparent); }
+    .dash-cal-seg-v { background: color-mix(in srgb, var(--seg) 32%, transparent); }
+    .dash-cal-seg-v.now { background: color-mix(in srgb, var(--seg) 55%, transparent); }
+    .dash-cal-seg-v.neutral { background: color-mix(in srgb, var(--dash-text) 5%, transparent); }
+    .dash-cal-seg-v.neutral { color: color-mix(in srgb, var(--dash-text) 55%, transparent); }
+    .dash-cal-seg-v.neutral.now { background: color-mix(in srgb, var(--dash-text) 10%, transparent); }
+    .dash-cal-sched-axis span { color: color-mix(in srgb, var(--dash-text) 40%, transparent); }
+    @keyframes dashPulse {
+        0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--tile-c) 55%, transparent); }
+        100% { box-shadow: 0 0 0 10px transparent; }
+    }
 }
