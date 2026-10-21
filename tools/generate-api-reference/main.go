@@ -68,6 +68,7 @@ var moduleOrder = map[string]int{
 	"core.Registry":                25,
 	"core.Metrics":                 30,
 	"Dashboard":                    35,
+	"core.Calendar":                34,
 	"lib.panel":                    36,
 	"objects.RemotePanel":          37,
 	"GPIO_DOUT":                    40,

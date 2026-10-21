@@ -14,6 +14,62 @@ _dashboardOrder = _dashboardOrder or {}
 local SectionHandle = {}
 SectionHandle.__index = SectionHandle
 
+local CALENDAR_WIDGET_KEYS = { view = true, tags = true, schedules = true, holidays = true, namedays = true, sun = true, span = true }
+
+-- "a", "b": the sorted keys of a set, or "none".
+local function quoted(set)
+    local out = {}
+    for k in pairs(set) do out[#out + 1] = '"' .. tostring(k) .. '"' end
+    table.sort(out)
+    return #out > 0 and table.concat(out, ', ') or 'none'
+end
+
+-- A calendar widget keeps the calendar's id, so a dashboard may be built before the calendar.
+local function calendarWidget(id, label, cal, opts)
+    local calId = type(cal) == 'table' and cal.id or cal
+    if type(calId) ~= 'string' then
+        error('calendar widget "' .. tostring(id) .. '": expected a calendar or its id', 3)
+    end
+    opts = opts or {}
+    local where = 'calendar widget "' .. tostring(id) .. '"'
+    for k in pairs(opts) do
+        if not CALENDAR_WIDGET_KEYS[k] then
+            error(where .. ': unknown option "' .. tostring(k) .. '" (view, tags, schedules, holidays, namedays, sun, span)', 3)
+        end
+    end
+    if opts.view ~= nil and opts.view ~= 'month' and opts.view ~= 'day' then
+        error(where .. ': view must be "month" or "day"', 3)
+    end
+    for _, k in ipairs({ 'holidays', 'namedays', 'sun' }) do
+        if opts[k] ~= nil and type(opts[k]) ~= 'boolean' then error(where .. ': ' .. k .. ' must be true or false', 3) end
+    end
+    if opts.schedules ~= nil and opts.schedules ~= true and type(opts.schedules) ~= 'table' then
+        error(where .. ': schedules expects a list of schedule ids, or true for all', 3)
+    end
+    -- a calendar built already (the usual order: its module, then the dashboard) is checked now
+    local cal = Calendar and Calendar.get(calId)
+    if cal then
+        local info = cal:info()
+        local known = {}
+        for _, sc in ipairs(info.schedules) do known[sc.id] = true end
+        if type(opts.schedules) == 'table' then
+            for _, sid in ipairs(opts.schedules) do
+                if not known[sid] then
+                    error(where .. ': calendar "' .. calId .. '" has no schedule "' .. tostring(sid) .. '" (schedules: ' .. quoted(known) .. ')', 3)
+                end
+            end
+        end
+        local tags = {}
+        for _, ev in ipairs(info.events) do for _, t in ipairs(ev.tags or {}) do tags[t] = true end end
+        for _, t in ipairs(type(opts.tags) == 'table' and opts.tags or { opts.tags }) do
+            if not tags[t] then
+                error(where .. ': no event of calendar "' .. calId .. '" has the tag "' .. tostring(t) .. '" (tags: ' .. quoted(tags) .. ')', 3)
+            end
+        end
+    end
+    return { id = id, type = 'calendar', label = label, calendar = calId, opts = opts }
+end
+
 -- A colour widget given a light object (RemoteRGBLight) instead of fns. Reads come from what
 -- the light keeps (a get() would ask the CLU on every poll); brightness and white are 0..100.
 local function lightColorFns(light)
@@ -140,6 +196,19 @@ function SectionHandle:chart(id, label, metricPath, opts)
         id = id, type = 'chart', label = label,
         metricPath = metricPath, opts = opts or {}
     })
+    return self
+end
+
+--- Add a calendar widget to this section: a month grid and the day of a tapped date.
+-- @param id string Unique widget identifier
+-- @param label string Display label
+-- @param cal table Calendar from Calendar.new(...):build(), or its id
+-- @param opts table Optional: {view="month"|"day", tags={...}, schedules={ids drawn as 24 h bars in the day view} or true for all of the calendar's,
+--   holidays=true (holiday names, on by default), namedays=false (name days in the day view),
+--   sun=true (sunrise and sunset in the day view, with :location()), span=n}; what is off is not sent to the browser
+-- @api public
+function SectionHandle:calendar(id, label, cal, opts)
+    self._builder:_addWidget(self._sectionIndex, calendarWidget(id, label, cal, opts))
     return self
 end
 
@@ -518,6 +587,22 @@ function DashboardBuilder:chart(id, label, metricPath, opts)
     return self
 end
 
+--- Add a calendar widget to the current section: a month grid and the day of a tapped date.
+-- @param id string Unique widget identifier
+-- @param label string Display label
+-- @param cal table Calendar from Calendar.new(...):build(), or its id
+-- @param opts table Optional: {view="month"|"day", tags={...}, schedules={ids drawn as 24 h bars in the day view} or true for all of the calendar's,
+--   holidays=true (holiday names, on by default), namedays=false (name days in the day view),
+--   sun=true (sunrise and sunset in the day view, with :location()), span=n}; what is off is not sent to the browser
+-- @api public
+function DashboardBuilder:calendar(id, label, cal, opts)
+    if not self._currentSection then
+        error('Call :section() before adding widgets')
+    end
+    self:_addWidget(self._currentSection, calendarWidget(id, label, cal, opts))
+    return self
+end
+
 --- Add a select widget to the current section.
 -- @param id string Unique widget identifier
 -- @param label string Display label
@@ -782,6 +867,92 @@ function DashboardAPI.usesMetric(id, path)
     return JSON.encode({ used = true, ranges = ranges })
 end
 
+local CALENDAR_CHIPS = 3      -- a month cell shows 3 events and "+n"
+local CALENDAR_DAY_MAX = 300  -- events in one day view
+
+--- Occurrences of a calendar widget's calendar for the days from..to ('YYYY-MM-DD', at most 42)
+-- @return string JSON {today, now, ready, days=[{date, weekday, workday, holiday}], items=[...]},
+--   or {error, status} with the HTTP status of a bad request
+function DashboardAPI.calendarRange(id, widgetId, from, to)
+    local function fail(status, msg) return JSON.encode({ error = msg, status = status }) end
+    local dash = resolveDashboard(id)
+    if not dash then return fail(404, 'Dashboard not found') end
+    local w
+    for _, sec in ipairs(dash._sections) do
+        for _, x in ipairs(sec.widgets) do
+            if x.id == widgetId and x.type == 'calendar' then w = x end
+        end
+    end
+    if not w then return fail(403, 'calendar widget not on this dashboard') end
+    local cal = Calendar.get(w.calendar)
+    if not cal then return fail(404, 'calendar "' .. w.calendar .. '" not built') end
+    local okA, a = pcall(cal.day, cal, from)
+    local okB, b = pcall(cal.day, cal, to)
+    if not okA or not okB or b.starts < a.starts then return fail(400, 'from and to expected as YYYY-MM-DD') end
+    if a.date < '2000-01-01' or b.date > '2100-12-31' then return fail(400, 'dates from 2000 to 2100') end
+    local today = cal:day()
+
+    -- what the author switched off is not sent at all (a public page would show the house's location)
+    local showHol, showNames, showSun = w.opts.holidays ~= false, w.opts.namedays == true, w.opts.sun ~= false
+    local function minute(ts) return ts and math.floor(ts / 60 + 0.5) * 60 end
+    local days = {}
+    local d = a
+    while d.starts <= b.starts do
+        if #days == 42 then return fail(400, 'at most 42 days') end
+        local one = a.date == b.date
+        local sun = one and showSun and cal:sun(d.date) or nil
+        days[#days + 1] = { date = d.date, weekday = d.weekday, workday = d.workday,
+            holiday = showHol and d.holiday or false, holidayName = showHol and d.holidayName or nil,
+            namedays = one and showNames and d.namedays or nil,
+            sunrise = sun and minute(sun.sunrise), sunset = sun and minute(sun.sunset), polar = sun and sun.polar }
+        d = cal:day(d.ends)
+    end
+    local items = {}
+    local ok, list = pcall(cal.between, cal, a.date, b.date, { tags = w.opts.tags })
+    if not ok then
+        Logger:getShared():error('[DASHBOARD] %s calendar %s: %s', tostring(id), tostring(widgetId), tostring(list))
+        return fail(500, 'calendar unavailable')
+    end
+    -- a range sends what its cells draw and each day's count: a busy calendar stays small
+    -- (and under gopher-lua's limit on the values table.concat can join)
+    local byDate, shown = {}, {}
+    for _, day in ipairs(days) do byDate[day.date] = day; day.count = 0; shown[day.date] = 0 end
+    local cap = a.date == b.date and CALENDAR_DAY_MAX or CALENDAR_CHIPS
+    for _, e in ipairs(list) do
+        local keep = false
+        for _, day in ipairs(days) do
+            if day.date >= e.date and day.date <= (e.last or e.date) then
+                day.count = day.count + 1
+                if shown[day.date] < cap then shown[day.date] = shown[day.date] + 1; keep = true end
+            end
+        end
+        if keep then
+            items[#items + 1] = { id = e.id, title = e.title, icon = e.icon, at = e.at, ends = e.ends,
+                allDay = e.allDay, date = e.date, last = e.last, paused = e.paused, source = e.source }
+        end
+    end
+    -- schedules as 24 h bars: only for a single day (the day view)
+    local schedules
+    if w.opts.schedules and a.date == b.date and cal:isReady() then
+        local titles, ids = {}, w.opts.schedules
+        if ids == true then ids = {} end
+        for _, sc in ipairs(cal:info().schedules) do
+            titles[sc.id] = sc.title
+            if w.opts.schedules == true then ids[#ids + 1] = sc.id end
+        end
+        schedules = {}
+        for _, sid in ipairs(ids) do
+            local okS, segs = pcall(cal.segments, cal, sid, a.date)
+            if okS then
+                for _, sg in ipairs(segs) do sg.value = tostring(sg.value) end
+                schedules[#schedules + 1] = { id = sid, title = titles[sid], segments = segs }
+            end
+        end
+    end
+    return JSON.encode({ today = today.date, now = math.floor(__go_time_ms() / 1000), zone = datetime.timezone(),
+        ready = cal:isReady(), days = days, items = items, schedules = schedules })
+end
+
 --- List all dashboards with widget details
 -- @return string JSON array of dashboard summaries including widgets array
 function DashboardAPI.list()
@@ -892,6 +1063,15 @@ function DashboardAPI.getDefinition(id)
                 widget.min = w.opts.min
                 widget.max = w.opts.max
                 widget.fill = w.opts.fill
+            end
+
+            if w.type == 'calendar' then
+                widget.calendar = w.calendar
+                widget.view = w.opts.view or 'month'
+                -- defaults; a viewer can switch them on the widget
+                widget.holidays = w.opts.holidays ~= false
+                widget.namedays = w.opts.namedays == true
+                widget.sun = w.opts.sun ~= false
             end
 
             -- Select widget: options list
