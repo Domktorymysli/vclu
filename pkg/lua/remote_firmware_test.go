@@ -139,11 +139,12 @@ func TestRemoteFirmwareFromGet17(t *testing.T) {
 func TestRemoteFirmware5xSubscribesV2(t *testing.T) {
 	engine := newFirmwareEngine(t)
 	got := mustExec(t, engine, `
+		CLU220000592._omFirmware = { type = "00000003", version = "000001f6" }
 		FW.version = "05.15.12-2607"
 		RemoteSubscription.autoSubscribe()
 		RemoteSubscription.autoSubscribe()
 		return registered() .. "#" .. tostring(next(RemoteSubscription.polled)) .. "#" ..
-			logged("^%[RemoteSub%] CLU CLU220000592 firmware 05%.15%.12%-2607 %(om%.lua 4/198%): THERMOSTAT v2, subscribe$")`)
+			logged("^%[RemoteSub%] CLU CLU220000592 firmware 05%.15%.12%-2607 %(om%.lua 3/1f6%): THERMOSTAT v2, subscribe$")`)
 	parts := strings.Split(got, "#")
 	for _, f := range []string{"{THE0855, 6}", "{THE0855, 8}", "{THE0855, 3}", "{THE0855, 12}", "{THE0855, 14}", "{DOU0001, 0}"} {
 		if !strings.Contains(parts[0], f) {
@@ -223,11 +224,12 @@ func TestRemoteFirmware4xPollsThermostat(t *testing.T) {
 func TestRemoteFirmwareUnknownPollsUntilKnown(t *testing.T) {
 	engine := newFirmwareEngine(t)
 	got := mustExec(t, engine, `
+		CLU220000592._omFirmware = { type = "00000003", version = "000001f6" }
 		FW.version = nil
 		RemoteSubscription.autoSubscribe()
 		local reg = registered()
 		local polled = tostring(RemoteSubscription.polled["CLU220000592.THE0855"] ~= nil)
-		local unknown = logged("firmware unknown, no answer to get%(17%) %(om%.lua 4/198%): THERMOSTAT v2, poll$")
+		local unknown = logged("firmware unknown, no answer to get%(17%) %(om%.lua 3/1f6%): THERMOSTAT v2, poll$")
 		SENT = {}
 		runTimeouts() -- get(17) unanswered: the CLU is skipped this run
 		local quiet = table.concat(SENT, ",")

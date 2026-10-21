@@ -78,6 +78,37 @@ func TestRemoteAsyncIDsDifferAcrossLuaStates(t *testing.T) {
 	}
 }
 
+// A thermostat is subscribed only on a CLU known to be safe: get(17) reports 5.x and om.lua
+// does not say FwType 4 (CLU v1.0). Everything else is polled: 4.x, no answer, a major not
+// in the table, and an om.lua FwType 4 CLU even when get(17) says 5.
+func TestRemoteFirmwareSubscribeOnlyWhenKnownSafe(t *testing.T) {
+	cases := []struct{ om, fw, want string }{
+		{"nil", "05.15.12-2607", "subscribe"},
+		{`{ type = "00000003", version = "000001f6" }`, "05.15.12", "subscribe"},
+		{`{ type = "00000004", version = "00000198" }`, "05.15.12", "poll"},
+		{`{ type = "00000004", version = "00000198" }`, "04.08.05", "poll"},
+		{`{ type = "00000003", version = "000001f6" }`, "04.08.05", "poll"},
+		{`{ type = "00000003", version = "000001f6" }`, "nil", "poll"},
+		{`{ type = "00000003", version = "000001f6" }`, "21.05.00", "poll"},
+		{`{ type = "00000003", version = "000001f6" }`, "06.00.00", "poll"},
+		{"nil", "nil", "poll"},
+	}
+	engine := newFirmwareEngine(t)
+	for _, c := range cases {
+		fw := "nil"
+		if c.fw != "nil" {
+			fw = luaQuote(c.fw)
+		}
+		got := mustExec(t, engine, `
+			CLU220000592._omFirmware = `+c.om+`
+			CLU220000592:_setFirmware(`+fw+`)
+			return select(2, TH:_plan())`)
+		if got != c.want {
+			t.Errorf("om %s, get(17) %s: %s, want %s", c.om, c.fw, got, c.want)
+		}
+	}
+}
+
 func luaQuote(s string) string {
 	return `"` + strings.ReplaceAll(strings.ReplaceAll(s, `\`, `\\`), `"`, `\"`) + `"`
 }
