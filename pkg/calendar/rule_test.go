@@ -421,7 +421,7 @@ func TestDurationAtMost366Days(t *testing.T) {
 	if d, err := ParseDuration("366d"); err != nil || d != MaxDuration {
 		t.Errorf("366d: %v %v", d, err)
 	}
-	for _, s := range []string{"367d", "8784h1s", "99999999999999999999d", "9223372036s", "200d200d"} {
+	for _, s := range []string{"367d", "8784h1s", "99999999999999999999d", "9223372036s", "200d200d", "213504d", "106752d", "2562048h"} {
 		if _, err := ParseDuration(s); err == nil || !strings.Contains(err.Error(), "366 days") {
 			t.Errorf("%s: %v, want an error about 366 days", s, err)
 		}

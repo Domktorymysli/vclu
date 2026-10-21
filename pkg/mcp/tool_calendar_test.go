@@ -183,6 +183,13 @@ func TestCalendarTool_Refuses(t *testing.T) {
 	if _, _, isErr := callCalendarTool(t, srv, ctx, map[string]any{"from": "2026-01-01", "to": "2026-03-03"}); isErr {
 		t.Error("62 days refused")
 	}
+	// the spring change makes 63 days an hour short of 62 * 24 h
+	if a, text, isErr := callCalendarTool(t, srv, ctx, map[string]any{"from": "2027-02-27", "to": "2027-04-30"}); !isErr || !strings.Contains(text, "at most 62 days") {
+		t.Errorf("63 days over the spring change: %v, %d days", isErr, len(a.Calendars))
+	}
+	if _, text, isErr := callCalendarTool(t, srv, ctx, map[string]any{"from": "2027-02-28", "to": "2027-04-30"}); isErr {
+		t.Errorf("62 days over the spring change refused: %s", text)
+	}
 }
 
 // A bot without sandbox access gets nothing.

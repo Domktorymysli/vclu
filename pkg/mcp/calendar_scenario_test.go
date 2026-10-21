@@ -212,6 +212,8 @@ func TestCalendar_BuildErrorsNameTheEvent(t *testing.T) {
 		`Calendar.new('dom'):event('bio', { every = 'tu', time = '06:30' }):schedule('t', { default = 0, { every = 'day', value = 1 } }):build():on('start', 't', function() end)`:    `'t' is a schedule`,
 		`Calendar.new('dom'):event('bio', { every = 'tu', time = '06:30' }):build():skip('bio', '2026-11-11')`:                                                                        `"bio" has no occurrence on 2026-11-11 (next: 2026-11-17, 2026-11-24)`,
 		`Calendar.new('dom'):event('bio', { every = 'tu', time = '06:30', tags = 'smieci' }):build():pause('2026-11-11', { tags = 'śmieci' })`:                                        `no event has the tag "śmieci" (tags: "smieci")`,
+		`Calendar.new('dom'):event('bio', { every = 'tu', time = '06:30' }):build():pause('2026-02-31')`:                                                                              `pause: 2026-02-31 is not a day`,
+		`Calendar.new('dom'):event('bio', { every = 'tu', time = '06:30' }):build():pause('2026-02-01..2026-02-30')`:                                                                  `pause: 2026-02-30 is not a day`,
 		`Calendar.new('dom'):event('bio', { every = 'tu', time = '06:30' }):build():add({ title = 'x', date = '2026-11-11', time = '10:00', remind = '1h' })`:                         `add: remind: "1h" needs a sign`,
 		`Calendar.new('dom'):holidays('de')`: `unknown holidays "de"`,
 		`Calendar.new('dom'):event('x', { date = '2026-01-01' }):build():on('stat', function() end)`:              `unknown kind "stat"`,

@@ -148,6 +148,9 @@ func ParseDuration(s string) (time.Duration, error) {
 		default:
 			return 0, fmt.Errorf("duration %q: unknown unit %q", s, str[i])
 		}
+		if time.Duration(n) > MaxDuration/unit {
+			return 0, fmt.Errorf("duration %q: at most 366 days", s)
+		}
 		total += time.Duration(n) * unit
 		if total > MaxDuration {
 			return 0, fmt.Errorf("duration %q: at most 366 days", s)

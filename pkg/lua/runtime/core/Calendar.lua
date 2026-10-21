@@ -598,7 +598,8 @@ function Cal:isActive(id)
     if not self._s.ready then return nil end
     local t = now()
     for _, o in ipairs(__go_calendar_between(ev.rule, t - ev.jitter, t + ev.jitter + 1, true)) do
-        if startOf(ev, o) <= t and o.ends and o.ends > t and not (self._st.skips or {})[skipKey(id, o.date)] then return true end
+        if startOf(ev, o) <= t and o.ends and o.ends > t and not (self._st.skips or {})[skipKey(id, o.date)]
+            and not self:_pausedAt(ev, o.date) then return true end
     end
     return false
 end
@@ -794,6 +795,9 @@ function Cal:pause(range, opts)
     local a, b = tostring(range):match('^(%d%d%d%d%-%d%d%-%d%d)%.%.(%d%d%d%d%-%d%d%-%d%d)$')
     if not a then a = tostring(range):match('^(%d%d%d%d%-%d%d%-%d%d)$'); b = a end
     if not a or b < a then error('Calendar ' .. self.id .. ':pause: range expected as YYYY-MM-DD..YYYY-MM-DD', 2) end
+    for _, d in ipairs({ a, b }) do
+        if not pcall(__go_calendar_day, d) then error('Calendar ' .. self.id .. ':pause: ' .. d .. ' is not a day', 2) end
+    end
     local p = copy(self._st.pauses)
     local pause = { from = a, to = b, tags = opts and opts.tags and list(opts.tags) or nil }
     local tags = {}
@@ -1069,7 +1073,8 @@ local function agendaRange(cal, from, to, maxDays)
         for _ = 1, 6 do b = cal:day(b.ends) end
     end
     if b.starts < a.starts then return nil, 'to is before from' end
-    if (b.starts - a.starts) / 86400 >= maxDays then return nil, 'at most ' .. maxDays .. ' days' end
+    -- whole days: a range over a clock change is an hour short or long
+    if math.floor((b.starts - a.starts) / 86400 + 0.5) >= maxDays then return nil, 'at most ' .. maxDays .. ' days' end
     return a.date, b.date
 end
 

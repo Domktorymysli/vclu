@@ -401,6 +401,26 @@ EventBus:getShared():setTimeout(function() `+change+` end, 2 * 3600 * 1000)`, `[
 	}
 }
 
+// After its cancelling end, the occurrence is not active any more.
+func TestCalendarReview2_CancelledIsNotActive(t *testing.T) {
+	for name, change := range map[string]string{
+		"skip":  `dom:skip('swiatlo', '2026-10-20')`,
+		"pause": `dom:pause('2026-10-20')`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := runCal2OK(t, "2026-10-20T17:00:00+02:00", `
+local dom = Calendar.new('dom'):build()
+dom:add({ id = 'swiatlo', date = '2026-10-20', time = '18:00', duration = '4h' })
+EventBus:getShared():setTimeout(function()
+  print('CAL before ' .. tostring(dom:isActive('swiatlo')))
+  `+change+`
+  print('CAL after ' .. tostring(dom:isActive('swiatlo')))
+end, 2 * 3600 * 1000)`, `[{"advance": 25200}]`)
+			expectLines(t, got, "before true", "after false")
+		})
+	}
+}
+
 func TestCalendarReview2_PauseByTags(t *testing.T) {
 	got := runCal2OK(t, "2026-10-20T10:00:00+02:00", `
 local dom = Calendar.new('dom')
