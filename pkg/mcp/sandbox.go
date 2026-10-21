@@ -313,6 +313,7 @@ func (run *sandboxRun) load() (*lua.LState, error) {
 	// 1. Create isolated Lua state; the scenario timeout aborts running Lua
 	L := lua.NewState()
 	L.SetContext(run.ctx)
+	vclulua.RegisterErrorLevel(L)
 
 	// Disable dangerous globals
 	L.SetGlobal("dofile", lua.LNil)

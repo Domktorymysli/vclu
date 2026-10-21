@@ -306,6 +306,7 @@ Introduction to vCLU: installation on a Raspberry Pi, GPIO, MQTT, Home Assistant
 
 - [docs.vclu.pl](https://docs.vclu.pl)
 - [Lua API reference](docs/ai/lua-api-reference.md) and [code patterns](docs/ai/examples.md) (also served to agents over MCP)
+- [Connecting another system to vCLU](docs/integrating.md): when to use MQTT and when MCP, topics, commands and access profiles
 
 ## License
 

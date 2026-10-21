@@ -511,6 +511,12 @@ function ExposedObjects:expose(obj, objType, options)
         _registry[path] = obj
         if StateChange then StateChange.attachHistory(obj, nil) end
         handle._addedToRegistry = true  -- track so we can clean up on unexpose
+    elseif _registry and type(_registry[path]) == "function" then
+        -- An object at "get" or "value" would hide _:get or _:value from every module.
+        if Logger then
+            Logger:getShared():warn("[ExposedObjects] path '%s' is a name of a registry method, so _:get "
+                .. "and _:value will not find this object; use a path such as vclu:%s", path, path)
+        end
     end
 
     StateChange.setFilter(obj, options.filter)

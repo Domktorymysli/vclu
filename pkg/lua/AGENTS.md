@@ -13,6 +13,12 @@ early: closures created before and after no longer share the variable.
 `local n=0; local f=function() n=n+1 end; pcall(function() error("x") end); f(); return n` gives 0.
 Keep shared mutable state in a table (`c.n = c.n + 1`), in tests and in modules.
 
+## `_` is the registry, not a throwaway name
+`for _, v in ipairs(t)` or a parameter named `_` hides the global registry in that scope:
+`_:get(...)` inside it fails with `attempt to index a non-table object`. The plugin sandbox's `_`
+proxy had `__index = function(_, key) ... _[key]` and recursed into itself until #82. Name loop
+indexes `i` and parameters `self` in code that uses the registry.
+
 ## Load order in the bootstrap matters
 `runtime/bootstrap_go.lua` loads files in a fixed order; later files use globals set by earlier
 ones. A wrong place shows as `attempt to index a nil value` at startup. After adding or moving a
