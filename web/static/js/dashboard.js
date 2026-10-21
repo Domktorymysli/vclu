@@ -17,6 +17,39 @@
     var chartInstances = {}; // widgetId -> Chart.js instance
     var chartTimers = {};   // widgetId -> per-chart refresh timer
 
+    // Texts of the page, Polish or English; #85 moves them to web/locales.
+    var TEXTS = {
+        pl: { on: 'włączone', off: 'wyłączone', open: 'otwarta', closed: 'zamknięta', opening: 'otwiera się',
+              closing: 'zamyka się', unknown: 'brak odczytu', run: 'uruchom', sent: 'wysłano', updated: 'odświeżono',
+              nothingToday: 'nic więcej dziś', holidays: 'Święta', namedays: 'Imieniny', sun: 'Słońce', show: 'Pokaż',
+              polarDay: 'dzień polarny', polarNight: 'noc polarna', noConnection: 'Brak połączenia' },
+        en: { on: 'on', off: 'off', open: 'open', closed: 'closed', opening: 'opening',
+              closing: 'closing', unknown: 'no reading', run: 'run', sent: 'sent', updated: 'updated',
+              nothingToday: 'nothing more today', holidays: 'Holidays', namedays: 'Name days', sun: 'Sun', show: 'Show',
+              polarDay: 'polar day', polarNight: 'polar night', noConnection: 'No connection' }
+    };
+    // ?lang= as on the other pages, else the browser's language
+    var lang = (function() {
+        var m = /[?&]lang=([a-z]{2})/i.exec(location.search);
+        return /^pl/i.test((m && m[1]) || document.documentElement.lang || navigator.language || '') ? 'pl' : 'en';
+    })();
+    var T = TEXTS[lang];
+
+    // A tile without its own icon gets one by type
+    var typeIcons = {
+        button: 'play-fill', toggle: 'power', slider: 'sliders', status: 'info-circle', link: 'link-45deg',
+        chart: 'graph-up', select: 'list-ul', image: 'image', cover: 'arrows-expand', dimmer: 'lightbulb',
+        color: 'palette', calendar: 'calendar3'
+    };
+
+    // 23.9 -> "23,9" in Polish; text as it is
+    function fmtNum(v) {
+        return typeof v === 'number' && lang === 'pl' ? String(v).replace('.', ',') : String(v);
+    }
+    function withUnit(v, unit) {
+        return fmtNum(v) + (unit ? ' ' + unit : '');
+    }
+
     // ---- Time-of-day period tracking ----
     var currentPeriod = null;
     var periodCheckTimer = null;
@@ -74,17 +107,88 @@
         return colorMap[c] || c;
     }
 
-    // Apply a polled colour; a falsy one drops it (header: icon only, as when rendered)
+    // Apply a polled colour; a falsy one drops it
     function applyColor(el, c) {
         var color = resolveColor(c);
-        if (el.classList.contains('dash-header-item')) {
-            var icon = el.querySelector(':scope > i');
-            if (icon) icon.style.color = color || '';
-        } else if (color) {
+        if (color) {
             el.style.setProperty('--widget-color', color);
         } else {
             el.style.removeProperty('--widget-color');
         }
+    }
+
+    // danger and warning make a status an alarm
+    function isAlarm(c) {
+        return c === 'danger' || c === 'warning';
+    }
+
+    // The circle and the second line: state is on, off, moving, alarm, unknown or value
+    function tileState(type, w, d) {
+        var on;
+        switch (type) {
+        case 'toggle':
+            if (d.value == null) return ['unknown', T.unknown];
+            return d.value ? ['on', T.on] : ['off', T.off];
+        case 'slider':
+            return d.value == null ? ['unknown', T.unknown] : ['value', fmtNum(d.value)];
+        case 'status':
+            if (d.value == null) return ['unknown', T.unknown];
+            return [isAlarm(d.color) ? 'alarm' : 'value', withUnit(d.value, w.unit)];
+        case 'select':
+            if (d.value == null) return ['unknown', T.unknown];
+            var label = String(d.value);
+            (w.options || []).forEach(function(o) { if (String(o.value) === String(d.value)) label = o.label; });
+            return ['value', label];
+        case 'dimmer':
+        case 'color':
+            var level = type === 'dimmer' ? d.value : d.brightness;
+            if (level == null && d.on == null) return ['unknown', T.unknown];
+            on = d.on != null ? d.on : level > 0;
+            if (!on) return ['off', T.off];
+            return ['on', level > 0 ? withUnit(level, '%') : T.on];
+        case 'cover':
+            if (d.state === 1) return ['moving', T.opening];
+            if (d.state === 2) return ['moving', T.closing];
+            if (d.position == null) return ['unknown', T.unknown];
+            if (d.position <= 0) return ['off', T.closed];
+            return ['on', d.position >= 100 ? T.open : T.open + ' ' + withUnit(d.position, '%')];
+        case 'button':
+            return ['value', T.run];
+        case 'link':
+            var m = /^[a-z]+:\/\/([^\/?#:]+)/i.exec(w.url || '');
+            return ['value', m ? m[1] : String(w.url || '')];
+        }
+        return ['value', ''];
+    }
+
+    function setState(el, state, text) {
+        el.dataset.state = state;
+        var s = el.querySelector('.dash-tile-state');
+        if (s && text != null) s.textContent = text;
+    }
+
+    // Tile state from what is known of the widget (definition, then polls and replies)
+    function refreshTile(el, w, data) {
+        var d = el._data || (el._data = {});
+        for (var k in data) if (data.hasOwnProperty(k)) d[k] = data[k];
+        var type = el.dataset.type;
+        if (type === 'chart' || type === 'image' || type === 'calendar') return;
+        var st = tileState(type, w, d);
+        setState(el, st[0], st[1]);
+        if (el.classList.contains('dash-header-item')) el.title = (w.label || '') + ': ' + st[1];
+    }
+
+    // Icon in a circle, the name, the state line
+    function tileHead(w) {
+        var head = calEl('div', 'dash-tile-head');
+        var icon = calEl('div', 'dash-widget-icon');
+        icon.innerHTML = '<i class="bi bi-' + esc(w.icon || typeIcons[w.type] || 'circle') + '"></i>';
+        var text = calEl('div', 'dash-tile-text');
+        text.appendChild(calEl('div', 'dash-widget-label', w.label || ''));
+        text.appendChild(calEl('div', 'dash-tile-state', ' '));
+        head.appendChild(icon);
+        head.appendChild(text);
+        return head;
     }
 
     // ---- Fetch helpers ----
@@ -243,9 +347,11 @@
     }
 
     function renderWidget(w) {
+        if (w.type === 'group') return renderGroup(w);
         var el = document.createElement('div');
         el.className = 'dash-widget dash-widget-' + w.type;
         el.dataset.widgetId = w.id;
+        el.dataset.type = w.type;
 
         // Span (stored as data-attr; CSS responsive rules can override)
         if (w.span && w.span > 1) {
@@ -266,22 +372,18 @@
         // Disabled
         if (w.disabled) el.classList.add('disabled');
 
-        // Error indicator
+        // Icon, name and state; an image has its caption under the picture
+        var head = tileHead(w);
+        if (w.type !== 'image') el.appendChild(head);
+
+        // Error indicator: a badge on the icon
         if (w.error) {
             el.classList.add('has-error');
             var errIcon = document.createElement('span');
             errIcon.className = 'dash-widget-error';
             errIcon.title = w.error;
-            errIcon.innerHTML = '<i class="bi bi-exclamation-triangle"></i>';
-            el.appendChild(errIcon);
-        }
-
-        // Icon
-        if (w.icon) {
-            var iconEl = document.createElement('div');
-            iconEl.className = 'dash-widget-icon';
-            iconEl.innerHTML = '<i class="bi bi-' + esc(w.icon) + '"></i>';
-            el.appendChild(iconEl);
+            errIcon.innerHTML = '<i class="bi bi-exclamation-triangle-fill"></i>';
+            head.querySelector('.dash-widget-icon').appendChild(errIcon);
         }
 
         // Type-specific rendering
@@ -306,24 +408,23 @@
         } else if (w.type === 'color') {
             renderColor(el, w);
         } else if (w.type === 'image') {
-            renderImage(el, w);
-            return el; // image has its own label placement
-        } else if (w.type === 'group') {
-            return renderGroup(w);
+            renderImage(el, w, head);
         } else if (w.type === 'calendar') {
-            renderCalendar(el, w);
-            widgetEls[w.id] = el;
-            return el; // the label sits in the calendar's own toolbar
+            renderCalendar(el, w, head);
         }
 
-        // Label
-        var lbl = document.createElement('div');
-        lbl.className = 'dash-widget-label';
-        lbl.textContent = w.label;
-        el.appendChild(lbl);
-
+        refreshTile(el, w, w);
         widgetEls[w.id] = el;
         return el;
+    }
+
+    // Brief text on the state line, then the state again
+    function flashState(el, text) {
+        var s = el.querySelector('.dash-tile-state');
+        if (!s) return;
+        var prev = s.textContent;
+        s.textContent = text;
+        setTimeout(function() { if (s.textContent === text) s.textContent = prev; }, 1500);
     }
 
     function renderButton(el, w) {
@@ -331,28 +432,41 @@
             if (w.confirm && !confirm(w.confirm)) return;
             el.classList.add('flash');
             setTimeout(function() { el.classList.remove('flash'); }, 300);
+            flashState(el, T.sent);
             executeAction(w.id, 'tap');
         });
     }
 
-    function renderToggle(el, w) {
-        // Set active state based on value
-        if (w.value) el.classList.add('active');
-
+    // An on/off switch at the end of the head; a tap on the head (or the whole tile) flips it
+    function headSwitch(el, cls, checked, onChange, target) {
         var sw = document.createElement('div');
-        sw.className = 'dash-toggle-switch form-check form-switch';
+        sw.className = cls + ' form-check form-switch';
         var input = document.createElement('input');
         input.type = 'checkbox';
         input.className = 'form-check-input';
-        input.checked = !!w.value;
-        input.dataset.widgetId = w.id;
-        input.addEventListener('change', function() {
-            executeAction(w.id, 'toggle', input.checked);
+        input.checked = checked;
+        input.addEventListener('change', function(e) {
+            e.stopPropagation();
+            onChange(input.checked);
         });
         sw.appendChild(input);
+        el.querySelector('.dash-tile-head').appendChild(sw);
+        (target || el).addEventListener('click', function(e) {
+            if (sw.contains(e.target)) return;
+            input.checked = !input.checked;
+            onChange(input.checked);
+        });
+        return input;
+    }
 
-        // Insert before label (after icon)
-        el.appendChild(sw);
+    function renderToggle(el, w) {
+        if (w.value) el.classList.add('active');
+        var input = headSwitch(el, 'dash-toggle-switch', !!w.value, function(on) {
+            el.classList.toggle('active', on);
+            refreshTile(el, w, { value: on });
+            executeAction(w.id, 'toggle', on);
+        });
+        input.dataset.widgetId = w.id;
     }
 
     function renderSlider(el, w) {
@@ -367,34 +481,14 @@
         input.value = w.value != null ? w.value : 0;
         input.dataset.widgetId = w.id;
 
-        var valEl = document.createElement('span');
-        valEl.className = 'dash-slider-value';
-        valEl.textContent = input.value;
-
-        bindSlider(input, function(v) { valEl.textContent = v; },
+        bindSlider(input, function(v) { setState(el, 'value', fmtNum(v)); },
             function(v) { executeAction(w.id, 'set', v); }, 250);
 
         row.appendChild(input);
-        row.appendChild(valEl);
         el.appendChild(row);
     }
 
-    // A long text value ("closed · until 16:00") gets its own line on a phone
-    function markStatusText(el, display) {
-        el.classList.toggle('dash-status-text', typeof display === 'string' && display.length > 8);
-    }
-
     function renderStatus(el, w) {
-        var valEl = document.createElement('div');
-        valEl.className = 'dash-status-value';
-        var display = w.value != null ? w.value : '--';
-        markStatusText(el, display);
-        valEl.innerHTML = esc(String(display));
-        if (w.unit) {
-            valEl.innerHTML += ' <span class="dash-status-unit">' + esc(w.unit) + '</span>';
-        }
-        el.appendChild(valEl);
-
         if (w.spark) {
             var sparkWrap = document.createElement('div');
             sparkWrap.className = 'dash-sparkline';
@@ -414,14 +508,17 @@
         var ext = document.createElement('span');
         ext.className = 'dash-link-ext';
         ext.innerHTML = '<i class="bi bi-box-arrow-up-right"></i>';
-        el.appendChild(ext);
+        el.querySelector('.dash-tile-head').appendChild(ext);
         el.addEventListener('click', function() {
             window.open(w.url, '_blank');
         });
     }
 
+    // The native list lies over the whole tile: a tap anywhere opens it
     function renderSelect(el, w) {
-        el.style.cursor = 'default';
+        var chev = calEl('span', 'dash-select-chevron');
+        chev.innerHTML = '<i class="bi bi-chevron-expand"></i>';
+        el.querySelector('.dash-tile-head').appendChild(chev);
         var wrap = document.createElement('div');
         wrap.className = 'dash-select-wrap';
 
@@ -438,14 +535,16 @@
             }
             sel.appendChild(option);
         }
+        sel.setAttribute('aria-label', w.label || '');
         sel.addEventListener('change', function() {
+            refreshTile(el, w, { value: sel.value });
             executeAction(w.id, 'select', sel.value);
         });
         wrap.appendChild(sel);
         el.appendChild(wrap);
     }
 
-    function renderImage(el, w) {
+    function renderImage(el, w, head) {
         el.classList.add('dash-widget-image');
         el.style.cursor = 'default';
 
@@ -455,17 +554,19 @@
         img.src = w.url || '';
         img.alt = w.label || '';
         if (w.height) img.style.height = w.height + 'px';
-        img.onerror = function() { img.style.opacity = '0.2'; };
+        // the state line: when the picture came, or that it did not
+        img.onload = function() {
+            img.style.opacity = '';
+            setState(el, 'value', T.updated + ' ' + new Date().toLocaleTimeString(lang, {hour: '2-digit', minute: '2-digit'}));
+        };
+        img.onerror = function() { img.style.opacity = '0.2'; setState(el, 'unknown', T.unknown); };
         el.appendChild(img);
 
         // Caption below image
-        var lbl = document.createElement('div');
-        lbl.className = 'dash-image-label';
-        if (w.align) lbl.classList.add('align-' + w.align);
-        lbl.textContent = w.label;
-        el.appendChild(lbl);
-
-        widgetEls[w.id] = el;
+        head.classList.add('dash-image-label');
+        if (w.align) head.classList.add('align-' + w.align);
+        el.appendChild(head);
+        setState(el, 'unknown', ' ');
 
         // Auto-refresh image
         if (w.refresh) {
@@ -533,7 +634,7 @@
         });
     }
 
-    function renderCalendar(el, w) {
+    function renderCalendar(el, w, head) {
         el.classList.add('dash-widget-calendar');
         el.style.cursor = 'default';
         if (!w.span) el.style.gridColumn = '1 / -1';
@@ -555,14 +656,10 @@
                 });
             }
         } catch (e) { /* no storage: defaults */ }
-        var pl = /^pl/i.test(navigator.language || '');
-        var txt = pl ? { holidays: 'Święta', namedays: 'Imieniny', sun: 'Słońce', show: 'Pokaż', polarDay: 'dzień polarny', polarNight: 'noc polarna' }
-                     : { holidays: 'Holidays', namedays: 'Name days', sun: 'Sun', show: 'Show', polarDay: 'polar day', polarNight: 'polar night' };
         var rel = (window.Intl && Intl.RelativeTimeFormat) ? new Intl.RelativeTimeFormat([], {numeric: 'auto'}) : null;
         var cap = function(t) { return t.charAt(0).toUpperCase() + t.slice(1); };
 
         var bar = calEl('div', 'dash-cal-bar');
-        var label = calEl('div', 'dash-cal-label', w.label || '');
         var nav = calEl('div', 'dash-cal-nav');
         var title = calEl('div', 'dash-cal-title');
         nav.appendChild(calIconBtn('chevron-left', '-', function() { step(-1); }));
@@ -584,7 +681,7 @@
             var b = calEl('button', 'dash-cal-opt');
             b.type = 'button';
             b.setAttribute('role', 'switch');
-            b.appendChild(calEl('span', 'dash-cal-opt-label', txt[key]));
+            b.appendChild(calEl('span', 'dash-cal-opt-label', T[key]));
             b.appendChild(calEl('span', 'dash-cal-opt-switch'));
             function sync() { b.setAttribute('aria-checked', st.show[key] ? 'true' : 'false'); }
             sync();
@@ -598,7 +695,7 @@
             return b;
         }
         ['holidays', 'namedays', 'sun'].forEach(function(k) { if (allowed[k]) menu.appendChild(optionRow(k)); });
-        var menuBtn = calIconBtn('sliders', txt.show, function() {
+        var menuBtn = calIconBtn('sliders', T.show, function() {
             menu.hidden = !menu.hidden;
             menuBtn.setAttribute('aria-expanded', menu.hidden ? 'false' : 'true');
         });
@@ -613,7 +710,7 @@
         if (menu.childNodes.length) tools.appendChild(menuWrap);
         tools.appendChild(todayBtn);
         tools.appendChild(seg);
-        bar.appendChild(label);
+        bar.appendChild(head);
         bar.appendChild(nav);
         bar.appendChild(tools);
         var body = calEl('div', 'dash-cal-body');
@@ -671,7 +768,7 @@
                 el.classList.add('has-error');
                 body.textContent = '';
                 var e = calEl('div', 'dash-cal-empty', '!');
-                e.title = pl ? 'Brak połączenia' : 'No connection';
+                e.title = T.noConnection;
                 body.appendChild(e);
             });
         }
@@ -697,9 +794,25 @@
             el.classList.toggle('has-error', !!(st.data && st.data.error));
             if (st.data && st.data.error) {
                 body.appendChild(calEl('div', 'dash-cal-empty', st.data.error));
+                setState(el, 'unknown', T.unknown);
                 return;
             }
             if (st.view === 'day') drawDay(); else drawMonth();
+            drawState();
+        }
+
+        // The state line: today's next event, when the shown range has today
+        function drawState() {
+            var r = range();
+            if (st.today < r[0] || st.today > r[1]) return;
+            var now = Date.now() / 1000, next = null, allDay = null;
+            itemsOn(st.today).forEach(function(it) {
+                if (it.allDay) { allDay = allDay || it; return; }
+                if ((it.ends || it.at) >= now && (!next || it.at < next.at)) next = it;
+            });
+            if (next) setState(el, 'value', tm(next.at) + ' ' + next.title);
+            else if (allDay) setState(el, 'value', allDay.title);
+            else setState(el, 'off', T.nothingToday);
         }
 
         function drawMonth() {
@@ -765,7 +878,7 @@
                 var sn = calEl('div', 'dash-cal-note sun');
                 if (info.polar) {
                     sn.appendChild(calEl('i', 'bi bi-sun'));
-                    sn.appendChild(document.createTextNode(info.polar === 'day' ? txt.polarDay : txt.polarNight));
+                    sn.appendChild(document.createTextNode(info.polar === 'day' ? T.polarDay : T.polarNight));
                 } else {
                     sn.appendChild(calEl('i', 'bi bi-sunrise'));
                     sn.appendChild(document.createTextNode(tm(info.sunrise)));
@@ -777,7 +890,7 @@
             if (info.namedays && info.namedays.length && st.show.namedays) {
                 var nd = calEl('div', 'dash-cal-note');
                 nd.appendChild(calEl('i', 'bi bi-balloon'));
-                nd.appendChild(calEl('span', 'dash-cal-note-label', txt.namedays + ':'));
+                nd.appendChild(calEl('span', 'dash-cal-note-label', T.namedays + ':'));
                 nd.appendChild(document.createTextNode(' ' + info.namedays.join(', ')));
                 notes.appendChild(nd);
             }
@@ -899,7 +1012,7 @@
         var el = document.createElement('div');
         el.className = 'dash-group-label';
         if (w.icon) {
-            el.innerHTML = '<i class="bi bi-' + esc(w.icon) + '"></i> ';
+            el.innerHTML = '<span class="dash-group-icon"><i class="bi bi-' + esc(w.icon) + '"></i></span>';
         }
         el.innerHTML += esc(w.label);
         return el;
@@ -908,7 +1021,6 @@
     // ---- Cover widget ----
 
     function renderCover(el, w) {
-        el.style.cursor = 'default';
 
         var controls = document.createElement('div');
         controls.className = 'dash-cover-controls';
@@ -954,15 +1066,10 @@
             input.value = w.position != null ? w.position : 0;
             input.dataset.widgetId = w.id;
 
-            var valEl = document.createElement('span');
-            valEl.className = 'dash-slider-value';
-            valEl.textContent = w.position != null ? input.value + '%' : '--';
-
-            bindSlider(input, function(v) { valEl.textContent = v + '%'; },
+            bindSlider(input, function(v) { refreshTile(el, w, { position: v, state: 0 }); },
                 function(v) { executeAction(w.id, 'set', v); }, 500);
 
             row.appendChild(input);
-            row.appendChild(valEl);
             el.appendChild(row);
         }
     }
@@ -1005,18 +1112,13 @@
         var isOn = w.on !== false;
 
         if (caps.toggle) {
-            var sw = document.createElement('div');
-            sw.className = 'dash-dimmer-toggle form-check form-switch';
-            var input = document.createElement('input');
-            input.type = 'checkbox';
-            input.className = 'form-check-input';
-            input.checked = isOn;
-            input.addEventListener('change', function(e) {
-                e.stopPropagation();
-                executeAction(w.id, input.checked ? 'switchOn' : 'switchOff');
-            });
-            sw.appendChild(input);
-            el.appendChild(sw);
+            var head = el.querySelector('.dash-tile-head');
+            head.classList.add('dash-tile-tap');
+            headSwitch(el, 'dash-dimmer-toggle', isOn, function(on) {
+                refreshTile(el, w, { on: on });
+                el.querySelector('.dash-slider-input').classList.toggle('dimmed', !on);
+                executeAction(w.id, on ? 'switchOn' : 'switchOff');
+            }, head);
         }
 
         var row = document.createElement('div');
@@ -1031,22 +1133,11 @@
         slider.dataset.widgetId = w.id;
         if (!isOn) slider.classList.add('dimmed');
 
-        var valEl = document.createElement('span');
-        valEl.className = 'dash-slider-value';
-        valEl.textContent = (w.value != null ? w.value : 0) + '%';
-
-        bindSlider(slider, function(v) { valEl.textContent = v + '%'; },
+        bindSlider(slider, function(v) { refreshTile(el, w, { value: v, on: v > 0 }); },
             function(v) { executeAction(w.id, 'set', v); }, 500);
 
         row.appendChild(slider);
-        row.appendChild(valEl);
         el.appendChild(row);
-
-        var iconEl = el.querySelector('.dash-widget-icon');
-        if (iconEl) {
-            var brightness = w.value != null ? w.value : 0;
-            iconEl.style.opacity = isOn ? (0.3 + 0.7 * brightness / 100) : 0.3;
-        }
     }
 
     // ---- Color picker widget ----
@@ -1105,8 +1196,10 @@
         valEl.dataset.role = role;
         valEl.textContent = value != null ? value + '%' : '--';
 
-        bindSlider(slider, function(v) { valEl.textContent = v + '%'; },
-            function(v) { executeAction(w.id, action, v); }, 500);
+        bindSlider(slider, function(v) {
+            valEl.textContent = v + '%';
+            if (role === 'brightness') refreshTile(el, w, { brightness: v, on: v > 0 });
+        }, function(v) { executeAction(w.id, action, v); }, 500);
 
         row.appendChild(slider);
         row.appendChild(valEl);
@@ -1121,19 +1214,13 @@
         applyLightColor(el, w.rgb, isOn);
 
         if (caps.toggle) {
-            var sw = document.createElement('div');
-            sw.className = 'dash-color-toggle form-check form-switch';
-            var input = document.createElement('input');
-            input.type = 'checkbox';
-            input.className = 'form-check-input';
-            input.checked = isOn;
-            input.addEventListener('change', function(e) {
-                e.stopPropagation();
-                executeAction(w.id, input.checked ? 'switchOn' : 'switchOff');
-                if (!input.checked) applyLightColor(el, null, false);
-            });
-            sw.appendChild(input);
-            el.appendChild(sw);
+            var head = el.querySelector('.dash-tile-head');
+            head.classList.add('dash-tile-tap');
+            headSwitch(el, 'dash-color-toggle', isOn, function(on) {
+                refreshTile(el, w, { on: on });
+                executeAction(w.id, on ? 'switchOn' : 'switchOff');
+                if (!on) applyLightColor(el, null, false);
+            }, head);
         }
 
         var presetsRow = document.createElement('div');
@@ -1241,6 +1328,12 @@
         };
     }
 
+    // The theme's accent as a value a canvas can draw with
+    function themeAccent() {
+        var c = getComputedStyle(document.documentElement).getPropertyValue('--dash-accent').trim();
+        return /^#[0-9a-f]{3}([0-9a-f]{3})?$/i.test(c) ? c : 'rgba(39,194,168,1)';
+    }
+
     // Resolve color to an rgba string (for fill backgrounds)
     function colorToRGBA(c, alpha) {
         // Already rgba
@@ -1267,7 +1360,8 @@
         var canvas = document.createElement('canvas');
         canvas.id = 'chart-' + w.id;
         wrap.appendChild(canvas);
-        el.insertBefore(wrap, el.querySelector('.dash-widget-label'));
+        el.appendChild(wrap);
+        setState(el, 'unknown', T.unknown);
 
         fetchChartData(w, canvas);
         startChartTimer(w.id, function() {
@@ -1292,11 +1386,15 @@
                     return dt.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
                 });
                 var rawValues = data.map(function(d) { return d[1]; });
+                var tile = canvas.closest('.dash-widget');
+                if (tile && rawValues.length) {
+                    setState(tile, 'value', withUnit(Math.round(rawValues[rawValues.length - 1] * 10) / 10, w.unit));
+                }
 
                 // Smooth to reduce sensor jitter
                 var values = smoothValues(rawValues, 3);
 
-                var color = resolveColor(w.color) || 'rgba(39,194,168,1)';
+                var color = resolveColor(w.color) || themeAccent();
                 var fillBg = colorToRGBA(color, 0.08);
                 var yBounds = calcYBounds(values, w.min, w.max, 2);
 
@@ -1327,17 +1425,17 @@
                             maintainAspectRatio: false,
                             scales: {
                                 x: {
-                                    ticks: { color: 'rgba(255,255,255,0.4)', maxTicksLimit: 6, font: {size: 10} },
-                                    grid: { color: 'rgba(255,255,255,0.05)' },
+                                    ticks: { color: 'rgba(128,128,128,0.9)', maxTicksLimit: 6, font: {size: 10} },
+                                    grid: { color: 'rgba(128,128,128,0.12)' },
                                 },
                                 y: {
                                     min: yBounds.min,
                                     max: yBounds.max,
                                     ticks: {
-                                        color: 'rgba(255,255,255,0.4)', font: {size: 10},
+                                        color: 'rgba(128,128,128,0.9)', font: {size: 10},
                                         callback: function(v) { return v + (w.unit ? ' ' + w.unit : ''); }
                                     },
-                                    grid: { color: 'rgba(255,255,255,0.05)' },
+                                    grid: { color: 'rgba(128,128,128,0.12)' },
                                 }
                             },
                             interaction: { intersect: false, mode: 'index' },
@@ -1380,7 +1478,7 @@
             .then(function(data) {
                 data = downsample(data, 60);
                 var values = smoothValues(data.map(function(d) { return d[1]; }), 3);
-                var color = resolveColor(w.color) || 'rgba(39,194,168,1)';
+                var color = resolveColor(w.color) || themeAccent();
                 var key = 'spark-' + w.id;
 
                 if (chartInstances[key]) {
@@ -1446,52 +1544,52 @@
         }
     }
 
+    // A chip: the icon in a small circle coloured by state, the value (status) or the name
     function renderHeaderWidget(w) {
         var el = document.createElement('div');
         el.className = 'dash-header-item';
         el.dataset.widgetId = w.id;
+        el.dataset.type = w.type;
 
         var color = resolveColor(w.color);
+        if (color) el.style.setProperty('--widget-color', color);
 
-        if (w.icon) {
-            var icon = document.createElement('i');
-            icon.className = 'bi bi-' + w.icon;
-            if (color) icon.style.color = color;
-            el.appendChild(icon);
-        }
+        var icon = calEl('span', 'dash-header-icon');
+        icon.innerHTML = '<i class="bi bi-' + esc(w.icon || typeIcons[w.type] || 'circle') + '"></i>';
+        el.appendChild(icon);
 
         if (w.type === 'status') {
-            var val = document.createElement('span');
-            val.className = 'dash-header-value';
-            val.textContent = w.value != null ? w.value : '--';
-            el.appendChild(val);
-            if (w.unit) {
-                var unit = document.createElement('span');
-                unit.className = 'dash-header-unit';
-                unit.textContent = w.unit;
-                el.appendChild(unit);
-            }
-        } else if (w.type === 'link') {
-            var lbl = document.createElement('span');
-            lbl.className = 'dash-header-value';
-            lbl.textContent = w.label;
-            el.appendChild(lbl);
-            el.style.cursor = 'pointer';
-            el.addEventListener('click', function() {
-                window.open(w.url, '_blank');
-            });
+            el.appendChild(calEl('span', 'dash-header-value', w.value != null ? fmtNum(w.value) : '--'));
+            if (w.unit) el.appendChild(calEl('span', 'dash-header-unit', w.unit));
         } else {
-            var lbl = document.createElement('span');
-            lbl.className = 'dash-header-value';
-            lbl.textContent = w.label;
-            el.appendChild(lbl);
+            el.appendChild(calEl('span', 'dash-header-value', w.label));
         }
 
+        if (w.type === 'link') {
+            el.addEventListener('click', function() { window.open(w.url, '_blank'); });
+        } else if (w.type === 'toggle') {
+            el.addEventListener('click', function() {
+                var on = !el._data.value;
+                refreshTile(el, w, { value: on });
+                executeAction(w.id, 'toggle', on);
+            });
+        } else if (w.type === 'button') {
+            el.addEventListener('click', function() {
+                if (w.confirm && !confirm(w.confirm)) return;
+                executeAction(w.id, 'tap');
+            });
+        }
+        if (w.type === 'link' || w.type === 'toggle' || w.type === 'button') el.classList.add('dash-header-tap');
+
+        refreshTile(el, w, w);
         widgetEls[w.id] = el;
         return el;
     }
 
     // ---- Update widgets from poll ----
+
+    // Widgets read with getValue: no value in a poll means the function gave nil
+    var valueTypes = { toggle: true, slider: true, status: true, select: true };
 
     function updateWidget(wid, data, force) {
         var el = widgetEls[wid];
@@ -1501,7 +1599,7 @@
         if (!force && actionGrace[wid] && Date.now() < actionGrace[wid]) return;
 
         // Find widget definition
-        var wDef = null;
+        var wDef = {};
         if (definition) {
             for (var i = 0; i < definition.widgets.length; i++) {
                 if (definition.widgets[i].id === wid) {
@@ -1519,15 +1617,15 @@
         // Colour from a function (false: none)
         if (data.color !== undefined) applyColor(el, data.color);
 
-        // Error state
+        // Error state: a badge on the icon
         var errEl = el.querySelector('.dash-widget-error');
         if (data.error) {
             el.classList.add('has-error');
             if (!errEl) {
                 errEl = document.createElement('span');
                 errEl.className = 'dash-widget-error';
-                errEl.innerHTML = '<i class="bi bi-exclamation-triangle"></i>';
-                el.insertBefore(errEl, el.firstChild);
+                errEl.innerHTML = '<i class="bi bi-exclamation-triangle-fill"></i>';
+                (el.querySelector('.dash-widget-icon, .dash-header-icon') || el).appendChild(errEl);
             }
             errEl.title = data.error;
         } else if (errEl) {
@@ -1535,107 +1633,71 @@
             el.classList.remove('has-error');
         }
 
-        // Type-specific updates
-        var type = el.className.match(/dash-widget-(\w+)/);
+        var type = el.dataset.type;
         if (!type) return;
-        type = type[1];
+        var d = {};
+        for (var k in data) if (data.hasOwnProperty(k)) d[k] = data[k];
+        if (!force && valueTypes[type] && d.value === undefined) d.value = null;
+        if (type === 'cover' && d.value !== undefined) d.position = d.value; // a set's reply
+        if (type === 'color') delete d.value; // brightness or white: the reply does not say
+        var slider = el.querySelector('.dash-slider-input');
+        var held = slider && userHolds(slider);
+        var toggle;
 
-        // Compound widgets (multiple data fields, not just value)
         if (type === 'cover') {
-            var slider = el.querySelector('.dash-slider-input');
-            var valSpan = el.querySelector('.dash-slider-value');
-            var held = slider && userHolds(slider);
-            if (slider && !held && data.position != null) {
-                slider.value = data.position;
-            }
-            if (valSpan && !held && data.position != null) valSpan.textContent = data.position + '%';
+            if (slider && !held && d.position != null) slider.value = d.position;
             var btns = el.querySelectorAll('.dash-cover-btn');
-            if (btns.length === 3 && data.state != null) {
-                btns[0].classList.toggle('active', data.state === 1);
-                btns[1].classList.toggle('active', data.state === 0);
-                btns[2].classList.toggle('active', data.state === 2);
+            if (btns.length === 3 && d.state != null) {
+                btns[0].classList.toggle('active', d.state === 1);
+                btns[1].classList.toggle('active', d.state === 0);
+                btns[2].classList.toggle('active', d.state === 2);
             }
-            return;
+            if (held) { delete d.position; delete d.state; }
         } else if (type === 'dimmer') {
-            var slider = el.querySelector('.dash-slider-input');
-            var valSpan = el.querySelector('.dash-slider-value');
-            var held = slider && userHolds(slider);
-            if (slider && !held && data.value != null) {
-                slider.value = data.value;
-            }
-            if (valSpan && !held && data.value != null) valSpan.textContent = data.value + '%';
-            var toggle = el.querySelector('.dash-dimmer-toggle .form-check-input');
-            if (toggle && data.on !== undefined) toggle.checked = !!data.on;
-            var isOn = data.on !== false;
-            if (slider) slider.classList.toggle('dimmed', !isOn);
-            var iconEl = el.querySelector('.dash-widget-icon');
-            if (iconEl) {
-                var br = data.value != null ? data.value : 0;
-                iconEl.style.opacity = isOn ? (0.3 + 0.7 * br / 100) : 0.3;
-            }
-            return;
+            if (slider && !held && d.value != null) slider.value = d.value;
+            toggle = el.querySelector('.dash-dimmer-toggle .form-check-input');
+            if (toggle && d.on !== undefined) toggle.checked = !!d.on;
+            if (slider && d.on !== undefined) slider.classList.toggle('dimmed', !d.on);
+            if (held) { delete d.value; delete d.on; }
         } else if (type === 'color') {
             ['brightness', 'white'].forEach(function(role) {
-                if (data[role] == null) return;
+                if (d[role] == null) return;
                 var sl = el.querySelector('.dash-slider-input[data-role="' + role + '"]');
                 var vs = el.querySelector('.dash-slider-value[data-role="' + role + '"]');
-                if (sl && userHolds(sl)) return;
-                if (sl) sl.value = data[role];
-                if (vs) vs.textContent = data[role] + '%';
+                if (sl && userHolds(sl)) { delete d[role]; return; }
+                if (sl) sl.value = d[role];
+                if (vs) vs.textContent = d[role] + '%';
             });
-            var toggle = el.querySelector('.dash-color-toggle .form-check-input');
-            if (toggle && data.on !== undefined) toggle.checked = !!data.on;
-            if (data.rgb) {
-                markPreset(el, data.rgb);
+            toggle = el.querySelector('.dash-color-toggle .form-check-input');
+            if (toggle && d.on !== undefined) toggle.checked = !!d.on;
+            if (d.rgb) {
+                markPreset(el, d.rgb);
                 var pk = el.querySelector('.dash-color-custom input');
-                if (pk && document.activeElement !== pk) pk.value = toHex(data.rgb);
+                if (pk && document.activeElement !== pk) pk.value = toHex(d.rgb);
             }
             // an action's reply carries only its value: keep the tint until a poll
-            if (data.rgb !== undefined || data.on !== undefined) {
-                applyLightColor(el, data.rgb, data.on !== false);
+            if (d.rgb !== undefined || d.on !== undefined) {
+                applyLightColor(el, d.rgb, d.on !== false);
             }
-            return;
-        }
-
-        // Simple widgets (value-based)
-        if (data.value === undefined) return;
-        var value = data.value;
-
-        if (type === 'toggle') {
-            var input = el.querySelector('.form-check-input');
-            if (input) input.checked = !!value;
-            el.classList.toggle('active', !!value);
+        } else if (type === 'toggle') {
+            toggle = el.querySelector('.form-check-input');
+            if (toggle && d.value !== undefined) toggle.checked = !!d.value;
+            el.classList.toggle('active', !!d.value);
         } else if (type === 'slider') {
-            var slider = el.querySelector('.dash-slider-input');
-            var valSpan = el.querySelector('.dash-slider-value');
-            var held = slider && userHolds(slider);
-            if (slider && !held) {
-                slider.value = value;
-            }
-            if (valSpan && !held) valSpan.textContent = value;
-        } else if (type === 'status') {
-            var valEl = el.querySelector('.dash-status-value');
-            if (valEl) {
-                var display = value != null ? value : '--';
-                markStatusText(el, display);
-                var unit = wDef && wDef.unit ? wDef.unit : '';
-                valEl.innerHTML = esc(String(display));
-                if (unit) {
-                    valEl.innerHTML += '<span class="dash-status-unit">' + esc(unit) + '</span>';
-                }
-            }
+            if (slider && !held && d.value != null) slider.value = d.value;
+            if (held) delete d.value;
         } else if (type === 'select') {
             var sel = el.querySelector('.dash-select-input');
-            if (sel && document.activeElement !== sel) {
-                sel.value = String(value);
-            }
+            if (sel && document.activeElement !== sel && d.value != null) sel.value = String(d.value);
         }
 
-        // Header item update (status in header bar)
-        if (el.classList.contains('dash-header-item')) {
+        // Header status: the value is the chip's text
+        if (el.classList.contains('dash-header-item') && type === 'status' && d.value !== undefined) {
             var hVal = el.querySelector('.dash-header-value');
-            if (hVal) hVal.textContent = value != null ? value : '--';
+            if (hVal) hVal.textContent = d.value != null ? fmtNum(d.value) : '--';
         }
+
+        refreshTile(el, wDef, d);
     }
 
     // ---- Polling ----
