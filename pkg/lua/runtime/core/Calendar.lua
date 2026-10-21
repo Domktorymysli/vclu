@@ -247,8 +247,9 @@ function Builder:event(id, opts)
     return self
 end
 
---- Add a schedule: windows { every, hours, value, ... }, a default value, and optionally a
--- title and colors = { value = color } for the dashboard. @api public
+--- Add a schedule: windows { every, hours, value, ... }, a default value, values = { ... } (the
+-- allowed values, required when they are text), and optionally a title and colors = { value = color }
+-- for the dashboard. @api public
 function Builder:schedule(id, opts)
     checkId(self, id, 'schedule')
     if type(opts) ~= 'table' or #opts == 0 then
@@ -445,6 +446,7 @@ end
 -- ---------- subscriptions ----------
 
 --- Subscribe: on(kind, fn) or on(kind, id, fn); kinds start, end, reminder, change, ready.
+-- At one moment end comes before start; an end from skip, pause or remove has e.cancelled = true.
 -- @return function unsubscribe
 -- @api public
 function Cal:on(kind, id, fn)

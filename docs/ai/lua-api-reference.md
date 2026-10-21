@@ -879,7 +879,7 @@ Add an event (start, end and reminder events). @api public
 
 ### `Builder:schedule(id, opts)`
 
-Add a schedule: windows { every, hours, value, ... }, a default value, and optionally a title and colors = { value = color } for the dashboard. @api public
+Add a schedule: windows { every, hours, value, ... }, a default value, values = { ... } (the allowed values, required when they are text), and optionally a title and colors = { value = color } for the dashboard. @api public
 
 ### `Builder:build()`
 
@@ -895,7 +895,7 @@ All calendars in the order they were built. @api public
 
 ### `Cal:on(kind, id, fn) → function unsubscribe`
 
-Subscribe: on(kind, fn) or on(kind, id, fn); kinds start, end, reminder, change, ready.
+Subscribe: on(kind, fn) or on(kind, id, fn); kinds start, end, reminder, change, ready. At one moment end comes before start; an end from skip, pause or remove has e.cancelled = true.
 
 **Returns:** function unsubscribe
 
@@ -1067,7 +1067,7 @@ Add a calendar widget to this section: a month grid and the day of a tapped date
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label
 - `cal` (table) — Calendar from Calendar.new(...):build(), or its id
-- `opts` (table) — Optional: {view="month"|"day", tags={...}, schedules={ids drawn as 24 h bars in the day view},
+- `opts` (table) — Optional: {view="month"|"day", tags={...}, schedules={ids drawn as 24 h bars in the day view} or true for all of the calendar's,
 
 ### `SectionHandle:select(id, label, icon, options, getValue, onSelect, opts)`
 
@@ -1294,7 +1294,7 @@ Add a calendar widget to the current section: a month grid and the day of a tapp
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label
 - `cal` (table) — Calendar from Calendar.new(...):build(), or its id
-- `opts` (table) — Optional: {view="month"|"day", tags={...}, schedules={ids drawn as 24 h bars in the day view},
+- `opts` (table) — Optional: {view="month"|"day", tags={...}, schedules={ids drawn as 24 h bars in the day view} or true for all of the calendar's,
 
 ### `DashboardBuilder:select(id, label, icon, options, getValue, onSelect, opts)`
 

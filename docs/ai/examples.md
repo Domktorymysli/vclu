@@ -114,6 +114,7 @@ dom:skip('bio', '2026-11-10'); dom:pause('2026-12-24..2027-01-02', { tags = { 'd
 - `day = 31` skips months without a 31st; the last day of every month is `day = -1`.
 - Until the clock is trusted `value()`/`isActive()` return nil; `:clock({ wait = false })` skips the wait.
 - Test with `vclu_draft_test` and `advance`: the virtual clock drives the calendar.
+- `vclu_calendar` reads the house's calendars as they run: a day (`date = 'tomorrow'`) or up to 62 days, with holidays, events in local time and each schedule's value now and next change. Read it before changing a calendar module.
 
 ## Expose z pluginu
 
