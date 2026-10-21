@@ -552,8 +552,12 @@ function PluginSandbox:buildEnvironment(sandbox)
                     return obj:getValue()
                 end
             end
-            if _ and _[key] then
-                return _[key]
+            -- Other registry methods are not given to plugins: sync changes state, and
+            -- byTag/find hand out writable objects.
+            if _registry and type(_registry[key]) == "function" then
+                return function()
+                    error("_:" .. key .. " is not available in a plugin; use _:get or _:value", 2)
+                end
             end
             return nil
         end

@@ -49,6 +49,8 @@ the object does not exist or has no reading yet, without writing its own helper.
 - [ ] An error inside `getValue` is not hidden.
 - [ ] `value` is not listed as an object by `_:list()`, `_:find()` or `_:toJSON()`.
 - [ ] The same in a plugin, whose `_` is a read-only proxy (`PluginSandbox.lua`).
+- [ ] In a plugin, any other key of `_` no longer overflows the stack: registry methods raise an error
+      that names `_:get` and `_:value`, other keys are `nil`, and `_:sync` changes nothing.
 - [ ] `vclu_draft_test` warns about a missing object read with `_:value`, as with `_:get`.
 - [ ] `go test ./...` and `go test -race ./...` pass.
 - [ ] Changelog fragment in `changelog.d/`.

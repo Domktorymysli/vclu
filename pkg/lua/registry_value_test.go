@@ -266,3 +266,39 @@ func TestRegistryValueInPluginSandbox(t *testing.T) {
 		t.Errorf("in a plugin, _:value(42) error = %q, want the path message", got)
 	}
 }
+
+func TestPluginRegistryProxyOtherMethods(t *testing.T) {
+	engine := newRegistryValueEngine(t)
+	// The proxy's fallback recursed into itself (a parameter named _ hid the registry): every
+	// key but get ended in a stack overflow. Methods that change state or hand out writable
+	// objects must stay out of reach, with an error that says what to use instead.
+	if _, err := engine.Execute(`PluginSandbox:create("@test/proxy")`); err != nil {
+		t.Fatalf("sandbox create: %v", err)
+	}
+	run := func(script string) string {
+		return registryValue(t, engine, `
+			local r, e = PluginSandbox:execute("@test/proxy", [[`+script+`]])
+			if e then return "error: " .. tostring(e) end
+			return tostring(r)`)
+	}
+	for _, call := range []string{`_:sync("CLU123.DOU0001", 0)`, `_:byTag("x")`, `_:find("CLU")`, `_:list()`, `_:event("CLU123.DOU0001.OnSwitchOn")`} {
+		got := run(call)
+		if strings.Contains(got, "stack overflow") || !strings.Contains(got, "is not available in a plugin; use _:get or _:value") {
+			t.Errorf("in a plugin, %s = %q, want the not-available error", call, got)
+		}
+	}
+	// sync was refused, not half-run
+	if got := registryValue(t, engine, `return tostring(_:value("CLU123.DOU0001"))`); got != "1" {
+		t.Errorf("after _:sync in a plugin the value is %q, want 1 (unchanged)", got)
+	}
+	for script, want := range map[string]string{
+		`return type(_.nie_ma)`:                "nil",
+		`return type(_["CLU123.DOU0001"])`:     "nil",
+		`return type(_:get("CLU123.DOU0001"))`: "table",
+		`return tostring(_:value("lampa"))`:    "1",
+	} {
+		if got := run(script); got != want {
+			t.Errorf("in a plugin, %s = %q, want %q", script, got, want)
+		}
+	}
+}
