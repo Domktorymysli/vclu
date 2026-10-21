@@ -92,7 +92,7 @@ func (c ObjectClass) MQTTType() string {
 		return "number"
 	case ClassONE_WIRE, ClassPanelTemp, ClassPanelLight, ClassHumidity:
 		return "sensor"
-	// ClassThermostat (18) is a climate device, not yet exposed — see roadmap.
+	// ClassThermostat (18) is a climate: registered apart, exposed only by expose() in Lua.
 	default:
 		return ""
 	}

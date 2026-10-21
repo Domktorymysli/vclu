@@ -243,6 +243,9 @@ function ExposedHandle:setValue(value)
     if self.options.readonly then
         return false
     end
+    if self.type == "climate" then
+        return self:_setTarget(value)
+    end
     if self.object and type(self.object.set) == "function" then
         local obj = self.object
         local old, stateful = StateChange.read(obj)
@@ -264,6 +267,20 @@ function ExposedHandle:setValue(value)
         return ok
     end
     return false
+end
+
+-- A thermostat's value is its temperature and its feature 0 the sensor binding: a target
+-- goes to setSetpoint, clamped to the expose options min/max (default the type's range)
+function ExposedHandle:_setTarget(value)
+    local obj, v = self.object, tonumber(value)
+    if not v or v - v ~= 0 or type(obj) ~= "table" or type(obj.setSetpoint) ~= "function" then
+        return false
+    end
+    local range = ExposedObjects:getCapabilities("climate").range
+    v = math.max(tonumber(self.options.min) or range[1], math.min(tonumber(self.options.max) or range[2], v))
+    local ok = pcall(obj.setSetpoint, obj, v)
+    if ok then self._lastChanged = os.time() end
+    return ok
 end
 
 -- ==========================================================================
@@ -288,7 +305,8 @@ local capabilities = {
     -- New types
     lock = { read = true, write = true, binary = true },
     fan = { read = true, write = true, speed = true, range = {0, 100} },
-    climate = { read = true, write = true, temperature = true, range = {5, 35} },
+    -- a thermostat (getValue, getTarget, setSetpoint): only by expose(), never by exposeRegistry()
+    climate = { read = true, write = true, temperature = true, range = {5, 35}, explicitOnly = true },
     garage_door = { read = true, write = true, binary = true },
 }
 
@@ -392,7 +410,8 @@ end
 -- @param objType string Type: switch, light, dimmer, sensor, temperature, etc.
 -- @param options table Optional settings: name, path, id, readonly, hidden, mqtt, homekit, group,
 --   filter = {delta, heartbeat} for noisy numeric sensors (see StateChange.setFilter),
---   history = false to keep the object's changes out of the history store
+--   history = false to keep the object's changes out of the history store,
+--   min/max/step for a number or a climate (a climate's target is clamped to min/max)
 -- @return ExposedHandle Handle for managing the exposed object
 function ExposedObjects:expose(obj, objType, options)
     options = options or {}
@@ -787,6 +806,12 @@ end
 
 local TypeMap = require("TypeMap") -- central type mapping
 
+-- The type exposeRegistry() would give an object (nil: none)
+local function registryType(obj)
+    if type(obj._getExposeType) == "function" then return obj:_getExposeType() end
+    return TypeMap.getExposeType(obj._type or "switch", "switch")
+end
+
 --- Auto-expose all objects from _registry, respecting AccessControl.
 -- Objects already exposed via manual expose() are skipped (user overrides win).
 -- AccessControl determines per-integration visibility for remaining objects:
@@ -811,8 +836,10 @@ function ExposedObjects:exposeRegistry(options)
         -- Skip plugins (they manage their own exposure)
         if obj._isPlugin then
             -- noop
-        elseif type(obj._getExposeType) == "function" and obj:_getExposeType() == nil then
-            -- nothing to expose it as (a thermostat): no switch fallback
+        elseif registryType(obj) == nil then
+            -- nothing to expose it as: no switch fallback
+        elseif (capabilities[registryType(obj)] or {}).explicitOnly then
+            -- a thermostat is exposed by expose() only
         elseif not self._objects[path] then
             -- Check AccessControl for per-integration visibility
             local mqttHidden = AccessControl and AccessControl.isHidden("mqtt", path)
