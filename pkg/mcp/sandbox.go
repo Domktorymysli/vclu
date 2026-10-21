@@ -398,23 +398,7 @@ func (run *sandboxRun) load() (*lua.LState, error) {
 		}
 		return 0
 	}))
-	if err := L.DoString(`
-		-- Logger:error (class), Logger:getShared():error and log.error
-		local function hook(owner, format)
-			local orig = owner and rawget(owner, "error")
-			if not orig then return end
-			owner.error = function(...)
-				local ok, msg = pcall(format, ...)
-				__sandbox_error(ok and msg or tostring((select(2, ...))))
-				return orig(...)
-			end
-		end
-		local loggerFormat = function(self, message, ...) return self:format(message, ...) end
-		hook(Logger, loggerFormat)
-		local shared = Logger:getShared()
-		if shared ~= Logger then hook(shared, loggerFormat) end
-		hook(log, function(fmt, ...) return string.format(fmt, ...) end)
-	`); err != nil {
+	if err := L.DoString(sandboxLoggerHookLua); err != nil {
 		return L, fmt.Errorf("sandbox logger: %w", err)
 	}
 
@@ -424,13 +408,7 @@ func (run *sandboxRun) load() (*lua.LState, error) {
 	if err := L.DoString(packageScript); err != nil {
 		log.Printf("[SANDBOX] failed to set package.path: %v", err)
 	}
-	userScript := `
-		local ok, err = pcall(function() require "user" end)
-		if not ok then
-			__sandbox_log("[WARN] user.lua skipped: " .. tostring(err))
-		end
-	`
-	if err := L.DoString(userScript); err != nil {
+	if err := L.DoString(sandboxLoadUserLua); err != nil {
 		log.Printf("[SANDBOX] failed to load user.lua: %v", err)
 	}
 
@@ -744,12 +722,7 @@ func (se *SandboxEngine) injectEvent(L *lua.LState, evt InjectEvent) error {
 		return fmt.Errorf("failed to marshal event data: %w", err)
 	}
 
-	script := fmt.Sprintf(`
-		local data = JSON:decode(%q)
-		EventBus:getShared():emit(%q, data)
-	`, string(dataJSON), evt.Name)
-
-	return L.DoString(script)
+	return runLuaChunk(L, sandboxInjectEventLua, lua.LString(evt.Name), lua.LString(dataJSON))
 }
 
 // luaValueToGo converts a Lua value to a Go value for JSON serialization.

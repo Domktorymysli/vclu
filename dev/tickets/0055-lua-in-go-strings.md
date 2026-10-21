@@ -41,13 +41,16 @@ AGENTS.md rule 4 states the rule since 2026-10-17; this ticket applies it to wha
 - [ ] Every Go raw string that contains a Lua `function` or `local` outside test files and
   `pkg/config/om_generator.go` is gone; the Lua is in a `.lua` file next to its package, loaded
   with `go:embed`, at the same point and in the same order as before.
-- [ ] A test in the repository fails when such a string comes back (scan of non-test Go files
+  Open: the snippets `vclu_mqtt_discover` generates for the user (`generate*Snippet` in
+  `pkg/mcp/tool_mqtt_discover.go`) are still Go strings: Go writes them, never runs them, and
+  their values would need a text template. The test allows them next to `om_generator.go`.
+- [x] A test in the repository fails when such a string comes back (scan of non-test Go files
   under `pkg/`, with the `om_generator.go` templates allowed).
-- [ ] No behaviour changes: `go test ./...` and `go test -race ./pkg/mcp ./pkg/web ./pkg/homekit`
+- [x] No behaviour changes: `go test ./...` and `go test -race ./pkg/mcp ./pkg/web ./pkg/homekit`
   pass with no test changed except the new one.
-- [ ] A test compiles every embedded file (`L.LoadString`, without running it), so a syntax
+- [x] A test compiles every embedded file (`L.LoadString`, without running it), so a syntax
   error fails `go test` and not a draft test; there is no Lua lint in CI today.
-- [ ] CHANGELOG entry in "Unreleased" under a maintenance heading, one line.
+- [x] CHANGELOG entry in "Unreleased" under a maintenance heading, one line.
 
 ## Contract impact
 None: the Lua runs as before, from the same places.

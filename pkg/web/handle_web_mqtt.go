@@ -497,18 +497,6 @@ func (s *Server) handleAPIMQTTClientTest(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
-// haDiscoveryRefresh republishes discovery from the runtime; -1 when the HA
-// integration is off, -2 when its MQTT client cannot publish (MQTT:publish
-// drops the Go "not connected" error, so refresh() would report nothing)
-const haDiscoveryRefresh = `
-	if not (HAStatePublisher and HAStatePublisher.isEnabled()) then return -1 end
-	local m = HAStatePublisher.mqttInstance
-	if not m or (m.isConnected and not m:isConnected()) then return -2 end
-	HAStatePublisher.refresh()
-	local n = 0
-	for _ in pairs(ExposedObjects:list()) do n = n + 1 end
-	return n`
-
 // handleAPIHADiscoveryPublish republishes Home Assistant discovery
 //
 //	@Summary		Publish Home Assistant discovery

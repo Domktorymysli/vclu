@@ -18,8 +18,8 @@ import (
 var readonlyPerms = []string{characteristic.PermissionRead, characteristic.PermissionEvents}
 
 // command runs a write from the Home app on the exposed object at path:
-// luaCall is a method call on the handle h. The HomeKit access level is read
-// again here (the profile may have changed since the bridge was built); a
+// luaCall is Lua run with the handle h and hk, the operations of lua/command.lua.
+// The HomeKit access level is read again here (the profile may have changed since the bridge was built); a
 // refused or failed write puts the tile back to the real state.
 func (s *Server) command(path, luaCall string, update func(float64)) bool {
 	if s.paused(path, update) {
@@ -34,7 +34,7 @@ func (s *Server) command(path, luaCall string, update func(float64)) bool {
 	if s.metrics != nil {
 		s.metrics.RecordHomeKitRequest(false)
 	}
-	script := fmt.Sprintf(`local h = ExposedObjects:get(%s); if not h then return "missing" end; %s; return "ok"`, luaString(path), luaCall)
+	script := commandLua + "\n" + fmt.Sprintf("return command(ExposedObjects:get(%s), %s)", luaString(path), luaString(luaCall))
 	res, err := s.executeCommand(script)
 	if err == nil && res == "missing" {
 		err = fmt.Errorf("object no longer exposed")
@@ -203,11 +203,11 @@ func (s *Server) createExposedLightbulb(info accessory.Info, obj ExposedObject, 
 		call := "h:setValue(0)"
 		switch {
 		case want && obj.Dimmable:
-			call = "if h.object.switchOn then h.object:switchOn() else h:setValue(1) end"
+			call = "hk.switchOn(h)"
 		case want:
 			call = "h:setValue(1)"
 		case obj.Dimmable:
-			call = "if h.object.switchOff then h.object:switchOff() else h:setValue(0) end"
+			call = "hk.switchOff(h)"
 		}
 		s.command(obj.Path, call, updateFunc)
 	})
@@ -216,8 +216,7 @@ func (s *Server) createExposedLightbulb(info accessory.Info, obj ExposedObject, 
 			if s.paused(obj.Path, updateFunc) {
 				return
 			}
-			if s.command(obj.Path, fmt.Sprintf(
-				"if h.object.setBrightness then h.object:setBrightness(%d) else h:setValue(%g) end", pct, float64(pct)/100), updateFunc) {
+			if s.command(obj.Path, fmt.Sprintf("hk.setBrightness(h, %d)", pct), updateFunc) {
 				on.SetValue(pct > 0) // the slider also switches the light
 			}
 		})
@@ -256,11 +255,8 @@ func (s *Server) createExposedCover(info accessory.Info, obj ExposedObject, read
 		if current, ok := s.GetCurrentState(obj.Path); ok && int(math.Round(current)) == target {
 			return
 		}
-		// A Grenton roller without a position (class 11, or a proxy not regenerated) has
-		// no SetPosition: it opens or closes, as a tap in the Home app does
-		if s.command(obj.Path, fmt.Sprintf(
-			"local o = h.object; if o._hasPosition == false and o.open then if %d >= 50 then o:open() else o:close() end "+
-				"elseif o.setPosition then o:setPosition(%d) else h:setValue(%d) end", target, target, target), updateFunc) && obj.HasPos {
+		// a roller without a position opens or closes (hk.setPosition)
+		if s.command(obj.Path, fmt.Sprintf("hk.setPosition(h, %d)", target), updateFunc) && obj.HasPos {
 			// position never reported (Grenton roller): show the target, or
 			// the Home app waits for the cover to arrive forever
 			if _, ok := s.GetCurrentState(obj.Path); !ok {
