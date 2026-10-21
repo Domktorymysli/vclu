@@ -957,6 +957,17 @@ function RemoteSubscription.stopPollTimer()
     end
 end
 
+--- After a config sync: no polling with Sync off, none of objects taken off the Sync list.
+function RemoteSubscription.syncPolled()
+    local wl = RemoteSubscription.config.whitelist or {}
+    for path in pairs(RemoteSubscription.polled) do
+        if not RemoteSubscription.config.enabled or not wl[path] then
+            RemoteSubscription.polled[path] = nil
+        end
+    end
+    if not next(RemoteSubscription.polled) then RemoteSubscription.stopPollTimer() end
+end
+
 --- Destroy all active subscriptions (cleanup)
 -- Iterates through all active subscriptions and destroys them. Used during shutdown.
 function RemoteSubscription.destroyAll()

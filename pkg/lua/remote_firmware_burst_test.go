@@ -54,6 +54,26 @@ func TestRemoteFirmwareRenewWaitsForPoll(t *testing.T) {
 	}
 }
 
+// Sync switched off stops the polling; a thermostat taken off the Sync list stops being
+// polled at the config sync.
+func TestRemoteFirmwareConfigSyncStopsPolling(t *testing.T) {
+	engine := newFirmwareEngine(t)
+	got := mustExec(t, engine, `
+		RemoteSubscription.autoSubscribe(); runTimeouts()
+		LuaAPI.syncRemoteConfig({ enabled = true, objects = { "CLU220000592.DOU0001" } })
+		SENT = {}
+		RemoteSubscription.pollAll(); runTimeouts()
+		local removed = tostring(next(RemoteSubscription.polled)) .. "/" .. sentLike("^THE0855")
+		RemoteSubscription.config.whitelist["CLU220000592.THE0855"] = true
+		RemoteSubscription.autoSubscribe(); runTimeouts()
+		LuaAPI.syncRemoteConfig({ enabled = false, objects = { "CLU220000592.THE0855" } })
+		return removed .. "#" .. tostring(next(RemoteSubscription.polled)) .. "/" ..
+			tostring(RemoteSubscription._pollTimer)`)
+	if got != "nil/#nil/nil" {
+		t.Errorf("after removal#after disable = %s, want nil/#nil/nil", got)
+	}
+}
+
 // The first poll after autoSubscribe does not follow its clientDestroy series at once.
 func TestRemoteFirmwareFirstPollWaits(t *testing.T) {
 	engine := newFirmwareEngine(t)
