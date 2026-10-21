@@ -424,7 +424,8 @@ function MqttHandler:_findObject(objectId)
     if not self._registry then return nil end
 
     -- Try direct lookup first (MQTT topics are case-sensitive)
-    local obj = self._registry[objectId]
+    -- rawget: an id such as "list" is a registry method, not an object
+    local obj = rawget(self._registry, objectId)
     if obj then return obj end
 
     -- Build case-insensitive index on first miss (lazy initialization)

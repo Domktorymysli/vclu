@@ -302,3 +302,38 @@ func TestPluginRegistryProxyOtherMethods(t *testing.T) {
 		}
 	}
 }
+
+func TestRegistryMethodNameAsPath(t *testing.T) {
+	engine := newRegistryValueEngine(t)
+	// An object exposed at a path that is a registry method's name must not take the method's
+	// place: _:value and _:get keep working for every module, the object stays exposed.
+	got := registryValue(t, engine, `
+		local sw = RemoteSwitch:new({ execute = function() end }, "DOU0009", "x")
+		expose(sw, "switch", { path = "value" })
+		expose(RemoteSwitch:new({ execute = function() end }, "DOU0010", "y"), "switch", { path = "lista" })
+		return table.concat({
+			type(rawget(_registry, "value")),
+			tostring(_:value("CLU123.DOU0001")),
+			type(ExposedObjects:list()["value"]),
+			type(rawget(_registry, "lista")),
+		}, ",")`)
+	if got != "nil,1,table,table" {
+		t.Errorf("after expose at path value: rawget(value), _:value, exposed, rawget(lista) = %q, want nil,1,table,table", got)
+	}
+}
+
+func TestIntegrationLookupSkipsRegistryMethods(t *testing.T) {
+	engine := newRegistryValueEngine(t)
+	// MQTT and Home Assistant look objects up by id; a method's name is not an object
+	got := registryValue(t, engine, `
+		local h = MqttHandler:new(nil, _registry)
+		local out = {}
+		for i, id in ipairs({ "list", "value", "sync" }) do
+			out[#out + 1] = type(h:_findObject(id)) .. "/" .. type((HACommands.findObject("CLU123", id)))
+		end
+		out[#out + 1] = type(h:_findObject("CLU123.DOU0001")) .. "/" .. type((HACommands.findObject("CLU123", "DOU0001")))
+		return table.concat(out, ",")`)
+	if got != "nil/nil,nil/nil,nil/nil,table/table" {
+		t.Errorf("lookups of list, value, sync, a real object = %q, want nil/nil x3, table/table", got)
+	}
+}

@@ -247,8 +247,10 @@ function HACommands.findObject(cluId, objectId)
     }
 
     for _, path in ipairs(paths) do
-        if _registry and _registry[path] then
-            return _registry[path], path
+        -- rawget: an id such as "list" is a registry method, not an object
+        local obj = _registry and rawget(_registry, path)
+        if obj then
+            return obj, path
         end
     end
 
