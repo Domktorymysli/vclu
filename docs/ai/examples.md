@@ -109,6 +109,19 @@ expose(pump, "switch", {
   :description("Domestic hot water. 3x a day for 5 min. Do not turn on when the boiler is OFF.")
 ```
 
+## Read a value for a message
+
+`_:value(path)` gives the value, or nil when the object is gone or has no reading yet, so a
+status message never fails on a stale path. Turn 0/1 into words with a table.
+
+```lua
+local GATE = { [0] = "open", [1] = "closed" }
+
+local function status()
+    return "Gate: " .. (GATE[_:value("CLU220000592.DIN0095")] or "no reading")
+end
+```
+
 ## Walk the exposed objects
 
 What `expose()` describes once (type, name, area, tags) can be read back instead of keeping a

@@ -2,7 +2,7 @@ module github.com/Domktorymysli/vclu
 
 go 1.26.0
 
-toolchain go1.26.9
+toolchain go1.26.10
 
 require (
 	github.com/brutella/dnssd v1.2.14

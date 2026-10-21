@@ -14,7 +14,7 @@ Only public API is listed — internal/private functions are omitted.
 - [objects.VirtualCover](#objectsvirtualcover) (10 functions)
 - [objects.VirtualObject](#objectsvirtualobject) (12 functions)
 - [ExposedObjects](#exposedobjects) (21 functions)
-- [core.Registry](#coreregistry) (9 functions)
+- [core.Registry](#coreregistry) (10 functions)
 - [core.Metrics](#coremetrics) (1 functions)
 - [Dashboard](#dashboard) (48 functions)
 - [lib.panel](#libpanel) (55 functions)
@@ -782,6 +782,14 @@ Get an object by name or path.
 - `pathOrName` (string) — Object path or name
 
 **Returns:** table|nil The object if found
+
+### `_registry:value(pathOrName) → any|nil The value; nil when the object is missing, has no getValue or no reading yet`
+
+Read an object's value by name or path.
+
+- `pathOrName` (string) — Object path or name
+
+**Returns:** any|nil The value; nil when the object is missing, has no getValue or no reading yet
 
 ### `_registry:byTag(tag) → RemoteGroup A group containing all matching objects`
 

@@ -200,6 +200,20 @@ func TestScenario_MissingObjectAndUnknownKindWarn(t *testing.T) {
 	}
 }
 
+func TestScenario_MissingObjectWarnsForValue(t *testing.T) {
+	se, ws, _ := newTestSandbox(t)
+	// _:value returns nil for a wrong path; the sandbox must still say the object is missing
+	writeDraft(t, ws, "modules/probe.lua", `local v = _:value("satel.zone.8")`)
+	res, err := se.RunScenario([]string{"modules/probe.lua"}, SandboxScenario{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if logs := strings.Join(res.Logs, "\n"); !strings.Contains(logs, "no object 'satel.zone.8'") {
+		t.Errorf("missing the no-object warning in logs:\n%s", logs)
+	}
+	requireSuccess(t, res)
+}
+
 func TestParseSteps_Validation(t *testing.T) {
 	bad := map[string]string{
 		`[{"set": "a", "value": 1, "advance": 5}]`: "exactly one",
