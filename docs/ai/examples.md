@@ -69,7 +69,7 @@ dusk; `dom:sunPosition()` the azimuth and elevation now. Use these instead of th
 
 ```lua
 -- shade the south rooms while the sun is on that side and high enough to heat them
-:schedule('rolety-poludnie', { default = 'otwarte',
+:schedule('rolety-poludnie', { values = { 'otwarte', 'zaslon' }, default = 'otwarte',
     { every = 'day', sun = { azimuth = { 135, 225 }, elevation = 15 }, value = 'zaslon' } })
 ```
 
@@ -86,6 +86,7 @@ local dom = Calendar.new('dom'):name('Dom'):holidays('pl'):location(52.23, 21.01
         tags = { 'dzieci' }, catchup = true, except = { '2026-12-22..2027-01-06' } })
     :event('rolety', { every = 'day', time = '21:00', jitter = '15m' })   -- presence simulation
     :schedule('taryfa', { default = 'droga', title = 'Taryfa',            -- last window wins
+        values = { 'droga', 'tania' },                                     -- a value not listed is a build() error
         colors = { tania = 'success', droga = 'danger' },                  -- dashboard bars and tiles
         { every = 'workday', hours = '13:00-15:00', value = 'tania' },
         { every = 'day', hours = '22:00-06:00', value = 'tania' },
@@ -108,6 +109,9 @@ dom:skip('bio', '2026-11-10'); dom:pause('2026-12-24..2027-01-02', { tags = { 'd
 ```
 
 - `catchup = true`: after a start or a clock jump during an occurrence, `start` fires with `e.catchup`.
+- `skip`, `pause` or `remove` of an occurrence going on fires its `end` at once (`e.cancelled`), so what its start switched on goes off. At one moment `end` fires before `start`: a light handed from one event to the next stays on.
+- `build()` refuses what would otherwise pass silently: a schedule without `default`, a schedule of text without `values` (the error lists the values to copy) or a window value or `default` not in it, `colors` for a value the schedule does not have, `remind` without a sign (`'-12h'` before, `'+1h'` after), `every = 'workday'`/`'holiday'` without `:holidays('pl')`, `except`/`moves` on a day that is not one of the series, `duration` without `time`, `on('change', <event>)`. The widget refuses unknown options and schedules or tags its calendar does not have.
+- `day = 31` skips months without a 31st; the last day of every month is `day = -1`.
 - Until the clock is trusted `value()`/`isActive()` return nil; `:clock({ wait = false })` skips the wait.
 - Test with `vclu_draft_test` and `advance`: the virtual clock drives the calendar.
 
@@ -328,7 +332,7 @@ CLU220000592:executeNoReply(0, "SetThermostat(19)")
 Public dashboard for a tablet/wall. Defined in Lua, available at `/d/:id`.
 Widget types: button, toggle, slider, status, link, select, chart, image, group, cover, dimmer, color, calendar.
 `:calendar(id, label, cal, { view = 'month' | 'day', tags = {...}, schedules = { 'taryfa' } })` shows a calendar
-built with `Calendar`: a month grid and the day of a tapped date (full width); `schedules` adds a 24 h bar per schedule
+built with `Calendar`: a month grid and the day of a tapped date (full width); `schedules` adds a 24 h bar per schedule (`schedules = true`: all of the calendar's)
 to the day view; `holidays` (holiday names, default on), `namedays` (name days in the day view, default off) and
 `sun` (sunrise and sunset in the day view, default on) set what the widget may show: what is off is not sent to the
 browser (a public page would give away the house's location), and a viewer can hide the rest on the widget (kept per device). A schedule as a tile: `:status('taryfa', 'Taryfa', 'lightning', function() local n = dom:nextChange('taryfa')

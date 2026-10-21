@@ -182,6 +182,9 @@ func parseClock(s string) (int, sunEvent, time.Duration, error) {
 			if err != nil {
 				return 0, 0, 0, fmt.Errorf("time %q: %w", s, err)
 			}
+			if off < -12*time.Hour || off > 12*time.Hour { // occurrences are looked for within a day
+				return 0, 0, 0, fmt.Errorf("time %q: the offset from the sun is at most 12h", s)
+			}
 			return 0, ev, off, nil
 		}
 	}

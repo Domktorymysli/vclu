@@ -180,6 +180,7 @@ type Server struct {
 	isConfigured     bool
 	supportsModules  bool
 	sessions         *sessionStore
+	calendarLimiter  *rateLimiter // calendar widget requests that miss the cache, per IP
 	backupState      backupSchedulerState
 }
 
@@ -242,6 +243,7 @@ func NewServer(port int, webDir string, serverDir string, deviceConfig *config.C
 		isConfigured:    keys != nil && deviceConfig != nil,
 		supportsModules: checkSupportsModules(serverDir),
 		sessions:        newSessionStore(),
+		calendarLimiter: newCalendarLimiter(),
 	}
 
 	// Add metrics middleware (must be first to capture all requests)

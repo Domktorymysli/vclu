@@ -44,7 +44,10 @@ func calendarZone(L *lua.LState) *time.Location {
 
 func calendarHolidays(L *lua.LState, v lua.LValue) calendar.Holidays {
 	s, ok := v.(lua.LString)
-	if !ok || s == "" {
+	if !ok && v != lua.LNil {
+		L.ArgError(2, "holidays expects a country code ('pl')")
+	}
+	if s == "" {
 		return nil
 	}
 	h, err := calendar.HolidaysFor(string(s))
@@ -61,16 +64,21 @@ func luaStrings(v lua.LValue) ([]string, error) {
 	case lua.LString:
 		return []string{string(t)}, nil
 	case *lua.LTable:
-		var out []string
-		var err error
-		t.ForEach(func(_, item lua.LValue) {
-			if s, ok := item.(lua.LString); ok {
-				out = append(out, string(s))
-			} else if err == nil {
-				err = fmt.Errorf("expected strings, got %s", item.Type())
+		n, count := t.Len(), 0
+		t.ForEach(func(_, _ lua.LValue) { count++ })
+		if count != n {
+			return nil, fmt.Errorf("expected a list { 'a', 'b' }, got a table with keys")
+		}
+		out := make([]string, 0, n)
+		for i := 1; i <= n; i++ {
+			item := t.RawGetInt(i)
+			s, ok := item.(lua.LString)
+			if !ok {
+				return nil, fmt.Errorf("expected strings, got %s", item.Type())
 			}
-		})
-		return out, err
+			out = append(out, string(s))
+		}
+		return out, nil
 	}
 	return nil, fmt.Errorf("expected a string or a list of strings, got %s", v.Type())
 }
@@ -129,6 +137,12 @@ func specFromTable(t *lua.LTable) (calendar.Spec, error) {
 	for key, dst := range map[string]*int{"weeks": &s.Weeks, "months": &s.Months, "years": &s.Years, "day": &s.Day, "month": &s.Month, "times": &s.Times} {
 		if *dst, err = luaInt(t, key); err != nil {
 			return s, err
+		}
+	}
+	// 0 would read as "not given": every week instead of every n-th
+	for _, key := range []string{"weeks", "months", "years", "month"} {
+		if v, ok := t.RawGetString(key).(lua.LNumber); ok && v == 0 {
+			return s, fmt.Errorf("%s must be at least 1", key)
 		}
 	}
 	for key, dst := range map[string]*string{"on": &s.On, "date": &s.Date, "from": &s.From, "to": &s.To, "time": &s.Time, "until": &s.Until} {
@@ -224,8 +238,14 @@ func calendarRule(L *lua.LState) int {
 	}
 	if err == nil {
 		var hol calendar.Holidays
-		if c, ok := L.Get(2).(lua.LString); ok && c != "" {
-			hol, err = calendar.HolidaysFor(string(c))
+		switch c := L.Get(2).(type) {
+		case lua.LString:
+			if c != "" {
+				hol, err = calendar.HolidaysFor(string(c))
+			}
+		case *lua.LNilType:
+		default:
+			err = fmt.Errorf("holidays expects a country code ('pl'), got %s", c.Type())
 		}
 		var r *calendar.Rule
 		if err == nil {
@@ -311,7 +331,15 @@ func calendarSchedule(L *lua.LState) int {
 		s.Windows = append(s.Windows, r)
 	}
 	t := unixSec(float64(L.CheckNumber(2)))
-	horizon := time.Duration(float64(L.OptNumber(3, 60)) * float64(time.Second))
+	// callers look a few days ahead; a huge or NaN horizon would walk centuries
+	h := float64(L.OptNumber(3, 60))
+	switch {
+	case h < 0:
+		h = 0
+	case !(h <= 400*86400): // NaN too
+		h = 400 * 86400
+	}
+	horizon := time.Duration(h * float64(time.Second))
 	loc := calendarZone(L)
 	L.Push(lua.LNumber(s.At(t, loc) + 1))
 	if next, idx, ok := s.NextChange(t, horizon, loc); ok {

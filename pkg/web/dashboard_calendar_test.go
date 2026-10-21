@@ -30,14 +30,14 @@ func TestDashboardCalendarRange(t *testing.T) {
 		datetime.setTimezone("Europe/Warsaw")
 		Calendar.new('dom'):holidays('pl')
 			:event('bio', { title = 'Bio', every = 'tu', time = '06:30' })
-			:event('goscie', { title = 'Goście', date = '2026-11-14..2026-11-16' })
+			:event('goscie', { title = 'Goście', date = '2026-11-14..2026-11-16', tags = { 'nic' } })
 			:event('sport', { title = 'Siłownia', every = 'mo', time = '18:00', tags = { 'sport' } })
-			:schedule('pszok', { title = 'PSZOK', default = 'zamknięty', colors = { otwarty = 'success' },
+			:schedule('pszok', { title = 'PSZOK', values = { 'zamknięty', 'otwarty' }, default = 'zamknięty', colors = { otwarty = 'success' },
 				{ every = 'we', hours = '08:00-13:00', value = 'otwarty' } })
 			:clock({ wait = false })
 			:build()
 		Dashboard.new('pub'):auth('public'):section('S', 'i')
-			:calendar('kal', 'Kalendarz', 'dom', { view = 'month', schedules = { 'pszok', 'nieznany' }, namedays = true })
+			:calendar('kal', 'Kalendarz', 'dom', { view = 'month', schedules = { 'pszok' }, namedays = true })
 			:calendar('bezsportu', 'Bez sportu', Calendar.get('dom'), { tags = { 'nic' } })
 			:calendar('brak', 'Brak', 'nieznany')
 			:build()
@@ -222,6 +222,153 @@ func TestDashboardCalendarErrorHidesTheLuaError(t *testing.T) {
 	for _, leak := range []string{"secret", "/srv", "boom", "stack", ".lua"} {
 		if strings.Contains(body, leak) {
 			t.Errorf("body leaks %q: %s", leak, body)
+		}
+	}
+}
+
+// A month sends at most three events a day, what a cell draws, and each day's count for "+n";
+// a single day sends all of them.
+func TestDashboardCalendarMonthSendsWhatCellsDraw(t *testing.T) {
+	_, get := newCalendarDashboardServer(t, `
+		local c = Calendar.new('dom'):clock({ wait = false })
+		for i = 1, 5 do c:event('e' .. i, { every = 'day', time = '0' .. i .. ':00' }) end
+		c:event('goscie', { date = '2026-11-02..2026-11-04' })
+		c:build()
+		Dashboard.new('pub'):auth('public'):section('S', 'i'):calendar('kal', 'K', 'dom'):build()
+	`)
+	var res struct {
+		Zone string `json:"zone"`
+		Days []struct {
+			Date  string `json:"date"`
+			Count int    `json:"count"`
+		} `json:"days"`
+		Items []struct{ ID, Date, Last string } `json:"items"`
+	}
+	code, body := get("/api/dashboard/pub/calendar?widget=kal&from=2026-11-01&to=2026-11-07")
+	if code != 200 || json.Unmarshal([]byte(body), &res) != nil {
+		t.Fatalf("%d %s", code, body)
+	}
+	perDay := map[string]int{}
+	for _, it := range res.Items {
+		last := it.Last
+		if last == "" {
+			last = it.Date
+		}
+		for _, d := range res.Days {
+			if d.Date >= it.Date && d.Date <= last {
+				perDay[d.Date]++
+			}
+		}
+	}
+	for _, d := range res.Days {
+		want := 5
+		if d.Date >= "2026-11-02" && d.Date <= "2026-11-04" {
+			want = 6
+		}
+		if d.Count != want || perDay[d.Date] != 3 {
+			t.Errorf("%s: count %d, sent %d; want %d and 3", d.Date, d.Count, perDay[d.Date], want)
+		}
+	}
+	if code, body := get("/api/dashboard/pub/calendar?widget=kal&from=2026-11-03&to=2026-11-03"); code != 200 || strings.Count(body, `"id":`) != 6 {
+		t.Errorf("one day: %d %s", code, body)
+	}
+}
+
+// Answers are cached for a while, and a caller walking dates is limited per address.
+func TestDashboardCalendarCacheAndLimit(t *testing.T) {
+	engine, _ := newCalendarDashboardServer(t, `
+		Calendar.new('dom'):clock({ wait = false }):event('a', { every = 'day', time = '10:00' }):build()
+		Dashboard.new('pub'):auth('public'):section('S', 'i'):calendar('kal', 'K', 'dom'):build()
+	`)
+	s := &Server{serverDir: t.TempDir(), sessions: newSessionStore(), luaExecutor: engine,
+		calendarLimiter: &rateLimiter{buckets: make(map[string]*bucket), rate: 0.001, burst: 3}}
+	r := gin.New()
+	r.GET("/api/dashboard/:id/calendar", s.handleAPIDashboardCalendar)
+	get := func(day string) int {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/dashboard/pub/calendar?widget=kal&from="+day+"&to="+day, nil))
+		return w.Code
+	}
+	for i := 0; i < 5; i++ {
+		if code := get("2026-11-01"); code != 200 {
+			t.Fatalf("cached day, request %d: %d", i, code)
+		}
+	}
+	codes := []int{get("2026-11-02"), get("2026-11-03"), get("2026-11-04")}
+	if codes[0] != 200 || codes[1] != 200 || codes[2] != http.StatusTooManyRequests {
+		t.Errorf("new days with a burst of 3 (one used): %v", codes)
+	}
+	if code := get("2026-11-01"); code != 200 {
+		t.Errorf("a cached answer is not limited: %d", code)
+	}
+}
+
+// schedules = true draws every schedule of the calendar, in the order they were defined.
+func TestDashboardCalendarAllSchedules(t *testing.T) {
+	engine, get := newCalendarDashboardServer(t, `
+		Calendar.new('dom'):clock({ wait = false })
+			:schedule('ogrod', { title = 'Lampy w ogrodzie', values = { 'zgaszone', 'włączone' }, default = 'zgaszone',
+				{ every = 'day', hours = '18:00-23:00', value = 'włączone' } })
+			:schedule('taryfa', { values = { 'droga', 'tania' }, default = 'droga', { every = 'day', hours = '13:00-15:00', value = 'tania' } })
+			:build()
+		Dashboard.new('pub'):auth('public'):section('S', 'i')
+			:calendar('wszystkie', 'K', 'dom', { view = 'day', schedules = true })
+			:calendar('zadne', 'K', 'dom', { view = 'day' })
+			:build()
+	`)
+	if _, err := engine.Execute(`Calendar.get('dom'):_check()`); err != nil {
+		t.Fatal(err)
+	}
+	var res struct {
+		Schedules []struct {
+			ID, Title string
+			Segments  []struct{ Value string }
+		} `json:"schedules"`
+	}
+	code, body := get("/api/dashboard/pub/calendar?widget=wszystkie&from=2026-11-03&to=2026-11-03")
+	if code != 200 || json.Unmarshal([]byte(body), &res) != nil {
+		t.Fatalf("%d %s", code, body)
+	}
+	if len(res.Schedules) != 2 || res.Schedules[0].Title != "Lampy w ogrodzie" || res.Schedules[1].ID != "taryfa" ||
+		len(res.Schedules[0].Segments) != 3 || res.Schedules[0].Segments[1].Value != "włączone" {
+		t.Errorf("all schedules: %s", body)
+	}
+	if code, body := get("/api/dashboard/pub/calendar?widget=zadne&from=2026-11-03&to=2026-11-03"); code != 200 || strings.Contains(body, `"segments"`) {
+		t.Errorf("no schedules option: %d %s", code, body)
+	}
+	if _, err := engine.Execute(`Dashboard.new('zle'):section('S', 'i'):calendar('k', 'K', 'dom', { schedules = 'ogrod' }):build()`); err == nil || !strings.Contains(err.Error(), "or true for all") {
+		t.Errorf("a string is refused: %v", err)
+	}
+}
+
+// A widget's options are checked when the dashboard is built: a typo is an error, not a widget
+// that silently shows less. A calendar not built yet is checked by the endpoint instead.
+func TestDashboardCalendarWidgetOptionsChecked(t *testing.T) {
+	engine, _ := newCalendarDashboardServer(t, `
+		Calendar.new('dom'):clock({ wait = false })
+			:event('bio', { every = 'tu', time = '06:30', tags = { 'smieci' } })
+			:schedule('pszok', { values = { 'zamknięty', 'otwarty' }, default = 'zamknięty', { every = 'we', hours = '08:00-13:00', value = 'otwarty' } })
+			:build()
+	`)
+	for opts, want := range map[string]string{
+		`{ schedule = { 'pszok' } }`: `unknown option "schedule"`,
+		`{ schedules = { 'psok' } }`: `calendar "dom" has no schedule "psok" (schedules: "pszok")`,
+		`{ tags = { 'śmieci' } }`:    `no event of calendar "dom" has the tag "śmieci" (tags: "smieci")`,
+		`{ tags = 'smiec' }`:         `has the tag "smiec"`,
+		`{ namedays = 'tak' }`:       `namedays must be true or false`,
+		`{ view = 'week' }`:          `view must be "month" or "day"`,
+	} {
+		_, err := engine.Execute(`Dashboard.new('x'):section('S', 'i'):calendar('k', 'K', 'dom', ` + opts + `):build()`)
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: %v, want %q", opts, err, want)
+		}
+	}
+	for _, ok := range []string{
+		`'dom', { schedules = { 'pszok' }, tags = 'smieci', namedays = true, span = 2 }`,
+		`'jeszcze-nie', { schedules = { 'cokolwiek' } }`,
+	} {
+		if _, err := engine.Execute(`Dashboard.new('y'):section('S', 'i'):calendar('k', 'K', ` + ok + `):build()`); err != nil {
+			t.Errorf("%s: %v", ok, err)
 		}
 	}
 }

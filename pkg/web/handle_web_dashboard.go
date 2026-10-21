@@ -26,7 +26,11 @@ type dashboardCache struct {
 	values  map[string]*cacheEntry // dashId → cached getValues JSON
 	defs    map[string]*cacheEntry // dashId → cached getDefinition JSON
 	metrics map[string]*cacheEntry // dashId\x00path → usesMetric JSON (drawn metrics only)
+	cals    map[string]*cacheEntry // dashId\x00widget\x00from\x00to → calendarRange JSON
 }
+
+// calendarCacheMax bounds the calendar answers kept: a caller walking dates cannot grow it.
+const calendarCacheMax = 256
 
 type cacheEntry struct {
 	data      string
@@ -38,7 +42,35 @@ func newDashboardCache() *dashboardCache {
 		values:  make(map[string]*cacheEntry),
 		defs:    make(map[string]*cacheEntry),
 		metrics: make(map[string]*cacheEntry),
+		cals:    make(map[string]*cacheEntry),
 	}
+}
+
+func (dc *dashboardCache) getCalendar(key string) (string, bool) {
+	dc.mu.RLock()
+	defer dc.mu.RUnlock()
+	e, ok := dc.cals[key]
+	if !ok || time.Now().After(e.expiresAt) {
+		return "", false
+	}
+	return e.data, true
+}
+
+func (dc *dashboardCache) setCalendar(key, data string) {
+	dc.mu.Lock()
+	defer dc.mu.Unlock()
+	now := time.Now()
+	if len(dc.cals) >= calendarCacheMax {
+		for k, e := range dc.cals {
+			if now.After(e.expiresAt) {
+				delete(dc.cals, k)
+			}
+		}
+		if len(dc.cals) >= calendarCacheMax {
+			dc.cals = make(map[string]*cacheEntry)
+		}
+	}
+	dc.cals[key] = &cacheEntry{data: data, expiresAt: now.Add(30 * time.Second)}
 }
 
 func (dc *dashboardCache) getMetric(key string) (string, bool) {
@@ -96,6 +128,7 @@ func (dc *dashboardCache) Invalidate() {
 	dc.values = make(map[string]*cacheEntry)
 	dc.defs = make(map[string]*cacheEntry)
 	dc.metrics = make(map[string]*cacheEntry)
+	dc.cals = make(map[string]*cacheEntry)
 }
 
 // dashCache is the singleton cache instance, initialized lazily.
@@ -124,6 +157,12 @@ type bucket struct {
 }
 
 var actionLimiter = &rateLimiter{buckets: make(map[string]*bucket), rate: 10, burst: 10}
+
+// newCalendarLimiter: a calendar answer not in the cache holds the Lua loop for up to a few
+// hundred ms; a viewer browsing months needs a request a second at most.
+func newCalendarLimiter() *rateLimiter {
+	return &rateLimiter{buckets: make(map[string]*bucket), rate: 2, burst: 20}
+}
 
 // pinLimiter: 5 PIN tries at once, then one per 6 s (a 4-digit PIN takes hours)
 var pinLimiter = &rateLimiter{buckets: make(map[string]*bucket), rate: 1.0 / 6, burst: 5}
@@ -368,13 +407,23 @@ func (s *Server) handleAPIDashboardCalendar(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "widget, from and to (YYYY-MM-DD) are required"})
 		return
 	}
-	result, err := s.luaExecutor.Execute(fmt.Sprintf(`Dashboard.API.calendarRange("%s", "%s", "%s", "%s")`,
-		luaEscape(id), luaEscape(widget), from, to))
-	if err != nil {
-		// public dashboards reach this: the Lua error (paths, stack) goes to the log only
-		log.Printf("[DASHBOARD] %s calendar %s: %v", id, widget, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "calendar unavailable"})
-		return
+	// a cached answer saves the Lua loop: each request holds it while the calendar expands
+	key := id + "\x00" + widget + "\x00" + from + "\x00" + to
+	result, cached := dashCache.getCalendar(key)
+	if !cached {
+		if s.calendarLimiter != nil && !s.calendarLimiter.allow(c.ClientIP()) {
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": "too many requests"})
+			return
+		}
+		var err error
+		result, err = s.luaExecutor.Execute(fmt.Sprintf(`Dashboard.API.calendarRange("%s", "%s", "%s", "%s")`,
+			luaEscape(id), luaEscape(widget), from, to))
+		if err != nil {
+			// public dashboards reach this: the Lua error (paths, stack) goes to the log only
+			log.Printf("[DASHBOARD] %s calendar %s: %v", id, widget, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "calendar unavailable"})
+			return
+		}
 	}
 	var r struct {
 		Status int `json:"status"`
@@ -382,6 +431,9 @@ func (s *Server) handleAPIDashboardCalendar(c *gin.Context) {
 	if err := json.Unmarshal([]byte(result), &r); err == nil && r.Status >= 400 && r.Status < 600 {
 		c.Data(r.Status, "application/json", []byte(result))
 		return
+	}
+	if !cached {
+		dashCache.setCalendar(key, result)
 	}
 	c.Data(http.StatusOK, "application/json", []byte(result))
 }
@@ -569,7 +621,9 @@ func (s *Server) checkDashboardAuth(c *gin.Context, id string) bool {
 	script := fmt.Sprintf(`Dashboard.API.getAuth("%s")`, luaEscape(id))
 	result, err := s.luaExecutor.Execute(script)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		// public endpoints reach this: the Lua error (paths, stack) goes to the log only
+		log.Printf("[DASHBOARD] %s auth: %v", id, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "dashboard unavailable"})
 		return false
 	}
 

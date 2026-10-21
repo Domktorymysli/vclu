@@ -34,7 +34,7 @@ local dom = Calendar.new('dom'):name('Dom'):holidays('pl'):location(52.23, 21.01
         time = '06:30', remind = '-12h', moves = { ['2026-11-10'] = '2026-11-12' } })
     :event('szkola', { every = 'workday', time = '08:00', duration = '6h', tags = { 'dzieci' },
         catchup = true, except = { '2026-12-22..2027-01-06' } })
-    :schedule('taryfa', { default = 'droga',
+    :schedule('taryfa', { values = { 'droga', 'tania' }, default = 'droga',
         { every = 'workday', hours = '13:00-15:00', value = 'tania' },
         { every = 'weekend', value = 'tania' } })
     :build()
@@ -57,6 +57,7 @@ Rules: `every` = `day`, `workday`, `weekend`, `holiday`, weekdays, `month` (`day
 - `pkg/lua/runtime/core/Dashboard.lua`, `pkg/web/handle_web_dashboard.go` (`GET /api/dashboard/:id/calendar`),
   `web/static/js/dashboard.js`, `web/static/css/dashboard.css`
 - `pkg/mcp/tools_dev.go` (runtime schema), `docs/ai/examples.md`, `docs/ai/lua-api-reference.md`
+- `pkg/mcp/tool_calendar.go`: `vclu_calendar`, the agenda for agents (read only; `Calendar.API.agenda`)
 
 ## Acceptance criteria
 - [x] Rules expand correctly, including every n-th week, last workday of a month, Polish
@@ -70,6 +71,8 @@ Rules: `every` = `day`, `workday`, `weekend`, `holiday`, weekdays, `month` (`day
 - [x] A bad definition stops `build()` with an error naming the event (same file).
 - [x] The calendar endpoint follows the dashboard's auth, serves only a calendar widget on that
   dashboard, at most 42 days (`pkg/web/dashboard_calendar_test.go`).
+- [x] `vclu_calendar` gives a day or a range of days in local time, schedules with their value now
+  and next change, refuses bad arguments before Lua and needs dev mode (`pkg/mcp/tool_calendar_test.go`).
 - [x] Checked on a running house: reminder, start and end fired at the second; month and day
   views on a desktop and at 390 px.
 - [x] `go test ./...` and `go test -race ./...` pass.
@@ -81,8 +84,6 @@ Rules: `every` = `day`, `workday`, `weekend`, `holiday`, weekdays, `month` (`day
   Then merge `main` into this branch (done 2026-10-20).
 
 ## Follow-ups (separate tickets)
-- MCP tool `vclu_calendar`: agenda for agents ("what is tomorrow?") without `vclu_exec`, proposing
-  events as a module draft.
 - Plugin: agenda for people (tomorrow on the Smart Panel idle screen, a morning summary).
 - Plugin: hourly energy prices (PSE RCE) fed into a schedule; in the core only "the cheapest
   n hours between a and b".

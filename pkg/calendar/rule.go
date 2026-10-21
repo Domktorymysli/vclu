@@ -117,6 +117,7 @@ var ordinals = map[string]int{"first": 1, "second": 2, "third": 3, "fourth": 4, 
 // is Monday to Friday and "holiday" never matches.
 func Compile(s Spec, holidays Holidays) (*Rule, error) {
 	r := &Rule{time: -1, until: -1, holidays: holidays, interval: 1, duration: s.Duration}
+	knowsHolidays := holidays != nil
 	if r.holidays == nil {
 		r.holidays = func(Date) bool { return false }
 	}
@@ -150,6 +151,9 @@ func Compile(s Spec, holidays Holidays) (*Rule, error) {
 		}
 		r.sky = &sunRange{azFrom: k.AzimuthFrom, azTo: k.AzimuthTo, elFrom: k.ElevationLow, elTo: k.ElevationHigh}
 		r.time = 0 // a timed occurrence, its span from the sun
+	}
+	if s.Located && !(s.Lat >= -90 && s.Lat <= 90 && s.Lon >= -180 && s.Lon <= 180) { // NaN fails too
+		return nil, errors.New("location expects latitude -90..90 and longitude -180..180")
 	}
 	r.lat, r.lon = s.Lat, s.Lon
 	if s.Duration < 0 {
@@ -234,12 +238,43 @@ func Compile(s Spec, holidays Holidays) (*Rule, error) {
 			if err != nil {
 				return nil, fmt.Errorf("moves: %w", err)
 			}
+			if abs(int(b-a)) > 366 {
+				return nil, fmt.Errorf("moves %s: at most 366 days away", k)
+			}
 			r.moves[a] = b
 			r.movedTo[b] = true
 			r.maxMove = max(r.maxMove, abs(int(b-a)))
 		}
 	}
+	if r.duration > 0 && r.time == -1 && r.until == -1 {
+		return nil, errors.New("duration needs time: an all-day event lasts whole days (several days: date = 'YYYY-MM-DD..YYYY-MM-DD')")
+	}
+	// a date that is no day of the series is a typo: it would change nothing, silently
+	if knowsHolidays || (r.filter != filterWorkday && r.filter != filterHoliday) || r.kind != kindDays {
+		for _, e := range r.except {
+			if e[0] == e[1] && !r.inSeries(e[0]) {
+				return nil, fmt.Errorf("except %s: not a day of this series", e[0])
+			}
+		}
+		for a, b := range r.moves {
+			if !r.inSeries(a) {
+				return nil, fmt.Errorf("moves %s: not a day of this series", a)
+			}
+			// onto a day that keeps its own occurrence: two on one day
+			if _, away := r.moves[b]; r.times == 0 && r.inSeries(b) && !away && !r.excepted(b) {
+				return nil, fmt.Errorf("moves %s: %s already has one", a, b)
+			}
+		}
+	}
 	return r, nil
+}
+
+// inSeries reports whether d is a day of the series, before except, moves and times.
+func (r *Rule) inSeries(d Date) bool {
+	if r.kind == kindOnce {
+		return d >= r.onceFrom && d <= r.onceTo
+	}
+	return r.matches(d) && (!r.hasFrom || d >= r.from) && (!r.hasTo || d <= r.to)
 }
 
 func (r *Rule) compileEvery(s Spec) error {
@@ -315,11 +350,12 @@ func (r *Rule) compileEvery(s Spec) error {
 			if s.Month != 0 {
 				return errors.New("month goes with on ('last su'); a fixed day is date = 'MM-DD'")
 			}
-			var m, d int
-			if _, err := fmt.Sscanf(s.Date, "%d-%d", &m, &d); err != nil || len(s.Date) != 5 || m < 1 || m > 12 || d < 1 || d > 31 {
+			// year 0 is a leap year, so 02-29 parses; 02-30 does not
+			t, err := time.Parse("01-02", s.Date)
+			if err != nil {
 				return fmt.Errorf("every = 'year' needs date = 'MM-DD', or on with month, got %q", s.Date)
 			}
-			r.month, r.mday = time.Month(m), d
+			r.month, r.mday = t.Month(), t.Day()
 			return nil
 		}
 	}

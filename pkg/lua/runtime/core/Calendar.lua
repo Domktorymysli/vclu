@@ -27,9 +27,18 @@ local EVENT_KEYS = { title = true, icon = true, tags = true, remind = true, noti
     catchup = true, jitter = true }
 local USER_KEYS = { id = true, title = true, icon = true, tags = true, remind = true }
 local KINDS = { start = true, ['end'] = true, reminder = true, change = true, ready = true }
+local KIND_ORDER = { ['end'] = 1, start = 2, reminder = 3 }
 
 local function log() return Logger:getShared() end
 local function now() return __go_time_ms() / 1000 end
+
+-- "a", "b", "c": the sorted keys of the given sets (or "none"), for an error that says what is allowed.
+local function quoted(...)
+    local out = {}
+    for _, set in ipairs({ ... }) do for k in pairs(set) do out[#out + 1] = '"' .. tostring(k) .. '"' end end
+    table.sort(out)
+    return #out > 0 and table.concat(out, ', ') or 'none'
+end
 
 local function copy(t)
     local out = {}
@@ -72,6 +81,41 @@ local function seconds(v, what)
     return n
 end
 
+-- A reminder says which side of the start it is on: '12h' alone reads as before, but is after.
+local function remindSeconds(v, what)
+    if type(v) == 'string' and not v:match('^[%+%-]') then
+        error(what .. ': "' .. v .. '" needs a sign: "-' .. v .. '" before the start, "+' .. v .. '" after', 3)
+    end
+    local n, err = parseSeconds(v, what)
+    if not n then error(err, 3) end
+    return n
+end
+
+-- Fields of an event that are not its rule; raises with the option's name.
+local function checkEventFields(where, o, level)
+    for _, k in ipairs({ 'title', 'icon' }) do
+        if o[k] ~= nil and type(o[k]) ~= 'string' then error(where .. ': ' .. k .. ' must be a string', level) end
+    end
+    if o.tags ~= nil and type(o.tags) ~= 'string' and type(o.tags) ~= 'table' then
+        error(where .. ': tags expects a string or a list of strings', level)
+    end
+    for _, tag in ipairs(list(o.tags)) do
+        if type(tag) ~= 'string' then error(where .. ': tags must be strings', level) end
+    end
+    if o.catchup ~= nil and type(o.catchup) ~= 'boolean' then error(where .. ': catchup must be true or false', level) end
+end
+
+-- 'workday' and 'holiday' follow the public holidays: without them they would silently
+-- treat 11 November as a workday.
+local function checkHolidaysNeeded(where, o, holidays)
+    if holidays then return end
+    for _, e in ipairs(list(o.every)) do
+        if e == 'workday' or e == 'holiday' then
+            error(where .. ": every = '" .. e .. "' needs the public holidays: :holidays('pl') before :build()", 3)
+        end
+    end
+end
+
 -- Checks the keys of an event or a window and compiles its rule: the rule, or nil and the
 -- error (does not raise, so that a saved event can be skipped during a module's load).
 local function tryCompile(where, opts, allowed, ctx)
@@ -82,7 +126,7 @@ local function tryCompile(where, opts, allowed, ctx)
             if RULE_KEYS[k] then
                 spec[k] = v
             elseif not allowed[k] then
-                return nil, where .. ': unknown option "' .. k .. '"'
+                return nil, where .. ': unknown option "' .. k .. '" (' .. quoted(RULE_KEYS, allowed) .. ')'
             end
         end
     end
@@ -116,6 +160,12 @@ local function jitterOf(key, span)
     local h = 5381
     for i = 1, #key do h = (h * 33 + key:byte(i)) % 2147483647 end
     return (h % (2 * span + 1)) - span
+end
+
+-- When an occurrence starts: its time, shifted by the event's jitter.
+local function startOf(ev, o)
+    if ev.jitter > 0 then return o.at + jitterOf(ev.id .. o.date, ev.jitter) end
+    return o.at
 end
 
 -- ==========================================================================
@@ -186,6 +236,10 @@ end
 function Builder:event(id, opts)
     checkId(self, id, 'event')
     local where = 'Calendar ' .. self._id .. ' event ' .. id
+    if type(opts) == 'table' then
+        checkEventFields(where, opts, 3)
+        for _, r in ipairs(list(opts.remind)) do remindSeconds(r, where .. ' remind') end
+    end
     local item = { id = id, kind = 'event', source = 'code', opts = opts,
         rule = compile(where, opts, EVENT_KEYS, { lat = self._lat or 0, lon = self._lon or 0 }) }   -- again in build()
     self._items[#self._items + 1] = item
@@ -200,17 +254,61 @@ function Builder:schedule(id, opts)
     if type(opts) ~= 'table' or #opts == 0 then
         error('Calendar ' .. self._id .. ' schedule ' .. id .. ': expected { default = v, { every = ..., value = v }, ... }', 2)
     end
+    local where = 'Calendar ' .. self._id .. ' schedule ' .. id
     for k in pairs(opts) do
-        if type(k) ~= 'number' and k ~= 'default' and k ~= 'title' and k ~= 'colors' then
-            error('Calendar ' .. self._id .. ' schedule ' .. id .. ': unknown option "' .. tostring(k) .. '"', 2)
+        if type(k) ~= 'number' and k ~= 'default' and k ~= 'title' and k ~= 'colors' and k ~= 'values' then
+            error(where .. ': unknown option "' .. tostring(k) .. '" ("colors", "default", "title", "values", windows)', 2)
         end
     end
-    if opts.colors ~= nil and type(opts.colors) ~= 'table' then
-        error('Calendar ' .. self._id .. ' schedule ' .. id .. ': colors expects { value = color }', 2)
+    if opts.default == nil then
+        error(where .. ': needs a default, the value outside its windows', 2)
     end
+    if opts.colors ~= nil and type(opts.colors) ~= 'table' then
+        error(where .. ': colors expects { value = color }', 2)
+    end
+    -- the values, when declared, are the only ones a window may give: a typo is an error here,
+    -- not a value nobody compares with
+    local known
+    if opts.values ~= nil then
+        if type(opts.values) ~= 'table' or #opts.values == 0 then
+            error(where .. ": values expects a list, e.g. { 'off', 'on' }", 2)
+        end
+        known = {}
+        for _, v in ipairs(opts.values) do known[v] = true end
+    end
+    local function name(v) return type(v) == 'string' and ('"' .. v .. '"') or tostring(v) end
+    local function listed()
+        local out = {}
+        for _, v in ipairs(opts.values) do out[#out + 1] = name(v) end
+        return table.concat(out, ', ')
+    end
+    if known and not known[opts.default] then
+        error(where .. ': default ' .. name(opts.default) .. ' is not one of values (' .. listed() .. ')', 2)
+    end
+    local used, seen, text = { opts.default }, { [opts.default] = true }, type(opts.default) == 'string'
     for i, w in ipairs(opts) do
         if type(w) ~= 'table' or w.value == nil then
-            error('Calendar ' .. self._id .. ' schedule ' .. id .. ' window ' .. i .. ': needs a value', 2)
+            error(where .. ' window ' .. i .. ': needs a value', 2)
+        end
+        if known and not known[w.value] then
+            error(where .. ' window ' .. i .. ': value ' .. name(w.value) .. ' is not one of values (' .. listed() .. ')', 2)
+        end
+        if not seen[w.value] then used[#used + 1] = w.value; seen[w.value] = true end
+        text = text or type(w.value) == 'string'
+    end
+    local function given()
+        local out = {}
+        for _, v in ipairs(used) do out[#out + 1] = name(v) end
+        return table.concat(out, ', ')
+    end
+    -- words are where typos happen: a schedule of text lists them, numbers need not
+    if text and not known then
+        error(where .. ': text values need a list of them: values = { ' .. given() .. ' }', 2)
+    end
+    for v in pairs(opts.colors or {}) do
+        if not (known or seen)[v] then
+            error(where .. ': colors names ' .. name(v) .. ', which is not one of its values ('
+                .. (known and listed() or given()) .. ')', 2)
         end
     end
     local item = { id = id, kind = 'schedule', opts = opts }
@@ -246,8 +344,9 @@ function Builder:build()
             and not (type(o.notify) == 'table' and type(o.notify.send) == 'function') then
             error(where .. ' event ' .. it.id .. ': notify expects a function or an object with :send(e)', 2)
         end
+        checkHolidaysNeeded(where .. ' event ' .. it.id, o, hol)
         ev.remind = {}
-        for _, r in ipairs(list(o.remind)) do ev.remind[#ev.remind + 1] = { s = seconds(r, where .. ' event ' .. it.id .. ' remind'), label = r } end
+        for _, r in ipairs(list(o.remind)) do ev.remind[#ev.remind + 1] = { s = remindSeconds(r, where .. ' event ' .. it.id .. ' remind'), label = r } end
         ev.jitter = o.jitter and math.abs(seconds(o.jitter, where .. ' event ' .. it.id .. ' jitter')) or 0
         cal._events[#cal._events + 1] = ev
         cal._byId[it.id] = ev
@@ -255,6 +354,7 @@ function Builder:build()
     for _, it in ipairs(self._schedules) do
         local rules, values = {}, {}
         for i, w in ipairs(it.opts) do
+            checkHolidaysNeeded(where .. ' schedule ' .. it.id .. ' window ' .. i, w, hol)
             local spec = copy(w)
             spec.value = nil
             rules[i] = compile(where .. ' schedule ' .. it.id .. ' window ' .. i, spec, {}, ctx)
@@ -267,6 +367,7 @@ function Builder:build()
     end
 
     cal._st = persist('calendar.' .. cal.id, { events = {}, skips = {}, pauses = {}, seq = 0 })
+    cal:_checkSaved()
     cal:_loadUserEvents()
 
     local old = calendars[cal.id]
@@ -278,7 +379,7 @@ function Builder:build()
     end
     calendars[cal.id] = cal
     -- first check on the next turn of the loop, after the module subscribed with :on()
-    cal._s.timer = EventBus:getShared():setTimeout(function() cal:_check() end, 1)
+    cal._s.timer = EventBus:getShared():setTimeout(function() cal:_tick() end, 1)
     return cal
 end
 
@@ -298,9 +399,32 @@ function Cal:_stop()
     self._s.stopped = true
 end
 
+-- Saved state of an unexpected shape (edited by hand, an older version) is dropped, not fatal.
+function Cal:_checkSaved()
+    local st = self._st
+    for _, k in ipairs({ 'events', 'skips', 'pauses' }) do
+        if type(st[k]) ~= 'table' then
+            if st[k] ~= nil then log():error('[CALENDAR] %s: saved %s dropped (not a table)', self.id, k) end
+            st[k] = {}
+        end
+    end
+    local pauses = {}
+    for _, p in ipairs(st.pauses) do
+        if type(p) == 'table' and type(p.from) == 'string' and type(p.to) == 'string' then
+            pauses[#pauses + 1] = p
+        else
+            log():error('[CALENDAR] %s: a saved pause dropped', self.id)
+        end
+    end
+    if #pauses ~= #st.pauses then st.pauses = pauses end
+end
+
 -- No pcall here: build() runs while a module loads (see pkg/lua/AGENTS.md).
 function Cal:_loadUserEvents()
     for id, o in pairs(self._st.events or {}) do
+        if type(id) ~= 'string' or type(o) ~= 'table' then
+            log():error('[CALENDAR] %s: saved event %s skipped: not an event', self.id, tostring(id))
+        else
         local rule, err = tryCompile('Calendar ' .. self.id .. ' user event ' .. id, o, USER_KEYS, self._ctx)
         if rule and not self._byId[id] then
             local ev = { id = id, source = 'user', title = o.title or id, icon = o.icon, tags = list(o.tags),
@@ -313,6 +437,7 @@ function Cal:_loadUserEvents()
             self._byId[id] = ev
         elseif not rule then
             log():error('[CALENDAR] %s: saved event %s skipped: %s', self.id, id, tostring(err))
+        end
         end
     end
 end
@@ -327,6 +452,16 @@ function Cal:on(kind, id, fn)
     if not KINDS[kind] then error('Calendar ' .. self.id .. ':on: unknown kind "' .. tostring(kind) .. '" (start, end, reminder, change, ready)', 2) end
     if type(fn) ~= 'function' then error('Calendar ' .. self.id .. ':on: function expected', 2) end
     if id ~= nil and not self._byId[id] then error('Calendar ' .. self.id .. ':on: unknown id "' .. tostring(id) .. '"', 2) end
+    if id ~= nil then
+        local isSchedule = self._byId[id].rules ~= nil
+        if kind == 'change' and not isSchedule then
+            error('Calendar ' .. self.id .. ":on: '" .. id .. "' is an event: it has start, end and reminder, change is for schedules", 2)
+        elseif kind ~= 'change' and kind ~= 'ready' and isSchedule then
+            error('Calendar ' .. self.id .. ":on: '" .. id .. "' is a schedule: it has change, " .. kind .. ' is for events', 2)
+        elseif kind == 'ready' then
+            error('Calendar ' .. self.id .. ':on: ready is for the whole calendar, without an id', 2)
+        end
+    end
     local h = { id = id, fn = fn }
     local hs = self._handlers[kind]
     hs[#hs + 1] = h
@@ -348,14 +483,18 @@ end
 
 local function skipKey(id, date) return id .. '@' .. date end
 
+-- Whether a pause covers an event's tags (a pause without tags covers all).
+local function pausedBy(p, ev)
+    if not p.tags or #p.tags == 0 then return true end
+    for _, t in ipairs(p.tags) do
+        for _, et in ipairs(ev.tags) do if t == et then return true end end
+    end
+    return false
+end
+
 function Cal:_pausedAt(ev, date)
     for _, p in ipairs(self._st.pauses or {}) do
-        if date >= p.from and date <= p.to then
-            if not p.tags or #p.tags == 0 then return true end
-            for _, t in ipairs(p.tags) do
-                for _, et in ipairs(ev.tags) do if t == et then return true end end
-            end
-        end
+        if date >= p.from and date <= p.to and pausedBy(p, ev) then return true end
     end
     return false
 end
@@ -456,8 +595,8 @@ function Cal:isActive(id)
     local ev = event(self, id, 'isActive')
     if not self._s.ready then return nil end
     local t = now()
-    for _, o in ipairs(__go_calendar_between(ev.rule, t, t + 1, true)) do
-        if o.at <= t and o.ends and o.ends > t and not (self._st.skips or {})[skipKey(id, o.date)] then return true end
+    for _, o in ipairs(__go_calendar_between(ev.rule, t - ev.jitter, t + ev.jitter + 1, true)) do
+        if startOf(ev, o) <= t and o.ends and o.ends > t and not (self._st.skips or {})[skipKey(id, o.date)] then return true end
     end
     return false
 end
@@ -576,15 +715,23 @@ function Cal:add(opts)
             saved[k] = v
         end
     end
+    for _, k in ipairs({ 'title', 'icon' }) do
+        if saved[k] ~= nil and type(saved[k]) ~= 'string' then error('Calendar ' .. self.id .. ':add: ' .. k .. ' must be a string', 2) end
+    end
+    for _, tag in ipairs(list(saved.tags)) do
+        if type(tag) ~= 'string' then error('Calendar ' .. self.id .. ':add: tags must be strings', 2) end
+    end
+    checkHolidaysNeeded('Calendar ' .. self.id .. ':add', saved, self._holidays)
     local rule = compile('Calendar ' .. self.id .. ':add', saved, USER_KEYS, self._ctx)
     local ev = { id = id, source = 'user', title = saved.title or id, icon = saved.icon, tags = list(saved.tags),
         rule = rule, remind = {}, jitter = 0 }
-    for _, r in ipairs(list(saved.remind)) do ev.remind[#ev.remind + 1] = { s = seconds(r, 'remind'), label = r } end
+    for _, r in ipairs(list(saved.remind)) do ev.remind[#ev.remind + 1] = { s = remindSeconds(r, 'Calendar ' .. self.id .. ':add: remind'), label = r } end
     self._events[#self._events + 1] = ev
     self._byId[id] = ev
     local evs = copy(self._st.events)
     evs[id] = saved
     self._st.events = evs
+    self:_replan()
     return id
 end
 
@@ -592,6 +739,7 @@ end
 function Cal:remove(id)
     local ev = self._byId[id]
     if not ev or ev.source ~= 'user' then error('Calendar ' .. self.id .. ':remove: "' .. tostring(id) .. '" is not a user event (events from code change in the module)', 2) end
+    self:_endNow(ev)
     self._byId[id] = nil
     for i, e in ipairs(self._events) do if e == ev then table.remove(self._events, i); break end end
     local evs = copy(self._st.events)
@@ -607,8 +755,25 @@ end
 
 --- Cancel one occurrence of an event (by its date). @api public
 function Cal:skip(id, date)
-    event(self, id, 'skip')
+    local ev = event(self, id, 'skip')
     checkDate(self, date, 'skip')
+    local d = __go_calendar_day(date, self._holidays)
+    local found = false
+    for _, o in ipairs(__go_calendar_between(ev.rule, d.starts, d.ends, true)) do
+        if o.date == date then found = true end
+    end
+    if not found then
+        local after, t = {}, d.starts - 1
+        for _ = 1, 2 do
+            local o = __go_calendar_next(ev.rule, t)
+            if not o then break end
+            after[#after + 1] = o.date
+            t = o.at
+        end
+        error('Calendar ' .. self.id .. ':skip: "' .. id .. '" has no occurrence on ' .. date
+            .. (#after > 0 and (' (next: ' .. table.concat(after, ', ') .. ')') or ''), 2)
+    end
+    self:_endNow(ev, function(o) return o.date == date end)
     local s = copy(self._st.skips)
     s[skipKey(id, date)] = true
     self._st.skips = s
@@ -619,6 +784,7 @@ function Cal:unskip(id, date)
     local s = copy(self._st.skips)
     s[skipKey(id, date)] = nil
     self._st.skips = s
+    self:_replan()
 end
 
 --- Pause events in a range of days: pause('2026-12-24..2027-01-02', { tags = {'dzieci'} }). @api public
@@ -627,12 +793,28 @@ function Cal:pause(range, opts)
     if not a then a = tostring(range):match('^(%d%d%d%d%-%d%d%-%d%d)$'); b = a end
     if not a or b < a then error('Calendar ' .. self.id .. ':pause: range expected as YYYY-MM-DD..YYYY-MM-DD', 2) end
     local p = copy(self._st.pauses)
-    p[#p + 1] = { from = a, to = b, tags = opts and opts.tags and list(opts.tags) or nil }
+    local pause = { from = a, to = b, tags = opts and opts.tags and list(opts.tags) or nil }
+    local tags = {}
+    for _, ev in ipairs(self._events) do
+        for _, et in ipairs(ev.tags) do tags[et] = true end
+    end
+    for _, tag in ipairs(pause.tags or {}) do
+        if not tags[tag] then
+            error('Calendar ' .. self.id .. ':pause: no event has the tag "' .. tostring(tag) .. '" (tags: ' .. quoted(tags) .. ')', 2)
+        end
+    end
+    for _, ev in ipairs(self._events) do
+        if pausedBy(pause, ev) then self:_endNow(ev, function(o) return o.date >= a and o.date <= b end) end
+    end
+    p[#p + 1] = pause
     self._st.pauses = p
 end
 
 --- Remove all pauses. @api public
-function Cal:resume() self._st.pauses = {} end
+function Cal:resume()
+    self._st.pauses = {}
+    self:_replan()
+end
 
 --- Pauses not over yet: { {from, to, tags}, ... }. @api public
 function Cal:paused()
@@ -652,6 +834,22 @@ local function remindAt(at, s)
     return at + s
 end
 
+-- An occurrence going on at t ends now when it is skipped, paused or removed: what its start
+-- switched on is switched off. match(o) picks the occurrences (all when nil).
+function Cal:_endNow(ev, match)
+    local s = self._s
+    if not s.ready or s.stopped or not ev.rule then return end
+    local t = now()
+    for _, o in ipairs(__go_calendar_between(ev.rule, t - ev.jitter, t + ev.jitter + 1, true)) do
+        if startOf(ev, o) <= t and o.ends and o.ends > t and (not match or match(o))
+            and not (self._st.skips or {})[skipKey(ev.id, o.date)] and not self:_pausedAt(ev, o.date) then
+            local e = self:_occ(ev, o)
+            e.kind, e.cancelled = 'end', true
+            self:_emit('end', ev.id, e)
+        end
+    end
+end
+
 -- Moments in (a, b]: { t, kind, ev, occ, offset }.
 function Cal:_moments(a, b)
     local out = {}
@@ -663,8 +861,7 @@ function Cal:_moments(a, b)
         end
         for _, o in ipairs(__go_calendar_between(ev.rule, a - lag, b + lead + 1, true)) do
             if not skips[skipKey(ev.id, o.date)] then
-                local start = o.at
-                if ev.jitter > 0 then start = start + jitterOf(ev.id .. o.date, ev.jitter) end
+                local start = startOf(ev, o)
                 local function add(t, kind, r)
                     if t > a and t <= b then out[#out + 1] = { t = t, kind = kind, ev = ev, occ = o, r = r } end
                 end
@@ -674,21 +871,24 @@ function Cal:_moments(a, b)
             end
         end
     end
+    -- at one instant: ends first, so a light handed from one event to the next stays on
     table.sort(out, function(x, y)
         if x.t ~= y.t then return x.t < y.t end
-        return x.ev.id < y.ev.id
+        if x.kind ~= y.kind then return KIND_ORDER[x.kind] < KIND_ORDER[y.kind] end
+        if x.ev.id ~= y.ev.id then return x.ev.id < y.ev.id end
+        return x.occ.at < y.occ.at
     end)
     return out
 end
 
 function Cal:_text(ev, o)
     local dt = datetime.fromTimestamp(o.at)
-    return ev.title .. ' ' .. datetime.format(dt, o.allDay and '02.01' or '02.01 15:04')
+    return tostring(ev.title) .. ' ' .. datetime.format(dt, o.allDay and '02.01' or '02.01 15:04')
 end
 
 function Cal:_fire(m, extra)
     local ev, o = m.ev, m.occ
-    if self:_pausedAt(ev, o.date) then return end
+    if self:_pausedAt(ev, o.date) or (self._st.skips or {})[skipKey(ev.id, o.date)] then return end
     local e = self:_occ(ev, o)
     e.kind = m.kind
     for k, v in pairs(extra or {}) do e[k] = v end
@@ -702,6 +902,11 @@ function Cal:_fire(m, extra)
         end
     end
     self:_emit(m.kind, ev.id, e)
+end
+
+function Cal:_fireSafe(m)
+    local ok, err = pcall(self._fire, self, m)
+    if not ok then log():error('[CALENDAR] %s %s %s: %s', self.id, m.kind, m.ev.id, tostring(err)) end
 end
 
 -- Schedules: fire change for each one whose value differs from the last one seen.
@@ -720,11 +925,34 @@ end
 function Cal:_catchup(t)
     for _, ev in ipairs(self._events) do
         if ev.catchup then
-            for _, o in ipairs(__go_calendar_between(ev.rule, t, t + 1, true)) do
-                if o.at < t and o.ends and o.ends > t and not (self._st.skips or {})[skipKey(ev.id, o.date)] then
+            for _, o in ipairs(__go_calendar_between(ev.rule, t - ev.jitter, t + ev.jitter + 1, true)) do
+                if startOf(ev, o) < t and o.ends and o.ends > t and not (self._st.skips or {})[skipKey(ev.id, o.date)] then
                     self:_fire({ kind = 'start', ev = ev, occ = o }, { catchup = true })
                 end
             end
+        end
+    end
+end
+
+-- Plans the timer again after a change that may add a moment sooner (add, unskip, resume).
+-- Not from inside _check, which plans at its end; s.last stays, so nothing is lost.
+function Cal:_replan()
+    local s = self._s
+    if not s.ready or s.stopped or s.inCheck then return end
+    if s.timer then EventBus:getShared():clearInterval(s.timer) end
+    self:_next(now())
+end
+
+-- A check that raises still leaves a timer: one bad moment must not stop the calendar.
+function Cal:_tick()
+    local s = self._s
+    s.inCheck = true
+    local ok, err = pcall(self._check, self)
+    s.inCheck = false
+    if not ok then
+        log():error('[CALENDAR] %s: %s', self.id, tostring(err))
+        if not s.stopped and not s.timer then
+            s.timer = EventBus:getShared():setTimeout(function() self:_tick() end, Calendar.CHECK_S * 1000)
         end
     end
 end
@@ -740,7 +968,7 @@ function Cal:_next(t)
     end
     wake = math.max(wake, 0.001)
     s.expect = t + wake
-    s.timer = EventBus:getShared():setTimeout(function() self:_check() end, math.ceil(wake * 1000))
+    s.timer = EventBus:getShared():setTimeout(function() self:_tick() end, math.ceil(wake * 1000))
 end
 
 function Cal:_check()
@@ -761,7 +989,7 @@ function Cal:_check()
                 s.warned = true
             end
             s.reason = reason
-            s.timer = EventBus:getShared():setTimeout(function() self:_check() end, Calendar.WAIT_POLL_S * 1000)
+            s.timer = EventBus:getShared():setTimeout(function() self:_tick() end, Calendar.WAIT_POLL_S * 1000)
             return
         end
         s.ready, s.reason, s.last = true, nil, t
@@ -776,13 +1004,18 @@ function Cal:_check()
         log():warn('[CALENDAR] %s: clock jumped by %d s; skipped moments do not fire', self.id, math.floor(t - s.expect))
         self:_schedulesChanged(t)
         if t > s.last then
+            -- what was going on before the jump and ended during it still ends (a light goes off)
+            for _, m in ipairs(self:_moments(s.last, t)) do
+                if s.stopped then return end
+                if m.kind == 'end' and startOf(m.ev, m.occ) <= s.last then self:_fireSafe(m) end
+            end
             s.last = t
             self:_catchup(t)
         end
     else
         for _, m in ipairs(self:_moments(s.last, t)) do
             if s.stopped then return end
-            self:_fire(m)
+            self:_fireSafe(m)
         end
         s.last = math.max(s.last, t)
         self:_schedulesChanged(t)
@@ -804,6 +1037,112 @@ function Cal:info()
         out.schedules[#out.schedules + 1] = { id = sc.id, title = sc.title, value = self:value(sc.id) }
     end
     return out
+end
+
+-- ==========================================================================
+-- API for the vclu_calendar MCP tool (read only)
+-- ==========================================================================
+
+Calendar.API = {}
+
+local function stamp(ts) return ts and datetime.format(datetime.fromTimestamp(ts), '2006-01-02T15:04-07:00') or nil end
+local function hm(ts) return ts and datetime.format(datetime.fromTimestamp(ts), '15:04') or nil end
+
+-- 'today', 'tomorrow', a date or nil (default) to a day of the calendar
+local function agendaDay(cal, v, default)
+    if v == nil then return default end
+    local today = cal:day()
+    if v == 'today' then return today end
+    if v == 'tomorrow' then return cal:day(today.ends) end
+    return cal:day(v)
+end
+
+-- the days from..to, or nil and an error
+local function agendaRange(cal, from, to, maxDays)
+    local okA, a = pcall(agendaDay, cal, from, cal:day())
+    local okB, b = pcall(agendaDay, cal, to, nil)
+    if not okA or not okB then return nil, 'from, to and date expected as YYYY-MM-DD, today or tomorrow' end
+    if not b then
+        b = a
+        for _ = 1, 6 do b = cal:day(b.ends) end
+    end
+    if b.starts < a.starts then return nil, 'to is before from' end
+    if (b.starts - a.starts) / 86400 >= maxDays then return nil, 'at most ' .. maxDays .. ' days' end
+    return a.date, b.date
+end
+
+local function agendaOf(cal, from, to, tags)
+    local out = cal:info()
+    out.from, out.to = from, to
+    local a, b = cal:day(from), cal:day(to)
+    local one = a.date == b.date
+    local byDate, days = {}, {}
+    local d = a
+    while d.starts <= b.starts do
+        local day = { date = d.date, weekday = d.weekday, workday = d.workday,
+            holiday = d.holidayName, events = {} }
+        if one then
+            day.namedays = d.namedays
+            local s = cal:sun(d.date)
+            if s then
+                day.sun = { dawn = hm(s.dawn), sunrise = hm(s.sunrise), sunset = hm(s.sunset),
+                    dusk = hm(s.dusk), polar = s.polar }
+            end
+        end
+        days[#days + 1] = day
+        byDate[d.date] = day
+        d = cal:day(d.ends)
+    end
+    for _, e in ipairs(cal:between(a.date, b.date, { tags = tags })) do
+        local item = { id = e.id, title = e.title, tags = e.tags, source = e.source, allDay = e.allDay,
+            start = stamp(e.at), ['end'] = stamp(e.ends), last = e.last ~= e.date and e.last or nil,
+            paused = e.paused or nil }
+        local day = byDate[e.date] or days[1]   -- going on since before from
+        day.events[#day.events + 1] = item
+    end
+    out.days = days
+    -- a schedule's value and next change are about now, its segments about the day asked for
+    for _, sc in ipairs(out.schedules) do
+        sc.now, sc.value = sc.value, nil
+        if cal:isReady() then
+            local n = cal:nextChange(sc.id)
+            sc.nextChange = n and { value = n.value, at = stamp(n.at) } or nil
+            if one then
+                sc.segments = {}
+                for _, sg in ipairs(cal:segments(sc.id, a.date)) do
+                    sc.segments[#sc.segments + 1] = { from = hm(sg.from),
+                        to = sg.to >= a.ends and '24:00' or hm(sg.to), value = sg.value }
+                end
+            end
+        end
+    end
+    return out
+end
+
+--- Agenda of one calendar (or all when id is nil) for the days from..to: 'YYYY-MM-DD',
+-- 'today' or 'tomorrow'; from defaults to today, to to a week from from.
+-- @return string JSON { calendars = [{ id, ready, from, to, days = [{ date, holiday, events }], schedules }] }
+function Calendar.API.agenda(id, from, to, tags, maxDays)
+    maxDays = maxDays or 62
+    local list = {}
+    if id then
+        local cal = calendars[id]
+        if not cal then return JSON.encode({ error = 'calendar "' .. tostring(id) .. '" not built', known = order }) end
+        list[1] = cal
+    else
+        list = Calendar.list()
+    end
+    local out = {}
+    if list[1] then
+        local a, b = agendaRange(list[1], from, to, maxDays)
+        if not a then return JSON.encode({ error = b }) end
+        from, to = a, b
+    end
+    for _, cal in ipairs(list) do
+        local ok, res = pcall(agendaOf, cal, from, to, tags)
+        out[#out + 1] = ok and res or { id = cal.id, error = tostring(res) }
+    end
+    return JSON.encode({ calendars = out })
 end
 
 return Calendar

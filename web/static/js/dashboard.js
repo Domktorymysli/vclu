@@ -484,7 +484,17 @@
     function ymd(d) { return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
     function parseYmd(s) { var p = s.split('-'); return new Date(+p[0], +p[1] - 1, +p[2]); }
     function addDays(d, n) { return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n); }
-    function hhmm(ts) { return new Date(ts * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}); }
+    // times in the house's zone (sent by the server), so a viewer abroad sees the house's clock
+    function hhmm(ts, zone) {
+        var o = {hour: '2-digit', minute: '2-digit'};
+        if (zone) o.timeZone = zone;
+        try { return new Date(ts * 1000).toLocaleTimeString([], o); }
+        catch (e) { return new Date(ts * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}); }
+    }
+    function zoneHour(ts, zone) {
+        try { return +new Date(ts * 1000).toLocaleString('en-GB', {hour: '2-digit', hour12: false, timeZone: zone || undefined}) % 24; }
+        catch (e) { return new Date(ts * 1000).getHours(); }
+    }
 
     var calHues = [168, 215, 32, 280, 340, 95];
     function calHue(id) {
@@ -528,8 +538,10 @@
         el.style.cursor = 'default';
         if (!w.span) el.style.gridColumn = '1 / -1';
 
+        // the browser's date until the first answer brings the house's (another zone, a wrong clock)
         var today = ymd(new Date());
-        var st = { view: w.view === 'day' ? 'day' : 'month', day: today, month: today.slice(0, 7) + '-01', data: null };
+        var st = { view: w.view === 'day' ? 'day' : 'month', day: today, month: today.slice(0, 7) + '-01', data: null, today: today, seq: 0 };
+        function tm(ts) { return hhmm(ts, st.data && st.data.zone); }
         // What to show besides events: what Lua allows (the server sends nothing else),
         // the viewer's choice kept per device
         var showKey = 'vclu.cal.' + dashId + '.' + w.id;
@@ -559,7 +571,7 @@
         var tools = calEl('div', 'dash-cal-tools');
         var todayBtn = calEl('button', 'dash-cal-today', rel ? cap(rel.format(0, 'day')) : 'Today');
         todayBtn.type = 'button';
-        todayBtn.addEventListener('click', function() { st.day = ymd(new Date()); st.month = st.day.slice(0, 7) + '-01'; load(); });
+        todayBtn.addEventListener('click', function() { st.day = st.today; st.month = st.day.slice(0, 7) + '-01'; load(); });
         var seg = calEl('div', 'dash-cal-seg');
         var segMonth = calIconBtn('calendar3', 'Month', function() { st.view = 'month'; st.month = st.day.slice(0, 7) + '-01'; load(); });
         var segDay = calIconBtn('calendar-day', 'Day', function() { st.view = 'day'; load(); });
@@ -627,6 +639,7 @@
 
         function load() {
             var r = range();
+            var my = ++st.seq;
             segMonth.classList.toggle('active', st.view === 'month');
             segDay.classList.toggle('active', st.view === 'day');
             var url = '/api/dashboard/' + dashId + '/calendar?widget=' + encodeURIComponent(w.id) + '&from=' + r[0] + '&to=' + r[1];
@@ -637,12 +650,29 @@
                     return data;
                 });
             }).then(function(data) {
-                if (r[0] !== range()[0]) return; // navigated meanwhile
+                if (my !== st.seq) return; // a later request (navigation, refresh) supersedes it
+                // the house's today: the first answer, or midnight on a wall tablet; a view left
+                // on today follows it
+                if (data.today && data.today !== st.today) {
+                    var prev = st.today;
+                    st.today = data.today;
+                    var moved = false;
+                    if (st.day === prev) { st.day = data.today; moved = st.view === 'day'; }
+                    if (st.month === prev.slice(0, 7) + '-01') {
+                        st.month = data.today.slice(0, 7) + '-01';
+                        moved = moved || (st.view === 'month' && st.month !== prev.slice(0, 7) + '-01');
+                    }
+                    if (moved) { load(); return; }
+                }
                 st.data = data;
                 draw();
             }).catch(function() {
+                if (my !== st.seq) return;
+                el.classList.add('has-error');
                 body.textContent = '';
-                body.appendChild(calEl('div', 'dash-cal-empty', '!'));
+                var e = calEl('div', 'dash-cal-empty', '!');
+                e.title = pl ? 'Brak połączenia' : 'No connection';
+                body.appendChild(e);
             });
         }
 
@@ -675,7 +705,7 @@
         function drawMonth() {
             var m = parseYmd(st.month);
             title.textContent = cap(m.toLocaleDateString([], {month: 'long', year: 'numeric'}));
-            var now = st.data.today || ymd(new Date());
+            var now = st.today;
             var grid = calEl('div', 'dash-cal-month');
             var start = parseYmd(range()[0]);
             for (var i = 0; i < 7; i++) {
@@ -698,10 +728,13 @@
                 for (var k = 0; k < its.length && k < 3; k++) {
                     var chip = calEl('div', 'dash-cal-chip' + (its[k].paused ? ' paused' : ''), its[k].title);
                     chip.style.setProperty('--hue', calHue(its[k].id));
-                    if (!its[k].allDay) chip.title = hhmm(its[k].at) + ' ' + its[k].title;
+                    if (!its[k].allDay) chip.title = tm(its[k].at) + ' ' + its[k].title;
                     list.appendChild(chip);
                 }
-                if (its.length > 3) list.appendChild(calEl('div', 'dash-cal-more', '+' + (its.length - 3)));
+                // the server sends three events a day and the day's count
+                var total = info.count != null ? Math.max(info.count, its.length) : its.length;
+                var shown = Math.min(its.length, 3);
+                if (total > shown) list.appendChild(calEl('div', 'dash-cal-more', '+' + (total - shown)));
                 cell.appendChild(list);
                 if (its.length) cell.setAttribute('aria-label', d.toLocaleDateString() + ': ' + its.map(function(x) { return x.title; }).join(', '));
                 cell.addEventListener('click', (function(dt) {
@@ -735,9 +768,9 @@
                     sn.appendChild(document.createTextNode(info.polar === 'day' ? txt.polarDay : txt.polarNight));
                 } else {
                     sn.appendChild(calEl('i', 'bi bi-sunrise'));
-                    sn.appendChild(document.createTextNode(hhmm(info.sunrise)));
+                    sn.appendChild(document.createTextNode(tm(info.sunrise)));
                     sn.appendChild(calEl('i', 'bi bi-sunset dash-cal-note-gap'));
-                    sn.appendChild(document.createTextNode(hhmm(info.sunset)));
+                    sn.appendChild(document.createTextNode(tm(info.sunset)));
                 }
                 notes.appendChild(sn);
             }
@@ -768,7 +801,7 @@
             var listEl = calEl('div', 'dash-cal-list');
             function nowLine() {
                 var l = calEl('div', 'dash-cal-now');
-                l.appendChild(calEl('span', null, hhmm(nowTs)));
+                l.appendChild(calEl('span', null, tm(nowTs)));
                 listEl.appendChild(l);
                 lineDrawn = true;
             }
@@ -779,7 +812,7 @@
                 if (it.ends ? it.ends <= nowTs : it.at < nowTs) row.classList.add('past');
                 if (it.at <= nowTs && it.ends && it.ends > nowTs) row.classList.add('now');
                 if (it.paused) row.classList.add('paused');
-                var time = hhmm(it.at) + (it.ends ? '–' + hhmm(it.ends) : '');
+                var time = tm(it.at) + (it.ends ? '–' + tm(it.ends) : '');
                 row.appendChild(calEl('div', 'dash-cal-time', time));
                 var name = calEl('div', 'dash-cal-name');
                 if (it.icon) {
@@ -821,7 +854,7 @@
                     if (c) seg.style.setProperty('--seg', c);
                     else if (anyColor) seg.classList.add('neutral');
                     else seg.style.setProperty('--seg', 'hsl(' + calHue(sg.value) + ', 55%, 50%)');
-                    seg.title = sg.value + '  ' + hhmm(sg.from) + '\u2013' + hhmm(sg.to);
+                    seg.title = sg.value + '  ' + tm(sg.from) + '\u2013' + tm(sg.to);
                     if (isToday && sg.from <= nowTs && sg.to > nowTs) seg.classList.add('now');
                     bar.appendChild(seg);
                 });
@@ -836,11 +869,22 @@
             var ticks = calEl('div', 'dash-cal-sched-ticks');
             ticks.appendChild(calEl('div'));
             var axis = calEl('div', 'dash-cal-sched-axis');
-            [0, 6, 12, 18, 24].forEach(function(h) {
-                var t = calEl('span', null, pad2(h % 24 === 0 && h ? 24 : h));
-                t.style.left = (h / 24 * 100) + '%';
-                axis.appendChild(t);
-            });
+            // ticks at 0, 6, 12, 18 and 24 on the house's clock: a DST day has 23 or 25 hours
+            var first = list.filter(function(sc) { return sc.segments && sc.segments.length; })[0];
+            if (first) {
+                var segs0 = first.segments, d0 = segs0[0].from, span0 = segs0[segs0.length - 1].to - d0;
+                var zone = st.data && st.data.zone;
+                var addTick = function(label, at) {
+                    var t = calEl('span', null, label);
+                    t.style.left = ((at - d0) / span0 * 100) + '%';
+                    axis.appendChild(t);
+                };
+                for (var at = d0; at < d0 + span0; at += 3600) {
+                    var h = zoneHour(at, zone);
+                    if (h % 6 === 0) addTick(pad2(h), at);
+                }
+                addTick('24', d0 + span0);
+            }
             ticks.appendChild(axis);
             box.appendChild(ticks);
             return box;

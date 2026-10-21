@@ -155,6 +155,7 @@ func (s *MCPServer) registerDevTools() {
 		}, []string{"path"})
 
 	s.registerMQTTDiscoverTool()
+	s.registerCalendarTool()
 }
 
 // requireDevMode checks if dev mode is enabled (global + per-bot). Returns an error result if disabled.
@@ -598,13 +599,13 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 				"cover":    "section:cover(id, label, icon, fns, opts) — fns={getPosition,getState,open,close,stop,set?}",
 				"dimmer":   "section:dimmer(id, label, icon, fns, opts) — fns={get?,set,switchOn?,switchOff?,isOn?}",
 				"color":    "section:color(id, label, icon, fns, opts) — fns={getColor,setColor,get?,set?,switchOn?,switchOff?,isOn?,getWhite?,setWhite?} or a RemoteRGBLight object, opts.presets=[{label,r,g,b}]",
-				"calendar": "section:calendar(id, label, calendar or its id, {view='month'|'day', tags, schedules={ids}, holidays=true, namedays=false, sun=true}) (what is off is not sent; a viewer hides the rest) — month grid, a tapped day shows the day with a 24 h bar per schedule; full width",
+				"calendar": "section:calendar(id, label, calendar or its id, {view='month'|'day', tags, schedules={ids} or true for all, holidays=true, namedays=false, sun=true}) (what is off is not sent; a viewer hides the rest) — month grid, a tapped day shows the day with a 24 h bar per schedule; full width",
 			},
 			"opts":       "{ span=n, size='lg', color='#hex', disabled=function() }",
 			"auth_types": "public | pin | session",
 		},
 		"calendar": map[string]any{
-			"builder":  "Calendar.new(id):name():holidays('pl'):location(lat, lon):notify(fn | obj with :send(e)):clock({wait=false}):event(id, opts):schedule(id, {default=v, title, colors={value=color}, {window, value=v}, ...}):build()",
+			"builder":  "Calendar.new(id):name():holidays('pl'):location(lat, lon):notify(fn | obj with :send(e)):clock({wait=false}):event(id, opts):schedule(id, {default=v (required), values={v, ...} (required when the values are text; a window value not listed fails build()), title, colors={value=color}, {window, value=v}, ...}):build(); remind needs a sign ('-12h' before, '+1h' after); workday/holiday need :holidays()",
 			"rules":    "every='day'|'workday'|'weekend'|'holiday'|'mo'..'su'|{'mo','we'}|'month' (day=10|-1, on='first mo'|'last workday')|'year' (date='MM-DD', or month=10 with on='last su'); dates={'YYYY-MM-DD',...} (a published list of days); weeks|months|years=n with from; from, to, times; one-off date='YYYY-MM-DD' or 'a..b' (all day); time='HH:MM' | 'sunset-30m' | 'sunrise+15m' | 'dawn' | 'dusk' (needs location; none: all day), duration='6h' or hours='13:00-15:00' | {'sunset','sunrise'}; sun={azimuth={135,225}, elevation=15 | {low,high}} = the hours the sun stands there (shading by facade); except={dates or ranges}; moves={['date']='date'}",
 			"event":    "opts: title, icon, tags, remind='-12h'|{...}, notify, catchup=true (start again after a restart or clock jump during it), jitter='15m'",
 			"handlers": "cal:on('start'|'end'|'reminder'|'change'|'ready', [id], fn) → unsubscribe; change gives (value, old), old nil the first time",

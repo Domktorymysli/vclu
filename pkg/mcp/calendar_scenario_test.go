@@ -89,7 +89,7 @@ calLog(dom)`, `[{"advance": 1382400}]`) // 16 days
 func TestCalendar_ScheduleChanges(t *testing.T) {
 	got := runCalendar(t, "2026-10-23T12:00:00+02:00", `
 local dom = Calendar.new('dom'):holidays('pl')
-  :schedule('taryfa', { default = 'droga',
+  :schedule('taryfa', { values = { 'droga', 'tania' }, default = 'droga',
      { every = 'workday', hours = '13:00-15:00', value = 'tania' },
      { every = 'day', hours = '22:00-06:00', value = 'tania' },
      { every = 'weekend', value = 'tania' } })
@@ -153,7 +153,7 @@ func TestCalendar_Queries(t *testing.T) {
 local dom = Calendar.new('dom'):holidays('pl')
   :event('szkola', { title = 'Szkoła', every = 'workday', time = '08:00', duration = '6h', tags = { 'dzieci' } })
   :event('goscie', { date = '2026-11-14..2026-11-16' })
-  :schedule('ogrzewanie', { default = 'eco', { every = 'workday', hours = '06:00-22:00', value = 'komfort' } })
+  :schedule('ogrzewanie', { values = { 'eco', 'komfort' }, default = 'eco', { every = 'workday', hours = '06:00-22:00', value = 'komfort' } })
   :build()
 local function ids(l) local o = {} for _, e in ipairs(l) do o[#o+1] = e.id .. '@' .. e.date end return table.concat(o, ',') end
 print('CAL before ready ' .. tostring(dom:value('ogrzewanie')) .. ' ' .. tostring(dom:isActive('szkola')))
@@ -186,12 +186,34 @@ end)`, `[{"advance": 1}]`)
 
 func TestCalendar_BuildErrorsNameTheEvent(t *testing.T) {
 	for module, want := range map[string]string{
-		`Calendar.new('dom'):event('bio', { every = 'tue', time = '06:30' }):build()`:                             `event bio: every "tue"`,
-		`Calendar.new('dom'):event('bio', { every = 'tu', tme = '06:30' }):build()`:                               `event bio: unknown option "tme"`,
-		`Calendar.new('dom'):event('a', { date = '2026-01-01' }):event('a', { date = '2026-01-02' })`:             `duplicate id "a"`,
-		`Calendar.new('dom'):event('bio', { every = 'tu', weeks = 2 }):build()`:                                   `event bio: an interval`,
-		`Calendar.new('dom'):schedule('t', { { every = 'day', hours = '13-15', value = 1 } }):build()`:            `hours expected`,
-		`Calendar.new('dom'):holidays('de')`:                                                                      `unknown holidays "de"`,
+		`Calendar.new('dom'):event('bio', { every = 'tue', time = '06:30' }):build()`:                               `event bio: every "tue"`,
+		`Calendar.new('dom'):event('bio', { every = 'tu', tme = '06:30' }):build()`:                                 `event bio: unknown option "tme" ("catchup", "date", "dates", "day", "duration", "every", "except", "from", "hours", "icon", "jitter", "month", "months", "moves", "notify", "on", "remind", "sun", "tags", "time", "times", "title", "to", "weeks", "years")`,
+		`Calendar.new('dom'):event('a', { date = '2026-01-01' }):event('a', { date = '2026-01-02' })`:               `duplicate id "a"`,
+		`Calendar.new('dom'):event('bio', { every = 'tu', weeks = 2 }):build()`:                                     `event bio: an interval`,
+		`Calendar.new('dom'):schedule('t', { default = 0, { every = 'day', hours = '13-15', value = 1 } }):build()`: `hours expected`,
+		// mistakes that would otherwise pass silently
+		`Calendar.new('dom'):schedule('t', { { every = 'day', hours = '13:00-15:00', value = 1 } })`:                                                                                  `schedule t: needs a default`,
+		`Calendar.new('dom'):schedule('t', { default = 'off', values = { 'off', 'on' }, { every = 'day', hours = '13:00-15:00', value = 'onn' } })`:                                   `schedule t window 1: value "onn" is not one of values ("off", "on")`,
+		`Calendar.new('dom'):schedule('t', { default = 'of', values = { 'off', 'on' }, { every = 'day', hours = '13:00-15:00', value = 'on' } })`:                                     `schedule t: default "of" is not one of values`,
+		`Calendar.new('dom'):schedule('t', { values = { 'off', 'on' }, default = 'off', colors = { onn = 'success' }, { every = 'day', hours = '13:00-15:00', value = 'on' } })`:      `schedule t: colors names "onn", which is not one of its values ("off", "on")`,
+		`Calendar.new('dom'):schedule('t', { default = 0, colors = { [2] = 'success' }, { every = 'day', hours = '13:00-15:00', value = 1 } })`:                                       `schedule t: colors names 2, which is not one of its values (0, 1)`,
+		`Calendar.new('dom'):schedule('t', { default = 'off', { every = 'day', hours = '13:00-15:00', value = 'on' }, { every = 'we', value = 'on' } })`:                              `schedule t: text values need a list of them: values = { "off", "on" }`,
+		`Calendar.new('dom'):schedule('t', { default = 'off', valuse = { 'off' }, { every = 'day', value = 'on' } })`:                                                                 `schedule t: unknown option "valuse" ("colors", "default", "title", "values", windows)`,
+		`Calendar.new('dom'):event('bio', { every = 'tu', time = '06:30', remind = '12h' })`:                                                                                          `event bio remind: "12h" needs a sign`,
+		`Calendar.new('dom'):event('bio', { every = 'tu', time = '06:30', title = { 'Bio' } })`:                                                                                       `event bio: title must be a string`,
+		`Calendar.new('dom'):event('bio', { every = 'tu', time = '06:30', catchup = 'true' })`:                                                                                        `event bio: catchup must be true or false`,
+		`Calendar.new('dom'):event('bio', { every = 'tu', time = '06:30', tags = { 1 } })`:                                                                                            `event bio: tags must be strings`,
+		`Calendar.new('dom'):event('praca', { every = 'workday', time = '08:00' }):build()`:                                                                                           `event praca: every = 'workday' needs the public holidays`,
+		`Calendar.new('dom'):schedule('t', { default = 0, { every = 'holiday', value = 1 } }):build()`:                                                                                `schedule t window 1: every = 'holiday' needs the public holidays`,
+		`Calendar.new('dom'):event('bio', { every = 'tu', time = '06:30', except = { '2026-11-11' } }):build()`:                                                                       `event bio: except 2026-11-11: not a day of this series`,
+		`Calendar.new('dom'):event('bio', { every = 'tu', time = '06:30', moves = { ['2026-11-11'] = '2026-11-12' } }):build()`:                                                       `event bio: moves 2026-11-11: not a day of this series`,
+		`Calendar.new('dom'):event('bio', { every = 'tu', duration = '2h' }):build()`:                                                                                                 `event bio: duration needs time`,
+		`Calendar.new('dom'):event('bio', { every = 'tu', time = '06:30' }):schedule('t', { default = 0, { every = 'day', value = 1 } }):build():on('change', 'bio', function() end)`: `'bio' is an event`,
+		`Calendar.new('dom'):event('bio', { every = 'tu', time = '06:30' }):schedule('t', { default = 0, { every = 'day', value = 1 } }):build():on('start', 't', function() end)`:    `'t' is a schedule`,
+		`Calendar.new('dom'):event('bio', { every = 'tu', time = '06:30' }):build():skip('bio', '2026-11-11')`:                                                                        `"bio" has no occurrence on 2026-11-11 (next: 2026-11-17, 2026-11-24)`,
+		`Calendar.new('dom'):event('bio', { every = 'tu', time = '06:30', tags = 'smieci' }):build():pause('2026-11-11', { tags = 'śmieci' })`:                                        `no event has the tag "śmieci" (tags: "smieci")`,
+		`Calendar.new('dom'):event('bio', { every = 'tu', time = '06:30' }):build():add({ title = 'x', date = '2026-11-11', time = '10:00', remind = '1h' })`:                         `add: remind: "1h" needs a sign`,
+		`Calendar.new('dom'):holidays('de')`: `unknown holidays "de"`,
 		`Calendar.new('dom'):event('x', { date = '2026-01-01' }):build():on('stat', function() end)`:              `unknown kind "stat"`,
 		`Calendar.new('dom'):event('wyjazd', { date = '2026-11-14', time = '18:00', duration = 1e300 }):build()`:  `event wyjazd: duration must be at most 366 days`,
 		`Calendar.new('dom'):event('wyjazd', { date = '2026-11-14', time = '18:00', duration = 0/0 }):build()`:    `event wyjazd: duration must be at most 366 days`,
@@ -209,6 +231,8 @@ func TestCalendar_BuildErrorsNameTheEvent(t *testing.T) {
 		all := strings.Join(res.Errors, "\n")
 		if res.Success || !strings.Contains(all, want) {
 			t.Errorf("%s:\nwant error with %q, got success=%v errors=%s", module, want, res.Success, all)
+		} else if !strings.Contains(all, "modules/kal.lua:1: ") {
+			t.Errorf("%s:\nthe error does not name the module's line: %s", module, all)
 		}
 	}
 }
@@ -256,7 +280,7 @@ local dom = Calendar.new('dom')
   :event('a', { every = 'day', time = '11:00' })
   :event('b', { every = 'day', time = '14:00' })
   :event('lekcja', { every = 'day', time = '12:00', duration = '2h', catchup = true })
-  :schedule('s', { default = 'x', { every = 'day', hours = '12:00-18:00', value = 'y' } })
+  :schedule('s', { values = { 'x', 'y' }, default = 'x', { every = 'day', hours = '12:00-18:00', value = 'y' } })
   :build()
 calLog(dom)
 -- at 10:30 NTP moves the clock 2 h forward
@@ -267,14 +291,14 @@ EventBus:getShared():setTimeout(function() jump.ms = 2 * 3600 * 1000 end, 30 * 6
 		// the next check (at most a minute later) sees the jump: 11:00 and 12:00 are
 		// skipped, the schedule and catch-up events follow the new time
 		"10-20 10:30 change y x", "10-20 10:30 start lekcja catchup",
-		"10-20 12:00 start b", "10-20 12:00 end lekcja",
+		"10-20 12:00 end lekcja", "10-20 12:00 start b",
 	)
 }
 
 func TestCalendar_ScheduleQueries(t *testing.T) {
 	got := runCalendar(t, "2026-10-23T12:00:00+02:00", `
 local dom = Calendar.new('dom'):holidays('pl')
-  :schedule('taryfa', { title = 'Taryfa', default = 'droga', colors = { tania = 'success', droga = 'danger' },
+  :schedule('taryfa', { title = 'Taryfa', values = { 'droga', 'tania' }, default = 'droga', colors = { tania = 'success', droga = 'danger' },
      { every = 'workday', hours = '13:00-15:00', value = 'tania' },
      { every = 'day', hours = '22:00-06:00', value = 'tania' },
      { every = 'weekend', value = 'tania' } })
@@ -335,7 +359,7 @@ func TestCalendar_SunTimes(t *testing.T) {
 	got := runCalendar(t, "2026-10-20T12:00:00+02:00", `
 local dom = Calendar.new('dom'):location(52.2297, 21.0122)
   :event('rolety', { every = 'day', time = 'sunset-30m' })
-  :schedule('swiatlo', { default = 'off', { every = 'day', hours = { 'sunset', 'sunrise+15m' }, value = 'on' } })
+  :schedule('swiatlo', { values = { 'off', 'on' }, default = 'off', { every = 'day', hours = { 'sunset', 'sunrise+15m' }, value = 'on' } })
   :build()
 calLog(dom)
 local s = dom:sun('2026-10-20')
@@ -362,7 +386,7 @@ func TestCalendar_SunSkyAndDusk(t *testing.T) {
 	got := runCalendar(t, "2026-06-21T06:00:00+02:00", `
 local dom = Calendar.new('dom'):location(52.2297, 21.0122)
   :event('swiatla', { every = 'day', time = 'dusk' })
-  :schedule('rolety', { default = 'otwarte',
+  :schedule('rolety', { values = { 'otwarte', 'zaslon' }, default = 'otwarte',
      { every = 'day', sun = { azimuth = { 135, 225 }, elevation = 15 }, value = 'zaslon' } })
   :build()
 calLog(dom)
@@ -479,8 +503,8 @@ func TestCalendar_StatusTileExampleBeforeTheClockIsTrusted(t *testing.T) {
 	}
 	got := runCalendar(t, "2026-10-20T10:00:00+02:00", `
 __go_calendar_clock = function() return false, 'not synchronised' end
-local dom = Calendar.new('dom')
-  :schedule('taryfa', { default = 'droga', { every = 'workday', hours = '13:00-15:00', value = 'tania' } })
+local dom = Calendar.new('dom'):holidays('pl')
+  :schedule('taryfa', { values = { 'droga', 'tania' }, default = 'droga', { every = 'workday', hours = '13:00-15:00', value = 'tania' } })
   :build()
 local tile = `+string(tile[1])+`
 print('CAL ' .. tile())`, `[{"advance": 1}]`)
