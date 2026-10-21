@@ -3807,6 +3807,14 @@
         "insertTextRules": 4
       },
       {
+        "label": "value",
+        "kind": "method",
+        "detail": "(pathOrName: string): any",
+        "documentation": "Read an object's value; nil when the object is missing or has no reading yet",
+        "insertText": "value(${1:pathOrName})",
+        "insertTextRules": 4
+      },
+      {
         "label": "byTag",
         "kind": "method",
         "detail": "(tag: string): RemoteGroup",
@@ -4035,7 +4043,7 @@
         "insertText": "stop()",
         "insertTextRules": 4
       }
-    ]
+    ],
     "Plugin": [
       {
         "label": "get",

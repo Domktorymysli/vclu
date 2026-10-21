@@ -461,6 +461,7 @@ func addBuiltinGlobals(completions *Completions) {
 	// Add _ (registry alias) methods
 	completions.Methods["_"] = []CompletionItem{
 		{Label: "get", Kind: "method", Detail: "(pathOrName: string): RemoteObject?", Documentation: "Get object by path or name from registry", InsertText: "get(${1:pathOrName})", InsertTextRules: 4},
+		{Label: "value", Kind: "method", Detail: "(pathOrName: string): any", Documentation: "Read an object's value; nil when the object is missing or has no reading yet", InsertText: "value(${1:pathOrName})", InsertTextRules: 4},
 		{Label: "byTag", Kind: "method", Detail: "(tag: string): RemoteGroup", Documentation: "Get all objects with a specific tag", InsertText: "byTag(${1:tag})", InsertTextRules: 4},
 		{Label: "byTags", Kind: "method", Detail: "(...tags: string): RemoteGroup", Documentation: "Get all objects matching any of the tags", InsertText: "byTags(${1:tags})", InsertTextRules: 4},
 		{Label: "sync", Kind: "method", Detail: "(pathOrName: string, value: any)", Documentation: "Synchronize object state and emit event", InsertText: "sync(${1:pathOrName}, ${2:value})", InsertTextRules: 4},

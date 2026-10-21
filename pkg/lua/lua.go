@@ -180,6 +180,7 @@ func NewLuaEngineWithRuntimePath(cluName string, runtimePath string) *LuaEngine 
 // This is the common initialization used by both NewLuaEngineWithRuntimePath and Reinitialize
 func (le *LuaEngine) initializeLuaState(cluName string) error {
 	L := lua.NewState()
+	RegisterErrorLevel(L)
 
 	// Keep os and package libraries for CLU runtime
 	// os.time, os.date needed by CLU modules
