@@ -99,6 +99,8 @@ func registerParserFunctions(L *lua.LState) {
 	L.SetField(datetimeMod, "between", L.NewFunction(datetimeBetween))
 	L.SetGlobal("datetime", datetimeMod)
 
+	registerCalendarFunctions(L)
+
 	// Register color module
 	registerColorFunctions(L)
 

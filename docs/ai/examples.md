@@ -38,20 +38,83 @@ end)
 
 ## Harmonogram (schedule)
 
-Periodic condition checks. setInterval.
+A fixed time or a time window: use `Calendar`, not a `setInterval` that polls the clock.
+It plans from the wall clock in the `datetime` zone (DST included), waits until NTP has set
+the clock, and does not fire moments skipped by a clock jump.
 
 ```lua
---- Schedule: turn on the light every day at 17:00
-local fired_today = ""
-EventBus:getShared():setInterval(function()
-    local t = os.date("*t")
-    local today = os.date("%Y-%m-%d")
-    if t.hour == 17 and t.min == 0 and fired_today ~= today then
-        fired_today = today
-        _registry:get("custom:office_light"):set(0, 1)
-    end
-end, 30000)
+--- Schedule: the office light at 17:00 on workdays (public holidays excluded)
+-- File: modules/kalendarz/init.lua (require("kalendarz") in modules/init.lua)
+local dom = Calendar.new('dom'):holidays('pl')
+    :event('biuro', { every = 'workday', time = '17:00' })
+    :build()
+dom:on('start', 'biuro', function() _registry:get("custom:office_light"):set(0, 1) end)
+return dom
 ```
+
+## Calendar: events and schedules of values
+
+One calendar per house, built in one module; other modules take it with `Calendar.get('dom')` (or
+`require('kalendarz')`) and add `:on()` handlers. Building the same id again replaces the calendar,
+and the handlers of the earlier one stop. Rules: `every` = `'day'`, `'workday'`,
+`'weekend'`, `'holiday'`, a weekday (`'mo'`..`'su'`) or a list of them, `'month'` (with `day = 10`,
+`day = -1` the last, or `on = 'first mo'` / `'last fr'` / `'last workday'`), `'year'` (with
+`date = 'MM-DD'`, or `month = 10, on = 'last su'`); `dates = { 'YYYY-MM-DD', ... }` for a schedule published as a list of days (waste collection); `weeks`/`months`/`years = n` every n-th (needs `from`); `from`, `to`, `times`
+bound the series; a one-off has `date = 'YYYY-MM-DD'` or a range `'a..b'` (all day). No `time`
+means all day. With `:location(lat, lon)` a time can be the sun: `time = 'sunset-30m'`, `'sunrise+15m'`,
+`'dawn'`/`'dusk'` (civil twilight, better for lights than sunset), a window `hours = { 'sunset', 'sunrise' }`
+(ends the next morning), and the hours the sun stands on a facade: `sun = { azimuth = { 135, 225 }, elevation = 15 }`
+(degrees from north, 180 south; the lowest elevation or `{ low, high }`). `dom:sun(date)` gives sunrise, sunset, dawn,
+dusk; `dom:sunPosition()` the azimuth and elevation now. Use these instead of the sun-position plugin's events.
+
+```lua
+-- shade the south rooms while the sun is on that side and high enough to heat them
+:schedule('rolety-poludnie', { values = { 'otwarte', 'zaslon' }, default = 'otwarte',
+    { every = 'day', sun = { azimuth = { 135, 225 }, elevation = 15 }, value = 'zaslon' } })
+```
+
+`except` drops dates or ranges, `moves = { ['2026-11-10'] = '2026-11-12' }` moves one.
+
+```lua
+-- File: modules/kalendarz/init.lua, the whole calendar in one place
+local dom = Calendar.new('dom'):name('Dom'):holidays('pl'):location(52.23, 21.01)
+    :event('ogrod', { every = 'day', time = 'sunset-30m' })              -- garden lights before dark
+    :notify(function(e) Logger:getShared():info('%s', e.text) end)   -- or an object with :send(e)
+    :event('bio', { title = 'Bio', icon = 'trash', every = 'tu', weeks = 2, from = '2026-10-27',
+        time = '06:30', remind = '-12h' })
+    :event('szkola', { title = 'Szkoła', every = 'workday', time = '08:00', duration = '6h',
+        tags = { 'dzieci' }, catchup = true, except = { '2026-12-22..2027-01-06' } })
+    :event('rolety', { every = 'day', time = '21:00', jitter = '15m' })   -- presence simulation
+    :schedule('taryfa', { default = 'droga', title = 'Taryfa',            -- last window wins
+        values = { 'droga', 'tania' },                                     -- a value not listed is a build() error
+        colors = { tania = 'success', droga = 'danger' },                  -- dashboard bars and tiles
+        { every = 'workday', hours = '13:00-15:00', value = 'tania' },
+        { every = 'day', hours = '22:00-06:00', value = 'tania' },
+        { every = 'weekend', value = 'tania' } })
+    :build()
+
+dom:on('start', 'szkola', function(e) end)   -- e: id, title, at, ends, date, tags, catchup
+dom:on('end', 'szkola', function(e) end)
+dom:on('reminder', function(e) end)          -- e.offset = '-12h', e.text
+dom:on('change', 'taryfa', function(v, old) end)   -- old == nil: the first value after start
+
+dom:value('taryfa'); dom:isActive('szkola'); dom:next('bio'); dom:today(); dom:upcoming(7)
+dom:nextChange('taryfa')   -- { value = 'droga', at = ts } within 8 days; same-value windows are not a change
+dom:color('taryfa')        -- colour of the value now
+dom:segments('taryfa', '2026-10-20')       -- one day: { {from, to, value, color}, ... }; or (id, from, to)
+dom:between('2026-11-01', '2026-11-30')    -- occurrences in a range (dates or timestamps), each with date..last
+dom:day('2026-11-11')                      -- { date, weekday, workday, holiday, holidayName, namedays, starts, ends }
+dom:add({ title = 'Goście', date = '2026-11-14..2026-11-16' })   -- saved, survives a restart
+dom:skip('bio', '2026-11-10'); dom:pause('2026-12-24..2027-01-02', { tags = { 'dzieci' } })
+```
+
+- `catchup = true`: after a start or a clock jump during an occurrence, `start` fires with `e.catchup`.
+- `skip`, `pause` or `remove` of an occurrence going on fires its `end` at once (`e.cancelled`), so what its start switched on goes off. At one moment `end` fires before `start`: a light handed from one event to the next stays on.
+- `build()` refuses what would otherwise pass silently: a schedule without `default`, a schedule of text without `values` (the error lists the values to copy) or a window value or `default` not in it, `colors` for a value the schedule does not have, `remind` without a sign (`'-12h'` before, `'+1h'` after), `every = 'workday'`/`'holiday'` without `:holidays('pl')`, `except`/`moves` on a day that is not one of the series, `duration` without `time`, `on('change', <event>)`. The widget refuses unknown options and schedules or tags its calendar does not have.
+- `day = 31` skips months without a 31st; the last day of every month is `day = -1`.
+- Until the clock is trusted `value()`/`isActive()` return nil; `:clock({ wait = false })` skips the wait.
+- Test with `vclu_draft_test` and `advance`: the virtual clock drives the calendar.
+- `vclu_calendar` reads the house's calendars as they run: a day (`date = 'tomorrow'`) or up to 62 days, with holidays, events in local time and each schedule's value now and next change. Read it before changing a calendar module.
 
 ## Expose z pluginu
 
@@ -107,6 +170,19 @@ expose(pump, "switch", {
     group = "Ogrzewanie",
 }):tags({"critical", "dependsOn:hw:boiler", "noAutoOff"})
   :description("Domestic hot water. 3x a day for 5 min. Do not turn on when the boiler is OFF.")
+```
+
+## Read a value for a message
+
+`_:value(path)` gives the value, or nil when the object is gone or has no reading yet, so a
+status message never fails on a stale path. Turn 0/1 into words with a table.
+
+```lua
+local GATE = { [0] = "open", [1] = "closed" }
+
+local function status()
+    return "Gate: " .. (GATE[_:value("CLU220000592.DIN0095")] or "no reading")
+end
 ```
 
 ## Walk the exposed objects
@@ -268,7 +344,14 @@ CLU220000592:executeNoReply(0, "SetThermostat(19)")
 ## Dashboard (Lua-defined)
 
 Public dashboard for a tablet/wall. Defined in Lua, available at `/d/:id`.
-Widget types: button, toggle, slider, status, link, select, chart, image, group, cover, dimmer, color.
+Widget types: button, toggle, slider, status, link, select, chart, image, group, cover, dimmer, color, calendar.
+`:calendar(id, label, cal, { view = 'month' | 'day', tags = {...}, schedules = { 'taryfa' } })` shows a calendar
+built with `Calendar`: a month grid and the day of a tapped date (full width); `schedules` adds a 24 h bar per schedule (`schedules = true`: all of the calendar's)
+to the day view; `holidays` (holiday names, default on), `namedays` (name days in the day view, default off) and
+`sun` (sunrise and sunset in the day view, default on) set what the widget may show: what is off is not sent to the
+browser (a public page would give away the house's location), and a viewer can hide the rest on the widget (kept per device). A schedule as a tile: `:status('taryfa', 'Taryfa', 'lightning', function() local n = dom:nextChange('taryfa')
+return (dom:value('taryfa') or '--') .. (n and (' · do ' .. datetime.format(datetime.fromTimestamp(n.at), '15:04')) or '') end, nil,
+{ color = function() return dom:color('taryfa') end })`.
 
 **IMPORTANT**: After creating a dashboard file you MUST add a `require()` in `modules/init.lua`.
 Without it the dashboard will not be loaded!
@@ -295,19 +378,19 @@ Dashboard.new('home')
   -- Header bar — compact bar with values (before the sections!)
   :header()
     :status('temp_out', 'Zewn', 'thermometer-half',
-      function() return r:get("CLU212345678.ANA4201"):getValue() end, '°C')
+      function() return r:value("CLU212345678.ANA4201") end, '°C')
     :status('hum_out', 'Wilg', 'droplet',
-      function() return r:get("CLU212345678.ANA4202"):getValue() end, '%')
+      function() return r:value("CLU212345678.ANA4202") end, '%')
   -- Salon — 3 columns (default)
   :section('Salon', 'lamp')
     :toggle('salon_kanapa', 'Kanapa', 'lamp',
-      function() return r:get("CLU220000592.DOU0789"):getValue() end,
+      function() return r:value("CLU220000592.DOU0789") end,
       function(v)
         local obj = r:get("CLU220000592.DOU0789")
         if v then obj:switchOn() else obj:switchOff() end
       end)
     :toggle('salon_sufit', 'Sufit', 'lightbulb',
-      function() return r:get("CLU220000592.DOU0790"):getValue() end,
+      function() return r:value("CLU220000592.DOU0790") end,
       function(v)
         local obj = r:get("CLU220000592.DOU0790")
         if v then obj:switchOn() else obj:switchOff() end
@@ -318,13 +401,13 @@ Dashboard.new('home')
   -- Temperatures — 4 columns (compact statuses)
   :section('Temperatury', 'thermometer-half', { columns = 4 })
     :status('temp_salon', 'Salon', 'thermometer-half',
-      function() return r:get("CLU212345678.ANA4201"):getValue() end, '°C')
+      function() return r:value("CLU212345678.ANA4201") end, '°C')
     :status('temp_kuchnia', 'Kuchnia', 'thermometer-half',
-      function() return r:get("CLU212345678.ANA4203"):getValue() end, '°C')
+      function() return r:value("CLU212345678.ANA4203") end, '°C')
     :status('temp_sypialnia', 'Sypialnia', 'thermometer-half',
-      function() return r:get("CLU212345678.ANA4204"):getValue() end, '°C')
+      function() return r:value("CLU212345678.ANA4204") end, '°C')
     :status('temp_biuro', 'Biuro', 'thermometer-half',
-      function() return r:get("CLU212345678.ANA4205"):getValue() end, '°C')
+      function() return r:value("CLU212345678.ANA4205") end, '°C')
   -- Tools — 2 columns (wide links)
   :section('Narzedzia', 'tools', { columns = 2 })
     :link('grafana', 'Grafana', 'graph-up', 'http://192.168.1.50:3000')

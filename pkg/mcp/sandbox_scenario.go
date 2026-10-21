@@ -262,6 +262,11 @@ const sandboxHelpers = `
 		end
 		return o
 	end
+	local value = methods.value
+	methods.value = function(self, p)
+		if type(p) == "string" then methods.get(self, p) end -- the same warning for a wrong path
+		return value(self, p)
+	end
 `
 
 // loadObjects registers integration objects and the sandbox helpers.
