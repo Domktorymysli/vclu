@@ -16,7 +16,8 @@ Only public API is listed — internal/private functions are omitted.
 - [ExposedObjects](#exposedobjects) (21 functions)
 - [core.Registry](#coreregistry) (10 functions)
 - [core.Metrics](#coremetrics) (1 functions)
-- [Dashboard](#dashboard) (48 functions)
+- [core.Calendar](#corecalendar) (36 functions)
+- [Dashboard](#dashboard) (50 functions)
 - [lib.panel](#libpanel) (55 functions)
 - [objects.RemotePanel](#objectsremotepanel) (6 functions)
 - [GPIO_DOUT](#gpio_dout) (1 functions)
@@ -848,6 +849,160 @@ Register a metric for periodic collection.
 
 ---
 
+## core.Calendar
+
+### `Calendar.new(id)`
+
+Start defining a calendar.
+
+- `id` (string) — Calendar id (letters, digits, _ - .)
+
+### `Builder:name(s)`
+
+Display name. @api public
+
+### `Builder:icon(s)`
+
+Display name. @api public Icon (Bootstrap icon name). @api public
+
+### `Builder:holidays(country)`
+
+Public holidays that make 'workday' and 'holiday': 'pl'. @api public
+
+### `Builder:location(lat, lon)`
+
+Where the house is, for sunrise and sunset in times ('sunset-30m'): degrees, east positive. @api public
+
+### `Builder:notify(channel)`
+
+Default channel for reminders: function(e) or an object with :send(e). @api public
+
+### `Builder:clock(opts)`
+
+Clock guard: { wait = false } plans without waiting for NTP. @api public
+
+### `Builder:event(id, opts)`
+
+Add an event (start, end and reminder events). @api public
+
+### `Builder:schedule(id, opts)`
+
+Add a schedule: windows { every, hours, value, ... }, a default value, values = { ... } (the allowed values, required when they are text), and optionally a title and colors = { value = color } for the dashboard. @api public
+
+### `Builder:build()`
+
+Register the calendar and start it. Replaces a calendar with the same id. @api public
+
+### `Calendar.get(id)`
+
+A calendar built with Calendar.new(id):build(), or nil. @api public
+
+### `Calendar.list()`
+
+All calendars in the order they were built. @api public
+
+### `Cal:on(kind, id, fn) → function unsubscribe`
+
+Subscribe: on(kind, fn) or on(kind, id, fn); kinds start, end, reminder, change, ready. At one moment end comes before start; an end from skip, pause or remove has e.cancelled = true.
+
+**Returns:** function unsubscribe
+
+### `Cal:day(date)`
+
+A day: { date, weekday ('mo'..'su'), workday, holiday, holidayName, namedays, starts, ends }; date as 'YYYY-MM-DD' or a timestamp, today when nil. Names follow :holidays(country). @api public
+
+### `Cal:between(from, to, opts)`
+
+Occurrences between two moments (timestamps, or dates: from its start, to its end), also the ones going on at from; at most 400 days. opts: { tags }. @api public
+
+### `Cal:today(opts)`
+
+Occurrences of today (also the ones that started earlier and still go on). @api public
+
+### `Cal:upcoming(days, opts)`
+
+Occurrences from now for the next n days (default 7). @api public
+
+### `Cal:next(id)`
+
+The next occurrence of an event (not skipped), or nil. @api public
+
+### `Cal:isActive(id)`
+
+Whether an occurrence of the event is going on now (nil until the clock is trusted). @api public
+
+### `Cal:value(id)`
+
+The value of a schedule now (nil until the clock is trusted). @api public
+
+### `Cal:nextChange(id)`
+
+The next change of a schedule within 8 days: { value, at } or nil. @api public
+
+### `Cal:color(id, value)`
+
+The colour given to a value of a schedule (default: its value now), or nil. @api public
+
+### `Cal:segments(id, from, to)`
+
+Spans of a schedule: segments(id, from, to) with timestamps or dates, or segments(id, date) for one day: { {from, to, value, color}, ... }. @api public
+
+### `Cal:sun(date)`
+
+Sunrise, sunset, civil dawn and dusk, and solar noon of a day (date, timestamp or today), or nil without :location(). { sunrise, sunset, dawn, dusk, noon, dayLength } as timestamps; polar = 'day' | 'night' when the sun does not rise or set. @api public
+
+### `Cal:sunPosition(at)`
+
+Where the sun is now (or at a timestamp): { azimuth (degrees from north, 180 south), elevation (degrees above the horizon) }, or nil without :location(). @api public
+
+### `Cal:isWorkday(date)`
+
+Whether a date ('YYYY-MM-DD', a timestamp or today) is a workday. @api public
+
+### `Cal:isHoliday(date)`
+
+Whether a date ('YYYY-MM-DD', a timestamp or today) is a workday. @api public Whether a date is a public holiday. @api public
+
+### `Cal:isReady()`
+
+Whether a date ('YYYY-MM-DD', a timestamp or today) is a workday. @api public Whether a date is a public holiday. @api public Whether the clock is trusted and the calendar fires events. @api public
+
+### `Cal:add(opts) → string id`
+
+Add a user event (saved, survives a restart). Fields as in :event without functions.
+
+**Returns:** string id
+
+### `Cal:remove(id)`
+
+Remove a user event. @api public
+
+### `Cal:skip(id, date)`
+
+Cancel one occurrence of an event (by its date). @api public
+
+### `Cal:unskip(id, date)`
+
+Undo skip(). @api public
+
+### `Cal:pause(range, opts)`
+
+Pause events in a range of days: pause('2026-12-24..2027-01-02', { tags = {'dzieci'} }). @api public
+
+### `Cal:resume()`
+
+Remove all pauses. @api public
+
+### `Cal:paused()`
+
+Pauses not over yet: { {from, to, tags}, ... }. @api public
+
+### `Cal:info()`
+
+State for MCP and the panel: ready, reason, events, schedules. @api public
+
+---
+
 ## Dashboard
 
 ### `SectionHandle:button(id, label, icon, onTap, opts)`
@@ -912,6 +1067,15 @@ Add a chart widget to this section.
 - `label` (string) — Display label (e.g., "Temperatura 24h")
 - `metricPath` (string) — Metric path registered via metric() (e.g., "temp:salon", "salda:outsideAir")
 - `opts` (table) — Optional: {range=string ("1h","6h","24h","7d"), unit=string}
+
+### `SectionHandle:calendar(id, label, cal, opts)`
+
+Add a calendar widget to this section: a month grid and the day of a tapped date. holidays=true (holiday names, on by default), namedays=false (name days in the day view), sun=true (sunrise and sunset in the day view, with :location()), span=n}; what is off is not sent to the browser
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `cal` (table) — Calendar from Calendar.new(...):build(), or its id
+- `opts` (table) — Optional: {view="month"|"day", tags={...}, schedules={ids drawn as 24 h bars in the day view} or true for all of the calendar's,
 
 ### `SectionHandle:select(id, label, icon, options, getValue, onSelect, opts)`
 
@@ -1130,6 +1294,15 @@ Add a chart widget to the current section.
 - `label` (string) — Display label (e.g., "Temperatura 24h")
 - `metricPath` (string) — Metric path registered via metric() (e.g., "temp:salon", "salda:outsideAir")
 - `opts` (table) — Optional: {range=string ("1h","6h","24h","7d"), unit=string}
+
+### `DashboardBuilder:calendar(id, label, cal, opts)`
+
+Add a calendar widget to the current section: a month grid and the day of a tapped date. holidays=true (holiday names, on by default), namedays=false (name days in the day view), sun=true (sunrise and sunset in the day view, with :location()), span=n}; what is off is not sent to the browser
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `cal` (table) — Calendar from Calendar.new(...):build(), or its id
+- `opts` (table) — Optional: {view="month"|"day", tags={...}, schedules={ids drawn as 24 h bars in the day view} or true for all of the calendar's,
 
 ### `DashboardBuilder:select(id, label, icon, options, getValue, onSelect, opts)`
 
