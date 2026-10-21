@@ -421,6 +421,11 @@ function HACommands.handleExposedMessage(topic, payload)
     -- Handle command based on type and payload
     local exposedType = handle.type
 
+    -- target_temp/set is subscribed for a climate only; no other type takes it
+    if parsed.subpath == "target_temp" and exposedType ~= "climate" then
+        return false, "only a climate takes target_temp"
+    end
+
     if exposedType == "switch" then
         if payload == "ON" then
             handle:setValue(1)

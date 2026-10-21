@@ -513,7 +513,7 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 			},
 			"RemoteThermostat (THERMOSTAT)": map[string]any{
 				"methods": []string{"getValue()", "getTarget()", "getSetpoint()", "setSetpoint(v)", "getState()", "getMode()", "onChange(cb)"},
-				"note":    "A CLU's Thermostat (class 18, THE…): value = temperature at its sensor, getTarget() = target in effect (with auto/holiday mode), setSetpoint writes PointValue; mode 0 set point, 1 holiday, 2 auto, 3 heat-up. In the registry (add it to Grenton → Sync for values), not exposed to Home Assistant",
+				"note":    "A CLU's Thermostat (class 18, THE…): value = temperature at its sensor, getTarget() = target in effect (with auto/holiday mode), setSetpoint writes PointValue; mode 0 set point, 1 holiday, 2 auto, 3 heat-up. In the registry (add it to Grenton → Sync for values); exposeRegistry() leaves it out, expose(th, \"climate\", {name=...}) shows it in Home Assistant",
 			},
 			"VirtualSwitch (DOUT)": map[string]any{
 				"constructor": "VirtualSwitch:new(name, {initial=0, persist=true|'key'})",
