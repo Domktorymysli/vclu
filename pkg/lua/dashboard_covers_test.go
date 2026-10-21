@@ -305,3 +305,79 @@ func TestDashboardCoversArgumentErrors(t *testing.T) {
 		}
 	}
 }
+
+// Movement and slats are separate series: a tilt does not cut a set short, a set not a tilt;
+// stop ends both.
+func TestDashboardCoversMoveAndTiltSeries(t *testing.T) {
+	engine := newCoversEngine(t)
+	coversAction(t, engine, "all", "set", "30")
+	mustExec(t, engine, `T.advance(10)`)
+	coversAction(t, engine, "all", "tilt", "80")
+	got := mustExec(t, engine, `T.advance(1000); return sent()`)
+	want := "0 ROL1:execute(10, 30, 91)\n10 ROL2:execute(9, 80)\n50 ROL2:execute(10, 30, 91)\n100 ROL3:execute(10, 30, 91)"
+	if got != want {
+		t.Errorf("set then tilt:\n%s\nwant:\n%s", got, want)
+	}
+
+	mustExec(t, engine, `T.now = 0; C._lastTilt = 10`)
+	coversAction(t, engine, "all", "tilt", "60")
+	mustExec(t, engine, `T.advance(10)`)
+	coversAction(t, engine, "all", "stop", "nil")
+	got = mustExec(t, engine, `T.advance(1000); return sent()`)
+	want = "0 ROL2:execute(9, 60)\n10 ROL1:execute(3)\n60 ROL2:execute(3)\n110 ROL3:execute(3)"
+	if got != want {
+		t.Errorf("tilt then stop:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// A group disabled while its series runs sends nothing more.
+func TestDashboardCoversDisabledStopsSeries(t *testing.T) {
+	engine := newCoversEngine(t)
+	mustExec(t, engine, `A:addTag('south'); B:addTag('south'); C:addTag('south')`)
+	coversAction(t, engine, "south", "open", "nil")
+	got := mustExec(t, engine, `X.off = true; T.advance(1000); return sent()`)
+	if got != "0 ROL1:execute(10, 100, 91)" {
+		t.Errorf("disabled mid-series:\n%s", got)
+	}
+}
+
+// A cover without a reading counts as unknown, never as closed.
+func TestDashboardCoversUnknown(t *testing.T) {
+	engine := newCoversEngine(t)
+	mustExec(t, engine, `
+		D = RemoteCover:new(CLU, 'ROL4', 'ROL4')
+		D._hasPosition = true
+		E = RemoteCover:new(CLU, 'ROL5', 'ROL5')
+		Dashboard.new('u'):section('S', 'grid', { covers = true })
+			:covers('mixed', 'M', { C, D })
+			:covers('none', 'N', { D, E })
+		:build()
+	`)
+	var v map[string]map[string]interface{}
+	dashJSON(t, engine, `Dashboard.API.getValues("u")`, &v)
+	if m := v["mixed"]; m["closed"] != 1.0 || m["unknown"] != 1.0 || m["open"] != 0.0 || m["position"] != 0.0 {
+		t.Errorf("mixed = %v", m)
+	}
+	if n := v["none"]; n["unknown"] != 2.0 || n["closed"] != 0.0 || n["position"] != nil {
+		t.Errorf("none = %v", n)
+	}
+	if s := v["_section_0"]; s["unknown"] != 2.0 || s["closed"] != 1.0 {
+		t.Errorf("section = %v", s)
+	}
+}
+
+// Ids the page uses for its own keys are refused at the module's line.
+func TestDashboardReservedWidgetIDs(t *testing.T) {
+	for _, call := range []string{
+		`:section('S', 'grid'):covers('_section_0', 'L', {})`,
+		`:section('S', 'grid'):toggle('_group_1', 'L', 'x', function() end, function() end)`,
+		`:header():chip('_section_x', 'x', function() end)`,
+	} {
+		engine := NewLuaEngine()
+		_, err := engine.Execute("_dashboards = {}\nlocal ok, err = pcall(function()\n  Dashboard.new('e')" + call + "\nend)\nerror(err, 0)")
+		engine.Close()
+		if err == nil || !strings.Contains(err.Error(), "<string>:3: ") || !strings.Contains(err.Error(), "reserved") {
+			t.Errorf("%s: %v", call, err)
+		}
+	}
+}

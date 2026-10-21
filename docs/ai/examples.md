@@ -490,6 +490,12 @@ and, when a cover reports a slat angle (`getTilt`), a slat slider 0-90°. The ti
   the registry is skipped (logged once).
 - **Commands** go to the covers one after another, 50 ms apart (a CLU drops bursts); a new command
   for the group drops what is left of the previous one, so "up" then "stop" stops them all.
+  Movement and slats are separate series (a slat change does not cut a position short); stop
+  ends both. A group disabled meanwhile sends nothing more.
+- **Counts:** a cover with no reading yet is counted as "brak odczytu", never as closed. The
+  section header counts each cover once within groups; a `:cover` tile counts on its own, so a
+  cover shown both as a tile and in a group counts twice.
+- Widget ids starting with `_group_` or `_section_` are reserved.
 - The position slider calls `setPosition` on the covers that have a position, the slat slider
   `setTilt` only on those that report a tilt.
 - opts: `icon` (default `window`), `disabled`, `span`, `size`, `color`.

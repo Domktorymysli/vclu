@@ -1117,7 +1117,7 @@ Add a cover widget to this section. Buttons up/stop/down call open/stop/close. W
 
 ### `SectionHandle:covers(id, label, list, opts)`
 
-Add a cover group: one tile moving several covers, with their counts and average position. Buttons up/stop/down call open/stop/close on each cover, the slider setPosition on those with a position, the slat slider (shown when a cover reports getTilt) setTilt on those with a tilt; commands go out 50 ms apart and a new one drops what is left of the previous one.
+Add a cover group: one tile moving several covers, with their counts and average position. Buttons up/stop/down call open/stop/close on each cover, the slider setPosition on those with a position, the slat slider (shown when a cover reports getTilt) setTilt on those with a tilt; commands go out 50 ms apart and a new movement (or slat) command drops what is left of the previous one; stop ends both.
 
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label
@@ -1362,7 +1362,7 @@ Add a cover widget to the current section. Buttons up/stop/down call open/stop/c
 
 ### `DashboardBuilder:covers(id, label, list, opts)`
 
-Add a cover group to the current section: one tile moving several covers, with their counts and average position. Buttons up/stop/down call open/stop/close on each cover, the slider setPosition on those with a position, the slat slider (shown when a cover reports getTilt) setTilt on those with a tilt; commands go out 50 ms apart and a new one drops what is left of the previous one.
+Add a cover group to the current section: one tile moving several covers, with their counts and average position. Buttons up/stop/down call open/stop/close on each cover, the slider setPosition on those with a position, the slat slider (shown when a cover reports getTilt) setTilt on those with a tilt; commands go out 50 ms apart and a new movement (or slat) command drops what is left of the previous one; stop ends both.
 
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label

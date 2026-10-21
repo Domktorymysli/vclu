@@ -201,14 +201,14 @@ local function coverCanSet(c)
     return type(c.setPosition) == 'function' and c._hasPosition ~= false
 end
 
--- Counts of covers by state; a cover with no reading and not moving counts nowhere
+-- Counts of covers by state; not moving and no position is unknown
 local function coverCounts(readings)
-    local s = { open = 0, moving = 0, closed = 0 }
+    local s = { open = 0, moving = 0, closed = 0, unknown = 0 }
     for _, r in ipairs(readings) do
         if r.state == 1 or r.state == 2 then s.moving = s.moving + 1
-        elseif r.position ~= nil then
-            if r.position > 0 then s.open = s.open + 1 else s.closed = s.closed + 1 end
-        end
+        elseif r.position == nil then s.unknown = s.unknown + 1
+        elseif r.position > 0 then s.open = s.open + 1
+        else s.closed = s.closed + 1 end
     end
     return s
 end
@@ -235,17 +235,28 @@ local function coversEntry(covers)
     return e, readings
 end
 
--- One series of commands per group: the first now, the next ones COVERS_SPACING_MS apart on
--- timers; a new command drops what is left of the previous one
+-- Series of commands by "dashboard/widget/move" and ".../tilt": the first now, the next ones
+-- COVERS_SPACING_MS apart on timers; a new one of the same kind drops what is left of the old
 local _coversRuns = {}
-local function coversSeries(key, covers, fn)
+local function coversCancel(key)
     local prev = _coversRuns[key]
     if prev and prev.timer then TIMERS:clearTimer(prev.timer) end
+    _coversRuns[key] = nil
+end
+
+-- stopIf() true before a later step (the widget got disabled) drops the rest
+local function coversSeries(key, covers, fn, stopIf)
+    coversCancel(key)
     local run = { timer = nil }
     _coversRuns[key] = run
     local function step(i)
         if _coversRuns[key] ~= run then return end
         run.timer = nil
+        if i > 1 and stopIf and stopIf() then
+            Logger:getShared():info("[DASHBOARD] '%s': disabled, %d covers not moved", key, #covers - i + 1)
+            _coversRuns[key] = nil
+            return
+        end
         local ok, err = pcall(fn, covers[i])
         if not ok then Logger:getShared():warn("[DASHBOARD] '%s': cover %d: %s", key, i, tostring(err)) end
         if i >= #covers then
@@ -443,7 +454,7 @@ end
 -- @param list table Covers (RemoteCover, VirtualCover) or their paths, _:byTag(...), or a function returning one (read each time; missing paths skipped)
 --   Buttons up/stop/down call open/stop/close on each cover, the slider setPosition on those with a position,
 --   the slat slider (shown when a cover reports getTilt) setTilt on those with a tilt; commands go out 50 ms apart
---   and a new one drops what is left of the previous one.
+--   and a new movement (or slat) command drops what is left of the previous one; stop ends both.
 -- @param opts table Optional: {icon=string (default "window"), disabled=function()->bool, span=n, size=string, color=string}
 -- @api public
 function SectionHandle:covers(id, label, list, opts)
@@ -704,6 +715,11 @@ function DashboardBuilder:_addWidget(sectionIndex, widget)
     if not sec then
         error('No section at index ' .. tostring(sectionIndex))
     end
+    -- _group_N and _section_N are the page's own keys; level 3: the module calling a widget method
+    if widget.type ~= 'group' and type(widget.id) == 'string'
+        and (widget.id:sub(1, 7) == '_group_' or widget.id:sub(1, 9) == '_section_') then
+        error('widget id "' .. widget.id .. '": ids starting with _group_ or _section_ are reserved', 3)
+    end
     table.insert(sec.widgets, widget)
 end
 
@@ -914,7 +930,7 @@ end
 -- @param list table Covers (RemoteCover, VirtualCover) or their paths, _:byTag(...), or a function returning one (read each time; missing paths skipped)
 --   Buttons up/stop/down call open/stop/close on each cover, the slider setPosition on those with a position,
 --   the slat slider (shown when a cover reports getTilt) setTilt on those with a tilt; commands go out 50 ms apart
---   and a new one drops what is left of the previous one.
+--   and a new movement (or slat) command drops what is left of the previous one; stop ends both.
 -- @param opts table Optional: {icon=string (default "window"), disabled=function()->bool, span=n, size=string, color=string}
 -- @api public
 function DashboardBuilder:covers(id, label, list, opts)
@@ -1046,7 +1062,8 @@ local function coversState(dashId, w, cache)
     return st
 end
 
--- Header counts of a section with covers = true: its cover tiles and groups, each cover once
+-- Header counts of a section with covers = true: each cover once within groups; a cover tile
+-- counts on its own (its fns cannot be matched to an object)
 local function sectionCoverCounts(dashId, sec, cache)
     local seen, readings = {}, {}
     for _, w in ipairs(sec.widgets) do
@@ -1827,7 +1844,11 @@ function DashboardAPI.executeAction(id, widgetId, action, value)
         else
             return JSON.encode({ error = 'Invalid action for covers' })
         end
-        coversSeries(tostring(id) .. '/' .. tostring(widgetId), covers, fn)
+        -- movement and slats are separate series; stop ends both
+        local key = tostring(id) .. '/' .. tostring(widgetId)
+        if action == 'stop' then coversCancel(key .. '/tilt') end
+        coversSeries(key .. (action == 'tilt' and '/tilt' or '/move'), covers, fn,
+            function() return safeDisabled(widget.opts) end)
         if action == 'set' then return JSON.encode({ success = true, value = numVal }) end
         return JSON.encode({ success = true })
 

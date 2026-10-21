@@ -136,16 +136,19 @@
     }
 
     // "3 otwarte · 1 w ruchu", "wszystkie zamknięte": counts of a cover group or a section
+    // (null without covers; "brak odczytu" when none has a reading)
     function coverCountsText(c) {
-        var open = c.open || 0, moving = c.moving || 0, closed = c.closed || 0;
-        var n = open + moving + closed;
+        var open = c.open || 0, moving = c.moving || 0, closed = c.closed || 0, unknown = c.unknown || 0;
+        var n = open + moving + closed + unknown;
         if (n === 0) return null;
-        if (moving === 0 && closed === 0) return n > 1 ? T.allOpen : T.open;
-        if (moving === 0 && open === 0) return n > 1 ? T.allClosed : T.closed;
+        if (unknown === n) return T.unknown;
+        if (n === open) return n > 1 ? T.allOpen : T.open;
+        if (n === closed) return n > 1 ? T.allClosed : T.closed;
         var parts = [];
         if (open) parts.push(plural(open, T.openN));
         if (moving) parts.push(moving + ' ' + T.moving);
         if (closed) parts.push(plural(closed, T.closedN));
+        if (unknown) parts.push(unknown + ' ' + T.unknown);
         return parts.join(' · ');
     }
 
@@ -183,7 +186,8 @@
             var text = coverCountsText(d);
             if (text == null) return ['unknown', T.noCovers];
             if (d.moving > 0) return ['moving', text];
-            return [d.open > 0 ? 'on' : 'off', text];
+            if (d.open > 0) return ['on', text];
+            return [d.closed > 0 ? 'off' : 'unknown', text];
         case 'button':
             return ['value', T.run];
         case 'link':
