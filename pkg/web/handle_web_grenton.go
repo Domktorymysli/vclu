@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/Domktorymysli/vclu/pkg/config"
+	"github.com/Domktorymysli/vclu/pkg/luastr"
 	"github.com/gin-gonic/gin"
 )
 
@@ -372,7 +373,7 @@ func (s *Server) syncRemoteConfigToLua(syncCfg *config.VCLUSyncConfig) {
 	if len(syncCfg.Objects) > 0 {
 		parts := make([]string, len(syncCfg.Objects))
 		for i, path := range syncCfg.Objects {
-			parts[i] = fmt.Sprintf(`"%s"`, path)
+			parts[i] = luastr.Quote(path)
 		}
 		objectsLua = "{" + strings.Join(parts, ", ") + "}"
 	} else {

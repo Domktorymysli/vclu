@@ -18,6 +18,7 @@ import (
 	"github.com/Domktorymysli/vclu/pkg/config"
 	"github.com/Domktorymysli/vclu/pkg/gpio"
 	"github.com/Domktorymysli/vclu/pkg/lua"
+	"github.com/Domktorymysli/vclu/pkg/luastr"
 	"github.com/Domktorymysli/vclu/pkg/omparser"
 	"github.com/Domktorymysli/vclu/pkg/stats"
 	"github.com/Domktorymysli/vclu/pkg/tftp"
@@ -423,12 +424,16 @@ func (s *Server) connectMQTT() {
 			s.luaEngine.Execute(fmt.Sprintf(`if AccessControl then AccessControl.DEFAULT_MQTT = %q end`, clientConfig.DefaultAccess))
 		}
 	} else if brokerConfig := config.GetMQTTBrokerConfig(s.serverDir); brokerConfig != nil && brokerConfig.Enabled {
-		connectScript := connectBrokerLua + "\n" + fmt.Sprintf(`return connectBroker(%d, "%s", "%s")`,
-			brokerConfig.Port, brokerConfig.Username, brokerConfig.Password)
-		if _, err := s.luaEngine.Execute(connectScript); err != nil {
+		if _, err := s.luaEngine.Execute(brokerConnectScript(brokerConfig.Port, brokerConfig.Username, brokerConfig.Password)); err != nil {
 			log.Printf("WARNING: MQTT auto-connect failed: %v", err)
 		}
 	}
+}
+
+// brokerConnectScript connects the default MQTT client to the embedded broker.
+func brokerConnectScript(port int, username, password string) string {
+	return connectBrokerLua + "\n" + fmt.Sprintf(`return connectBroker(%d, %s, %s)`,
+		port, luastr.Quote(username), luastr.Quote(password))
 }
 
 // Start starts the Virtual CLU server
