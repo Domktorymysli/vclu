@@ -589,7 +589,7 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 		},
 		"dashboard": map[string]any{
 			"builder":  "Dashboard.new(id):name():icon():columns():auth():pin():poll():theme()",
-			"sections": "dash:header() first, then dash:section(name, icon, {columns=n})",
+			"sections": "dash:header() first, then dash:section(name, icon, {columns=n, covers=true}) — covers=true: the header counts the section's covers open, moving and closed",
 			"header":   "header:status/toggle/button/link as small chips, and header:chip(id, icon, fn, {color=string|fn, link=URL|'/path'|dashboard id, disabled=fn}) — fn() -> text, nil (chip hidden) or {text, icon, color}; header only",
 			"widgets": map[string]any{
 				"toggle":   "section:toggle(id, label, icon, getValueFn, onToggleFn, opts)",
@@ -598,6 +598,7 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 				"button":   "section:button(id, label, icon, onTapFn, opts)",
 				"link":     "section:link(id, label, icon, url, opts)",
 				"cover":    "section:cover(id, label, icon, fns, opts) — fns={getPosition,getState,open,close,stop,set?}",
+				"covers":   "section:covers(id, label, list, {icon, disabled, span, size, color}) — one tile for several covers: list = covers or paths, _:byTag(...), or a function returning one (read each time); up/stop/down/position on each, 50 ms apart (a new command drops the rest of the previous one), slats only on covers reporting getTilt; shows the counts and the average position",
 				"dimmer":   "section:dimmer(id, label, icon, fns, opts) — fns={get?,set,switchOn?,switchOff?,isOn?}",
 				"color":    "section:color(id, label, icon, fns, opts) — fns={getColor,setColor,get?,set?,switchOn?,switchOff?,isOn?,getWhite?,setWhite?} or a RemoteRGBLight object, opts.presets=[{label,r,g,b}]",
 				"calendar": "section:calendar(id, label, calendar or its id, {view='month'|'day', tags, schedules={ids} or true for all, holidays=true, namedays=false, sun=true}) (what is off is not sent; a viewer hides the rest) — month grid, a tapped day shows the day with a 24 h bar per schedule; full width",

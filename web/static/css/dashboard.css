@@ -154,6 +154,7 @@ body {
     .dash-widget-chart-container:hover,
     .dash-widget-image:hover,
     .dash-widget-cover:hover,
+    .dash-widget-covers:hover,
     .dash-widget-dimmer:hover,
     .dash-widget-color:hover,
     .dash-widget-slider:hover {
@@ -401,6 +402,7 @@ body {
 .dash-widget-chart-container:active,
 .dash-widget-image:active,
 .dash-widget-cover:active,
+.dash-widget-covers:active,
 .dash-widget-dimmer:active,
 .dash-widget-color:active {
     transform: none;
@@ -524,7 +526,8 @@ body {
 .dash-image-label.align-center .dash-tile-text { flex: 0 1 auto; }
 
 /* ---- Cover widget ---- */
-.dash-widget-cover {
+.dash-widget-cover,
+.dash-widget-covers {
     cursor: default;
 }
 
@@ -555,6 +558,27 @@ body {
 .dash-cover-btn.active {
     background: var(--tile-c);
     color: rgba(0,0,0,0.78);
+}
+
+/* ---- Cover group: a slider row shows while a cover can take it ---- */
+.dash-widget-covers .dash-slider-row[hidden] {
+    display: none;
+}
+
+/* "2 otwarte · 1 w ruchu" after a section's name */
+.dash-section-covers {
+    margin-left: auto;
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+}
+
+.dash-section-covers[hidden] {
+    display: none;
 }
 
 /* ---- Dimmer widget ---- */
@@ -1045,6 +1069,7 @@ body {
     .dash-grid > .dash-widget-chart-container,
     .dash-grid > .dash-widget-image,
     .dash-grid > .dash-widget-cover,
+    .dash-grid > .dash-widget-covers,
     .dash-grid > .dash-widget-dimmer,
     .dash-grid > .dash-widget-color,
     .dash-grid > .dash-widget-calendar {
