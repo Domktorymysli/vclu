@@ -312,6 +312,7 @@ Wprowadzenie do vCLU: instalacja na Raspberry Pi, GPIO, MQTT, integracja z Home 
 
 - [docs.vclu.pl](https://docs.vclu.pl)
 - [Dokumentacja API Lua](docs/ai/lua-api-reference.md) i [wzorce kodu](docs/ai/examples.md) (po angielsku; agenci dostają je też przez MCP)
+- [Integracja innego systemu z vCLU](docs/integrating.md): kiedy MQTT, a kiedy MCP, tematy MQTT, komendy i profile dostępu (po angielsku)
 
 ## Licencja
 
