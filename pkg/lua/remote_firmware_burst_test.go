@@ -88,3 +88,29 @@ func TestRemoteFirmwareFirstPollWaits(t *testing.T) {
 		t.Error("second autoSubscribe destroyed nothing; the test does not cover the series")
 	}
 }
+
+// A poll chain whose answer never comes (lost) holds a renew back only RENEW_WAIT_SECONDS,
+// not until the next renew tick: TTL/2 + 20 s stays inside the sessions' 60 s.
+func TestRemoteFirmwareRenewWaitIsBounded(t *testing.T) {
+	engine := newFirmwareEngine(t)
+	mustExec(t, engine, burstSetup)
+	got := mustExec(t, engine, `
+		CLOCK = { t = 1000 }
+		local realTime = os.time
+		os.time = function(t) if t then return realTime(t) end return CLOCK.t end
+		__go_send_command_async = function(ip, script, id) SENT[#SENT + 1] = script; return true end
+		SENT = {}
+		_timeouts, _timeoutDelays = {}, {}
+		RemoteSubscription.pollAll()      -- first read sent, its answer never comes
+		CLOCK.t = CLOCK.t + 5
+		RemoteSubscription.refreshAll()   -- waits for the poll
+		local waiting = kinds()
+		local delay = tostring(_timeoutDelays[#_timeoutDelays])
+		CLOCK.t = CLOCK.t + 16
+		runTimeouts()
+		os.time = realTime
+		return waiting .. "#" .. delay .. "#" .. kinds()`)
+	if got != "G#16000#GRR" {
+		t.Errorf("sends while waiting#fallback delay#sends after = %s, want G#16000#GRR", got)
+	}
+}

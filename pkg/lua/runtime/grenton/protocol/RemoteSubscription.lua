@@ -687,8 +687,17 @@ function RemoteSubscription.refreshAll()
 
     -- A running poll chain sends to the same CLUs: renew when it ends
     local polling = RemoteSubscription._pollRun
-    if polling and os.time() - polling.startedAt < RemoteSubscription.RENEW_WAIT_SECONDS then
-        RemoteSubscription._renewAfterPoll = true
+    local waited = polling and os.time() - polling.startedAt
+    if waited and waited < RemoteSubscription.RENEW_WAIT_SECONDS then
+        -- or when the wait runs out: a long or lost poll chain must not hold it to the next tick
+        if not RemoteSubscription._renewAfterPoll then
+            RemoteSubscription._renewAfterPoll = true
+            EventBus:getShared():setTimeout(function()
+                if not RemoteSubscription._renewAfterPoll then return end
+                RemoteSubscription._renewAfterPoll = false
+                RemoteSubscription.refreshAll()
+            end, (RemoteSubscription.RENEW_WAIT_SECONDS - waited + 1) * 1000)
+        end
         return
     end
 
