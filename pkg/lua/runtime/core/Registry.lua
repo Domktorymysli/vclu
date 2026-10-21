@@ -91,6 +91,23 @@ local _registry_methods = {
         return self[path]
     end,
 
+    --- Read an object's value by name or path.
+    -- @api public
+    -- @param self table The registry instance
+    -- @param pathOrName string Object path or name
+    -- @return any|nil The value; nil when the object is missing, has no getValue or no reading yet
+    value = function(self, pathOrName)
+        if type(pathOrName) ~= "string" then
+            error("_:value: path must be a string, got " .. type(pathOrName), 2)
+        end
+        -- rawget: a name such as "list" must not resolve to a registry method
+        local obj = rawget(self, resolvePath(pathOrName))
+        if type(obj) ~= "table" or type(obj.getValue) ~= "function" then
+            return nil
+        end
+        return obj:getValue()
+    end,
+
     --- Get all objects with a specific tag.
     -- @api public
     -- @param self table The registry instance
