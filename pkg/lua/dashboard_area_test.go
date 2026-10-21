@@ -224,11 +224,12 @@ func TestDashboardFloor(t *testing.T) {
 	for _, s := range def.Sections {
 		names = append(names, s.Name)
 	}
-	// Kuchnia first (order), then by name; Kotłownia has only a switch: left out
-	if got := strings.Join(names, "|"); got != "Kuchnia|Pokój dzienny|Łazienka|Inne" {
+	// Kuchnia first (order), then by name (Łazienka by its letter Ł, Salon titled); Kotłownia
+	// has only a switch: left out
+	if got := strings.Join(names, "|"); got != "Kuchnia|Łazienka|Pokój dzienny|Inne" {
 		t.Errorf("sections = %s", got)
 	}
-	if w := def.widget("area:lazienka.lustro"); w == nil || w["section"] != 2.0 {
+	if w := def.widget("area:lazienka.lustro"); w == nil || w["section"] != 1.0 {
 		t.Errorf("Łazienka widget = %v", w)
 	}
 	if w := def.widget("x"); w == nil || w["section"] != 3.0 {
@@ -236,6 +237,39 @@ func TestDashboardFloor(t *testing.T) {
 	}
 	if res := mustExec(t, engine, `Dashboard.API.executeAction("parter", "area:lazienka.lustro", "toggle", true)`); !strings.Contains(res, `"success":true`) {
 		t.Errorf("floor action: %s", res)
+	}
+}
+
+// Names sort in Polish order, case-insensitive: a letter with a diacritic right after its base
+// letter (c < ć < d, z < ź < ż), for devices in an area and for the areas of a floor
+func TestDashboardAreaPolishOrder(t *testing.T) {
+	names := []string{"Żaluzja", "taras", "Śpiżarnia", "Marta", "Źródło", "Ćwiczenia", "Łazienka",
+		"lustro", "Dach", "Sypialnia", "Lampa", "Cyfra", "Zamek"}
+	want := "Cyfra|Ćwiczenia|Dach|Lampa|lustro|Łazienka|Marta|Sypialnia|Śpiżarnia|taras|Zamek|Źródło|Żaluzja"
+	var b strings.Builder
+	for i, n := range names {
+		b.WriteString("expose(VirtualSwitch:new('s" + string(rune('a'+i)) + "'), 'light', { path = 'pl." +
+			string(rune('a'+i)) + "', name = '" + n + "', area = 'Polski' })\n")
+		b.WriteString("expose(VirtualSwitch:new('f" + string(rune('a'+i)) + "'), 'light', { path = 'fl." +
+			string(rune('a'+i)) + "', name = 'x', area = '" + n + "', floor = 'Pl' })\n")
+	}
+	engine := newAreaEngine(t, b.String()+`
+		Dashboard.new('pl'):section('Polski'):area('Polski'):build()
+		Dashboard.new('fl'):floor('Pl'):build()
+	`)
+	var labels []string
+	for _, w := range areaDef(t, engine, "pl").Widgets {
+		labels = append(labels, w["label"].(string))
+	}
+	if got := strings.Join(labels, "|"); got != want {
+		t.Errorf("devices:\n got %s\nwant %s", got, want)
+	}
+	var secs []string
+	for _, s := range areaDef(t, engine, "fl").Sections {
+		secs = append(secs, s.Name)
+	}
+	if got := strings.Join(secs, "|"); got != want {
+		t.Errorf("areas:\n got %s\nwant %s", got, want)
 	}
 }
 

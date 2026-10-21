@@ -613,33 +613,48 @@ end
 -- Lights, switches, dimmers and locks first, then covers, then the rest
 local SCREEN_ORDER = { light = 1, switch = 1, dimmer = 1, lock = 1, cover = 2 }
 
+-- Polish letters sort right after their base letter (c < ć < d), case-insensitive
+local POLISH = { ["ą"] = "a\2", ["ć"] = "c\2", ["ę"] = "e\2", ["ł"] = "l\2", ["ń"] = "n\2",
+    ["ó"] = "o\2", ["ś"] = "s\2", ["ź"] = "z\2", ["ż"] = "z\3",
+    ["Ą"] = "a\2", ["Ć"] = "c\2", ["Ę"] = "e\2", ["Ł"] = "l\2", ["Ń"] = "n\2",
+    ["Ó"] = "o\2", ["Ś"] = "s\2", ["Ź"] = "z\2", ["Ż"] = "z\3" }
+
+-- Sort key of a name: each character as its base letter and a rank
+local function sortKey(name)
+    return (tostring(name):lower():gsub("[%z\1-\127\194-\244][\128-\191]*", function(c)
+        return POLISH[c] or (c .. "\1")
+    end))
+end
+
 -- What a screen (lib/panel, a dashboard section) shows of the given areas: objects of a kind
 -- in opts.kinds or with options[opts.flag] = true, not flag = false, not in opts.skip; sorted
--- as SCREEN_ORDER, then by opts.key(name), then by path.
+-- as SCREEN_ORDER, then by opts.key(name) (default: Polish order), then by name and path.
 -- @return table { { path, handle }, ... }
 function ExposedObjects:_inArea(areas, opts)
     local inArea, kinds, skip = setOf(areas), setOf(opts.kinds), setOf(opts.skip)
-    local key = opts.key or tostring
+    local key = opts.key or sortKey
     local found = {}
     for path, h in pairs(self._objects) do
         local o = h.options or {}
         local flag = o[opts.flag]
         if inArea[o.area] and (flag == true or (flag ~= false and kinds[h.type])) and not skip[path] then
-            found[#found + 1] = { path = path, handle = h, key = key(o.name or path) }
+            found[#found + 1] = { path = path, handle = h, name = tostring(o.name or path), key = key(o.name or path) }
         end
     end
     table.sort(found, function(a, b)
         local oa, ob = SCREEN_ORDER[a.handle.type] or 3, SCREEN_ORDER[b.handle.type] or 3
         if oa ~= ob then return oa < ob end
         if a.key ~= b.key then return a.key < b.key end
+        if a.name ~= b.name then return a.name < b.name end
         return a.path < b.path
     end)
     return found
 end
 
 -- The areas on a floor: those in order first, in that order, then the rest by key(area)
+-- (default: Polish order), then by name
 function ExposedObjects:_areasOn(floor, order, key)
-    key = key or tostring
+    key = key or sortKey
     local seen, list = {}, {}
     for _, h in pairs(self._objects) do
         local o = h.options or {}
@@ -653,7 +668,9 @@ function ExposedObjects:_areasOn(floor, order, key)
     table.sort(list, function(a, b)
         local ra, rb = rank[a] or math.huge, rank[b] or math.huge
         if ra ~= rb then return ra < rb end
-        return key(a) < key(b)
+        local ka, kb = key(a), key(b)
+        if ka ~= kb then return ka < kb end
+        return a < b
     end)
     return list
 end
