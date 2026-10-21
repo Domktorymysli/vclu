@@ -1137,7 +1137,7 @@ Add a color picker widget to this section. switchOn?, switchOff?, isOn?, getWhit
 
 ### `SectionHandle:area(area, opts)`
 
-Fill this section with a widget for every device expose() put in an area, picked by kind: a light, switch or lock a toggle, a dimmer a dimmer, an RGB light the colour widget, a cover a cover, temperature and humidity a status; lights first, then covers, then the rest by name. Filled each time the dashboard is read, so devices a plugin exposes later show up; widgets added by hand come after them; a read-only device's widget is disabled. Like the panel, expose(obj, type, { dashboard = false }) keeps an object off dashboards and dashboard = true puts it on whatever its kind. Widget ids are "area:" .. path.
+Fill this section with a widget for every device expose() put in an area, picked by kind: a light, switch or lock a toggle, a dimmer a dimmer, an RGB light the colour widget, a cover a cover, temperature and humidity a status; lights first, then covers, then the rest by name. Filled when something is exposed or unexposed, so devices a plugin exposes later show up; widgets added by hand come after them; a read-only device's widget is disabled. Like the panel, expose(obj, type, { dashboard = false }) keeps an object off dashboards and dashboard = true puts one of those kinds on them even when kinds leaves it out (other kinds have no widget and log a warning). Widget ids are "area:" .. path, other bytes as %XX. Anyone who can open the dashboard controls what is exposed in the area later: use :auth('session') or 'pin'; access profiles of MQTT, HomeKit and MCP do not apply here.
 
 - `area` (string) — Area name, or a list of names (one room under two names)
 - `opts` (table) — Optional: {kinds={"light","dimmer","cover","temperature","humidity"} (also "switch", "lock"), skip={path, ...}}
@@ -1646,7 +1646,7 @@ A menu of the devices expose() put in an area, each with its row (Menu:add), nam
 
 ### `Panel.floor(floor, opts)`
 
-A menu of the areas on a floor (expose(..., { area = "Salon", floor = "Parter" })), each a Panel.area; areas with nothing for the panel are left out. Filled each time it opens. name), titles = { [area] = title }, kinds, skip }
+A menu of the areas on a floor (expose(..., { area = "Salon", floor = "Parter" })), each a Panel.area of that floor only (an area name may be on two floors); areas with nothing for the panel are left out. Filled each time it opens. name), titles = { [area] = title }, kinds, skip }
 
 - `floor` (string) — Floor name
 - `opts` (table) — |nil { title, order = { area, ... } (first, in this order; the rest by

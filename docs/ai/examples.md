@@ -438,17 +438,25 @@ Dashboard.new('parter')
   :floor('Piętro', { order = { 'Sypialnia' }, titles = { ['Łazienka gór'] = 'Łazienka' } }) -- a section per area
   :build()
 
-expose(domofon, 'switch', { area = 'Wiatrołap', dashboard = true })  -- on dashboards whatever its kind
+expose(domofon, 'switch', { area = 'Wiatrołap', dashboard = true })  -- on dashboards even outside kinds
 expose(pompa, 'switch', { area = 'Kotłownia', dashboard = false })   -- never on a dashboard
 ```
 
 - **Widgets:** light, switch, lock a toggle; dimmer a dimmer; RGB light the colour widget; cover a
   cover; temperature and humidity a status. A thermostat gets none yet. Labels are `name` from
   `expose()`; lights first, then covers, then the rest by name; a `readonly` device is disabled.
-- **Ids** are `area:` + the path (`area:CLU220000592.DOU0789`), the same after a reload; ids
-  starting with `area:` cannot be given by hand.
-- `dashboard = false/true` is separate from `panel = false/true`: a device can be on the wall
-  tablet and not on the Smart Panel, or the other way.
+- **Ids** are `area:` + the path (`area:CLU220000592.DOU0789`, bytes other than letters, digits
+  and `._:-` as `%XX`), the same after a reload; ids starting with `area:` cannot be given by hand.
+- `dashboard = true` adds a device of a kind that has a widget (light, switch, dimmer, RGB light,
+  cover, temperature, humidity, lock) even when `kinds` leaves it out; other kinds (a thermostat,
+  a sensor, a scene) get no widget and a warning in the log. It is separate from
+  `panel = false/true`: a device can be on the wall tablet and not on the Smart Panel, or the
+  other way.
+- **Access:** whoever can open the dashboard controls everything exposed into the area later,
+  and the access profiles of MQTT, HomeKit and MCP do not apply to dashboards (as for widgets
+  added by hand). With the default `public` auth that is anyone with the link: use
+  `:auth('session')` or `:auth('pin')` for a dashboard with rooms.
+- After `:floor()` the current section ends: start a `:section()` before adding widgets.
 
 ### Cover widget (blind)
 

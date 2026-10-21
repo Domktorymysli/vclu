@@ -1287,14 +1287,15 @@ function Panel.area(area, opts)
         local E = ExposedObjects
         if not (E and E._inArea) then return end
         local found = E:_inArea(areas, { kinds = opts.kinds or { "light", "dimmer", "cover", "temperature", "humidity" },
-            skip = opts.skip, flag = "panel", key = Panel.map })
+            skip = opts.skip, floor = opts._floor, flag = "panel", key = Panel.map })
         for _, f in ipairs(found) do self:add(f.handle.options.name or f.path, f.handle.object) end
     end
     return m
 end
 
 --- A menu of the areas on a floor (expose(..., { area = "Salon", floor = "Parter" })),
--- each a Panel.area; areas with nothing for the panel are left out. Filled each time it opens.
+-- each a Panel.area of that floor only (an area name may be on two floors); areas with
+-- nothing for the panel are left out. Filled each time it opens.
 -- @param floor string Floor name
 -- @param opts table|nil { title, order = { area, ... } (first, in this order; the rest by
 --   name), titles = { [area] = title }, kinds, skip }
@@ -1308,7 +1309,7 @@ function Panel.floor(floor, opts)
         local list = E:_areasOn(floor, opts.order, Panel.map)
         local titles = opts.titles or {}
         for _, a in ipairs(list) do
-            self:submenu(titles[a] or a, Panel.area(a, { title = titles[a], kinds = opts.kinds, skip = opts.skip }))
+            self:submenu(titles[a] or a, Panel.area(a, { title = titles[a], kinds = opts.kinds, skip = opts.skip, _floor = floor }))
         end
     end
     return m

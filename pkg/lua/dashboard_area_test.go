@@ -93,7 +93,7 @@ func TestDashboardAreaWidgets(t *testing.T) {
 
 	// lights, switches, dimmers and locks by name, then covers, then the rest; the hand-made last
 	want := []struct{ id, typ, label string }{
-		{"area:plugin:Gniazdko_1", "toggle", "Gniazdko"},
+		{"area:plugin:Gniazdko%201", "toggle", "Gniazdko"},
 		{"area:salon.kinkiet", "dimmer", "Kinkiet"},
 		{"area:salon.sufit", "toggle", "Sufit"},
 		{"area:salon.led", "color", "Taśma LED"},
@@ -122,7 +122,7 @@ func TestDashboardAreaWidgets(t *testing.T) {
 	// actions reach the objects
 	for _, a := range []string{
 		`Dashboard.API.executeAction("salon", "area:salon.sufit", "toggle", true)`,
-		`Dashboard.API.executeAction("salon", "area:plugin:Gniazdko_1", "toggle", true)`,
+		`Dashboard.API.executeAction("salon", "area:plugin:Gniazdko%201", "toggle", true)`,
 		`Dashboard.API.executeAction("salon", "area:salon.zamek", "toggle", true)`,
 		`Dashboard.API.executeAction("salon", "area:salon.kinkiet", "set", 40)`,
 		`Dashboard.API.executeAction("salon", "area:salon.roleta", "set", 30)`,
@@ -325,5 +325,128 @@ func TestDashboardOptionNotForIntegrations(t *testing.T) {
 	engine := newAreaEngine(t, `expose(VirtualSwitch:new("q"), "light", { path = "salon.q", area = "Salon", dashboard = false })`)
 	if js := mustExec(t, engine, `return ExposedObjects:toJSON()`); strings.Contains(js, "dashboard") || !strings.Contains(js, "salon.q") {
 		t.Errorf("toJSON = %s", js)
+	}
+}
+
+// An area name on two floors: a floor shows only its own devices, on dashboards and panels
+func TestAreaOnTwoFloors(t *testing.T) {
+	setup := `
+		expose(VirtualSwitch:new("a"), "light", { path = "dol.lustro", name = "Lustro dół", area = "Łazienka", floor = "Parter" })
+		expose(VirtualSwitch:new("b"), "light", { path = "gora.lustro", name = "Lustro góra", area = "Łazienka", floor = "Piętro" })
+	`
+	engine := newAreaEngine(t, setup+`Dashboard.new('p'):floor('Piętro'):build()`)
+	if got := strings.Join(areaDef(t, engine, "p").ids(), " "); got != "area:gora.lustro" {
+		t.Errorf("dashboard floor = %s", got)
+	}
+
+	panel := newPanelEngine(t, setup)
+	got := mustExec(t, panel, `(function()
+		local m = Panel.floor("Piętro"); m:_prepare()
+		local out = {}
+		for _, r in ipairs(m.rows) do
+			for _, d in ipairs(r.page.rows) do out[#out + 1] = r.label .. "/" .. d.label end
+		end
+		return table.concat(out, ",")
+	end)()`)
+	if got != "Łazienka/Lustro góra" {
+		t.Errorf("panel floor = %s", got)
+	}
+}
+
+// Ids encode the path so different paths never share one, and an id does not change when
+// other devices come and go
+func TestDashboardAreaIDsInjective(t *testing.T) {
+	engine := newAreaEngine(t, `
+		expose(VirtualSwitch:new("x1"), "light", { path = "x y", name = "B", area = "Pokój" })
+		expose(VirtualSwitch:new("x2"), "light", { path = "x_y", name = "C", area = "Pokój" })
+		Dashboard.new('i'):section('Pokój'):area('Pokój'):section('Znowu'):area('Pokój'):build()
+	`)
+	want := "area:x%20y area:x_y area:x%20y#2 area:x_y#2"
+	if got := strings.Join(areaDef(t, engine, "i").ids(), " "); got != want {
+		t.Errorf("ids = %s, want %s", got, want)
+	}
+	mustExec(t, engine, `expose(VirtualSwitch:new("x3"), "light", { path = "x-y", name = "A", area = "Pokój" })`)
+	want2 := "area:x-y area:x%20y area:x_y area:x-y#2 area:x%20y#2 area:x_y#2"
+	if got := strings.Join(areaDef(t, engine, "i").ids(), " "); got != want2 {
+		t.Errorf("after expose: %s, want %s", got, want2)
+	}
+	mustExec(t, engine, `ExposedObjects:get("x-y"):unexpose()`)
+	if got := strings.Join(areaDef(t, engine, "i").ids(), " "); got != want {
+		t.Errorf("after unexpose: %s, want %s", got, want)
+	}
+}
+
+// The rooms are filled once per change of what is exposed, not on every poll; auth and PIN
+// checks fill nothing
+func TestDashboardAreaReusedUntilExposeChanges(t *testing.T) {
+	engine := newAreaEngine(t, `
+		C = { n = 0 }
+		local inArea = ExposedObjects._inArea
+		ExposedObjects._inArea = function(...) C.n = C.n + 1; return inArea(...) end
+		Dashboard.new('r'):auth('pin'):pin(1234):section('Salon'):area('Salon'):build()
+	`)
+	count := func() string { return mustExec(t, engine, `C.n`) }
+	mustExec(t, engine, `Dashboard.API.getAuth("r")`)
+	mustExec(t, engine, `Dashboard.API.getPin("r")`)
+	mustExec(t, engine, `Dashboard.API.verifyPin("r", "1234")`)
+	if n := count(); n != "0" {
+		t.Errorf("auth and PIN filled the rooms %s times", n)
+	}
+	mustExec(t, engine, `Dashboard.API.getDefinition("r")`)
+	for i := 0; i < 3; i++ {
+		mustExec(t, engine, `Dashboard.API.getValues("r")`)
+		mustExec(t, engine, `Dashboard.API.executeAction("r", "area:salon.sufit", "toggle", true)`)
+	}
+	if n := count(); n != "1" {
+		t.Errorf("filled %s times without an expose change, want 1", n)
+	}
+	// values stay live
+	mustExec(t, engine, `D.kinkiet:setValue(0.25)`)
+	var vals map[string]map[string]interface{}
+	dashJSON(t, engine, `Dashboard.API.getValues("r")`, &vals)
+	if vals["area:salon.kinkiet"]["value"] != 25.0 {
+		t.Errorf("value not live: %v", vals["area:salon.kinkiet"])
+	}
+	mustExec(t, engine, `expose(VirtualSwitch:new("n"), "light", { path = "salon.n", name = "N", area = "Salon" })`)
+	if w := areaDef(t, engine, "r").widget("area:salon.n"); w == nil {
+		t.Error("expose after the cache: not shown")
+	}
+	if n := count(); n != "2" {
+		t.Errorf("filled %s times after an expose, want 2", n)
+	}
+	mustExec(t, engine, `ExposedObjects:get("salon.n"):update({ dashboard = false })`)
+	if w := areaDef(t, engine, "r").widget("area:salon.n"); w != nil {
+		t.Error("dashboard = false after the cache: still shown")
+	}
+}
+
+// dashboard = true on a kind without a widget: no widget, one warning per device
+func TestDashboardTrueWithoutWidgetWarnsOnce(t *testing.T) {
+	engine := newAreaEngine(t, `
+		W = {}
+		local warn = Logger.warn
+		Logger.warn = function(self, fmt, ...)
+			if tostring(fmt):find("has no widget") then W[#W + 1] = string.format(fmt, ...) end
+			return warn(self, fmt, ...)
+		end
+		expose(VirtualNumber:new("th"), "climate", { path = "salon.th", area = "Salon", dashboard = true })
+		Dashboard.new('w'):section('Salon'):area('Salon'):build()
+	`)
+	areaDef(t, engine, "w")
+	mustExec(t, engine, `expose(VirtualSwitch:new("m"), "light", { path = "salon.m", area = "Salon" })`)
+	areaDef(t, engine, "w")
+	if got := mustExec(t, engine, `#W .. " " .. tostring(W[1])`); !strings.HasPrefix(got, "1 ") || !strings.Contains(got, "salon.th") {
+		t.Errorf("warnings = %s", got)
+	}
+}
+
+// After dash:floor() a widget needs a section; the error names the module's line
+func TestDashboardFloorEndsSection(t *testing.T) {
+	engine := newAreaEngine(t, "")
+	res := mustExec(t, engine, `local ok, err = pcall(function()
+Dashboard.new('f'):floor('Parter'):toggle('t', 'T', 'power', function() end, function() end)
+end) return tostring(err)`)
+	if !strings.Contains(res, "<string>:2:") || !strings.Contains(res, "dash:floor() ends the current section") {
+		t.Errorf("error = %s", res)
 	}
 }

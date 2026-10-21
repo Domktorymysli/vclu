@@ -151,6 +151,9 @@ local function isOn(v)
     return v == true or (n ~= nil and n > 0)
 end
 
+-- Paths already warned about: dashboard = true on a kind without a widget
+local _noWidgetWarned = {}
+
 -- A widget for an exposed object, or nil for a kind without one
 local function areaWidget(h, id)
     local o, kind = h.object, h.type
@@ -196,18 +199,29 @@ local function areaWidget(h, id)
         w.unit = kind == 'temperature' and '°C' or '%'
         w.getValue = function() return h:getValue() end
     else
+        if h.options.dashboard == true and not _noWidgetWarned[h.path] then
+            _noWidgetWarned[h.path] = true
+            Logger:getShared():warn("[DASHBOARD] %s: dashboard = true, but a %s has no widget (%s)",
+                h.path, tostring(kind), table.concat(AREA_KINDS, ', '))
+        end
         return nil
     end
     return w
 end
 
--- Widgets of the devices in areas; ids from the path, the same on every read
-local function areaWidgets(spec, areas, used)
+-- A path in an id: other bytes as %XX, so two paths never give one id
+local function idOf(path)
+    return AREA_ID .. path:gsub('[^%w%._:%-]', function(c) return string.format('%%%02X', c:byte()) end)
+end
+
+-- Widgets of the devices in areas (on floor, when given); ids from the path, the same on every
+-- read; "#n" only for the same device shown again
+local function areaWidgets(spec, areas, used, floor)
     local E = ExposedObjects
     if not (E and E._inArea) then return {} end
     local out = {}
-    for _, f in ipairs(E:_inArea(areas, { kinds = spec.kinds, skip = spec.skip, flag = 'dashboard' })) do
-        local base = AREA_ID .. f.path:gsub('[^%w%._:%-]', '_')
+    for _, f in ipairs(E:_inArea(areas, { kinds = spec.kinds, skip = spec.skip, floor = floor, flag = 'dashboard' })) do
+        local base = idOf(f.path)
         local id, n = base, 1
         while used[id] do n = n + 1; id = base .. '#' .. n end
         local w = areaWidget(f.handle, id)
@@ -219,10 +233,14 @@ local function areaWidgets(spec, areas, used)
     return out
 end
 
--- The dashboard as the API reads it: area sections filled now, a floor one section per area
+-- The dashboard as the API reads it: area sections filled from what is exposed, a floor one
+-- section per area; reused until something is exposed, unexposed or its options change
+-- (widgets read the objects live)
 local function expandAreas(dash)
     if not dash or not dash._hasAreas then return dash end
     local E = ExposedObjects
+    local gen = E and E._generation or 0
+    if dash._areaView and dash._areaGen == gen then return dash._areaView end
     local used, sections = {}, {}
     local function add(sec, widgets)
         local c = {}
@@ -234,7 +252,7 @@ local function expandAreas(dash)
         local spec = sec._floor
         if spec then
             for _, a in ipairs(E and E._areasOn and E:_areasOn(spec.floor, spec.order) or {}) do
-                local widgets = areaWidgets(spec, { a }, used)
+                local widgets = areaWidgets(spec, { a }, used, spec.floor)
                 if #widgets > 0 then add({ name = spec.titles[a] or a, icon = sec.icon }, widgets) end
             end
         elseif sec._area then
@@ -245,7 +263,9 @@ local function expandAreas(dash)
             sections[#sections + 1] = sec
         end
     end
-    return setmetatable({ _sections = sections }, { __index = dash })
+    local view = setmetatable({ _sections = sections }, { __index = dash })
+    dash._areaView, dash._areaGen = view, gen
+    return view
 end
 
 function SectionHandle:new(builder, sectionIndex)
@@ -456,10 +476,13 @@ end
 --- Fill this section with a widget for every device expose() put in an area, picked by kind:
 -- a light, switch or lock a toggle, a dimmer a dimmer, an RGB light the colour widget, a cover
 -- a cover, temperature and humidity a status; lights first, then covers, then the rest by name.
--- Filled each time the dashboard is read, so devices a plugin exposes later show up; widgets
--- added by hand come after them; a read-only device's widget is disabled. Like the panel,
--- expose(obj, type, { dashboard = false }) keeps an object off dashboards and dashboard = true
--- puts it on whatever its kind. Widget ids are "area:" .. path.
+-- Filled when something is exposed or unexposed, so devices a plugin exposes later show up;
+-- widgets added by hand come after them; a read-only device's widget is disabled. Like the
+-- panel, expose(obj, type, { dashboard = false }) keeps an object off dashboards and
+-- dashboard = true puts one of those kinds on them even when kinds leaves it out (other kinds
+-- have no widget and log a warning). Widget ids are "area:" .. path, other bytes as %XX.
+-- Anyone who can open the dashboard controls what is exposed in the area later: use
+-- :auth('session') or 'pin'; access profiles of MQTT, HomeKit and MCP do not apply here.
 -- @param area string Area name, or a list of names (one room under two names)
 -- @param opts table Optional: {kinds={"light","dimmer","cover","temperature","humidity"} (also "switch", "lock"), skip={path, ...}}
 -- @api public
@@ -473,6 +496,7 @@ function SectionHandle:area(area, opts)
     sec._area = areaSpec('section:area', opts, AREA_KEYS, 3)
     sec._area.areas = areas
     self._builder._hasAreas = true
+    self._builder._areaView = nil
     return self
 end
 
@@ -641,6 +665,7 @@ function DashboardBuilder:section(name, icon, opts)
     opts = opts or {}
     local sec = { name = name, icon = icon or '', widgets = {}, _columns = opts.columns }
     table.insert(self._sections, sec)
+    self._areaView = nil
     self._currentSection = #self._sections
     return SectionHandle:new(self, self._currentSection)
 end
@@ -664,6 +689,7 @@ function DashboardBuilder:_floor(floor, opts)
     local spec = areaSpec('dash:floor', opts, FLOOR_KEYS, 4)
     spec.floor = floor
     table.insert(self._sections, { name = floor, icon = '', widgets = {}, _floor = spec })
+    self._areaView = nil
     self._currentSection = nil
     self._hasAreas = true
     return self
@@ -680,6 +706,7 @@ function DashboardBuilder:_addWidget(sectionIndex, widget)
         error('widget id "' .. widget.id .. '": ids starting with "' .. AREA_ID .. '" are kept for section:area', 3)
     end
     table.insert(sec.widgets, widget)
+    self._areaView = nil
 end
 
 --- Add a button widget to the current section.
@@ -691,7 +718,7 @@ end
 -- @api public
 function DashboardBuilder:button(id, label, icon, onTap, opts)
     if not self._currentSection then
-        error('Call :section() before adding widgets')
+        error('Call :section() before adding widgets (dash:floor() ends the current section)', 2)
     end
     self:_addWidget(self._currentSection, {
         id = id, type = 'button', label = label, icon = icon,
@@ -710,7 +737,7 @@ end
 -- @api public
 function DashboardBuilder:toggle(id, label, icon, getValue, onToggle, opts)
     if not self._currentSection then
-        error('Call :section() before adding widgets')
+        error('Call :section() before adding widgets (dash:floor() ends the current section)', 2)
     end
     self:_addWidget(self._currentSection, {
         id = id, type = 'toggle', label = label, icon = icon,
@@ -730,7 +757,7 @@ end
 -- @api public
 function DashboardBuilder:slider(id, label, min, max, getValue, onSet, opts)
     if not self._currentSection then
-        error('Call :section() before adding widgets')
+        error('Call :section() before adding widgets (dash:floor() ends the current section)', 2)
     end
     self:_addWidget(self._currentSection, {
         id = id, type = 'slider', label = label,
@@ -750,7 +777,7 @@ end
 -- @api public
 function DashboardBuilder:status(id, label, icon, getValue, unit, opts)
     if not self._currentSection then
-        error('Call :section() before adding widgets')
+        error('Call :section() before adding widgets (dash:floor() ends the current section)', 2)
     end
     self:_addWidget(self._currentSection, {
         id = id, type = 'status', label = label, icon = icon,
@@ -768,7 +795,7 @@ end
 -- @api public
 function DashboardBuilder:link(id, label, icon, url, opts)
     if not self._currentSection then
-        error('Call :section() before adding widgets')
+        error('Call :section() before adding widgets (dash:floor() ends the current section)', 2)
     end
     self:_addWidget(self._currentSection, {
         id = id, type = 'link', label = label, icon = icon,
@@ -785,7 +812,7 @@ end
 -- @api public
 function DashboardBuilder:chart(id, label, metricPath, opts)
     if not self._currentSection then
-        error('Call :section() before adding widgets')
+        error('Call :section() before adding widgets (dash:floor() ends the current section)', 2)
     end
     self:_addWidget(self._currentSection, {
         id = id, type = 'chart', label = label,
@@ -804,7 +831,7 @@ end
 -- @api public
 function DashboardBuilder:calendar(id, label, cal, opts)
     if not self._currentSection then
-        error('Call :section() before adding widgets')
+        error('Call :section() before adding widgets (dash:floor() ends the current section)', 2)
     end
     self:_addWidget(self._currentSection, calendarWidget(id, label, cal, opts))
     return self
@@ -821,7 +848,7 @@ end
 -- @api public
 function DashboardBuilder:select(id, label, icon, options, getValue, onSelect, opts)
     if not self._currentSection then
-        error('Call :section() before adding widgets')
+        error('Call :section() before adding widgets (dash:floor() ends the current section)', 2)
     end
     self:_addWidget(self._currentSection, {
         id = id, type = 'select', label = label, icon = icon,
@@ -838,7 +865,7 @@ end
 -- @api public
 function DashboardBuilder:image(id, label, url, opts)
     if not self._currentSection then
-        error('Call :section() before adding widgets')
+        error('Call :section() before adding widgets (dash:floor() ends the current section)', 2)
     end
     self:_addWidget(self._currentSection, {
         id = id, type = 'image', label = label,
@@ -853,7 +880,7 @@ end
 -- @api public
 function DashboardBuilder:group(label, icon)
     if not self._currentSection then
-        error('Call :section() before adding widgets')
+        error('Call :section() before adding widgets (dash:floor() ends the current section)', 2)
     end
     self:_addWidget(self._currentSection, {
         id = '_group_' .. tostring(#self._sections[self._currentSection].widgets),
@@ -874,7 +901,7 @@ end
 -- @api public
 function DashboardBuilder:cover(id, label, icon, fns, opts)
     if not self._currentSection then
-        error('Call :section() before adding widgets')
+        error('Call :section() before adding widgets (dash:floor() ends the current section)', 2)
     end
     self:_addWidget(self._currentSection, {
         id = id, type = 'cover', label = label, icon = icon,
@@ -892,7 +919,7 @@ end
 -- @api public
 function DashboardBuilder:dimmer(id, label, icon, fns, opts)
     if not self._currentSection then
-        error('Call :section() before adding widgets')
+        error('Call :section() before adding widgets (dash:floor() ends the current section)', 2)
     end
     self:_addWidget(self._currentSection, {
         id = id, type = 'dimmer', label = label, icon = icon,
@@ -911,7 +938,7 @@ end
 -- @api public
 function DashboardBuilder:color(id, label, icon, fns, opts)
     if not self._currentSection then
-        error('Call :section() before adding widgets')
+        error('Call :section() before adding widgets (dash:floor() ends the current section)', 2)
     end
     self:_addWidget(self._currentSection, {
         id = id, type = 'color', label = label, icon = icon,
@@ -1020,10 +1047,11 @@ local function safeDisabled(opts)
 end
 
 --- Internal: resolve a dashboard entry. For dynamic dashboards, rebuilds fresh.
-local function resolveDashboard(id)
+-- bare: without filling area sections (auth and PIN need no widgets)
+local function resolveDashboard(id, bare)
     local entry = _dashboards[id]
     if not entry then return nil end
-    if not entry._isDynamic then return expandAreas(entry) end
+    if not entry._isDynamic then return bare and entry or expandAreas(entry) end
 
     -- Dynamic: create fresh builder, call user function, auto-build
     local builder = DashboardBuilder:new(id)
@@ -1039,14 +1067,14 @@ local function resolveDashboard(id)
     local result = _dashboards[id]
     -- Restore the dynamic sentinel so next call rebuilds again
     _dashboards[id] = entry
-    return expandAreas(result)
+    return bare and result or expandAreas(result)
 end
 
 --- Get auth type for a dashboard (lightweight, no getValue calls)
 -- @param id string Dashboard ID
 -- @return string JSON with auth type
 function DashboardAPI.getAuth(id)
-    local dash = resolveDashboard(id)
+    local dash = resolveDashboard(id, true)
     if not dash then
         return JSON.encode({ error = 'Dashboard not found' })
     end
@@ -1412,7 +1440,7 @@ function DashboardAPI.getDefinition(id)
                     local otherGroups = otherDb._groups or {}
                     -- For dynamic dashboards, resolve to read _groups
                     if otherDb._isDynamic then
-                        local resolved = resolveDashboard(otherId)
+                        local resolved = resolveDashboard(otherId, true)
                         if resolved then
                             otherGroups = resolved._groups or {}
                             -- Also read name/icon from resolved
@@ -1734,7 +1762,7 @@ end
 -- @param pin string PIN to verify
 -- @return string JSON result
 function DashboardAPI.verifyPin(id, pin)
-    local dash = resolveDashboard(id)
+    local dash = resolveDashboard(id, true)
     if not dash then
         return JSON.encode({ valid = false })
     end
@@ -1748,7 +1776,7 @@ end
 --- PIN of a 'pin' dashboard, for checking cookies server-side (never sent to pages)
 -- @return string JSON {pin=...} or {}
 function DashboardAPI.getPin(id)
-    local dash = resolveDashboard(id)
+    local dash = resolveDashboard(id, true)
     if not dash or dash._auth ~= 'pin' or not dash._pin then
         return JSON.encode({})
     end
