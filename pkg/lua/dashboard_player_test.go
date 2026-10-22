@@ -22,15 +22,17 @@ const dashPlayerSetup = `
 	end
 	function M:getTrack() return self._track end
 	function M:isOn() return self._power end
-	function M:play(cb) log('mc:play') end
-	function M:pause(cb) log('mc:pause') end
-	function M:stop(cb) log('mc:stop') end
-	function M:next(cb) log('mc:next') end
-	function M:previous(cb) log('mc:previous') end
-	function M:setVolume(p, cb) log('mc:setVolume:' .. tostring(p)); self._volume = p end
-	function M:setMute(b, cb) log('mc:setMute:' .. tostring(b)) end
-	function M:on(cb) log('mc:on') end
-	function M:off(cb) log('mc:off') end
+	-- the plugin calls a callback given after the arguments when the device answers
+	local function reply(cb) if cb then cb({ response_code = 0 }, nil) end end
+	function M:play(cb) log('mc:play'); reply(cb) end
+	function M:pause(cb) log('mc:pause'); reply(cb) end
+	function M:stop(cb) log('mc:stop'); reply(cb) end
+	function M:next(cb) log('mc:next'); reply(cb) end
+	function M:previous(cb) log('mc:previous'); reply(cb) end
+	function M:setVolume(p, cb) log('mc:setVolume:' .. tostring(p)); self._volume = p; reply(cb) end
+	function M:setMute(b, cb) log('mc:setMute:' .. tostring(b)); reply(cb) end
+	function M:on(cb) log('mc:on'); reply(cb) end
+	function M:off(cb) log('mc:off'); reply(cb) end
 	MC = { _power = true, _volume = 35, _mute = false, _playback = 'play', _online = true,
 		_track = { artist = 'Artist', title = 'Song', album = 'Album', input = 'spotify',
 			artwork = 'http://192.0.2.10/YamahaRemoteControl/AlbumART/AlbumART.ymf?t=1' } }

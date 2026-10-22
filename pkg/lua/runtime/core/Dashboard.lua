@@ -311,7 +311,12 @@ local function musicCastFns(dev)
     for i = 2, #PLAYER_FNS do
         local name = PLAYER_FNS[i]
         if type(dev[name]) == 'function' then
-            fns[name] = function(v) dev[name](dev, v) end
+            -- the device's methods take an optional callback after their arguments
+            if name == 'setVolume' or name == 'setMute' then
+                fns[name] = function(v) dev[name](dev, v) end
+            else
+                fns[name] = function() dev[name](dev) end
+            end
         end
     end
     return fns
@@ -363,7 +368,7 @@ local function playerText(v)
     if type(v) ~= 'string' or v == '' then return nil end
     if #v <= 300 then return v end
     v = v:sub(1, 300)
-    -- drop a last UTF-8 character the cut left incomplete (a byte class in a pattern crashes gopher-lua)
+    -- drop a last UTF-8 character the cut left incomplete
     local i = #v
     while i > 1 and v:byte(i) >= 128 and v:byte(i) < 192 do i = i - 1 end
     local b = v:byte(i)

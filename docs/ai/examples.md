@@ -527,9 +527,13 @@ local salon = mc:create({ id = "salon", ip = "192.168.1.50", name = "Salon" })
   every field may be nil. `power = false` shows "wyłączony", `online = false` "offline".
 - **Functions:** `play`, `pause`, `next`, `previous`, `setVolume(percent)`, `setMute(bool)`, `on`, `off`
   (power needs both). The volume is checked to be 0-100 before `setVolume` is called.
-- **Artwork** must be an absolute `http://` or `https://` URL; anything else is dropped. The browser loads
-  it straight from the device, so from outside the house (or on an https page with an http URL) the tile
-  shows a note icon instead. MusicCast gives the artwork from plugin version 0.2.0.
+- **Artwork** must be an absolute `http://` or `https://` URL; anything else is dropped. The URL comes
+  from the device (through the plugin) and each viewer's browser fetches it itself; vCLU does not proxy
+  it, so it loads only inside the house (LAN). From outside (or on an https page with an http URL) the
+  tile shows a note icon instead. MusicCast gives the artwork from plugin version 0.2.0.
+- **MusicCast actions are asynchronous:** the action returns success at once and the tile follows on the
+  next poll. The plugin updates its cached state right after the receiver accepts a command; a
+  receiver that does not answer shows on the next poll (offline, or the state unchanged).
 - The tile is two columns wide (full width on a phone); `span` changes it. opts: `icon`, `disabled`,
   `span`, `size`, `color`.
 
