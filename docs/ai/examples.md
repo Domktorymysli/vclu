@@ -784,6 +784,28 @@ Full list: https://icons.getbootstrap.com/
 | info | `info-circle`, `question-circle` | Information |
 | grid | `grid`, `grid-3x3` | Dashboard |
 
+## Dashboard — wall tablet (full width, home screen)
+
+`:width('full')` lets the tiles fill the screen edge to edge with an 8 px gutter; the default
+`'normal'` keeps wide screens centred at 1100 px. `:columns(n)` still sets the column count;
+`modules/custom.css` still wins.
+
+```lua
+Dashboard.new('hall')
+    :name('Przedpokój'):icon('tablet-landscape')
+    :width('full')
+    :columns(4)
+    :theme({ background = '#101418' })  -- also the colour of the status bar and the app's splash
+    :section('Światła', 'lightbulb')
+    -- ...
+    :build()
+```
+
+Every dashboard can be added to the home screen and then opens without browser bars (with
+`width('full')` in full screen where the system allows it): on an iPad Safari → Share → Add to Home
+Screen; on Android Chrome → menu → Add to Home screen (or Install app). The app's name is
+`:name()`. A PIN or session dashboard asks for the PIN or login once more inside the app.
+
 ## Dashboard — tab navigation (tabGroup)
 
 Dashboards in the same group show a tab bar at the top.

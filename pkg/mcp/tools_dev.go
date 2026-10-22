@@ -588,7 +588,9 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 			"sandbox":   "vclu_draft_test step {\"mqtt\": \"stat/<topic>/POWER\", \"payload\": \"ON\"} delivers a message; commands show as mqtt.publish in blocked_calls",
 		},
 		"dashboard": map[string]any{
-			"builder":  "Dashboard.new(id):name():icon():columns():auth():pin():poll():theme()",
+			"builder":  "Dashboard.new(id):name():icon():columns():auth():pin():poll():theme():width('full'|'normal')",
+			"width":    "width('full'): tiles edge to edge with an 8 px gutter (wall tablets), the home-screen app opens full screen; 'normal' (default) keeps wide screens centred at 1100 px; :columns(n) still sets the columns",
+			"app":      "every dashboard has a manifest (/d/<id>/manifest.webmanifest: name and theme background only, no auth needed) and meta tags: Safari Share → Add to Home Screen (iPad), Chrome menu → Add to Home screen / Install app (Android) opens it without browser bars",
 			"sections": "dash:header() first, then dash:section(name, icon, {columns=n, covers=true}) — covers=true: the header counts the section's covers open, moving and closed",
 			"header":   "header:status/toggle/button/link as small chips, and header:chip(id, icon, fn, {color=string|fn, link=URL|'/path'|dashboard id, disabled=fn}) — fn() -> text, nil (chip hidden) or {text, icon, color}; header only",
 			"widgets": map[string]any{

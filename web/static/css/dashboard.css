@@ -25,10 +25,41 @@ body {
     min-height: 100vh;
 }
 
+/* viewport-fit=cover: keep tiles off the notch, the rounded corners and the home indicator */
+#dashboardApp {
+    padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
+             env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+}
+
 /* Header */
 .dash-header {
+    position: relative;
     padding: 16px 20px 8px;
     text-align: center;
+}
+
+/* Full-screen button (Fullscreen API: Android and desktop browsers, not a home-screen app) */
+.dash-fullscreen-btn {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    margin-top: 4px; /* the title's middle: the header has more padding on top */
+    background: none;
+    border: 1px solid rgba(128,128,128,0.3);
+    border-radius: 8px;
+    color: var(--dash-text);
+    font-size: 1rem;
+    line-height: 1;
+    padding: 6px 8px;
+    cursor: pointer;
+    opacity: 0.7;
+}
+.dash-fullscreen-btn:hover { opacity: 1; }
+.dash-fullscreen-btn:focus-visible {
+    outline: 2px solid var(--dash-accent);
+    outline-offset: 2px;
+    opacity: 1;
 }
 
 .dash-header h1 {
@@ -678,7 +709,7 @@ body {
 /* ---- Toast notification ---- */
 .dash-toast {
     position: fixed;
-    bottom: 24px;
+    bottom: calc(24px + env(safe-area-inset-bottom, 0px));
     left: 50%;
     transform: translateX(-50%) translateY(20px);
     background: rgba(0,0,0,0.85);
@@ -1197,6 +1228,16 @@ body {
         max-width: 1100px;
         margin: 0 auto;
     }
+}
+
+/* :width('full'): edge to edge with a small gutter; :where() keeps custom.css on top */
+:where(.dash-full) .dash-section {
+    max-width: none;
+    padding: 0 8px 8px;
+}
+:where(.dash-full) .dash-header-bar {
+    padding-left: 8px;
+    padding-right: 8px;
 }
 
 /* Calendar widget: month grid and day view */

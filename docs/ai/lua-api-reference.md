@@ -17,7 +17,7 @@ Only public API is listed — internal/private functions are omitted.
 - [core.Registry](#coreregistry) (10 functions)
 - [core.Metrics](#coremetrics) (1 functions)
 - [core.Calendar](#corecalendar) (36 functions)
-- [Dashboard](#dashboard) (53 functions)
+- [Dashboard](#dashboard) (55 functions)
 - [lib.panel](#libpanel) (55 functions)
 - [objects.RemotePanel](#objectsremotepanel) (6 functions)
 - [GPIO_DOUT](#gpio_dout) (1 functions)
@@ -1188,6 +1188,10 @@ Set dashboard name (delegates to DashboardBuilder:name). Set dashboard theme (de
 
 Set dashboard name (delegates to DashboardBuilder:name). Set dashboard theme (delegates to DashboardBuilder:theme). Set dashboard poll interval (delegates to DashboardBuilder:poll). Add dashboard to a tab group (delegates to DashboardBuilder:tabGroup).
 
+### `SectionHandle:width(w)`
+
+Set the page width (delegates to DashboardBuilder:width).
+
 ### `DashboardBuilder:name(s)`
 
 Set the display name for this dashboard.
@@ -1205,6 +1209,12 @@ Set the icon for this dashboard.
 Set the number of grid columns.
 
 - `n` (number) — Number of columns (default 3)
+
+### `DashboardBuilder:width(w)`
+
+Set the page width: 'full' fills the screen edge to edge (wall tablets), 'normal' (default) keeps wide screens centred.
+
+- `w` (string) — "full" or "normal"
 
 ### `DashboardBuilder:auth(s)`
 

@@ -26,14 +26,16 @@
               polarDay: 'dzień polarny', polarNight: 'noc polarna', noConnection: 'Brak połączenia',
               openN: ['otwarta', 'otwarte', 'otwartych'], closedN: ['zamknięta', 'zamknięte', 'zamkniętych'],
               moving: 'w ruchu', allOpen: 'wszystkie otwarte', allClosed: 'wszystkie zamknięte', noCovers: 'brak rolet',
-              up: 'W górę', stop: 'Stop', down: 'W dół', position: 'Pozycja', tilt: 'Lamele' },
+              up: 'W górę', stop: 'Stop', down: 'W dół', position: 'Pozycja', tilt: 'Lamele',
+              fullscreen: 'Pełny ekran', exitFullscreen: 'Zamknij pełny ekran' },
         en: { on: 'on', off: 'off', open: 'open', closed: 'closed', opening: 'opening',
               closing: 'closing', unknown: 'no reading', run: 'run', sent: 'sent', updated: 'updated',
               nothingToday: 'nothing more today', holidays: 'Holidays', namedays: 'Name days', sun: 'Sun', show: 'Show',
               polarDay: 'polar day', polarNight: 'polar night', noConnection: 'No connection',
               openN: ['open', 'open', 'open'], closedN: ['closed', 'closed', 'closed'],
               moving: 'moving', allOpen: 'all open', allClosed: 'all closed', noCovers: 'no covers',
-              up: 'Up', stop: 'Stop', down: 'Down', position: 'Position', tilt: 'Slats' }
+              up: 'Up', stop: 'Stop', down: 'Down', position: 'Position', tilt: 'Slats',
+              fullscreen: 'Full screen', exitFullscreen: 'Exit full screen' }
     };
     // ?lang= as on the other pages, else the browser's language
     var lang = (function() {
@@ -304,8 +306,37 @@
         });
     }
 
+    // A full-screen button where the Fullscreen API works and the page is not already an app
+    // from the home screen; iPhone and iPad get the home screen instead (Add to Home Screen).
+    function setupFullscreen() {
+        var header = document.querySelector('.dash-header');
+        var standalone = navigator.standalone === true ||
+            (window.matchMedia && (matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: fullscreen)').matches));
+        var ios = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+            (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+        if (!header || !document.fullscreenEnabled || standalone || ios) return;
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'dash-fullscreen-btn';
+        btn.appendChild(calEl('i', 'bi'));
+        function sync() {
+            var on = !!document.fullscreenElement;
+            btn.firstChild.className = 'bi bi-' + (on ? 'fullscreen-exit' : 'arrows-fullscreen');
+            btn.title = on ? T.exitFullscreen : T.fullscreen;
+            btn.setAttribute('aria-label', btn.title);
+        }
+        btn.addEventListener('click', function() {
+            var p = document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+            if (p && p.catch) p.catch(function() {});
+        });
+        document.addEventListener('fullscreenchange', sync);
+        sync();
+        header.appendChild(btn);
+    }
+
     function renderDashboard(def) {
         definition = def;
+        document.body.classList.toggle('dash-full', def.width === 'full');
         pollInterval = (def.poll || 2) * 1000;
         stopAllChartTimers();
         destroyAllCharts();
@@ -2006,6 +2037,7 @@
 
     // ---- Init ----
 
+    setupFullscreen();
     fetchJSON('/api/dashboard/' + dashId)
         .then(function(def) {
             if (def._notFound || def.error) {
