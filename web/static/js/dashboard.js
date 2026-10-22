@@ -14,7 +14,8 @@
     var definition = null;
     var widgetEls = {}; // widgetId -> DOM element
     var roomLayers = {}; // room tile id -> its overlay
-    var openRoomState = null; // {layer, tile} while a room is open
+    var openRoomState = null; // {id, layer, tile, pushed} while a room is open
+    var roomBackPending = false; // history.back() sent, its popstate not seen yet
     var roomRoot = document.createElement('div');
     roomRoot.id = 'dashboardRooms';
     document.body.appendChild(roomRoot);
@@ -2279,30 +2280,63 @@
         return layer;
     }
 
+    // An open room has a history entry of its own, so the system back button closes it
     function openRoom(id, tile) {
         var layer = roomLayers[id];
         if (!layer) return;
-        closeRoom(false);
-        openRoomState = { layer: layer, tile: tile };
+        var prev = openRoomState;
+        if (prev) hideRoom(prev, false);
+        openRoomState = { id: id, layer: layer, tile: tile, pushed: !!(prev && prev.pushed) };
         layer.hidden = false;
         document.body.classList.add('dash-room-open');
         contentEl.setAttribute('inert', '');
         contentEl.setAttribute('aria-hidden', 'true');
         layer.querySelector('.dash-room-body').scrollTop = 0;
         layer.querySelector('.dash-room-back').focus();
+        if (openRoomState.pushed) {
+            history.replaceState({ vcluRoom: id }, '');
+        } else if (!roomBackPending) {
+            history.pushState({ vcluRoom: id }, '');
+            openRoomState.pushed = true;
+        }
     }
 
-    // restore = false: the page is redrawn, the tile it came from is gone
-    function closeRoom(restore) {
-        var st = openRoomState;
-        if (!st) return;
-        openRoomState = null;
+    function hideRoom(st, restore) {
         st.layer.hidden = true;
         document.body.classList.remove('dash-room-open');
         contentEl.removeAttribute('inert');
         contentEl.removeAttribute('aria-hidden');
         if (restore !== false && st.tile && document.body.contains(st.tile)) st.tile.focus();
     }
+
+    // restore = false: the page is redrawn, the tile it came from is gone; fromPop: the
+    // browser went back already, otherwise its entry is taken off so the history does not grow
+    function closeRoom(restore, fromPop) {
+        var st = openRoomState;
+        if (!st) return;
+        openRoomState = null;
+        hideRoom(st, restore);
+        if (st.pushed && !fromPop && history.state && history.state.vcluRoom != null) {
+            roomBackPending = true;
+            history.back();
+        }
+    }
+
+    window.addEventListener('popstate', function() {
+        if (roomBackPending) {
+            roomBackPending = false;
+            // a room opened while the browser was going back gets its entry now
+            if (openRoomState && !openRoomState.pushed) {
+                history.pushState({ vcluRoom: openRoomState.id }, '');
+                openRoomState.pushed = true;
+            }
+            return;
+        }
+        if (openRoomState) closeRoom(true, true);
+    });
+
+    // a reload keeps the entry of an open room; the page starts with every room closed
+    if (history.state && history.state.vcluRoom != null) history.replaceState(null, '');
 
     // Escape closes the room; Tab stays inside it
     document.addEventListener('keydown', function(e) {

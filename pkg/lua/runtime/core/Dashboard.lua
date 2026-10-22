@@ -1908,7 +1908,7 @@ end
 -- @param id string Dashboard ID
 -- @return string JSON {name, auth, width, background} or {error}
 function DashboardAPI.getAppInfo(id)
-    local dash = resolveDashboard(id)
+    local dash = resolveDashboard(id, true)
     if not dash then
         return JSON.encode({ error = 'Dashboard not found' })
     end
@@ -2044,15 +2044,18 @@ function DashboardAPI.list()
         if dash then
             local widgetCount = 0
             local widgets = {}
+            -- visible sections only: a room tile's widgets are not on the page until it is tapped
             for _, sec in ipairs(dash._sections) do
-                widgetCount = widgetCount + #sec.widgets
-                for _, w in ipairs(sec.widgets) do
-                    table.insert(widgets, {
-                        id = w.id,
-                        type = w.type,
-                        label = w.label,
-                        icon = w.icon,
-                    })
+                if not sec._room then
+                    widgetCount = widgetCount + #sec.widgets
+                    for _, w in ipairs(sec.widgets) do
+                        table.insert(widgets, {
+                            id = w.id,
+                            type = w.type,
+                            label = w.label,
+                            icon = w.icon,
+                        })
+                    end
                 end
             end
             table.insert(result, {

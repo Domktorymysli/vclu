@@ -482,7 +482,8 @@ expose(pompa, 'switch', { area = 'Kotłownia', dashboard = false })   -- never o
 
 One tile per room: its name, what is on, its temperature and humidity
 ("Sypialnia · 2 włączone · 1 otwarta · 21,5 °C · 60 %"). A tap opens the room's widgets over the
-page (full screen on a phone); the back button, Escape or a tap outside closes it.
+page (full screen on a phone); the ‹ button, Escape, a tap outside or the system back button
+closes it.
 
 ```lua
 Dashboard.new('dom'):auth('session')

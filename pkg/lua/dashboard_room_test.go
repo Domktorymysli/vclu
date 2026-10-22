@@ -328,8 +328,9 @@ func TestDashboardRoomFollowsExpose(t *testing.T) {
 	mustExec(t, engine, `Dashboard.API.getAuth("r")`)
 	mustExec(t, engine, `Dashboard.API.getPin("r")`)
 	mustExec(t, engine, `Dashboard.API.verifyPin("r", "1234")`)
+	mustExec(t, engine, `Dashboard.API.getAppInfo("r")`)
 	if n := count(); n != "0" {
-		t.Errorf("auth and PIN filled the room %s times", n)
+		t.Errorf("auth, PIN and the app manifest filled the room %s times", n)
 	}
 	roomDefOf(t, engine, "r")
 	for i := 0; i < 3; i++ {
@@ -490,5 +491,20 @@ func TestDashboardRoomIDsUnique(t *testing.T) {
 	}
 	if v := mustExec(t, engine, `return R.lg:getValue()`); v != "1" {
 		t.Errorf("lamp = %s", v)
+	}
+}
+
+// vclu_dashboards lists what the page shows: a room's widgets are not listed again
+func TestDashboardRoomList(t *testing.T) {
+	engine := newRoomEngine(t, `Dashboard.new('l'):section('S'):room('gab', 'Gabinet'):toggle('x', 'X', 'power', function() return false end, function() end):build()`)
+	var list []struct {
+		ID          string                   `json:"id"`
+		WidgetCount int                      `json:"widgetCount"`
+		Widgets     []map[string]interface{} `json:"widgets"`
+	}
+	dashJSON(t, engine, `Dashboard.API.list()`, &list)
+	if len(list) != 1 || list[0].WidgetCount != 2 || len(list[0].Widgets) != 2 ||
+		list[0].Widgets[0]["id"] != "gab" || list[0].Widgets[1]["id"] != "x" {
+		t.Errorf("list = %+v", list)
 	}
 }
