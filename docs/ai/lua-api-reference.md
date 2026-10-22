@@ -17,7 +17,7 @@ Only public API is listed — internal/private functions are omitted.
 - [core.Registry](#coreregistry) (10 functions)
 - [core.Metrics](#coremetrics) (1 functions)
 - [core.Calendar](#corecalendar) (36 functions)
-- [Dashboard](#dashboard) (62 functions)
+- [Dashboard](#dashboard) (64 functions)
 - [lib.panel](#libpanel) (55 functions)
 - [objects.RemotePanel](#objectsremotepanel) (6 functions)
 - [GPIO_DOUT](#gpio_dout) (1 functions)
@@ -1182,6 +1182,14 @@ Fill this section with a widget for every device expose() put in an area, picked
 
 Add one section per area on a floor (delegates to DashboardBuilder:floor).
 
+### `SectionHandle:room(id, area, opts)`
+
+Add a room tile: the area's name, how many lights and switches are on and covers open, its temperature and humidity ("Sypialnia · 2 włączone · 21,5 °C · 60 %"); a tap opens the room's widgets, chosen as section:area does (same kinds, skip and ids), over the page. Lights, dimmers and switches count as on above 0, covers as open above 0 or while moving; only what the room shows is counted. Temperature and humidity default to the area's devices of that kind (the average of several, left out with none).
+
+- `id` (string) — Unique widget identifier
+- `area` (string) — Area name, or a list of names (one room under two names)
+- `opts` (table) — Optional: {title=string, temperature=path|function()->number, humidity=path|function()->number, kinds, skip (as section:area), icon=string, link=dashboard id|/path|http(s) URL (opens it instead of the room), disabled=function()->bool (also disables the room's widgets), span=n, size=string, color=string}
+
 ### `SectionHandle:when(periods, fn)`
 
 Conditional block: only execute fn if current time matches any of the given periods.
@@ -1291,10 +1299,18 @@ Start a new named section for grouping widgets.
 
 ### `DashboardBuilder:floor(floor, opts)`
 
-Add one section per area on a floor (expose(..., { area = "Salon", floor = "Parter" })), each filled as section:area; areas with nothing to show are left out. Read each time the dashboard is, so new areas show up. Start a section() to add widgets by hand after it.
+Add one section per area on a floor (expose(..., { area = "Salon", floor = "Parter" })), each filled as section:area; areas with nothing to show are left out. Read each time the dashboard is, so new areas show up. Start a section() to add widgets by hand after it. With rooms = true: one section named after the floor with a room tile per area (section:room).
 
 - `floor` (string) — Floor name
-- `opts` (table) — Optional: {order={area, ...} (first, in this order; the rest by name), titles={[area]=title}, kinds, skip}
+- `opts` (table) — Optional: {order={area, ...} (first, in this order; the rest by name), titles={[area]=title}, kinds, skip, rooms=true}
+
+### `DashboardBuilder:room(id, area, opts)`
+
+Add a room tile to the current section (see SectionHandle:room).
+
+- `id` (string) — Unique widget identifier
+- `area` (string) — Area name, or a list of names
+- `opts` (table) — Optional: as SectionHandle:room
 
 ### `DashboardBuilder:button(id, label, icon, onTap, opts)`
 

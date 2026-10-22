@@ -478,6 +478,38 @@ expose(pompa, 'switch', { area = 'Kotłownia', dashboard = false })   -- never o
   `:auth('session')` or `:auth('pin')` for a dashboard with rooms.
 - After `:floor()` the current section ends: start a `:section()` before adding widgets.
 
+### Room tiles (section:room, dash:floor rooms)
+
+One tile per room: its name, what is on, its temperature and humidity
+("Sypialnia · 2 włączone · 1 otwarta · 21,5 °C · 60 %"). A tap opens the room's widgets over the
+page (full screen on a phone); the back button, Escape or a tap outside closes it.
+
+```lua
+Dashboard.new('dom'):auth('session')
+  :section('Pokoje', 'house')
+    :room('sypialnia', 'Sypialnia', { icon = 'moon-stars' })
+    :room('salon', { 'Salon', 'Jadalnia' }, { title = 'Salon', skip = { 'vclu:kinkiet' } })
+    :room('lazienka', 'Łazienka', { humidity = 'CLU220000592.HUM0001' })  -- a path: exposed or in the registry
+    :room('taras', 'Taras', { temperature = function() return pogoda:getTemperature() end })
+    :room('garaz', 'Garaż', { link = 'garaz' })  -- opens /d/garaz instead of the room
+  :floor('Piętro', { rooms = true, order = { 'Sypialnia' } })  -- one section, a tile per area
+  :build()
+```
+
+- **What is on:** lights and switches that are on, dimmers above 0, covers open above 0 or moving
+  ("2 włączone · 1 otwarta", else "wszystko wyłączone"). Only what the room shows is counted: a
+  switch counts when `kinds` includes `'switch'`; locks never count.
+- **Temperature and humidity:** by default the area's `temperature` / `humidity` devices (the
+  average of several, nothing with none); `dashboard = false` and `skip` leave a sensor out. Give a
+  path or a function for a sensor elsewhere; one that fails or returns nil leaves the value out.
+- **The room** holds what `section:area` shows for the area (same `kinds`, `skip`, order and ids
+  `area:` + path); the same device shown twice on one dashboard gets `#2`. Its widgets go through
+  the dashboard's values and actions like any other, `disabled` on the tile disables them too.
+- `link`: a dashboard id (`/d/<id>`), a path starting with `/` or an `http(s)://` URL; `//host`,
+  `javascript:` and the like are refused.
+- `dash:floor(floor, { rooms = true })` tiles get ids `area:@` + the area name.
+- Filled again only when something is exposed, unexposed or its options change, as `section:area`.
+
 ### Cover widget (blind)
 
 Buttons up / stop / down, and a 0-100% position slider when `set` is given.

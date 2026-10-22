@@ -13,6 +13,11 @@
     var pollTimer = null;
     var definition = null;
     var widgetEls = {}; // widgetId -> DOM element
+    var roomLayers = {}; // room tile id -> its overlay
+    var openRoomState = null; // {layer, tile} while a room is open
+    var roomRoot = document.createElement('div');
+    roomRoot.id = 'dashboardRooms';
+    document.body.appendChild(roomRoot);
     var sectionCoverEls = {}; // section index -> its header's cover counts
     var actionGrace = {}; // widgetId -> timestamp (ignore polls until this time)
     var chartInstances = {}; // widgetId -> Chart.js instance
@@ -31,7 +36,9 @@
               playing: 'odtwarza', paused: 'pauza', playerOff: 'wyłączony', offline: 'offline',
               play: 'Odtwarzaj', pause: 'Pauza', previous: 'Poprzedni', next: 'Następny',
               mute: 'Wycisz', unmute: 'Włącz dźwięk', power: 'Włącz / wyłącz', volume: 'Głośność',
-              noForecast: 'brak prognozy', rain: 'opady', temperature: 'temperatura' },
+              noForecast: 'brak prognozy', rain: 'opady', temperature: 'temperatura',
+              onN: ['włączone', 'włączone', 'włączonych'], allOff: 'wszystko wyłączone', back: 'Wróć',
+              humidity: 'wilgotność' },
         en: { on: 'on', off: 'off', open: 'open', closed: 'closed', opening: 'opening',
               closing: 'closing', unknown: 'no reading', run: 'run', sent: 'sent', updated: 'updated',
               nothingToday: 'nothing more today', holidays: 'Holidays', namedays: 'Name days', sun: 'Sun', show: 'Show',
@@ -43,7 +50,8 @@
               playing: 'playing', paused: 'paused', playerOff: 'off', offline: 'offline',
               play: 'Play', pause: 'Pause', previous: 'Previous', next: 'Next',
               mute: 'Mute', unmute: 'Unmute', power: 'Power', volume: 'Volume',
-              noForecast: 'no forecast', rain: 'rain', temperature: 'temperature' }
+              noForecast: 'no forecast', rain: 'rain', temperature: 'temperature',
+              onN: ['on', 'on', 'on'], allOff: 'all off', back: 'Back', humidity: 'humidity' }
     };
     // ?lang= as on the other pages, else the browser's language
     var lang = (function() {
@@ -56,7 +64,8 @@
     var typeIcons = {
         button: 'play-fill', toggle: 'power', slider: 'sliders', status: 'info-circle', link: 'link-45deg',
         chart: 'graph-up', select: 'list-ul', image: 'image', cover: 'arrows-expand', covers: 'window', dimmer: 'lightbulb',
-        color: 'palette', calendar: 'calendar3', player: 'music-note-beamed', forecast: 'cloud-sun'
+        color: 'palette', calendar: 'calendar3', player: 'music-note-beamed', forecast: 'cloud-sun',
+        room: 'door-open'
     };
 
     // 23.9 -> "23,9" in Polish; text as it is
@@ -207,6 +216,11 @@
             if (d.error) return ['unknown', T.unknown];
             if (d.none) return ['unknown', T.noForecast];
             return ['value', d.updated ? T.updated + ' ' + hhmm(d.updated, w.zone) : ''];
+        case 'room':
+            var lit = d.on || 0, opened = d.open || 0, parts = [];
+            if (lit) parts.push(plural(lit, T.onN));
+            if (opened) parts.push(plural(opened, T.openN));
+            return [d.moving > 0 ? 'moving' : (lit || opened ? 'on' : 'off'), parts.length ? parts.join(' · ') : T.allOff];
         case 'button':
             return ['value', T.run];
         case 'link':
@@ -232,6 +246,7 @@
         setState(el, st[0], st[1]);
         if (type === 'player') updatePlayer(el, d);
         if (type === 'forecast') updateForecast(el, w, d);
+        if (type === 'room') updateRoom(el, w, d, st[1]);
         if (el.classList.contains('dash-header-item')) el.title = (w.label || '') + ': ' + st[1];
         if (el.getAttribute('role') === 'switch') el.setAttribute('aria-checked', d.value ? 'true' : 'false');
     }
@@ -366,6 +381,9 @@
         contentEl.style.cssText = '--dash-columns:' + (def.columns || 3);
         widgetEls = {};
         sectionCoverEls = {};
+        closeRoom(false);
+        roomRoot.innerHTML = '';
+        roomLayers = {};
 
         // Apply time-of-day period (from server or local fallback)
         applyPeriod(def.period || calcPeriod());
@@ -399,6 +417,12 @@
         for (var si = 0; si < def.sections.length; si++) {
             var sec = def.sections[si];
             var widgets = sectionWidgets[si] || [];
+
+            // a room tile's widgets: drawn now, shown when it is tapped
+            if (sec.room != null) {
+                roomLayers[sec.room] = renderRoomLayer(sec, widgets, def.columns || 3);
+                continue;
+            }
 
             if (sec.isHeader) {
                 // Header bar — compact flex row
@@ -515,6 +539,8 @@
             renderPlayer(el, w, head);
         } else if (w.type === 'forecast') {
             renderForecast(el, w);
+        } else if (w.type === 'room') {
+            renderRoom(el, w);
         }
 
         refreshTile(el, w, w);
@@ -2166,6 +2192,144 @@
         widgetEls[w.id] = el;
         return el;
     }
+
+    // ---- Room tile (#94): name, what is on, climate; a tap opens the room over the page ----
+
+    function renderRoom(el, w) {
+        var go = calEl('span', 'dash-room-go');
+        var ext = w.link && w.link.charAt(0) !== '/';
+        go.innerHTML = '<i class="bi bi-' + (ext ? 'box-arrow-up-right' : 'chevron-right') + '"></i>';
+        el.querySelector('.dash-tile-head').appendChild(go);
+        var climate = calEl('div', 'dash-room-climate');
+        climate.innerHTML = '<span data-role="temperature"><i class="bi bi-thermometer-half"></i><b></b></span>' +
+            '<span data-role="humidity"><i class="bi bi-droplet"></i><b></b></span>';
+        el.appendChild(climate);
+        el.tabIndex = 0;
+        el.setAttribute('role', w.link ? 'link' : 'button');
+        if (!w.link) el.setAttribute('aria-haspopup', 'dialog');
+        var run = function() {
+            if (el.classList.contains('disabled')) return;
+            if (!w.link) openRoom(w.id, el);
+            else if (!ext) location.href = w.link;
+            else window.open(w.link, '_blank', 'noopener');
+        };
+        el.addEventListener('click', run);
+        el.addEventListener('keydown', function(e) {
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            e.preventDefault();
+            if (!e.repeat) run();
+        });
+    }
+
+    // The climate line, the name read out with the state, and the open room's header
+    function updateRoom(el, w, d, text) {
+        var parts = [];
+        [['temperature', '°C'], ['humidity', '%']].forEach(function(k) {
+            var span = el.querySelector('.dash-room-climate [data-role="' + k[0] + '"]');
+            var has = typeof d[k[0]] === 'number';
+            if (span) {
+                span.hidden = !has;
+                span.querySelector('b').textContent = has ? withUnit(d[k[0]], k[1]) : '';
+                span.title = T[k[0]];
+            }
+            if (has) parts.push(withUnit(d[k[0]], k[1]));
+        });
+        var climate = el.querySelector('.dash-room-climate');
+        if (climate) climate.hidden = parts.length === 0;
+        var full = [text].concat(parts).join(' · ');
+        el.setAttribute('aria-label', (w.label || '') + ': ' + full);
+        var layer = roomLayers[el.dataset.widgetId];
+        if (layer) layer.querySelector('.dash-room-summary').textContent = full;
+    }
+
+    // A dialog with the room's widgets, kept in the page (polls update them) and hidden
+    function renderRoomLayer(sec, widgets, cols) {
+        var layer = calEl('div', 'dash-room-layer');
+        layer.hidden = true;
+        var dlg = calEl('div', 'dash-room-dialog');
+        var titleId = 'dash-room-title-' + Object.keys(roomLayers).length;
+        dlg.setAttribute('role', 'dialog');
+        dlg.setAttribute('aria-modal', 'true');
+        dlg.setAttribute('aria-labelledby', titleId);
+        var bar = calEl('div', 'dash-room-bar');
+        var back = calEl('button', 'dash-room-back');
+        back.type = 'button';
+        back.title = T.back;
+        back.setAttribute('aria-label', T.back);
+        back.innerHTML = '<i class="bi bi-chevron-left"></i>';
+        back.addEventListener('click', function() { closeRoom(); });
+        var heading = calEl('div', 'dash-room-heading');
+        var title = calEl('h2', 'dash-room-title', sec.name || '');
+        title.id = titleId;
+        heading.appendChild(title);
+        heading.appendChild(calEl('div', 'dash-room-summary', ''));
+        bar.appendChild(back);
+        bar.appendChild(heading);
+        var body = calEl('div', 'dash-room-body');
+        var grid = calEl('div', 'dash-grid');
+        grid.style.cssText = '--dash-columns:' + cols + ';--dash-columns-mid:' + Math.min(cols, 3);
+        widgets.forEach(function(w) { grid.appendChild(renderWidget(w, cols)); });
+        body.appendChild(grid);
+        dlg.appendChild(bar);
+        dlg.appendChild(body);
+        layer.appendChild(dlg);
+        // a tap outside the dialog closes it
+        layer.addEventListener('click', function(e) { if (e.target === layer) closeRoom(); });
+        roomRoot.appendChild(layer);
+        return layer;
+    }
+
+    function openRoom(id, tile) {
+        var layer = roomLayers[id];
+        if (!layer) return;
+        closeRoom(false);
+        openRoomState = { layer: layer, tile: tile };
+        layer.hidden = false;
+        document.body.classList.add('dash-room-open');
+        contentEl.setAttribute('inert', '');
+        contentEl.setAttribute('aria-hidden', 'true');
+        layer.querySelector('.dash-room-body').scrollTop = 0;
+        layer.querySelector('.dash-room-back').focus();
+    }
+
+    // restore = false: the page is redrawn, the tile it came from is gone
+    function closeRoom(restore) {
+        var st = openRoomState;
+        if (!st) return;
+        openRoomState = null;
+        st.layer.hidden = true;
+        document.body.classList.remove('dash-room-open');
+        contentEl.removeAttribute('inert');
+        contentEl.removeAttribute('aria-hidden');
+        if (restore !== false && st.tile && document.body.contains(st.tile)) st.tile.focus();
+    }
+
+    // Escape closes the room; Tab stays inside it
+    document.addEventListener('keydown', function(e) {
+        if (!openRoomState) return;
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            closeRoom();
+            return;
+        }
+        if (e.key !== 'Tab') return;
+        var dlg = openRoomState.layer.querySelector('.dash-room-dialog');
+        var list = Array.prototype.filter.call(
+            dlg.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'),
+            function(x) { return !x.disabled && x.offsetParent !== null && !x.closest('.disabled'); });
+        if (!list.length) { e.preventDefault(); return; }
+        var first = list[0], last = list[list.length - 1];
+        if (!dlg.contains(document.activeElement)) {
+            e.preventDefault();
+            first.focus();
+        } else if (e.shiftKey && document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+        }
+    });
 
     // ---- Update widgets from poll ----
 

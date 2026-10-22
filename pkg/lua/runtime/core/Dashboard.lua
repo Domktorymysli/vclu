@@ -200,7 +200,7 @@ end
 local AREA_KINDS = { 'light', 'switch', 'dimmer', 'cover', 'temperature', 'humidity', 'lock' }
 local AREA_DEFAULT_KINDS = { 'light', 'dimmer', 'cover', 'temperature', 'humidity' }
 local AREA_KEYS = { 'kinds', 'skip' }
-local FLOOR_KEYS = { 'kinds', 'order', 'skip', 'titles' }
+local FLOOR_KEYS = { 'kinds', 'order', 'rooms', 'skip', 'titles' }
 local AREA_ID = 'area:'
 
 local function isList(t, kind)
@@ -236,7 +236,9 @@ local function areaSpec(where, opts, keys, level)
     if opts.skip ~= nil and not isList(opts.skip, 'string') then error(where .. ': skip expects a list of paths', level) end
     if opts.order ~= nil and not isList(opts.order, 'string') then error(where .. ': order expects a list of areas', level) end
     if opts.titles ~= nil and type(opts.titles) ~= 'table' then error(where .. ': titles expects { [area] = title }', level) end
-    return { kinds = opts.kinds or AREA_DEFAULT_KINDS, skip = opts.skip, order = opts.order, titles = opts.titles or {} }
+    if opts.rooms ~= nil and type(opts.rooms) ~= 'boolean' then error(where .. ': rooms must be true or false', level) end
+    return { kinds = opts.kinds or AREA_DEFAULT_KINDS, skip = opts.skip, order = opts.order, titles = opts.titles or {},
+        rooms = opts.rooms == true }
 end
 
 local function isOn(v)
@@ -247,15 +249,15 @@ end
 -- Paths already warned about: dashboard = true on a kind without a widget
 local _noWidgetWarned = {}
 
--- A widget for an exposed object, or nil for a kind without one
-local function areaWidget(h, id)
+-- A widget for an exposed object, or nil for a kind without one; off() also disables it (a room tile's)
+local function areaWidget(h, id, off)
     local o, kind = h.object, h.type
     if type(o) ~= 'table' then return nil end
     local function m(name)
         if type(o[name]) == 'function' then return function(...) return o[name](o, ...) end end
     end
-    local w = { id = id, label = h.options.name or h.path,
-        opts = { disabled = function() return h.options.readonly == true end } }
+    local w = { id = id, label = h.options.name or h.path, _h = h,
+        opts = { disabled = function() return h.options.readonly == true or (off ~= nil and off()) end } }
     local rgb = o._objId and type(o.setColor) == 'function' and type(o.getColor) == 'function'
     local dims = type(o.getBrightness) == 'function' and type(o.setBrightness) == 'function'
     if (kind == 'light' or kind == 'dimmer') and rgb then
@@ -302,14 +304,26 @@ local function areaWidget(h, id)
     return w
 end
 
+local function escapeId(s)
+    return (s:gsub('[^%w%._:%-]', function(c) return string.format('%%%02X', c:byte()) end))
+end
+
 -- A path in an id: other bytes as %XX, so two paths never give one id
 local function idOf(path)
-    return AREA_ID .. path:gsub('[^%w%._:%-]', function(c) return string.format('%%%02X', c:byte()) end)
+    return AREA_ID .. escapeId(path)
+end
+
+-- base, or base#2, #3... when taken
+local function claimId(used, base)
+    local id, n = base, 1
+    while used[id] do n = n + 1; id = base .. '#' .. n end
+    used[id] = true
+    return id
 end
 
 -- Widgets of the devices in areas (on floor, when given); ids from the path, the same on every
 -- read; "#n" only for the same device shown again
-local function areaWidgets(spec, areas, used, floor)
+local function areaWidgets(spec, areas, used, floor, off)
     local E = ExposedObjects
     if not (E and E._inArea) then return {} end
     local out = {}
@@ -317,11 +331,23 @@ local function areaWidgets(spec, areas, used, floor)
         local base = idOf(f.path)
         local id, n = base, 1
         while used[id] do n = n + 1; id = base .. '#' .. n end
-        local w = areaWidget(f.handle, id)
+        local w = areaWidget(f.handle, id, off)
         if w then
             used[id] = true
             out[#out + 1] = w
         end
+    end
+    return out
+end
+
+-- Temperature and humidity devices of a room (dashboard = false and skip leave them out)
+local function roomSensors(spec, areas, floor)
+    local E = ExposedObjects
+    local out = { temperature = {}, humidity = {} }
+    if not (E and E._inArea) then return out end
+    for _, f in ipairs(E:_inArea(areas, { kinds = { 'temperature', 'humidity' }, skip = spec.skip, floor = floor, flag = 'dashboard' })) do
+        local list = out[f.handle.type]
+        if list then list[#list + 1] = f.handle end
     end
     return out
 end
@@ -636,34 +662,68 @@ local function forecastState(w)
 end
 
 -- The dashboard as the API reads it: area sections filled from what is exposed, a floor one
--- section per area; reused until something is exposed, unexposed or its options change
--- (widgets read the objects live)
+-- section per area (or one of room tiles); reused until something is exposed, unexposed or its
+-- options change (widgets read the objects live). A room tile's overlay is a hidden section
+-- after the visible ones, so its widgets go through values and actions like any other.
 local function expandAreas(dash)
     if not dash or not dash._hasAreas then return dash end
     local E = ExposedObjects
     local gen = E and E._generation or 0
     if dash._areaView and dash._areaGen == gen then return dash._areaView end
-    local used, sections = {}, {}
+    local used, sections, overlays = {}, {}, {}
     local function add(sec, widgets)
         local c = {}
         for k, v in pairs(sec) do c[k] = v end
         c.widgets = widgets
         sections[#sections + 1] = c
     end
+    -- the tile with what it counts; ids of its overlay are given after the visible sections'
+    local function room(w, spec, areas, floor)
+        local c = {}
+        for k, v in pairs(w) do c[k] = v end
+        local off = function() return type(w.opts.disabled) == 'function' and w.opts.disabled() == true end
+        c._items = areaWidgets(spec, areas, {}, floor, off)
+        c._sensors = roomSensors(spec, areas, floor)
+        if not c.link then overlays[#overlays + 1] = c end
+        return c
+    end
     for _, sec in ipairs(dash._sections) do
         local spec = sec._floor
-        if spec then
+        if spec and spec.rooms then
+            local tiles = {}
+            for _, a in ipairs(E and E._areasOn and E:_areasOn(spec.floor, spec.order) or {}) do
+                local t = room({ id = AREA_ID .. '@' .. escapeId(a), type = 'room', label = spec.titles[a] or a,
+                    icon = 'door-open', opts = {} }, spec, { a }, spec.floor)
+                local s = t._sensors
+                if #t._items > 0 or #s.temperature > 0 or #s.humidity > 0 then
+                    t.id = claimId(used, t.id)
+                    tiles[#tiles + 1] = t
+                else
+                    overlays[#overlays] = nil
+                end
+            end
+            if #tiles > 0 then add({ name = sec.name, icon = sec.icon }, tiles) end
+        elseif spec then
             for _, a in ipairs(E and E._areasOn and E:_areasOn(spec.floor, spec.order) or {}) do
                 local widgets = areaWidgets(spec, { a }, used, spec.floor)
                 if #widgets > 0 then add({ name = spec.titles[a] or a, icon = sec.icon }, widgets) end
             end
-        elseif sec._area then
-            local widgets = areaWidgets(sec._area, sec._area.areas, used)
-            for _, w in ipairs(sec.widgets) do widgets[#widgets + 1] = w end
-            add(sec, widgets)
         else
-            sections[#sections + 1] = sec
+            local widgets = sec._area and areaWidgets(sec._area, sec._area.areas, used) or {}
+            local rooms = false
+            for _, w in ipairs(sec.widgets) do
+                if w.type == 'room' then
+                    rooms = true
+                    w = room(w, w._spec, w._spec.areas)
+                end
+                widgets[#widgets + 1] = w
+            end
+            if sec._area or rooms then add(sec, widgets) else sections[#sections + 1] = sec end
         end
+    end
+    for _, t in ipairs(overlays) do
+        for _, w in ipairs(t._items) do w.id = claimId(used, idOf(w._h.path)) end
+        sections[#sections + 1] = { name = t.label, icon = t.icon, widgets = t._items, _room = t.id }
     end
     local view = setmetatable({ _sections = sections }, { __index = dash })
     dash._areaView, dash._areaGen = view, gen
@@ -928,19 +988,50 @@ end
 
 local CHIP_KEYS = { color = true, link = true, disabled = true }
 
--- opts.link: an http(s) URL or a path as is, anything else is a dashboard id
-local function chipLink(where, link)
+-- opts.link: an http(s) URL or a path as is, anything else is a dashboard id; level as error()'s, default 3
+local function chipLink(where, link, level)
+    level = level or 3
     if type(link) ~= 'string' or link == '' then
-        error(where .. ': opts.link must be a URL or a dashboard id', 3)
+        error(where .. ': opts.link must be a URL or a dashboard id', level)
     end
     if link:match('^/[/\\]') then
-        error(where .. ': opts.link "' .. link .. '" leaves the site; give an http(s):// URL', 3)
+        error(where .. ': opts.link "' .. link .. '" leaves the site; give an http(s):// URL', level)
     end
     if link:lower():match('^https?://') or link:sub(1, 1) == '/' then return link end
     if link:find('[:%s/?#]') then
-        error(where .. ': opts.link must be http(s)://..., a path starting with / or a dashboard id, got "' .. link .. '"', 3)
+        error(where .. ': opts.link must be http(s)://..., a path starting with / or a dashboard id, got "' .. link .. '"', level)
     end
     return '/d/' .. link
+end
+
+local ROOM_KEYS = { 'color', 'disabled', 'humidity', 'icon', 'kinds', 'link', 'size', 'skip', 'span', 'temperature', 'title' }
+
+-- A room tile: the area's name, what is on and its climate; a tap opens its widgets (or opts.link).
+-- Errors name the module's line: level 3 is the caller of section:room / dash:room.
+local function roomWidget(id, area, opts)
+    local where = 'section:room("' .. tostring(id) .. '")'
+    if type(id) ~= 'string' or id == '' then error('section:room: id must be a non-empty string', 3) end
+    local areas = type(area) == 'table' and area or { area }
+    if (type(area) ~= 'string' and type(area) ~= 'table') or #areas == 0 or not isList(areas, 'string') then
+        error(where .. ': expected an area name or a list of them, got ' .. type(area), 3)
+    end
+    local spec = areaSpec(where, opts, ROOM_KEYS, 4)
+    opts = opts or {}
+    spec.areas = areas
+    for _, k in ipairs({ 'temperature', 'humidity' }) do
+        local v = opts[k]
+        if v ~= nil and type(v) ~= 'function' and (type(v) ~= 'string' or v == '') then
+            error(where .. ': opts.' .. k .. ' must be a path or a function returning a number', 3)
+        end
+    end
+    if opts.title ~= nil and type(opts.title) ~= 'string' then error(where .. ': opts.title must be a string', 3) end
+    if opts.icon ~= nil and (type(opts.icon) ~= 'string' or not opts.icon:match('^[%w%-]+$')) then
+        error(where .. ': opts.icon must be a Bootstrap icon name (letters, digits and -)', 3)
+    end
+    if opts.disabled ~= nil and type(opts.disabled) ~= 'function' then error(where .. ': opts.disabled must be a function', 3) end
+    local link = opts.link ~= nil and chipLink(where, opts.link, 4) or nil
+    return { id = id, type = 'room', label = opts.title or areas[1], icon = opts.icon or 'door-open', link = link,
+        opts = opts, _spec = spec, _temperature = opts.temperature, _humidity = opts.humidity }
 end
 
 --- Add a chip to the header: an icon and a short text from fn, hidden while fn returns nil.
@@ -1009,6 +1100,24 @@ end
 function SectionHandle:floor(floor, opts)
     local b = self._builder:_floor(floor, opts) -- no tail call: errors count the levels
     return b
+end
+
+--- Add a room tile: the area's name, how many lights and switches are on and covers open, its
+-- temperature and humidity ("Sypialnia · 2 włączone · 21,5 °C · 60 %"); a tap opens the room's
+-- widgets, chosen as section:area does (same kinds, skip and ids), over the page. Lights,
+-- dimmers and switches count as on above 0, covers as open above 0 or while moving; only what the
+-- room shows is counted. Temperature and humidity default to the area's devices of that kind
+-- (the average of several, left out with none).
+-- @param id string Unique widget identifier
+-- @param area string Area name, or a list of names (one room under two names)
+-- @param opts table Optional: {title=string, temperature=path|function()->number, humidity=path|function()->number, kinds, skip (as section:area), icon=string, link=dashboard id|/path|http(s) URL (opens it instead of the room), disabled=function()->bool (also disables the room's widgets), span=n, size=string, color=string}
+-- @api public
+function SectionHandle:room(id, area, opts)
+    local sec = self._builder._sections[self._sectionIndex]
+    if sec._isHeader then error('section:room("' .. tostring(id) .. '"): a room tile goes in a section, not the header', 2) end
+    self._builder:_addWidget(self._sectionIndex, roomWidget(id, area, opts))
+    self._builder._hasAreas = true
+    return self
 end
 
 --- Conditional block: only execute fn if current time matches any of the given periods.
@@ -1189,12 +1298,30 @@ end
 --- Add one section per area on a floor (expose(..., { area = "Salon", floor = "Parter" })),
 -- each filled as section:area; areas with nothing to show are left out. Read each time the
 -- dashboard is, so new areas show up. Start a section() to add widgets by hand after it.
+-- With rooms = true: one section named after the floor with a room tile per area (section:room).
 -- @param floor string Floor name
--- @param opts table Optional: {order={area, ...} (first, in this order; the rest by name), titles={[area]=title}, kinds, skip}
+-- @param opts table Optional: {order={area, ...} (first, in this order; the rest by name), titles={[area]=title}, kinds, skip, rooms=true}
 -- @api public
 function DashboardBuilder:floor(floor, opts)
     local b = self:_floor(floor, opts) -- no tail call: errors count the levels
     return b
+end
+
+--- Add a room tile to the current section (see SectionHandle:room).
+-- @param id string Unique widget identifier
+-- @param area string Area name, or a list of names
+-- @param opts table Optional: as SectionHandle:room
+-- @api public
+function DashboardBuilder:room(id, area, opts)
+    if not self._currentSection then
+        error('section:room: call :section() before adding widgets (dash:floor() ends the current section)', 2)
+    end
+    if self._sections[self._currentSection]._isHeader then
+        error('section:room("' .. tostring(id) .. '"): a room tile goes in a section, not the header', 2)
+    end
+    self:_addWidget(self._currentSection, roomWidget(id, area, opts))
+    self._hasAreas = true
+    return self
 end
 
 -- Errors name the module that called floor() on the builder or a section
@@ -1685,6 +1812,63 @@ local function chipState(dashId, w)
     return s
 end
 
+-- Problems with a room's temperature or humidity already logged, by "dashboard/widget/kind"
+local _roomLogged = {}
+
+-- A finite number to one decimal, or nil
+local function round1n(v)
+    v = tonumber(v)
+    if v == nil or v - v ~= 0 then return nil end
+    return math.floor(v * 10 + 0.5) / 10
+end
+
+-- A room's temperature or humidity: opts as a path (exposed, else in the registry) or a
+-- function, else the average of the area's devices of that kind; nil when there is none
+local function roomClimate(dashId, w, kind)
+    local src = w['_' .. kind]
+    local function fail(msg)
+        local key = tostring(dashId) .. '/' .. tostring(w.id) .. '/' .. kind
+        if not _roomLogged[key] then
+            _roomLogged[key] = true
+            Logger:getShared():warn("[DASHBOARD] Room '%s/%s': %s %s", tostring(dashId), tostring(w.id), kind, msg)
+        end
+    end
+    if type(src) == 'function' then
+        local ok, v = pcall(src)
+        if not ok then fail('failed: ' .. tostring(v)); return nil end
+        return round1n(v)
+    elseif type(src) == 'string' then
+        local h = ExposedObjects and ExposedObjects:get(src)
+        local o = h or (_registry and _registry:get(src))
+        if type(o) ~= 'table' or type(o.getValue) ~= 'function' then fail("path '" .. src .. "' not found"); return nil end
+        local ok, v = pcall(o.getValue, o)
+        return ok and round1n(v) or nil
+    end
+    local sum, n = 0, 0
+    for _, h in ipairs(w._sensors[kind]) do
+        local v = round1n(h:getValue())
+        if v then sum = sum + v; n = n + 1 end
+    end
+    if n > 0 then return round1n(sum / n) end
+end
+
+-- What a room tile shows: lights, dimmers and switches on, covers open (moving counts), its climate
+local function roomState(dashId, w)
+    local on, readings = 0, {}
+    for _, x in ipairs(w._items) do
+        local h = x._h
+        if h.type == 'cover' then
+            readings[#readings + 1] = coverReading(h.object)
+        elseif h.type == 'light' or h.type == 'dimmer' or h.type == 'switch' then
+            local ok, v = pcall(h.getValue, h)
+            if ok and isOn(v) then on = on + 1 end
+        end
+    end
+    local c = coverCounts(readings)
+    return { on = on, open = c.open + c.moving, moving = c.moving,
+        temperature = roomClimate(dashId, w, 'temperature'), humidity = roomClimate(dashId, w, 'humidity') }
+end
+
 --- Internal: resolve a dashboard entry. For dynamic dashboards, rebuilds fresh.
 -- bare: without filling area sections (auth and PIN need no widgets)
 local function resolveDashboard(id, bare)
@@ -1902,6 +2086,8 @@ function DashboardAPI.getDefinition(id)
         if sec._isHeader then secDef.isHeader = true end
         if sec._columns then secDef.columns = sec._columns end
         if sec._covers then secDef.covers = sectionCoverCounts(id, sec, covers) end
+        -- a room tile's overlay: drawn when the tile is tapped
+        if sec._room then secDef.room = sec._room end
         table.insert(sections, secDef)
 
         for _, w in ipairs(sec.widgets) do
@@ -2014,6 +2200,12 @@ function DashboardAPI.getDefinition(id)
                 widget.capabilities = {
                     set = type(fns.set) == 'function'
                 }
+            end
+
+            -- Room tile: what is on, its climate, where a tap goes when not to the room
+            if w.type == 'room' then
+                for k, v in pairs(roomState(id, w)) do widget[k] = v end
+                widget.link = w.link
             end
 
             -- Cover group: counts, average position and tilt
@@ -2184,6 +2376,10 @@ function DashboardAPI.getValues(id)
         for _, w in ipairs(sec.widgets) do
             if w.type == 'covers' then
                 local entry = coversState(id, w, covers).entry
+                entry.disabled = safeDisabled(w.opts)
+                result[w.id] = entry
+            elseif w.type == 'room' then
+                local entry = roomState(id, w)
                 entry.disabled = safeDisabled(w.opts)
                 result[w.id] = entry
             elseif w.type == 'player' or w.type == 'forecast' then
@@ -2365,6 +2561,9 @@ function DashboardAPI.executeAction(id, widgetId, action, value)
 
     elseif widget.type == 'chip' then
         return JSON.encode({ error = 'Chip has no server action' })
+
+    elseif widget.type == 'room' then
+        return JSON.encode({ error = 'Room tile has no server action' })
 
     elseif widget.type == 'cover' then
         local fns = widget.fns or {}
