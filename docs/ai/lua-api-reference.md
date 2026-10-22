@@ -17,7 +17,7 @@ Only public API is listed — internal/private functions are omitted.
 - [core.Registry](#coreregistry) (10 functions)
 - [core.Metrics](#coremetrics) (1 functions)
 - [core.Calendar](#corecalendar) (36 functions)
-- [Dashboard](#dashboard) (55 functions)
+- [Dashboard](#dashboard) (57 functions)
 - [lib.panel](#libpanel) (55 functions)
 - [objects.RemotePanel](#objectsremotepanel) (6 functions)
 - [GPIO_DOUT](#gpio_dout) (1 functions)
@@ -1124,6 +1124,15 @@ Add a cover group: one tile moving several covers, with their counts and average
 - `list` (table) — Covers (RemoteCover, VirtualCover) or their paths, _:byTag(...), or a function returning one (read each time; missing paths skipped)
 - `opts` (table) — Optional: {icon=string (default "window"), disabled=function()->bool, span=n, size=string, color=string}
 
+### `SectionHandle:player(id, label, src, opts)`
+
+Add a media player: artwork, title and artist, previous/play-pause/next, volume, mute and power. {getState=function()->{playing, title, artist, album, artwork (http(s) URL), volume (0-100), muted, power, online}, play?, pause?, next?, previous?, setVolume?(percent), setMute?(bool), on?, off?}; a missing function hides its button
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label (e.g. the room)
+- `src` (table) — A MusicCast device (Plugin.getPlugin("@vclu/musiccast"):create{...}) or a table of functions
+- `opts` (table) — Optional: {icon=string (default "music-note-beamed"), disabled=function()->bool, span=n, size=string, color=string}
+
 ### `SectionHandle:dimmer(id, label, icon, fns, opts)`
 
 Add a dimmer widget to this section.
@@ -1378,6 +1387,15 @@ Add a cover group to the current section: one tile moving several covers, with t
 - `label` (string) — Display label
 - `list` (table) — Covers (RemoteCover, VirtualCover) or their paths, _:byTag(...), or a function returning one (read each time; missing paths skipped)
 - `opts` (table) — Optional: {icon=string (default "window"), disabled=function()->bool, span=n, size=string, color=string}
+
+### `DashboardBuilder:player(id, label, src, opts)`
+
+Add a media player to the current section: artwork, title and artist, previous/play-pause/next, volume, mute and power.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label (e.g. the room)
+- `src` (table) — A MusicCast device or a table of functions {getState, play?, pause?, next?, previous?, setVolume?, setMute?, on?, off?}
+- `opts` (table) — Optional: {icon=string, disabled=function()->bool, span=n, size=string, color=string}
 
 ### `DashboardBuilder:dimmer(id, label, icon, fns, opts)`
 

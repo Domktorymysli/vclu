@@ -27,7 +27,10 @@
               openN: ['otwarta', 'otwarte', 'otwartych'], closedN: ['zamknięta', 'zamknięte', 'zamkniętych'],
               moving: 'w ruchu', allOpen: 'wszystkie otwarte', allClosed: 'wszystkie zamknięte', noCovers: 'brak rolet',
               up: 'W górę', stop: 'Stop', down: 'W dół', position: 'Pozycja', tilt: 'Lamele',
-              fullscreen: 'Pełny ekran', exitFullscreen: 'Zamknij pełny ekran' },
+              fullscreen: 'Pełny ekran', exitFullscreen: 'Zamknij pełny ekran',
+              playing: 'odtwarza', paused: 'pauza', playerOff: 'wyłączony', offline: 'offline',
+              play: 'Odtwarzaj', pause: 'Pauza', previous: 'Poprzedni', next: 'Następny',
+              mute: 'Wycisz', unmute: 'Włącz dźwięk', power: 'Włącz / wyłącz', volume: 'Głośność' },
         en: { on: 'on', off: 'off', open: 'open', closed: 'closed', opening: 'opening',
               closing: 'closing', unknown: 'no reading', run: 'run', sent: 'sent', updated: 'updated',
               nothingToday: 'nothing more today', holidays: 'Holidays', namedays: 'Name days', sun: 'Sun', show: 'Show',
@@ -35,7 +38,10 @@
               openN: ['open', 'open', 'open'], closedN: ['closed', 'closed', 'closed'],
               moving: 'moving', allOpen: 'all open', allClosed: 'all closed', noCovers: 'no covers',
               up: 'Up', stop: 'Stop', down: 'Down', position: 'Position', tilt: 'Slats',
-              fullscreen: 'Full screen', exitFullscreen: 'Exit full screen' }
+              fullscreen: 'Full screen', exitFullscreen: 'Exit full screen',
+              playing: 'playing', paused: 'paused', playerOff: 'off', offline: 'offline',
+              play: 'Play', pause: 'Pause', previous: 'Previous', next: 'Next',
+              mute: 'Mute', unmute: 'Unmute', power: 'Power', volume: 'Volume' }
     };
     // ?lang= as on the other pages, else the browser's language
     var lang = (function() {
@@ -48,7 +54,7 @@
     var typeIcons = {
         button: 'play-fill', toggle: 'power', slider: 'sliders', status: 'info-circle', link: 'link-45deg',
         chart: 'graph-up', select: 'list-ul', image: 'image', cover: 'arrows-expand', covers: 'window', dimmer: 'lightbulb',
-        color: 'palette', calendar: 'calendar3'
+        color: 'palette', calendar: 'calendar3', player: 'music-note-beamed'
     };
 
     // 23.9 -> "23,9" in Polish; text as it is
@@ -190,6 +196,11 @@
             if (d.moving > 0) return ['moving', text];
             if (d.open > 0) return ['on', text];
             return [d.closed > 0 ? 'off' : 'unknown', text];
+        case 'player':
+            if (d.error) return ['unknown', T.unknown];
+            if (d.online === false) return ['unknown', T.offline];
+            if (d.power === false) return ['off', T.playerOff];
+            return d.playing ? ['on', T.playing] : ['value', T.paused];
         case 'button':
             return ['value', T.run];
         case 'link':
@@ -213,6 +224,7 @@
         if (type === 'chart' || type === 'image' || type === 'calendar') return;
         var st = tileState(type, w, d);
         setState(el, st[0], st[1]);
+        if (type === 'player') updatePlayer(el, d);
         if (el.classList.contains('dash-header-item')) el.title = (w.label || '') + ': ' + st[1];
         if (el.getAttribute('role') === 'switch') el.setAttribute('aria-checked', d.value ? 'true' : 'false');
     }
@@ -415,7 +427,7 @@
             grid.style.cssText = '--dash-columns:' + cols + ';--dash-columns-mid:' + Math.min(cols, 3);
 
             for (var wi = 0; wi < widgets.length; wi++) {
-                var wEl = renderWidget(widgets[wi]);
+                var wEl = renderWidget(widgets[wi], cols);
                 grid.appendChild(wEl);
             }
 
@@ -424,17 +436,18 @@
         }
     }
 
-    function renderWidget(w) {
+    function renderWidget(w, cols) {
         if (w.type === 'group') return renderGroup(w);
         var el = document.createElement('div');
         el.className = 'dash-widget dash-widget-' + w.type;
         el.dataset.widgetId = w.id;
         el.dataset.type = w.type;
 
-        // Span (stored as data-attr; CSS responsive rules can override)
-        if (w.span && w.span > 1) {
-            el.style.gridColumn = 'span ' + w.span;
-            el.dataset.span = w.span;
+        // Span (stored as data-attr; CSS responsive rules can override); a player is two wide
+        var span = w.span || (w.type === 'player' && cols > 1 ? 2 : 0);
+        if (span > 1) {
+            el.style.gridColumn = 'span ' + span;
+            el.dataset.span = span;
         }
 
         // Size
@@ -450,9 +463,9 @@
         // Disabled
         if (w.disabled) el.classList.add('disabled');
 
-        // Icon, name and state; an image has its caption under the picture
+        // Icon, name and state; an image has its caption under the picture, a player its own layout
         var head = tileHead(w);
-        if (w.type !== 'image') el.appendChild(head);
+        if (w.type !== 'image' && w.type !== 'player') el.appendChild(head);
 
         // Error indicator: a badge on the icon
         if (w.error) {
@@ -491,6 +504,8 @@
             renderImage(el, w, head);
         } else if (w.type === 'calendar') {
             renderCalendar(el, w, head);
+        } else if (w.type === 'player') {
+            renderPlayer(el, w, head);
         }
 
         refreshTile(el, w, w);
@@ -1230,6 +1245,162 @@
         el.hidden = !text;
     }
 
+    // ---- Media player ----
+
+    var playerKeys = ['playing', 'title', 'artist', 'album', 'artwork', 'volume', 'muted', 'power', 'online', 'error'];
+
+    function playerBtn(el, cls, icon, title, onClick) {
+        var b = calEl('button', 'dash-player-btn ' + cls);
+        b.type = 'button';
+        b.appendChild(calEl('i', 'bi bi-' + icon));
+        b.title = title;
+        b.setAttribute('aria-label', title);
+        b.addEventListener('click', function(e) {
+            e.stopPropagation();
+            if (el.classList.contains('disabled')) return;
+            onClick();
+        });
+        return b;
+    }
+
+    // Pause while playing (when it can), play otherwise
+    function playerPauses(el, d) {
+        var caps = el._caps;
+        return !!d.playing && caps.pause || !caps.play;
+    }
+
+    // Artwork on the left (a note while there is none or it does not load), title and artist,
+    // the buttons the definition has, the volume
+    function renderPlayer(el, w, head) {
+        var caps = el._caps = w.capabilities || {};
+        el.style.cursor = 'default';
+        var box = calEl('div', 'dash-player');
+        var art = head.querySelector('.dash-widget-icon');
+        art.classList.add('dash-player-art');
+        var img = document.createElement('img');
+        img.alt = '';
+        img.hidden = true;
+        img.referrerPolicy = 'no-referrer';
+        // a URL that failed is not asked for again on every poll; a new track brings a new one
+        img.addEventListener('load', function() {
+            if (!img.dataset.src) return;
+            img.hidden = false;
+            art.classList.add('has-art');
+        });
+        img.addEventListener('error', function() {
+            if (!img.dataset.src) return;
+            el._artFailed = img.dataset.src;
+            img.hidden = true;
+            art.classList.remove('has-art');
+        });
+        art.insertBefore(img, art.firstChild);
+        box.appendChild(art);
+
+        var info = calEl('div', 'dash-player-info');
+        info.appendChild(head.querySelector('.dash-tile-text'));
+        info.appendChild(calEl('div', 'dash-player-title'));
+        info.appendChild(calEl('div', 'dash-player-artist'));
+        box.appendChild(info);
+
+        var ctl = calEl('div', 'dash-player-controls');
+        if (caps.previous) ctl.appendChild(playerBtn(el, 'dash-player-prev', 'skip-start-fill', T.previous, function() {
+            executeAction(w.id, 'previous');
+        }));
+        if (caps.play || caps.pause) ctl.appendChild(playerBtn(el, 'dash-player-play', 'play-fill', T.play, function() {
+            var pause = playerPauses(el, el._data);
+            refreshTile(el, w, { playing: !pause });
+            executeAction(w.id, pause ? 'pause' : 'play');
+        }));
+        if (caps.next) ctl.appendChild(playerBtn(el, 'dash-player-next', 'skip-end-fill', T.next, function() {
+            executeAction(w.id, 'next');
+        }));
+        var side = calEl('div', 'dash-player-side');
+        if (caps.mute) side.appendChild(playerBtn(el, 'dash-player-mute', 'volume-up-fill', T.mute, function() {
+            var m = !el._data.muted;
+            refreshTile(el, w, { muted: m });
+            executeAction(w.id, 'mute', m);
+        }));
+        if (caps.power) side.appendChild(playerBtn(el, 'dash-player-power', 'power', T.power, function() {
+            var on = el._data.power === false;
+            refreshTile(el, w, { power: on });
+            executeAction(w.id, 'power', on);
+        }));
+        if (side.firstChild) ctl.appendChild(side);
+        if (ctl.firstChild) box.appendChild(ctl);
+
+        if (caps.volume) {
+            var row = calEl('div', 'dash-slider-row dash-color-row dash-player-volume');
+            row.title = T.volume;
+            row.appendChild(calEl('i', 'bi bi-volume-down dash-color-row-icon'));
+            var slider = document.createElement('input');
+            slider.type = 'range';
+            slider.className = 'dash-slider-input';
+            slider.min = 0;
+            slider.max = 100;
+            slider.setAttribute('aria-label', T.volume);
+            var valEl = calEl('span', 'dash-slider-value', '--');
+            bindSlider(slider, function(v) { valEl.textContent = v + ' %'; },
+                function(v) { executeAction(w.id, 'volume', v); }, 500);
+            row.appendChild(slider);
+            row.appendChild(valEl);
+            box.appendChild(row);
+        }
+        el.appendChild(box);
+    }
+
+    // Texts, artwork, buttons and volume from what is known (definition, polls, replies)
+    function updatePlayer(el, d) {
+        var title = el.querySelector('.dash-player-title');
+        var artist = el.querySelector('.dash-player-artist');
+        title.textContent = d.title || '';
+        title.hidden = !d.title;
+        artist.textContent = [d.artist, d.album].filter(function(s) { return !!s; }).join(' · ');
+        artist.hidden = !artist.textContent;
+
+        var art = el.querySelector('.dash-player-art');
+        var img = art.querySelector('img');
+        var url = typeof d.artwork === 'string' && /^https?:\/\//i.test(d.artwork) ? d.artwork : '';
+        if (!url || url === el._artFailed) {
+            img.hidden = true;
+            art.classList.remove('has-art');
+            if (!url && img.dataset.src) { delete img.dataset.src; img.removeAttribute('src'); }
+        } else if (img.dataset.src !== url) {
+            img.hidden = true;
+            art.classList.remove('has-art');
+            img.dataset.src = url;
+            img.src = url;
+        }
+
+        var play = el.querySelector('.dash-player-play');
+        if (play) {
+            var pause = playerPauses(el, d);
+            play.firstChild.className = 'bi bi-' + (pause ? 'pause-fill' : 'play-fill');
+            play.title = pause ? T.pause : T.play;
+            play.setAttribute('aria-label', play.title);
+        }
+        var mute = el.querySelector('.dash-player-mute');
+        if (mute) {
+            mute.firstChild.className = 'bi bi-' + (d.muted ? 'volume-mute-fill' : 'volume-up-fill');
+            mute.classList.toggle('active', !!d.muted);
+            mute.title = d.muted ? T.unmute : T.mute;
+            mute.setAttribute('aria-label', mute.title);
+            mute.setAttribute('aria-pressed', d.muted ? 'true' : 'false');
+        }
+        var power = el.querySelector('.dash-player-power');
+        if (power) power.setAttribute('aria-pressed', d.power !== false ? 'true' : 'false');
+        // switched off or unreachable: the transport and the volume dim, power stays
+        el.classList.toggle('dash-player-idle', d.power === false || d.online === false);
+
+        var vol = el.querySelector('.dash-player-volume');
+        if (vol) {
+            var sl = vol.querySelector('.dash-slider-input');
+            if (!userHolds(sl)) {
+                if (d.volume != null) sl.value = d.volume;
+                vol.querySelector('.dash-slider-value').textContent = d.volume != null ? d.volume + ' %' : '--';
+            }
+        }
+    }
+
     // ---- Dimmer widget ----
 
     // A slider sends the value it was moved to: after a pause, or at once when let go, so
@@ -1885,6 +2056,11 @@
         for (var k in data) if (data.hasOwnProperty(k)) d[k] = data[k];
         if (!force && valueTypes[type] && d.value === undefined) d.value = null;
         if ((type === 'cover' || type === 'covers') && d.value !== undefined) d.position = d.value; // a set's reply
+        if (type === 'player') {
+            if (d.value !== undefined) { d.volume = d.value; delete d.value; } // a volume reply
+            // a poll is the whole state: what it leaves out is gone (a track without an album)
+            if (!force) playerKeys.forEach(function(k) { if (!(k in d)) d[k] = null; });
+        }
         if (type === 'color') delete d.value; // brightness or white: the reply does not say
         var slider = el.querySelector('.dash-slider-input');
         var held = slider && userHolds(slider);

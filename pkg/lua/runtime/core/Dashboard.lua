@@ -282,6 +282,119 @@ local function coversSeries(key, covers, fn, stopIf)
     if #covers > 0 then step(1) else _coversRuns[key] = nil end
 end
 
+-- ==========================================================================
+-- Media player: artwork, title, artist, transport and volume
+-- ==========================================================================
+
+local PLAYER_KEYS = { icon = true, disabled = true, span = true, size = true, color = true }
+local PLAYER_FNS = { 'getState', 'play', 'pause', 'next', 'previous', 'setVolume', 'setMute', 'on', 'off' }
+local PLAYER_FN_SET = {}
+for i = 1, #PLAYER_FNS do PLAYER_FN_SET[PLAYER_FNS[i]] = true end
+
+-- A MusicCast device (@vclu/musiccast) by its methods, not the plugin's internals
+local function isMusicCast(v)
+    return type(v.getState) == 'function' and type(v.getTrack) == 'function'
+        and type(v.setVolume) == 'function' and type(v.play) == 'function'
+end
+
+-- The device's methods as the player's functions; its getState mapped to the tile's
+local function musicCastFns(dev)
+    local fns = {
+        getState = function()
+            local s = dev:getState()
+            if type(s) ~= 'table' then return s end
+            local t = type(s.track) == 'table' and s.track or {}
+            return { playing = s.playback == 'play', title = t.title, artist = t.artist, album = t.album,
+                artwork = t.artwork, volume = s.volume, muted = s.mute, power = s.power, online = s.online }
+        end,
+    }
+    for i = 2, #PLAYER_FNS do
+        local name = PLAYER_FNS[i]
+        if type(dev[name]) == 'function' then
+            fns[name] = function(v) dev[name](dev, v) end
+        end
+    end
+    return fns
+end
+
+local function playerWidget(id, label, src, opts)
+    local where = 'section:player("' .. tostring(id) .. '")'
+    if type(id) ~= 'string' or id == '' then error('section:player: id must be a non-empty string', 3) end
+    if type(label) ~= 'string' then error(where .. ': label must be a string', 3) end
+    if opts ~= nil and type(opts) ~= 'table' then error(where .. ': opts must be a table', 3) end
+    opts = opts or {}
+    for k in pairs(opts) do
+        if not PLAYER_KEYS[k] then error(where .. ': unknown option "' .. tostring(k) .. '" (icon, disabled, span, size, color)', 3) end
+    end
+    if opts.icon ~= nil and (type(opts.icon) ~= 'string' or not opts.icon:match('^[%w%-]+$')) then
+        error(where .. ': opts.icon must be a Bootstrap icon name (letters, digits and -)', 3)
+    end
+    if opts.disabled ~= nil and type(opts.disabled) ~= 'function' then error(where .. ': opts.disabled must be a function', 3) end
+    if type(src) ~= 'table' then
+        error(where .. ': src must be a MusicCast device or a table of functions {getState, play, pause, ...}, got ' .. type(src), 3)
+    end
+    local fns
+    if isMusicCast(src) then
+        fns = musicCastFns(src)
+    else
+        if type(src.getState) ~= 'function' then error(where .. ': src.getState must be a function returning the state', 3) end
+        fns = {}
+        for k, v in pairs(src) do
+            if not PLAYER_FN_SET[k] then
+                error(where .. ': unknown key "' .. tostring(k) .. '" in src (' .. table.concat(PLAYER_FNS, ', ') .. ')', 3)
+            end
+            if type(v) ~= 'function' then error(where .. ': src.' .. k .. ' must be a function', 3) end
+            fns[k] = v
+        end
+    end
+    return { id = id, type = 'player', label = label, icon = opts.icon or 'music-note-beamed', fns = fns, opts = opts }
+end
+
+-- The controls the functions allow; a missing one hides its button
+local function playerCapabilities(fns)
+    local function has(k) return type(fns[k]) == 'function' end
+    return { play = has('play'), pause = has('pause'), next = has('next'), previous = has('previous'),
+        volume = has('setVolume'), mute = has('setMute'), power = has('on') and has('off') }
+end
+
+-- Text for the page: a string or a number, cut to a sane length (not mid-character)
+local function playerText(v)
+    if type(v) == 'number' then v = tostring(v) end
+    if type(v) ~= 'string' or v == '' then return nil end
+    if #v <= 300 then return v end
+    v = v:sub(1, 300)
+    -- drop a last UTF-8 character the cut left incomplete (a byte class in a pattern crashes gopher-lua)
+    local i = #v
+    while i > 1 and v:byte(i) >= 128 and v:byte(i) < 192 do i = i - 1 end
+    local b = v:byte(i)
+    local need = b >= 240 and 4 or b >= 224 and 3 or b >= 192 and 2 or 1
+    if #v - i + 1 < need then v = v:sub(1, i - 1) end
+    return v
+end
+
+-- The page sets it as an <img> src: only an absolute http(s) URL
+local function playerArtwork(v)
+    if type(v) ~= 'string' or #v > 2048 or not v:lower():match('^https?://[^/%s]') or v:find('[%c%s"<>\\]') then
+        return nil
+    end
+    return v
+end
+
+-- What the tile shows: {playing, title, artist, album, artwork, volume, muted, power, online}, or {error}
+local function playerState(w)
+    local ok, s = pcall(w.fns.getState)
+    if not ok then return { error = tostring(s) } end
+    if type(s) ~= 'table' then
+        return { error = 'section:player("' .. tostring(w.id) .. '"): getState must return a table, got ' .. type(s) }
+    end
+    local function bool(v) if type(v) == 'boolean' then return v end end
+    local vol = tonumber(s.volume)
+    if vol and vol - vol == 0 then vol = math.floor(math.max(0, math.min(100, vol)) + 0.5) else vol = nil end
+    return { playing = s.playing == true, title = playerText(s.title), artist = playerText(s.artist),
+        album = playerText(s.album), artwork = playerArtwork(s.artwork), volume = vol,
+        muted = bool(s.muted), power = bool(s.power), online = bool(s.online) }
+end
+
 function SectionHandle:new(builder, sectionIndex)
     local h = { _builder = builder, _sectionIndex = sectionIndex }
     setmetatable(h, self)
@@ -470,6 +583,22 @@ function SectionHandle:covers(id, label, list, opts)
         error('section:covers("' .. tostring(id) .. '"): a cover group goes in a section, not the header', 2)
     end
     self._builder:_addWidget(self._sectionIndex, coversWidget(id, label, list, opts))
+    return self
+end
+
+--- Add a media player: artwork, title and artist, previous/play-pause/next, volume, mute and power.
+-- @param id string Unique widget identifier
+-- @param label string Display label (e.g. the room)
+-- @param src table A MusicCast device (Plugin.getPlugin("@vclu/musiccast"):create{...}) or a table of functions
+--   {getState=function()->{playing, title, artist, album, artwork (http(s) URL), volume (0-100), muted, power, online},
+--   play?, pause?, next?, previous?, setVolume?(percent), setMute?(bool), on?, off?}; a missing function hides its button
+-- @param opts table Optional: {icon=string (default "music-note-beamed"), disabled=function()->bool, span=n, size=string, color=string}
+-- @api public
+function SectionHandle:player(id, label, src, opts)
+    if self._builder._sections[self._sectionIndex]._isHeader then
+        error('section:player("' .. tostring(id) .. '"): a player goes in a section, not the header', 2)
+    end
+    self._builder:_addWidget(self._sectionIndex, playerWidget(id, label, src, opts))
     return self
 end
 
@@ -961,6 +1090,23 @@ function DashboardBuilder:covers(id, label, list, opts)
         error('section:covers("' .. tostring(id) .. '"): a cover group goes in a section, not the header', 2)
     end
     self:_addWidget(self._currentSection, coversWidget(id, label, list, opts))
+    return self
+end
+
+--- Add a media player to the current section: artwork, title and artist, previous/play-pause/next, volume, mute and power.
+-- @param id string Unique widget identifier
+-- @param label string Display label (e.g. the room)
+-- @param src table A MusicCast device or a table of functions {getState, play?, pause?, next?, previous?, setVolume?, setMute?, on?, off?}
+-- @param opts table Optional: {icon=string, disabled=function()->bool, span=n, size=string, color=string}
+-- @api public
+function DashboardBuilder:player(id, label, src, opts)
+    if not self._currentSection then
+        error('Call :section() before adding widgets', 2)
+    end
+    if self._sections[self._currentSection]._isHeader then
+        error('section:player("' .. tostring(id) .. '"): a player goes in a section, not the header', 2)
+    end
+    self:_addWidget(self._currentSection, playerWidget(id, label, src, opts))
     return self
 end
 
@@ -1500,6 +1646,12 @@ function DashboardAPI.getDefinition(id)
                 for k, v in pairs(coversState(id, w, covers).entry) do widget[k] = v end
             end
 
+            -- Media player: its state and the controls it has
+            if w.type == 'player' then
+                for k, v in pairs(playerState(w)) do widget[k] = v end
+                widget.capabilities = playerCapabilities(w.fns)
+            end
+
             -- Dimmer widget
             if w.type == 'dimmer' then
                 local fns = w.fns or {}
@@ -1649,6 +1801,10 @@ function DashboardAPI.getValues(id)
         for _, w in ipairs(sec.widgets) do
             if w.type == 'covers' then
                 local entry = coversState(id, w, covers).entry
+                entry.disabled = safeDisabled(w.opts)
+                result[w.id] = entry
+            elseif w.type == 'player' then
+                local entry = playerState(w)
                 entry.disabled = safeDisabled(w.opts)
                 result[w.id] = entry
             elseif w.type == 'chip' then
@@ -1888,6 +2044,30 @@ function DashboardAPI.executeAction(id, widgetId, action, value)
         coversSeries(key .. (action == 'tilt' and '/tilt' or '/move'), covers, fn,
             function() return safeDisabled(widget.opts) end)
         if action == 'set' then return JSON.encode({ success = true, value = numVal }) end
+        return JSON.encode({ success = true })
+
+    elseif widget.type == 'player' then
+        local name, arg
+        if action == 'play' or action == 'pause' or action == 'next' or action == 'previous' then
+            name = action
+        elseif action == 'volume' then
+            arg = tonumber(value)
+            if not arg or arg ~= arg then return JSON.encode({ error = 'Value must be a number' }) end
+            if arg < 0 or arg > 100 then return JSON.encode({ error = 'Value out of range [0, 100]' }) end
+            name = 'setVolume'
+        elseif action == 'mute' or action == 'power' then
+            if value == true or value == 'true' then arg = true
+            elseif value == false or value == 'false' then arg = false
+            else return JSON.encode({ error = 'Value must be true or false' }) end
+            name = action == 'mute' and 'setMute' or (arg and 'on' or 'off')
+        else
+            return JSON.encode({ error = 'Invalid action for player' })
+        end
+        local fn = widget.fns[name]
+        if type(fn) ~= 'function' then return JSON.encode({ error = 'No ' .. name .. ' function' }) end
+        local ok, ret = pcall(fn, arg)
+        if not ok then return JSON.encode({ error = tostring(ret) }) end
+        if action == 'volume' then return JSON.encode({ success = true, value = arg }) end
         return JSON.encode({ success = true })
 
     elseif widget.type == 'dimmer' then
