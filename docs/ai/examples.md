@@ -554,14 +554,18 @@ local weather = Plugin.getPlugin("@vclu/weather")
       return {
         days = { { date = '2026-10-23', icon = 'cloud-rain', min = 4.5, max = 11, rain = 3.2, pop = 0.8 } },
         hours = { { at = 1792760400, temp = 7.1, rain = 0.4 } },   -- at: unix seconds
+        updated = os.time(),                                         -- optional
       }
     end)
 ```
 
-- **days:** `{ date = 'YYYY-MM-DD', iconName (or icon), min, max, rain (mm), pop (0-1) }`; days before
+- **days:** `{ date = 'YYYY-MM-DD', iconName (or icon), min, max, rain (mm), pop }`; days before
   today in the house's time zone (`datetime.setTimezone`) are dropped, then `opts.days` are shown.
-- **hours:** `{ at, temp, rain }`; from the current hour to `opts.hours` ahead.
-- Temperatures and rain are rounded to one decimal, `pop` becomes a whole percent. The icon is a Bootstrap
+  `pop` (chance of rain) is a fraction 0-1, or a percent when above 1 (`0.7` and `70` both show 70 %).
+- **hours:** `{ at, temp, rain }`; `opts.hours` is a count: the current hour and `hours - 1` after it
+  (hourly data gives exactly that many points; 3-hour steps cover the same span).
+- **updated:** optional unix time of the forecast, shown under the label as "odświeżono HH:MM".
+- Temperatures and rain are rounded to one decimal, `pop` becomes a whole percent 0-100. The icon is a Bootstrap
   icon name (letters, digits and `-`); anything else shows a cloud.
 - `nil` from the source (the Weather plugin before its first fetch; its first `getForecast()` starts
   fetching every 30 min) shows "brak prognozy"; an error shows the error mark.

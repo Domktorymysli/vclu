@@ -1135,7 +1135,7 @@ Add a media player: artwork, title and artist, previous/play-pause/next, volume,
 
 ### `SectionHandle:forecast(id, label, src, opts)`
 
-Add a weather forecast: the next days (icon, max/min, rain) and a chart of the next hours. src gives {days={{date='YYYY-MM-DD', iconName (or icon), min, max, rain (mm), pop (0-1)}}, hours={{at (unix s), temp, rain}}}, or nil while there is no forecast yet; days before today in the house's time zone are dropped.
+Add a weather forecast: the next days (icon, max/min, rain) and a chart of the next hours. src gives {days={{date='YYYY-MM-DD', iconName (or icon), min, max, rain (mm), pop (0-1, or a percent when above 1)}}, hours={{at (unix s), temp, rain}}, updated (optional unix s, shown as "odświeżono HH:MM")}, or nil while there is no forecast yet; days before today in the house's time zone are dropped; opts.hours counts hours: the current one and hours-1 after it (hourly data gives exactly that many points).
 
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label
@@ -1412,7 +1412,7 @@ Add a weather forecast to the current section: the next days and a chart of the 
 
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label
-- `src` (function) — A function returning {days={...}, hours={...}} or nil, or the Weather plugin
+- `src` (function) — A function returning {days={...}, hours={...}, updated?} or nil, or the Weather plugin
 - `opts` (table) — Optional: {days=1-7, hours=0-48, unit=string, icon=string, disabled=function()->bool, span=n, size=string, color=string}
 
 ### `DashboardBuilder:dimmer(id, label, icon, fns, opts)`

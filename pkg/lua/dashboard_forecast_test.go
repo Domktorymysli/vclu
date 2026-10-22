@@ -34,8 +34,8 @@ const dashForecastSetup = `
 			{ at = now + 3 * 3600, temp = 6.04, rain = 0.26, iconName = 'cloud' },
 			{ at = now - 2 * 3600, temp = 9, rain = 0 },               -- past
 			{ at = now - 1800, temp = 7.46 },                          -- the current hour, no rain
-			{ at = now + 24 * 3600, temp = 4, rain = 1 },
-			{ at = now + 25 * 3600, temp = 3, rain = 0 },              -- past the 24 h
+			{ at = now + 23 * 3600, temp = 4, rain = 1 },              -- the 24th hour
+			{ at = now + 23 * 3600 + 60, temp = 3, rain = 0 },         -- past it
 			{ at = 'soon', temp = 3 },
 		},
 	}
@@ -112,7 +112,7 @@ func TestDashboardForecastDefinition(t *testing.T) {
 	want := []map[string]interface{}{
 		{"date": "2026-10-23", "icon": "sun", "min": float64(3), "max": float64(12), "rain": float64(0), "pop": float64(0)},
 		{"date": "2026-10-24", "icon": "cloud-rain", "min": 4.3, "max": float64(12), "rain": 2.3, "pop": float64(43)},
-		{"date": "2026-10-25", "icon": "cloud", "min": -2.4, "max": float64(5), "rain": float64(0), "pop": float64(100)},
+		{"date": "2026-10-25", "icon": "cloud", "min": -2.4, "max": float64(5), "rain": float64(0), "pop": float64(2)},
 		{"date": "2026-10-26", "icon": "cloud", "min": float64(0), "max": float64(6)},
 		{"date": "2026-10-27", "icon": "snow", "min": float64(-5), "max": float64(-1), "rain": float64(0), "pop": float64(20)},
 	}
@@ -128,13 +128,13 @@ func TestDashboardForecastDefinition(t *testing.T) {
 		}
 	}
 
-	// hours from the current one to 24 h ahead, in order, without icons
+	// the current hour and the 23 after it, in order, without icons
 	hours := list(fc["hours"])
 	now := float64(forecastNow.Unix())
 	wantH := []map[string]interface{}{
 		{"at": now - 1800, "temp": 7.5, "rain": float64(0)},
 		{"at": now + 3*3600, "temp": float64(6), "rain": 0.3},
-		{"at": now + 24*3600, "temp": float64(4), "rain": float64(1)},
+		{"at": now + 23*3600, "temp": float64(4), "rain": float64(1)},
 	}
 	if len(hours) != len(wantH) {
 		t.Fatalf("fc hours = %v", hours)
@@ -232,6 +232,62 @@ func TestDashboardForecastWeatherPlugin(t *testing.T) {
 	}
 	if len(hours) != 1 || hours[0]["temp"] != float64(10) || v["none"] != nil {
 		t.Errorf("owm = %v", v)
+	}
+}
+
+// pop 0..1 is a fraction, above 1 a percent already; both end as a whole percent 0..100
+func TestDashboardForecastPop(t *testing.T) {
+	engine := newForecastEngine(t)
+	mustExec(t, engine, `
+		local pops = { 0.7, 70, 150, 1, 1.7, -0.2 }
+		local days = {}
+		for i, p in ipairs(pops) do days[i] = { date = string.format('2026-10-%02d', 23 + i), pop = p } end
+		Dashboard.new('pop'):section('S', 'grid')
+			:forecast('p', 'P', function() return { days = days } end, { days = 7 })
+		:build()`)
+	var vals map[string]map[string]interface{}
+	dashJSON(t, engine, `Dashboard.API.getValues("pop")`, &vals)
+	days := list(vals["p"]["days"])
+	want := []float64{70, 70, 100, 100, 2, 0}
+	if len(days) != len(want) {
+		t.Fatalf("days = %v", days)
+	}
+	for i, w := range want {
+		if days[i]["pop"] != w {
+			t.Errorf("day %d pop = %v, want %v", i, days[i]["pop"], w)
+		}
+	}
+}
+
+// hours is a count: hourly data gives exactly that many points, from the current hour on
+func TestDashboardForecastHourCount(t *testing.T) {
+	for _, at := range []time.Time{forecastNow, forecastNow.Truncate(time.Hour)} {
+		engine := NewLuaEngine()
+		SetClock(engine.state, fixedClock{at})
+		mustExec(t, engine, `
+			_dashboards = {}
+			local now = math.floor(__go_time_ms() / 1000)
+			local start = now - now % 3600
+			local hours = {}
+			for i = -3, 30 do hours[#hours + 1] = { at = start + i * 3600, temp = i } end
+			local three = {}
+			for i = -1, 12 do three[#three + 1] = { at = start + i * 3 * 3600, temp = i } end
+			local function src() return { hours = hours } end
+			Dashboard.new('hc'):section('S', 'grid')
+				:forecast('h6', 'H', src, { hours = 6 })
+				:forecast('h24', 'H', src)
+				:forecast('three', 'H', function() return { hours = three } end, { hours = 12 })
+			:build()`)
+		var vals map[string]map[string]interface{}
+		dashJSON(t, engine, `Dashboard.API.getValues("hc")`, &vals)
+		engine.Close()
+		start := float64(at.Truncate(time.Hour).Unix())
+		for id, n := range map[string]int{"h6": 6, "h24": 24, "three": 4} {
+			h := list(vals[id]["hours"])
+			if len(h) != n || h[0]["at"] != start {
+				t.Errorf("at %s, %s: %d points from %v, want %d from the current hour", at.Format("15:04"), id, len(h), h[0]["at"], n)
+			}
+		}
 	}
 }
 

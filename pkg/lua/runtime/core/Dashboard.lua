@@ -470,7 +470,12 @@ local function forecastState(w)
     for i, d in ipairs(type(f.days) == 'table' and f.days or {}) do
         if type(d) == 'table' and type(d.date) == 'string' and d.date:match('^%d%d%d%d%-%d%d%-%d%d$') and d.date >= today then
             local pop = tonumber(d.pop)
-            if pop and pop - pop == 0 then pop = math.floor(math.max(0, math.min(1, pop)) * 100 + 0.5) else pop = nil end
+            -- 0..1 is a fraction; above 1 it is a percent already
+            if pop and pop - pop == 0 then
+                pop = math.floor(math.max(0, math.min(100, pop > 1 and pop or pop * 100)) + 0.5)
+            else
+                pop = nil
+            end
             local rain = round1(d.rain)
             days[#days + 1] = { date = d.date, icon = forecastIcon(d.iconName or d.icon), min = round1(d.min),
                 max = round1(d.max), rain = rain and math.max(0, rain), pop = pop }
@@ -479,13 +484,13 @@ local function forecastState(w)
     table.sort(days, function(a, b) return a.date < b.date end)
     for i = #days, (w.opts.days or 5) + 1, -1 do days[i] = nil end
 
-    -- from the current hour to the last one asked for
+    -- the current hour and limit-1 after it: exactly limit points of hourly data
     local hours = {}
     local limit = w.opts.hours or 24
     local now = math.floor(__go_time_ms() / 1000)
     for i, h in ipairs(limit > 0 and type(f.hours) == 'table' and f.hours or {}) do
         local at = type(h) == 'table' and tonumber(h.at)
-        if at and at - at == 0 and at > now - 3600 and at <= now + limit * 3600 then
+        if at and at - at == 0 and at > now - 3600 and at <= now + (limit - 1) * 3600 then
             local rain = round1(h.rain)
             hours[#hours + 1] = { at = math.floor(at), temp = round1(h.temp), rain = rain and math.max(0, rain) or 0 }
         end
@@ -704,8 +709,10 @@ function SectionHandle:player(id, label, src, opts)
 end
 
 --- Add a weather forecast: the next days (icon, max/min, rain) and a chart of the next hours.
--- src gives {days={{date='YYYY-MM-DD', iconName (or icon), min, max, rain (mm), pop (0-1)}}, hours={{at (unix s), temp, rain}}},
--- or nil while there is no forecast yet; days before today in the house's time zone are dropped.
+-- src gives {days={{date='YYYY-MM-DD', iconName (or icon), min, max, rain (mm), pop (0-1, or a percent when above 1)}},
+-- hours={{at (unix s), temp, rain}}, updated (optional unix s, shown as "odświeżono HH:MM")},
+-- or nil while there is no forecast yet; days before today in the house's time zone are dropped;
+-- opts.hours counts hours: the current one and hours-1 after it (hourly data gives exactly that many points).
 -- @param id string Unique widget identifier
 -- @param label string Display label
 -- @param src function A function returning the forecast, or the Weather plugin (Plugin.getPlugin("@vclu/weather"))
@@ -1230,7 +1237,7 @@ end
 --- Add a weather forecast to the current section: the next days and a chart of the next hours.
 -- @param id string Unique widget identifier
 -- @param label string Display label
--- @param src function A function returning {days={...}, hours={...}} or nil, or the Weather plugin
+-- @param src function A function returning {days={...}, hours={...}, updated?} or nil, or the Weather plugin
 -- @param opts table Optional: {days=1-7, hours=0-48, unit=string, icon=string, disabled=function()->bool, span=n, size=string, color=string}
 -- @api public
 function DashboardBuilder:forecast(id, label, src, opts)
