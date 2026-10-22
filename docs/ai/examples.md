@@ -804,7 +804,8 @@ Dashboard.new('hall')
 Every dashboard can be added to the home screen and then opens without browser bars (with
 `width('full')` in full screen where the system allows it): on an iPad Safari → Share → Add to Home
 Screen; on Android Chrome → menu → Add to Home screen (or Install app). The app's name is
-`:name()`. A PIN or session dashboard asks for the PIN or login once more inside the app.
+`:name()` (a `session` dashboard shows its id until the user logs in). A PIN or session dashboard
+asks for the PIN or login once more inside the app; tabs and links to other dashboards stay in the app.
 
 ## Dashboard — tab navigation (tabGroup)
 

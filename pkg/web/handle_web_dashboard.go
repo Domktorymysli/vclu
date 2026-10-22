@@ -238,7 +238,7 @@ func (s *Server) handleDashboardPage(c *gin.Context) {
 				"id":   id,
 				"name": def["name"],
 				"icon": def["icon"],
-				"app":  newDashApp(id, def),
+				"app":  newDashApp(id, gin.H{"name": def["name"]}), // the PIN page is never themed
 			})
 			return
 		}
@@ -321,23 +321,63 @@ func newDashApp(id string, def map[string]interface{}) dashApp {
 	}
 }
 
-// isLightColor: a #hex colour bright enough for dark text; of the names only white counts
+var lightColorNames = map[string]bool{
+	"white": true, "snow": true, "ivory": true, "beige": true, "whitesmoke": true, "linen": true,
+	"ghostwhite": true, "floralwhite": true, "seashell": true, "oldlace": true, "mintcream": true,
+	"azure": true, "aliceblue": true, "honeydew": true, "lavenderblush": true, "cornsilk": true,
+	"lightyellow": true, "lightgray": true, "lightgrey": true, "gainsboro": true, "lavender": true,
+}
+
+// isLightColor: a background bright enough for dark text (#hex, rgb(), hsl() or a light name)
 func isLightColor(c string) bool {
-	h, ok := strings.CutPrefix(c, "#")
-	if !ok {
-		return strings.EqualFold(c, "white")
+	c = strings.ToLower(strings.TrimSpace(c))
+	if lightColorNames[c] {
+		return true
 	}
-	if len(h) == 3 || len(h) == 4 {
-		h = string([]byte{h[0], h[0], h[1], h[1], h[2], h[2]})
+	if h, ok := strings.CutPrefix(c, "#"); ok {
+		if len(h) == 3 || len(h) == 4 {
+			h = string([]byte{h[0], h[0], h[1], h[1], h[2], h[2]})
+		}
+		if len(h) < 6 {
+			return false
+		}
+		v, err := strconv.ParseUint(h[:6], 16, 32)
+		if err != nil {
+			return false
+		}
+		return luma(float64(v>>16), float64(v>>8&0xff), float64(v&0xff))
 	}
-	if len(h) < 6 {
+	fn, args, ok := strings.Cut(c, "(")
+	if !ok || !strings.HasSuffix(args, ")") {
 		return false
 	}
-	v, err := strconv.ParseUint(h[:6], 16, 32)
-	if err != nil {
+	parts := strings.FieldsFunc(strings.TrimSuffix(args, ")"), func(r rune) bool { return r == ',' || r == ' ' || r == '/' })
+	if len(parts) < 3 {
 		return false
 	}
-	r, g, b := float64(v>>16), float64(v>>8&0xff), float64(v&0xff)
+	num := func(s string, full float64) (float64, bool) {
+		if p, ok := strings.CutSuffix(s, "%"); ok {
+			v, err := strconv.ParseFloat(p, 64)
+			return v / 100 * full, err == nil
+		}
+		v, err := strconv.ParseFloat(s, 64)
+		return v, err == nil
+	}
+	switch fn {
+	case "rgb", "rgba":
+		r, ok1 := num(parts[0], 255)
+		g, ok2 := num(parts[1], 255)
+		b, ok3 := num(parts[2], 255)
+		return ok1 && ok2 && ok3 && luma(r, g, b)
+	case "hsl", "hsla":
+		l, ok := num(parts[2], 100)
+		return ok && l > 60
+	}
+	return false
+}
+
+// luma: perceived brightness of 0..255 channels above the middle
+func luma(r, g, b float64) bool {
 	return 0.299*r+0.587*g+0.114*b > 150
 }
 
@@ -349,7 +389,8 @@ type manifestIcon struct {
 }
 
 // handleDashboardManifest serves /d/:id/manifest.webmanifest without the dashboard's auth:
-// browsers fetch it without cookies, so it holds only the name and the theme colour.
+// browsers fetch it without cookies, so it holds only the name and the theme colour. The scope
+// is the whole site: tabs, chip links and the login stay inside the app.
 func (s *Server) handleDashboardManifest(c *gin.Context) {
 	id := c.Param("id")
 	if s.luaExecutor == nil {
@@ -367,6 +408,10 @@ func (s *Server) handleDashboardManifest(c *gin.Context) {
 		c.String(http.StatusNotFound, "Dashboard not found")
 		return
 	}
+	// a session dashboard's name is for logged-in users; the manifest is fetched without login
+	if info["auth"] == "session" && !s.isAuthenticated(c) {
+		info["name"] = id
+	}
 	app := newDashApp(id, info)
 	display := "standalone"
 	if app.Full {
@@ -383,7 +428,7 @@ func (s *Server) handleDashboardManifest(c *gin.Context) {
 		Background string         `json:"background_color"`
 		ThemeColor string         `json:"theme_color"`
 		Icons      []manifestIcon `json:"icons"`
-	}{path, app.Name, app.Name, path, path, display, app.ThemeColor, app.ThemeColor, []manifestIcon{
+	}{path, app.Name, app.Name, path, "/", display, app.ThemeColor, app.ThemeColor, []manifestIcon{
 		{Src: "/static/img/vclu-192.png", Sizes: "192x192", Type: "image/png"},
 		{Src: "/static/img/vclu-512.png", Sizes: "512x512", Type: "image/png"},
 		{Src: "/static/img/vclu-512.png", Sizes: "512x512", Type: "image/png", Purpose: "maskable"},

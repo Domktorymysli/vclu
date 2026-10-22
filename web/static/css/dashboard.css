@@ -38,6 +38,12 @@ body {
     text-align: center;
 }
 
+/* the full-screen button (left) or the burger (right): keep a centred title clear of both */
+.dash-header.dash-header-btns {
+    padding-left: 56px;
+    padding-right: 56px;
+}
+
 /* Full-screen button (Fullscreen API: Android and desktop browsers, not a home-screen app) */
 .dash-fullscreen-btn {
     position: absolute;
@@ -1238,6 +1244,12 @@ body {
 :where(.dash-full) .dash-header-bar {
     padding-left: 8px;
     padding-right: 8px;
+}
+/* a portrait tablet: full width has room for up to 3 columns where the page has 2 */
+@media (min-width: 601px) and (max-width: 900px) {
+    :where(.dash-full) .dash-grid {
+        grid-template-columns: repeat(var(--dash-columns-mid, 2), 1fr) !important;
+    }
 }
 
 /* Calendar widget: month grid and day view */

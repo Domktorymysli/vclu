@@ -284,6 +284,7 @@
         burger.className = 'dash-nav-burger';
         burger.innerHTML = '<i class="bi bi-list"></i>';
         header.appendChild(burger);
+        header.classList.add('dash-header-btns');
 
         var menu = document.createElement('div');
         menu.className = 'dash-nav-menu';
@@ -332,6 +333,7 @@
         document.addEventListener('fullscreenchange', sync);
         sync();
         header.appendChild(btn);
+        header.classList.add('dash-header-btns');
     }
 
     function renderDashboard(def) {
@@ -408,7 +410,9 @@
             // Grid
             var grid = document.createElement('div');
             grid.className = 'dash-grid';
-            grid.style.cssText = '--dash-columns:' + (sec.columns || def.columns || 3);
+            var cols = sec.columns || def.columns || 3;
+            // --dash-columns-mid: a full-width page on a portrait tablet keeps up to 3 columns
+            grid.style.cssText = '--dash-columns:' + cols + ';--dash-columns-mid:' + Math.min(cols, 3);
 
             for (var wi = 0; wi < widgets.length; wi++) {
                 var wEl = renderWidget(widgets[wi]);

@@ -1201,7 +1201,7 @@ end
 
 --- What the home-screen app of a dashboard needs: no widgets or values, any auth may read it
 -- @param id string Dashboard ID
--- @return string JSON {name, width, background} or {error}
+-- @return string JSON {name, auth, width, background} or {error}
 function DashboardAPI.getAppInfo(id)
     local dash = resolveDashboard(id)
     if not dash then
@@ -1210,6 +1210,7 @@ function DashboardAPI.getAppInfo(id)
     local theme = type(dash._theme) == 'table' and dash._theme or {}
     return JSON.encode({
         name = tostring(dash._name),
+        auth = dash._auth,
         width = dash._width,
         background = type(theme.background) == 'string' and theme.background or nil,
     })

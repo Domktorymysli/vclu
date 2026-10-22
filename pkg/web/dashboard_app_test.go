@@ -23,11 +23,12 @@ const dashAppSetup = `
 		:theme({ background = '#f4f4f7', accent = '#ff9500' })
 		:section('S', 'grid'):build()
 	Dashboard.new('pinned'):name('Garage'):auth('pin'):pin('4321')
-		:theme({ background = 'linear-gradient(red, blue)' })
+		:theme({ background = '#f4f4f7' })
 		:section('Secret', 'eye')
 			:status('s1', 'Hidden label', 'eye', function() return 'value-42' end)
 		:build()
 	Dashboard.new('sess'):name('Office'):auth('session'):width('full')
+		:theme({ background = 'linear-gradient(red, blue)' })
 		:section('S', 'grid')
 			:status('s2', 'Hidden label', 'eye', function() return 'value-43' end)
 		:build()
@@ -49,6 +50,7 @@ func newDashAppServer(t *testing.T) *gin.Engine {
 		t.Fatal(err)
 	}
 	s := &Server{serverDir: dir, sessions: newSessionStore(), luaExecutor: engine}
+	dashAppSession = s.sessions.create()
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	tmpl := template.New("").Funcs(template.FuncMap{
@@ -61,6 +63,9 @@ func newDashAppServer(t *testing.T) *gin.Engine {
 	r.GET("/d/:id/manifest.webmanifest", s.handleDashboardManifest)
 	return r
 }
+
+// dashAppSession is a logged-in session of the last newDashAppServer
+var dashAppSession string
 
 func dashAppGet(r *gin.Engine, path string) *httptest.ResponseRecorder {
 	w := httptest.NewRecorder()
@@ -75,8 +80,8 @@ func TestDashboardManifest(t *testing.T) {
 	}{
 		{"pub", "Hall", "standalone", "#1a1a2e"},
 		{"wall", `Kuchnia "A" <b>&</b>`, "fullscreen", "#f4f4f7"},
-		{"pinned", "Garage", "standalone", "#1a1a2e"}, // a gradient is not a colour
-		{"sess", "Office", "fullscreen", "#1a1a2e"},
+		{"pinned", "Garage", "standalone", "#f4f4f7"},
+		{"sess", "sess", "fullscreen", "#1a1a2e"}, // name only after login; a gradient is not a colour
 	}
 	for _, c := range cases {
 		// no cookie: browsers fetch the manifest without one, PIN and session dashboards too
@@ -100,7 +105,8 @@ func TestDashboardManifest(t *testing.T) {
 		if got := strings.Join(keys, ","); got != "background_color,display,icons,id,name,scope,short_name,start_url,theme_color" {
 			t.Errorf("%s: fields %s", c.id, got)
 		}
-		want := map[string]any{"name": c.name, "short_name": c.name, "start_url": "/d/" + c.id, "scope": "/d/" + c.id,
+		// scope: the whole site, so tabs, chip links and the login page stay in the app
+		want := map[string]any{"name": c.name, "short_name": c.name, "start_url": "/d/" + c.id, "scope": "/",
 			"id": "/d/" + c.id, "display": c.display, "background_color": c.color, "theme_color": c.color}
 		for k, v := range want {
 			if m[k] != v {
@@ -118,11 +124,19 @@ func TestDashboardManifest(t *testing.T) {
 			}
 		}
 		// nothing of the dashboard beyond its name and colours
-		for _, secret := range []string{"4321", "value-4", "Hidden label", "Secret", "s1", "s2", `"pin"`, `"auth"`, "widgets"} {
+		for _, secret := range []string{"4321", "value-4", "Hidden label", "Secret", "Office", "s1", "s2", `"pin"`, `"auth"`, "session", "widgets"} {
 			if strings.Contains(body, secret) {
 				t.Errorf("%s: manifest contains %q: %s", c.id, secret, body)
 			}
 		}
+	}
+	// logged in, the session dashboard's manifest has its name
+	req := httptest.NewRequest(http.MethodGet, "/d/sess/manifest.webmanifest", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: dashAppSession})
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if !strings.Contains(w.Body.String(), `"name":"Office"`) {
+		t.Errorf("session dashboard after login: %s", w.Body)
 	}
 	if w := dashAppGet(r, "/d/nope/manifest.webmanifest"); w.Code != http.StatusNotFound {
 		t.Errorf("unknown dashboard: %d", w.Code)
@@ -160,6 +174,14 @@ func TestDashboardPageAppMode(t *testing.T) {
 		}
 	}
 
+	// the PIN page is drawn with the default dark look, whatever the theme
+	pinPage := page("pinned")
+	for _, tag := range []string{`content="black-translucent"`, `<meta name="theme-color" content="#1a1a2e">`, `content="Garage"`} {
+		if !strings.Contains(pinPage, tag) {
+			t.Errorf("PIN page: no %s", tag)
+		}
+	}
+
 	pub := page("pub")
 	for _, tag := range []string{
 		`<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">`,
@@ -191,8 +213,11 @@ func TestDashboardPageAppMode(t *testing.T) {
 
 func TestIsLightColor(t *testing.T) {
 	for c, want := range map[string]bool{
-		"#fff": true, "#f4f4f7": true, "#ffffffcc": true, "white": true,
-		"#1a1a2e": false, "#000": false, "black": false, "rgb(255,255,255)": false, "#zzz": false,
+		"#fff": true, "#f4f4f7": true, "#ffffffcc": true, "white": true, "Ivory": true, "whitesmoke": true,
+		"rgb(240, 240, 245)": true, "rgba(250,250,250,0.9)": true, "rgb(100% 100% 100%)": true,
+		"hsl(220, 20%, 95%)": true, "hsla(0 0% 90% / 0.8)": true,
+		"#1a1a2e": false, "#000": false, "black": false, "navy": false, "#zzz": false,
+		"rgb(26, 26, 46)": false, "rgba(0,0,0,0.5)": false, "hsl(240, 28%, 14%)": false, "rgb(": false, "hsl(1,2)": false,
 	} {
 		if got := isLightColor(c); got != want {
 			t.Errorf("isLightColor(%q) = %v", c, got)

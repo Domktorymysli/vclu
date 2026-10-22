@@ -50,7 +50,7 @@ func TestDashboardWidthBadValue(t *testing.T) {
 	}
 }
 
-// What the home-screen app reads without the dashboard's auth: name, width and background only.
+// What the home-screen app reads without the dashboard's auth: name, auth, width and background only.
 func TestDashboardAppInfo(t *testing.T) {
 	engine := NewLuaEngine()
 	defer engine.Close()
@@ -66,7 +66,7 @@ func TestDashboardAppInfo(t *testing.T) {
 	}
 	var info map[string]any
 	dashJSON(t, engine, `Dashboard.API.getAppInfo("kitchen")`, &info)
-	want := map[string]any{"name": "Kitchen", "width": "full", "background": "#f4f4f7"}
+	want := map[string]any{"name": "Kitchen", "auth": "pin", "width": "full", "background": "#f4f4f7"}
 	if len(info) != len(want) {
 		t.Errorf("app info = %v, want only %v", info, want)
 	}
