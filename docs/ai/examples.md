@@ -344,7 +344,7 @@ CLU220000592:executeNoReply(0, "SetThermostat(19)")
 ## Dashboard (Lua-defined)
 
 Public dashboard for a tablet/wall. Defined in Lua, available at `/d/:id`.
-Widget types: button, toggle, slider, status, link, select, chart, image, group, cover, covers, dimmer, color, calendar, player; in the header also chip.
+Widget types: button, toggle, slider, status, link, select, chart, image, group, cover, covers, dimmer, color, calendar, player, forecast; in the header also chip.
 `:calendar(id, label, cal, { view = 'month' | 'day', tags = {...}, schedules = { 'taryfa' } })` shows a calendar
 built with `Calendar`: a month grid and the day of a tapped date (full width); `schedules` adds a 24 h bar per schedule (`schedules = true`: all of the calendar's)
 to the day view; `holidays` (holiday names, default on), `namedays` (name days in the day view, default off) and
@@ -536,6 +536,38 @@ local salon = mc:create({ id = "salon", ip = "192.168.1.50", name = "Salon" })
   receiver that does not answer shows on the next poll (offline, or the state unchanged).
 - The tile is two columns wide (full width on a phone); `span` changes it. opts: `icon`, `disabled`,
   `span`, `size`, `color`.
+
+### Weather forecast
+
+`:forecast(id, label, src, opts)` shows the next days (weekday, icon, max/min, rain in mm and its
+chance when there is some) and under them the next hours as a temperature line over rain bars.
+`src` is the Weather plugin, or a function returning the same table.
+
+```lua
+local weather = Plugin.getPlugin("@vclu/weather")
+
+:section('Pogoda', 'cloud-sun')
+  :forecast('fc', 'Prognoza', weather)                       -- 5 days, 24 h
+  :forecast('weekend', 'Weekend', weather, { days = 3, hours = 0 })
+  -- any other source: a function returning { days, hours } (or nil while there is none)
+  :forecast('own', 'Działka', function()
+      return {
+        days = { { date = '2026-10-23', icon = 'cloud-rain', min = 4.5, max = 11, rain = 3.2, pop = 0.8 } },
+        hours = { { at = 1792760400, temp = 7.1, rain = 0.4 } },   -- at: unix seconds
+      }
+    end)
+```
+
+- **days:** `{ date = 'YYYY-MM-DD', iconName (or icon), min, max, rain (mm), pop (0-1) }`; days before
+  today in the house's time zone (`datetime.setTimezone`) are dropped, then `opts.days` are shown.
+- **hours:** `{ at, temp, rain }`; from the current hour to `opts.hours` ahead.
+- Temperatures and rain are rounded to one decimal, `pop` becomes a whole percent. The icon is a Bootstrap
+  icon name (letters, digits and `-`); anything else shows a cloud.
+- `nil` from the source (the Weather plugin before its first fetch; its first `getForecast()` starts
+  fetching every 30 min) shows "brak prognozy"; an error shows the error mark.
+- opts: `days` (1-7, default 5), `hours` (0-48, default 24, 0 hides the chart), `unit` (default `°C`),
+  `icon` (default `cloud-sun`), `disabled`, `span`, `size`, `color` (the temperature line). Two columns
+  wide by default, full width on a phone.
 
 ### Select widget (dropdown)
 

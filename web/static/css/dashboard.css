@@ -193,6 +193,7 @@ body {
     .dash-widget-cover:hover,
     .dash-widget-covers:hover,
     .dash-widget-player:hover,
+    .dash-widget-forecast:hover,
     .dash-widget-dimmer:hover,
     .dash-widget-color:hover,
     .dash-widget-slider:hover {
@@ -442,6 +443,7 @@ body {
 .dash-widget-cover:active,
 .dash-widget-covers:active,
 .dash-widget-player:active,
+.dash-widget-forecast:active,
 .dash-widget-dimmer:active,
 .dash-widget-color:active {
     transform: none;
@@ -803,6 +805,117 @@ body {
     }
     .dash-player-title {
         font-size: 1rem;
+    }
+}
+
+/* ---- Weather forecast: a row of days, the next hours under it ---- */
+.dash-widget-forecast {
+    cursor: default;
+}
+
+.dash-forecast {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+}
+
+/* the days share the width; on a narrow tile they scroll sideways */
+.dash-forecast-days {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+.dash-forecast-days::-webkit-scrollbar { display: none; }
+
+.dash-forecast-day {
+    flex: 1 0 0;
+    min-width: 62px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 8px 4px;
+    border-radius: 12px;
+    background: rgba(128,128,128,0.08);
+    text-align: center;
+    white-space: nowrap;
+}
+
+.dash-forecast-wd {
+    font-size: 0.78rem;
+    font-weight: 600;
+    opacity: 0.7;
+    text-transform: capitalize;
+}
+
+.dash-forecast-icon {
+    font-size: 1.6rem;
+    line-height: 1.1;
+    color: var(--tile-c);
+}
+
+.dash-forecast-temps {
+    display: flex;
+    gap: 6px;
+    align-items: baseline;
+    font-variant-numeric: tabular-nums;
+}
+
+.dash-forecast-max {
+    font-size: 1rem;
+    font-weight: 650;
+}
+
+.dash-forecast-min {
+    font-size: 0.85rem;
+    opacity: 0.55;
+}
+
+.dash-forecast-rain {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    column-gap: 6px;
+    font-size: 0.72rem;
+    color: #3d8bfd;
+    font-variant-numeric: tabular-nums;
+}
+
+.dash-forecast-rain i {
+    margin-right: -2px;
+}
+
+.dash-forecast-empty {
+    font-size: 0.9rem;
+    opacity: 0.55;
+    padding: 6px 0;
+}
+
+.dash-forecast-chart {
+    position: relative;
+    width: 100%;
+    height: 130px;
+}
+
+.dash-widget-forecast.size-large .dash-forecast-chart {
+    height: 190px;
+}
+
+.dash-forecast-days[hidden],
+.dash-forecast-empty[hidden],
+.dash-forecast-chart[hidden] {
+    display: none;
+}
+
+@media (max-width: 600px) {
+    .dash-forecast-day {
+        min-width: 56px;
+        padding: 6px 2px;
+    }
+    .dash-forecast-chart {
+        height: 120px;
     }
 }
 
@@ -1313,6 +1426,7 @@ body {
     .dash-grid > .dash-widget-cover,
     .dash-grid > .dash-widget-covers,
     .dash-grid > .dash-widget-player,
+    .dash-grid > .dash-widget-forecast,
     .dash-grid > .dash-widget-dimmer,
     .dash-grid > .dash-widget-color,
     .dash-grid > .dash-widget-calendar {
@@ -1821,6 +1935,8 @@ body {
     .dash-player-btn { background: color-mix(in srgb, var(--dash-text) 9%, transparent); }
     .dash-player-btn:active { background: color-mix(in srgb, var(--dash-text) 18%, transparent); }
     .dash-player-idle .dash-player-btn.dash-player-play { background: color-mix(in srgb, var(--dash-text) 9%, transparent); }
+    .dash-forecast-day { background: color-mix(in srgb, var(--dash-text) 5%, transparent); }
+    .dash-forecast-icon { color: color-mix(in srgb, var(--tile-c) 75%, var(--dash-text)); }
     @keyframes dashPulse {
         0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--tile-c) 55%, transparent); }
         100% { box-shadow: 0 0 0 10px transparent; }
