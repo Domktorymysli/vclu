@@ -70,7 +70,7 @@ func (s *Server) SendCommandWithTimeout(targetIP string, script string, timeout 
 	}
 
 	// Wait for response
-	buffer := make([]byte, BufferSize)
+	buffer := make([]byte, ReplyBufferSize)
 	n, err := conn.Read(buffer)
 	if err != nil {
 		return "", fmt.Errorf("failed to receive response: %w", err)
@@ -159,7 +159,7 @@ func (s *Server) readRenewAnswer(conn *net.UDPConn, projectKey *cipher.CipherKey
 	defer func() { _ = conn.Close() }()
 	_ = conn.SetReadDeadline(time.Now().Add(renewAnswerTimeout))
 
-	buffer := make([]byte, BufferSize)
+	buffer := make([]byte, ReplyBufferSize)
 	n, err := conn.Read(buffer)
 	if err != nil {
 		return

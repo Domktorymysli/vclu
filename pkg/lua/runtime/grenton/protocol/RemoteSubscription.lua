@@ -15,12 +15,12 @@ RemoteSubscription = {}
 --- Configuration for remote subscriptions
 -- @table config
 -- @field ttl number Default TTL (time-to-live) in seconds for subscriptions (default: 60)
--- @field batchSize number Maximum objects per subscription batch due to UDP packet size limit (default: 4)
+-- @field batchSize number Entries per subscription (default: 4, MIN_BATCH_SIZE..MAX_BATCH_SIZE)
 -- @field objectTypes table List of object types to subscribe to (default: {"DOUT", "DIN", "DIMM"})
 -- @field enabled boolean Whether auto-subscription is enabled (default: true)
 RemoteSubscription.config = {
     ttl = 60,                        -- Default TTL in seconds
-    batchSize = 4,                   -- Max objects per subscription (UDP limit)
+    batchSize = 4,                   -- Entries per subscription
     batchDelay = 50,                 -- ms delay between batches (30-100)
     objectTypes = {"DOUT", "DIN", "DIMM"},  -- Types to subscribe (legacy)
     enabled = false,                 -- Disabled by default; user must configure via UI
@@ -29,6 +29,16 @@ RemoteSubscription.config = {
 
 --- Minimum spacing (ms) between renew packets; below this the CLU drops them
 RemoteSubscription.RENEW_MIN_SPACING_MS = 50
+
+--- Range of config.batchSize; Object Manager itself registers 28 entries in one clientRegister
+RemoteSubscription.MIN_BATCH_SIZE = 2
+RemoteSubscription.MAX_BATCH_SIZE = 28
+
+--- config.batchSize brought into MIN_BATCH_SIZE..MAX_BATCH_SIZE
+function RemoteSubscription.batchSize()
+    local n = tonumber(RemoteSubscription.config.batchSize) or 4
+    return math.max(RemoteSubscription.MIN_BATCH_SIZE, math.min(RemoteSubscription.MAX_BATCH_SIZE, math.floor(n)))
+end
 
 --- autoSubscribe time budget per batch (s); a LAN round-trip plus batchDelay is ~0.1s
 RemoteSubscription.SECONDS_PER_BATCH = 0.25
@@ -146,8 +156,8 @@ end
 -- @return table|string initialValues Array of initial values, or error message on failure
 function RemoteSubscription.subscribe(cluIP, objects, cluSerial)
     -- Validate batch size
-    if #objects > RemoteSubscription.config.batchSize then
-        return nil, "max " .. RemoteSubscription.config.batchSize .. " objects per subscription"
+    if #objects > RemoteSubscription.batchSize() then
+        return nil, "max " .. RemoteSubscription.batchSize() .. " entries per subscription"
     end
 
     -- Convert IP if numeric
@@ -483,7 +493,7 @@ function RemoteSubscription.autoSubscribe()
     local totalObjects = 0
     local skippedCLUs = 0
     local startTime = os.time()
-    local batchSize = math.max(2, math.min(8, RemoteSubscription.config.batchSize or 4))
+    local batchSize = RemoteSubscription.batchSize()
 
     -- Each batch is a blocking round-trip plus batchDelay, so the budget grows with the work
     local totalBatches = 0

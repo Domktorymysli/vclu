@@ -15,6 +15,10 @@ import (
 const (
 	// ClientReportPort is the port for receiving clientReport push notifications
 	ClientReportPort = 4344
+
+	// ReplyBufferSize is the largest UDP payload. A clientReport of a large subscription
+	// (text values) can pass BufferSize, and a cut datagram does not decrypt.
+	ReplyBufferSize = 65535
 )
 
 // RemoteSubscription represents a subscription to a remote CLU
@@ -22,7 +26,7 @@ type RemoteSubscription struct {
 	CLUIP        string
 	CLUSerial    string // e.g., "CLU212345678"
 	SessionID    int
-	Objects      []SubscribedObject // max 4 per subscription
+	Objects      []SubscribedObject
 	RegisteredAt time.Time
 	ExpiresAt    time.Time
 }
@@ -133,7 +137,7 @@ func (s *Server) startClientReportListener() error {
 func (s *Server) handleClientReports(conn *net.UDPConn) {
 	defer conn.Close()
 
-	buffer := make([]byte, BufferSize)
+	buffer := make([]byte, ReplyBufferSize)
 
 	for {
 		select {
