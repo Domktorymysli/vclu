@@ -30,6 +30,9 @@ RemoteSubscription.config = {
 --- Minimum spacing (ms) between renew packets; below this the CLU drops them
 RemoteSubscription.RENEW_MIN_SPACING_MS = 50
 
+--- autoSubscribe time budget per batch (s); a LAN round-trip plus batchDelay is ~0.1s
+RemoteSubscription.SECONDS_PER_BATCH = 0.25
+
 --- Active subscriptions table
 -- Key format: "cluIP:sessionID", value contains subscription metadata
 -- @table activeSubscriptions
@@ -441,12 +444,17 @@ function RemoteSubscription.autoSubscribe()
     for _ in pairs(oldSubs) do oldCount = oldCount + 1 end
     RemoteSubscription.activeSubscriptions = {}
 
+    -- Sorted so batches (and session contents) are the same on every run
+    local paths = {}
+    for path, _ in pairs(wl) do paths[#paths + 1] = path end
+    table.sort(paths)
+
     -- Group whitelisted objects by CLU
     local cluObjects = {}  -- key = cluIP, value = {cluSerial, objects}
-    local MAX_PER_CLU = 64
+    local cluOrder = {}
 
-    for path, _ in pairs(wl) do
-        local cluId, objId = path:match("^(.-)%.(.+)$")
+    for _, path in ipairs(paths) do
+        local cluId = path:match("^(.-)%.(.+)$")
         local obj = _registry and _registry[path]
 
         if obj and obj._clu and obj._clu.address then
@@ -457,18 +465,15 @@ function RemoteSubscription.autoSubscribe()
                     cluSerial = cluId,
                     objects = {}
                 }
+                cluOrder[#cluOrder + 1] = cluIP
             end
 
             local features = obj.subscribeFeatures and obj:subscribeFeatures() or {0}
-            if #cluObjects[cluIP].objects + #features <= MAX_PER_CLU then
-                for _, featureIndex in ipairs(features) do
-                    table.insert(cluObjects[cluIP].objects, {
-                        objId = obj._objId,
-                        featureIndex = featureIndex
-                    })
-                end
-            else
-                Logger:getShared():warn("[RemoteSub] CLU %s truncated at %d subscription entries", cluId, MAX_PER_CLU)
+            for _, featureIndex in ipairs(features) do
+                table.insert(cluObjects[cluIP].objects, {
+                    objId = obj._objId,
+                    featureIndex = featureIndex
+                })
             end
         end
     end
@@ -478,12 +483,22 @@ function RemoteSubscription.autoSubscribe()
     local totalObjects = 0
     local skippedCLUs = 0
     local startTime = os.time()
-    local MAX_TOTAL_SECONDS = 30
     local batchSize = math.max(2, math.min(8, RemoteSubscription.config.batchSize or 4))
 
-    for cluIP, cluData in pairs(cluObjects) do
-        if os.time() - startTime > MAX_TOTAL_SECONDS then
-            Logger:getShared():warn("[RemoteSub] Total timeout (%ds) exceeded, stopping", MAX_TOTAL_SECONDS)
+    -- Each batch is a blocking round-trip plus batchDelay, so the budget grows with the work
+    local totalBatches = 0
+    for _, cluData in pairs(cluObjects) do
+        totalBatches = totalBatches + math.ceil(#cluData.objects / batchSize)
+    end
+    local maxTotalSeconds = math.max(30, math.ceil(totalBatches * RemoteSubscription.SECONDS_PER_BATCH))
+
+    for idx, cluIP in ipairs(cluOrder) do
+        local cluData = cluObjects[cluIP]
+        if os.time() - startTime > maxTotalSeconds then
+            local remaining = #cluOrder - idx + 1
+            skippedCLUs = skippedCLUs + remaining
+            Logger:getShared():warn("[RemoteSub] Total timeout (%ds) exceeded, skipping %d remaining CLUs",
+                maxTotalSeconds, remaining)
             break
         end
 
