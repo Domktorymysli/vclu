@@ -5,4 +5,4 @@
 
 ### Web
 
-- **The sidebar shows the vCLU version** - next to "Online" in the lower left corner (e.g. `v1.3.0`, `dev` for a local build); with the sidebar collapsed it is in the status dot's tooltip. Only on pages behind the login, not on the login page or public dashboards.
+- **The sidebar shows the vCLU version** - next to "Online" in the lower left corner (e.g. `v1.3.0`, `dev` for a local build), like "Online" only when the sidebar is expanded. Only on pages behind the login, not on the login page or public dashboards.

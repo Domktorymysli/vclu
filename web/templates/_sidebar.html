@@ -90,7 +90,7 @@
         </a>
     </nav>
     <div class="sidebar-footer">
-        <div class="sidebar-status"{{if .appVersion}} title="vCLU {{.appVersion}}"{{end}}>
+        <div class="sidebar-status">
             <span class="status-dot {{if .configured}}online{{else}}offline{{end}}"></span>
             <span class="status-text">{{if .configured}}Online{{else}}Offline{{end}}</span>
             {{if .appVersion}}<span class="sidebar-version">{{.appVersion}}</span>{{end}}
