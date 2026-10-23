@@ -592,9 +592,12 @@ func (s *Server) SetCameraManager(cm *camera.Manager) {
 }
 
 // SetVersion sets the vCLU version shown in the sidebar. Release builds pass "1.3.0" or
-// "v1.3.0"; both are shown as "v1.3.0", other values (e.g. "dev") as they are.
+// "v1.3.0"; both are shown as "v1.3.0", other values as they are, and an empty one as "dev".
 func (s *Server) SetVersion(version string) {
-	if version != "" && version[0] >= '0' && version[0] <= '9' {
+	version = strings.TrimSpace(version)
+	if version == "" {
+		version = "dev"
+	} else if version[0] >= '0' && version[0] <= '9' {
 		version = "v" + version
 	}
 	s.version = version
