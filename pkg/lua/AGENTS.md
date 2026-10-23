@@ -50,7 +50,9 @@ subscription shows as no `[CLIENT-REPORT]` from that session in the log.
 ### One clientRegister carries many entries
 Object Manager registers 28 entries in one `clientRegister` and the CLU answers with all 28 values
 (capture in [opengr8on `docs/COMMUNICATION.md`](https://github.com/psobiech/opengr8on/blob/c9c408734493fbb44068ab0a9b026be890782a48/docs/COMMUNICATION.md#L112-L117)),
-so `RemoteSubscription.MAX_BATCH_SIZE` is 28. No limit on entries or sessions per CLU is known:
+so `RemoteSubscription.MAX_BATCH_SIZE` is 28. Measured on 2026-10-23: 4 CLUs with 4, 271, 282 and 176
+objects at batch size 28 (29 sessions, 11 on the largest CLU) kept every object updating for over
+4 hours. No limit on entries or sessions per CLU is known:
 [opengr8on](https://github.com/psobiech/opengr8on) and [opengr8on-node](https://github.com/psobiech/opengr8on-node)
 only emulate the CLU side and read real CLUs by polling, so they say nothing about it. Fewer,
 larger sessions mean fewer renewals to space.
