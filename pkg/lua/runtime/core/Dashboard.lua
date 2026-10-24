@@ -820,7 +820,7 @@ end
 -- @param id string Unique widget identifier
 -- @param label string Display label (e.g., "Temperatura 24h")
 -- @param metricPath string Metric path registered via metric() (e.g., "temp:salon", "salda:outsideAir")
--- @param opts table Optional: {range=string ("1h","6h","24h","7d"), unit=string}
+-- @param opts table Optional: {range=string (any duration such as "30m", "2h", "24h", "7d"; default "2h"; 30m/2h/24h/7d have tuned refresh, others refresh every 60 s), unit=string, min=n, max=n (Y axis), fill=bool (default true), refresh=seconds, span=n, color=string}
 -- @api public
 function SectionHandle:chart(id, label, metricPath, opts)
     self._builder:_addWidget(self._sectionIndex, {
@@ -959,7 +959,7 @@ end
 -- @param id string Unique widget identifier
 -- @param label string Display label
 -- @param icon string Bootstrap icon name (e.g., "brightness-high")
--- @param fns table {getValue=function()->number(0-1), setValue=function(number), switchOn=function(), switchOff=function()}
+-- @param fns table {get=function()->number(0-100), set=function(number 0-100), switchOn=function()?, switchOff=function()?, isOn=function()->bool? (default: get() > 0)}
 -- @param opts table Optional: {disabled=function()->bool}
 -- @api public
 function SectionHandle:dimmer(id, label, icon, fns, opts)
@@ -1455,7 +1455,7 @@ end
 -- @param id string Unique widget identifier
 -- @param label string Display label (e.g., "Temperatura 24h")
 -- @param metricPath string Metric path registered via metric() (e.g., "temp:salon", "salda:outsideAir")
--- @param opts table Optional: {range=string ("1h","6h","24h","7d"), unit=string}
+-- @param opts table Optional: {range=string (any duration such as "30m", "2h", "24h", "7d"; default "2h"; 30m/2h/24h/7d have tuned refresh, others refresh every 60 s), unit=string, min=n, max=n (Y axis), fill=bool (default true), refresh=seconds, span=n, color=string}
 -- @api public
 function DashboardBuilder:chart(id, label, metricPath, opts)
     if not self._currentSection then
@@ -1615,7 +1615,7 @@ end
 -- @param id string Unique widget identifier
 -- @param label string Display label
 -- @param icon string Bootstrap icon name (e.g., "brightness-high")
--- @param fns table {getValue=function()->number(0-1), setValue=function(number), switchOn=function(), switchOff=function()}
+-- @param fns table {get=function()->number(0-100), set=function(number 0-100), switchOn=function()?, switchOff=function()?, isOn=function()->bool? (default: get() > 0)}
 -- @param opts table Optional: {disabled=function()->bool}
 -- @api public
 function DashboardBuilder:dimmer(id, label, icon, fns, opts)
