@@ -98,7 +98,7 @@ func NewMCPServer(devices DeviceProvider, access AccessChecker, cfg ConfigProvid
 		audit:          NewAuditLog(""),
 		mqttCache:      mqttDiscoveryCache{ttl: 10 * time.Second},
 		sandboxLimiter: newRateLimiter(time.Minute, 30),
-		promoteLimiter: newRateLimiter(time.Hour, 10),
+		promoteLimiter: newRateLimiter(time.Hour, promotesPerHour),
 		execLimiter:    newRateLimiter(time.Minute, 20),
 	}
 
