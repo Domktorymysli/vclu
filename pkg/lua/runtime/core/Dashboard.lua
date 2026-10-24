@@ -257,8 +257,9 @@ local function thermostatWidget(id, label, icon, fns, opts)
     local f
     if isThermostat(fns) then
         f = thermostatFns(fns, opts.readonly == true)
-    elseif type(fns) == 'table' and getmetatable(fns) ~= nil then
-        -- an object (it has methods), but not a thermostat: say which and what it lacks
+    elseif type(fns) == 'table' and getmetatable(fns) ~= nil and rawget(fns, 'getCurrent') == nil then
+        -- an object (it has methods), but not a thermostat: say which and what it lacks;
+        -- a table of functions with a metatable (own getCurrent) stays a table of functions
         local missing = {}
         for _, m in ipairs({ 'getValue', 'getTarget', 'setSetpoint' }) do
             if type(fns[m]) ~= 'function' then missing[#missing + 1] = m end
