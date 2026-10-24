@@ -1171,7 +1171,7 @@ Add a thermostat: current temperature, target and +/- for the target. getState=f
 - `label` (string) — Display label
 - `icon` (string) — |nil Bootstrap icon name (default "thermometer-half")
 - `fns` (table) — {getCurrent=function()->number|nil, getTarget=function()->number|nil, setTarget=function(number)?,
-- `opts` (table) — Optional: {min=5, max=35, step=0.5, unit="°C", readonly=bool, disabled=function()->bool, span=n, size=string, color=string}
+- `opts` (table) — Optional: {min=5, max=35, step=0.5, unit="°C", readonly=bool or function()->bool (true: no buttons; a function locks them while it returns true), disabled=function()->bool, span=n, size=string, color=string}
 
 ### `SectionHandle:chip(id, icon, fn, opts)`
 
@@ -1488,7 +1488,7 @@ Add a thermostat to the current section: current temperature, target and +/- for
 - `label` (string) — Display label
 - `icon` (string) — |nil Bootstrap icon name (default "thermometer-half")
 - `fns` (table) — {getCurrent=function()->number|nil, getTarget=function()->number|nil, setTarget=function(number)?,
-- `opts` (table) — Optional: {min=5, max=35, step=0.5, unit="°C", readonly=bool, disabled=function()->bool, span=n, size=string, color=string}
+- `opts` (table) — Optional: {min=5, max=35, step=0.5, unit="°C", readonly=bool or function()->bool (true: no buttons; a function locks them while it returns true), disabled=function()->bool, span=n, size=string, color=string}
 
 ### `DashboardBuilder:when(periods, fn)`
 

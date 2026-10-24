@@ -242,11 +242,13 @@ local function thermostatWidget(id, label, icon, fns, opts)
     if opts.unit ~= nil and (type(opts.unit) ~= 'string' or #opts.unit > 8) then
         error(where .. ': opts.unit must be a short string such as "°C"', 3)
     end
-    if opts.readonly ~= nil and type(opts.readonly) ~= 'boolean' then error(where .. ': opts.readonly must be true or false', 3) end
+    if opts.readonly ~= nil and type(opts.readonly) ~= 'boolean' and type(opts.readonly) ~= 'function' then
+        error(where .. ': opts.readonly must be true, false or a function', 3)
+    end
     if opts.disabled ~= nil and type(opts.disabled) ~= 'function' then error(where .. ': opts.disabled must be a function', 3) end
     local f
     if isThermostat(fns) then
-        f = thermostatFns(fns, opts.readonly)
+        f = thermostatFns(fns, opts.readonly == true)
     elseif type(fns) == 'table' then
         f = {}
         for k, v in pairs(fns) do
@@ -257,11 +259,13 @@ local function thermostatWidget(id, label, icon, fns, opts)
             f[k] = v
         end
         if not f.getCurrent or not f.getTarget then error(where .. ': fns needs getCurrent and getTarget', 3) end
-        if opts.readonly then f.setTarget = nil end
+        if opts.readonly == true then f.setTarget = nil end
     else
         error(where .. ': fns must be {getCurrent, getTarget, setTarget?, getState?, getMode?} or a thermostat (RemoteThermostat), got ' .. type(fns), 3)
     end
+    -- a readonly function locks and unlocks the buttons while the dashboard runs
     return { id = id, type = 'thermostat', label = label, icon = icon or 'thermometer-half', fns = f,
+        readonly = type(opts.readonly) == 'function' and opts.readonly or nil,
         min = min, max = max, step = opts.step or 0.5, unit = opts.unit or '°C', opts = opts }
 end
 
@@ -275,9 +279,14 @@ local function thermostatRead(fn)
     if v ~= nil and v - v == 0 then return v end
 end
 
--- The target may be written: there is setTarget and the mode (if known) is manual; a failing getMode says no
-local function thermostatCanSet(fns)
+-- The target may be written: there is setTarget, opts.readonly (a function) says no lock and the mode (if
+-- known) is manual; a failing getMode or readonly says no
+local function thermostatCanSet(fns, readonly)
     if type(fns.setTarget) ~= 'function' then return false end
+    if readonly then
+        local ok, ro = pcall(readonly)
+        if not ok or ro then return false end
+    end
     if type(fns.getMode) ~= 'function' then return true end
     local mode, err = thermostatRead(fns.getMode)
     return err == nil and (mode == nil or mode == 0)
@@ -289,7 +298,13 @@ local function thermostatState(w)
     local cur, err1 = thermostatRead(f.getCurrent)
     local target, err2 = thermostatRead(f.getTarget)
     local e = { current = cur and math.floor(cur * 10 + 0.5) / 10, target = target,
-        state = (thermostatRead(f.getState)), mode = (thermostatRead(f.getMode)), set = thermostatCanSet(f) }
+        state = (thermostatRead(f.getState)), mode = (thermostatRead(f.getMode)), set = thermostatCanSet(f, w.readonly) }
+    if w.readonly then
+        local ok, ro = pcall(w.readonly)
+        -- false, not nil: the page merges values, so a missing field would keep the last true
+        e.locked = false
+        if not ok or ro then e.locked = true end
+    end
     e.error = err1 or err2
     return e
 end
@@ -1106,7 +1121,7 @@ end
 --   setTarget is called once, 1 s after the last tap; the chosen value shows until the thermostat reports a
 --   new target, at most 90 s. Without setTarget (or opts.readonly) there are no buttons; with getMode the
 --   target is set only in manual mode (0), as lib/panel does. The action endpoint refuses a set outside min..max.
--- @param opts table Optional: {min=5, max=35, step=0.5, unit="°C", readonly=bool, disabled=function()->bool, span=n, size=string, color=string}
+-- @param opts table Optional: {min=5, max=35, step=0.5, unit="°C", readonly=bool or function()->bool (true: no buttons; a function locks them while it returns true), disabled=function()->bool, span=n, size=string, color=string}
 -- @api public
 function SectionHandle:thermostat(id, label, icon, fns, opts)
     if self._builder._sections[self._sectionIndex]._isHeader then
@@ -1789,7 +1804,7 @@ end
 --   setTarget is called once, 1 s after the last tap; the chosen value shows until the thermostat reports a
 --   new target, at most 90 s. Without setTarget (or opts.readonly) there are no buttons; with getMode the
 --   target is set only in manual mode (0), as lib/panel does. The action endpoint refuses a set outside min..max.
--- @param opts table Optional: {min=5, max=35, step=0.5, unit="°C", readonly=bool, disabled=function()->bool, span=n, size=string, color=string}
+-- @param opts table Optional: {min=5, max=35, step=0.5, unit="°C", readonly=bool or function()->bool (true: no buttons; a function locks them while it returns true), disabled=function()->bool, span=n, size=string, color=string}
 -- @api public
 function DashboardBuilder:thermostat(id, label, icon, fns, opts)
     if not self._currentSection then
@@ -2800,11 +2815,15 @@ function DashboardAPI.executeAction(id, widgetId, action, value)
         if action ~= 'set' then return JSON.encode({ error = 'Invalid action for thermostat' }) end
         local fns = widget.fns
         if type(fns.setTarget) ~= 'function' then return JSON.encode({ error = 'Read-only thermostat' }) end
+        if widget.readonly then
+            local ok, ro = pcall(widget.readonly)
+            if not ok or ro then return JSON.encode({ error = 'Read-only thermostat' }) end
+        end
         if type(value) ~= 'number' or value - value ~= 0 then return JSON.encode({ error = 'Value must be a number' }) end
         if value < widget.min or value > widget.max then
             return JSON.encode({ error = 'Value out of range [' .. widget.min .. ', ' .. widget.max .. ']' })
         end
-        if not thermostatCanSet(fns) then return JSON.encode({ error = 'Thermostat is not in manual mode' }) end
+        if not thermostatCanSet(fns, widget.readonly) then return JSON.encode({ error = 'Thermostat is not in manual mode' }) end
         local ok, ret = pcall(fns.setTarget, value)
         if not ok then return JSON.encode({ error = tostring(ret) }) end
         return JSON.encode({ success = true, value = value })

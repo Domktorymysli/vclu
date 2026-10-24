@@ -598,11 +598,24 @@ local th = _:get("CLU220000592.THE0855")
 - **Read-only:** without `setTarget`, or with `readonly = true`, the tile has no buttons and the
   action endpoint refuses a set. It also refuses a value that is not a number or is outside
   `min`..`max`.
+- **Lock that can be lifted:** `readonly` may be a function, read on every refresh and set. While it
+  returns true the buttons go and the state line says "zablokowany"; when it returns false they
+  come back. A toggle on the same dashboard can unlock the thermostat for a while:
+
+  ```lua
+  local unlocked = false
+  :section('Ogrzewanie', 'thermometer-half')
+    :toggle('odblokuj', 'Zmiana temperatury', 'unlock',
+        function() return unlocked end,
+        function(on) unlocked = on end)
+    :thermostat('salon', 'Salon', nil, th, { min = 20, max = 22, step = 0.1,
+        readonly = function() return not unlocked end })
+  ```
 - **Modes:** with `getMode` (0 manual, 1 holiday, 2 schedule, 3 heat-up) the target is written only
   in manual mode; on holiday or schedule the buttons go and the state line says the mode
   ("włączony · harmonogram"). A `RemoteThermostat` maps to `getCurrent = getValue`, `getTarget`,
   `setTarget = setSetpoint`, `getState`, `getMode`; the target shown is what the CLU reports.
-- opts: `min`, `max`, `step`, `unit` (default `°C`), `readonly`, `disabled`, `span`, `size`, `color`.
+- opts: `min`, `max`, `step`, `unit` (default `°C`), `readonly` (true or a function), `disabled`, `span`, `size`, `color`.
   Full width on a phone.
 
 ### Media player (MusicCast or any player)

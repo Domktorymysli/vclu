@@ -273,7 +273,7 @@ func TestDashboardThermostatArgumentErrors(t *testing.T) {
 		{`:section('S', 'grid'):thermostat('a', 'L', nil, ` + ok + `, { min = 25, max = 20 })`, "opts.min must be below opts.max"},
 		{`:section('S', 'grid'):thermostat('a', 'L', nil, ` + ok + `, { step = 0 })`, "opts.step must be above 0"},
 		{`:section('S', 'grid'):thermostat('a', 'L', nil, ` + ok + `, { unit = 5 })`, "opts.unit"},
-		{`:section('S', 'grid'):thermostat('a', 'L', nil, ` + ok + `, { readonly = 1 })`, "opts.readonly"},
+		{`:section('S', 'grid'):thermostat('a', 'L', nil, ` + ok + `, { readonly = 1 })`, "opts.readonly must be true, false or a function"},
 		{`:section('S', 'grid'):thermostat('a', 'L', nil, ` + ok + `, { disabled = true })`, "opts.disabled"},
 		{`:header():thermostat('a', 'L', nil, ` + ok + `)`, "not the header"},
 	}
@@ -348,5 +348,67 @@ func TestDashboardThermostatInArea(t *testing.T) {
 	}
 	if got := mustExec(t, engine, `return sent()`); got != "" {
 		t.Errorf("readonly expose sent %q", got)
+	}
+}
+
+// readonly as a function locks and unlocks the buttons while the dashboard runs: while it returns
+// true (or fails) the values say set=false and locked, and a set is refused; then it works again.
+func TestDashboardThermostatReadOnlyFunction(t *testing.T) {
+	engine := newThermostatEngine(t)
+	mustExec(t, engine, `
+		L = { locked = true }
+		Dashboard.new('th2')
+			:section('Ogrzewanie', 'thermometer-half')
+				:thermostat('lock', 'Biuro', nil, TH, { readonly = function()
+					if L.fail then error('lock gone') end
+					return L.locked
+				end })
+			:build()
+		report(1, 0, 20, 20, 19.5)`)
+	values := func() map[string]interface{} {
+		var vals map[string]map[string]interface{}
+		dashJSON(t, engine, `Dashboard.API.getValues("th2")`, &vals)
+		return vals["lock"]
+	}
+	set := func() map[string]interface{} {
+		var res map[string]interface{}
+		dashJSON(t, engine, `Dashboard.API.executeAction("th2", "lock", "set", 21)`, &res)
+		return res
+	}
+
+	var def dashDef
+	dashJSON(t, engine, `Dashboard.API.getDefinition("th2")`, &def)
+	if caps, _ := def.widget("lock")["capabilities"].(map[string]interface{}); caps["set"] != true {
+		t.Errorf("a lockable thermostat has its buttons in the page: %v", def.widget("lock"))
+	}
+
+	if v := values(); v["set"] != false || v["locked"] != true {
+		t.Errorf("locked values = %v", v)
+	}
+	if res := set(); res["error"] != "Read-only thermostat" {
+		t.Errorf("locked set = %v", res)
+	}
+	if got := mustExec(t, engine, `return sent()`); got != "" {
+		t.Errorf("locked set reached the CLU: %s", got)
+	}
+
+	mustExec(t, engine, `L.locked = false`)
+	if v := values(); v["set"] != true || v["locked"] != false {
+		t.Errorf("unlocked values = %v", v)
+	}
+	if res := set(); res["success"] != true {
+		t.Errorf("unlocked set = %v", res)
+	}
+	if got := mustExec(t, engine, `return sent()`); !strings.Contains(got, "THE1:set(3, 21)") {
+		t.Errorf("unlocked set sent %q", got)
+	}
+
+	// a failing lock locks
+	mustExec(t, engine, `L.fail = true`)
+	if v := values(); v["set"] != false || v["locked"] != true {
+		t.Errorf("failing lock values = %v", v)
+	}
+	if res := set(); res["error"] != "Read-only thermostat" {
+		t.Errorf("failing lock set = %v", res)
 	}
 }

@@ -40,7 +40,7 @@
               noForecast: 'brak prognozy', rain: 'opady', temperature: 'temperatura',
               onN: ['włączone', 'włączone', 'włączonych'], allOff: 'wszystko wyłączone', back: 'Wróć',
               humidity: 'wilgotność', target: 'cel', thermoOn: 'włączony', thermoOff: 'wyłączony',
-              modes: ['ręcznie', 'urlop', 'harmonogram', 'podgrzewanie'], lower: 'Obniż', raise: 'Podnieś' },
+              modes: ['ręcznie', 'urlop', 'harmonogram', 'podgrzewanie'], locked: 'zablokowany', lower: 'Obniż', raise: 'Podnieś' },
         en: { on: 'on', off: 'off', open: 'open', closed: 'closed', opening: 'opening',
               closing: 'closing', unknown: 'no reading', run: 'run', sent: 'sent', updated: 'updated',
               nothingToday: 'nothing more today', holidays: 'Holidays', namedays: 'Name days', sun: 'Sun', show: 'Show',
@@ -55,7 +55,7 @@
               noForecast: 'no forecast', rain: 'rain', temperature: 'temperature',
               onN: ['on', 'on', 'on'], allOff: 'all off', back: 'Back', humidity: 'humidity',
               target: 'target', thermoOn: 'on', thermoOff: 'off',
-              modes: ['manual', 'holiday', 'schedule', 'heat-up'], lower: 'Lower', raise: 'Raise' }
+              modes: ['manual', 'holiday', 'schedule', 'heat-up'], locked: 'locked', lower: 'Lower', raise: 'Raise' }
     };
     // ?lang= as on the other pages, else the browser's language
     var lang = (function() {
@@ -226,6 +226,7 @@
             var tp = [];
             if (d.state != null) tp.push(d.state ? T.thermoOn : T.thermoOff);
             if (d.mode != null && T.modes[d.mode]) tp.push(T.modes[d.mode]);
+            if (d.locked) tp.push(T.locked);
             return [d.state === 0 ? 'off' : (d.state ? 'on' : 'value'), tp.join(' · ')];
         case 'room':
             var lit = d.on || 0, opened = d.open || 0, parts = [];
