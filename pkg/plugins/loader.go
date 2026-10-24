@@ -404,6 +404,22 @@ func (l *Loader) resolvePluginDir(pluginID string) string {
 	return baseDir
 }
 
+// localVersion is the version of the plugin files in dir: the lock entry's, else the manifest's.
+func (l *Loader) localVersion(pluginID, dir string) string {
+	if entry, ok := l.ReadLockFile()[pluginID]; ok && filepath.Join(l.pluginsDir, entry.Path) == dir {
+		return entry.Version
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "plugin.json"))
+	if err != nil {
+		return ""
+	}
+	var manifest PluginManifest
+	if json.Unmarshal(data, &manifest) != nil {
+		return ""
+	}
+	return manifest.Version
+}
+
 // Lock file operations
 
 func (l *Loader) lockFilePath() string {
@@ -585,6 +601,16 @@ func (l *Loader) LoadAllEnabled() error {
 				continue
 			}
 			localDir = l.resolvePluginDir(installed.ID)
+		} else if local := l.localVersion(installed.ID, localDir); installed.Version != "" && local != "" && local != installed.Version {
+			// An update from the panel writes the version; the files follow here (#112)
+			repo := l.findRepository(masterConfig.Plugins.Repositories, installed.Repository)
+			if repo == nil {
+				log.Printf("[PLUGINS] WARNING: %s %s on disk, %s in config, repository %s not found; loading %s", installed.ID, local, installed.Version, installed.Repository, local)
+			} else if err := l.DownloadPlugin(*repo, installed.ID); err != nil {
+				log.Printf("[PLUGINS] WARNING: %s %s on disk, %s in config, download failed (%v); loading %s", installed.ID, local, installed.Version, err, local)
+			} else {
+				localDir = l.resolvePluginDir(installed.ID)
+			}
 		}
 
 		// Skip plugins that ask for configuration and have none. A plugin that
