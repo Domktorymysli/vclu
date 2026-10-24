@@ -22,7 +22,7 @@ func TestPluginsAPIInstallUpdateKeepsConfig(t *testing.T) {
 	defer repo.Close()
 
 	dir := t.TempDir()
-	err := config.WriteMasterConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
+	err := writeTestConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
 		Repositories: []config.PluginRepository{{Name: "test", URL: repo.URL, Enabled: true}},
 		Installed: []config.InstalledPlugin{{
 			ID: "@vclu/salda-recuperator", Version: "1.1.0", Enabled: false, Repository: "test",
@@ -57,7 +57,7 @@ func TestPluginsAPIInstallAnswersVersion(t *testing.T) {
 	defer repo.Close()
 
 	dir := t.TempDir()
-	err := config.WriteMasterConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
+	err := writeTestConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
 		Repositories: []config.PluginRepository{{Name: "test", URL: repo.URL, Enabled: true}},
 	}})
 	if err != nil {
@@ -112,7 +112,7 @@ func TestPluginsAPIInstalledNeedsConfig(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	err := config.WriteMasterConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
+	err := writeTestConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
 		Installed: []config.InstalledPlugin{
 			{ID: "@vclu/musiccast", Version: "0.1.1", Enabled: true},
 			{ID: "@vclu/solax", Version: "1.0.1", Enabled: true},

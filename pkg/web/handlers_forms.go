@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/base64"
+	"errors"
 	"log"
 	"net"
 	"net/http"
@@ -110,23 +111,49 @@ func (s *Server) handleSecurityPost(c *gin.Context) {
 			log.Printf("Authentication updated for user: %s", authUsername)
 		} else {
 			// Password not changed, just update username if needed
-			masterConfig, _ := config.ReadMasterConfig(s.serverDir)
-			if masterConfig != nil && masterConfig.Auth != nil && masterConfig.Auth.Username != authUsername {
-				masterConfig.Auth.Username = authUsername
-				config.WriteMasterConfig(s.serverDir, masterConfig)
-				log.Printf("Username updated to: %s", authUsername)
-			} else if masterConfig == nil || masterConfig.Auth == nil {
+			errNoAuth := errors.New("auth not configured")
+			renamed := false
+			err := updateMasterConfig(s.serverDir, func(mc *config.VCLUConfig) error {
+				if mc.Auth == nil {
+					return errNoAuth
+				}
+				if mc.Auth.Username == authUsername {
+					return errUnchanged
+				}
+				mc.Auth.Username = authUsername
+				renamed = true
+				return nil
+			})
+			switch {
+			case errors.Is(err, errNoAuth):
 				// Auth not configured yet but enabled without password
 				renderError(i18n.Get(lang, "settings.err_password_required"))
 				return
+			case err != nil:
+				log.Printf("Failed to save auth: %v", err)
+				renderError(i18n.Get(lang, "settings.err_save_auth"))
+				return
+			case renamed:
+				log.Printf("Username updated to: %s", authUsername)
 			}
 		}
 	} else {
 		// Disable auth - remove auth config
-		masterConfig, _ := config.ReadMasterConfig(s.serverDir)
-		if masterConfig != nil && masterConfig.Auth != nil {
-			masterConfig.Auth = nil
-			config.WriteMasterConfig(s.serverDir, masterConfig)
+		disabled := false
+		err := updateMasterConfig(s.serverDir, func(mc *config.VCLUConfig) error {
+			if mc.Auth == nil {
+				return errUnchanged
+			}
+			mc.Auth = nil
+			disabled = true
+			return nil
+		})
+		if err != nil {
+			log.Printf("Failed to save auth: %v", err)
+			renderError(i18n.Get(lang, "settings.err_save_auth"))
+			return
+		}
+		if disabled {
 			log.Printf("Authentication disabled")
 		}
 	}
@@ -162,19 +189,19 @@ func (s *Server) handleAPIGenerateAPIKey(c *gin.Context) {
 		return
 	}
 
-	masterConfig, err := config.ReadMasterConfig(s.serverDir)
-	if err != nil || masterConfig == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read config"})
-		return
-	}
-
-	if masterConfig.Auth == nil {
+	errNoAuth := errors.New("auth not configured")
+	err = config.UpdateMasterConfig(s.serverDir, func(mc *config.VCLUConfig) error {
+		if mc.Auth == nil {
+			return errNoAuth
+		}
+		mc.Auth.APIKeyHash = hash
+		return nil
+	})
+	if errors.Is(err, errNoAuth) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Authentication must be enabled first"})
 		return
 	}
-
-	masterConfig.Auth.APIKeyHash = hash
-	if err := config.WriteMasterConfig(s.serverDir, masterConfig); err != nil {
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save API key"})
 		return
 	}
@@ -195,14 +222,19 @@ func (s *Server) handleAPIGenerateAPIKey(c *gin.Context) {
 //	@Security		ApiKeyAuth
 //	@Router			/api/settings/api-key [delete]
 func (s *Server) handleAPIRevokeAPIKey(c *gin.Context) {
-	masterConfig, err := config.ReadMasterConfig(s.serverDir)
-	if err != nil || masterConfig == nil || masterConfig.Auth == nil {
+	errNoAuth := errors.New("auth not configured")
+	err := config.UpdateMasterConfig(s.serverDir, func(mc *config.VCLUConfig) error {
+		if mc.Auth == nil {
+			return errNoAuth
+		}
+		mc.Auth.APIKeyHash = ""
+		return nil
+	})
+	if errors.Is(err, errNoAuth) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "No auth config found"})
 		return
 	}
-
-	masterConfig.Auth.APIKeyHash = ""
-	if err := config.WriteMasterConfig(s.serverDir, masterConfig); err != nil {
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to revoke API key"})
 		return
 	}

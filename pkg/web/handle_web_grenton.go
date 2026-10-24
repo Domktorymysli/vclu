@@ -171,14 +171,10 @@ func (s *Server) handleAPIGrentonSave(c *gin.Context) {
 		return
 	}
 
-	masterConfig, err := config.ReadMasterConfig(s.serverDir)
-	if err != nil || masterConfig == nil {
-		masterConfig = &config.VCLUConfig{}
-	}
-
-	masterConfig.GrentonEnabled = &req.Enabled
-
-	if err := config.WriteMasterConfig(s.serverDir, masterConfig); err != nil {
+	if err := config.UpdateMasterConfig(s.serverDir, func(mc *config.VCLUConfig) error {
+		mc.GrentonEnabled = &req.Enabled
+		return nil
+	}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save configuration"})
 		return
 	}
@@ -271,13 +267,10 @@ func (s *Server) handleAPIGrentonSyncSave(c *gin.Context) {
 	}
 
 	// Save to .vclu.json
-	masterConfig, err := config.ReadMasterConfig(s.serverDir)
-	if err != nil || masterConfig == nil {
-		masterConfig = &config.VCLUConfig{}
-	}
-	masterConfig.Sync = &req
-
-	if err := config.WriteMasterConfig(s.serverDir, masterConfig); err != nil {
+	if err := config.UpdateMasterConfig(s.serverDir, func(mc *config.VCLUConfig) error {
+		mc.Sync = &req
+		return nil
+	}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save configuration"})
 		return
 	}

@@ -95,19 +95,18 @@ func (s *Server) handleHomeKitPost(c *gin.Context) {
 		return
 	}
 
-	masterConfig, err := config.ReadMasterConfig(s.serverDir)
-	if err != nil || masterConfig == nil {
-		masterConfig = &config.VCLUConfig{}
-	}
-	masterConfig.HomeKit = homeKitConfig(masterConfig.HomeKit, enabled, pin, portNum, bridgeName, serialNumber)
-
-	if err := config.WriteMasterConfig(s.serverDir, masterConfig); err != nil {
+	var hk *config.VCLUHomeKitConfig
+	if err := config.UpdateMasterConfig(s.serverDir, func(mc *config.VCLUConfig) error {
+		mc.HomeKit = homeKitConfig(mc.HomeKit, enabled, pin, portNum, bridgeName, serialNumber)
+		hk = mc.HomeKit
+		return nil
+	}); err != nil {
 		s.renderHTML(c, http.StatusInternalServerError, "homekit.html", gin.H{
 			"error": "Failed to save configuration",
 		})
 		return
 	}
-	if warning := s.applyHomeKitConfig(masterConfig.HomeKit); warning != "" {
+	if warning := s.applyHomeKitConfig(hk); warning != "" {
 		log.Printf("[HomeKit] %s", warning)
 	}
 
@@ -154,20 +153,17 @@ func (s *Server) handleAPIHomeKitSave(c *gin.Context) {
 		req.Port = 5123
 	}
 
-	// Load and update master config
-	masterConfig, err := config.ReadMasterConfig(s.serverDir)
-	if err != nil || masterConfig == nil {
-		masterConfig = &config.VCLUConfig{}
-	}
-
-	masterConfig.HomeKit = homeKitConfig(masterConfig.HomeKit, req.Enabled, req.Pin, req.Port, req.BridgeName, req.SerialNumber)
-
-	if err := config.WriteMasterConfig(s.serverDir, masterConfig); err != nil {
+	var hk *config.VCLUHomeKitConfig
+	if err := config.UpdateMasterConfig(s.serverDir, func(mc *config.VCLUConfig) error {
+		mc.HomeKit = homeKitConfig(mc.HomeKit, req.Enabled, req.Pin, req.Port, req.BridgeName, req.SerialNumber)
+		hk = mc.HomeKit
+		return nil
+	}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save configuration"})
 		return
 	}
 
-	if warning := s.applyHomeKitConfig(masterConfig.HomeKit); warning != "" {
+	if warning := s.applyHomeKitConfig(hk); warning != "" {
 		c.JSON(http.StatusOK, gin.H{"success": true, "warning": warning})
 		return
 	}

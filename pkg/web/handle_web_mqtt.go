@@ -157,23 +157,16 @@ func (s *Server) handleAPIMQTTBrokerSave(c *gin.Context) {
 		return
 	}
 
-	// Read current config
-	masterConfig, err := config.ReadMasterConfig(s.serverDir)
-	if err != nil {
-		masterConfig = &config.VCLUConfig{}
-	}
-
-	// Update broker config
-	masterConfig.MQTTBroker = &config.VCLUMQTTBrokerConfig{
-		Enabled:  req.Enabled,
-		Port:     req.Port,
-		WSPort:   req.WSPort,
-		Username: req.Username,
-		Password: req.Password,
-	}
-
-	// Save config
-	if err := config.WriteMasterConfig(s.serverDir, masterConfig); err != nil {
+	if err := config.UpdateMasterConfig(s.serverDir, func(mc *config.VCLUConfig) error {
+		mc.MQTTBroker = &config.VCLUMQTTBrokerConfig{
+			Enabled:  req.Enabled,
+			Port:     req.Port,
+			WSPort:   req.WSPort,
+			Username: req.Username,
+			Password: req.Password,
+		}
+		return nil
+	}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -384,28 +377,28 @@ func (s *Server) handleAPIMQTTClientSave(c *gin.Context) {
 	}
 
 	// Preserve existing password and defaultAccess when not provided
-	existing := config.GetMQTTClientConfig(s.serverDir)
-	if req.Password == "" && existing != nil {
-		req.Password = existing.Password
-	}
-	defaultAccess := "full"
-	if existing != nil && existing.DefaultAccess != "" {
-		defaultAccess = existing.DefaultAccess
-	}
+	if err := config.UpdateMasterConfig(s.serverDir, func(mc *config.VCLUConfig) error {
+		existing := mc.MQTTClient
+		if req.Password == "" && existing != nil {
+			req.Password = existing.Password
+		}
+		defaultAccess := "full"
+		if existing != nil && existing.DefaultAccess != "" {
+			defaultAccess = existing.DefaultAccess
+		}
 
-	clientConfig := &config.VCLUMQTTClientConfig{
-		Enabled:       req.Enabled,
-		Host:          req.Host,
-		Port:          req.Port,
-		ClientID:      req.ClientID,
-		Username:      req.Username,
-		Password:      req.Password,
-		HAIntegration: req.HAIntegration,
-		DefaultAccess: defaultAccess,
-	}
-
-	// Save to .vclu.json
-	if err := config.SaveMQTTClientConfig(s.serverDir, clientConfig); err != nil {
+		mc.MQTTClient = &config.VCLUMQTTClientConfig{
+			Enabled:       req.Enabled,
+			Host:          req.Host,
+			Port:          req.Port,
+			ClientID:      req.ClientID,
+			Username:      req.Username,
+			Password:      req.Password,
+			HAIntegration: req.HAIntegration,
+			DefaultAccess: defaultAccess,
+		}
+		return nil
+	}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

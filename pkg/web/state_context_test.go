@@ -30,7 +30,7 @@ func TestRequestActor(t *testing.T) {
 	}
 
 	hash, _ := config.HashPassword("secret")
-	if err := config.WriteMasterConfig(dir, &config.VCLUConfig{Auth: &config.VCLUAuthConfig{Username: "tytus", PasswordHash: hash}}); err != nil {
+	if err := writeTestConfig(dir, &config.VCLUConfig{Auth: &config.VCLUAuthConfig{Username: "tytus", PasswordHash: hash}}); err != nil {
 		t.Fatal(err)
 	}
 	if o, a := s.requestActor(testContext(t, ""), "dashboard:salon"); o != "web" || a != "dashboard:salon" {
