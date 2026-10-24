@@ -47,6 +47,16 @@ CLU stops reporting; nothing tells vCLU. Space every series of messages to a CLU
 (`batchDelay` in `runtime/grenton/protocol/RemoteSubscription.lua`) without blocking the run loop. A dead
 subscription shows as no `[CLIENT-REPORT]` from that session in the log.
 
+### One clientRegister carries many entries
+Object Manager registers 28 entries in one `clientRegister` and the CLU answers with all 28 values
+(capture in [opengr8on `docs/COMMUNICATION.md`](https://github.com/psobiech/opengr8on/blob/c9c408734493fbb44068ab0a9b026be890782a48/docs/COMMUNICATION.md#L112-L117)),
+so `RemoteSubscription.MAX_BATCH_SIZE` is 28. Measured on 2026-10-23: 4 CLUs with 4, 271, 282 and 176
+objects at batch size 28 (29 sessions, 11 on the largest CLU) kept every object updating for over
+4 hours. No limit on entries or sessions per CLU is known:
+[opengr8on](https://github.com/psobiech/opengr8on) and [opengr8on-node](https://github.com/psobiech/opengr8on-node)
+only emulate the CLU side and read real CLUs by polling, so they say nothing about it. Fewer,
+larger sessions mean fewer renewals to space.
+
 ### A lost report is corrected by the renewal, not by a push
 A change is reported with one UDP packet and no retry. The CLU answers every renewal
 (`clientRegister`, every TTL/2) with the session's current values; `SendCommandNoReply` reads that
@@ -101,7 +111,7 @@ What such an object keeps aside from its value changes with an event listed in `
 3 PointValue (set by hand, settable with set 3), 6 State (1 active), 8 Mode (0 PointValue,
 1 holiday, 2 auto from the schedule, 3 heat-up), 10 Min, 11 Max, 12 TargetTemp (in effect,
 with the mode), 14 CurrentTemp; execute 0 Start, 1 Stop. `RemoteThermostat` subscribes to
-3, 6, 8, 12 and 14 (five entries of a CLU's 64); its value is CurrentTemp. Thermostat v1
+3, 6, 8, 12 and 14 (five subscription entries); its value is CurrentTemp. Thermostat v1
 (CLU firmware 197 and 1f5, FwType 3) has no feature 14; the OM import sets `_version = 1`.
 Feature 0 is Source (the sensor binding), so a thermostat must never be exposed as a switch:
 `_getExposeType()` returns nil, which keeps it out of `exposeRegistry()`.
