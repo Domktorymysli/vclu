@@ -1067,7 +1067,7 @@ Add a chart widget to this section.
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label (e.g., "Temperatura 24h")
 - `metricPath` (string) — Metric path registered via metric() (e.g., "temp:salon", "salda:outsideAir")
-- `opts` (table) — Optional: {range=string ("1h","6h","24h","7d"), unit=string}
+- `opts` (table) — Optional: {range=string (any duration such as "30m", "2h", "24h", "7d"; default "2h"; 30m/2h/24h/7d have tuned refresh, others refresh every 60 s), unit=string, min=n, max=n (Y axis), fill=bool (default true), refresh=seconds, span=n, color=string}
 
 ### `SectionHandle:calendar(id, label, cal, opts)`
 
@@ -1150,7 +1150,7 @@ Add a dimmer widget to this section.
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label
 - `icon` (string) — Bootstrap icon name (e.g., "brightness-high")
-- `fns` (table) — {getValue=function()->number(0-1), setValue=function(number), switchOn=function(), switchOff=function()}
+- `fns` (table) — {get=function()->number(0-100), set=function(number 0-100), switchOn=function()?, switchOff=function()?, isOn=function()->bool? (default: get() > 0)}
 - `opts` (table) — Optional: {disabled=function()->bool}
 
 ### `SectionHandle:color(id, label, icon, fns, opts)`
@@ -1374,7 +1374,7 @@ Add a chart widget to the current section.
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label (e.g., "Temperatura 24h")
 - `metricPath` (string) — Metric path registered via metric() (e.g., "temp:salon", "salda:outsideAir")
-- `opts` (table) — Optional: {range=string ("1h","6h","24h","7d"), unit=string}
+- `opts` (table) — Optional: {range=string (any duration such as "30m", "2h", "24h", "7d"; default "2h"; 30m/2h/24h/7d have tuned refresh, others refresh every 60 s), unit=string, min=n, max=n (Y axis), fill=bool (default true), refresh=seconds, span=n, color=string}
 
 ### `DashboardBuilder:calendar(id, label, cal, opts)`
 
@@ -1457,7 +1457,7 @@ Add a dimmer widget to the current section.
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label
 - `icon` (string) — Bootstrap icon name (e.g., "brightness-high")
-- `fns` (table) — {getValue=function()->number(0-1), setValue=function(number), switchOn=function(), switchOff=function()}
+- `fns` (table) — {get=function()->number(0-100), set=function(number 0-100), switchOn=function()?, switchOff=function()?, isOn=function()->bool? (default: get() > 0)}
 - `opts` (table) — Optional: {disabled=function()->bool}
 
 ### `DashboardBuilder:color(id, label, icon, fns, opts)`
