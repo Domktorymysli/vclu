@@ -16,7 +16,7 @@ name). Write the sections as they appear in `CHANGELOG.md`:
 - A contract change starts its entry with `Contract change:` (see CONTRIBUTING.md).
 
 An entry may be technical: it is written for the people who review the PR. At a release the
-section is rewritten for users, in Polish and then English (`.agents/skills/write-release-changelog`).
+section is replaced by short release notes for users, English then Polish, plus a plain-text post for groups (`.agents/skills/write-release-changelog`); the detail stays in the PRs.
 
 `go run ./tools/changelog` prints what the next release will say. At a release,
 `go run ./tools/changelog release v1.7.0` adds the section to `CHANGELOG.md` and removes the files
