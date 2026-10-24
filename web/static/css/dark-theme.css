@@ -527,6 +527,17 @@ html, body {
     display: inline;
 }
 
+.sidebar-version {
+    display: none;
+    font-size: 0.7rem;
+    white-space: nowrap;
+    opacity: 0.6;
+}
+
+.sidebar.expanded .sidebar-version {
+    display: inline;
+}
+
 .sidebar-toggle {
     background: transparent;
     border: none;

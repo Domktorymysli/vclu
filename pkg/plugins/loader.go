@@ -497,13 +497,7 @@ func (l *Loader) LoadPlugin(pluginID string, pluginConfig map[string]interface{}
 	escapedCode = strings.ReplaceAll(escapedCode, "\n", "\\n")
 	escapedCode = strings.ReplaceAll(escapedCode, "\r", "")
 
-	executeScript := fmt.Sprintf(`
-local code = "%s"
-local result, err = PluginSandbox:execute("%s", code)
-if err then
-    error(err)
-end
-`, escapedCode, pluginID)
+	executeScript := executeLua + "\n" + fmt.Sprintf(`execute("%s", "%s")`, pluginID, escapedCode)
 
 	if _, err := l.executeAsPlugin(pluginID, executeScript); err != nil {
 		// Cleanup sandbox on failure
@@ -644,15 +638,7 @@ func (l *Loader) UnloadPlugin(pluginID string) error {
 
 	if l.luaExecutor != nil {
 		// 1. Call plugin's custom cleanup callback if defined
-		pluginCleanupScript := fmt.Sprintf(`
-if Plugin and Plugin.instances and Plugin.instances["%s"] then
-    local p = Plugin.instances["%s"]
-    if p._cleanupCallback then
-        pcall(p._cleanupCallback)
-    end
-    Plugin.instances["%s"] = nil
-end
-`, pluginID, pluginID, pluginID)
+		pluginCleanupScript := unloadLua + "\n" + fmt.Sprintf(`unload("%s")`, pluginID)
 		l.luaExecutor.Execute(pluginCleanupScript)
 
 		// 2. Cleanup sandbox (removes all tracked resources automatically)

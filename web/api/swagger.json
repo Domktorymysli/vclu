@@ -2854,7 +2854,7 @@
                     "type": "integer"
                 },
                 "batchSize": {
-                    "description": "Objects per subscription request (default: 4, min: 2, max: 8)",
+                    "description": "Entries per subscription request (default: 4, min: 2, max: 28)",
                     "type": "integer"
                 },
                 "enabled": {
