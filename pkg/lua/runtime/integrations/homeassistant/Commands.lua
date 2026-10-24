@@ -423,6 +423,11 @@ function HACommands.handleExposedMessage(topic, payload)
     -- Handle command based on type and payload
     local exposedType = handle.type
 
+    -- target_temp/set is subscribed for a climate only; no other type takes it
+    if parsed.subpath == "target_temp" and exposedType ~= "climate" then
+        return false, "only a climate takes target_temp"
+    end
+
     if exposedType == "switch" then
         if payload == "ON" then
             handle:setValue(1)
@@ -492,6 +497,18 @@ function HACommands.handleExposedMessage(topic, payload)
             if obj.stop then obj:stop() elseif obj.execute then obj:execute(3) end
             return true
         end
+    elseif exposedType == "climate" then
+        -- only a target (setValue clamps it and calls setSetpoint); the mode is not set
+        if parsed.subpath ~= "target_temp" then
+            return false, "climate takes only target_temp"
+        end
+        if not tonumber(payload) then
+            return false, "invalid temperature value"
+        end
+        if not handle:setValue(payload) then
+            return false, "target not set"
+        end
+        return true
     elseif exposedType == "number" then
         local value = tonumber(payload)
         if value then
@@ -547,6 +564,7 @@ function HACommands.setup(mqttInstance)
     local expPattern = HACommands.topicPrefix .. "/exposed/+/+/+/set"
     local expBrightness = HACommands.topicPrefix .. "/exposed/+/+/+/brightness/set"
     local expPosition = HACommands.topicPrefix .. "/exposed/+/+/+/position/set"
+    local expTarget = HACommands.topicPrefix .. "/exposed/+/+/+/target_temp/set"
 
     if Logger then
         Logger:getShared():info("[HA] Subscribing to exposed command topics: %s", expPattern)
@@ -561,6 +579,10 @@ function HACommands.setup(mqttInstance)
     end)
 
     mqttInstance:subscribe(expPosition, function(topic, payload)
+        HACommands.handleExposedMessage(topic, payload)
+    end)
+
+    mqttInstance:subscribe(expTarget, function(topic, payload)
         HACommands.handleExposedMessage(topic, payload)
     end)
 

@@ -114,7 +114,24 @@ with the mode), 14 CurrentTemp; execute 0 Start, 1 Stop. `RemoteThermostat` subs
 3, 6, 8, 12 and 14 (five subscription entries); its value is CurrentTemp. Thermostat v1
 (CLU firmware 197 and 1f5, FwType 3) has no feature 14; the OM import sets `_version = 1`.
 Feature 0 is Source (the sensor binding), so a thermostat must never be exposed as a switch:
-`_getExposeType()` returns nil, which keeps it out of `exposeRegistry()`.
+TypeMap makes `THERMOSTAT` a `climate`, and `ExposedHandle:setValue` on a climate calls
+`setSetpoint`, never `set(0)`.
+
+### A thermostat in Home Assistant (`climate`, #61)
+An object is a thermostat when it has `getValue` (temperature), `getTarget` and `setSetpoint`;
+`getState` and `CHANGE_EVENTS` are optional. Decisions, keep HomeKit (#62) in agreement:
+- `exposeRegistry()` and `group:expose()` without a type leave climates out (`explicitOnly` in
+  the capabilities): only `expose(th)` shows one, writable unless `readonly`. Exposing subscribes nothing new and sends nothing to the
+  CLU (`TestHAClimateExposeSubscribesNothingNew`); subscribing a thermostat can reset an old CLU (#67).
+- `hvac_mode` is shown, not set: `off` when `getState()` is 0, `heat` otherwise (ControlDirection,
+  feature 7, is not subscribed). No mode command topic; Grenton's Mode (holiday, auto) is not a preset yet.
+- The target shown is `getTarget()` as the CLU reports it, never the value just sent: in holiday
+  or auto mode a set point does not change the target. A target from HA is clamped to `min`/`max`
+  of the expose options (default 5..35).
+- A renewal answer older than a set point can carry the old PointValue and TargetTemp
+  (`applyRenewAnswer` skips only objects that published their value). HA keeps showing the
+  reported target, so at worst the old one comes back until the next report or renewal (TTL/2).
+Contract: `ha_exposed_climate_test.go`, `ha_climate_readonly_test.go`.
 
 ### Smart Panel (SMART_PANEL_FM_4)
 Indices from the Object Manager definition, fv05 and fv07. PANEL (class 29) execute: 0 SwitchOnDisplay,

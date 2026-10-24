@@ -49,7 +49,7 @@ func TestParseThermometers(t *testing.T) {
 	}
 
 	// THE objects (class 18) are thermostats, not plain thermometers. They become
-	// RemoteThermostat objects but are not exposed (no climate type yet, see roadmap).
+	// RemoteThermostat objects, not auto-exposed (a climate, exposed by expose() only).
 	thermostats := parsed.GetObjectsByClass(ClassThermostat)
 	if len(thermostats) != 2 {
 		t.Fatalf("expected 2 thermostats, got %d", len(thermostats))

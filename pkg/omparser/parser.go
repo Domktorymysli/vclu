@@ -38,7 +38,7 @@ var (
 
 	// Peripheral object: THE0855 = OBJECT:new(18, "THE0855")
 	// Thermostats attached directly to the CLU (no module, no index). Captured here,
-	// but not yet exposed — a thermostat is a climate device (see roadmap).
+	// but not auto-exposed — a thermostat is a climate, exposed only by expose().
 	rePeripheryObject = regexp.MustCompile(`^\s*(THE\w*)\s*=\s*OBJECT:new\s*\(\s*(\d+)\s*,\s*"[^"]*"\s*\)`)
 
 	// IO name comment: -- NAME_IO P1_DACHOWE_BOK=DOU5048
