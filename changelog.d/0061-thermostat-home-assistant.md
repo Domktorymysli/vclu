@@ -1,3 +1,0 @@
-### Home Assistant
-
-- **A Grenton thermostat in Home Assistant** - `expose(th, "climate", { name = "Salon", area = "Salon" })` (or `th:expose()`) shows a thermostat as a climate entity with its current temperature, the target in effect and off/heat; a target set in HA goes to `setSetpoint`, clamped to the expose options `min`/`max` (default 5-35 °C). With `readonly = true` (or the Readonly level for MQTT) HA only shows it and a target sent anyway is refused. The mode is shown, not set. `exposeRegistry()` and `group:expose()` without a type leave thermostats out, so nothing appears in HA until a module exposes one, and exposing subscribes nothing new on the CLU ([#61](https://github.com/Domktorymysli/vclu/issues/61)).

@@ -1,3 +1,0 @@
-### Lua runtime
-
-- **`ExposedObjects:list()` and `ExposedObjects:get(path)` are public API** - user code can walk what `expose()` described (e.g. every exposed thermometer for InfluxDB) instead of keeping a second list. A listed handle's path key, `type`, `options.name`, `options.area`, `options.tags` and `getValue()` are pinned by contract tests; the map is the live one, so read it and never change it. Each handle now keeps its own copy of the options: two objects exposed with one options table no longer share a name or path (the second failed with "path already in use"), a rename, or `exposeRegistry()` tags ([#40](https://github.com/Domktorymysli/vclu/issues/40)).

@@ -1,3 +1,0 @@
-### Lua runtime
-
-- **`optional(name)`: `require` for a module that may be missing** - a module whose plugin is not installed returns nothing, and `require` then gives `true`, so `local pogoda = require("pogoda")` followed by `pogoda.temp()` failed on a boolean, and every dashboard reading several domain modules carried its own `pcall(require, ...)` helper. `optional(name)` gives the module, or nil when it is not there or gives nothing; a module that is there and fails while loading is nil too, with its error in the log (a plain `pcall` hid it). Available in modules and in the sandbox, listed in the editor's completions.

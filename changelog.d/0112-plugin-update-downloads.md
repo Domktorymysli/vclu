@@ -1,3 +1,0 @@
-### Plugins
-
-- **Updating a plugin from the panel brings its new code** - "Update" changed only the version in `.vclu.json` and the old files kept running, also after a restart. Install and Update now download the plugin first (a failed download answers with an error and changes nothing), and at load a plugin whose files are not the configured version is downloaded again, so installations already updated this way get the new code at the next reload; without network the files on disk are loaded. Only an update is fetched: files newer than the configured version (a plugin installed by hand) are loaded as they are, and a download removes only the older versions it replaces, never a newer one ([#112](https://github.com/Domktorymysli/vclu/issues/112)).
