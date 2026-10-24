@@ -674,8 +674,8 @@ body {
 /* large targets for a finger on a wall tablet */
 .dash-thermo-btn {
     flex: none;
-    width: max(40px, min(56px, 24%));
-    aspect-ratio: 1;
+    width: 56px;
+    height: 56px;
     padding: 0;
     border-radius: 50%;
     border: 0;
@@ -713,10 +713,24 @@ body {
     font-size: 3.2rem;
 }
 
+/* at most a quarter of the row; browsers without aspect-ratio keep 56 px circles */
+@supports (aspect-ratio: 1) {
+    .dash-thermo-btn {
+        width: max(40px, min(56px, 24%));
+        height: auto;
+        aspect-ratio: 1;
+    }
+}
+
 @container (max-width: 230px) {
     .dash-thermo-current-value { font-size: 2rem; }
     .dash-thermo-target-value { font-size: 1.1rem; }
     .dash-thermo-btn { font-size: 1.2rem; }
+}
+
+/* a large number overflows a tile this narrow */
+@container (max-width: 180px) {
+    .dash-widget-thermostat.size-large .dash-thermo-current-value { font-size: 2.4rem; }
 }
 
 /* ---- Media player: the artwork on the left, texts, buttons and volume beside it ---- */
