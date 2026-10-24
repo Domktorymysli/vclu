@@ -264,6 +264,16 @@ func TestDashboardThermostatArgumentErrors(t *testing.T) {
 		{`:section('S', 'grid'):thermostat('a', nil, nil, ` + ok + `)`, "label must be"},
 		{`:section('S', 'grid'):thermostat('a', 'L', 'x y', ` + ok + `)`, "icon must be"},
 		{`:section('S', 'grid'):thermostat('a', 'L', nil, 5)`, "fns must be"},
+		// a wrong object says what it is and what it lacks; nil points at the path
+		{`:section('S', 'grid'):thermostat('a', 'L', nil, RemoteSwitch:new({}, 'DOU9270', 'Lampa'))`,
+			"DOU9270 (DOUT) is not a thermostat: it has no getTarget, setSetpoint"},
+		{`:section('S', 'grid'):thermostat('a', 'L', nil, nil)`, "no thermostat (nil): check the path in _:get(...)"},
+		// a callable table is not a method: the message still names it
+		{`:section('S', 'grid'):thermostat('a', 'L', nil, setmetatable({ getValue = function() end, getTarget = function() end, setSetpoint = setmetatable({}, { __call = function() end }) }, {}))`,
+			"the object is not a thermostat: it has no setSetpoint"},
+		// getCurrent and getTarget as methods (not own keys) make an object, not a table of functions
+		{`:section('S', 'grid'):thermostat('a', 'L', nil, setmetatable({}, { __index = { getCurrent = function() end, getTarget = function() end } }))`,
+			"the object is not a thermostat: it has no getValue, setSetpoint"},
 		{`:section('S', 'grid'):thermostat('a', 'L', nil, { getCurrent = function() end })`, "needs getCurrent and getTarget"},
 		{`:section('S', 'grid'):thermostat('a', 'L', nil, { getCurrent = function() end, getTarget = 20 })`, "fns.getTarget must be a function"},
 		{`:section('S', 'grid'):thermostat('a', 'L', nil, { getCurrent = function() end, getTarget = function() end, set = function() end })`, `unknown key "set"`},
@@ -468,5 +478,84 @@ func TestDashboardThermostatInRoom(t *testing.T) {
 	dashJSON(t, engine, `Dashboard.API.getDefinition("plain")`, &plain)
 	if x := plain.widget("area:salon.termostat2"); x == nil || x["type"] != "thermostat" {
 		t.Errorf("dashboard = true thermostat = %v", x)
+	}
+}
+
+// Any object with getValue, getTarget and setSetpoint is a thermostat, not only a Grenton one:
+// a virtual thermostat written in Lua (a class with those methods) gets the widget and its sets.
+func TestDashboardThermostatOtherObject(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+	mustExec(t, engine, `
+		_dashboards = {}
+		Piec = {}
+		Piec.__index = Piec
+		function Piec.new() return setmetatable({ temp = 19.6, cel = 21, sets = {} }, Piec) end
+		function Piec:getValue() return self.temp end
+		function Piec:getTarget() return self.cel end
+		function Piec:setSetpoint(v) self.sets[#self.sets + 1] = v; self.cel = v end
+		piec = Piec.new()
+		Dashboard.new('v'):section('S', 'grid'):thermostat('piec', 'Piec', nil, piec):build()`)
+
+	var vals map[string]map[string]interface{}
+	dashJSON(t, engine, `Dashboard.API.getValues("v")`, &vals)
+	if v := vals["piec"]; v["current"] != 19.6 || v["target"] != 21.0 || v["set"] != true {
+		t.Errorf("values = %v", v)
+	}
+	var res map[string]interface{}
+	dashJSON(t, engine, `Dashboard.API.executeAction("v", "piec", "set", 21.5)`, &res)
+	if res["success"] != true {
+		t.Fatalf("set = %v", res)
+	}
+	if got := mustExec(t, engine, `return #piec.sets .. ' ' .. piec.sets[1]`); got != "1 21.5" {
+		t.Errorf("setSetpoint calls = %s", got)
+	}
+}
+
+// A table of functions with a metatable (a helper's defaults, a class) stays a table of functions;
+// _:get of an exposed thermostat is the thermostat, while the handle expose() returns is not one.
+func TestDashboardThermostatTablesWithMetatable(t *testing.T) {
+	engine := newThermostatEngine(t)
+	mustExec(t, engine, `
+		report(1, 0, 20, 21, 19.5)
+		HANDLE = expose(TH, 'climate', { path = 'salon.termostat', name = 'Termostat' })
+		Dashboard.new('m'):section('S')
+			:thermostat('fns', 'F', nil, setmetatable({ getCurrent = FNS.getCurrent, getTarget = FNS.getTarget,
+				setTarget = FNS.setTarget }, { __index = { unused = true } }))
+			:thermostat('reg', 'R', nil, _:get('salon.termostat'))
+			:build()`)
+	var vals map[string]map[string]interface{}
+	dashJSON(t, engine, `Dashboard.API.getValues("m")`, &vals)
+	if v := vals["reg"]; v["current"] != 19.5 || v["target"] != 21.0 {
+		t.Errorf("registry thermostat = %v", v)
+	}
+	var res map[string]interface{}
+	dashJSON(t, engine, `Dashboard.API.executeAction("m", "fns", "set", 22)`, &res)
+	if res["success"] != true {
+		t.Errorf("fns with a metatable: set = %v", res)
+	}
+	if got := mustExec(t, engine, `return S.sets[1]`); got != "22" {
+		t.Errorf("setTarget got %s", got)
+	}
+
+	_, err := engine.Execute("local ok, err = pcall(function()\n  Dashboard.new('h'):section('S'):thermostat('h', 'H', nil, HANDLE)\nend)\nerror(err, 0)")
+	if err == nil || !strings.Contains(err.Error(), "<string>:2: ") ||
+		!strings.Contains(err.Error(), "is not a thermostat: it has no getTarget, setSetpoint") {
+		t.Errorf("handle: %v", err)
+	}
+}
+
+// The builder form (dash:thermostat) points at the module's line for a wrong object and nil too.
+func TestDashboardThermostatBuilderFormErrors(t *testing.T) {
+	for _, c := range []struct{ arg, want string }{
+		{`RemoteSwitch:new({}, 'DOU9270', 'Lampa')`, "DOU9270 (DOUT) is not a thermostat"},
+		{`nil`, "no thermostat (nil)"},
+	} {
+		engine := NewLuaEngine()
+		_, err := engine.Execute("_dashboards = {}\nlocal d = Dashboard.new('e'); d:section('S')\nlocal ok, err = pcall(function()\n  d:thermostat('a', 'L', nil, " + c.arg + ")\nend)\nerror(err, 0)")
+		engine.Close()
+		if err == nil || !strings.Contains(err.Error(), "<string>:4: ") || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: %v", c.arg, err)
+		}
 	}
 }
