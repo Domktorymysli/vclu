@@ -439,6 +439,7 @@ func addBuiltinGlobals(completions *Completions) {
 
 	// Math helpers
 	completions.Globals = append(completions.Globals, []CompletionItem{
+		{Label: "optional", Kind: "function", Detail: "(name: string): any", Documentation: "require a module that may be missing: nil when it is not there or gives nothing (its plugin not installed); a module that fails is nil with its error in the log", InsertText: "optional(\"${1:name}\")", InsertTextRules: 4},
 		{Label: "clamp", Kind: "function", Detail: "(value: number, min: number, max: number): number", Documentation: "Clamp value between min and max", InsertText: "clamp(${1:value}, ${2:min}, ${3:max})", InsertTextRules: 4},
 		{Label: "lerp", Kind: "function", Detail: "(a: number, b: number, t: number): number", Documentation: "Linear interpolation between a and b by factor t", InsertText: "lerp(${1:a}, ${2:b}, ${3:t})", InsertTextRules: 4},
 		{Label: "map", Kind: "function", Detail: "(value: number, inMin: number, inMax: number, outMin: number, outMax: number): number", Documentation: "Map value from input range to output range", InsertText: "map(${1:value}, ${2:inMin}, ${3:inMax}, ${4:outMin}, ${5:outMax})", InsertTextRules: 4},
