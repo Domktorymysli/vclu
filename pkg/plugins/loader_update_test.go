@@ -252,3 +252,78 @@ func TestDownloadPluginConcurrentLoadersKeepLock(t *testing.T) {
 		t.Errorf("lock has %d entries, want %d: %+v", len(lock), n, lock)
 	}
 }
+
+// Files newer than the config (installed by hand, e.g. 1.0.2 while the config and the repository
+// say 1.0.1) are not "updated" back: nothing is fetched, the newer files load and stay on disk.
+// Seen on a real installation: Telegram 1.4.0 replaced by 1.3.1 and its directory removed.
+func TestLoadAllEnabledKeepsNewerFilesThanConfig(t *testing.T) {
+	var requests atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		_, _ = w.Write([]byte(`{"version":1,"name":"test","description":"d","url":"x","plugins":[{"id":"weather","name":"Weather","version":"1.0.1","path":"plugins/weather","tag":"weather-v1.0.1"}]}`))
+	}))
+	defer ts.Close()
+	loader, L := installedWeather(t, ts.URL, "1.0.1")
+	loader.httpClient = ts.Client()
+
+	if err := loader.LoadAllEnabled(); err != nil {
+		t.Fatalf("LoadAllEnabled: %v", err)
+	}
+	if n := requests.Load(); n != 0 {
+		t.Errorf("%d requests to the repository, want none", n)
+	}
+	if dir, code := loadedFrom(L); !strings.HasSuffix(dir, "1.0.2") || !strings.Contains(code, "old") {
+		t.Errorf("loaded %s (%q), want the 1.0.2 on disk", dir, code)
+	}
+	if _, err := os.Stat(filepath.Join(loader.pluginsDir, safePluginDir("@vclu/weather"), "1.0.2", "plugin.json")); err != nil {
+		t.Errorf("1.0.2 gone: %v", err)
+	}
+}
+
+// A download removes only the versions it replaces: a newer one on disk stays.
+func TestDownloadPluginKeepsNewerVersions(t *testing.T) {
+	loader, tmpDir := newTestLoader(t)
+	sd := safePluginDir("@vclu/weather")
+	for _, v := range []string{"0.9.0", "1.4.0", "custom"} {
+		dir := filepath.Join(tmpDir, "plugins", sd, v)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "plugin.json"), []byte(`{"id":"weather"}`), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ts := newTestServer(map[string]string{
+		"/plugins.json":                `{"version":1,"name":"test","description":"d","url":"x","plugins":[{"id":"weather","name":"Weather","version":"1.0.0","path":"plugins/weather","tag":"weather-v1.0.0"}]}`,
+		"/plugins/weather/plugin.json": `{"id":"weather","name":"Weather","version":"1.0.0","files":["init.lua"]}`,
+		"/plugins/weather/init.lua":    "return {}\n",
+	})
+	defer ts.Close()
+	loader.httpClient = ts.Client()
+
+	if err := loader.DownloadPlugin(configRepo("test", ts.URL), "@vclu/weather"); err != nil {
+		t.Fatal(err)
+	}
+	for v, want := range map[string]bool{"0.9.0": false, "1.0.0": true, "1.4.0": true, "custom": true} {
+		_, err := os.Stat(filepath.Join(tmpDir, "plugins", sd, v))
+		if got := err == nil; got != want {
+			t.Errorf("%s on disk = %v, want %v", v, got, want)
+		}
+	}
+}
+
+func TestCompareVersions(t *testing.T) {
+	for _, tc := range []struct {
+		a, b string
+		cmp  int
+		ok   bool
+	}{
+		{"1.4.0", "1.3.1", 1, true}, {"1.3.1", "1.4.0", -1, true}, {"1.10.0", "1.9.9", 1, true},
+		{"1.0", "1.0.0", 0, true}, {"v2.0.1", "2.0.1", 0, true}, {"2.0.0-beta", "2.0.0", 0, true},
+		{"latest", "1.0.0", 0, false}, {"", "1.0.0", 0, false}, {"1.x", "1.0", 0, false},
+	} {
+		if cmp, ok := compareVersions(tc.a, tc.b); cmp != tc.cmp || ok != tc.ok {
+			t.Errorf("compareVersions(%q, %q) = %d, %v; want %d, %v", tc.a, tc.b, cmp, ok, tc.cmp, tc.ok)
+		}
+	}
+}

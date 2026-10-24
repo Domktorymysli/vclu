@@ -353,6 +353,11 @@ func (l *Loader) cleanupOldVersions(pluginBaseDir, currentVersion string) {
 		if name == currentVersion || strings.HasPrefix(name, ".tmp-") {
 			continue
 		}
+		// only what the new version replaces: never a newer version (installed by hand), never
+		// a directory whose version cannot be compared; "latest" goes when a tagged one comes
+		if cmp, ok := compareVersions(name, currentVersion); !(ok && cmp < 0) && !(name == "latest" && currentVersion != "latest") {
+			continue
+		}
 		path := filepath.Join(pluginBaseDir, name)
 		if err := os.RemoveAll(path); err != nil {
 			log.Printf("[PLUGINS] WARNING: failed to clean up old version %s: %v", path, err)
@@ -417,6 +422,55 @@ func (l *Loader) resolvePluginDir(pluginID string) string {
 
 	// 3. Fallback: old flat directory (migration compat)
 	return baseDir
+}
+
+// compareVersions compares dotted numeric versions ("1.4.0" < "1.10.0"); a part may have a
+// suffix after its number ("2-beta"). ok is false when either is not such a version.
+func compareVersions(a, b string) (int, bool) {
+	pa, oka := versionParts(a)
+	pb, okb := versionParts(b)
+	if !oka || !okb {
+		return 0, false
+	}
+	for i := 0; i < len(pa) || i < len(pb); i++ {
+		var x, y int
+		if i < len(pa) {
+			x = pa[i]
+		}
+		if i < len(pb) {
+			y = pb[i]
+		}
+		if x != y {
+			if x < y {
+				return -1, true
+			}
+			return 1, true
+		}
+	}
+	return 0, true
+}
+
+func versionParts(v string) ([]int, bool) {
+	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
+	if v == "" {
+		return nil, false
+	}
+	var out []int
+	for _, part := range strings.Split(v, ".") {
+		n, digits := 0, 0
+		for _, c := range part {
+			if c < '0' || c > '9' {
+				break
+			}
+			n = n*10 + int(c-'0')
+			digits++
+		}
+		if digits == 0 {
+			return nil, false
+		}
+		out = append(out, n)
+	}
+	return out, true
 }
 
 // localVersion is the version of the plugin files in dir: the lock entry's, else the manifest's.
@@ -617,9 +671,12 @@ func (l *Loader) LoadAllEnabled() error {
 			}
 			localDir = l.resolvePluginDir(installed.ID)
 		} else if local := l.localVersion(installed.ID, localDir); installed.Version != "" && local != "" && local != installed.Version {
-			// An update from the panel writes the version; the files follow here (#112)
+			// An update from the panel writes the version; the files follow here (#112). Only an
+			// update: files newer than the config (installed by hand) are kept and loaded.
 			repo := l.findRepository(masterConfig.Plugins.Repositories, installed.Repository)
-			if repo == nil {
+			if cmp, ok := compareVersions(local, installed.Version); !ok || cmp > 0 {
+				log.Printf("[PLUGINS] %s %s on disk, %s in config; not newer in config, loading %s", installed.ID, local, installed.Version, local)
+			} else if repo == nil {
 				log.Printf("[PLUGINS] WARNING: %s %s on disk, %s in config, repository %s not found; loading %s", installed.ID, local, installed.Version, installed.Repository, local)
 			} else if err := l.DownloadPlugin(*repo, installed.ID); err != nil {
 				// LoadPlugin resolves the directory again, so it takes what is on disk
