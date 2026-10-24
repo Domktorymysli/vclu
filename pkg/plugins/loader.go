@@ -356,7 +356,7 @@ func (l *Loader) cleanupOldVersions(pluginBaseDir, currentDir, currentVersion st
 		}
 		// only what the new version replaces: never a newer version (installed by hand), never
 		// a directory whose version cannot be compared; "latest" goes when a tagged one comes
-		if cmp, ok := compareVersions(name, currentVersion); !(ok && cmp < 0) && name != "latest" {
+		if cmp, ok := compareVersions(name, currentVersion); (!ok || cmp >= 0) && name != "latest" {
 			continue
 		}
 		path := filepath.Join(pluginBaseDir, name)
