@@ -257,6 +257,16 @@ local function thermostatWidget(id, label, icon, fns, opts)
     local f
     if isThermostat(fns) then
         f = thermostatFns(fns, opts.readonly == true)
+    elseif type(fns) == 'table' and getmetatable(fns) ~= nil then
+        -- an object (it has methods), but not a thermostat: say which and what it lacks
+        local missing = {}
+        for _, m in ipairs({ 'getValue', 'getTarget', 'setSetpoint' }) do
+            if type(fns[m]) ~= 'function' then missing[#missing + 1] = m end
+        end
+        local what = tostring(fns._objId or fns._name or 'the object')
+        if fns._type then what = what .. ' (' .. tostring(fns._type) .. ')' end
+        error(where .. ': ' .. what .. ' is not a thermostat: it has no ' .. table.concat(missing, ', ')
+            .. '; pass a thermostat or a table {getCurrent, getTarget, setTarget?, ...}', 3)
     elseif type(fns) == 'table' then
         f = {}
         for k, v in pairs(fns) do
@@ -269,6 +279,9 @@ local function thermostatWidget(id, label, icon, fns, opts)
         if not f.getCurrent or not f.getTarget then error(where .. ': fns needs getCurrent and getTarget', 3) end
         if opts.readonly == true then f.setTarget = nil end
     else
+        if fns == nil then
+            error(where .. ': no thermostat (nil): check the path in _:get(...), the object may not be imported', 3)
+        end
         error(where .. ': fns must be {getCurrent, getTarget, setTarget?, getState?, getMode?} or a thermostat (RemoteThermostat), got ' .. type(fns), 3)
     end
     -- a readonly function locks and unlocks the buttons while the dashboard runs
