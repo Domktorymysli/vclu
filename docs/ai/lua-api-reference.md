@@ -1048,7 +1048,7 @@ Add a status widget to this section.
 - `icon` (string) — Bootstrap icon name (e.g., "thermometer-half", "droplet")
 - `getValue` (function) — Returns current value: function() -> number|string
 - `unit` (string) — Unit suffix displayed after value (e.g., "°C", "%", "lx")
-- `opts` (table) — Optional: {disabled=function()->bool, color=string|function()->string|nil}
+- `opts` (table) — Optional: {decimals=0-6 (a number is shown rounded to that many places), disabled=function()->bool, color=string|function()->string|nil}
 
 ### `SectionHandle:link(id, label, icon, url, opts)`
 
@@ -1365,7 +1365,7 @@ Add a status widget to the current section.
 - `icon` (string) — Bootstrap icon name (e.g., "thermometer-half", "droplet")
 - `getValue` (function) — Returns current value: function() -> number|string
 - `unit` (string) — Unit suffix displayed after value (e.g., "°C", "%", "lx")
-- `opts` (table) — Optional: {disabled=function()->bool, color=string|function()->string|nil}
+- `opts` (table) — Optional: {decimals=0-6 (a number is shown rounded to that many places), disabled=function()->bool, color=string|function()->string|nil}
 
 ### `DashboardBuilder:link(id, label, icon, url, opts)`
 

@@ -72,12 +72,14 @@
         room: 'door-open', thermostat: 'thermometer-half'
     };
 
-    // 23.9 -> "23,9" in Polish; text as it is
-    function fmtNum(v) {
-        return typeof v === 'number' && lang === 'pl' ? String(v).replace('.', ',') : String(v);
+    // 23.9 -> "23,9" in Polish; with decimals rounded to them (21 -> "21,0"); text as it is
+    function fmtNum(v, decimals) {
+        if (typeof v !== 'number') return String(v);
+        var s = decimals != null ? v.toFixed(decimals) : String(v);
+        return lang === 'pl' ? s.replace('.', ',') : s;
     }
-    function withUnit(v, unit) {
-        return fmtNum(v) + (unit ? ' ' + unit : '');
+    function withUnit(v, unit, decimals) {
+        return fmtNum(v, decimals) + (unit ? ' ' + unit : '');
     }
 
     // ---- Time-of-day period tracking ----
@@ -186,7 +188,7 @@
             return d.value == null ? ['unknown', T.unknown] : ['value', fmtNum(d.value)];
         case 'status':
             if (d.value == null) return ['unknown', T.unknown];
-            return [isAlarm(d.color) ? 'alarm' : 'value', withUnit(d.value, w.unit)];
+            return [isAlarm(d.color) ? 'alarm' : 'value', withUnit(d.value, w.unit, w.decimals)];
         case 'select':
             if (d.value == null) return ['unknown', T.unknown];
             var label = String(d.value);
@@ -2279,7 +2281,7 @@
         el.appendChild(icon);
 
         if (w.type === 'status') {
-            el.appendChild(calEl('span', 'dash-header-value', w.value != null ? fmtNum(w.value) : '--'));
+            el.appendChild(calEl('span', 'dash-header-value', w.value != null ? fmtNum(w.value, w.decimals) : '--'));
             if (w.unit) el.appendChild(calEl('span', 'dash-header-unit', w.unit));
         } else {
             el.appendChild(calEl('span', 'dash-header-value', w.label));
@@ -2614,7 +2616,7 @@
         // Header status: the value is the chip's text
         if (el.classList.contains('dash-header-item') && type === 'status' && d.value !== undefined) {
             var hVal = el.querySelector('.dash-header-value');
-            if (hVal) hVal.textContent = d.value != null ? fmtNum(d.value) : '--';
+            if (hVal) hVal.textContent = d.value != null ? fmtNum(d.value, wDef.decimals) : '--';
         }
 
         refreshTile(el, wDef, d);
