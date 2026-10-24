@@ -615,6 +615,8 @@ body {
     display: flex;
     flex-direction: column;
     gap: 10px;
+    /* a narrow tile (four columns, a room view) shrinks the buttons and the numbers */
+    container-type: inline-size;
 }
 
 .dash-thermo-current {
@@ -661,6 +663,7 @@ body {
     font-size: 1.3rem;
     font-weight: 600;
     font-variant-numeric: tabular-nums;
+    white-space: nowrap;
 }
 
 /* a value chosen or sent, not reported yet */
@@ -708,6 +711,26 @@ body {
 
 .dash-widget-thermostat.size-large .dash-thermo-current-value {
     font-size: 3.2rem;
+}
+
+/* at most a quarter of the row; browsers without aspect-ratio keep 56 px circles */
+@supports (aspect-ratio: 1) {
+    .dash-thermo-btn {
+        width: max(40px, min(56px, 24%));
+        height: auto;
+        aspect-ratio: 1;
+    }
+}
+
+@container (max-width: 230px) {
+    .dash-thermo-current-value { font-size: 2rem; }
+    .dash-thermo-target-value { font-size: 1.1rem; }
+    .dash-thermo-btn { font-size: 1.2rem; }
+}
+
+/* a large number overflows a tile this narrow */
+@container (max-width: 180px) {
+    .dash-widget-thermostat.size-large .dash-thermo-current-value { font-size: 2.4rem; }
 }
 
 /* ---- Media player: the artwork on the left, texts, buttons and volume beside it ---- */
