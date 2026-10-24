@@ -10,6 +10,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/Domktorymysli/vclu/pkg/config"
 	lua "github.com/yuin/gopher-lua"
@@ -414,5 +415,69 @@ func TestUpdateToRepositoryBehindDisk(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(loader.pluginsDir, safePluginDir("@vclu/weather"), "1.0.2", "plugin.json")); err != nil {
 		t.Errorf("1.0.2 gone: %v", err)
+	}
+}
+
+// Config ahead of both: the disk has 1.0.2, the repository lists only 1.0.1 (rolled back or a
+// stale cache). The loader does not go back to 1.0.1: the files on disk load.
+func TestLoadAllEnabledRepositoryBehindDiskDoesNotDowngrade(t *testing.T) {
+	var files atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/plugins.json" {
+			_, _ = w.Write([]byte(`{"version":1,"name":"test","description":"d","url":"x","plugins":[{"id":"weather","name":"Weather","version":"1.0.1","path":"plugins/weather","tag":"weather-v1.0.1"}]}`))
+			return
+		}
+		files.Add(1)
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer ts.Close()
+	loader, L := installedWeather(t, ts.URL, "1.1.0")
+	loader.httpClient = ts.Client()
+
+	if err := loader.LoadAllEnabled(); err != nil {
+		t.Fatalf("LoadAllEnabled: %v", err)
+	}
+	if n := files.Load(); n != 0 {
+		t.Errorf("%d plugin file requests, want none", n)
+	}
+	if dir, code := loadedFrom(L); !strings.HasSuffix(dir, "1.0.2") || !strings.Contains(code, "old") {
+		t.Errorf("loaded %s (%q), want the 1.0.2 on disk", dir, code)
+	}
+}
+
+// A check that failed (offline) is not repeated on the next reload: a promote reloads the
+// runtime, and each check could wait for the network.
+func TestLoadAllEnabledDoesNotRetryFailedUpdateOnEveryReload(t *testing.T) {
+	var requests atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer ts.Close()
+	loader, L := installedWeather(t, ts.URL, "1.1.0")
+	loader.httpClient = ts.Client()
+
+	for i := 0; i < 3; i++ {
+		if err := loader.LoadAllEnabled(); err != nil {
+			t.Fatalf("LoadAllEnabled %d: %v", i+1, err)
+		}
+	}
+	if n := requests.Load(); n != 1 {
+		t.Errorf("%d requests in 3 reloads, want 1", n)
+	}
+	if dir, _ := loadedFrom(L); !strings.HasSuffix(dir, "1.0.2") {
+		t.Errorf("loaded %s, want 1.0.2", dir)
+	}
+	// after the retry time the check runs again
+	loader.updateMu.Lock()
+	for k := range loader.updateRetry {
+		loader.updateRetry[k] = time.Now().Add(-time.Second)
+	}
+	loader.updateMu.Unlock()
+	if err := loader.LoadAllEnabled(); err != nil {
+		t.Fatal(err)
+	}
+	if n := requests.Load(); n != 2 {
+		t.Errorf("%d requests after the retry time, want 2", n)
 	}
 }

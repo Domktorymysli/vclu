@@ -137,7 +137,18 @@ type Loader struct {
 	httpClient  *http.Client
 	luaExecutor LuaExecutor
 	loaded      map[string]*LoadedPlugin
+
+	// updateRetry: when a plugin's files may be updated again (pluginID|config|disk); a failed
+	// or pointless check is not repeated on every reload (offline, repository behind)
+	updateMu    sync.Mutex
+	updateRetry map[string]time.Time
 }
+
+// updateRetryAfter: how long a failed or pointless update check is not repeated
+const updateRetryAfter = 30 * time.Minute
+
+// errNotNewer: the repository has no version newer than the files on disk
+var errNotNewer = fmt.Errorf("the repository has no newer version")
 
 // NewLoader creates a new plugin loader
 func NewLoader(serverDir string) *Loader {
@@ -196,6 +207,12 @@ var downloadMu sync.Mutex
 // DownloadPlugin downloads a plugin from a repository
 // pluginID can be fullId (@vclu/weather) or short id (weather)
 func (l *Loader) DownloadPlugin(repo config.PluginRepository, pluginID string) error {
+	return l.downloadPlugin(repo, pluginID, "")
+}
+
+// downloadPlugin downloads the version the repository lists; with newerThan, only when that
+// version is newer (errNotNewer otherwise), so an update never goes back.
+func (l *Loader) downloadPlugin(repo config.PluginRepository, pluginID, newerThan string) error {
 	downloadMu.Lock()
 	defer downloadMu.Unlock()
 
@@ -219,6 +236,11 @@ func (l *Loader) DownloadPlugin(repo config.PluginRepository, pluginID string) e
 
 	if listing == nil {
 		return fmt.Errorf("plugin %s not found in repository", shortId)
+	}
+	if newerThan != "" {
+		if cmp, ok := compareVersions(listing.Version, newerThan); !ok || cmp <= 0 {
+			return fmt.Errorf("%w (repository %s, disk %s)", errNotNewer, listing.Version, newerThan)
+		}
 	}
 
 	safeDir := safePluginDir(pluginID)
@@ -423,6 +445,22 @@ func (l *Loader) resolvePluginDir(pluginID string) string {
 
 	// 3. Fallback: old flat directory (migration compat)
 	return baseDir
+}
+
+// updateDue: no failed or pointless update check of key within updateRetryAfter
+func (l *Loader) updateDue(key string) bool {
+	l.updateMu.Lock()
+	defer l.updateMu.Unlock()
+	return time.Now().After(l.updateRetry[key])
+}
+
+func (l *Loader) updateLater(key string) {
+	l.updateMu.Lock()
+	defer l.updateMu.Unlock()
+	if l.updateRetry == nil {
+		l.updateRetry = make(map[string]time.Time)
+	}
+	l.updateRetry[key] = time.Now().Add(updateRetryAfter)
 }
 
 // compareVersions compares dotted numeric versions ("1.4.0" < "1.10.0"); a part may have a
@@ -679,9 +717,12 @@ func (l *Loader) LoadAllEnabled() error {
 				log.Printf("[PLUGINS] %s %s on disk, %s in config; not newer in config, loading %s", installed.ID, local, installed.Version, local)
 			} else if repo == nil {
 				log.Printf("[PLUGINS] WARNING: %s %s on disk, %s in config, repository %s not found; loading %s", installed.ID, local, installed.Version, installed.Repository, local)
-			} else if err := l.DownloadPlugin(*repo, installed.ID); err != nil {
+			} else if key := installed.ID + "|" + installed.Version + "|" + local; !l.updateDue(key) {
+				// checked lately without result: not on every reload (offline, repository behind)
+			} else if err := l.downloadPlugin(*repo, installed.ID, local); err != nil {
+				l.updateLater(key)
 				// LoadPlugin resolves the directory again, so it takes what is on disk
-				log.Printf("[PLUGINS] WARNING: %s %s on disk, %s in config, download failed (%v); loading %s", installed.ID, local, installed.Version, err, local)
+				log.Printf("[PLUGINS] WARNING: %s %s on disk, %s in config, not updated (%v); loading %s, next check in %v", installed.ID, local, installed.Version, err, local, updateRetryAfter)
 			}
 		}
 
