@@ -25,6 +25,7 @@ import (
 	"github.com/Domktorymysli/vclu/pkg/i18n"
 	"github.com/Domktorymysli/vclu/pkg/logstream"
 	"github.com/Domktorymysli/vclu/pkg/lua"
+	"github.com/Domktorymysli/vclu/pkg/luastr"
 	mcppkg "github.com/Domktorymysli/vclu/pkg/mcp"
 	"github.com/Domktorymysli/vclu/pkg/metrics"
 	"github.com/Domktorymysli/vclu/pkg/server"
@@ -320,8 +321,8 @@ func (s *Server) syncProfilesToLua() {
 			profilesLua += ", "
 		}
 		firstP = false
-		profilesLua += fmt.Sprintf(`["%s"] = {`, name)
-		profilesLua += fmt.Sprintf(`["default"] = "%s"`, pm["default"])
+		profilesLua += fmt.Sprintf(`[%s] = {`, luastr.Quote(name))
+		profilesLua += fmt.Sprintf(`["default"] = %s`, luastr.Quote(fmt.Sprint(pm["default"])))
 
 		if objects, ok := pm["objects"].(map[string]string); ok && len(objects) > 0 {
 			profilesLua += ", objects = {"
@@ -331,7 +332,7 @@ func (s *Server) syncProfilesToLua() {
 					profilesLua += ", "
 				}
 				firstO = false
-				profilesLua += fmt.Sprintf(`["%s"] = "%s"`, path, level)
+				profilesLua += fmt.Sprintf(`[%s] = %s`, luastr.Quote(path), luastr.Quote(level))
 			}
 			profilesLua += "}"
 		}
@@ -348,12 +349,12 @@ func (s *Server) syncProfilesToLua() {
 			assignmentsLua += ", "
 		}
 		firstA = false
-		assignmentsLua += fmt.Sprintf(`%s = {`, intg)
+		assignmentsLua += fmt.Sprintf(`[%s] = {`, luastr.Quote(intg))
 		for i, name := range names {
 			if i > 0 {
 				assignmentsLua += ", "
 			}
-			assignmentsLua += fmt.Sprintf(`"%s"`, name)
+			assignmentsLua += luastr.Quote(name)
 		}
 		assignmentsLua += "}"
 	}
