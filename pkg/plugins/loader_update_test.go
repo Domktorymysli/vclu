@@ -90,6 +90,9 @@ func TestLoadAllEnabledDownloadsConfiguredVersion(t *testing.T) {
 	if entry := loader.ReadLockFile()["@vclu/weather"]; entry.Version != "1.1.0" {
 		t.Errorf("lock %+v, want 1.1.0", entry)
 	}
+	if _, err := os.Stat(filepath.Join(loader.pluginsDir, safePluginDir("@vclu/weather"), "1.0.2")); !os.IsNotExist(err) {
+		t.Errorf("1.0.2 still on disk after the update (%v)", err)
+	}
 }
 
 func TestLoadAllEnabledKeepsFilesWhenDownloadFails(t *testing.T) {
@@ -321,9 +324,95 @@ func TestCompareVersions(t *testing.T) {
 		{"1.4.0", "1.3.1", 1, true}, {"1.3.1", "1.4.0", -1, true}, {"1.10.0", "1.9.9", 1, true},
 		{"1.0", "1.0.0", 0, true}, {"v2.0.1", "2.0.1", 0, true}, {"2.0.0-beta", "2.0.0", 0, true},
 		{"latest", "1.0.0", 0, false}, {"", "1.0.0", 0, false}, {"1.x", "1.0", 0, false},
+		{"1.01", "1.1", 0, true}, {"1..2", "1.0", 0, false}, {"1.0.", "1.0", 0, false},
+		{"1.99999999999999999999", "1.0", 0, false}, {"20261025.1", "20261024.9", 1, true},
 	} {
 		if cmp, ok := compareVersions(tc.a, tc.b); cmp != tc.cmp || ok != tc.ok {
 			t.Errorf("compareVersions(%q, %q) = %d, %v; want %d, %v", tc.a, tc.b, cmp, ok, tc.cmp, tc.ok)
 		}
+	}
+}
+
+// An untagged plugin goes to "latest": the tagged directories older than its version go, a
+// newer one stays; a tagged download then removes "latest".
+func TestDownloadPluginUntaggedCleanup(t *testing.T) {
+	loader, tmpDir := newTestLoader(t)
+	sd := safePluginDir("@vclu/weather")
+	for _, v := range []string{"1.0.0", "3.0.0"} {
+		dir := filepath.Join(tmpDir, "plugins", sd, v)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "plugin.json"), []byte(`{"id":"weather"}`), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var index atomic.Value
+	index.Store(`{"version":1,"plugins":[{"id":"weather","name":"Weather","version":"2.0.0","path":"plugins/weather"}]}`)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/plugins.json":
+			_, _ = w.Write([]byte(index.Load().(string)))
+		case "/plugins/weather/plugin.json":
+			_, _ = w.Write([]byte(`{"id":"weather","version":"2.0.0","files":["init.lua"]}`))
+		case "/plugins/weather/init.lua":
+			_, _ = w.Write([]byte("return {}\n"))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+	loader.httpClient = ts.Client()
+	repo := configRepo("test", ts.URL)
+
+	onDisk := func(want map[string]bool) {
+		t.Helper()
+		for v, w := range want {
+			_, err := os.Stat(filepath.Join(tmpDir, "plugins", sd, v))
+			if got := err == nil; got != w {
+				t.Errorf("%s on disk = %v, want %v", v, got, w)
+			}
+		}
+	}
+	for i := 0; i < 2; i++ {
+		if err := loader.DownloadPlugin(repo, "@vclu/weather"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	onDisk(map[string]bool{"1.0.0": false, "latest": true, "3.0.0": true})
+	if entry := loader.ReadLockFile()["@vclu/weather"]; entry.Path != sd+"/latest" || entry.Version != "2.0.0" {
+		t.Errorf("lock %+v, want latest at 2.0.0", entry)
+	}
+
+	index.Store(`{"version":1,"plugins":[{"id":"weather","name":"Weather","version":"2.1.0","path":"plugins/weather","tag":"weather-v2.1.0"}]}`)
+	if err := loader.DownloadPlugin(repo, "@vclu/weather"); err != nil {
+		t.Fatal(err)
+	}
+	onDisk(map[string]bool{"latest": false, "2.1.0": true, "3.0.0": true})
+}
+
+// The panel's Update with a repository behind the disk (1.0.1 offered, 1.0.2 installed by hand)
+// is an explicit choice: the plugin runs 1.0.1 from then on and 1.0.2 is not deleted.
+func TestUpdateToRepositoryBehindDisk(t *testing.T) {
+	ts := newTestServer(map[string]string{
+		"/plugins.json":                strings.ReplaceAll(weatherIndex110, "1.1.0", "1.0.1"),
+		"/plugins/weather/plugin.json": `{"id":"weather","name":"Weather","version":"1.0.1","files":["init.lua"]}`,
+		"/plugins/weather/init.lua":    "return 'registry'\n",
+	})
+	defer ts.Close()
+	loader, L := installedWeather(t, ts.URL, "1.0.1") // the panel writes the config after the download
+	loader.httpClient = ts.Client()
+
+	if err := loader.DownloadPlugin(configRepo("test", ts.URL), "@vclu/weather"); err != nil {
+		t.Fatal(err)
+	}
+	if err := loader.LoadAllEnabled(); err != nil {
+		t.Fatalf("LoadAllEnabled: %v", err)
+	}
+	if dir, code := loadedFrom(L); !strings.HasSuffix(dir, "1.0.1") || !strings.Contains(code, "registry") {
+		t.Errorf("loaded %s (%q), want 1.0.1", dir, code)
+	}
+	if _, err := os.Stat(filepath.Join(loader.pluginsDir, safePluginDir("@vclu/weather"), "1.0.2", "plugin.json")); err != nil {
+		t.Errorf("1.0.2 gone: %v", err)
 	}
 }

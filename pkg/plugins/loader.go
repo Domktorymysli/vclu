@@ -290,7 +290,7 @@ func (l *Loader) DownloadPlugin(repo config.PluginRepository, pluginID string) e
 	}
 
 	// Cleanup old versions (after successful download)
-	l.cleanupOldVersions(filepath.Join(l.pluginsDir, safeDir), version)
+	l.cleanupOldVersions(filepath.Join(l.pluginsDir, safeDir), version, listing.Version)
 
 	// Update lock file (after cleanup — lock never points to removed dir)
 	lockEntry.LockedAt = time.Now().Format(time.RFC3339)
@@ -339,8 +339,9 @@ func (l *Loader) downloadAllFiles(baseURL, localDir string) error {
 	return nil
 }
 
-// cleanupOldVersions removes version directories other than currentVersion
-func (l *Loader) cleanupOldVersions(pluginBaseDir, currentVersion string) {
+// cleanupOldVersions removes the version directories older than currentVersion, the version
+// just downloaded into currentDir ("latest" for an untagged plugin)
+func (l *Loader) cleanupOldVersions(pluginBaseDir, currentDir, currentVersion string) {
 	entries, err := os.ReadDir(pluginBaseDir)
 	if err != nil {
 		return
@@ -350,12 +351,12 @@ func (l *Loader) cleanupOldVersions(pluginBaseDir, currentVersion string) {
 			continue
 		}
 		name := entry.Name()
-		if name == currentVersion || strings.HasPrefix(name, ".tmp-") {
+		if name == currentDir || strings.HasPrefix(name, ".tmp-") {
 			continue
 		}
 		// only what the new version replaces: never a newer version (installed by hand), never
 		// a directory whose version cannot be compared; "latest" goes when a tagged one comes
-		if cmp, ok := compareVersions(name, currentVersion); !(ok && cmp < 0) && !(name == "latest" && currentVersion != "latest") {
+		if cmp, ok := compareVersions(name, currentVersion); !(ok && cmp < 0) && name != "latest" {
 			continue
 		}
 		path := filepath.Join(pluginBaseDir, name)
@@ -465,7 +466,7 @@ func versionParts(v string) ([]int, bool) {
 			n = n*10 + int(c-'0')
 			digits++
 		}
-		if digits == 0 {
+		if digits == 0 || digits > 9 { // more would overflow int on 32-bit
 			return nil, false
 		}
 		out = append(out, n)
