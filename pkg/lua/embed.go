@@ -1,10 +1,12 @@
 // Package lua provides embedded Lua code for the Grenton virtual CLU.
-// All Lua modules are embedded from runtime/ directory.
+// Lua modules are embedded from runtime/, Lua only Go runs from glue/.
 package lua
 
 import (
 	_ "embed"
 	"strings"
+
+	lua "github.com/yuin/gopher-lua"
 )
 
 // Object class files (split for maintainability)
@@ -148,3 +150,26 @@ func Registry() string {
 //
 //go:embed runtime/utils/Helpers.lua
 var Helpers string
+
+// Lua the Go side runs (not public API), kept in glue/ (AGENTS.md rule 4).
+//
+//go:embed glue/load_user.lua
+var loadUserLua string
+
+//go:embed glue/check_alive.lua
+var checkAliveLua string
+
+//go:embed glue/gpio_poll.lua
+var gpioPollLua string
+
+//go:embed glue/satel_setup.lua
+var satelSetupLua string
+
+// runLuaChunk runs an embedded chunk with args as its `...`.
+func runLuaChunk(L *lua.LState, src string, args ...lua.LValue) error {
+	fn, err := L.LoadString(src)
+	if err != nil {
+		return err
+	}
+	return L.CallByParam(lua.P{Fn: fn, Protect: true}, args...)
+}
