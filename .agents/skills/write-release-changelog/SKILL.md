@@ -1,110 +1,140 @@
 ---
 name: write-release-changelog
-description: "Write the CHANGELOG.md section and the GitHub release description for a vCLU release: assemble changelog.d/, then rewrite it for users, in Polish first and English after, without implementation details."
+description: "Write the short release notes of a vCLU release: one CHANGELOG.md section and one plain-text post for groups, English first and Polish second, the same points in the same order, every release in the same shape. The detail stays in the PRs and commits."
 ---
 
-# Write the changelog of a release
+# Write the release notes
 
 **When:** a maintainer releases a version (`vX.Y.Z`). Not in a PR: a PR adds a file to
-`changelog.d/` (see its README), and those entries may be technical.
+`changelog.d/` (see its README), and those entries may be long and technical. The release notes
+are short; whoever wants the detail follows the link to the PR, where the commits say everything.
 
-**Read first:** `changelog.d/README.md`; the newest release in `CHANGELOG.md`; the PRs and tickets
-the entries link, when an entry does not say what a user notices.
+**Read first:** `changelog.d/README.md`; the newest release in `CHANGELOG.md` (copy its shape);
+`go run ./tools/changelog` (what the entries say); `git log --merges --format='%s' vPREV..HEAD`
+(the PRs of this release).
 
 ## Who reads it
 
-A person with a Grenton installation who updates vCLU at home. They know Object Manager, CLU,
-modules and objects; they do not know vCLU's code. They want to know: what is new for me, what got
-fixed, and what I must do when I update. Most of them read Polish.
+A person with a Grenton installation who updates vCLU at home, in a Facebook or Discord group or on
+GitHub. They know Object Manager, CLU, modules and objects, not vCLU's code. They want three
+answers in a minute: is it worth updating, must I do something when I update, what changed.
 
-## Steps
+## What you produce
 
-1. `go run ./tools/changelog` prints what the entries say. Read every entry and the PR behind it
-   when needed, so you know what the user sees, not only what the code does.
-2. `go run ./tools/changelog release vX.Y.Z` puts the raw section into `CHANGELOG.md` and removes
-   the files. Replace that section with the text below; the raw entries stay in the PRs.
-3. Write the Polish part, then the English part: the same points in the same order, the English a
-   translation of the Polish, not a second text.
-4. Show the section to the maintainer before the release commit (`CHANGELOG: vX.Y.Z`).
-5. The GitHub release description: the same section, with how to update above it (`update.sh
-   --version vX.Y.Z`, the Docker image tag) and, when it applies, what was checked on hardware and
-   what was not.
+Two texts with the same content:
 
-## The section
+1. **The `CHANGELOG.md` section** (Markdown), also the GitHub release description with how to
+   update above it.
+2. **The post for groups** (plain text): no `**`, no `[text](url)`, no headings with `#` — Facebook
+   shows them as they are. Bare URLs, `•` bullets, an empty line between parts.
+
+Each has two parts: **English** first, then **Po polsku**. The Polish part is the same points in the
+same order, written for a Polish reader (not a word-for-word calque); not a second, different text.
+
+## Shape (every release looks like this)
 
 ```markdown
 ## v1.7.0 (2026-10-25)
 
-### Po polsku
-
-**Najważniejsze:** kalendarz domu w modułach Lua i na dashboardzie; ...
-
-#### Przed aktualizacją
-
-- **Harmonogram z wartościami tekstowymi wymaga `values`** - dopisz listę wartości, np.
-  `values = { 'dzien', 'noc' }`, inaczej moduł się nie załaduje. Błąd podaje gotową listę.
-
-#### Nowe
-
-- **Kalendarz domu** - wydarzenia (wywóz śmieci, szkoła) i harmonogramy (taryfa, pory dnia)
-  opisane w module, z przypomnieniami, świętami i godzinami słońca; widget pokazuje miesiąc i
-  dzień ([#76](https://github.com/Domktorymysli/vclu/issues/76)).
-
-#### Poprawki
-
-- **...** - ...
-
 ### English
 
-**Highlights:** a house calendar in Lua modules and on dashboards; ...
+**Highlights:** a house calendar; new dashboard tiles (rooms, thermostat, forecast, player);
+plugin updates from the panel that actually update.
 
-#### Before you update
+**Before you update**
+- Text schedules need `values = { ... }`, or the module does not load ([#76](https://github.com/Domktorymysli/vclu/issues/76)).
 
-- **A schedule of text values needs `values`** - ...
+**New**
+- House calendar: events, reminders, holidays and schedules in modules and on dashboards ([#76](https://github.com/Domktorymysli/vclu/issues/76)).
+- Thermostat tile: set the target with + and -, read-only or locked when you want ([#64](https://github.com/Domktorymysli/vclu/issues/64)).
+- ...
 
-#### New
+**Fixes**
+- Picking a colour on a dashboard works again ([#116](https://github.com/Domktorymysli/vclu/pull/116)).
+- Smaller fixes: ...
 
-- **A house calendar** - ...
+Full list: https://github.com/Domktorymysli/vclu/compare/v1.6.0...v1.7.0
 
-#### Fixes
+### Po polsku
 
-- **...** - ...
+**Najważniejsze:** kalendarz domu; nowe kafle dashboardów (pokoje, termostat, prognoza, odtwarzacz);
+aktualizacja pluginu z panelu naprawdę go aktualizuje.
+
+**Przed aktualizacją**
+- Harmonogram z wartościami tekstowymi wymaga `values = { ... }`, inaczej moduł się nie załaduje ([#76](...)).
+
+**Nowe**
+- Kalendarz domu: wydarzenia, przypomnienia, święta i harmonogramy w modułach i na dashboardzie ([#76](...)).
+- ...
+
+**Poprawki**
+- Wybór koloru na dashboardzie znowu działa ([#116](...)).
+- Drobne poprawki: ...
+
+Pełna lista: https://github.com/Domktorymysli/vclu/compare/v1.6.0...v1.7.0
 ```
 
-- Leave out a heading with nothing under it. "Przed aktualizacją" / "Before you update" holds every
-  `Contract change:` entry, a re-import of OM, a module the user must edit, a setting that moved.
-- **Najważniejsze** / **Highlights**: one line, the two or three things worth updating for.
-- The area (Grenton, dashboards, Home Assistant, MCP...) goes into the sentence when it helps, not
-  into headings.
+The same as a post:
 
-## How an entry reads
+```text
+vCLU v1.7.0 — https://github.com/Domktorymysli/vclu/releases/tag/v1.7.0
 
-- The bold lead says what the user gets or what stopped going wrong, in their words. The sentence
-  after it says when they notice it and what to do, if anything. Two sentences at most.
-- Leave out how it was done: file and function names, class and feature numbers, Go and test
-  names, protocols, what an earlier version did inside. A Lua name stays only if the user writes it
-  in a module (`values`, `:calendar()`, `dom:skip()`).
-- A fix says what went wrong for the user, not the cause: "the blind stopped on a second OPEN from
-  HomeKit", not "MoveUp was sent instead of SetPosition".
-- Small fixes nobody would look for go into one entry: "Drobne poprawki: ..." / "Smaller fixes: ...".
-- Each entry links its ticket or PR, so the technical detail is one click away.
-- Polish: plain words and the names the vCLU panel and Object Manager use (moduł, obiekt, cecha,
-  dashboard); no calques from the English text. Read it aloud once.
+ENGLISH
+Highlights: a house calendar; new dashboard tiles (rooms, thermostat, forecast, player); ...
 
-Too technical (an entry from v1.6.0):
+Before you update
+• Text schedules need values = { ... }, or the module does not load.
 
-> The channels of an LED RGBW module are lights - the OM import did not know `LED_CHANNEL` (class
-> 49, four per LED RGBW 2.0 module), so a strip driven per channel had nothing in vCLU. Each channel
-> is now a `RemoteLedChannel`: ...
+New
+• House calendar: events, reminders, holidays and schedules in modules and on dashboards.
+• ...
 
-For users:
+Fixes
+• Picking a colour on a dashboard works again.
 
-> **Kanały modułu LED RGBW są osobnymi światłami** - każdy z czterech kanałów LED RGBW 2.0 da się
-> teraz włączać i ściemniać z modułów i dashboardu. Po aktualizacji zaimportuj OM
-> ponownie ([#41](https://github.com/Domktorymysli/vclu/issues/41)).
+POLSKI
+Najważniejsze: ...
+...
+```
+
+## Rules
+
+- **Length:** one language part fits on a phone screen and a half: at most ~10 points under
+  "New", ~6 under "Fixes"; each point one line (about 20 words), no second sentence unless it is
+  what the user must do. The whole section is under ~3000 characters per language.
+- **Highlights / Najważniejsze:** one line, the two or three things worth updating for.
+- **Before you update / Przed aktualizacją:** every `Contract change:` entry, a re-import of OM, a
+  module the user must edit, a setting that moved. Leave the heading out when empty. Nothing a user
+  must do may hide under "New" or "Fixes".
+- **Group, then cut:** several entries about one feature become one point (the epic or the main PR
+  link); internal work (tests, CI, refactors, Go version, agent/MCP details a user does not see)
+  goes into one "Smaller fixes: ..." / "Drobne poprawki: ..." point or is left out. MCP changes
+  stay only when an agent user notices them (e.g. "promote limit 60/h").
+- **Words of the user:** what they get or what stopped going wrong, not how. No file, function,
+  class or feature numbers, protocols, Go or test names. A Lua name stays only if the user writes
+  it in a module (`values`, `:thermostat()`, `optional()`).
+- **Links:** each point links its ticket or PR in the Markdown section; the post has no per-point
+  links, only the release URL at the top (and the compare URL at the end).
+- **Hardware:** say what was checked on real hardware and what was not, only in the GitHub release
+  description (one line), not in the post.
+- Polish: plain words and the names of the vCLU panel and Object Manager (moduł, obiekt, cecha,
+  dashboard). Read it aloud once.
+
+## Steps
+
+1. `go run ./tools/changelog` and the merged PRs: list every change, then group and cut as above.
+2. `go run ./tools/changelog release vX.Y.Z` puts the raw entries into `CHANGELOG.md` and removes
+   the files from `changelog.d/`. Replace that raw section with the short section; the raw text
+   stays in the PRs and commits.
+3. Write the English part, then the Polish part. Then the post from the same text.
+4. Show both to the maintainer before the release commit (`CHANGELOG: vX.Y.Z`); save the post in
+   the PR description or give it in the reply, ready to paste.
+5. The GitHub release description: how to update (`update.sh --version vX.Y.Z`, the Docker image
+   tag), one line on hardware checks, then the section.
 
 ## Check
 
-- Every entry from `changelog.d/` is in both parts, or merged into a "smaller fixes" entry.
-- Nothing a user must do after updating is only in "Poprawki" or "Nowe".
+- Every `changelog.d/` entry is in a point, in "smaller fixes", or deliberately left out as internal.
+- English and Polish have the same points in the same order; the post matches the section.
+- Under the length limits; no point longer than two lines on a phone.
 - `go test ./tools/changelog/` passes; `changelog.d/` holds only its README.
