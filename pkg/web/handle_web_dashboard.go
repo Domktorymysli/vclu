@@ -877,7 +877,6 @@ func (s *Server) getDashHMACKey() []byte {
 	return dashKey
 }
 
-// luaEscape escapes a string for safe embedding in Lua string literals
 // actionValueLua writes an action's JSON value as a Lua literal: a bool, number, string, or an
 // object of those (the colour widget sends {r, g, b}); anything else is nil.
 func actionValueLua(value interface{}) string {
@@ -911,6 +910,7 @@ func actionValueLua(value interface{}) string {
 	return "nil"
 }
 
+// luaEscape escapes a string for safe embedding in Lua string literals
 func luaEscape(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))

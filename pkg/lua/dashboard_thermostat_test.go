@@ -412,3 +412,61 @@ func TestDashboardThermostatReadOnlyFunction(t *testing.T) {
 		t.Errorf("failing lock set = %v", res)
 	}
 }
+
+// A room tile shows an exposed thermostat in its widgets only through kinds; the tile's counts
+// leave it out. A room or area with default kinds is as before, unless the expose says
+// dashboard = true. The room's thermostat takes a set through its area id.
+func TestDashboardThermostatInRoom(t *testing.T) {
+	engine := newThermostatEngine(t)
+	mustExec(t, engine, `
+		report(1, 0, 20, 20, 19.5)
+		expose(TH, 'climate', { path = 'salon.termostat', name = 'Termostat', area = 'Salon' })
+		expose(VirtualSwitch:new('sufit'), 'light', { path = 'salon.sufit', name = 'Sufit', area = 'Salon' })
+		Dashboard.new('r')
+			:section('Pokoje'):room('salon', 'Salon', { kinds = { 'light', 'climate' } })
+			:build()
+		Dashboard.new('plain')
+			:section('Pokoje'):room('salon', 'Salon')
+			:section('Salon'):area('Salon')
+			:build()`)
+
+	var def dashDef
+	dashJSON(t, engine, `Dashboard.API.getDefinition("r")`, &def)
+	w := def.widget("area:salon.termostat")
+	if w == nil || w["type"] != "thermostat" || w["target"] != 20.0 || w["current"] != 19.5 {
+		t.Fatalf("room thermostat = %v", w)
+	}
+	var vals map[string]map[string]interface{}
+	dashJSON(t, engine, `Dashboard.API.getValues("r")`, &vals)
+	if tile := vals["salon"]; tile["on"] != 0.0 || tile["open"] != 0.0 {
+		t.Errorf("room tile counts the thermostat: %v", tile)
+	}
+	var res map[string]interface{}
+	dashJSON(t, engine, `Dashboard.API.executeAction("r", "area:salon.termostat", "set", 22)`, &res)
+	if res["success"] != true {
+		t.Errorf("room set = %v", res)
+	}
+	if got := mustExec(t, engine, `return sent()`); got != "THE1:set(3, 22)" {
+		t.Errorf("sent = %q", got)
+	}
+
+	var plain dashDef
+	dashJSON(t, engine, `Dashboard.API.getDefinition("plain")`, &plain)
+	for _, x := range plain.Widgets {
+		if x["type"] == "thermostat" {
+			t.Errorf("default kinds show a thermostat: %v", x)
+		}
+	}
+	if plain.widget("area:salon.sufit") == nil {
+		t.Errorf("default kinds lost the light: %v", plain.Widgets)
+	}
+
+	// dashboard = true opts in: the default kinds show it
+	mustExec(t, engine, `
+		TH2 = RemoteThermostat:new(CLU, 'THE2', 'Kuchnia')
+		expose(TH2, 'climate', { path = 'salon.termostat2', area = 'Salon', dashboard = true })`)
+	dashJSON(t, engine, `Dashboard.API.getDefinition("plain")`, &plain)
+	if x := plain.widget("area:salon.termostat2"); x == nil || x["type"] != "thermostat" {
+		t.Errorf("dashboard = true thermostat = %v", x)
+	}
+}
