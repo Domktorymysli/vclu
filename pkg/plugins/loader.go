@@ -622,9 +622,8 @@ func (l *Loader) LoadAllEnabled() error {
 			if repo == nil {
 				log.Printf("[PLUGINS] WARNING: %s %s on disk, %s in config, repository %s not found; loading %s", installed.ID, local, installed.Version, installed.Repository, local)
 			} else if err := l.DownloadPlugin(*repo, installed.ID); err != nil {
+				// LoadPlugin resolves the directory again, so it takes what is on disk
 				log.Printf("[PLUGINS] WARNING: %s %s on disk, %s in config, download failed (%v); loading %s", installed.ID, local, installed.Version, err, local)
-			} else {
-				localDir = l.resolvePluginDir(installed.ID)
 			}
 		}
 
