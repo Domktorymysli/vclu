@@ -176,14 +176,7 @@ func (le *LuaEngine) SetSatelManager(sm *SatelManager) {
 	le.executeFast("SetSatelManager", func(L *lua.LState) (string, error) {
 		le.satelManager = sm
 		registerSatelFunctions(L, sm)
-		if err := L.DoString(`
-			if __go_satel_poll_event and Satel then
-				Satel.setup()
-				EventBus:getShared():setInterval(function()
-					Satel.pollEvents()
-				end, 100)
-			end
-		`); err != nil {
+		if err := L.DoString(satelSetupLua); err != nil {
 			log.Printf("[SATEL] failed to start Lua integration: %v", err)
 		}
 		return "", nil

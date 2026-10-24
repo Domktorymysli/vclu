@@ -182,6 +182,7 @@ type Server struct {
 	sessions         *sessionStore
 	calendarLimiter  *rateLimiter // calendar widget requests that miss the cache, per IP
 	backupState      backupSchedulerState
+	version          string
 }
 
 // NewServer creates a new web server
@@ -588,6 +589,18 @@ func (s *Server) SetMetricsCollector(mc *metrics.Collector) {
 // SetCameraManager sets the camera snapshot manager
 func (s *Server) SetCameraManager(cm *camera.Manager) {
 	s.cameraManager = cm
+}
+
+// SetVersion sets the vCLU version shown in the sidebar. Release builds pass "1.3.0" or
+// "v1.3.0"; both are shown as "v1.3.0", other values as they are, and an empty one as "dev".
+func (s *Server) SetVersion(version string) {
+	version = strings.TrimSpace(version)
+	if version == "" {
+		version = "dev"
+	} else if version[0] >= '0' && version[0] <= '9' {
+		version = "v" + version
+	}
+	s.version = version
 }
 
 // SetMQTTManager sets the MQTT manager for client reconnect and test connection
@@ -1013,5 +1026,6 @@ func checkSupportsModules(serverDir string) bool {
 // renderHTML renders an HTML template with automatic CSRF token injection
 func (s *Server) renderHTML(c *gin.Context, code int, name string, data gin.H) {
 	data["csrfToken"] = s.getCSRFToken(c)
+	data["appVersion"] = s.version
 	c.HTML(code, name, data)
 }
