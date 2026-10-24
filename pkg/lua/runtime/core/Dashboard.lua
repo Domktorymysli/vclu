@@ -192,6 +192,14 @@ local function coversResolve(dashId, w)
     return out
 end
 
+-- opts.decimals of a status: whole places 0..6; the page rounds a number to them
+local function checkDecimals(what, id, opts)
+    local d = type(opts) == 'table' and opts.decimals or nil
+    if d ~= nil and (type(d) ~= 'number' or d % 1 ~= 0 or d < 0 or d > 6) then
+        error(what .. '("' .. tostring(id) .. '"): opts.decimals must be a whole number 0-6', 3)
+    end
+end
+
 -- ==========================================================================
 -- Thermostat: current temperature, target, +/- for the target
 -- ==========================================================================
@@ -915,9 +923,10 @@ end
 -- @param icon string Bootstrap icon name (e.g., "thermometer-half", "droplet")
 -- @param getValue function Returns current value: function() -> number|string
 -- @param unit string Unit suffix displayed after value (e.g., "°C", "%", "lx")
--- @param opts table Optional: {disabled=function()->bool, color=string|function()->string|nil}
+-- @param opts table Optional: {decimals=0-6 (a number is shown rounded to that many places), disabled=function()->bool, color=string|function()->string|nil}
 -- @api public
 function SectionHandle:status(id, label, icon, getValue, unit, opts)
+    checkDecimals('section:status', id, opts)
     self._builder:_addWidget(self._sectionIndex, {
         id = id, type = 'status', label = label, icon = icon,
         getValue = getValue, unit = unit or '', opts = opts or {}
@@ -1565,12 +1574,13 @@ end
 -- @param icon string Bootstrap icon name (e.g., "thermometer-half", "droplet")
 -- @param getValue function Returns current value: function() -> number|string
 -- @param unit string Unit suffix displayed after value (e.g., "°C", "%", "lx")
--- @param opts table Optional: {disabled=function()->bool, color=string|function()->string|nil}
+-- @param opts table Optional: {decimals=0-6 (a number is shown rounded to that many places), disabled=function()->bool, color=string|function()->string|nil}
 -- @api public
 function DashboardBuilder:status(id, label, icon, getValue, unit, opts)
     if not self._currentSection then
         error('Call :section() before adding widgets (dash:floor() ends the current section)', 2)
     end
+    checkDecimals('dash:status', id, opts)
     self:_addWidget(self._currentSection, {
         id = id, type = 'status', label = label, icon = icon,
         getValue = getValue, unit = unit or '', opts = opts or {}
@@ -2294,6 +2304,7 @@ function DashboardAPI.getDefinition(id)
             -- Status unit + sparkline
             if w.type == 'status' then
                 widget.unit = w.unit
+                widget.decimals = w.opts.decimals
                 if w.opts.spark then
                     widget.spark = w.opts.spark
                     widget.sparkRange = w.opts.sparkRange or '2h'

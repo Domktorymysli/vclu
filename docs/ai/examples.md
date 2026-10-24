@@ -377,8 +377,9 @@ Dashboard.new('home')
   })
   -- Header bar — compact bar with values (before the sections!)
   :header()
+    -- return the number; decimals rounds it on the page ("21,4 °C" in Polish, "21.4 °C" in English)
     :status('temp_out', 'Zewn', 'thermometer-half',
-      function() return r:value("CLU212345678.ANA4201") end, '°C')
+      function() return r:value("CLU212345678.ANA4201") end, '°C', { decimals = 1 })
     :status('hum_out', 'Wilg', 'droplet',
       function() return r:value("CLU212345678.ANA4202") end, '%')
   -- Salon — 3 columns (default)
