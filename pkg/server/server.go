@@ -423,12 +423,8 @@ func (s *Server) connectMQTT() {
 			s.luaEngine.Execute(fmt.Sprintf(`if AccessControl then AccessControl.DEFAULT_MQTT = %q end`, clientConfig.DefaultAccess))
 		}
 	} else if brokerConfig := config.GetMQTTBrokerConfig(s.serverDir); brokerConfig != nil && brokerConfig.Enabled {
-		connectScript := fmt.Sprintf(`
-			MQTT:setHost("localhost"):setPort(%d):setClientId("vclu_internal"):setCredentials("%s", "%s")
-			local ok = MQTT:connect()
-			if ok then HAIntegration.setup(MQTT) end
-			return ok
-		`, brokerConfig.Port, brokerConfig.Username, brokerConfig.Password)
+		connectScript := connectBrokerLua + "\n" + fmt.Sprintf(`return connectBroker(%d, "%s", "%s")`,
+			brokerConfig.Port, brokerConfig.Username, brokerConfig.Password)
 		if _, err := s.luaEngine.Execute(connectScript); err != nil {
 			log.Printf("WARNING: MQTT auto-connect failed: %v", err)
 		}

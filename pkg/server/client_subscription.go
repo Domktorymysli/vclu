@@ -310,16 +310,7 @@ func (s *Server) triggerAutoSubscribe() {
 
 	log.Printf("[CLIENT-REPORT] Triggering auto-subscribe to remote CLUs")
 
-	script := `
-		if RemoteSubscription and RemoteSubscription.autoSubscribe then
-			RemoteSubscription.autoSubscribe()
-			return "OK"
-		else
-			return "RemoteSubscription not available"
-		end
-	`
-
-	result, err := s.luaEngine.Execute(script)
+	result, err := s.luaEngine.Execute(autoSubscribeLua)
 	if err != nil {
 		log.Printf("[CLIENT-REPORT] Auto-subscribe failed: %v", err)
 	} else {

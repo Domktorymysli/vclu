@@ -189,21 +189,7 @@ func (s *Server) diagWriteDevices(zw *zip.Writer, includeNames bool) {
 		return
 	}
 
-	result, err := s.luaExecutor.Execute(`
-		local list = {}
-		if ExposedObjects and ExposedObjects.list then
-			for _, obj in ipairs(ExposedObjects:list()) do
-				table.insert(list, {
-					path = obj.path or "",
-					type = obj.type or "",
-					name = obj.name or "",
-					area = obj.area or "",
-					description = obj.description or ""
-				})
-			end
-		end
-		return require("json").encode(list)
-	`)
+	result, err := s.luaExecutor.Execute(diagDevicesLua)
 	if err != nil {
 		diagWriteJSON(zw, "devices.json", map[string]string{"error": err.Error()})
 		return
