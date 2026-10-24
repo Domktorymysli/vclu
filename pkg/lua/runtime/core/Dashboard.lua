@@ -24,6 +24,14 @@ local function quoted(set)
     return #out > 0 and table.concat(out, ', ') or 'none'
 end
 
+-- :width() of a dashboard; level points the error at the module's line
+local function setWidth(b, w, level)
+    if w ~= 'full' and w ~= 'normal' then
+        error(":width(): expected 'full' or 'normal', got " .. (type(w) == 'string' and "'" .. w .. "'" or type(w)), level)
+    end
+    b._width = w
+end
+
 -- A calendar widget keeps the calendar's id, so a dashboard may be built before the calendar.
 local function calendarWidget(id, label, cal, opts)
     local calId = type(cal) == 'table' and cal.id or cal
@@ -587,6 +595,10 @@ function SectionHandle:poll(n)  self._builder:poll(n);  return self end
 -- @api public
 function SectionHandle:tabGroup(g) self._builder:tabGroup(g); return self end
 
+--- Set the page width (delegates to DashboardBuilder:width).
+-- @api public
+function SectionHandle:width(w) setWidth(self._builder, w, 3); return self end
+
 -- ==========================================================================
 -- DashboardBuilder
 -- ==========================================================================
@@ -637,6 +649,14 @@ end
 -- @api public
 function DashboardBuilder:columns(n)
     self._columns = n
+    return self
+end
+
+--- Set the page width: 'full' fills the screen edge to edge (wall tablets), 'normal' (default) keeps wide screens centred.
+-- @param w string "full" or "normal"
+-- @api public
+function DashboardBuilder:width(w)
+    setWidth(self, w, 3)
     return self
 end
 
@@ -1179,6 +1199,23 @@ function DashboardAPI.getAuth(id)
     return JSON.encode({ auth = dash._auth })
 end
 
+--- What the home-screen app of a dashboard needs: no widgets or values, any auth may read it
+-- @param id string Dashboard ID
+-- @return string JSON {name, auth, width, background} or {error}
+function DashboardAPI.getAppInfo(id)
+    local dash = resolveDashboard(id)
+    if not dash then
+        return JSON.encode({ error = 'Dashboard not found' })
+    end
+    local theme = type(dash._theme) == 'table' and dash._theme or {}
+    return JSON.encode({
+        name = tostring(dash._name),
+        auth = dash._auth,
+        width = dash._width,
+        background = type(theme.background) == 'string' and theme.background or nil,
+    })
+end
+
 --- Whether the dashboard draws this metric (chart or status sparkline)
 -- @return string JSON {used=bool, ranges=[...]} or {error=...}
 function DashboardAPI.usesMetric(id, path)
@@ -1535,6 +1572,7 @@ function DashboardAPI.getDefinition(id)
         auth = dash._auth,
         poll = dash._poll,
         theme = dash._theme,
+        width = dash._width,
         period = Dashboard.timeOfDay(),
         sections = sections,
         widgets = widgets,

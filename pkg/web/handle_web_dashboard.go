@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -237,6 +238,7 @@ func (s *Server) handleDashboardPage(c *gin.Context) {
 				"id":   id,
 				"name": def["name"],
 				"icon": def["icon"],
+				"app":  newDashApp(id, gin.H{"name": def["name"]}), // the PIN page is never themed
 			})
 			return
 		}
@@ -266,13 +268,177 @@ func (s *Server) handleDashboardPage(c *gin.Context) {
 		themeVars = vars
 	}
 
+	app := newDashApp(id, def)
 	c.HTML(http.StatusOK, "dashboard.html", gin.H{
 		"id":      id,
 		"name":    def["name"],
 		"icon":    def["icon"],
 		"theme":   themeVars,
 		"columns": def["columns"],
+		"full":    app.Full,
+		"app":     app,
 	})
+}
+
+// defaultDashBg is --dash-bg in dashboard.css, the colour of a dashboard without a theme
+const defaultDashBg = "#1a1a2e"
+
+var dashColorRe = regexp.MustCompile(`^(#[0-9a-fA-F]{3,8}|[a-zA-Z]+|(rgb|hsl)a?\([0-9.%, ]+\))$`)
+
+// dashApp is what a dashboard opened from the home screen needs: its name and colours, no widgets.
+type dashApp struct {
+	Name        string
+	ManifestURL string
+	ThemeColor  string
+	StatusBar   string // black-translucent: the page draws under the status bar (dark themes)
+	Full        bool
+}
+
+// newDashApp reads name, width and the theme's background from a definition or getAppInfo.
+func newDashApp(id string, def map[string]interface{}) dashApp {
+	name, _ := def["name"].(string)
+	if name == "" {
+		name = id
+	}
+	bg, _ := def["background"].(string)
+	if theme, ok := def["theme"].(map[string]interface{}); ok {
+		bg, _ = theme["background"].(string)
+	}
+	// a gradient or anything else that is not a plain colour falls back to the default
+	if !dashColorRe.MatchString(bg) {
+		bg = defaultDashBg
+	}
+	status := "black-translucent"
+	if isLightColor(bg) {
+		status = "default"
+	}
+	return dashApp{
+		Name:        name,
+		ManifestURL: "/d/" + url.PathEscape(id) + "/manifest.webmanifest",
+		ThemeColor:  bg,
+		StatusBar:   status,
+		Full:        def["width"] == "full",
+	}
+}
+
+var lightColorNames = map[string]bool{
+	"white": true, "snow": true, "ivory": true, "beige": true, "whitesmoke": true, "linen": true,
+	"ghostwhite": true, "floralwhite": true, "seashell": true, "oldlace": true, "mintcream": true,
+	"azure": true, "aliceblue": true, "honeydew": true, "lavenderblush": true, "cornsilk": true,
+	"lightyellow": true, "lightgray": true, "lightgrey": true, "gainsboro": true, "lavender": true,
+}
+
+// isLightColor: a background bright enough for dark text (#hex, rgb(), hsl() or a light name)
+func isLightColor(c string) bool {
+	c = strings.ToLower(strings.TrimSpace(c))
+	if lightColorNames[c] {
+		return true
+	}
+	if h, ok := strings.CutPrefix(c, "#"); ok {
+		if len(h) == 3 || len(h) == 4 {
+			h = string([]byte{h[0], h[0], h[1], h[1], h[2], h[2]})
+		}
+		if len(h) < 6 {
+			return false
+		}
+		v, err := strconv.ParseUint(h[:6], 16, 32)
+		if err != nil {
+			return false
+		}
+		return luma(float64(v>>16), float64(v>>8&0xff), float64(v&0xff))
+	}
+	fn, args, ok := strings.Cut(c, "(")
+	if !ok || !strings.HasSuffix(args, ")") {
+		return false
+	}
+	parts := strings.FieldsFunc(strings.TrimSuffix(args, ")"), func(r rune) bool { return r == ',' || r == ' ' || r == '/' })
+	if len(parts) < 3 {
+		return false
+	}
+	num := func(s string, full float64) (float64, bool) {
+		if p, ok := strings.CutSuffix(s, "%"); ok {
+			v, err := strconv.ParseFloat(p, 64)
+			return v / 100 * full, err == nil
+		}
+		v, err := strconv.ParseFloat(s, 64)
+		return v, err == nil
+	}
+	switch fn {
+	case "rgb", "rgba":
+		r, ok1 := num(parts[0], 255)
+		g, ok2 := num(parts[1], 255)
+		b, ok3 := num(parts[2], 255)
+		return ok1 && ok2 && ok3 && luma(r, g, b)
+	case "hsl", "hsla":
+		l, ok := num(parts[2], 100)
+		return ok && l > 60
+	}
+	return false
+}
+
+// luma: perceived brightness of 0..255 channels above the middle
+func luma(r, g, b float64) bool {
+	return 0.299*r+0.587*g+0.114*b > 150
+}
+
+type manifestIcon struct {
+	Src     string `json:"src"`
+	Sizes   string `json:"sizes"`
+	Type    string `json:"type"`
+	Purpose string `json:"purpose,omitempty"`
+}
+
+// handleDashboardManifest serves /d/:id/manifest.webmanifest without the dashboard's auth:
+// browsers fetch it without cookies, so it holds only the name and the theme colour. The scope
+// is the whole site: tabs, chip links and the login stay inside the app.
+func (s *Server) handleDashboardManifest(c *gin.Context) {
+	id := c.Param("id")
+	if s.luaExecutor == nil {
+		c.String(http.StatusServiceUnavailable, "Lua engine not ready")
+		return
+	}
+	result, err := s.luaExecutor.Execute(fmt.Sprintf(`Dashboard.API.getAppInfo("%s")`, luaEscape(id)))
+	if err != nil {
+		log.Printf("[DASHBOARD] %s manifest: %v", id, err)
+		c.String(http.StatusInternalServerError, "dashboard unavailable")
+		return
+	}
+	var info map[string]interface{}
+	if json.Unmarshal([]byte(result), &info) != nil || info["error"] != nil {
+		c.String(http.StatusNotFound, "Dashboard not found")
+		return
+	}
+	// a session dashboard's name is for logged-in users; the manifest is fetched without login
+	if info["auth"] == "session" && !s.isAuthenticated(c) {
+		info["name"] = id
+	}
+	app := newDashApp(id, info)
+	display := "standalone"
+	if app.Full {
+		display = "fullscreen"
+	}
+	path := "/d/" + url.PathEscape(id)
+	body, err := json.Marshal(struct {
+		ID         string         `json:"id"`
+		Name       string         `json:"name"`
+		ShortName  string         `json:"short_name"`
+		StartURL   string         `json:"start_url"`
+		Scope      string         `json:"scope"`
+		Display    string         `json:"display"`
+		Background string         `json:"background_color"`
+		ThemeColor string         `json:"theme_color"`
+		Icons      []manifestIcon `json:"icons"`
+	}{path, app.Name, app.Name, path, "/", display, app.ThemeColor, app.ThemeColor, []manifestIcon{
+		{Src: "/static/img/vclu-192.png", Sizes: "192x192", Type: "image/png"},
+		{Src: "/static/img/vclu-512.png", Sizes: "512x512", Type: "image/png"},
+		{Src: "/static/img/vclu-512.png", Sizes: "512x512", Type: "image/png", Purpose: "maskable"},
+	}})
+	if err != nil {
+		c.String(http.StatusInternalServerError, "manifest unavailable")
+		return
+	}
+	c.Header("Cache-Control", "no-cache")
+	c.Data(http.StatusOK, "application/manifest+json", body)
 }
 
 // handleDashboardCustomCSS serves modules/custom.css for dashboard theme overrides.

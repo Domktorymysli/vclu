@@ -757,6 +757,7 @@ func (s *Server) setupRoutes() {
 	// Dashboard pages
 	s.router.GET("/d/:id", s.handleDashboardPage)
 	s.router.GET("/d/:id/custom.css", s.handleDashboardCustomCSS)
+	s.router.GET("/d/:id/manifest.webmanifest", s.handleDashboardManifest)
 	s.router.GET("/dashboards", s.handleDashboards)
 
 	// Camera snapshot proxy (public — used by dashboard image widgets)
