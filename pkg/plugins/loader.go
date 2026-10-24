@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Domktorymysli/vclu/pkg/config"
@@ -188,9 +189,16 @@ func (l *Loader) FetchRepositoryIndex(repo config.PluginRepository) (*Repository
 	return &index, nil
 }
 
+// downloadMu serialises downloads: the panel and the runtime each have a Loader on one
+// plugins dir, sharing the .tmp- dirs and the lock file.
+var downloadMu sync.Mutex
+
 // DownloadPlugin downloads a plugin from a repository
 // pluginID can be fullId (@vclu/weather) or short id (weather)
 func (l *Loader) DownloadPlugin(repo config.PluginRepository, pluginID string) error {
+	downloadMu.Lock()
+	defer downloadMu.Unlock()
+
 	// Parse fullId to get short id for repository lookup
 	_, shortId := parseFullId(pluginID)
 
@@ -224,10 +232,21 @@ func (l *Loader) DownloadPlugin(repo config.PluginRepository, pluginID string) e
 	targetDir := filepath.Join(l.pluginsDir, safeDir, version)
 	completeMarker := filepath.Join(targetDir, ".complete")
 
+	lockEntry := LockEntry{
+		Version: listing.Version,
+		GitTag:  listing.GitTag,
+		Path:    safeDir + "/" + version,
+	}
+
 	// Cache hit: immutable tag already downloaded
 	if listing.GitTag != "" {
 		if _, err := os.Stat(completeMarker); err == nil {
 			log.Printf("[PLUGINS] cached %s/%s, skipping download", safeDir, version)
+			// The lock may still name an older dir (a lost lock write)
+			if cur := l.ReadLockFile()[pluginID]; cur.Path != lockEntry.Path || cur.Version != lockEntry.Version {
+				lockEntry.LockedAt = time.Now().Format(time.RFC3339)
+				l.writeLockEntry(pluginID, lockEntry)
+			}
 			return nil
 		}
 	}
@@ -274,12 +293,8 @@ func (l *Loader) DownloadPlugin(repo config.PluginRepository, pluginID string) e
 	l.cleanupOldVersions(filepath.Join(l.pluginsDir, safeDir), version)
 
 	// Update lock file (after cleanup — lock never points to removed dir)
-	l.writeLockEntry(pluginID, LockEntry{
-		Version:  listing.Version,
-		GitTag:   listing.GitTag,
-		Path:     safeDir + "/" + version,
-		LockedAt: time.Now().Format(time.RFC3339),
-	})
+	lockEntry.LockedAt = time.Now().Format(time.RFC3339)
+	l.writeLockEntry(pluginID, lockEntry)
 
 	log.Printf("[PLUGINS] downloaded %s to %s", pluginID, targetDir)
 	return nil
@@ -402,6 +417,22 @@ func (l *Loader) resolvePluginDir(pluginID string) string {
 
 	// 3. Fallback: old flat directory (migration compat)
 	return baseDir
+}
+
+// localVersion is the version of the plugin files in dir: the lock entry's, else the manifest's.
+func (l *Loader) localVersion(pluginID, dir string) string {
+	if entry, ok := l.ReadLockFile()[pluginID]; ok && filepath.Join(l.pluginsDir, entry.Path) == dir {
+		return entry.Version
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "plugin.json"))
+	if err != nil {
+		return ""
+	}
+	var manifest PluginManifest
+	if json.Unmarshal(data, &manifest) != nil {
+		return ""
+	}
+	return manifest.Version
 }
 
 // Lock file operations
@@ -585,6 +616,15 @@ func (l *Loader) LoadAllEnabled() error {
 				continue
 			}
 			localDir = l.resolvePluginDir(installed.ID)
+		} else if local := l.localVersion(installed.ID, localDir); installed.Version != "" && local != "" && local != installed.Version {
+			// An update from the panel writes the version; the files follow here (#112)
+			repo := l.findRepository(masterConfig.Plugins.Repositories, installed.Repository)
+			if repo == nil {
+				log.Printf("[PLUGINS] WARNING: %s %s on disk, %s in config, repository %s not found; loading %s", installed.ID, local, installed.Version, installed.Repository, local)
+			} else if err := l.DownloadPlugin(*repo, installed.ID); err != nil {
+				// LoadPlugin resolves the directory again, so it takes what is on disk
+				log.Printf("[PLUGINS] WARNING: %s %s on disk, %s in config, download failed (%v); loading %s", installed.ID, local, installed.Version, err, local)
+			}
 		}
 
 		// Skip plugins that ask for configuration and have none. A plugin that

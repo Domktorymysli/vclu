@@ -16,10 +16,7 @@ import (
 // Updating an installed plugin answers with its full id and new version, and keeps its
 // configuration (#31: the page keys installed plugins by full id).
 func TestPluginsAPIInstallUpdateKeepsConfig(t *testing.T) {
-	repo := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"namespace":"vclu","plugins":[{"id":"salda-recuperator","version":"1.2.0"}]}`))
-	}))
-	defer repo.Close()
+	repo := pluginRepo(t, "salda-recuperator", "1.2.0", true)
 
 	dir := t.TempDir()
 	err := config.WriteMasterConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
@@ -47,14 +44,70 @@ func TestPluginsAPIInstallUpdateKeepsConfig(t *testing.T) {
 		inst[0].Enabled || inst[0].Config["host"] != "192.168.0.20" {
 		t.Errorf(".vclu.json plugins: %+v", inst)
 	}
+	// The update brings the files too, not only the version in the config (#112)
+	if _, err := os.Stat(filepath.Join(dir, "plugins", "vclu--salda-recuperator", "1.2.0", "init.lua")); err != nil {
+		t.Errorf("1.2.0 not on disk: %v", err)
+	}
+}
+
+// An update whose download fails answers with an error and leaves the config as it was (#112).
+func TestPluginsAPIInstallUpdateDownloadFails(t *testing.T) {
+	repo := pluginRepo(t, "salda-recuperator", "1.2.0", false)
+
+	dir := t.TempDir()
+	installed := []config.InstalledPlugin{{ID: "@vclu/salda-recuperator", Version: "1.1.0", Enabled: true, Repository: "test"}}
+	err := config.WriteMasterConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
+		Repositories: []config.PluginRepository{{Name: "test", URL: repo.URL, Enabled: true}},
+		Installed:    installed,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{serverDir: dir}
+
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/plugins/install",
+		strings.NewReader(`{"id":"salda-recuperator","repository":"test"}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+	s.handlePluginsAPIInstall(c)
+
+	if w.Code == http.StatusOK || !strings.Contains(w.Body.String(), "download") {
+		t.Errorf("status %d: %s, want a download error", w.Code, w.Body.String())
+	}
+	cfg, err := config.ReadMasterConfig(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inst := cfg.Plugins.Installed; len(inst) != 1 || inst[0].Version != "1.1.0" {
+		t.Errorf(".vclu.json plugins: %+v, want 1.1.0 kept", inst)
+	}
+}
+
+// pluginRepo serves a repository with one tagged plugin; without files its downloads answer 404.
+func pluginRepo(t *testing.T, id, version string, files bool) *httptest.Server {
+	t.Helper()
+	repo := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/plugins.json":
+			_, _ = w.Write([]byte(`{"namespace":"vclu","plugins":[{"id":"` + id + `","version":"` + version +
+				`","path":"plugins/` + id + `","tag":"` + id + `-v` + version + `"}]}`))
+		case files && r.URL.Path == "/plugins/"+id+"/plugin.json":
+			_, _ = w.Write([]byte(`{"id":"` + id + `","version":"` + version + `","files":["init.lua"]}`))
+		case files && r.URL.Path == "/plugins/"+id+"/init.lua":
+			_, _ = w.Write([]byte("return {}\n"))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(repo.Close)
+	return repo
 }
 
 // A first install answers with the full id and version too.
 func TestPluginsAPIInstallAnswersVersion(t *testing.T) {
-	repo := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"namespace":"vclu","plugins":[{"id":"solax","version":"1.0.1"}]}`))
-	}))
-	defer repo.Close()
+	repo := pluginRepo(t, "solax", "1.0.1", true)
 
 	dir := t.TempDir()
 	err := config.WriteMasterConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
