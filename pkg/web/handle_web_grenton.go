@@ -238,20 +238,7 @@ func (s *Server) handleAPIGrentonSyncSave(c *gin.Context) {
 		return
 	}
 
-	// Clamp values
-	if req.TTL < 10 {
-		req.TTL = 10
-	}
-	if req.BatchSize < 2 {
-		req.BatchSize = 2
-	} else if req.BatchSize > 8 {
-		req.BatchSize = 8
-	}
-	if req.BatchDelay < 30 {
-		req.BatchDelay = 30
-	} else if req.BatchDelay > 100 {
-		req.BatchDelay = 100
-	}
+	req.Clamp()
 
 	// Clean stale entries: remove paths not in current registry
 	var validPaths []string
@@ -367,6 +354,11 @@ func (s *Server) syncRemoteConfigToLua(syncCfg *config.VCLUSyncConfig) {
 	if s.luaExecutor == nil || syncCfg == nil {
 		return
 	}
+
+	// A config saved by an older version can be outside the current ranges
+	clamped := *syncCfg
+	clamped.Clamp()
+	syncCfg = &clamped
 
 	// Build objects array as Lua literal
 	var objectsLua string

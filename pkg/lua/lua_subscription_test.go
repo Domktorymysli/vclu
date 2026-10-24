@@ -1201,3 +1201,92 @@ func TestRefreshAll_ErrorInStepKeepsChain(t *testing.T) {
 		t.Errorf("chain should be finished, got %s", got)
 	}
 }
+
+// TestAutoSubscribe_NoPerCLUCap verifies that every whitelisted object is subscribed,
+// with hundreds of objects per CLU. Regression: a hardcoded cap kept 64 entries per CLU
+// and dropped the rest silently (a 4-CLU install stopped at 256).
+func TestAutoSubscribe_NoPerCLUCap(t *testing.T) {
+	engine, _ := setupSubscriptionEngine(t, 0)
+	defer engine.Close()
+
+	mustExec(t, engine, `
+		local counts = { ["192.168.0.11"] = 4, ["192.168.0.12"] = 271, ["192.168.0.13"] = 282, ["192.168.0.14"] = 176 }
+		local whitelist = {}
+		local n = 0
+		for ip, count in pairs(counts) do
+			n = n + 1
+			local serial = "CLU22000000" .. n
+			for i = 1, count do
+				local objId = string.format("DOU%04d", i)
+				local path = serial .. "." .. objId
+				local obj = { _objId = objId, _clu = { address = ip }, updateState = function() end }
+				if count == 4 then
+					obj.subscribeFeatures = function() return {0, 1} end
+				end
+				_registry[path] = obj
+				whitelist[path] = true
+			end
+		end
+		RemoteSubscription.config.whitelist = whitelist
+		RemoteSubscription.autoSubscribe()
+	`)
+
+	got := mustExec(t, engine, `
+		local perIP, subs = {}, 0
+		for _, s in pairs(RemoteSubscription.activeSubscriptions) do
+			subs = subs + 1
+			perIP[s.cluIP] = (perIP[s.cluIP] or 0) + #s.objects
+		end
+		return string.format("%d %d %d %d / %d", perIP["192.168.0.11"] or 0, perIP["192.168.0.12"] or 0,
+			perIP["192.168.0.13"] or 0, perIP["192.168.0.14"] or 0, subs)
+	`)
+	// 4 objects with 2 features each = 8 entries; 2 + 68 + 71 + 44 sessions of up to 4 entries
+	if want := "8 271 282 176 / 185"; got != want {
+		t.Errorf("entries per CLU / sessions = %s, want %s", got, want)
+	}
+}
+
+// TestAutoSubscribe_BatchOf28 verifies that a batch size of 28 (what Object Manager registers in
+// one clientRegister) puts 28 entries in each session.
+func TestAutoSubscribe_BatchOf28(t *testing.T) {
+	engine, _ := setupSubscriptionEngine(t, 282)
+	defer engine.Close()
+
+	mustExec(t, engine, `
+		RemoteSubscription.config.batchSize = 28
+		RemoteSubscription.autoSubscribe()
+	`)
+	got := mustExec(t, engine, `
+		local subs, total, largest = 0, 0, 0
+		for _, s in pairs(RemoteSubscription.activeSubscriptions) do
+			subs = subs + 1
+			total = total + #s.objects
+			largest = math.max(largest, #s.objects)
+		end
+		return string.format("%d sessions, %d entries, largest %d", subs, total, largest)
+	`)
+	if want := "11 sessions, 282 entries, largest 28"; got != want {
+		t.Errorf("got %s, want %s", got, want)
+	}
+}
+
+// TestRemoteSubscription_BatchSizeRange verifies that batchSize() keeps config.batchSize in
+// 2..28, so subscribe() and autoSubscribe() agree on a value saved out of range.
+func TestRemoteSubscription_BatchSizeRange(t *testing.T) {
+	engine, _ := setupSubscriptionEngine(t, 0)
+	defer engine.Close()
+
+	got := mustExec(t, engine, `
+		local out = {}
+		for _, v in ipairs({0, 1, 2, 8, 28, 29, 100, "16"}) do
+			RemoteSubscription.config.batchSize = v
+			out[#out + 1] = RemoteSubscription.batchSize()
+		end
+		RemoteSubscription.config.batchSize = nil
+		out[#out + 1] = RemoteSubscription.batchSize()
+		return table.concat(out, " ")
+	`)
+	if want := "2 2 2 8 28 28 28 16 4"; got != want {
+		t.Errorf("batchSize() for 0 1 2 8 28 29 100 \"16\" nil = %s, want %s", got, want)
+	}
+}
