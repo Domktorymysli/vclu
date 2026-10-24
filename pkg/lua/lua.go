@@ -17,6 +17,7 @@ import (
 
 	"github.com/Domktorymysli/vclu/pkg/camera"
 	"github.com/Domktorymysli/vclu/pkg/history"
+	"github.com/Domktorymysli/vclu/pkg/luastr"
 	"github.com/Domktorymysli/vclu/pkg/metrics"
 	"github.com/Domktorymysli/vclu/pkg/plugins"
 	lua "github.com/yuin/gopher-lua"
@@ -451,7 +452,7 @@ func (le *LuaEngine) LoadCLUData(dataPath string) error {
 
 	// Update Lua package.path
 	packagePath := fmt.Sprintf("%s/?.lua;", absPath)
-	_, err = le.Execute(fmt.Sprintf(`package.path = "%s" .. package.path`, packagePath))
+	_, err = le.Execute(fmt.Sprintf(`package.path = %s .. package.path`, luastr.Quote(packagePath)))
 	if err != nil {
 		return fmt.Errorf("failed to load lua package: %w", err)
 	}
@@ -459,12 +460,7 @@ func (le *LuaEngine) LoadCLUData(dataPath string) error {
 	log.Printf("[LUA] loading CLU data from: %s", absPath)
 
 	// 1. Load user.lua (defines user functions/variables referenced by om.lua events)
-	_, _ = le.ExecuteAs("system", "system:vclu", "", `
-		local ok, err = pcall(function() require "user" end)
-		if not ok then
-			Logger:getShared():warn("[LUA] user.lua skipped: " .. tostring(err))
-		end
-	`)
+	_, _ = le.ExecuteAs("system", "system:vclu", "", loadUserLua)
 
 	// 2. Load om.lua (creates CLU objects, modules, IO, event bindings) - optional
 	// Must use doFile() — holds mutex to prevent race with ProcessTimers/RunLoop
@@ -506,7 +502,9 @@ func (le *LuaEngine) loadCheckAliveFromMainLua(absPath string) {
 			serial := strings.TrimPrefix(line, "return \"")
 			serial = strings.TrimSuffix(serial, "\"")
 			if serial != "" {
-				le.Execute(fmt.Sprintf(`function checkAlive() return %q end`, serial))
+				_, _ = le.executeSlow("Execute", func(L *lua.LState) (string, error) {
+					return "", runLuaChunk(L, checkAliveLua, lua.LString(serial))
+				})
 				return
 			}
 		}
@@ -572,7 +570,7 @@ func (le *LuaEngine) LoadUserModules(serverDir string) []ModuleLoadResult {
 	// package.path is anchored ON modules/, so require() paths are relative to it:
 	// modules/dashboards/home.lua is require("dashboards/home") or require("dashboards.home").
 	modulesPackagePath := fmt.Sprintf("%s/?.lua;%s/?/init.lua;", absModulesPath, absModulesPath)
-	_, err = le.Execute(fmt.Sprintf(`package.path = "%s" .. package.path`, modulesPackagePath))
+	_, err = le.Execute(fmt.Sprintf(`package.path = %s .. package.path`, luastr.Quote(modulesPackagePath)))
 	if err != nil {
 		log.Printf("[LUA] failed to update package.path: %v", err)
 		return le.setLastModuleLoad([]ModuleLoadResult{
@@ -1964,13 +1962,7 @@ func (le *LuaEngine) SetGPIOManager(gm *GPIOManager) {
 		registerGPIOFunctions(L, gm)
 		// Start GPIO polling timer — bootstrap_go.lua check ran before
 		// SetGPIOManager was called, so __go_gpio_poll was nil at that time.
-		if err := L.DoString(`
-			if __go_gpio_poll and gpio and gpio.pollChanges then
-				EventBus:getShared():setInterval(function()
-					gpio.pollChanges()
-				end, 50)
-			end
-		`); err != nil {
+		if err := L.DoString(gpioPollLua); err != nil {
 			log.Printf("[GPIO] failed to start polling timer: %v", err)
 		}
 		return "", nil

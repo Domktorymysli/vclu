@@ -17,7 +17,7 @@ Only public API is listed — internal/private functions are omitted.
 - [core.Registry](#coreregistry) (10 functions)
 - [core.Metrics](#coremetrics) (1 functions)
 - [core.Calendar](#corecalendar) (36 functions)
-- [Dashboard](#dashboard) (50 functions)
+- [Dashboard](#dashboard) (64 functions)
 - [lib.panel](#libpanel) (55 functions)
 - [objects.RemotePanel](#objectsremotepanel) (6 functions)
 - [GPIO_DOUT](#gpio_dout) (1 functions)
@@ -1116,6 +1116,33 @@ Add a cover widget to this section. Buttons up/stop/down call open/stop/close. W
 - `fns` (table) — {getPosition=function()->number|nil, getState=function()->number|nil, open=function(), close=function(), stop=function(), set=function(position)}
 - `opts` (table) — Optional: {disabled=function()->bool}
 
+### `SectionHandle:covers(id, label, list, opts)`
+
+Add a cover group: one tile moving several covers, with their counts and average position. Buttons up/stop/down call open/stop/close on each cover, the slider setPosition on those with a position, the slat slider (shown when a cover reports getTilt) setTilt on those with a tilt; commands go out 50 ms apart and a new movement (or slat) command drops what is left of the previous one; stop ends both.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `list` (table) — Covers (RemoteCover, VirtualCover) or their paths, _:byTag(...), or a function returning one (read each time; missing paths skipped)
+- `opts` (table) — Optional: {icon=string (default "window"), disabled=function()->bool, span=n, size=string, color=string}
+
+### `SectionHandle:player(id, label, src, opts)`
+
+Add a media player: artwork, title and artist, previous/play-pause/next, volume, mute and power. {getState=function()->{playing, title, artist, album, artwork (http(s) URL), volume (0-100), muted, power, online}, play?, pause?, next?, previous?, setVolume?(percent), setMute?(bool), on?, off?}; a missing function hides its button
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label (e.g. the room)
+- `src` (table) — A MusicCast device (Plugin.getPlugin("@vclu/musiccast"):create{...}) or a table of functions
+- `opts` (table) — Optional: {icon=string (default "music-note-beamed"), disabled=function()->bool, span=n, size=string, color=string}
+
+### `SectionHandle:forecast(id, label, src, opts)`
+
+Add a weather forecast: the next days (icon, max/min, rain) and a chart of the next hours. src gives {days={{date='YYYY-MM-DD', iconName (or icon), min, max, rain (mm), pop (0-1, or a percent when above 1)}}, hours={{at (unix s), temp, rain}}, updated (optional unix s, shown as "odświeżono HH:MM")}, or nil while there is no forecast yet; days before today in the house's time zone are dropped; opts.hours counts hours: the current one and hours-1 after it (hourly data gives exactly that many points).
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `src` (function) — A function returning the forecast, or the Weather plugin (Plugin.getPlugin("@vclu/weather"))
+- `opts` (table) — Optional: {days=1-7 (default 5), hours=0-48 (default 24, 0 hides the chart), unit=string (default "°C"), icon=string (default "cloud-sun"), disabled=function()->bool, span=n, size=string, color=string}
+
 ### `SectionHandle:dimmer(id, label, icon, fns, opts)`
 
 Add a dimmer widget to this section.
@@ -1135,6 +1162,34 @@ Add a color picker widget to this section. switchOn?, switchOff?, isOn?, getWhit
 - `icon` (string) — Bootstrap icon name (e.g., "palette")
 - `fns` (table) — {getColor=function()->{r,g,b}, setColor=function(r,g,b), get?/set? brightness 0-100,
 - `opts` (table) — Optional: {disabled=function()->bool}
+
+### `SectionHandle:chip(id, icon, fn, opts)`
+
+Add a chip to the header: an icon and a short text from fn, hidden while fn returns nil.
+
+- `id` (string) — Unique widget identifier
+- `icon` (string) — Bootstrap icon name (e.g., "alarm", "water", "shield")
+- `fn` (function) — function() -> string|nil|{text=string, icon=string, color=string}; nil hides the chip
+- `opts` (table) — Optional: {color=string|function()->string|nil, link=URL or dashboard id, disabled=function()->bool}
+
+### `SectionHandle:area(area, opts)`
+
+Fill this section with a widget for every device expose() put in an area, picked by kind: a light, switch or lock a toggle, a dimmer a dimmer, an RGB light the colour widget, a cover a cover, temperature and humidity a status; lights first, then covers, then the rest by name. Filled when something is exposed or unexposed, so devices a plugin exposes later show up; widgets added by hand come after them; a read-only device's widget is disabled. Like the panel, expose(obj, type, { dashboard = false }) keeps an object off dashboards and dashboard = true puts one of those kinds on them even when kinds leaves it out (other kinds have no widget and log a warning). Widget ids are "area:" .. path, other bytes as %XX. Anyone who can open the dashboard controls what is exposed in the area later: use :auth('session') or 'pin'; access profiles of MQTT, HomeKit and MCP do not apply here.
+
+- `area` (string) — Area name, or a list of names (one room under two names)
+- `opts` (table) — Optional: {kinds={"light","dimmer","cover","temperature","humidity"} (also "switch", "lock"), skip={path, ...}}
+
+### `SectionHandle:floor(floor, opts)`
+
+Add one section per area on a floor (delegates to DashboardBuilder:floor).
+
+### `SectionHandle:room(id, area, opts)`
+
+Add a room tile: the area's name, how many lights and switches are on and covers open, its temperature and humidity ("Sypialnia · 2 włączone · 21,5 °C · 60 %"); a tap opens the room's widgets, chosen as section:area does (same kinds, skip and ids), over the page. Lights, dimmers and switches count as on above 0, covers as open above 0 or while moving; only what the room shows is counted. Temperature and humidity default to the area's devices of that kind (the average of several, left out with none).
+
+- `id` (string) — Unique widget identifier
+- `area` (string) — Area name, or a list of names (one room under two names)
+- `opts` (table) — Optional: {title=string, temperature=path|function()->number, humidity=path|function()->number, kinds, skip (as section:area), icon=string, link=dashboard id|/path|http(s) URL (opens it instead of the room), disabled=function()->bool (also disables the room's widgets), span=n, size=string, color=string}
 
 ### `SectionHandle:when(periods, fn)`
 
@@ -1171,6 +1226,10 @@ Set dashboard name (delegates to DashboardBuilder:name). Set dashboard theme (de
 
 Set dashboard name (delegates to DashboardBuilder:name). Set dashboard theme (delegates to DashboardBuilder:theme). Set dashboard poll interval (delegates to DashboardBuilder:poll). Add dashboard to a tab group (delegates to DashboardBuilder:tabGroup).
 
+### `SectionHandle:width(w)`
+
+Set the page width (delegates to DashboardBuilder:width).
+
 ### `DashboardBuilder:name(s)`
 
 Set the display name for this dashboard.
@@ -1188,6 +1247,12 @@ Set the icon for this dashboard.
 Set the number of grid columns.
 
 - `n` (number) — Number of columns (default 3)
+
+### `DashboardBuilder:width(w)`
+
+Set the page width: 'full' fills the screen edge to edge (wall tablets), 'normal' (default) keeps wide screens centred.
+
+- `w` (string) — "full" or "normal"
 
 ### `DashboardBuilder:auth(s)`
 
@@ -1229,9 +1294,24 @@ Start a new named section for grouping widgets.
 
 - `name` (string) — Section title
 - `icon` (string) — Bootstrap icon name
-- `opts` (table) — Optional: {columns=number}
+- `opts` (table) — Optional: {columns=number, covers=true (the header counts the section's covers open, moving and closed)}
 
 **Returns:** SectionHandle Handle for adding widgets to this section
+
+### `DashboardBuilder:floor(floor, opts)`
+
+Add one section per area on a floor (expose(..., { area = "Salon", floor = "Parter" })), each filled as section:area; areas with nothing to show are left out. Read each time the dashboard is, so new areas show up. Start a section() to add widgets by hand after it. With rooms = true: one section named after the floor with a room tile per area (section:room).
+
+- `floor` (string) — Floor name
+- `opts` (table) — Optional: {order={area, ...} (first, in this order; the rest by name), titles={[area]=title}, kinds, skip, rooms=true}
+
+### `DashboardBuilder:room(id, area, opts)`
+
+Add a room tile to the current section (see SectionHandle:room).
+
+- `id` (string) — Unique widget identifier
+- `area` (string) — Area name, or a list of names
+- `opts` (table) — Optional: as SectionHandle:room
 
 ### `DashboardBuilder:button(id, label, icon, onTap, opts)`
 
@@ -1342,6 +1422,33 @@ Add a cover widget to the current section. Buttons up/stop/down call open/stop/c
 - `icon` (string) — Bootstrap icon name (e.g., "arrows-expand")
 - `fns` (table) — {getPosition=function()->number|nil, getState=function()->number|nil, open=function(), close=function(), stop=function(), set=function(position)}
 - `opts` (table) — Optional: {disabled=function()->bool}
+
+### `DashboardBuilder:covers(id, label, list, opts)`
+
+Add a cover group to the current section: one tile moving several covers, with their counts and average position. Buttons up/stop/down call open/stop/close on each cover, the slider setPosition on those with a position, the slat slider (shown when a cover reports getTilt) setTilt on those with a tilt; commands go out 50 ms apart and a new movement (or slat) command drops what is left of the previous one; stop ends both.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `list` (table) — Covers (RemoteCover, VirtualCover) or their paths, _:byTag(...), or a function returning one (read each time; missing paths skipped)
+- `opts` (table) — Optional: {icon=string (default "window"), disabled=function()->bool, span=n, size=string, color=string}
+
+### `DashboardBuilder:player(id, label, src, opts)`
+
+Add a media player to the current section: artwork, title and artist, previous/play-pause/next, volume, mute and power.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label (e.g. the room)
+- `src` (table) — A MusicCast device or a table of functions {getState, play?, pause?, next?, previous?, setVolume?, setMute?, on?, off?}
+- `opts` (table) — Optional: {icon=string, disabled=function()->bool, span=n, size=string, color=string}
+
+### `DashboardBuilder:forecast(id, label, src, opts)`
+
+Add a weather forecast to the current section: the next days and a chart of the next hours.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `src` (function) — A function returning {days={...}, hours={...}, updated?} or nil, or the Weather plugin
+- `opts` (table) — Optional: {days=1-7, hours=0-48, unit=string, icon=string, disabled=function()->bool, span=n, size=string, color=string}
 
 ### `DashboardBuilder:dimmer(id, label, icon, fns, opts)`
 
@@ -1629,7 +1736,7 @@ A menu of the devices expose() put in an area, each with its row (Menu:add), nam
 
 ### `Panel.floor(floor, opts)`
 
-A menu of the areas on a floor (expose(..., { area = "Salon", floor = "Parter" })), each a Panel.area; areas with nothing for the panel are left out. Filled each time it opens. name), titles = { [area] = title }, kinds, skip }
+A menu of the areas on a floor (expose(..., { area = "Salon", floor = "Parter" })), each a Panel.area of that floor only (an area name may be on two floors); areas with nothing for the panel are left out. Filled each time it opens. name), titles = { [area] = title }, kinds, skip }
 
 - `floor` (string) — Floor name
 - `opts` (table) — |nil { title, order = { area, ... } (first, in this order; the rest by

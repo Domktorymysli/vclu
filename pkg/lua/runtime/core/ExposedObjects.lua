@@ -11,6 +11,11 @@
 -- @type ExposedHandle
 local ExposedHandle = {}
 local checkOptions -- defined after capabilities
+
+-- Counts changes of what is exposed and how; dashboards reuse their rooms until it moves
+local function changed()
+    if ExposedObjects then ExposedObjects._generation = (ExposedObjects._generation or 0) + 1 end
+end
 ExposedHandle.__index = ExposedHandle
 
 --- Create a new ExposedHandle
@@ -56,6 +61,7 @@ end
 -- @return ExposedHandle self for chaining
 function ExposedHandle:name(n)
     self.options.name = n
+    changed()
     return self
 end
 
@@ -64,6 +70,7 @@ end
 -- @return ExposedHandle self for chaining
 function ExposedHandle:readonly()
     self.options.readonly = true
+    changed()
     return self
 end
 
@@ -72,6 +79,7 @@ end
 -- @return ExposedHandle self for chaining
 function ExposedHandle:mqttOnly()
     self.options.homekit = false
+    changed()
     return self
 end
 
@@ -80,6 +88,7 @@ end
 -- @return ExposedHandle self for chaining
 function ExposedHandle:homekitOnly()
     self.options.mqtt = false
+    changed()
     return self
 end
 
@@ -89,6 +98,7 @@ end
 -- @return ExposedHandle self for chaining
 function ExposedHandle:group(g)
     self.options.group = g
+    changed()
     return self
 end
 
@@ -98,6 +108,7 @@ end
 -- @return ExposedHandle self for chaining
 function ExposedHandle:area(a)
     self.options.area = a
+    changed()
     return self
 end
 
@@ -107,6 +118,7 @@ end
 -- @return ExposedHandle self for chaining
 function ExposedHandle:tags(t)
     self.options.tags = t
+    changed()
     return self
 end
 
@@ -116,6 +128,7 @@ end
 -- @return ExposedHandle self for chaining
 function ExposedHandle:description(d)
     self.options.description = d
+    changed()
     return self
 end
 
@@ -131,6 +144,7 @@ function ExposedHandle:update(opts)
     for k, v in pairs(opts) do
         self.options[k] = v
     end
+    changed()
     if opts.filter ~= nil then StateChange.setFilter(self.object, opts.filter or nil) end
     if StateBus then
         StateBus:getShared():emit("object_updated", { path = self.path })
@@ -147,6 +161,7 @@ function ExposedHandle:rename(newName)
         return false
     end
     self.options.name = newName
+    changed()
     if StateBus then
         StateBus:getShared():emit("object_updated", { path = self.path })
     end
@@ -243,6 +258,9 @@ function ExposedHandle:setValue(value)
     if self.options.readonly then
         return false
     end
+    if self.type == "climate" then
+        return self:_setTarget(value)
+    end
     if self.object and type(self.object.set) == "function" then
         local obj = self.object
         local old, stateful = StateChange.read(obj)
@@ -264,6 +282,20 @@ function ExposedHandle:setValue(value)
         return ok
     end
     return false
+end
+
+-- A thermostat's value is its temperature and its feature 0 the sensor binding: a target
+-- goes to setSetpoint, clamped to the expose options min/max (default the type's range)
+function ExposedHandle:_setTarget(value)
+    local obj, v = self.object, tonumber(value)
+    if not v or v - v ~= 0 or type(obj) ~= "table" or type(obj.setSetpoint) ~= "function" then
+        return false
+    end
+    local range = ExposedObjects:getCapabilities("climate").range
+    v = math.max(tonumber(self.options.min) or range[1], math.min(tonumber(self.options.max) or range[2], v))
+    local ok = pcall(obj.setSetpoint, obj, v)
+    if ok then self._lastChanged = os.time() end
+    return ok
 end
 
 -- ==========================================================================
@@ -288,7 +320,8 @@ local capabilities = {
     -- New types
     lock = { read = true, write = true, binary = true },
     fan = { read = true, write = true, speed = true, range = {0, 100} },
-    climate = { read = true, write = true, temperature = true, range = {5, 35} },
+    -- a thermostat (getValue, getTarget, setSetpoint): only by expose(), never by exposeRegistry()
+    climate = { read = true, write = true, temperature = true, range = {5, 35}, explicitOnly = true },
     garage_door = { read = true, write = true, binary = true },
 }
 
@@ -309,6 +342,9 @@ checkOptions = function(objType, opts)
     checkFilterOption(objType, opts.filter)
     if opts.history ~= nil and type(opts.history) ~= "boolean" then
         error("ExposedObjects:expose() - history must be true or false", 3)
+    end
+    if opts.dashboard ~= nil and type(opts.dashboard) ~= "boolean" then
+        error("ExposedObjects:expose() - dashboard must be true or false", 3)
     end
 end
 
@@ -392,7 +428,11 @@ end
 -- @param objType string Type: switch, light, dimmer, sensor, temperature, etc.
 -- @param options table Optional settings: name, path, id, readonly, hidden, mqtt, homekit, group,
 --   filter = {delta, heartbeat} for noisy numeric sensors (see StateChange.setFilter),
---   history = false to keep the object's changes out of the history store
+--   history = false to keep the object's changes out of the history store,
+--   min/max/step for a number or a climate (a climate's target is clamped to min/max),
+--   area, floor (the house model: lib/panel, section:area, dash:floor),
+--   panel/dashboard = false keeps it off panels/dashboards, true puts it on them outside kinds
+--   (a dashboard has widgets only for light, switch, dimmer, cover, temperature, humidity, lock)
 -- @return ExposedHandle Handle for managing the exposed object
 function ExposedObjects:expose(obj, objType, options)
     options = options or {}
@@ -448,6 +488,7 @@ function ExposedObjects:expose(obj, objType, options)
                 end
             end
             StateChange.setFilter(obj, existing.options.filter)
+            changed()
             if Logger then
                 Logger:getShared():debug("[ExposedObjects] Re-expose (idempotent): %s", existingPath)
             end
@@ -485,6 +526,7 @@ function ExposedObjects:expose(obj, objType, options)
     -- Store in ExposedObjects registry
     self._objects[path] = handle
     self._objectToPath[obj] = path
+    changed()
 
     -- Ensure object is also in _registry (single source of truth for all objects).
     -- Objects from om.lua are already there; scenes/plugins added via expose() are not.
@@ -573,6 +615,7 @@ function ExposedObjects:_remove(path)
 
         self._objects[path] = nil
         -- Note: _objectToPath weak table will clean up automatically
+        changed()
 
         if Logger then
             Logger:getShared():info("[ExposedObjects] Unexposed: %s", path)
@@ -597,6 +640,81 @@ end
 -- @return table path -> handle; stable fields: type, options.name, options.area, options.tags, getValue()
 function ExposedObjects:list()
     return self._objects
+end
+
+local function setOf(list)
+    local s = {}
+    for _, v in ipairs(list or {}) do s[v] = true end
+    return s
+end
+
+-- Lights, switches, dimmers and locks first, then covers, then the rest
+local SCREEN_ORDER = { light = 1, switch = 1, dimmer = 1, lock = 1, cover = 2 }
+
+-- Polish letters sort right after their base letter (c < ć < d), case-insensitive
+local POLISH = { ["ą"] = "a\2", ["ć"] = "c\2", ["ę"] = "e\2", ["ł"] = "l\2", ["ń"] = "n\2",
+    ["ó"] = "o\2", ["ś"] = "s\2", ["ź"] = "z\2", ["ż"] = "z\3",
+    ["Ą"] = "a\2", ["Ć"] = "c\2", ["Ę"] = "e\2", ["Ł"] = "l\2", ["Ń"] = "n\2",
+    ["Ó"] = "o\2", ["Ś"] = "s\2", ["Ź"] = "z\2", ["Ż"] = "z\3" }
+
+-- Sort key of a name: each character as its base letter and a rank
+local function sortKey(name)
+    return (tostring(name):lower():gsub("[%z\1-\127\194-\244][\128-\191]*", function(c)
+        return POLISH[c] or (c .. "\1")
+    end))
+end
+
+-- What a screen (lib/panel, a dashboard section) shows of the given areas: objects of a kind
+-- in opts.kinds or with options[opts.flag] = true, not flag = false, not in opts.skip, on
+-- opts.floor when given; sorted as SCREEN_ORDER, then by opts.key(name) (default: Polish
+-- order, then by name), then by path.
+-- @return table { { path, handle }, ... }
+function ExposedObjects:_inArea(areas, opts)
+    local inArea, kinds, skip = setOf(areas), setOf(opts.kinds), setOf(opts.skip)
+    -- a key of the caller's own (lib/panel) breaks ties by path, as it always did
+    local byName = opts.key == nil
+    local key = opts.key or sortKey
+    local found = {}
+    for path, h in pairs(self._objects) do
+        local o = h.options or {}
+        local flag = o[opts.flag]
+        if inArea[o.area] and (opts.floor == nil or o.floor == opts.floor)
+            and (flag == true or (flag ~= false and kinds[h.type])) and not skip[path] then
+            found[#found + 1] = { path = path, handle = h, name = tostring(o.name or path), key = key(o.name or path) }
+        end
+    end
+    table.sort(found, function(a, b)
+        local oa, ob = SCREEN_ORDER[a.handle.type] or 3, SCREEN_ORDER[b.handle.type] or 3
+        if oa ~= ob then return oa < ob end
+        if a.key ~= b.key then return a.key < b.key end
+        if byName and a.name ~= b.name then return a.name < b.name end
+        return a.path < b.path
+    end)
+    return found
+end
+
+-- The areas on a floor: those in order first, in that order, then the rest by key(area)
+-- (default: Polish order), then by name
+function ExposedObjects:_areasOn(floor, order, key)
+    key = key or sortKey
+    local seen, list = {}, {}
+    for _, h in pairs(self._objects) do
+        local o = h.options or {}
+        if o.floor == floor and o.area and not seen[o.area] then
+            seen[o.area] = true
+            list[#list + 1] = o.area
+        end
+    end
+    local rank, keys = {}, {}
+    for i, a in ipairs(order or {}) do rank[a] = i end
+    for _, a in ipairs(list) do keys[a] = key(a) end
+    table.sort(list, function(a, b)
+        local ra, rb = rank[a] or math.huge, rank[b] or math.huge
+        if ra ~= rb then return ra < rb end
+        if keys[a] ~= keys[b] then return keys[a] < keys[b] end
+        return a < b
+    end)
+    return list
 end
 
 --- Get count of exposed objects
@@ -793,6 +911,12 @@ end
 
 local TypeMap = require("TypeMap") -- central type mapping
 
+-- The type exposeRegistry() would give an object (nil: none)
+local function registryType(obj)
+    if type(obj._getExposeType) == "function" then return obj:_getExposeType() end
+    return TypeMap.getExposeType(obj._type or "switch", "switch")
+end
+
 --- Auto-expose all objects from _registry, respecting AccessControl.
 -- Objects already exposed via manual expose() are skipped (user overrides win).
 -- AccessControl determines per-integration visibility for remaining objects:
@@ -817,8 +941,10 @@ function ExposedObjects:exposeRegistry(options)
         -- Skip plugins (they manage their own exposure)
         if obj._isPlugin then
             -- noop
-        elseif type(obj._getExposeType) == "function" and obj:_getExposeType() == nil then
-            -- nothing to expose it as (a thermostat): no switch fallback
+        elseif registryType(obj) == nil then
+            -- nothing to expose it as: no switch fallback
+        elseif (capabilities[registryType(obj)] or {}).explicitOnly then
+            -- a thermostat is exposed by expose() only
         elseif not self._objects[path] then
             -- Check AccessControl for per-integration visibility
             local mqttHidden = AccessControl and AccessControl.isHidden("mqtt", path)

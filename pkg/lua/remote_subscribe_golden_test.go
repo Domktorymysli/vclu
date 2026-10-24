@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// Switches, dimmers, covers and LEDs on two CLUs (one past the 64-entry limit): subscribe,
+// Switches, dimmers, covers and LEDs on two CLUs: subscribe,
 // renew, a failed renew, an offline CLU, no session left, destroyAll. Every message (blocking
 // B, fire-and-forget N, with its spacing), timeout (T) and interval (I) in order.
 const mixedSubscribeScenario = `
@@ -77,9 +77,9 @@ return table.concat(SENT, "\n")
 `
 
 // Without a thermostat nothing of #67 shows: the sequence is byte for byte the one of
-// e371ef8 (the golden file was recorded from it).
+// main at 31e73b2 (the golden file was recorded from it, after #109 dropped the 64-entry cap).
 func TestRemoteSubscribeMixedSameAsBefore67(t *testing.T) {
-	want, err := os.ReadFile("pkg/lua/testdata/remote_subscribe_e371ef8.golden")
+	want, err := os.ReadFile("pkg/lua/testdata/remote_subscribe_31e73b2.golden")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -38,13 +38,6 @@ function RemoteThermostat:new(clu, objId, name)
     return obj
 end
 
---- No expose type yet: a switch would write feature 0, the thermostat's sensor binding
--- (Source), so the registry does not expose it and expose() refuses it.
--- @return nil
-function RemoteThermostat:_getExposeType()
-    return nil
-end
-
 -- Features of each object version, in report order: the settings first, the temperature last
 local T = RemoteThermostat
 RemoteThermostat.FEATURES = {

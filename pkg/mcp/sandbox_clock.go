@@ -105,17 +105,7 @@ func (st *sandboxTimers) install(L *lua.LState) error {
 		L.Push(lua.LNumber(st.clock.now.UnixMilli()))
 		return 1
 	}))
-	return L.DoString(`
-		local stdTime, stdDate = os.time, os.date
-		os.time = function(t)
-			if t == nil then return math.floor(__go_time_ms() / 1000) end
-			return stdTime(t)
-		end
-		os.date = function(format, t)
-			if t == nil then t = math.floor(__go_time_ms() / 1000) end
-			return stdDate(format or "%c", t)
-		end
-	`)
+	return L.DoString(sandboxClockLua)
 }
 
 func (st *sandboxTimers) add(fn *lua.LFunction, period time.Duration, interval bool) int {

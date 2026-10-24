@@ -98,6 +98,10 @@ function RemoteGroup:expose(exposeType, options)
             stats.skipped = stats.skipped + 1
         elseif not exposeType and type(obj._getExposeType) == "function" and obj:_getExposeType() == nil then
             stats.skipped = stats.skipped + 1
+        elseif not exposeType and type(obj._getExposeType) == "function"
+            and (ExposedObjects:getCapabilities(obj:_getExposeType()) or {}).explicitOnly then
+            -- a thermostat is exposed on its own (expose(th)), not with a group
+            stats.skipped = stats.skipped + 1
         else
             -- Determine type
             -- the object's own type first: a thermostat has none and is never a switch

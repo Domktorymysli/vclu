@@ -25,10 +25,47 @@ body {
     min-height: 100vh;
 }
 
+/* viewport-fit=cover: keep tiles off the notch, the rounded corners and the home indicator */
+#dashboardApp {
+    padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
+             env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+}
+
 /* Header */
 .dash-header {
+    position: relative;
     padding: 16px 20px 8px;
     text-align: center;
+}
+
+/* the full-screen button (left) or the burger (right): keep a centred title clear of both */
+.dash-header.dash-header-btns {
+    padding-left: 56px;
+    padding-right: 56px;
+}
+
+/* Full-screen button (Fullscreen API: Android and desktop browsers, not a home-screen app) */
+.dash-fullscreen-btn {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    margin-top: 4px; /* the title's middle: the header has more padding on top */
+    background: none;
+    border: 1px solid rgba(128,128,128,0.3);
+    border-radius: 8px;
+    color: var(--dash-text);
+    font-size: 1rem;
+    line-height: 1;
+    padding: 6px 8px;
+    cursor: pointer;
+    opacity: 0.7;
+}
+.dash-fullscreen-btn:hover { opacity: 1; }
+.dash-fullscreen-btn:focus-visible {
+    outline: 2px solid var(--dash-accent);
+    outline-offset: 2px;
+    opacity: 1;
 }
 
 .dash-header h1 {
@@ -103,7 +140,8 @@ body {
     padding: 12px 4px 8px;
     font-size: 0.85rem;
     font-weight: 600;
-    color: rgba(255,255,255,0.5);
+    color: var(--dash-text);
+    opacity: 0.55;
     text-transform: uppercase;
     letter-spacing: 0.05em;
 }
@@ -119,56 +157,48 @@ body {
     gap: 12px;
 }
 
-/* Widget base */
+/* Widget base: a tile with the icon in a circle, the name and the state, controls below */
 .dash-widget {
+    --tile-c: var(--widget-color, var(--dash-accent));
     background: linear-gradient(180deg, rgba(255,255,255,0.03) 0%, transparent 40%),
                 var(--dash-card-bg);
-    border-radius: 14px;
-    padding: 16px 16px 12px;
+    border-radius: 18px;
+    padding: 14px;
     display: flex;
     flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    min-height: 100px;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 12px;
+    min-height: 76px;
+    min-width: 0;
     cursor: pointer;
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.2s;
     position: relative;
-    border: 1px solid rgba(255,255,255,0.06);
-    box-shadow: 0 2px 8px rgba(0,0,0,0.25),
-                inset 0 1px 0 rgba(255,255,255,0.04);
-}
-
-.dash-widget::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 8%;
-    right: 8%;
-    height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
-    border-radius: 14px 14px 0 0;
+    border: 1px solid rgba(128,128,128,0.14);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 4px 14px rgba(0,0,0,0.08);
 }
 
 .dash-widget:active {
-    transform: scale(0.95);
+    transform: scale(0.97);
 }
 
 @media (hover: hover) {
     .dash-widget:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 16px rgba(0,0,0,0.35),
-                    inset 0 1px 0 rgba(255,255,255,0.06);
+        transform: translateY(-1px);
+        box-shadow: 0 2px 6px rgba(0,0,0,0.16), 0 8px 22px rgba(0,0,0,0.12);
     }
     .dash-widget-status:hover,
     .dash-widget-chart-container:hover,
-    .dash-widget-select:hover,
     .dash-widget-image:hover,
     .dash-widget-cover:hover,
+    .dash-widget-covers:hover,
+    .dash-widget-player:hover,
+    .dash-widget-forecast:hover,
     .dash-widget-dimmer:hover,
-    .dash-widget-color:hover {
+    .dash-widget-color:hover,
+    .dash-widget-slider:hover {
         transform: none;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.25),
-                    inset 0 1px 0 rgba(255,255,255,0.04);
+        box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 4px 14px rgba(0,0,0,0.08);
     }
 }
 
@@ -179,131 +209,226 @@ body {
 }
 
 .dash-widget.has-error {
-    border-color: rgba(255,152,0,0.4);
+    border-color: rgba(255,152,0,0.5);
 }
 
-.dash-widget.size-large {
-    min-height: 140px;
+/* Head: circle | name over state | an optional switch or mark */
+.dash-tile-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
 }
 
-.dash-widget.size-large .dash-widget-icon {
-    font-size: 2.2rem;
-}
-
-.dash-widget.size-large .dash-widget-label {
-    font-size: 1rem;
-}
-
-/* Widget icon */
-.dash-widget-icon {
-    font-size: 1.5rem;
-    margin-bottom: 8px;
-    color: var(--widget-color, var(--dash-accent));
-    opacity: 0.9;
-}
-
-/* Widget label */
-.dash-widget-label {
-    font-size: 0.82rem;
-    font-weight: 500;
-    text-align: center;
-    color: rgba(255,255,255,0.8);
-    line-height: 1.2;
-}
-
-/* Error indicator */
-.dash-widget-error {
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    color: #ff9800;
-    font-size: 0.9rem;
-}
-
-/* ---- Button widget ---- */
-.dash-widget-button .dash-widget-icon {
-    transition: color 0.15s;
-}
-
-.dash-widget-button.flash .dash-widget-icon {
-    color: var(--widget-color, var(--dash-accent));
-}
-
-.dash-widget-button.flash {
-    background: rgba(39, 194, 168, 0.15);
-}
-
-/* ---- Toggle widget ---- */
-.dash-widget-toggle {
-    cursor: default;
-}
-
-.dash-toggle-switch {
-    margin-top: 8px;
-}
-
-.dash-toggle-switch .form-check-input {
-    width: 3em;
-    height: 1.5em;
+.dash-tile-tap {
     cursor: pointer;
 }
 
-.dash-toggle-switch .form-check-input:checked {
-    background-color: var(--widget-color, var(--dash-accent));
-    border-color: var(--widget-color, var(--dash-accent));
+.dash-widget-icon {
+    position: relative;
+    flex: none;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.3rem;
+    line-height: 1;
+    color: var(--tile-c);
+    background: rgba(128,128,128,0.16);
+    transition: background 0.2s, color 0.2s;
 }
 
-.dash-widget-toggle.active .dash-widget-icon {
-    color: var(--widget-color, var(--dash-accent));
+.dash-tile-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
 }
 
-/* ---- Slider widget ---- */
-.dash-widget-slider {
-    cursor: default;
+.dash-widget-label {
+    font-size: 0.95rem;
+    font-weight: 600;
+    line-height: 1.25;
+    color: var(--dash-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
+.dash-tile-state {
+    font-size: 0.85rem;
+    line-height: 1.25;
+    color: var(--dash-text);
+    opacity: 0.65;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* The circle by state: on is filled, off and no reading are grey, moving pulses, alarm is red */
+.dash-widget[data-state="on"] .dash-widget-icon {
+    background: var(--tile-c);
+    color: rgba(0,0,0,0.78);
+}
+
+.dash-widget[data-state="on"] {
+    border-color: rgba(128,128,128,0.22);
+}
+
+.dash-widget[data-state="off"] .dash-widget-icon,
+.dash-widget[data-state="unknown"] .dash-widget-icon {
+    background: rgba(128,128,128,0.16);
+    color: var(--dash-text);
+}
+
+.dash-widget[data-state="off"] .dash-widget-icon i,
+.dash-widget[data-state="unknown"] .dash-widget-icon i {
+    opacity: 0.6;
+}
+
+.dash-widget[data-state="unknown"] .dash-widget-icon {
+    background: transparent;
+    border: 1.5px dashed rgba(128,128,128,0.55);
+}
+
+.dash-widget[data-state="moving"] .dash-widget-icon {
+    animation: dashPulse 1.6s ease-out infinite;
+}
+
+@keyframes dashPulse {
+    0% { box-shadow: 0 0 0 0 rgba(128,128,128,0.5); }
+    100% { box-shadow: 0 0 0 10px transparent; }
+}
+
+.dash-widget[data-state="alarm"] {
+    --tile-c: var(--widget-color, #dc3545);
+    border-color: var(--tile-c);
+}
+
+.dash-widget[data-state="alarm"] .dash-widget-icon {
+    background: var(--tile-c);
+    color: rgba(0,0,0,0.78);
+}
+
+.dash-widget.size-large {
+    min-height: 120px;
+}
+
+.dash-widget.size-large .dash-widget-icon {
+    width: 56px;
+    height: 56px;
+    font-size: 1.7rem;
+}
+
+.dash-widget.size-large .dash-widget-label {
+    font-size: 1.05rem;
+}
+
+/* Error indicator: a badge on the circle */
+.dash-widget-error {
+    position: absolute;
+    top: -4px;
+    right: -6px;
+    color: #ff9800;
+    font-size: 0.8rem;
+    line-height: 1;
+}
+
+/* ---- Button widget ---- */
+.dash-widget-button.flash {
+    background: var(--dash-card-bg);
+    border-color: var(--tile-c);
+}
+
+/* ---- Toggle widget ---- */
+.dash-toggle-switch,
+.dash-dimmer-toggle,
+.dash-color-toggle {
+    flex: none;
+    margin: 0;
+    padding: 0;
+    min-height: 0;
+    display: flex;
+}
+
+.dash-toggle-switch .form-check-input,
+.dash-dimmer-toggle .form-check-input,
+.dash-color-toggle .form-check-input {
+    float: none;
+    margin: 0;
+    width: 2.6em;
+    height: 1.4em;
+    cursor: pointer;
+}
+
+.dash-toggle-switch .form-check-input:checked,
+.dash-dimmer-toggle .form-check-input:checked,
+.dash-color-toggle .form-check-input:checked {
+    background-color: var(--tile-c);
+    border-color: var(--tile-c);
+}
+
+/* ---- Slider rows (slider, dimmer, cover, colour) ---- */
 .dash-slider-row {
     width: 100%;
     display: flex;
     align-items: center;
     gap: 10px;
-    margin-top: 8px;
+    min-height: 32px;
+    cursor: default;
 }
 
 .dash-slider-input {
     flex: 1;
+    min-width: 0;
     -webkit-appearance: none;
     appearance: none;
-    height: 6px;
-    border-radius: 3px;
-    background: rgba(255,255,255,0.15);
+    height: 8px;
+    border-radius: 4px;
+    background: rgba(128,128,128,0.28);
     outline: none;
 }
 
 .dash-slider-input::-webkit-slider-thumb {
     -webkit-appearance: none;
-    width: 22px;
-    height: 22px;
+    width: 24px;
+    height: 24px;
     border-radius: 50%;
-    background: var(--widget-color, var(--dash-accent));
+    background: var(--tile-c);
+    border: 3px solid var(--dash-card-bg);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.3);
     cursor: pointer;
 }
 
 .dash-slider-input::-moz-range-thumb {
-    width: 22px;
-    height: 22px;
+    width: 18px;
+    height: 18px;
     border-radius: 50%;
-    background: var(--widget-color, var(--dash-accent));
+    background: var(--tile-c);
+    border: 3px solid var(--dash-card-bg);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.3);
     cursor: pointer;
-    border: none;
+}
+
+.dash-slider-input:focus-visible {
+    outline: 2px solid var(--tile-c);
+    outline-offset: 4px;
 }
 
 .dash-slider-value {
     font-size: 0.85rem;
     font-weight: 600;
-    min-width: 36px;
+    min-width: 40px;
     text-align: right;
-    color: var(--widget-color, var(--dash-accent));
+    color: var(--dash-text);
+    opacity: 0.75;
+}
+
+.dash-slider-input.dimmed {
+    opacity: 0.4;
 }
 
 /* ---- Status widget ---- */
@@ -311,58 +436,63 @@ body {
     cursor: default;
 }
 
-.dash-widget-status:active {
+.dash-widget-status:active,
+.dash-widget-slider:active,
+.dash-widget-chart-container:active,
+.dash-widget-image:active,
+.dash-widget-cover:active,
+.dash-widget-covers:active,
+.dash-widget-player:active,
+.dash-widget-forecast:active,
+.dash-widget-dimmer:active,
+.dash-widget-color:active {
     transform: none;
 }
 
-.dash-status-value {
-    font-size: 1.6rem;
-    font-weight: 700;
-    color: var(--widget-color, var(--dash-accent));
-    margin-top: 4px;
-    line-height: 1.1;
-    letter-spacing: -0.02em;
+/* the reading is what a status is for: larger, in the tile's colour when it has one */
+.dash-widget-status .dash-tile-state {
+    font-size: 1.05rem;
+    font-weight: 650;
+    opacity: 1;
+    color: var(--widget-color, var(--dash-text));
+    white-space: normal;
+    overflow-wrap: anywhere;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
 }
 
-.dash-status-unit {
-    font-size: 0.7rem;
+.dash-widget-status[data-state="unknown"] .dash-tile-state {
+    font-size: 0.85rem;
     font-weight: 400;
-    color: rgba(255,255,255,0.45);
-    margin-left: 4px;
+    opacity: 0.65;
+    color: var(--dash-text);
 }
 
-.dash-widget-status.size-large .dash-status-value {
-    font-size: 2.4rem;
+.dash-widget-status.size-large .dash-tile-state {
+    font-size: 1.6rem;
+}
+
+/* ---- Slider widget ---- */
+.dash-widget-slider {
+    cursor: default;
 }
 
 /* ---- Link widget ---- */
-.dash-widget-link {
-    cursor: pointer;
-}
-
 .dash-widget-link:hover {
-    border-color: var(--widget-color, var(--dash-accent));
-}
-
-.dash-widget-link:active {
-    transform: scale(0.95);
+    border-color: var(--tile-c);
 }
 
 .dash-link-ext {
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    font-size: 0.7rem;
-    opacity: 0.3;
+    flex: none;
+    font-size: 0.8rem;
+    opacity: 0.45;
+    align-self: flex-start;
 }
 
 /* ---- Chart widget ---- */
 .dash-widget-chart-container {
-    padding: 12px;
-}
-
-.dash-widget-chart-container:active {
-    transform: none;
+    cursor: default;
 }
 
 .dash-chart-wrap {
@@ -375,48 +505,32 @@ body {
     height: 220px;
 }
 
-.dash-chart-latest {
-    font-size: 1.2rem;
-    font-weight: 700;
-    color: var(--widget-color, var(--dash-accent));
-    text-align: center;
-    margin-top: 4px;
+/* ---- Select widget: the list lies invisibly over the tile ---- */
+.dash-widget-select:focus-within {
+    outline: 2px solid var(--tile-c);
+    outline-offset: 2px;
 }
 
-/* ---- Select widget ---- */
-.dash-widget-select {
-    cursor: default;
-}
-
-.dash-widget-select:active {
-    transform: none;
+.dash-select-chevron {
+    flex: none;
+    opacity: 0.5;
+    font-size: 1rem;
 }
 
 .dash-select-wrap {
-    width: 100%;
-    margin-top: 8px;
+    position: absolute;
+    inset: 0;
 }
 
 .dash-select-input {
     width: 100%;
-    padding: 6px 10px;
-    border-radius: 8px;
-    border: 1px solid rgba(255,255,255,0.15);
-    background: rgba(0,0,0,0.25);
-    color: var(--dash-text);
-    font-size: 0.85rem;
-    font-weight: 500;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+    border: 0;
     -webkit-appearance: none;
     appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='rgba(255,255,255,0.5)' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 10px center;
-    cursor: pointer;
-}
-
-.dash-select-input:focus {
-    outline: none;
-    border-color: var(--widget-color, var(--dash-accent));
+    font-size: 1rem;
 }
 
 .dash-select-input option {
@@ -428,20 +542,14 @@ body {
 .dash-widget-image {
     cursor: default;
     padding: 0;
-    display: flex;
-    flex-direction: column;
+    gap: 0;
     overflow: hidden;
-}
-
-.dash-widget-image:active {
-    transform: none;
 }
 
 .dash-image-img {
     width: 100%;
     height: 150px;
     object-fit: cover;
-    border-radius: 10px 10px 0 0;
     background: rgba(0,0,0,0.2);
     display: block;
 }
@@ -451,128 +559,405 @@ body {
 }
 
 .dash-image-label {
-    font-size: 0.82rem;
-    font-weight: 500;
-    color: rgba(255,255,255,0.55);
-    line-height: 1.2;
-    padding: 12px 8px 14px;
-    text-align: center;
+    padding: 12px 14px 14px;
 }
 
-.dash-image-label.align-left { text-align: left; }
-.dash-image-label.align-right { text-align: right; }
+.dash-image-label.align-center { justify-content: center; }
+.dash-image-label.align-right { flex-direction: row-reverse; text-align: right; }
+.dash-image-label.align-center .dash-tile-text { flex: 0 1 auto; }
 
 /* ---- Cover widget ---- */
-.dash-widget-cover {
+.dash-widget-cover,
+.dash-widget-covers {
     cursor: default;
 }
 
-.dash-widget-cover:active {
-    transform: none;
-}
-
 .dash-cover-controls {
-    display: flex;
-    gap: 12px;
-    margin: 8px 0;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
 }
 
 .dash-cover-btn {
-    width: 40px;
-    height: 40px;
-    border-radius: 10px;
-    border: 1px solid rgba(255,255,255,0.15);
-    background: rgba(255,255,255,0.05);
-    color: rgba(255,255,255,0.7);
-    font-size: 1rem;
+    height: 44px;
+    border-radius: 12px;
+    border: 0;
+    background: rgba(128,128,128,0.16);
+    color: var(--dash-text);
+    font-size: 1.1rem;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    transition: background 0.15s, color 0.15s;
 }
 
 .dash-cover-btn:active {
-    background: rgba(255,255,255,0.15);
+    background: rgba(128,128,128,0.3);
 }
 
 .dash-cover-btn.active {
-    background: var(--widget-color, var(--dash-accent));
-    border-color: var(--widget-color, var(--dash-accent));
-    color: #fff;
+    background: var(--tile-c);
+    color: rgba(0,0,0,0.78);
+}
+
+/* ---- Cover group: a slider row shows while a cover can take it ---- */
+.dash-widget-covers .dash-slider-row[hidden] {
+    display: none;
+}
+
+/* ---- Media player: the artwork on the left, texts, buttons and volume beside it ---- */
+.dash-widget-player {
+    cursor: default;
+}
+
+.dash-player {
+    display: grid;
+    grid-template-columns: 116px minmax(0, 1fr);
+    grid-template-areas: "art info" "art ctl" "art vol";
+    column-gap: 16px;
+    row-gap: 8px;
+    align-items: center;
+}
+
+/* the head's circle becomes a square for the cover art; the note stays under it as a placeholder */
+.dash-widget.dash-widget-player .dash-player .dash-player-art {
+    grid-area: art;
+    align-self: start;
+    width: 116px;
+    height: 116px;
+    border-radius: 14px;
+    border: 0;
+    background: rgba(128,128,128,0.16);
+    color: var(--tile-c);
+    font-size: 2.6rem;
+}
+
+.dash-player-art img {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: inherit;
+}
+
+.dash-player-art img[hidden],
+.dash-player-art.has-art > i {
+    display: none;
+}
+
+.dash-player-info {
+    grid-area: info;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+/* the name and the state on one line: "Salon · odtwarza" */
+.dash-widget-player .dash-tile-text {
+    flex: none;
+    flex-direction: row;
+    align-items: baseline;
+    gap: 6px;
+}
+
+.dash-widget-player .dash-widget-label {
+    flex: 0 1 auto;
+    font-size: 0.85rem;
+    opacity: 0.75;
+}
+
+.dash-widget-player .dash-tile-state {
+    flex: none;
+}
+
+.dash-widget-player .dash-tile-state::before {
+    content: "·";
+    margin-right: 6px;
+}
+
+.dash-widget-player[data-state="on"] .dash-tile-state {
+    color: var(--tile-c);
+    opacity: 1;
+}
+
+.dash-player-title,
+.dash-player-artist {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--dash-text);
+}
+
+.dash-player-title {
+    font-size: 1.1rem;
+    font-weight: 650;
+    line-height: 1.3;
+}
+
+.dash-player-artist {
+    font-size: 0.88rem;
+    opacity: 0.7;
+}
+
+.dash-player-title[hidden],
+.dash-player-artist[hidden] {
+    display: none;
+}
+
+.dash-player-controls {
+    grid-area: ctl;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.dash-player-side {
+    margin-left: auto;
+    display: flex;
+    gap: 8px;
+}
+
+.dash-player-btn {
+    flex: none;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border-radius: 50%;
+    border: 0;
+    background: rgba(128,128,128,0.16);
+    color: var(--dash-text);
+    font-size: 1.15rem;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s, color 0.15s, opacity 0.2s;
+}
+
+.dash-player-btn:active {
+    background: rgba(128,128,128,0.3);
+}
+
+.dash-player-btn:focus-visible {
+    outline: 2px solid var(--tile-c);
+    outline-offset: 2px;
+}
+
+.dash-player-btn.dash-player-play {
+    width: 52px;
+    height: 52px;
+    font-size: 1.5rem;
+    background: var(--tile-c);
+    color: rgba(0,0,0,0.78);
+}
+
+.dash-player-btn.dash-player-mute.active {
+    background: var(--tile-c);
+    color: rgba(0,0,0,0.78);
+}
+
+.dash-player-power[aria-pressed="true"] {
+    color: var(--tile-c);
+}
+
+.dash-player-volume {
+    grid-area: vol;
+}
+
+/* switched off or offline: the transport and the volume step back, power stays */
+.dash-player-idle .dash-player-prev,
+.dash-player-idle .dash-player-next,
+.dash-player-idle .dash-player-mute,
+.dash-player-idle .dash-player-volume {
+    opacity: 0.4;
+}
+
+.dash-player-idle .dash-player-art img {
+    opacity: 0.5;
+}
+
+.dash-player-idle .dash-player-btn.dash-player-play {
+    background: rgba(128,128,128,0.16);
+    color: var(--dash-text);
+    opacity: 0.4;
+}
+
+/* a phone: a smaller cover beside the texts, buttons and volume under both */
+@media (max-width: 600px) {
+    .dash-player {
+        grid-template-columns: 72px minmax(0, 1fr);
+        grid-template-areas: "art info" "ctl ctl" "vol vol";
+        column-gap: 12px;
+        row-gap: 10px;
+    }
+    .dash-widget.dash-widget-player .dash-player .dash-player-art {
+        align-self: center;
+        width: 72px;
+        height: 72px;
+        border-radius: 12px;
+        font-size: 1.8rem;
+    }
+    .dash-player-title {
+        font-size: 1rem;
+    }
+}
+
+/* ---- Weather forecast: a row of days, the next hours under it ---- */
+.dash-widget-forecast {
+    cursor: default;
+}
+
+.dash-forecast {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+}
+
+/* the days share the width; on a narrow tile they scroll sideways */
+.dash-forecast-days {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+.dash-forecast-days::-webkit-scrollbar { display: none; }
+
+.dash-forecast-day {
+    flex: 1 0 0;
+    min-width: 62px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 8px 4px;
+    border-radius: 12px;
+    background: rgba(128,128,128,0.08);
+    text-align: center;
+    white-space: nowrap;
+}
+
+.dash-forecast-wd {
+    font-size: 0.78rem;
+    font-weight: 600;
+    opacity: 0.7;
+    text-transform: capitalize;
+}
+
+.dash-forecast-icon {
+    font-size: 1.6rem;
+    line-height: 1.1;
+    color: var(--tile-c);
+}
+
+.dash-forecast-temps {
+    display: flex;
+    gap: 6px;
+    align-items: baseline;
+    font-variant-numeric: tabular-nums;
+}
+
+.dash-forecast-max {
+    font-size: 1rem;
+    font-weight: 650;
+}
+
+.dash-forecast-min {
+    font-size: 0.85rem;
+    opacity: 0.55;
+}
+
+.dash-forecast-rain {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    column-gap: 6px;
+    font-size: 0.72rem;
+    color: #3d8bfd;
+    font-variant-numeric: tabular-nums;
+}
+
+.dash-forecast-rain i {
+    margin-right: -2px;
+}
+
+.dash-forecast-empty {
+    font-size: 0.9rem;
+    opacity: 0.55;
+    padding: 6px 0;
+}
+
+.dash-forecast-chart {
+    position: relative;
+    width: 100%;
+    height: 130px;
+}
+
+.dash-widget-forecast.size-large .dash-forecast-chart {
+    height: 190px;
+}
+
+.dash-forecast-days[hidden],
+.dash-forecast-empty[hidden],
+.dash-forecast-chart[hidden] {
+    display: none;
+}
+
+@media (max-width: 600px) {
+    .dash-forecast-day {
+        min-width: 56px;
+        padding: 6px 2px;
+    }
+    .dash-forecast-chart {
+        height: 120px;
+    }
+}
+
+
+/* "2 otwarte · 1 w ruchu" after a section's name */
+.dash-section-covers {
+    margin-left: auto;
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+}
+
+.dash-section-covers[hidden] {
+    display: none;
 }
 
 /* ---- Dimmer widget ---- */
 .dash-widget-dimmer {
     cursor: default;
-    position: relative;
-}
-
-.dash-widget-dimmer:active {
-    transform: none;
-}
-
-.dash-dimmer-toggle {
-    position: absolute;
-    top: 12px;
-    right: 12px;
-}
-
-.dash-dimmer-toggle .form-check-input {
-    width: 2.5em;
-    height: 1.25em;
-    cursor: pointer;
-}
-
-.dash-dimmer-toggle .form-check-input:checked {
-    background-color: var(--widget-color, var(--dash-accent));
-    border-color: var(--widget-color, var(--dash-accent));
-}
-
-.dash-slider-input.dimmed {
-    opacity: 0.3;
 }
 
 /* ---- Color picker widget ---- */
 .dash-widget-color {
     cursor: default;
-    position: relative;
-}
-
-.dash-widget-color:active {
-    transform: none;
-}
-
-.dash-color-toggle {
-    position: absolute;
-    top: 12px;
-    right: 12px;
-}
-
-.dash-color-toggle .form-check-input {
-    width: 2.5em;
-    height: 1.25em;
-    cursor: pointer;
-}
-
-.dash-color-toggle .form-check-input:checked {
-    background-color: var(--widget-color, var(--dash-accent));
-    border-color: var(--widget-color, var(--dash-accent));
 }
 
 .dash-color-presets {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
-    justify-content: center;
-    margin: 6px 0 2px;
+    gap: 8px;
 }
 
 .dash-color-preset {
-    width: 22px;
-    height: 22px;
+    width: 26px;
+    height: 26px;
     border-radius: 50%;
     border: 2px solid transparent;
+    box-shadow: inset 0 0 0 1px rgba(0,0,0,0.12);
     cursor: pointer;
     transition: border-color 0.15s, transform 0.15s;
     padding: 0;
@@ -584,8 +969,8 @@ body {
 }
 
 .dash-color-preset.selected {
-    border-color: #fff;
-    box-shadow: 0 0 6px rgba(255,255,255,0.3);
+    border-color: var(--dash-card-bg);
+    box-shadow: 0 0 0 2px var(--dash-text);
 }
 
 /* Any other colour: a rainbow dot over the system colour picker */
@@ -607,19 +992,16 @@ body {
 }
 
 .dash-color-row {
-    margin-top: 4px;
     gap: 8px;
+    min-height: 28px;
 }
 
 .dash-color-row-icon {
     font-size: 0.85rem;
-    color: rgba(255,255,255,0.5);
+    color: var(--dash-text);
+    opacity: 0.55;
     width: 14px;
     text-align: center;
-}
-
-.dash-widget-color .dash-widget-icon i {
-    color: var(--widget-color, var(--dash-accent));
 }
 
 /* ---- Group label (full-width divider) ---- */
@@ -627,23 +1009,31 @@ body {
     grid-column: 1 / -1;
     font-size: 0.75rem;
     font-weight: 600;
-    color: rgba(255,255,255,0.4);
+    color: var(--dash-text);
+    opacity: 0.55;
     text-transform: uppercase;
     letter-spacing: 0.06em;
     padding: 8px 4px 2px;
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
 }
 
-.dash-group-label i {
-    font-size: 0.8rem;
+.dash-group-icon {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    background: rgba(128,128,128,0.2);
 }
 
 /* ---- Toast notification ---- */
 .dash-toast {
     position: fixed;
-    bottom: 24px;
+    bottom: calc(24px + env(safe-area-inset-bottom, 0px));
     left: 50%;
     transform: translateX(-50%) translateY(20px);
     background: rgba(0,0,0,0.85);
@@ -672,8 +1062,6 @@ body {
 .dash-sparkline {
     width: 100%;
     height: 32px;
-    margin-top: 8px;
-    margin-bottom: 12px;
     position: relative;
 }
 
@@ -693,21 +1081,65 @@ body {
     align-items: center;
     justify-content: center;
     flex-wrap: wrap;
-    gap: 24px;
+    gap: 8px;
     padding: 10px 16px;
-    border-bottom: 1px solid rgba(255,255,255,0.08);
+    border-bottom: 1px solid rgba(128,128,128,0.16);
 }
 
+/* A chip: small circle coloured by state, then the value or the name */
 .dash-header-item {
+    --tile-c: var(--widget-color, var(--dash-accent));
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
+    padding: 4px 12px 4px 4px;
+    border-radius: 999px;
+    background: rgba(128,128,128,0.12);
     font-size: 0.85rem;
 }
 
-.dash-header-item i {
-    color: var(--dash-accent);
-    font-size: 0.9rem;
+.dash-header-tap {
+    cursor: pointer;
+}
+
+.dash-header-tap:focus-visible {
+    outline: 2px solid var(--tile-c);
+    outline-offset: 2px;
+}
+
+.dash-header-item.disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
+.dash-header-icon {
+    position: relative;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.85rem;
+    color: var(--tile-c);
+    background: rgba(128,128,128,0.16);
+}
+
+.dash-header-item[data-state="on"] .dash-header-icon,
+.dash-header-item[data-state="alarm"] .dash-header-icon {
+    background: var(--tile-c);
+    color: rgba(0,0,0,0.78);
+}
+
+.dash-header-item[data-state="alarm"] {
+    --tile-c: var(--widget-color, #dc3545);
+}
+
+.dash-header-item[data-state="off"] .dash-header-icon,
+.dash-header-item[data-state="unknown"] .dash-header-icon {
+    background: rgba(128,128,128,0.16);
+    color: var(--dash-text);
+    opacity: 0.7;
 }
 
 .dash-header-value {
@@ -716,8 +1148,39 @@ body {
 }
 
 .dash-header-unit {
-    font-size: 0.7rem;
-    opacity: 0.4;
+    font-size: 0.75rem;
+    opacity: 0.6;
+}
+
+/* Header chips (#93): hidden while their function gives nil; a long text is cut */
+.dash-header-bar[hidden],
+.dash-header-item[hidden] {
+    display: none;
+}
+
+.dash-header-chip {
+    min-width: 0;
+    max-width: 100%;
+}
+
+.dash-header-chip .dash-header-icon {
+    flex-shrink: 0;
+}
+
+.dash-header-chip .dash-header-value {
+    min-width: 0;
+    max-width: 18em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dash-header-chip.dash-chip-icon-only {
+    padding-right: 4px;
+}
+
+.dash-header-chip.dash-chip-icon-only .dash-header-value {
+    display: none;
 }
 
 /* ---- Overlay ---- */
@@ -945,9 +1408,10 @@ body {
         padding: 0 10px 8px;
     }
     .dash-widget {
-        min-height: 72px;
-        padding: 10px 8px;
-        border-radius: 10px;
+        min-height: 64px;
+        padding: 12px;
+        gap: 10px;
+        border-radius: 16px;
         min-width: 0;
         overflow: hidden;
     }
@@ -956,27 +1420,55 @@ body {
     .dash-widget[data-span] {
         grid-column: auto !important;
     }
-    /* Charts, images, and compound widgets span full width */
-    .dash-widget-chart-container,
-    .dash-widget-image,
-    .dash-widget-cover,
-    .dash-widget-dimmer,
-    .dash-widget-color,
-    .dash-widget-calendar {
+    /* Charts, images, and compound widgets span full width, also with a span */
+    .dash-grid > .dash-widget-chart-container,
+    .dash-grid > .dash-widget-image,
+    .dash-grid > .dash-widget-cover,
+    .dash-grid > .dash-widget-covers,
+    .dash-grid > .dash-widget-player,
+    .dash-grid > .dash-widget-forecast,
+    .dash-grid > .dash-widget-dimmer,
+    .dash-grid > .dash-widget-color,
+    .dash-grid > .dash-widget-calendar {
         grid-column: 1 / -1 !important;
     }
+    /* a half-width toggle: the whole tile switches, the circle shows the state;
+       the switch stays for the keyboard and screen readers */
+    .dash-toggle-switch {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+    }
+    .dash-widget-toggle:focus-within {
+        outline: 2px solid var(--tile-c);
+        outline-offset: 2px;
+    }
     .dash-widget.size-large {
-        min-height: 100px;
+        min-height: 96px;
     }
     .dash-widget.size-large .dash-widget-icon {
-        font-size: 1.6rem;
+        width: 46px;
+        height: 46px;
+        font-size: 1.4rem;
+    }
+    .dash-tile-head {
+        gap: 10px;
     }
     .dash-widget-icon {
-        font-size: 1.2rem;
-        margin-bottom: 4px;
+        width: 38px;
+        height: 38px;
+        font-size: 1.1rem;
     }
     .dash-widget-label {
-        font-size: 0.75rem;
+        font-size: 0.88rem;
+    }
+    .dash-tile-state {
+        font-size: 0.8rem;
+    }
+    .dash-widget-status .dash-tile-state {
+        font-size: 0.98rem;
     }
     .dash-header-bar {
         gap: 8px;
@@ -1002,75 +1494,22 @@ body {
     .dash-widget-chart-container.size-large .dash-chart-wrap {
         height: 140px;
     }
-    .dash-widget-chart-container {
-        padding: 8px;
-    }
-    .dash-chart-latest {
-        font-size: 1rem;
-    }
     .dash-image-img {
         height: 100px;
     }
     .dash-widget-image.size-large .dash-image-img {
         height: 150px;
     }
-    .dash-slider-value {
-        font-size: 0.85rem;
-    }
     .dash-slider-row {
         gap: 6px;
-    }
-    .dash-select-wrap {
-        max-width: 100%;
-    }
-
-    /* Status: compact horizontal row on mobile — icon | label | value */
-    .dash-widget-status {
-        flex-direction: row;
-        align-items: center;
-        gap: 8px;
-        padding: 10px 12px;
-        min-height: 0;
-    }
-    .dash-widget-status .dash-widget-icon {
-        order: 0;
-        margin-bottom: 0;
-        font-size: 1rem;
-        flex-shrink: 0;
-    }
-    .dash-widget-status .dash-widget-label {
-        order: 1;
-        text-align: left;
-        flex: 1;
-        min-width: 0;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-    .dash-widget-status .dash-status-value {
-        order: 2;
-        font-size: 1.1rem;
-        margin-top: 0;
-        flex-shrink: 0;
-        white-space: nowrap;
     }
     .dash-widget-status .dash-sparkline {
         display: none;
     }
-    /* text values: icon and label on top, the value below, wrapping */
-    .dash-widget-status.dash-status-text {
-        flex-wrap: wrap;
-        row-gap: 4px;
-    }
-    .dash-widget-status.dash-status-text .dash-status-value {
-        order: 3;
-        flex: 1 0 100%;
-        font-size: 0.95rem;
-        white-space: normal;
-        overflow-wrap: anywhere;
-        line-height: 1.25;
-    }
 
+    .dash-widget-image {
+        padding: 0;
+    }
     /* Image: scale, don't crop */
     .dash-image-img {
         object-fit: contain !important;
@@ -1102,9 +1541,6 @@ body {
         min-height: 60px;
         grid-column: auto !important;
     }
-    .dash-widget.size-large {
-        min-height: 80px;
-    }
     .dash-chart-wrap {
         height: 80px;
     }
@@ -1117,6 +1553,22 @@ body {
     .dash-section {
         max-width: 1100px;
         margin: 0 auto;
+    }
+}
+
+/* :width('full'): edge to edge with a small gutter; :where() keeps custom.css on top */
+:where(.dash-full) .dash-section {
+    max-width: none;
+    padding: 0 8px 8px;
+}
+:where(.dash-full) .dash-header-bar {
+    padding-left: 8px;
+    padding-right: 8px;
+}
+/* a portrait tablet: full width has room for up to 3 columns where the page has 2 */
+@media (min-width: 601px) and (max-width: 900px) {
+    :where(.dash-full) .dash-grid {
+        grid-template-columns: repeat(var(--dash-columns-mid, 2), 1fr) !important;
     }
 }
 
@@ -1141,16 +1593,6 @@ body {
     align-items: center;
     gap: 8px;
 }
-.dash-cal-label {
-    font-size: 0.78rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: rgba(255,255,255,0.5);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
 .dash-cal-nav { display: flex; align-items: center; gap: 4px; }
 .dash-cal-title {
     min-width: 11em;
@@ -1173,7 +1615,7 @@ body {
     cursor: pointer;
     transition: background 0.15s, color 0.15s;
 }
-.dash-cal-btn:hover, .dash-cal-today:hover { background: rgba(255,255,255,0.08); color: #fff; }
+.dash-cal-btn:hover, .dash-cal-today:hover { background: rgba(255,255,255,0.08); color: var(--dash-text); }
 .dash-cal-today { border: 1px solid rgba(255,255,255,0.12); }
 .dash-cal-seg {
     display: flex;
@@ -1376,7 +1818,7 @@ body {
 
 @media (max-width: 600px) {
     .dash-cal-bar { grid-template-columns: 1fr auto; }
-    .dash-cal-label { display: none; }
+    .dash-cal-bar > .dash-tile-head { grid-column: 1 / -1; }
     .dash-cal-title { min-width: 0; font-size: 0.9rem; }
     .dash-cal-cell { min-height: 48px; padding: 4px 2px; align-items: center; }
     .dash-cal-num { align-self: center; }
@@ -1427,10 +1869,10 @@ body {
     color: rgba(255,255,255,0.92);
     white-space: nowrap;
     overflow: hidden;
-    background: color-mix(in srgb, var(--seg) 32%, transparent);
+    background: var(--seg);
     border-right: 1px solid rgba(0,0,0,0.25);
 }
-.dash-cal-seg-v.now { background: color-mix(in srgb, var(--seg) 55%, transparent); }
+.dash-cal-seg-v.now { background: var(--seg); }
 .dash-cal-seg-v.neutral { background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.55); font-weight: 500; }
 .dash-cal-seg-v.neutral.now { background: rgba(255,255,255,0.1); }
 .dash-cal-sched-now {
@@ -1454,4 +1896,220 @@ body {
 .dash-cal-sched-axis span:last-child { transform: translateX(-100%); }
 @media (max-width: 600px) {
     .dash-cal-sched-row, .dash-cal-sched-ticks { grid-template-columns: 5.2em 1fr; gap: 8px; }
+}
+
+/* ---- Room tile and the room over the page (#94) ---- */
+.dash-widget-room {
+    justify-content: space-between;
+}
+
+.dash-widget-room:focus-visible {
+    outline: 2px solid var(--tile-c);
+    outline-offset: 2px;
+}
+
+.dash-widget-room .dash-tile-state {
+    white-space: normal;
+}
+
+.dash-room-go {
+    flex: none;
+    font-size: 1rem;
+    opacity: 0.4;
+}
+
+.dash-room-climate {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 16px;
+    font-size: 1.05rem;
+    font-variant-numeric: tabular-nums;
+    padding-left: 2px;
+}
+
+.dash-room-climate[hidden],
+.dash-room-climate span[hidden] {
+    display: none;
+}
+
+.dash-room-climate span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+}
+
+.dash-room-climate b {
+    font-weight: 600;
+}
+
+.dash-room-climate i {
+    font-size: 0.95rem;
+    opacity: 0.5;
+}
+
+body.dash-room-open {
+    overflow: hidden;
+}
+
+.dash-room-layer {
+    position: fixed;
+    inset: 0;
+    z-index: 9000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px 24px;
+    background: rgba(0,0,0,0.55);
+    animation: dashRoomIn 0.16s ease-out;
+}
+
+.dash-room-layer[hidden] {
+    display: none;
+}
+
+@keyframes dashRoomIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.dash-room-dialog {
+    width: min(980px, 100%);
+    max-height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--dash-bg);
+    color: var(--dash-text);
+    border: 1px solid rgba(128,128,128,0.2);
+    border-radius: 22px;
+    box-shadow: 0 24px 64px rgba(0,0,0,0.35);
+}
+
+.dash-room-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 20px 8px;
+}
+
+.dash-room-back {
+    flex: none;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 50%;
+    background: rgba(128,128,128,0.16);
+    color: var(--dash-text);
+    font-size: 1.1rem;
+    cursor: pointer;
+}
+
+.dash-room-back:focus-visible {
+    outline: 2px solid var(--dash-accent);
+    outline-offset: 2px;
+}
+
+.dash-room-heading {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.dash-room-title {
+    margin: 0;
+    font-size: 1.2rem;
+    font-weight: 700;
+    line-height: 1.25;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dash-room-summary {
+    font-size: 0.85rem;
+    opacity: 0.65;
+}
+
+.dash-room-body {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    padding: 8px 20px 20px;
+}
+
+/* a phone: the room fills the screen */
+@media (max-width: 600px) {
+    .dash-room-layer {
+        padding: 0;
+        align-items: stretch;
+    }
+    .dash-room-dialog {
+        width: 100%;
+        max-height: none;
+        border: 0;
+        border-radius: 0;
+        padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+    }
+    .dash-room-bar {
+        padding: 12px 12px 6px;
+    }
+    .dash-room-body {
+        padding: 6px 10px 16px;
+    }
+    .dash-room-climate {
+        font-size: 0.95rem;
+        gap: 2px 12px;
+    }
+}
+
+/* Tints mixed from the theme; browsers without color-mix keep the plain colours above */
+@supports (color: color-mix(in srgb, red 50%, blue)) {
+    /* the icon towards the text colour: darker on a light theme, lighter on a dark one */
+    .dash-widget-icon { color: color-mix(in srgb, var(--tile-c) 75%, var(--dash-text)); background: color-mix(in srgb, var(--tile-c) 18%, transparent); }
+    .dash-widget[data-state="on"] { border-color: color-mix(in srgb, var(--tile-c) 35%, transparent); }
+    .dash-header-icon { background: color-mix(in srgb, var(--tile-c) 18%, transparent); }
+    .dash-cal-btn, .dash-cal-today { color: color-mix(in srgb, var(--dash-text) 65%, transparent); }
+    .dash-cal-btn:hover, .dash-cal-today:hover { background: color-mix(in srgb, var(--dash-text) 8%, transparent); }
+    .dash-cal-today { border: 1px solid color-mix(in srgb, var(--dash-text) 12%, transparent); }
+    .dash-cal-seg .dash-cal-btn.active { background: color-mix(in srgb, var(--dash-text) 12%, transparent); }
+    .dash-cal-wd { color: color-mix(in srgb, var(--dash-text) 40%, transparent); }
+    .dash-cal-cell { background: color-mix(in srgb, var(--dash-text) 3%, transparent); }
+    .dash-cal-cell:hover { background: color-mix(in srgb, var(--dash-text) 7%, transparent); }
+    .dash-cal-cell.weekend .dash-cal-num { color: color-mix(in srgb, var(--dash-text) 50%, transparent); }
+    .dash-cal-chip { color: color-mix(in srgb, var(--dash-text) 90%, transparent); }
+    .dash-cal-more { color: color-mix(in srgb, var(--dash-text) 50%, transparent); }
+    .dash-cal-note { color: color-mix(in srgb, var(--dash-text) 70%, transparent); }
+    .dash-cal-note i { color: color-mix(in srgb, var(--dash-text) 45%, transparent); }
+    .dash-cal-note-label { color: color-mix(in srgb, var(--dash-text) 85%, transparent); }
+    .dash-cal-menu { border: 1px solid color-mix(in srgb, var(--dash-text) 12%, transparent); }
+    .dash-cal-opt:hover { background: color-mix(in srgb, var(--dash-text) 6%, transparent); }
+    .dash-cal-opt-switch { background: color-mix(in srgb, var(--dash-text) 18%, transparent); }
+    .dash-cal-item { background: color-mix(in srgb, var(--dash-text) 4%, transparent); }
+    .dash-cal-time { color: color-mix(in srgb, var(--dash-text) 70%, transparent); }
+    .dash-cal-empty { color: color-mix(in srgb, var(--dash-text) 25%, transparent); }
+    .dash-cal-sched-title { color: color-mix(in srgb, var(--dash-text) 60%, transparent); }
+    .dash-cal-sched-bar { background: color-mix(in srgb, var(--dash-text) 4%, transparent); }
+    .dash-cal-seg-v { background: color-mix(in srgb, var(--seg) 32%, transparent); }
+    .dash-cal-seg-v.now { background: color-mix(in srgb, var(--seg) 55%, transparent); }
+    .dash-cal-seg-v.neutral { background: color-mix(in srgb, var(--dash-text) 5%, transparent); }
+    .dash-cal-seg-v.neutral { color: color-mix(in srgb, var(--dash-text) 55%, transparent); }
+    .dash-cal-seg-v.neutral.now { background: color-mix(in srgb, var(--dash-text) 10%, transparent); }
+    .dash-cal-sched-axis span { color: color-mix(in srgb, var(--dash-text) 40%, transparent); }
+    .dash-widget.dash-widget-player .dash-player .dash-player-art { background: color-mix(in srgb, var(--tile-c) 14%, transparent); }
+    .dash-player-btn { background: color-mix(in srgb, var(--dash-text) 9%, transparent); }
+    .dash-player-btn:active { background: color-mix(in srgb, var(--dash-text) 18%, transparent); }
+    .dash-player-idle .dash-player-btn.dash-player-play { background: color-mix(in srgb, var(--dash-text) 9%, transparent); }
+    .dash-forecast-day { background: color-mix(in srgb, var(--dash-text) 5%, transparent); }
+    .dash-forecast-icon { color: color-mix(in srgb, var(--tile-c) 75%, var(--dash-text)); }
+    .dash-room-climate i { color: color-mix(in srgb, var(--tile-c) 75%, var(--dash-text)); opacity: 1; }
+    .dash-room-back { background: color-mix(in srgb, var(--dash-text) 10%, transparent); }
+    @keyframes dashPulse {
+        0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--tile-c) 55%, transparent); }
+        100% { box-shadow: 0 0 0 10px transparent; }
+    }
 }

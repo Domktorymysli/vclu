@@ -32,20 +32,6 @@ const modulesDirName = "modules"
 // Plugins directory name
 const pluginsDirName = "plugins"
 
-// Default init.lua content
-const defaultInitLua = `-- User Modules Init
---
--- Loading order:
---   1. This file (init.lua) is loaded first
---   2. Other .lua files in modules/ are loaded alphabetically
---   3. Subdirectories are NOT auto-loaded — use require() for them
---
--- Example: to load modules/helpers/utils.lua:
---   local utils = require("helpers.utils")
-
-print("[MODULES] User modules initialized")
-`
-
 // handleEditor shows the Lua editor page
 func (s *Server) handleEditor(c *gin.Context) {
 	trans := s.getTranslations(c)

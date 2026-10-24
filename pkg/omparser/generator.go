@@ -119,7 +119,7 @@ func GenerateProxy(parsed *ParsedOM, config GeneratorConfig) string {
 	// Register objects in _registry for lookup (use registerObject for name indexing)
 	if config.RegisterObjects {
 		sb.WriteString("-- Register objects for event forwarding\n")
-		// Thermostats too: not for Home Assistant (no climate type yet), but the Sync list
+		// Thermostats too: not auto-exposed (a climate, by expose() only), but the Sync list
 		// and the subscriptions find objects in the registry
 		objects := append(parsed.GetExposableObjects(), parsed.GetObjectsByClass(ClassThermostat)...)
 		for _, obj := range objects {

@@ -437,6 +437,14 @@ function PluginSandbox:buildEnvironment(sandbox)
         clock = os.clock,
     }
 
+    -- datetime in the house's zone, without setTimezone: the zone is the house's, not a plugin's
+    local safeDatetime = {}
+    if datetime then
+        for _, k in ipairs({ 'parse', 'now', 'fromTimestamp', 'format', 'diff', 'add', 'timezone', 'between' }) do
+            safeDatetime[k] = datetime[k]
+        end
+    end
+
     local env = {
         -- Standard Lua functions (safe)
         print = print,
@@ -458,6 +466,7 @@ function PluginSandbox:buildEnvironment(sandbox)
         table = table,
         math = math,
         os = safeOs,
+        datetime = safeDatetime,
 
         -- vCLU API (wrapped with tracking)
         setTimeout = api.setTimeout,

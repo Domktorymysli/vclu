@@ -24,6 +24,14 @@ local function quoted(set)
     return #out > 0 and table.concat(out, ', ') or 'none'
 end
 
+-- :width() of a dashboard; level points the error at the module's line
+local function setWidth(b, w, level)
+    if w ~= 'full' and w ~= 'normal' then
+        error(":width(): expected 'full' or 'normal', got " .. (type(w) == 'string' and "'" .. w .. "'" or type(w)), level)
+    end
+    b._width = w
+end
+
 -- A calendar widget keeps the calendar's id, so a dashboard may be built before the calendar.
 local function calendarWidget(id, label, cal, opts)
     local calId = type(cal) == 'table' and cal.id or cal
@@ -97,6 +105,629 @@ local function colorFns(fns)
         return lightColorFns(fns)
     end
     return fns
+end
+
+-- ==========================================================================
+-- Cover groups: one tile for several covers
+-- ==========================================================================
+
+local COVERS_KEYS = { icon = true, disabled = true, span = true, size = true, color = true }
+
+-- Spacing between commands of one series: the CLU drops bursts (pkg/lua/AGENTS.md)
+local COVERS_SPACING_MS = 50
+
+-- A cover object: a table with the three moves (RemoteCover, VirtualCover)
+local function isCover(v)
+    return type(v) == 'table' and getmetatable(v) ~= RemoteGroup
+        and type(v.open) == 'function' and type(v.close) == 'function' and type(v.stop) == 'function'
+end
+
+local function coversWidget(id, label, list, opts)
+    local where = 'section:covers("' .. tostring(id) .. '")'
+    if type(id) ~= 'string' or id == '' then error('section:covers: id must be a non-empty string', 3) end
+    if type(label) ~= 'string' then error(where .. ': label must be a string', 3) end
+    if opts ~= nil and type(opts) ~= 'table' then error(where .. ': opts must be a table', 3) end
+    opts = opts or {}
+    for k in pairs(opts) do
+        if not COVERS_KEYS[k] then error(where .. ': unknown option "' .. tostring(k) .. '" (icon, disabled, span, size, color)', 3) end
+    end
+    if opts.icon ~= nil and (type(opts.icon) ~= 'string' or not opts.icon:match('^[%w%-]+$')) then
+        error(where .. ': opts.icon must be a Bootstrap icon name (letters, digits and -)', 3)
+    end
+    if opts.disabled ~= nil and type(opts.disabled) ~= 'function' then error(where .. ': opts.disabled must be a function', 3) end
+    if type(list) == 'table' and getmetatable(list) ~= RemoteGroup then
+        if isCover(list) then error(where .. ': list must be a list of covers, put the cover in { }', 3) end
+        for i, item in ipairs(list) do
+            if type(item) ~= 'string' and not isCover(item) then
+                error(where .. ': item ' .. i .. ' must be a cover (open, close, stop) or its path, got ' .. type(item), 3)
+            end
+        end
+    elseif type(list) ~= 'function' and type(list) ~= 'table' then
+        error(where .. ': list must be a list of covers or paths, or a function returning one, got ' .. type(list), 3)
+    end
+    return { id = id, type = 'covers', label = label, icon = opts.icon or 'window', list = list, opts = opts }
+end
+
+-- Problems with a cover list already logged, by "dashboard/widget/what"
+local _coversLogged = {}
+local function coversWarnOnce(key, fmt, ...)
+    if _coversLogged[key] then return end
+    _coversLogged[key] = true
+    Logger:getShared():warn(fmt, ...)
+end
+
+-- The covers of a group as they are now: a function list is called, paths looked up; missing ones skipped
+local function coversResolve(dashId, w)
+    local key = tostring(dashId) .. '/' .. tostring(w.id)
+    local src = w.list
+    if type(src) == 'function' then
+        local ok, res = pcall(src)
+        if not ok then
+            coversWarnOnce(key .. '/fn', "[DASHBOARD] Cover list of '%s' failed: %s", key, tostring(res))
+            return {}
+        end
+        src = res
+    end
+    if type(src) == 'table' and getmetatable(src) == RemoteGroup then src = rawget(src, '_objects') end
+    local out, seen = {}, {}
+    if type(src) ~= 'table' then
+        if src ~= nil then coversWarnOnce(key .. '/type', "[DASHBOARD] Cover list of '%s' is a %s, not a list", key, type(src)) end
+        return out
+    end
+    for i, item in ipairs(src) do
+        local c = item
+        if type(item) == 'string' then
+            c = _registry:get(item)
+            if c == nil then coversWarnOnce(key .. '/' .. item, "[DASHBOARD] '%s': no cover at '%s', skipped", key, item) end
+        end
+        if c ~= nil and not isCover(c) then
+            coversWarnOnce(key .. '/#' .. i, "[DASHBOARD] '%s': item %d is not a cover, skipped", key, i)
+            c = nil
+        end
+        if c ~= nil and not seen[c] then
+            seen[c] = true
+            out[#out + 1] = c
+        end
+    end
+    return out
+end
+
+-- ==========================================================================
+-- Rooms from the house model (section:area, dash:floor)
+-- ==========================================================================
+
+-- Kinds that have a widget; a thermostat (climate) has none yet
+local AREA_KINDS = { 'light', 'switch', 'dimmer', 'cover', 'temperature', 'humidity', 'lock' }
+local AREA_DEFAULT_KINDS = { 'light', 'dimmer', 'cover', 'temperature', 'humidity' }
+local AREA_KEYS = { 'kinds', 'skip' }
+local FLOOR_KEYS = { 'kinds', 'order', 'rooms', 'skip', 'titles' }
+local AREA_ID = 'area:'
+
+local function isList(t, kind)
+    if type(t) ~= 'table' then return false end
+    for k, v in pairs(t) do
+        if type(k) ~= 'number' or type(v) ~= kind then return false end
+    end
+    return true
+end
+
+local function has(list, v)
+    for _, x in ipairs(list) do if x == v then return true end end
+    return false
+end
+
+-- Checked options of section:area / dash:floor; errors name the module's line (level)
+local function areaSpec(where, opts, keys, level)
+    opts = opts or {}
+    if type(opts) ~= 'table' then error(where .. ': options must be a table', level) end
+    for k in pairs(opts) do
+        if not has(keys, k) then
+            error(where .. ': unknown option "' .. tostring(k) .. '" (' .. table.concat(keys, ', ') .. ')', level)
+        end
+    end
+    if opts.kinds ~= nil then
+        if not isList(opts.kinds, 'string') then error(where .. ': kinds expects a list of kinds', level) end
+        for _, k in ipairs(opts.kinds) do
+            if not has(AREA_KINDS, k) then
+                error(where .. ': kind "' .. k .. '" has no widget (' .. table.concat(AREA_KINDS, ', ') .. ')', level)
+            end
+        end
+    end
+    if opts.skip ~= nil and not isList(opts.skip, 'string') then error(where .. ': skip expects a list of paths', level) end
+    if opts.order ~= nil and not isList(opts.order, 'string') then error(where .. ': order expects a list of areas', level) end
+    if opts.titles ~= nil and type(opts.titles) ~= 'table' then error(where .. ': titles expects { [area] = title }', level) end
+    if opts.rooms ~= nil and type(opts.rooms) ~= 'boolean' then error(where .. ': rooms must be true or false', level) end
+    return { kinds = opts.kinds or AREA_DEFAULT_KINDS, skip = opts.skip, order = opts.order, titles = opts.titles or {},
+        rooms = opts.rooms == true }
+end
+
+local function isOn(v)
+    local n = tonumber(v)
+    return v == true or (n ~= nil and n > 0)
+end
+
+-- Paths already warned about: dashboard = true on a kind without a widget
+local _noWidgetWarned = {}
+
+-- A widget for an exposed object, or nil for a kind without one; off() also disables it (a room tile's)
+local function areaWidget(h, id, off)
+    local o, kind = h.object, h.type
+    if type(o) ~= 'table' then return nil end
+    local function m(name)
+        if type(o[name]) == 'function' then return function(...) return o[name](o, ...) end end
+    end
+    local w = { id = id, label = h.options.name or h.path, _h = h,
+        opts = { disabled = function() return h.options.readonly == true or (off ~= nil and off()) end } }
+    local rgb = o._objId and type(o.setColor) == 'function' and type(o.getColor) == 'function'
+    local dims = type(o.getBrightness) == 'function' and type(o.setBrightness) == 'function'
+    if (kind == 'light' or kind == 'dimmer') and rgb then
+        w.type, w.icon, w.fns = 'color', 'palette', lightColorFns(o)
+    elseif kind == 'dimmer' or (kind == 'light' and dims) then
+        w.type, w.icon = 'dimmer', 'lightbulb'
+        w.fns = {
+            get = function()
+                if dims then return o:getBrightness() end
+                local v = tonumber(h:getValue())
+                return v and math.floor(v * 100 + 0.5)
+            end,
+            set = function(p) if dims then o:setBrightness(p) else o:setValue(p / 100) end end,
+            switchOn = m('switchOn'), switchOff = m('switchOff'),
+        }
+    elseif kind == 'light' or kind == 'switch' or kind == 'lock' then
+        w.type = 'toggle'
+        w.icon = (kind == 'lock' and 'lock') or (kind == 'switch' and 'power') or 'lightbulb'
+        w.getValue = function() return isOn(h:getValue()) end
+        w.onToggle = function(v)
+            if v and o.switchOn then o:switchOn()
+            elseif not v and o.switchOff then o:switchOff()
+            elseif o.setValue then o:setValue(v and 1 or 0)
+            elseif not h:setValue(v and 1 or 0) then error('cannot switch ' .. h.path) end
+        end
+    elseif kind == 'cover' then
+        w.type, w.icon = 'cover', 'window'
+        -- a Grenton roller keeps its movement aside; without a position the state is the movement
+        w.fns = { getPosition = m('getPosition'), getState = o._hasPosition and m('getState') or nil,
+            open = m('open'), close = m('close'), stop = m('stop'), set = m('setPosition') }
+    elseif kind == 'temperature' or kind == 'humidity' then
+        w.type = 'status'
+        w.icon = kind == 'temperature' and 'thermometer-half' or 'droplet'
+        w.unit = kind == 'temperature' and '°C' or '%'
+        w.getValue = function() return h:getValue() end
+    else
+        if h.options.dashboard == true and not _noWidgetWarned[h.path] then
+            _noWidgetWarned[h.path] = true
+            Logger:getShared():warn("[DASHBOARD] %s: dashboard = true, but a %s has no widget (%s)",
+                h.path, tostring(kind), table.concat(AREA_KINDS, ', '))
+        end
+        return nil
+    end
+    return w
+end
+
+local function escapeId(s)
+    return (s:gsub('[^%w%._:%-]', function(c) return string.format('%%%02X', c:byte()) end))
+end
+
+-- A path in an id: other bytes as %XX, so two paths never give one id
+local function idOf(path)
+    return AREA_ID .. escapeId(path)
+end
+
+-- base, or base#2, #3... when taken
+local function claimId(used, base)
+    local id, n = base, 1
+    while used[id] do n = n + 1; id = base .. '#' .. n end
+    used[id] = true
+    return id
+end
+
+-- Widgets of the devices in areas (on floor, when given); ids from the path, the same on every
+-- read; "#n" only for the same device shown again
+local function areaWidgets(spec, areas, used, floor, off)
+    local E = ExposedObjects
+    if not (E and E._inArea) then return {} end
+    local out = {}
+    for _, f in ipairs(E:_inArea(areas, { kinds = spec.kinds, skip = spec.skip, floor = floor, flag = 'dashboard' })) do
+        local base = idOf(f.path)
+        local id, n = base, 1
+        while used[id] do n = n + 1; id = base .. '#' .. n end
+        local w = areaWidget(f.handle, id, off)
+        if w then
+            used[id] = true
+            out[#out + 1] = w
+        end
+    end
+    return out
+end
+
+-- Temperature and humidity devices of a room (dashboard = false and skip leave them out)
+local function roomSensors(spec, areas, floor)
+    local E = ExposedObjects
+    local out = { temperature = {}, humidity = {} }
+    if not (E and E._inArea) then return out end
+    for _, f in ipairs(E:_inArea(areas, { kinds = { 'temperature', 'humidity' }, skip = spec.skip, floor = floor, flag = 'dashboard' })) do
+        local list = out[f.handle.type]
+        if list then list[#list + 1] = f.handle end
+    end
+    return out
+end
+
+local function coverCall(c, name)
+    if type(c[name]) ~= 'function' then return nil end
+    local ok, v = pcall(c[name], c)
+    if ok then return tonumber(v) end
+end
+
+-- Tilt only where the object has both methods and reports an angle
+local function coverTilt(c)
+    if type(c.getTilt) ~= 'function' or type(c.setTilt) ~= 'function' then return nil end
+    return coverCall(c, 'getTilt')
+end
+
+-- A cover with a position (a Grenton roller without one has _hasPosition = false)
+local function coverCanSet(c)
+    return type(c.setPosition) == 'function' and c._hasPosition ~= false
+end
+
+-- Counts of covers by state; not moving and no position is unknown
+local function coverCounts(readings)
+    local s = { open = 0, moving = 0, closed = 0, unknown = 0 }
+    for _, r in ipairs(readings) do
+        if r.state == 1 or r.state == 2 then s.moving = s.moving + 1
+        elseif r.position == nil then s.unknown = s.unknown + 1
+        elseif r.position > 0 then s.open = s.open + 1
+        else s.closed = s.closed + 1 end
+    end
+    return s
+end
+
+local function coverReading(c)
+    return { position = coverCall(c, 'getPosition'), state = coverCall(c, 'getState') }
+end
+
+-- What a group tile shows: counts, the average position and tilt, whether a slider can set them
+local function coversEntry(covers)
+    local readings, posSum, posN, tiltSum, tiltN, canSet = {}, 0, 0, 0, 0, false
+    for i, c in ipairs(covers) do
+        local r = coverReading(c)
+        readings[i] = r
+        if r.position ~= nil then posSum = posSum + r.position; posN = posN + 1 end
+        local t = coverTilt(c)
+        if t ~= nil then tiltSum = tiltSum + t; tiltN = tiltN + 1 end
+        if coverCanSet(c) then canSet = true end
+    end
+    local e = coverCounts(readings)
+    if posN > 0 then e.position = math.floor(posSum / posN + 0.5) end
+    if tiltN > 0 then e.tilt = math.floor(tiltSum / tiltN + 0.5) end
+    e.set = canSet
+    return e, readings
+end
+
+-- Series of commands by "dashboard/widget/move" and ".../tilt": the first now, the next ones
+-- COVERS_SPACING_MS apart on timers; a new one of the same kind drops what is left of the old
+local _coversRuns = {}
+local function coversCancel(key)
+    local prev = _coversRuns[key]
+    if prev and prev.timer then TIMERS:clearTimer(prev.timer) end
+    _coversRuns[key] = nil
+end
+
+-- stopIf() true before a later step (the widget got disabled) drops the rest
+local function coversSeries(key, covers, fn, stopIf)
+    coversCancel(key)
+    local run = { timer = nil }
+    _coversRuns[key] = run
+    local function step(i)
+        if _coversRuns[key] ~= run then return end
+        run.timer = nil
+        if i > 1 and stopIf and stopIf() then
+            Logger:getShared():info("[DASHBOARD] '%s': disabled, %d covers not moved", key, #covers - i + 1)
+            _coversRuns[key] = nil
+            return
+        end
+        local ok, err = pcall(fn, covers[i])
+        if not ok then Logger:getShared():warn("[DASHBOARD] '%s': cover %d: %s", key, i, tostring(err)) end
+        if i >= #covers then
+            _coversRuns[key] = nil
+            return
+        end
+        local id = TIMERS:setTimeout(COVERS_SPACING_MS, function() step(i + 1) end)
+        if not id or id < 0 then
+            Logger:getShared():warn("[DASHBOARD] '%s': no timer, %d covers not moved", key, #covers - i)
+            _coversRuns[key] = nil
+            return
+        end
+        run.timer = id
+    end
+    if #covers > 0 then step(1) else _coversRuns[key] = nil end
+end
+
+-- ==========================================================================
+-- Media player: artwork, title, artist, transport and volume
+-- ==========================================================================
+
+local PLAYER_KEYS = { icon = true, disabled = true, span = true, size = true, color = true }
+local PLAYER_FNS = { 'getState', 'play', 'pause', 'next', 'previous', 'setVolume', 'setMute', 'on', 'off' }
+local PLAYER_FN_SET = {}
+for i = 1, #PLAYER_FNS do PLAYER_FN_SET[PLAYER_FNS[i]] = true end
+
+-- A MusicCast device (@vclu/musiccast) by its methods, not the plugin's internals
+local function isMusicCast(v)
+    return type(v.getState) == 'function' and type(v.getTrack) == 'function'
+        and type(v.setVolume) == 'function' and type(v.play) == 'function'
+end
+
+-- The device's methods as the player's functions; its getState mapped to the tile's
+local function musicCastFns(dev)
+    local fns = {
+        getState = function()
+            local s = dev:getState()
+            if type(s) ~= 'table' then return s end
+            local t = type(s.track) == 'table' and s.track or {}
+            return { playing = s.playback == 'play', title = t.title, artist = t.artist, album = t.album,
+                artwork = t.artwork, volume = s.volume, muted = s.mute, power = s.power, online = s.online }
+        end,
+    }
+    for i = 2, #PLAYER_FNS do
+        local name = PLAYER_FNS[i]
+        if type(dev[name]) == 'function' then
+            -- the device's methods take an optional callback after their arguments
+            if name == 'setVolume' or name == 'setMute' then
+                fns[name] = function(v) dev[name](dev, v) end
+            else
+                fns[name] = function() dev[name](dev) end
+            end
+        end
+    end
+    return fns
+end
+
+local function playerWidget(id, label, src, opts)
+    local where = 'section:player("' .. tostring(id) .. '")'
+    if type(id) ~= 'string' or id == '' then error('section:player: id must be a non-empty string', 3) end
+    if type(label) ~= 'string' then error(where .. ': label must be a string', 3) end
+    if opts ~= nil and type(opts) ~= 'table' then error(where .. ': opts must be a table', 3) end
+    opts = opts or {}
+    for k in pairs(opts) do
+        if not PLAYER_KEYS[k] then error(where .. ': unknown option "' .. tostring(k) .. '" (icon, disabled, span, size, color)', 3) end
+    end
+    if opts.icon ~= nil and (type(opts.icon) ~= 'string' or not opts.icon:match('^[%w%-]+$')) then
+        error(where .. ': opts.icon must be a Bootstrap icon name (letters, digits and -)', 3)
+    end
+    if opts.disabled ~= nil and type(opts.disabled) ~= 'function' then error(where .. ': opts.disabled must be a function', 3) end
+    if type(src) ~= 'table' then
+        error(where .. ': src must be a MusicCast device or a table of functions {getState, play, pause, ...}, got ' .. type(src), 3)
+    end
+    local fns
+    if isMusicCast(src) then
+        fns = musicCastFns(src)
+    else
+        if type(src.getState) ~= 'function' then error(where .. ': src.getState must be a function returning the state', 3) end
+        fns = {}
+        for k, v in pairs(src) do
+            if not PLAYER_FN_SET[k] then
+                error(where .. ': unknown key "' .. tostring(k) .. '" in src (' .. table.concat(PLAYER_FNS, ', ') .. ')', 3)
+            end
+            if type(v) ~= 'function' then error(where .. ': src.' .. k .. ' must be a function', 3) end
+            fns[k] = v
+        end
+    end
+    return { id = id, type = 'player', label = label, icon = opts.icon or 'music-note-beamed', fns = fns, opts = opts }
+end
+
+-- The controls the functions allow; a missing one hides its button
+local function playerCapabilities(fns)
+    local function has(k) return type(fns[k]) == 'function' end
+    return { play = has('play'), pause = has('pause'), next = has('next'), previous = has('previous'),
+        volume = has('setVolume'), mute = has('setMute'), power = has('on') and has('off') }
+end
+
+-- Text for the page: a string or a number, cut to a sane length (not mid-character)
+local function playerText(v)
+    if type(v) == 'number' then v = tostring(v) end
+    if type(v) ~= 'string' or v == '' then return nil end
+    if #v <= 300 then return v end
+    v = v:sub(1, 300)
+    -- drop a last UTF-8 character the cut left incomplete
+    local i = #v
+    while i > 1 and v:byte(i) >= 128 and v:byte(i) < 192 do i = i - 1 end
+    local b = v:byte(i)
+    local need = b >= 240 and 4 or b >= 224 and 3 or b >= 192 and 2 or 1
+    if #v - i + 1 < need then v = v:sub(1, i - 1) end
+    return v
+end
+
+-- The page sets it as an <img> src: only an absolute http(s) URL
+local function playerArtwork(v)
+    if type(v) ~= 'string' or #v > 2048 or not v:lower():match('^https?://[^/%s]') or v:find('[%c%s"<>\\]') then
+        return nil
+    end
+    return v
+end
+
+-- What the tile shows: {playing, title, artist, album, artwork, volume, muted, power, online}, or {error}
+local function playerState(w)
+    local ok, s = pcall(w.fns.getState)
+    if not ok then return { error = tostring(s) } end
+    if type(s) ~= 'table' then
+        return { error = 'section:player("' .. tostring(w.id) .. '"): getState must return a table, got ' .. type(s) }
+    end
+    local function bool(v) if type(v) == 'boolean' then return v end end
+    local vol = tonumber(s.volume)
+    if vol and vol - vol == 0 then vol = math.floor(math.max(0, math.min(100, vol)) + 0.5) else vol = nil end
+    return { playing = s.playing == true, title = playerText(s.title), artist = playerText(s.artist),
+        album = playerText(s.album), artwork = playerArtwork(s.artwork), volume = vol,
+        muted = bool(s.muted), power = bool(s.power), online = bool(s.online) }
+end
+
+-- ==========================================================================
+-- Weather forecast: the next days and a chart of the next hours
+-- ==========================================================================
+
+local FORECAST_KEYS = { days = true, hours = true, unit = true, icon = true, disabled = true, span = true, size = true, color = true }
+
+local function forecastWidget(id, label, src, opts)
+    local where = 'section:forecast("' .. tostring(id) .. '")'
+    if type(id) ~= 'string' or id == '' then error('section:forecast: id must be a non-empty string', 3) end
+    if type(label) ~= 'string' then error(where .. ': label must be a string', 3) end
+    if opts ~= nil and type(opts) ~= 'table' then error(where .. ': opts must be a table', 3) end
+    opts = opts or {}
+    for k in pairs(opts) do
+        if not FORECAST_KEYS[k] then
+            error(where .. ': unknown option "' .. tostring(k) .. '" (days, hours, unit, icon, disabled, span, size, color)', 3)
+        end
+    end
+    local function count(k, lo, hi)
+        local v = opts[k]
+        if v ~= nil and (type(v) ~= 'number' or v ~= math.floor(v) or v < lo or v > hi) then
+            error(where .. ': opts.' .. k .. ' must be a whole number ' .. lo .. '-' .. hi, 4)
+        end
+    end
+    count('days', 1, 7)
+    count('hours', 0, 48)
+    if opts.unit ~= nil and (type(opts.unit) ~= 'string' or #opts.unit > 8) then
+        error(where .. ': opts.unit must be a short string such as "°C"', 3)
+    end
+    if opts.icon ~= nil and (type(opts.icon) ~= 'string' or not opts.icon:match('^[%w%-]+$')) then
+        error(where .. ': opts.icon must be a Bootstrap icon name (letters, digits and -)', 3)
+    end
+    if opts.disabled ~= nil and type(opts.disabled) ~= 'function' then error(where .. ': opts.disabled must be a function', 3) end
+    local fn
+    if type(src) == 'function' then
+        fn = src
+    elseif type(src) == 'table' and type(src.getForecast) == 'function' then
+        -- the Weather plugin (@vclu/weather): its getForecast gives the same table
+        fn = function() return src:getForecast() end
+    else
+        error(where .. ': src must be a function returning { days, hours } or the Weather plugin (Plugin.getPlugin("@vclu/weather")), got ' .. type(src), 3)
+    end
+    return { id = id, type = 'forecast', label = label, icon = opts.icon or 'cloud-sun', fn = fn, opts = opts }
+end
+
+-- A finite number rounded to one decimal, or nil
+local function round1(v)
+    v = tonumber(v)
+    if not v or v - v ~= 0 then return nil end
+    return math.floor(v * 10 + 0.5) / 10
+end
+
+-- A Bootstrap icon name from the data; anything else is a cloud
+local function forecastIcon(v)
+    if type(v) == 'string' and #v <= 40 and v:match('^[%w%-]+$') then return v end
+    return 'cloud'
+end
+
+-- What the tile shows: {days, hours, updated}, {none = true} before the first fetch, or {error}
+local function forecastState(w)
+    local ok, f = pcall(w.fn)
+    if not ok then return { error = tostring(f) } end
+    if f == nil then return { none = true } end
+    if type(f) ~= 'table' then
+        return { error = 'section:forecast("' .. tostring(w.id) .. '"): src must return a table or nil, got ' .. type(f) }
+    end
+    local today = datetime.now().date
+    local days = {}
+    for i, d in ipairs(type(f.days) == 'table' and f.days or {}) do
+        if type(d) == 'table' and type(d.date) == 'string' and d.date:match('^%d%d%d%d%-%d%d%-%d%d$') and d.date >= today then
+            local pop = tonumber(d.pop)
+            -- 0..1 is a fraction; above 1 it is a percent already
+            if pop and pop - pop == 0 then
+                pop = math.floor(math.max(0, math.min(100, pop > 1 and pop or pop * 100)) + 0.5)
+            else
+                pop = nil
+            end
+            local rain = round1(d.rain)
+            days[#days + 1] = { date = d.date, icon = forecastIcon(d.iconName or d.icon), min = round1(d.min),
+                max = round1(d.max), rain = rain and math.max(0, rain), pop = pop }
+        end
+    end
+    table.sort(days, function(a, b) return a.date < b.date end)
+    for i = #days, (w.opts.days or 5) + 1, -1 do days[i] = nil end
+
+    -- the current hour and limit-1 after it: exactly limit points of hourly data
+    local hours = {}
+    local limit = w.opts.hours or 24
+    local now = math.floor(__go_time_ms() / 1000)
+    for i, h in ipairs(limit > 0 and type(f.hours) == 'table' and f.hours or {}) do
+        local at = type(h) == 'table' and tonumber(h.at)
+        if at and at - at == 0 and at > now - 3600 and at <= now + (limit - 1) * 3600 then
+            local rain = round1(h.rain)
+            hours[#hours + 1] = { at = math.floor(at), temp = round1(h.temp), rain = rain and math.max(0, rain) or 0 }
+        end
+    end
+    table.sort(hours, function(a, b) return a.at < b.at end)
+
+    local updated = tonumber(f.updated)
+    return { days = days, hours = hours, updated = updated and updated - updated == 0 and math.floor(updated) or nil }
+end
+
+-- The dashboard as the API reads it: area sections filled from what is exposed, a floor one
+-- section per area (or one of room tiles); reused until something is exposed, unexposed or its
+-- options change (widgets read the objects live). A room tile's overlay is a hidden section
+-- after the visible ones, so its widgets go through values and actions like any other.
+local function expandAreas(dash)
+    if not dash or not dash._hasAreas then return dash end
+    local E = ExposedObjects
+    local gen = E and E._generation or 0
+    if dash._areaView and dash._areaGen == gen then return dash._areaView end
+    local used, sections, overlays = {}, {}, {}
+    local function add(sec, widgets)
+        local c = {}
+        for k, v in pairs(sec) do c[k] = v end
+        c.widgets = widgets
+        sections[#sections + 1] = c
+    end
+    -- the tile with what it counts; ids of its overlay are given after the visible sections'
+    local function room(w, spec, areas, floor)
+        local c = {}
+        for k, v in pairs(w) do c[k] = v end
+        local off = function() return type(w.opts.disabled) == 'function' and w.opts.disabled() == true end
+        c._items = areaWidgets(spec, areas, {}, floor, off)
+        c._sensors = roomSensors(spec, areas, floor)
+        if not c.link then overlays[#overlays + 1] = c end
+        return c
+    end
+    for _, sec in ipairs(dash._sections) do
+        local spec = sec._floor
+        if spec and spec.rooms then
+            local tiles = {}
+            for _, a in ipairs(E and E._areasOn and E:_areasOn(spec.floor, spec.order) or {}) do
+                local t = room({ id = AREA_ID .. '@' .. escapeId(a), type = 'room', label = spec.titles[a] or a,
+                    icon = 'door-open', opts = {} }, spec, { a }, spec.floor)
+                local s = t._sensors
+                if #t._items > 0 or #s.temperature > 0 or #s.humidity > 0 then
+                    t.id = claimId(used, t.id)
+                    tiles[#tiles + 1] = t
+                else
+                    overlays[#overlays] = nil
+                end
+            end
+            if #tiles > 0 then add({ name = sec.name, icon = sec.icon }, tiles) end
+        elseif spec then
+            for _, a in ipairs(E and E._areasOn and E:_areasOn(spec.floor, spec.order) or {}) do
+                local widgets = areaWidgets(spec, { a }, used, spec.floor)
+                if #widgets > 0 then add({ name = spec.titles[a] or a, icon = sec.icon }, widgets) end
+            end
+        else
+            local widgets = sec._area and areaWidgets(sec._area, sec._area.areas, used) or {}
+            local rooms = false
+            for _, w in ipairs(sec.widgets) do
+                if w.type == 'room' then
+                    rooms = true
+                    w = room(w, w._spec, w._spec.areas)
+                end
+                widgets[#widgets + 1] = w
+            end
+            if sec._area or rooms then add(sec, widgets) else sections[#sections + 1] = sec end
+        end
+    end
+    for _, t in ipairs(overlays) do
+        for _, w in ipairs(t._items) do w.id = claimId(used, idOf(w._h.path)) end
+        sections[#sections + 1] = { name = t.label, icon = t.icon, widgets = t._items, _room = t.id }
+    end
+    local view = setmetatable({ _sections = sections }, { __index = dash })
+    dash._areaView, dash._areaGen = view, gen
+    return view
 end
 
 function SectionHandle:new(builder, sectionIndex)
@@ -273,6 +904,57 @@ function SectionHandle:cover(id, label, icon, fns, opts)
     return self
 end
 
+--- Add a cover group: one tile moving several covers, with their counts and average position.
+-- @param id string Unique widget identifier
+-- @param label string Display label
+-- @param list table Covers (RemoteCover, VirtualCover) or their paths, _:byTag(...), or a function returning one (read each time; missing paths skipped)
+--   Buttons up/stop/down call open/stop/close on each cover, the slider setPosition on those with a position,
+--   the slat slider (shown when a cover reports getTilt) setTilt on those with a tilt; commands go out 50 ms apart
+--   and a new movement (or slat) command drops what is left of the previous one; stop ends both.
+-- @param opts table Optional: {icon=string (default "window"), disabled=function()->bool, span=n, size=string, color=string}
+-- @api public
+function SectionHandle:covers(id, label, list, opts)
+    if self._builder._sections[self._sectionIndex]._isHeader then
+        error('section:covers("' .. tostring(id) .. '"): a cover group goes in a section, not the header', 2)
+    end
+    self._builder:_addWidget(self._sectionIndex, coversWidget(id, label, list, opts))
+    return self
+end
+
+--- Add a media player: artwork, title and artist, previous/play-pause/next, volume, mute and power.
+-- @param id string Unique widget identifier
+-- @param label string Display label (e.g. the room)
+-- @param src table A MusicCast device (Plugin.getPlugin("@vclu/musiccast"):create{...}) or a table of functions
+--   {getState=function()->{playing, title, artist, album, artwork (http(s) URL), volume (0-100), muted, power, online},
+--   play?, pause?, next?, previous?, setVolume?(percent), setMute?(bool), on?, off?}; a missing function hides its button
+-- @param opts table Optional: {icon=string (default "music-note-beamed"), disabled=function()->bool, span=n, size=string, color=string}
+-- @api public
+function SectionHandle:player(id, label, src, opts)
+    if self._builder._sections[self._sectionIndex]._isHeader then
+        error('section:player("' .. tostring(id) .. '"): a player goes in a section, not the header', 2)
+    end
+    self._builder:_addWidget(self._sectionIndex, playerWidget(id, label, src, opts))
+    return self
+end
+
+--- Add a weather forecast: the next days (icon, max/min, rain) and a chart of the next hours.
+-- src gives {days={{date='YYYY-MM-DD', iconName (or icon), min, max, rain (mm), pop (0-1, or a percent when above 1)}},
+-- hours={{at (unix s), temp, rain}}, updated (optional unix s, shown as "odświeżono HH:MM")},
+-- or nil while there is no forecast yet; days before today in the house's time zone are dropped;
+-- opts.hours counts hours: the current one and hours-1 after it (hourly data gives exactly that many points).
+-- @param id string Unique widget identifier
+-- @param label string Display label
+-- @param src function A function returning the forecast, or the Weather plugin (Plugin.getPlugin("@vclu/weather"))
+-- @param opts table Optional: {days=1-7 (default 5), hours=0-48 (default 24, 0 hides the chart), unit=string (default "°C"), icon=string (default "cloud-sun"), disabled=function()->bool, span=n, size=string, color=string}
+-- @api public
+function SectionHandle:forecast(id, label, src, opts)
+    if self._builder._sections[self._sectionIndex]._isHeader then
+        error('section:forecast("' .. tostring(id) .. '"): a forecast goes in a section, not the header', 2)
+    end
+    self._builder:_addWidget(self._sectionIndex, forecastWidget(id, label, src, opts))
+    return self
+end
+
 --- Add a dimmer widget to this section.
 -- @param id string Unique widget identifier
 -- @param label string Display label
@@ -301,6 +983,140 @@ function SectionHandle:color(id, label, icon, fns, opts)
         id = id, type = 'color', label = label, icon = icon,
         fns = colorFns(fns), opts = opts or {}
     })
+    return self
+end
+
+local CHIP_KEYS = { color = true, link = true, disabled = true }
+
+-- opts.link: an http(s) URL or a path as is, anything else is a dashboard id; level as error()'s, default 3
+local function chipLink(where, link, level)
+    level = level or 3
+    if type(link) ~= 'string' or link == '' then
+        error(where .. ': opts.link must be a URL or a dashboard id', level)
+    end
+    if link:match('^/[/\\]') then
+        error(where .. ': opts.link "' .. link .. '" leaves the site; give an http(s):// URL', level)
+    end
+    if link:lower():match('^https?://') or link:sub(1, 1) == '/' then return link end
+    if link:find('[:%s/?#]') then
+        error(where .. ': opts.link must be http(s)://..., a path starting with / or a dashboard id, got "' .. link .. '"', level)
+    end
+    return '/d/' .. link
+end
+
+local ROOM_KEYS = { 'color', 'disabled', 'humidity', 'icon', 'kinds', 'link', 'size', 'skip', 'span', 'temperature', 'title' }
+
+-- A room tile: the area's name, what is on and its climate; a tap opens its widgets (or opts.link).
+-- Errors name the module's line: level 3 is the caller of section:room / dash:room.
+local function roomWidget(id, area, opts)
+    local where = 'section:room("' .. tostring(id) .. '")'
+    if type(id) ~= 'string' or id == '' then error('section:room: id must be a non-empty string', 3) end
+    local areas = type(area) == 'table' and area or { area }
+    if (type(area) ~= 'string' and type(area) ~= 'table') or #areas == 0 or not isList(areas, 'string') then
+        error(where .. ': expected an area name or a list of them, got ' .. type(area), 3)
+    end
+    local spec = areaSpec(where, opts, ROOM_KEYS, 4)
+    opts = opts or {}
+    spec.areas = areas
+    for _, k in ipairs({ 'temperature', 'humidity' }) do
+        local v = opts[k]
+        if v ~= nil and type(v) ~= 'function' and (type(v) ~= 'string' or v == '') then
+            error(where .. ': opts.' .. k .. ' must be a path or a function returning a number', 3)
+        end
+    end
+    if opts.title ~= nil and type(opts.title) ~= 'string' then error(where .. ': opts.title must be a string', 3) end
+    if opts.icon ~= nil and (type(opts.icon) ~= 'string' or not opts.icon:match('^[%w%-]+$')) then
+        error(where .. ': opts.icon must be a Bootstrap icon name (letters, digits and -)', 3)
+    end
+    if opts.disabled ~= nil and type(opts.disabled) ~= 'function' then error(where .. ': opts.disabled must be a function', 3) end
+    local link = opts.link ~= nil and chipLink(where, opts.link, 4) or nil
+    return { id = id, type = 'room', label = opts.title or areas[1], icon = opts.icon or 'door-open', link = link,
+        opts = opts, _spec = spec, _temperature = opts.temperature, _humidity = opts.humidity }
+end
+
+--- Add a chip to the header: an icon and a short text from fn, hidden while fn returns nil.
+-- @param id string Unique widget identifier
+-- @param icon string Bootstrap icon name (e.g., "alarm", "water", "shield")
+-- @param fn function function() -> string|nil|{text=string, icon=string, color=string}; nil hides the chip
+-- @param opts table Optional: {color=string|function()->string|nil, link=URL or dashboard id, disabled=function()->bool}
+-- @api public
+function SectionHandle:chip(id, icon, fn, opts)
+    local where = 'header:chip("' .. tostring(id) .. '")'
+    if not self._builder._sections[self._sectionIndex]._isHeader then
+        error(where .. ': chips go in the header only, add them after dash:header()', 2)
+    end
+    if type(id) ~= 'string' or id == '' then error('header:chip: id must be a non-empty string', 2) end
+    if type(icon) ~= 'string' or not icon:match('^[%w%-]+$') then
+        error(where .. ': icon must be a Bootstrap icon name (letters, digits and -)', 2)
+    end
+    if type(fn) ~= 'function' then error(where .. ': fn must be a function returning the text or nil', 2) end
+    if opts ~= nil and type(opts) ~= 'table' then error(where .. ': opts must be a table', 2) end
+    opts = opts or {}
+    for k in pairs(opts) do
+        if not CHIP_KEYS[k] then error(where .. ': unknown option "' .. tostring(k) .. '" (color, link, disabled)', 2) end
+    end
+    if opts.color ~= nil and type(opts.color) ~= 'string' and type(opts.color) ~= 'function' then
+        error(where .. ': opts.color must be a colour or a function', 2)
+    end
+    if opts.disabled ~= nil and type(opts.disabled) ~= 'function' then
+        error(where .. ': opts.disabled must be a function', 2)
+    end
+    local link = opts.link ~= nil and chipLink(where, opts.link) or nil
+    self._builder:_addWidget(self._sectionIndex, {
+        id = id, type = 'chip', icon = icon, chipFn = fn, link = link, opts = opts
+    })
+    return self
+end
+
+--- Fill this section with a widget for every device expose() put in an area, picked by kind:
+-- a light, switch or lock a toggle, a dimmer a dimmer, an RGB light the colour widget, a cover
+-- a cover, temperature and humidity a status; lights first, then covers, then the rest by name.
+-- Filled when something is exposed or unexposed, so devices a plugin exposes later show up;
+-- widgets added by hand come after them; a read-only device's widget is disabled. Like the
+-- panel, expose(obj, type, { dashboard = false }) keeps an object off dashboards and
+-- dashboard = true puts one of those kinds on them even when kinds leaves it out (other kinds
+-- have no widget and log a warning). Widget ids are "area:" .. path, other bytes as %XX.
+-- Anyone who can open the dashboard controls what is exposed in the area later: use
+-- :auth('session') or 'pin'; access profiles of MQTT, HomeKit and MCP do not apply here.
+-- @param area string Area name, or a list of names (one room under two names)
+-- @param opts table Optional: {kinds={"light","dimmer","cover","temperature","humidity"} (also "switch", "lock"), skip={path, ...}}
+-- @api public
+function SectionHandle:area(area, opts)
+    local sec = self._builder._sections[self._sectionIndex]
+    local areas = type(area) == 'table' and area or { area }
+    if (type(area) ~= 'string' and type(area) ~= 'table') or #areas == 0 or not isList(areas, 'string') then
+        error('section:area: expected an area name or a list of them, got ' .. type(area), 2)
+    end
+    if sec._area then error('section:area: this section already shows an area; pass a list for several', 2) end
+    sec._area = areaSpec('section:area', opts, AREA_KEYS, 3)
+    sec._area.areas = areas
+    self._builder._hasAreas = true
+    self._builder._areaView = nil
+    return self
+end
+
+--- Add one section per area on a floor (delegates to DashboardBuilder:floor).
+-- @api public
+function SectionHandle:floor(floor, opts)
+    local b = self._builder:_floor(floor, opts) -- no tail call: errors count the levels
+    return b
+end
+
+--- Add a room tile: the area's name, how many lights and switches are on and covers open, its
+-- temperature and humidity ("Sypialnia · 2 włączone · 21,5 °C · 60 %"); a tap opens the room's
+-- widgets, chosen as section:area does (same kinds, skip and ids), over the page. Lights,
+-- dimmers and switches count as on above 0, covers as open above 0 or while moving; only what the
+-- room shows is counted. Temperature and humidity default to the area's devices of that kind
+-- (the average of several, left out with none).
+-- @param id string Unique widget identifier
+-- @param area string Area name, or a list of names (one room under two names)
+-- @param opts table Optional: {title=string, temperature=path|function()->number, humidity=path|function()->number, kinds, skip (as section:area), icon=string, link=dashboard id|/path|http(s) URL (opens it instead of the room), disabled=function()->bool (also disables the room's widgets), span=n, size=string, color=string}
+-- @api public
+function SectionHandle:room(id, area, opts)
+    local sec = self._builder._sections[self._sectionIndex]
+    if sec._isHeader then error('section:room("' .. tostring(id) .. '"): a room tile goes in a section, not the header', 2) end
+    self._builder:_addWidget(self._sectionIndex, roomWidget(id, area, opts))
+    self._builder._hasAreas = true
     return self
 end
 
@@ -343,6 +1159,10 @@ function SectionHandle:poll(n)  self._builder:poll(n);  return self end
 --- Add dashboard to a tab group (delegates to DashboardBuilder:tabGroup).
 -- @api public
 function SectionHandle:tabGroup(g) self._builder:tabGroup(g); return self end
+
+--- Set the page width (delegates to DashboardBuilder:width).
+-- @api public
+function SectionHandle:width(w) setWidth(self._builder, w, 3); return self end
 
 -- ==========================================================================
 -- DashboardBuilder
@@ -394,6 +1214,14 @@ end
 -- @api public
 function DashboardBuilder:columns(n)
     self._columns = n
+    return self
+end
+
+--- Set the page width: 'full' fills the screen edge to edge (wall tablets), 'normal' (default) keeps wide screens centred.
+-- @param w string "full" or "normal"
+-- @api public
+function DashboardBuilder:width(w)
+    setWidth(self, w, 3)
     return self
 end
 
@@ -455,15 +1283,59 @@ end
 --- Start a new named section for grouping widgets.
 -- @param name string Section title
 -- @param icon string Bootstrap icon name
--- @param opts table Optional: {columns=number}
+-- @param opts table Optional: {columns=number, covers=true (the header counts the section's covers open, moving and closed)}
 -- @return SectionHandle Handle for adding widgets to this section
 -- @api public
 function DashboardBuilder:section(name, icon, opts)
     opts = opts or {}
-    local sec = { name = name, icon = icon or '', widgets = {}, _columns = opts.columns }
+    local sec = { name = name, icon = icon or '', widgets = {}, _columns = opts.columns, _covers = opts.covers == true or nil }
     table.insert(self._sections, sec)
+    self._areaView = nil
     self._currentSection = #self._sections
     return SectionHandle:new(self, self._currentSection)
+end
+
+--- Add one section per area on a floor (expose(..., { area = "Salon", floor = "Parter" })),
+-- each filled as section:area; areas with nothing to show are left out. Read each time the
+-- dashboard is, so new areas show up. Start a section() to add widgets by hand after it.
+-- With rooms = true: one section named after the floor with a room tile per area (section:room).
+-- @param floor string Floor name
+-- @param opts table Optional: {order={area, ...} (first, in this order; the rest by name), titles={[area]=title}, kinds, skip, rooms=true}
+-- @api public
+function DashboardBuilder:floor(floor, opts)
+    local b = self:_floor(floor, opts) -- no tail call: errors count the levels
+    return b
+end
+
+--- Add a room tile to the current section (see SectionHandle:room).
+-- @param id string Unique widget identifier
+-- @param area string Area name, or a list of names
+-- @param opts table Optional: as SectionHandle:room
+-- @api public
+function DashboardBuilder:room(id, area, opts)
+    if not self._currentSection then
+        error('section:room: call :section() before adding widgets (dash:floor() ends the current section)', 2)
+    end
+    if self._sections[self._currentSection]._isHeader then
+        error('section:room("' .. tostring(id) .. '"): a room tile goes in a section, not the header', 2)
+    end
+    self:_addWidget(self._currentSection, roomWidget(id, area, opts))
+    self._hasAreas = true
+    return self
+end
+
+-- Errors name the module that called floor() on the builder or a section
+function DashboardBuilder:_floor(floor, opts)
+    if type(floor) ~= 'string' or floor == '' then
+        error('dash:floor: expected a floor name, got ' .. type(floor), 3)
+    end
+    local spec = areaSpec('dash:floor', opts, FLOOR_KEYS, 4)
+    spec.floor = floor
+    table.insert(self._sections, { name = floor, icon = '', widgets = {}, _floor = spec })
+    self._areaView = nil
+    self._currentSection = nil
+    self._hasAreas = true
+    return self
 end
 
 -- Internal: add widget to a section
@@ -472,7 +1344,16 @@ function DashboardBuilder:_addWidget(sectionIndex, widget)
     if not sec then
         error('No section at index ' .. tostring(sectionIndex))
     end
+    -- _group_N and _section_N are the page's own keys, area: is section:area's; level 3: the module calling a widget method
+    if widget.type ~= 'group' and type(widget.id) == 'string'
+        and (widget.id:sub(1, 7) == '_group_' or widget.id:sub(1, 9) == '_section_') then
+        error('widget id "' .. widget.id .. '": ids starting with _group_ or _section_ are reserved', 3)
+    end
+    if type(widget.id) == 'string' and widget.id:sub(1, #AREA_ID) == AREA_ID then
+        error('widget id "' .. widget.id .. '": ids starting with "' .. AREA_ID .. '" are kept for section:area', 3)
+    end
     table.insert(sec.widgets, widget)
+    self._areaView = nil
 end
 
 --- Add a button widget to the current section.
@@ -484,7 +1365,7 @@ end
 -- @api public
 function DashboardBuilder:button(id, label, icon, onTap, opts)
     if not self._currentSection then
-        error('Call :section() before adding widgets')
+        error('Call :section() before adding widgets (dash:floor() ends the current section)', 2)
     end
     self:_addWidget(self._currentSection, {
         id = id, type = 'button', label = label, icon = icon,
@@ -503,7 +1384,7 @@ end
 -- @api public
 function DashboardBuilder:toggle(id, label, icon, getValue, onToggle, opts)
     if not self._currentSection then
-        error('Call :section() before adding widgets')
+        error('Call :section() before adding widgets (dash:floor() ends the current section)', 2)
     end
     self:_addWidget(self._currentSection, {
         id = id, type = 'toggle', label = label, icon = icon,
@@ -523,7 +1404,7 @@ end
 -- @api public
 function DashboardBuilder:slider(id, label, min, max, getValue, onSet, opts)
     if not self._currentSection then
-        error('Call :section() before adding widgets')
+        error('Call :section() before adding widgets (dash:floor() ends the current section)', 2)
     end
     self:_addWidget(self._currentSection, {
         id = id, type = 'slider', label = label,
@@ -543,7 +1424,7 @@ end
 -- @api public
 function DashboardBuilder:status(id, label, icon, getValue, unit, opts)
     if not self._currentSection then
-        error('Call :section() before adding widgets')
+        error('Call :section() before adding widgets (dash:floor() ends the current section)', 2)
     end
     self:_addWidget(self._currentSection, {
         id = id, type = 'status', label = label, icon = icon,
@@ -561,7 +1442,7 @@ end
 -- @api public
 function DashboardBuilder:link(id, label, icon, url, opts)
     if not self._currentSection then
-        error('Call :section() before adding widgets')
+        error('Call :section() before adding widgets (dash:floor() ends the current section)', 2)
     end
     self:_addWidget(self._currentSection, {
         id = id, type = 'link', label = label, icon = icon,
@@ -578,7 +1459,7 @@ end
 -- @api public
 function DashboardBuilder:chart(id, label, metricPath, opts)
     if not self._currentSection then
-        error('Call :section() before adding widgets')
+        error('Call :section() before adding widgets (dash:floor() ends the current section)', 2)
     end
     self:_addWidget(self._currentSection, {
         id = id, type = 'chart', label = label,
@@ -597,7 +1478,7 @@ end
 -- @api public
 function DashboardBuilder:calendar(id, label, cal, opts)
     if not self._currentSection then
-        error('Call :section() before adding widgets')
+        error('Call :section() before adding widgets (dash:floor() ends the current section)', 2)
     end
     self:_addWidget(self._currentSection, calendarWidget(id, label, cal, opts))
     return self
@@ -614,7 +1495,7 @@ end
 -- @api public
 function DashboardBuilder:select(id, label, icon, options, getValue, onSelect, opts)
     if not self._currentSection then
-        error('Call :section() before adding widgets')
+        error('Call :section() before adding widgets (dash:floor() ends the current section)', 2)
     end
     self:_addWidget(self._currentSection, {
         id = id, type = 'select', label = label, icon = icon,
@@ -631,7 +1512,7 @@ end
 -- @api public
 function DashboardBuilder:image(id, label, url, opts)
     if not self._currentSection then
-        error('Call :section() before adding widgets')
+        error('Call :section() before adding widgets (dash:floor() ends the current section)', 2)
     end
     self:_addWidget(self._currentSection, {
         id = id, type = 'image', label = label,
@@ -646,7 +1527,7 @@ end
 -- @api public
 function DashboardBuilder:group(label, icon)
     if not self._currentSection then
-        error('Call :section() before adding widgets')
+        error('Call :section() before adding widgets (dash:floor() ends the current section)', 2)
     end
     self:_addWidget(self._currentSection, {
         id = '_group_' .. tostring(#self._sections[self._currentSection].widgets),
@@ -667,12 +1548,66 @@ end
 -- @api public
 function DashboardBuilder:cover(id, label, icon, fns, opts)
     if not self._currentSection then
-        error('Call :section() before adding widgets')
+        error('Call :section() before adding widgets (dash:floor() ends the current section)', 2)
     end
     self:_addWidget(self._currentSection, {
         id = id, type = 'cover', label = label, icon = icon,
         fns = fns, opts = opts or {}
     })
+    return self
+end
+
+--- Add a cover group to the current section: one tile moving several covers, with their counts and average position.
+-- @param id string Unique widget identifier
+-- @param label string Display label
+-- @param list table Covers (RemoteCover, VirtualCover) or their paths, _:byTag(...), or a function returning one (read each time; missing paths skipped)
+--   Buttons up/stop/down call open/stop/close on each cover, the slider setPosition on those with a position,
+--   the slat slider (shown when a cover reports getTilt) setTilt on those with a tilt; commands go out 50 ms apart
+--   and a new movement (or slat) command drops what is left of the previous one; stop ends both.
+-- @param opts table Optional: {icon=string (default "window"), disabled=function()->bool, span=n, size=string, color=string}
+-- @api public
+function DashboardBuilder:covers(id, label, list, opts)
+    if not self._currentSection then
+        error('Call :section() before adding widgets', 2)
+    end
+    if self._sections[self._currentSection]._isHeader then
+        error('section:covers("' .. tostring(id) .. '"): a cover group goes in a section, not the header', 2)
+    end
+    self:_addWidget(self._currentSection, coversWidget(id, label, list, opts))
+    return self
+end
+
+--- Add a media player to the current section: artwork, title and artist, previous/play-pause/next, volume, mute and power.
+-- @param id string Unique widget identifier
+-- @param label string Display label (e.g. the room)
+-- @param src table A MusicCast device or a table of functions {getState, play?, pause?, next?, previous?, setVolume?, setMute?, on?, off?}
+-- @param opts table Optional: {icon=string, disabled=function()->bool, span=n, size=string, color=string}
+-- @api public
+function DashboardBuilder:player(id, label, src, opts)
+    if not self._currentSection then
+        error('Call :section() before adding widgets', 2)
+    end
+    if self._sections[self._currentSection]._isHeader then
+        error('section:player("' .. tostring(id) .. '"): a player goes in a section, not the header', 2)
+    end
+    self:_addWidget(self._currentSection, playerWidget(id, label, src, opts))
+    return self
+end
+
+--- Add a weather forecast to the current section: the next days and a chart of the next hours.
+-- @param id string Unique widget identifier
+-- @param label string Display label
+-- @param src function A function returning {days={...}, hours={...}, updated?} or nil, or the Weather plugin
+-- @param opts table Optional: {days=1-7, hours=0-48, unit=string, icon=string, disabled=function()->bool, span=n, size=string, color=string}
+-- @api public
+function DashboardBuilder:forecast(id, label, src, opts)
+    if not self._currentSection then
+        error('Call :section() before adding widgets', 2)
+    end
+    if self._sections[self._currentSection]._isHeader then
+        error('section:forecast("' .. tostring(id) .. '"): a forecast goes in a section, not the header', 2)
+    end
+    self:_addWidget(self._currentSection, forecastWidget(id, label, src, opts))
     return self
 end
 
@@ -685,7 +1620,7 @@ end
 -- @api public
 function DashboardBuilder:dimmer(id, label, icon, fns, opts)
     if not self._currentSection then
-        error('Call :section() before adding widgets')
+        error('Call :section() before adding widgets (dash:floor() ends the current section)', 2)
     end
     self:_addWidget(self._currentSection, {
         id = id, type = 'dimmer', label = label, icon = icon,
@@ -704,7 +1639,7 @@ end
 -- @api public
 function DashboardBuilder:color(id, label, icon, fns, opts)
     if not self._currentSection then
-        error('Call :section() before adding widgets')
+        error('Call :section() before adding widgets (dash:floor() ends the current section)', 2)
     end
     self:_addWidget(self._currentSection, {
         id = id, type = 'color', label = label, icon = icon,
@@ -783,6 +1718,39 @@ local function safeGetValue(fn)
     end
 end
 
+-- A group's covers and what its tile shows, read once per request
+local function coversState(dashId, w, cache)
+    local st = cache[w]
+    if st then return st end
+    local covers = coversResolve(dashId, w)
+    local entry, readings = coversEntry(covers)
+    st = { covers = covers, entry = entry, readings = readings }
+    cache[w] = st
+    return st
+end
+
+-- Header counts of a section with covers = true: each cover once within groups; a cover tile
+-- counts on its own (its fns cannot be matched to an object)
+local function sectionCoverCounts(dashId, sec, cache)
+    local seen, readings = {}, {}
+    for _, w in ipairs(sec.widgets) do
+        if w.type == 'cover' and type(w.fns) == 'table' and not seen[w.fns] then
+            seen[w.fns] = true
+            readings[#readings + 1] = { position = tonumber((safeGetValue(w.fns.getPosition))),
+                state = tonumber((safeGetValue(w.fns.getState))) }
+        elseif w.type == 'covers' then
+            local st = coversState(dashId, w, cache)
+            for i, c in ipairs(st.covers) do
+                if not seen[c] then
+                    seen[c] = true
+                    readings[#readings + 1] = st.readings[i]
+                end
+            end
+        end
+    end
+    return coverCounts(readings)
+end
+
 -- Colour errors already logged, by "dashboard/widget"
 local _colorErrorLogged = {}
 
@@ -790,7 +1758,7 @@ local _colorErrorLogged = {}
 local function safeColor(dashId, w)
     local c = w.opts.color
     if type(c) ~= 'function' then return c end
-    if w.type ~= 'status' then return nil end
+    if w.type ~= 'status' and w.type ~= 'chip' then return nil end
     local ok, val = pcall(c)
     if ok then
         if type(val) == 'string' then return val end
@@ -812,11 +1780,101 @@ local function safeDisabled(opts)
     return false
 end
 
+-- What fn gives goes into a class and a CSS value: an icon name, a colour name, #hex or rgb()/hsl()
+local function chipIcon(v)
+    if type(v) == 'string' and v:match('^[%w%-]+$') then return v end
+end
+local function chipColor(v)
+    if type(v) ~= 'string' then return nil end
+    if v:match('^%a+$') or v:match('^#%x+$') or v:match('^rgba?%([%d%.%%,%s]+%)$')
+        or v:match('^hsla?%([%d%.%%,%s]+%)$') then
+        return v
+    end
+end
+
+-- A chip's state: {text, icon, color} as the page needs it, {error} when fn fails, nil hides it
+local function chipState(dashId, w)
+    local ok, val = pcall(w.chipFn)
+    if not ok then return { error = tostring(val) } end
+    if val == nil then return nil end
+    local s = {}
+    if type(val) == 'table' then
+        -- no text: an icon-only chip (and a JSON object, never [])
+        s.text = val.text ~= nil and tostring(val.text) or ''
+        s.icon = chipIcon(val.icon)
+        s.color = chipColor(val.color)
+    elseif type(val) == 'string' or type(val) == 'number' then
+        s.text = val
+    else
+        return { error = 'header:chip("' .. tostring(w.id) .. '"): fn must return a string, a table or nil, got ' .. type(val) }
+    end
+    if s.color == nil then s.color = chipColor(safeColor(dashId, w)) end
+    return s
+end
+
+-- Problems with a room's temperature or humidity already logged, by "dashboard/widget/kind"
+local _roomLogged = {}
+
+-- A finite number to one decimal, or nil
+local function round1n(v)
+    v = tonumber(v)
+    if v == nil or v - v ~= 0 then return nil end
+    return math.floor(v * 10 + 0.5) / 10
+end
+
+-- A room's temperature or humidity: opts as a path (exposed, else in the registry) or a
+-- function, else the average of the area's devices of that kind; nil when there is none
+local function roomClimate(dashId, w, kind)
+    local src = w['_' .. kind]
+    local function fail(msg)
+        local key = tostring(dashId) .. '/' .. tostring(w.id) .. '/' .. kind
+        if not _roomLogged[key] then
+            _roomLogged[key] = true
+            Logger:getShared():warn("[DASHBOARD] Room '%s/%s': %s %s", tostring(dashId), tostring(w.id), kind, msg)
+        end
+    end
+    if type(src) == 'function' then
+        local ok, v = pcall(src)
+        if not ok then fail('failed: ' .. tostring(v)); return nil end
+        return round1n(v)
+    elseif type(src) == 'string' then
+        local h = ExposedObjects and ExposedObjects:get(src)
+        local o = h or (_registry and _registry:get(src))
+        if type(o) ~= 'table' or type(o.getValue) ~= 'function' then fail("path '" .. src .. "' not found"); return nil end
+        local ok, v = pcall(o.getValue, o)
+        return ok and round1n(v) or nil
+    end
+    local sum, n = 0, 0
+    for _, h in ipairs(w._sensors[kind]) do
+        local v = round1n(h:getValue())
+        if v then sum = sum + v; n = n + 1 end
+    end
+    if n > 0 then return round1n(sum / n) end
+end
+
+-- What a room tile shows: lights, dimmers and switches on, covers open (moving counts), its climate
+local function roomState(dashId, w)
+    local on, readings = 0, {}
+    for _, x in ipairs(w._items) do
+        local h = x._h
+        if h.type == 'cover' then
+            readings[#readings + 1] = coverReading(h.object)
+        elseif h.type == 'light' or h.type == 'dimmer' or h.type == 'switch' then
+            local ok, v = pcall(h.getValue, h)
+            if ok and isOn(v) then on = on + 1 end
+        end
+    end
+    local c = coverCounts(readings)
+    return { on = on, open = c.open + c.moving, moving = c.moving,
+        temperature = roomClimate(dashId, w, 'temperature'), humidity = roomClimate(dashId, w, 'humidity') }
+end
+
 --- Internal: resolve a dashboard entry. For dynamic dashboards, rebuilds fresh.
-local function resolveDashboard(id)
+-- bare: without filling area sections (auth and PIN need no widgets)
+local function resolveDashboard(id, bare)
     local entry = _dashboards[id]
     if not entry then return nil end
-    if not entry._isDynamic then return entry end
+    if not entry._isDynamic then return bare and entry or expandAreas(entry) end
 
     -- Dynamic: create fresh builder, call user function, auto-build
     local builder = DashboardBuilder:new(id)
@@ -832,18 +1890,35 @@ local function resolveDashboard(id)
     local result = _dashboards[id]
     -- Restore the dynamic sentinel so next call rebuilds again
     _dashboards[id] = entry
-    return result
+    return bare and result or expandAreas(result)
 end
 
 --- Get auth type for a dashboard (lightweight, no getValue calls)
 -- @param id string Dashboard ID
 -- @return string JSON with auth type
 function DashboardAPI.getAuth(id)
-    local dash = resolveDashboard(id)
+    local dash = resolveDashboard(id, true)
     if not dash then
         return JSON.encode({ error = 'Dashboard not found' })
     end
     return JSON.encode({ auth = dash._auth })
+end
+
+--- What the home-screen app of a dashboard needs: no widgets or values, any auth may read it
+-- @param id string Dashboard ID
+-- @return string JSON {name, auth, width, background} or {error}
+function DashboardAPI.getAppInfo(id)
+    local dash = resolveDashboard(id, true)
+    if not dash then
+        return JSON.encode({ error = 'Dashboard not found' })
+    end
+    local theme = type(dash._theme) == 'table' and dash._theme or {}
+    return JSON.encode({
+        name = tostring(dash._name),
+        auth = dash._auth,
+        width = dash._width,
+        background = type(theme.background) == 'string' and theme.background or nil,
+    })
 end
 
 --- Whether the dashboard draws this metric (chart or status sparkline)
@@ -969,15 +2044,18 @@ function DashboardAPI.list()
         if dash then
             local widgetCount = 0
             local widgets = {}
+            -- visible sections only: a room tile's widgets are not on the page until it is tapped
             for _, sec in ipairs(dash._sections) do
-                widgetCount = widgetCount + #sec.widgets
-                for _, w in ipairs(sec.widgets) do
-                    table.insert(widgets, {
-                        id = w.id,
-                        type = w.type,
-                        label = w.label,
-                        icon = w.icon,
-                    })
+                if not sec._room then
+                    widgetCount = widgetCount + #sec.widgets
+                    for _, w in ipairs(sec.widgets) do
+                        table.insert(widgets, {
+                            id = w.id,
+                            type = w.type,
+                            label = w.label,
+                            icon = w.icon,
+                        })
+                    end
                 end
             end
             table.insert(result, {
@@ -1004,11 +2082,15 @@ function DashboardAPI.getDefinition(id)
 
     local sections = {}
     local widgets = {}
+    local covers = {}
 
     for si, sec in ipairs(dash._sections) do
         local secDef = { name = sec.name, icon = sec.icon }
         if sec._isHeader then secDef.isHeader = true end
         if sec._columns then secDef.columns = sec._columns end
+        if sec._covers then secDef.covers = sectionCoverCounts(id, sec, covers) end
+        -- a room tile's overlay: drawn when the tile is tapped
+        if sec._room then secDef.room = sec._room end
         table.insert(sections, secDef)
 
         for _, w in ipairs(sec.widgets) do
@@ -1020,7 +2102,7 @@ function DashboardAPI.getDefinition(id)
                 section = si - 1, -- 0-indexed for JS
                 span = w.opts.span,
                 size = w.opts.size,
-                color = safeColor(id, w),
+                color = w.type ~= 'chip' and safeColor(id, w) or nil,
             }
 
             -- Get current value
@@ -1052,6 +2134,12 @@ function DashboardAPI.getDefinition(id)
             -- Link URL
             if w.type == 'link' then
                 widget.url = w.url
+            end
+
+            -- Chip: the link, and its state as a poll gives it; none while fn gives nil
+            if w.type == 'chip' then
+                widget.link = w.link
+                widget.chip = chipState(id, w)
             end
 
             -- Chart fields (no getValue — frontend fetches directly)
@@ -1115,6 +2203,31 @@ function DashboardAPI.getDefinition(id)
                 widget.capabilities = {
                     set = type(fns.set) == 'function'
                 }
+            end
+
+            -- Room tile: what is on, its climate, where a tap goes when not to the room
+            if w.type == 'room' then
+                for k, v in pairs(roomState(id, w)) do widget[k] = v end
+                widget.link = w.link
+            end
+
+            -- Cover group: counts, average position and tilt
+            if w.type == 'covers' then
+                for k, v in pairs(coversState(id, w, covers).entry) do widget[k] = v end
+            end
+
+            -- Media player: its state and the controls it has
+            if w.type == 'player' then
+                for k, v in pairs(playerState(w)) do widget[k] = v end
+                widget.capabilities = playerCapabilities(w.fns)
+            end
+
+            -- Forecast: its days and hours, and how many hours the chart shows
+            if w.type == 'forecast' then
+                for k, v in pairs(forecastState(w)) do widget[k] = v end
+                widget.unit = w.opts.unit or '°C'
+                widget.chartHours = w.opts.hours or 24
+                widget.zone = datetime.timezone()
             end
 
             -- Dimmer widget
@@ -1189,6 +2302,7 @@ function DashboardAPI.getDefinition(id)
         auth = dash._auth,
         poll = dash._poll,
         theme = dash._theme,
+        width = dash._width,
         period = Dashboard.timeOfDay(),
         sections = sections,
         widgets = widgets,
@@ -1205,7 +2319,7 @@ function DashboardAPI.getDefinition(id)
                     local otherGroups = otherDb._groups or {}
                     -- For dynamic dashboards, resolve to read _groups
                     if otherDb._isDynamic then
-                        local resolved = resolveDashboard(otherId)
+                        local resolved = resolveDashboard(otherId, true)
                         if resolved then
                             otherGroups = resolved._groups or {}
                             -- Also read name/icon from resolved
@@ -1258,9 +2372,31 @@ function DashboardAPI.getValues(id)
     end
 
     local result = {}
-    for _, sec in ipairs(dash._sections) do
+    local covers = {}
+    for si, sec in ipairs(dash._sections) do
+        -- a section's cover counts, by its 0-based index as in the definition
+        if sec._covers then result['_section_' .. (si - 1)] = sectionCoverCounts(id, sec, covers) end
         for _, w in ipairs(sec.widgets) do
-            if w.getValue then
+            if w.type == 'covers' then
+                local entry = coversState(id, w, covers).entry
+                entry.disabled = safeDisabled(w.opts)
+                result[w.id] = entry
+            elseif w.type == 'room' then
+                local entry = roomState(id, w)
+                entry.disabled = safeDisabled(w.opts)
+                result[w.id] = entry
+            elseif w.type == 'player' or w.type == 'forecast' then
+                local entry = w.type == 'player' and playerState(w) or forecastState(w)
+                entry.disabled = safeDisabled(w.opts)
+                result[w.id] = entry
+            elseif w.type == 'chip' then
+                -- a hidden chip is left out; disabled only when it can change
+                local entry = chipState(id, w)
+                if entry then
+                    if type(w.opts.disabled) == 'function' then entry.disabled = safeDisabled(w.opts) end
+                    result[w.id] = entry
+                end
+            elseif w.getValue then
                 local entry = {}
                 local val, err = safeGetValue(w.getValue)
                 if err then
@@ -1426,6 +2562,12 @@ function DashboardAPI.executeAction(id, widgetId, action, value)
     elseif widget.type == 'group' then
         return JSON.encode({ error = 'Group label has no server action' })
 
+    elseif widget.type == 'chip' then
+        return JSON.encode({ error = 'Chip has no server action' })
+
+    elseif widget.type == 'room' then
+        return JSON.encode({ error = 'Room tile has no server action' })
+
     elseif widget.type == 'cover' then
         local fns = widget.fns or {}
         if action == 'open' then
@@ -1454,6 +2596,64 @@ function DashboardAPI.executeAction(id, widgetId, action, value)
         else
             return JSON.encode({ error = 'Invalid action for cover' })
         end
+
+    elseif widget.type == 'covers' then
+        local covers = coversResolve(id, widget)
+        local fn, numVal
+        if action == 'open' or action == 'close' or action == 'stop' then
+            fn = function(c) c[action](c) end
+        elseif action == 'set' or action == 'tilt' then
+            numVal = tonumber(value)
+            if not numVal then return JSON.encode({ error = 'Value must be a number' }) end
+            local max = action == 'set' and 100 or 90
+            if numVal < 0 or numVal > max then return JSON.encode({ error = 'Value out of range [0, ' .. max .. ']' }) end
+            local only = {}
+            for _, c in ipairs(covers) do
+                if action == 'set' and coverCanSet(c) or action == 'tilt' and coverTilt(c) ~= nil then only[#only + 1] = c end
+            end
+            if #only == 0 then
+                return JSON.encode({ error = action == 'set' and 'No cover with a position' or 'No cover with a tilt' })
+            end
+            covers = only
+            if action == 'set' then
+                fn = function(c) c:setPosition(numVal) end
+            else
+                fn = function(c) c:setTilt(numVal) end
+            end
+        else
+            return JSON.encode({ error = 'Invalid action for covers' })
+        end
+        -- movement and slats are separate series; stop ends both
+        local key = tostring(id) .. '/' .. tostring(widgetId)
+        if action == 'stop' then coversCancel(key .. '/tilt') end
+        coversSeries(key .. (action == 'tilt' and '/tilt' or '/move'), covers, fn,
+            function() return safeDisabled(widget.opts) end)
+        if action == 'set' then return JSON.encode({ success = true, value = numVal }) end
+        return JSON.encode({ success = true })
+
+    elseif widget.type == 'player' then
+        local name, arg
+        if action == 'play' or action == 'pause' or action == 'next' or action == 'previous' then
+            name = action
+        elseif action == 'volume' then
+            arg = tonumber(value)
+            if not arg or arg ~= arg then return JSON.encode({ error = 'Value must be a number' }) end
+            if arg < 0 or arg > 100 then return JSON.encode({ error = 'Value out of range [0, 100]' }) end
+            name = 'setVolume'
+        elseif action == 'mute' or action == 'power' then
+            if value == true or value == 'true' then arg = true
+            elseif value == false or value == 'false' then arg = false
+            else return JSON.encode({ error = 'Value must be true or false' }) end
+            name = action == 'mute' and 'setMute' or (arg and 'on' or 'off')
+        else
+            return JSON.encode({ error = 'Invalid action for player' })
+        end
+        local fn = widget.fns[name]
+        if type(fn) ~= 'function' then return JSON.encode({ error = 'No ' .. name .. ' function' }) end
+        local ok, ret = pcall(fn, arg)
+        if not ok then return JSON.encode({ error = tostring(ret) }) end
+        if action == 'volume' then return JSON.encode({ success = true, value = arg }) end
+        return JSON.encode({ success = true })
 
     elseif widget.type == 'dimmer' then
         local fns = widget.fns or {}
@@ -1527,7 +2727,7 @@ end
 -- @param pin string PIN to verify
 -- @return string JSON result
 function DashboardAPI.verifyPin(id, pin)
-    local dash = resolveDashboard(id)
+    local dash = resolveDashboard(id, true)
     if not dash then
         return JSON.encode({ valid = false })
     end
@@ -1541,7 +2741,7 @@ end
 --- PIN of a 'pin' dashboard, for checking cookies server-side (never sent to pages)
 -- @return string JSON {pin=...} or {}
 function DashboardAPI.getPin(id)
-    local dash = resolveDashboard(id)
+    local dash = resolveDashboard(id, true)
     if not dash or dash._auth ~= 'pin' or not dash._pin then
         return JSON.encode({})
     end

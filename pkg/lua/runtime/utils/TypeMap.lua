@@ -39,6 +39,8 @@ TypeMap.grentonToExpose = {
     -- Light / illuminance
     PANELSENSLIGHT = "illuminance",
     LIGHT_SENSOR_LUX = "illuminance",
+    -- Thermostats (feature 0 is the sensor binding, never a switch)
+    THERMOSTAT = "climate",
 }
 
 -- Expose type to Home Assistant component mapping
