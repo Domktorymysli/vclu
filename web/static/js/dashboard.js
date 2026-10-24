@@ -13,6 +13,7 @@
     var pollTimer = null;
     var definition = null;
     var widgetEls = {}; // widgetId -> DOM element
+    var sectionCoverEls = {}; // section index -> its header's cover counts
     var actionGrace = {}; // widgetId -> timestamp (ignore polls until this time)
     var chartInstances = {}; // widgetId -> Chart.js instance
     var chartTimers = {};   // widgetId -> per-chart refresh timer
@@ -22,11 +23,17 @@
         pl: { on: 'włączone', off: 'wyłączone', open: 'otwarta', closed: 'zamknięta', opening: 'otwiera się',
               closing: 'zamyka się', unknown: 'brak odczytu', run: 'uruchom', sent: 'wysłano', updated: 'odświeżono',
               nothingToday: 'nic więcej dziś', holidays: 'Święta', namedays: 'Imieniny', sun: 'Słońce', show: 'Pokaż',
-              polarDay: 'dzień polarny', polarNight: 'noc polarna', noConnection: 'Brak połączenia' },
+              polarDay: 'dzień polarny', polarNight: 'noc polarna', noConnection: 'Brak połączenia',
+              openN: ['otwarta', 'otwarte', 'otwartych'], closedN: ['zamknięta', 'zamknięte', 'zamkniętych'],
+              moving: 'w ruchu', allOpen: 'wszystkie otwarte', allClosed: 'wszystkie zamknięte', noCovers: 'brak rolet',
+              up: 'W górę', stop: 'Stop', down: 'W dół', position: 'Pozycja', tilt: 'Lamele' },
         en: { on: 'on', off: 'off', open: 'open', closed: 'closed', opening: 'opening',
               closing: 'closing', unknown: 'no reading', run: 'run', sent: 'sent', updated: 'updated',
               nothingToday: 'nothing more today', holidays: 'Holidays', namedays: 'Name days', sun: 'Sun', show: 'Show',
-              polarDay: 'polar day', polarNight: 'polar night', noConnection: 'No connection' }
+              polarDay: 'polar day', polarNight: 'polar night', noConnection: 'No connection',
+              openN: ['open', 'open', 'open'], closedN: ['closed', 'closed', 'closed'],
+              moving: 'moving', allOpen: 'all open', allClosed: 'all closed', noCovers: 'no covers',
+              up: 'Up', stop: 'Stop', down: 'Down', position: 'Position', tilt: 'Slats' }
     };
     // ?lang= as on the other pages, else the browser's language
     var lang = (function() {
@@ -38,7 +45,7 @@
     // A tile without its own icon gets one by type
     var typeIcons = {
         button: 'play-fill', toggle: 'power', slider: 'sliders', status: 'info-circle', link: 'link-45deg',
-        chart: 'graph-up', select: 'list-ul', image: 'image', cover: 'arrows-expand', dimmer: 'lightbulb',
+        chart: 'graph-up', select: 'list-ul', image: 'image', cover: 'arrows-expand', covers: 'window', dimmer: 'lightbulb',
         color: 'palette', calendar: 'calendar3'
     };
 
@@ -122,6 +129,29 @@
         return c === 'danger' || c === 'warning';
     }
 
+    // 1 otwarta, 2-4 otwarte, 5 otwartych (12-14 too); English has one form
+    function plural(n, forms) {
+        var f = n === 1 ? 0 : (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14)) ? 1 : 2;
+        return n + ' ' + forms[f];
+    }
+
+    // "3 otwarte · 1 w ruchu", "wszystkie zamknięte": counts of a cover group or a section
+    // (null without covers; "brak odczytu" when none has a reading)
+    function coverCountsText(c) {
+        var open = c.open || 0, moving = c.moving || 0, closed = c.closed || 0, unknown = c.unknown || 0;
+        var n = open + moving + closed + unknown;
+        if (n === 0) return null;
+        if (unknown === n) return T.unknown;
+        if (n === open) return n > 1 ? T.allOpen : T.open;
+        if (n === closed) return n > 1 ? T.allClosed : T.closed;
+        var parts = [];
+        if (open) parts.push(plural(open, T.openN));
+        if (moving) parts.push(moving + ' ' + T.moving);
+        if (closed) parts.push(plural(closed, T.closedN));
+        if (unknown) parts.push(unknown + ' ' + T.unknown);
+        return parts.join(' · ');
+    }
+
     // The circle and the second line: state is on, off, moving, alarm, unknown or value
     function tileState(type, w, d) {
         var on;
@@ -152,6 +182,12 @@
             if (d.position == null) return ['unknown', T.unknown];
             if (d.position <= 0) return ['off', T.closed];
             return ['on', d.position >= 100 ? T.open : T.open + ' ' + withUnit(d.position, '%')];
+        case 'covers':
+            var text = coverCountsText(d);
+            if (text == null) return ['unknown', T.noCovers];
+            if (d.moving > 0) return ['moving', text];
+            if (d.open > 0) return ['on', text];
+            return [d.closed > 0 ? 'off' : 'unknown', text];
         case 'button':
             return ['value', T.run];
         case 'link':
@@ -277,6 +313,7 @@
         contentEl.innerHTML = '';
         contentEl.style.cssText = '--dash-columns:' + (def.columns || 3);
         widgetEls = {};
+        sectionCoverEls = {};
 
         // Apply time-of-day period (from server or local fallback)
         applyPeriod(def.period || calcPeriod());
@@ -331,6 +368,10 @@
             hdr.className = 'dash-section-header';
             if (sec.icon) hdr.innerHTML = '<i class="bi bi-' + esc(sec.icon) + '"></i>';
             hdr.innerHTML += esc(sec.name);
+            if (sec.covers) {
+                sectionCoverEls[si] = hdr.appendChild(calEl('span', 'dash-section-covers'));
+                updateSectionCovers(si, sec.covers);
+            }
             secEl.appendChild(hdr);
 
             // Grid
@@ -405,6 +446,8 @@
             renderSelect(el, w);
         } else if (w.type === 'cover') {
             renderCover(el, w);
+        } else if (w.type === 'covers') {
+            renderCovers(el, w);
         } else if (w.type === 'dimmer') {
             renderDimmer(el, w);
         } else if (w.type === 'color') {
@@ -1079,6 +1122,79 @@
         }
     }
 
+    // ---- Cover group ----
+
+    // Up, stop, down for every cover; a slider with the average position when a cover can be
+    // set, a slat slider while one reports a tilt
+    function renderCovers(el, w) {
+        var controls = calEl('div', 'dash-cover-controls');
+        [['open', 'chevron-up', T.up], ['stop', 'stop-fill', T.stop], ['close', 'chevron-down', T.down]].forEach(function(b) {
+            var btn = calEl('button', 'dash-cover-btn');
+            btn.type = 'button';
+            btn.title = b[2];
+            btn.setAttribute('aria-label', b[2]);
+            btn.appendChild(calEl('i', 'bi bi-' + b[1]));
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                if (el.classList.contains('disabled')) return;
+                btn.classList.add('active');
+                setTimeout(function() { btn.classList.remove('active'); }, 300);
+                executeAction(w.id, b[0]);
+            });
+            controls.appendChild(btn);
+        });
+        el.appendChild(controls);
+
+        coversSlider(el, w, 'position', 'arrows-vertical', T.position, 100, ' %', 'set');
+        coversSlider(el, w, 'tilt', 'justify', T.tilt, 90, '°', 'tilt');
+        updateCovers(el, w);
+    }
+
+    function coversSlider(el, w, role, icon, title, max, unit, action) {
+        var row = calEl('div', 'dash-slider-row dash-color-row');
+        row.title = title;
+        row.dataset.role = role;
+        row.appendChild(calEl('i', 'bi bi-' + icon + ' dash-color-row-icon'));
+        var slider = document.createElement('input');
+        slider.type = 'range';
+        slider.className = 'dash-slider-input';
+        slider.min = 0;
+        slider.max = max;
+        slider.dataset.role = role;
+        slider.setAttribute('aria-label', title);
+        var valEl = calEl('span', 'dash-slider-value');
+        valEl.dataset.role = role;
+        bindSlider(slider, function(v) { valEl.textContent = v + unit; },
+            function(v) { executeAction(w.id, action, v); }, 500);
+        row.appendChild(slider);
+        row.appendChild(valEl);
+        el.appendChild(row);
+    }
+
+    // Sliders and the average from a definition, a poll or a reply
+    // (a whole entry has the counts; a set's reply only its position)
+    function updateCovers(el, d) {
+        var whole = d.open !== undefined;
+        [['position', ' %'], ['tilt', '°']].forEach(function(r) {
+            var row = el.querySelector('.dash-slider-row[data-role="' + r[0] + '"]');
+            if (whole) row.hidden = r[0] === 'position' ? !d.set : d.tilt == null;
+            var sl = row.querySelector('.dash-slider-input');
+            var v = d[r[0]];
+            if (v == null || userHolds(sl)) return;
+            sl.value = v;
+            row.querySelector('.dash-slider-value').textContent = v + r[1];
+        });
+    }
+
+    // A section header's "2 otwarte · 1 w ruchu"; nothing while it has no covers with a reading
+    function updateSectionCovers(si, c) {
+        var el = sectionCoverEls[si];
+        if (!el) return;
+        var text = c ? coverCountsText(c) : null;
+        el.textContent = text || '';
+        el.hidden = !text;
+    }
+
     // ---- Dimmer widget ----
 
     // A slider sends the value it was moved to: after a pause, or at once when let go, so
@@ -1733,7 +1849,7 @@
         var d = {};
         for (var k in data) if (data.hasOwnProperty(k)) d[k] = data[k];
         if (!force && valueTypes[type] && d.value === undefined) d.value = null;
-        if (type === 'cover' && d.value !== undefined) d.position = d.value; // a set's reply
+        if ((type === 'cover' || type === 'covers') && d.value !== undefined) d.position = d.value; // a set's reply
         if (type === 'color') delete d.value; // brightness or white: the reply does not say
         var slider = el.querySelector('.dash-slider-input');
         var held = slider && userHolds(slider);
@@ -1748,6 +1864,8 @@
                 btns[2].classList.toggle('active', d.state === 2);
             }
             if (held) { delete d.position; delete d.state; }
+        } else if (type === 'covers') {
+            updateCovers(el, d);
         } else if (type === 'dimmer') {
             if (slider && !held && d.value != null) slider.value = d.value;
             toggle = el.querySelector('.dash-dimmer-toggle .form-check-input');
@@ -1810,9 +1928,10 @@
                 }
                 hideOverlay();
                 for (var wid in data) {
-                    if (data.hasOwnProperty(wid)) {
-                        updateWidget(wid, data[wid]);
-                    }
+                    if (!data.hasOwnProperty(wid)) continue;
+                    var sec = /^_section_(\d+)$/.exec(wid);
+                    if (sec) updateSectionCovers(+sec[1], data[wid]);
+                    else updateWidget(wid, data[wid]);
                 }
                 // a chip left out of the poll is hidden
                 for (var cid in widgetEls) {

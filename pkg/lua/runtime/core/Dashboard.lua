@@ -99,6 +99,181 @@ local function colorFns(fns)
     return fns
 end
 
+-- ==========================================================================
+-- Cover groups: one tile for several covers
+-- ==========================================================================
+
+local COVERS_KEYS = { icon = true, disabled = true, span = true, size = true, color = true }
+
+-- Spacing between commands of one series: the CLU drops bursts (pkg/lua/AGENTS.md)
+local COVERS_SPACING_MS = 50
+
+-- A cover object: a table with the three moves (RemoteCover, VirtualCover)
+local function isCover(v)
+    return type(v) == 'table' and getmetatable(v) ~= RemoteGroup
+        and type(v.open) == 'function' and type(v.close) == 'function' and type(v.stop) == 'function'
+end
+
+local function coversWidget(id, label, list, opts)
+    local where = 'section:covers("' .. tostring(id) .. '")'
+    if type(id) ~= 'string' or id == '' then error('section:covers: id must be a non-empty string', 3) end
+    if type(label) ~= 'string' then error(where .. ': label must be a string', 3) end
+    if opts ~= nil and type(opts) ~= 'table' then error(where .. ': opts must be a table', 3) end
+    opts = opts or {}
+    for k in pairs(opts) do
+        if not COVERS_KEYS[k] then error(where .. ': unknown option "' .. tostring(k) .. '" (icon, disabled, span, size, color)', 3) end
+    end
+    if opts.icon ~= nil and (type(opts.icon) ~= 'string' or not opts.icon:match('^[%w%-]+$')) then
+        error(where .. ': opts.icon must be a Bootstrap icon name (letters, digits and -)', 3)
+    end
+    if opts.disabled ~= nil and type(opts.disabled) ~= 'function' then error(where .. ': opts.disabled must be a function', 3) end
+    if type(list) == 'table' and getmetatable(list) ~= RemoteGroup then
+        if isCover(list) then error(where .. ': list must be a list of covers, put the cover in { }', 3) end
+        for i, item in ipairs(list) do
+            if type(item) ~= 'string' and not isCover(item) then
+                error(where .. ': item ' .. i .. ' must be a cover (open, close, stop) or its path, got ' .. type(item), 3)
+            end
+        end
+    elseif type(list) ~= 'function' and type(list) ~= 'table' then
+        error(where .. ': list must be a list of covers or paths, or a function returning one, got ' .. type(list), 3)
+    end
+    return { id = id, type = 'covers', label = label, icon = opts.icon or 'window', list = list, opts = opts }
+end
+
+-- Problems with a cover list already logged, by "dashboard/widget/what"
+local _coversLogged = {}
+local function coversWarnOnce(key, fmt, ...)
+    if _coversLogged[key] then return end
+    _coversLogged[key] = true
+    Logger:getShared():warn(fmt, ...)
+end
+
+-- The covers of a group as they are now: a function list is called, paths looked up; missing ones skipped
+local function coversResolve(dashId, w)
+    local key = tostring(dashId) .. '/' .. tostring(w.id)
+    local src = w.list
+    if type(src) == 'function' then
+        local ok, res = pcall(src)
+        if not ok then
+            coversWarnOnce(key .. '/fn', "[DASHBOARD] Cover list of '%s' failed: %s", key, tostring(res))
+            return {}
+        end
+        src = res
+    end
+    if type(src) == 'table' and getmetatable(src) == RemoteGroup then src = rawget(src, '_objects') end
+    local out, seen = {}, {}
+    if type(src) ~= 'table' then
+        if src ~= nil then coversWarnOnce(key .. '/type', "[DASHBOARD] Cover list of '%s' is a %s, not a list", key, type(src)) end
+        return out
+    end
+    for i, item in ipairs(src) do
+        local c = item
+        if type(item) == 'string' then
+            c = _registry:get(item)
+            if c == nil then coversWarnOnce(key .. '/' .. item, "[DASHBOARD] '%s': no cover at '%s', skipped", key, item) end
+        end
+        if c ~= nil and not isCover(c) then
+            coversWarnOnce(key .. '/#' .. i, "[DASHBOARD] '%s': item %d is not a cover, skipped", key, i)
+            c = nil
+        end
+        if c ~= nil and not seen[c] then
+            seen[c] = true
+            out[#out + 1] = c
+        end
+    end
+    return out
+end
+
+local function coverCall(c, name)
+    if type(c[name]) ~= 'function' then return nil end
+    local ok, v = pcall(c[name], c)
+    if ok then return tonumber(v) end
+end
+
+-- Tilt only where the object has both methods and reports an angle
+local function coverTilt(c)
+    if type(c.getTilt) ~= 'function' or type(c.setTilt) ~= 'function' then return nil end
+    return coverCall(c, 'getTilt')
+end
+
+-- A cover with a position (a Grenton roller without one has _hasPosition = false)
+local function coverCanSet(c)
+    return type(c.setPosition) == 'function' and c._hasPosition ~= false
+end
+
+-- Counts of covers by state; not moving and no position is unknown
+local function coverCounts(readings)
+    local s = { open = 0, moving = 0, closed = 0, unknown = 0 }
+    for _, r in ipairs(readings) do
+        if r.state == 1 or r.state == 2 then s.moving = s.moving + 1
+        elseif r.position == nil then s.unknown = s.unknown + 1
+        elseif r.position > 0 then s.open = s.open + 1
+        else s.closed = s.closed + 1 end
+    end
+    return s
+end
+
+local function coverReading(c)
+    return { position = coverCall(c, 'getPosition'), state = coverCall(c, 'getState') }
+end
+
+-- What a group tile shows: counts, the average position and tilt, whether a slider can set them
+local function coversEntry(covers)
+    local readings, posSum, posN, tiltSum, tiltN, canSet = {}, 0, 0, 0, 0, false
+    for i, c in ipairs(covers) do
+        local r = coverReading(c)
+        readings[i] = r
+        if r.position ~= nil then posSum = posSum + r.position; posN = posN + 1 end
+        local t = coverTilt(c)
+        if t ~= nil then tiltSum = tiltSum + t; tiltN = tiltN + 1 end
+        if coverCanSet(c) then canSet = true end
+    end
+    local e = coverCounts(readings)
+    if posN > 0 then e.position = math.floor(posSum / posN + 0.5) end
+    if tiltN > 0 then e.tilt = math.floor(tiltSum / tiltN + 0.5) end
+    e.set = canSet
+    return e, readings
+end
+
+-- Series of commands by "dashboard/widget/move" and ".../tilt": the first now, the next ones
+-- COVERS_SPACING_MS apart on timers; a new one of the same kind drops what is left of the old
+local _coversRuns = {}
+local function coversCancel(key)
+    local prev = _coversRuns[key]
+    if prev and prev.timer then TIMERS:clearTimer(prev.timer) end
+    _coversRuns[key] = nil
+end
+
+-- stopIf() true before a later step (the widget got disabled) drops the rest
+local function coversSeries(key, covers, fn, stopIf)
+    coversCancel(key)
+    local run = { timer = nil }
+    _coversRuns[key] = run
+    local function step(i)
+        if _coversRuns[key] ~= run then return end
+        run.timer = nil
+        if i > 1 and stopIf and stopIf() then
+            Logger:getShared():info("[DASHBOARD] '%s': disabled, %d covers not moved", key, #covers - i + 1)
+            _coversRuns[key] = nil
+            return
+        end
+        local ok, err = pcall(fn, covers[i])
+        if not ok then Logger:getShared():warn("[DASHBOARD] '%s': cover %d: %s", key, i, tostring(err)) end
+        if i >= #covers then
+            _coversRuns[key] = nil
+            return
+        end
+        local id = TIMERS:setTimeout(COVERS_SPACING_MS, function() step(i + 1) end)
+        if not id or id < 0 then
+            Logger:getShared():warn("[DASHBOARD] '%s': no timer, %d covers not moved", key, #covers - i)
+            _coversRuns[key] = nil
+            return
+        end
+        run.timer = id
+    end
+    if #covers > 0 then step(1) else _coversRuns[key] = nil end
+end
+
 function SectionHandle:new(builder, sectionIndex)
     local h = { _builder = builder, _sectionIndex = sectionIndex }
     setmetatable(h, self)
@@ -270,6 +445,23 @@ function SectionHandle:cover(id, label, icon, fns, opts)
         id = id, type = 'cover', label = label, icon = icon,
         fns = fns, opts = opts or {}
     })
+    return self
+end
+
+--- Add a cover group: one tile moving several covers, with their counts and average position.
+-- @param id string Unique widget identifier
+-- @param label string Display label
+-- @param list table Covers (RemoteCover, VirtualCover) or their paths, _:byTag(...), or a function returning one (read each time; missing paths skipped)
+--   Buttons up/stop/down call open/stop/close on each cover, the slider setPosition on those with a position,
+--   the slat slider (shown when a cover reports getTilt) setTilt on those with a tilt; commands go out 50 ms apart
+--   and a new movement (or slat) command drops what is left of the previous one; stop ends both.
+-- @param opts table Optional: {icon=string (default "window"), disabled=function()->bool, span=n, size=string, color=string}
+-- @api public
+function SectionHandle:covers(id, label, list, opts)
+    if self._builder._sections[self._sectionIndex]._isHeader then
+        error('section:covers("' .. tostring(id) .. '"): a cover group goes in a section, not the header', 2)
+    end
+    self._builder:_addWidget(self._sectionIndex, coversWidget(id, label, list, opts))
     return self
 end
 
@@ -506,12 +698,12 @@ end
 --- Start a new named section for grouping widgets.
 -- @param name string Section title
 -- @param icon string Bootstrap icon name
--- @param opts table Optional: {columns=number}
+-- @param opts table Optional: {columns=number, covers=true (the header counts the section's covers open, moving and closed)}
 -- @return SectionHandle Handle for adding widgets to this section
 -- @api public
 function DashboardBuilder:section(name, icon, opts)
     opts = opts or {}
-    local sec = { name = name, icon = icon or '', widgets = {}, _columns = opts.columns }
+    local sec = { name = name, icon = icon or '', widgets = {}, _columns = opts.columns, _covers = opts.covers == true or nil }
     table.insert(self._sections, sec)
     self._currentSection = #self._sections
     return SectionHandle:new(self, self._currentSection)
@@ -522,6 +714,11 @@ function DashboardBuilder:_addWidget(sectionIndex, widget)
     local sec = self._sections[sectionIndex]
     if not sec then
         error('No section at index ' .. tostring(sectionIndex))
+    end
+    -- _group_N and _section_N are the page's own keys; level 3: the module calling a widget method
+    if widget.type ~= 'group' and type(widget.id) == 'string'
+        and (widget.id:sub(1, 7) == '_group_' or widget.id:sub(1, 9) == '_section_') then
+        error('widget id "' .. widget.id .. '": ids starting with _group_ or _section_ are reserved', 3)
     end
     table.insert(sec.widgets, widget)
 end
@@ -727,6 +924,26 @@ function DashboardBuilder:cover(id, label, icon, fns, opts)
     return self
 end
 
+--- Add a cover group to the current section: one tile moving several covers, with their counts and average position.
+-- @param id string Unique widget identifier
+-- @param label string Display label
+-- @param list table Covers (RemoteCover, VirtualCover) or their paths, _:byTag(...), or a function returning one (read each time; missing paths skipped)
+--   Buttons up/stop/down call open/stop/close on each cover, the slider setPosition on those with a position,
+--   the slat slider (shown when a cover reports getTilt) setTilt on those with a tilt; commands go out 50 ms apart
+--   and a new movement (or slat) command drops what is left of the previous one; stop ends both.
+-- @param opts table Optional: {icon=string (default "window"), disabled=function()->bool, span=n, size=string, color=string}
+-- @api public
+function DashboardBuilder:covers(id, label, list, opts)
+    if not self._currentSection then
+        error('Call :section() before adding widgets', 2)
+    end
+    if self._sections[self._currentSection]._isHeader then
+        error('section:covers("' .. tostring(id) .. '"): a cover group goes in a section, not the header', 2)
+    end
+    self:_addWidget(self._currentSection, coversWidget(id, label, list, opts))
+    return self
+end
+
 --- Add a dimmer widget to the current section.
 -- @param id string Unique widget identifier
 -- @param label string Display label
@@ -832,6 +1049,39 @@ local function safeGetValue(fn)
     else
         return nil, tostring(val)
     end
+end
+
+-- A group's covers and what its tile shows, read once per request
+local function coversState(dashId, w, cache)
+    local st = cache[w]
+    if st then return st end
+    local covers = coversResolve(dashId, w)
+    local entry, readings = coversEntry(covers)
+    st = { covers = covers, entry = entry, readings = readings }
+    cache[w] = st
+    return st
+end
+
+-- Header counts of a section with covers = true: each cover once within groups; a cover tile
+-- counts on its own (its fns cannot be matched to an object)
+local function sectionCoverCounts(dashId, sec, cache)
+    local seen, readings = {}, {}
+    for _, w in ipairs(sec.widgets) do
+        if w.type == 'cover' and type(w.fns) == 'table' and not seen[w.fns] then
+            seen[w.fns] = true
+            readings[#readings + 1] = { position = tonumber((safeGetValue(w.fns.getPosition))),
+                state = tonumber((safeGetValue(w.fns.getState))) }
+        elseif w.type == 'covers' then
+            local st = coversState(dashId, w, cache)
+            for i, c in ipairs(st.covers) do
+                if not seen[c] then
+                    seen[c] = true
+                    readings[#readings + 1] = st.readings[i]
+                end
+            end
+        end
+    end
+    return coverCounts(readings)
 end
 
 -- Colour errors already logged, by "dashboard/widget"
@@ -1087,11 +1337,13 @@ function DashboardAPI.getDefinition(id)
 
     local sections = {}
     local widgets = {}
+    local covers = {}
 
     for si, sec in ipairs(dash._sections) do
         local secDef = { name = sec.name, icon = sec.icon }
         if sec._isHeader then secDef.isHeader = true end
         if sec._columns then secDef.columns = sec._columns end
+        if sec._covers then secDef.covers = sectionCoverCounts(id, sec, covers) end
         table.insert(sections, secDef)
 
         for _, w in ipairs(sec.widgets) do
@@ -1204,6 +1456,11 @@ function DashboardAPI.getDefinition(id)
                 widget.capabilities = {
                     set = type(fns.set) == 'function'
                 }
+            end
+
+            -- Cover group: counts, average position and tilt
+            if w.type == 'covers' then
+                for k, v in pairs(coversState(id, w, covers).entry) do widget[k] = v end
             end
 
             -- Dimmer widget
@@ -1347,9 +1604,16 @@ function DashboardAPI.getValues(id)
     end
 
     local result = {}
-    for _, sec in ipairs(dash._sections) do
+    local covers = {}
+    for si, sec in ipairs(dash._sections) do
+        -- a section's cover counts, by its 0-based index as in the definition
+        if sec._covers then result['_section_' .. (si - 1)] = sectionCoverCounts(id, sec, covers) end
         for _, w in ipairs(sec.widgets) do
-            if w.type == 'chip' then
+            if w.type == 'covers' then
+                local entry = coversState(id, w, covers).entry
+                entry.disabled = safeDisabled(w.opts)
+                result[w.id] = entry
+            elseif w.type == 'chip' then
                 -- a hidden chip is left out; disabled only when it can change
                 local entry = chipState(id, w)
                 if entry then
@@ -1553,6 +1817,40 @@ function DashboardAPI.executeAction(id, widgetId, action, value)
         else
             return JSON.encode({ error = 'Invalid action for cover' })
         end
+
+    elseif widget.type == 'covers' then
+        local covers = coversResolve(id, widget)
+        local fn, numVal
+        if action == 'open' or action == 'close' or action == 'stop' then
+            fn = function(c) c[action](c) end
+        elseif action == 'set' or action == 'tilt' then
+            numVal = tonumber(value)
+            if not numVal then return JSON.encode({ error = 'Value must be a number' }) end
+            local max = action == 'set' and 100 or 90
+            if numVal < 0 or numVal > max then return JSON.encode({ error = 'Value out of range [0, ' .. max .. ']' }) end
+            local only = {}
+            for _, c in ipairs(covers) do
+                if action == 'set' and coverCanSet(c) or action == 'tilt' and coverTilt(c) ~= nil then only[#only + 1] = c end
+            end
+            if #only == 0 then
+                return JSON.encode({ error = action == 'set' and 'No cover with a position' or 'No cover with a tilt' })
+            end
+            covers = only
+            if action == 'set' then
+                fn = function(c) c:setPosition(numVal) end
+            else
+                fn = function(c) c:setTilt(numVal) end
+            end
+        else
+            return JSON.encode({ error = 'Invalid action for covers' })
+        end
+        -- movement and slats are separate series; stop ends both
+        local key = tostring(id) .. '/' .. tostring(widgetId)
+        if action == 'stop' then coversCancel(key .. '/tilt') end
+        coversSeries(key .. (action == 'tilt' and '/tilt' or '/move'), covers, fn,
+            function() return safeDisabled(widget.opts) end)
+        if action == 'set' then return JSON.encode({ success = true, value = numVal }) end
+        return JSON.encode({ success = true })
 
     elseif widget.type == 'dimmer' then
         local fns = widget.fns or {}

@@ -17,7 +17,7 @@ Only public API is listed — internal/private functions are omitted.
 - [core.Registry](#coreregistry) (10 functions)
 - [core.Metrics](#coremetrics) (1 functions)
 - [core.Calendar](#corecalendar) (36 functions)
-- [Dashboard](#dashboard) (51 functions)
+- [Dashboard](#dashboard) (53 functions)
 - [lib.panel](#libpanel) (55 functions)
 - [objects.RemotePanel](#objectsremotepanel) (6 functions)
 - [GPIO_DOUT](#gpio_dout) (1 functions)
@@ -1115,6 +1115,15 @@ Add a cover widget to this section. Buttons up/stop/down call open/stop/close. W
 - `fns` (table) — {getPosition=function()->number|nil, getState=function()->number|nil, open=function(), close=function(), stop=function(), set=function(position)}
 - `opts` (table) — Optional: {disabled=function()->bool}
 
+### `SectionHandle:covers(id, label, list, opts)`
+
+Add a cover group: one tile moving several covers, with their counts and average position. Buttons up/stop/down call open/stop/close on each cover, the slider setPosition on those with a position, the slat slider (shown when a cover reports getTilt) setTilt on those with a tilt; commands go out 50 ms apart and a new movement (or slat) command drops what is left of the previous one; stop ends both.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `list` (table) — Covers (RemoteCover, VirtualCover) or their paths, _:byTag(...), or a function returning one (read each time; missing paths skipped)
+- `opts` (table) — Optional: {icon=string (default "window"), disabled=function()->bool, span=n, size=string, color=string}
+
 ### `SectionHandle:dimmer(id, label, icon, fns, opts)`
 
 Add a dimmer widget to this section.
@@ -1237,7 +1246,7 @@ Start a new named section for grouping widgets.
 
 - `name` (string) — Section title
 - `icon` (string) — Bootstrap icon name
-- `opts` (table) — Optional: {columns=number}
+- `opts` (table) — Optional: {columns=number, covers=true (the header counts the section's covers open, moving and closed)}
 
 **Returns:** SectionHandle Handle for adding widgets to this section
 
@@ -1350,6 +1359,15 @@ Add a cover widget to the current section. Buttons up/stop/down call open/stop/c
 - `icon` (string) — Bootstrap icon name (e.g., "arrows-expand")
 - `fns` (table) — {getPosition=function()->number|nil, getState=function()->number|nil, open=function(), close=function(), stop=function(), set=function(position)}
 - `opts` (table) — Optional: {disabled=function()->bool}
+
+### `DashboardBuilder:covers(id, label, list, opts)`
+
+Add a cover group to the current section: one tile moving several covers, with their counts and average position. Buttons up/stop/down call open/stop/close on each cover, the slider setPosition on those with a position, the slat slider (shown when a cover reports getTilt) setTilt on those with a tilt; commands go out 50 ms apart and a new movement (or slat) command drops what is left of the previous one; stop ends both.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `list` (table) — Covers (RemoteCover, VirtualCover) or their paths, _:byTag(...), or a function returning one (read each time; missing paths skipped)
+- `opts` (table) — Optional: {icon=string (default "window"), disabled=function()->bool, span=n, size=string, color=string}
 
 ### `DashboardBuilder:dimmer(id, label, icon, fns, opts)`
 

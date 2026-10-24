@@ -344,7 +344,7 @@ CLU220000592:executeNoReply(0, "SetThermostat(19)")
 ## Dashboard (Lua-defined)
 
 Public dashboard for a tablet/wall. Defined in Lua, available at `/d/:id`.
-Widget types: button, toggle, slider, status, link, select, chart, image, group, cover, dimmer, color, calendar; in the header also chip.
+Widget types: button, toggle, slider, status, link, select, chart, image, group, cover, covers, dimmer, color, calendar; in the header also chip.
 `:calendar(id, label, cal, { view = 'month' | 'day', tags = {...}, schedules = { 'taryfa' } })` shows a calendar
 built with `Calendar`: a month grid and the day of a tapped date (full width); `schedules` adds a 24 h bar per schedule (`schedules = true`: all of the calendar's)
 to the day view; `holidays` (holiday names, default on), `namedays` (name days in the day view, default off) and
@@ -471,6 +471,34 @@ local roleta = r:get("CLU220000592.ROL0001")
   `getPosition()`; the slider then shows `--`. Leave out `getPosition` and `set` for such a roller
   and keep the buttons.
 - **getState:** 0 = stopped, 1 = up, 2 = down. Without it the stop button stays lit.
+
+### Cover group (several blinds on one tile)
+
+`:covers(id, label, list, opts)` moves every cover of the list: up, stop, down, a position slider
+and, when a cover reports a slat angle (`getTilt`), a slat slider 0-90°. The tile shows the counts
+("3 otwarte · 1 w ruchu", "wszystkie zamknięte") and the slider the average position.
+`{ covers = true }` on a section puts the counts of its cover tiles and groups in its header.
+
+```lua
+:section('Rolety', 'window', { covers = true })   -- header: "2 otwarte · 1 w ruchu"
+  :covers('parter', 'Parter', { 'CLU220000592.ROL0001', 'CLU220000592.ROL0002', roleta_taras })
+  :covers('poludnie', 'Południe', function() return _:byTag('rolety-poludnie') end, { icon = 'sun' })
+```
+
+- **list:** covers (`RemoteCover`, `VirtualCover`), their paths, `_:byTag(...)`, or a function
+  returning one of these, called on every read: covers tagged later show up. A path that is not in
+  the registry is skipped (logged once).
+- **Commands** go to the covers one after another, 50 ms apart (a CLU drops bursts); a new command
+  for the group drops what is left of the previous one, so "up" then "stop" stops them all.
+  Movement and slats are separate series (a slat change does not cut a position short); stop
+  ends both. A group disabled meanwhile sends nothing more.
+- **Counts:** a cover with no reading yet is counted as "brak odczytu", never as closed. The
+  section header counts each cover once within groups; a `:cover` tile counts on its own, so a
+  cover shown both as a tile and in a group counts twice.
+- Widget ids starting with `_group_` or `_section_` are reserved.
+- The position slider calls `setPosition` on the covers that have a position, the slat slider
+  `setTilt` only on those that report a tilt.
+- opts: `icon` (default `window`), `disabled`, `span`, `size`, `color`.
 
 ### Select widget (dropdown)
 
