@@ -400,6 +400,107 @@ local function playerState(w)
         muted = bool(s.muted), power = bool(s.power), online = bool(s.online) }
 end
 
+-- ==========================================================================
+-- Weather forecast: the next days and a chart of the next hours
+-- ==========================================================================
+
+local FORECAST_KEYS = { days = true, hours = true, unit = true, icon = true, disabled = true, span = true, size = true, color = true }
+
+local function forecastWidget(id, label, src, opts)
+    local where = 'section:forecast("' .. tostring(id) .. '")'
+    if type(id) ~= 'string' or id == '' then error('section:forecast: id must be a non-empty string', 3) end
+    if type(label) ~= 'string' then error(where .. ': label must be a string', 3) end
+    if opts ~= nil and type(opts) ~= 'table' then error(where .. ': opts must be a table', 3) end
+    opts = opts or {}
+    for k in pairs(opts) do
+        if not FORECAST_KEYS[k] then
+            error(where .. ': unknown option "' .. tostring(k) .. '" (days, hours, unit, icon, disabled, span, size, color)', 3)
+        end
+    end
+    local function count(k, lo, hi)
+        local v = opts[k]
+        if v ~= nil and (type(v) ~= 'number' or v ~= math.floor(v) or v < lo or v > hi) then
+            error(where .. ': opts.' .. k .. ' must be a whole number ' .. lo .. '-' .. hi, 4)
+        end
+    end
+    count('days', 1, 7)
+    count('hours', 0, 48)
+    if opts.unit ~= nil and (type(opts.unit) ~= 'string' or #opts.unit > 8) then
+        error(where .. ': opts.unit must be a short string such as "°C"', 3)
+    end
+    if opts.icon ~= nil and (type(opts.icon) ~= 'string' or not opts.icon:match('^[%w%-]+$')) then
+        error(where .. ': opts.icon must be a Bootstrap icon name (letters, digits and -)', 3)
+    end
+    if opts.disabled ~= nil and type(opts.disabled) ~= 'function' then error(where .. ': opts.disabled must be a function', 3) end
+    local fn
+    if type(src) == 'function' then
+        fn = src
+    elseif type(src) == 'table' and type(src.getForecast) == 'function' then
+        -- the Weather plugin (@vclu/weather): its getForecast gives the same table
+        fn = function() return src:getForecast() end
+    else
+        error(where .. ': src must be a function returning { days, hours } or the Weather plugin (Plugin.getPlugin("@vclu/weather")), got ' .. type(src), 3)
+    end
+    return { id = id, type = 'forecast', label = label, icon = opts.icon or 'cloud-sun', fn = fn, opts = opts }
+end
+
+-- A finite number rounded to one decimal, or nil
+local function round1(v)
+    v = tonumber(v)
+    if not v or v - v ~= 0 then return nil end
+    return math.floor(v * 10 + 0.5) / 10
+end
+
+-- A Bootstrap icon name from the data; anything else is a cloud
+local function forecastIcon(v)
+    if type(v) == 'string' and #v <= 40 and v:match('^[%w%-]+$') then return v end
+    return 'cloud'
+end
+
+-- What the tile shows: {days, hours, updated}, {none = true} before the first fetch, or {error}
+local function forecastState(w)
+    local ok, f = pcall(w.fn)
+    if not ok then return { error = tostring(f) } end
+    if f == nil then return { none = true } end
+    if type(f) ~= 'table' then
+        return { error = 'section:forecast("' .. tostring(w.id) .. '"): src must return a table or nil, got ' .. type(f) }
+    end
+    local today = datetime.now().date
+    local days = {}
+    for i, d in ipairs(type(f.days) == 'table' and f.days or {}) do
+        if type(d) == 'table' and type(d.date) == 'string' and d.date:match('^%d%d%d%d%-%d%d%-%d%d$') and d.date >= today then
+            local pop = tonumber(d.pop)
+            -- 0..1 is a fraction; above 1 it is a percent already
+            if pop and pop - pop == 0 then
+                pop = math.floor(math.max(0, math.min(100, pop > 1 and pop or pop * 100)) + 0.5)
+            else
+                pop = nil
+            end
+            local rain = round1(d.rain)
+            days[#days + 1] = { date = d.date, icon = forecastIcon(d.iconName or d.icon), min = round1(d.min),
+                max = round1(d.max), rain = rain and math.max(0, rain), pop = pop }
+        end
+    end
+    table.sort(days, function(a, b) return a.date < b.date end)
+    for i = #days, (w.opts.days or 5) + 1, -1 do days[i] = nil end
+
+    -- the current hour and limit-1 after it: exactly limit points of hourly data
+    local hours = {}
+    local limit = w.opts.hours or 24
+    local now = math.floor(__go_time_ms() / 1000)
+    for i, h in ipairs(limit > 0 and type(f.hours) == 'table' and f.hours or {}) do
+        local at = type(h) == 'table' and tonumber(h.at)
+        if at and at - at == 0 and at > now - 3600 and at <= now + (limit - 1) * 3600 then
+            local rain = round1(h.rain)
+            hours[#hours + 1] = { at = math.floor(at), temp = round1(h.temp), rain = rain and math.max(0, rain) or 0 }
+        end
+    end
+    table.sort(hours, function(a, b) return a.at < b.at end)
+
+    local updated = tonumber(f.updated)
+    return { days = days, hours = hours, updated = updated and updated - updated == 0 and math.floor(updated) or nil }
+end
+
 function SectionHandle:new(builder, sectionIndex)
     local h = { _builder = builder, _sectionIndex = sectionIndex }
     setmetatable(h, self)
@@ -604,6 +705,24 @@ function SectionHandle:player(id, label, src, opts)
         error('section:player("' .. tostring(id) .. '"): a player goes in a section, not the header', 2)
     end
     self._builder:_addWidget(self._sectionIndex, playerWidget(id, label, src, opts))
+    return self
+end
+
+--- Add a weather forecast: the next days (icon, max/min, rain) and a chart of the next hours.
+-- src gives {days={{date='YYYY-MM-DD', iconName (or icon), min, max, rain (mm), pop (0-1, or a percent when above 1)}},
+-- hours={{at (unix s), temp, rain}}, updated (optional unix s, shown as "odświeżono HH:MM")},
+-- or nil while there is no forecast yet; days before today in the house's time zone are dropped;
+-- opts.hours counts hours: the current one and hours-1 after it (hourly data gives exactly that many points).
+-- @param id string Unique widget identifier
+-- @param label string Display label
+-- @param src function A function returning the forecast, or the Weather plugin (Plugin.getPlugin("@vclu/weather"))
+-- @param opts table Optional: {days=1-7 (default 5), hours=0-48 (default 24, 0 hides the chart), unit=string (default "°C"), icon=string (default "cloud-sun"), disabled=function()->bool, span=n, size=string, color=string}
+-- @api public
+function SectionHandle:forecast(id, label, src, opts)
+    if self._builder._sections[self._sectionIndex]._isHeader then
+        error('section:forecast("' .. tostring(id) .. '"): a forecast goes in a section, not the header', 2)
+    end
+    self._builder:_addWidget(self._sectionIndex, forecastWidget(id, label, src, opts))
     return self
 end
 
@@ -1112,6 +1231,23 @@ function DashboardBuilder:player(id, label, src, opts)
         error('section:player("' .. tostring(id) .. '"): a player goes in a section, not the header', 2)
     end
     self:_addWidget(self._currentSection, playerWidget(id, label, src, opts))
+    return self
+end
+
+--- Add a weather forecast to the current section: the next days and a chart of the next hours.
+-- @param id string Unique widget identifier
+-- @param label string Display label
+-- @param src function A function returning {days={...}, hours={...}, updated?} or nil, or the Weather plugin
+-- @param opts table Optional: {days=1-7, hours=0-48, unit=string, icon=string, disabled=function()->bool, span=n, size=string, color=string}
+-- @api public
+function DashboardBuilder:forecast(id, label, src, opts)
+    if not self._currentSection then
+        error('Call :section() before adding widgets', 2)
+    end
+    if self._sections[self._currentSection]._isHeader then
+        error('section:forecast("' .. tostring(id) .. '"): a forecast goes in a section, not the header', 2)
+    end
+    self:_addWidget(self._currentSection, forecastWidget(id, label, src, opts))
     return self
 end
 
@@ -1657,6 +1793,14 @@ function DashboardAPI.getDefinition(id)
                 widget.capabilities = playerCapabilities(w.fns)
             end
 
+            -- Forecast: its days and hours, and how many hours the chart shows
+            if w.type == 'forecast' then
+                for k, v in pairs(forecastState(w)) do widget[k] = v end
+                widget.unit = w.opts.unit or '°C'
+                widget.chartHours = w.opts.hours or 24
+                widget.zone = datetime.timezone()
+            end
+
             -- Dimmer widget
             if w.type == 'dimmer' then
                 local fns = w.fns or {}
@@ -1808,8 +1952,8 @@ function DashboardAPI.getValues(id)
                 local entry = coversState(id, w, covers).entry
                 entry.disabled = safeDisabled(w.opts)
                 result[w.id] = entry
-            elseif w.type == 'player' then
-                local entry = playerState(w)
+            elseif w.type == 'player' or w.type == 'forecast' then
+                local entry = w.type == 'player' and playerState(w) or forecastState(w)
                 entry.disabled = safeDisabled(w.opts)
                 result[w.id] = entry
             elseif w.type == 'chip' then

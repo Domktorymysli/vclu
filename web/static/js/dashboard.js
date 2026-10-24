@@ -30,7 +30,8 @@
               fullscreen: 'Pełny ekran', exitFullscreen: 'Zamknij pełny ekran',
               playing: 'odtwarza', paused: 'pauza', playerOff: 'wyłączony', offline: 'offline',
               play: 'Odtwarzaj', pause: 'Pauza', previous: 'Poprzedni', next: 'Następny',
-              mute: 'Wycisz', unmute: 'Włącz dźwięk', power: 'Włącz / wyłącz', volume: 'Głośność' },
+              mute: 'Wycisz', unmute: 'Włącz dźwięk', power: 'Włącz / wyłącz', volume: 'Głośność',
+              noForecast: 'brak prognozy', rain: 'opady', temperature: 'temperatura' },
         en: { on: 'on', off: 'off', open: 'open', closed: 'closed', opening: 'opening',
               closing: 'closing', unknown: 'no reading', run: 'run', sent: 'sent', updated: 'updated',
               nothingToday: 'nothing more today', holidays: 'Holidays', namedays: 'Name days', sun: 'Sun', show: 'Show',
@@ -41,7 +42,8 @@
               fullscreen: 'Full screen', exitFullscreen: 'Exit full screen',
               playing: 'playing', paused: 'paused', playerOff: 'off', offline: 'offline',
               play: 'Play', pause: 'Pause', previous: 'Previous', next: 'Next',
-              mute: 'Mute', unmute: 'Unmute', power: 'Power', volume: 'Volume' }
+              mute: 'Mute', unmute: 'Unmute', power: 'Power', volume: 'Volume',
+              noForecast: 'no forecast', rain: 'rain', temperature: 'temperature' }
     };
     // ?lang= as on the other pages, else the browser's language
     var lang = (function() {
@@ -54,7 +56,7 @@
     var typeIcons = {
         button: 'play-fill', toggle: 'power', slider: 'sliders', status: 'info-circle', link: 'link-45deg',
         chart: 'graph-up', select: 'list-ul', image: 'image', cover: 'arrows-expand', covers: 'window', dimmer: 'lightbulb',
-        color: 'palette', calendar: 'calendar3', player: 'music-note-beamed'
+        color: 'palette', calendar: 'calendar3', player: 'music-note-beamed', forecast: 'cloud-sun'
     };
 
     // 23.9 -> "23,9" in Polish; text as it is
@@ -201,6 +203,10 @@
             if (d.online === false) return ['unknown', T.offline];
             if (d.power === false) return ['off', T.playerOff];
             return d.playing ? ['on', T.playing] : ['value', T.paused];
+        case 'forecast':
+            if (d.error) return ['unknown', T.unknown];
+            if (d.none) return ['unknown', T.noForecast];
+            return ['value', d.updated ? T.updated + ' ' + hhmm(d.updated, w.zone) : ''];
         case 'button':
             return ['value', T.run];
         case 'link':
@@ -225,6 +231,7 @@
         var st = tileState(type, w, d);
         setState(el, st[0], st[1]);
         if (type === 'player') updatePlayer(el, d);
+        if (type === 'forecast') updateForecast(el, w, d);
         if (el.classList.contains('dash-header-item')) el.title = (w.label || '') + ': ' + st[1];
         if (el.getAttribute('role') === 'switch') el.setAttribute('aria-checked', d.value ? 'true' : 'false');
     }
@@ -443,8 +450,8 @@
         el.dataset.widgetId = w.id;
         el.dataset.type = w.type;
 
-        // Span (stored as data-attr; CSS responsive rules can override); a player is two wide
-        var span = w.span || (w.type === 'player' && cols > 1 ? 2 : 0);
+        // Span (stored as data-attr; CSS responsive rules can override); a player and a forecast are two wide
+        var span = w.span || ((w.type === 'player' || w.type === 'forecast') && cols > 1 ? 2 : 0);
         if (span > 1) {
             el.style.gridColumn = 'span ' + span;
             el.dataset.span = span;
@@ -506,6 +513,8 @@
             renderCalendar(el, w, head);
         } else if (w.type === 'player') {
             renderPlayer(el, w, head);
+        } else if (w.type === 'forecast') {
+            renderForecast(el, w);
         }
 
         refreshTile(el, w, w);
@@ -1401,6 +1410,165 @@
         }
     }
 
+    // ---- Weather forecast ----
+
+    var forecastRain = '#3d8bfd';
+    var forecastTemp = '#fd7e14';
+
+    // A row of days, under it the next hours as a temperature line over rain bars
+    function renderForecast(el, w) {
+        el.style.cursor = 'default';
+        var box = calEl('div', 'dash-forecast');
+        box.appendChild(calEl('div', 'dash-forecast-days'));
+        var empty = calEl('div', 'dash-forecast-empty', T.noForecast);
+        empty.hidden = true;
+        box.appendChild(empty);
+        if (w.chartHours > 0) {
+            var wrap = calEl('div', 'dash-forecast-chart');
+            wrap.appendChild(document.createElement('canvas'));
+            wrap.hidden = true;
+            box.appendChild(wrap);
+        }
+        el.appendChild(box);
+    }
+
+    // 12° for °C and °F, "280 K" otherwise; "–" without a value
+    function forecastTempText(v, unit) {
+        if (v == null) return '–';
+        var n = fmtNum(Math.round(v));
+        return /^°/.test(unit || '°') ? n + '°' : n + ' ' + unit;
+    }
+
+    function forecastWeekday(date) {
+        try { return parseYmd(date).toLocaleDateString(lang === 'pl' ? 'pl-PL' : 'en-GB', {weekday: 'short'}); }
+        catch (e) { return date.slice(5); }
+    }
+
+    function forecastDay(day, unit) {
+        var cell = calEl('div', 'dash-forecast-day');
+        cell.title = day.date;
+        cell.appendChild(calEl('div', 'dash-forecast-wd', forecastWeekday(day.date)));
+        var icon = /^[\w-]+$/.test(day.icon || '') ? day.icon : 'cloud';
+        cell.appendChild(calEl('i', 'bi bi-' + icon + ' dash-forecast-icon'));
+        var temps = calEl('div', 'dash-forecast-temps');
+        temps.appendChild(calEl('span', 'dash-forecast-max', forecastTempText(day.max, unit)));
+        temps.appendChild(calEl('span', 'dash-forecast-min', forecastTempText(day.min, unit)));
+        cell.appendChild(temps);
+        // rain and its chance only when there are some (a narrow cell puts them in two lines)
+        var rain = calEl('div', 'dash-forecast-rain');
+        if (day.rain > 0) rain.appendChild(calEl('span', null, fmtNum(day.rain) + ' mm'));
+        if (day.pop > 0) rain.appendChild(calEl('span', null, day.pop + ' %'));
+        if (rain.firstChild) rain.insertBefore(calEl('i', 'bi bi-droplet-fill'), rain.firstChild);
+        else rain.textContent = ' ';
+        cell.appendChild(rain);
+        return cell;
+    }
+
+    // Redrawn only when the forecast changed, not on every poll
+    function updateForecast(el, w, d) {
+        var days = Array.isArray(d.days) ? d.days : [];
+        var hours = Array.isArray(d.hours) ? d.hours : [];
+        // "no forecast" in the tile only when the state line does not say it already
+        el.querySelector('.dash-forecast-empty').hidden = days.length > 0 || hours.length > 0 || !!d.none || !!d.error;
+        var key = JSON.stringify([days, hours]);
+        if (el._forecastKey === key) return;
+        el._forecastKey = key;
+
+        var row = el.querySelector('.dash-forecast-days');
+        row.textContent = '';
+        days.forEach(function(day) { row.appendChild(forecastDay(day, w.unit)); });
+        row.hidden = !days.length;
+
+        var wrap = el.querySelector('.dash-forecast-chart');
+        if (!wrap) return;
+        wrap.hidden = hours.length < 2;
+        if (wrap.hidden) return;
+        var labels = hours.map(function(h) { return hhmm(h.at, w.zone); });
+        var temps = hours.map(function(h) { return h.temp; });
+        var rains = hours.map(function(h) { return h.rain || 0; });
+        var maxRain = Math.max.apply(null, rains);
+        var chartKey = 'forecast-' + w.id;
+        var chart = chartInstances[chartKey];
+        if (chart) {
+            chart.data.labels = labels;
+            chart.data.datasets[0].data = temps;
+            chart.data.datasets[1].data = rains;
+            chart.options.scales.y1.display = maxRain > 0;
+            chart.update('none');
+            return;
+        }
+        var tempColor = resolveColor(w.color) || forecastTemp;
+        var unit = w.unit || '°C';
+        chartInstances[chartKey] = new Chart(wrap.querySelector('canvas'), {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    type: 'line',
+                    label: T.temperature,
+                    data: temps,
+                    yAxisID: 'y',
+                    borderColor: tempColor,
+                    backgroundColor: tempColor,
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.35,
+                    order: 0,
+                }, {
+                    type: 'bar',
+                    label: T.rain,
+                    data: rains,
+                    yAxisID: 'y1',
+                    backgroundColor: colorToRGBA(forecastRain, 0.45),
+                    borderRadius: 2,
+                    barPercentage: 0.8,
+                    categoryPercentage: 0.9,
+                    order: 1,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        ticks: { color: 'rgba(128,128,128,0.9)', maxTicksLimit: 8, maxRotation: 0, font: {size: 10} },
+                        grid: { display: false },
+                    },
+                    y: {
+                        grace: '10%',
+                        ticks: { color: 'rgba(128,128,128,0.9)', maxTicksLimit: 5, font: {size: 10},
+                            callback: function(v) { return forecastTempText(v, unit); } },
+                        grid: { color: 'rgba(128,128,128,0.12)' },
+                    },
+                    y1: {
+                        display: maxRain > 0,
+                        position: 'right',
+                        min: 0,
+                        suggestedMax: 2,
+                        ticks: { color: colorToRGBA(forecastRain, 0.9), maxTicksLimit: 4, font: {size: 10},
+                            callback: function(v) { return fmtNum(v) + ' mm'; } },
+                        grid: { display: false },
+                    }
+                },
+                interaction: { intersect: false, mode: 'index' },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(item) {
+                                var v = item.raw;
+                                if (v == null) return '';
+                                return item.dataset.yAxisID === 'y1' ? T.rain + ': ' + fmtNum(v) + ' mm'
+                                    : T.temperature + ': ' + withUnit(v, unit);
+                            }
+                        }
+                    }
+                },
+                animation: { duration: 0 },
+            }
+        });
+    }
+
     // ---- Dimmer widget ----
 
     // A slider sends the value it was moved to: after a pause, or at once when let go, so
@@ -2060,6 +2228,12 @@
             if (d.value !== undefined) { d.volume = d.value; delete d.value; } // a volume reply
             // a poll is the whole state: what it leaves out is gone (a track without an album)
             if (!force) playerKeys.forEach(function(k) { if (!(k in d)) d[k] = null; });
+        }
+        // a poll is the whole forecast; after an error the last one stays on the tile
+        if (type === 'forecast' && !force) {
+            ['none', 'error', 'updated'].concat(d.error ? [] : ['days', 'hours']).forEach(function(k) {
+                if (!(k in d)) d[k] = null;
+            });
         }
         if (type === 'color') delete d.value; // brightness or white: the reply does not say
         var slider = el.querySelector('.dash-slider-input');

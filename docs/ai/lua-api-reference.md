@@ -17,7 +17,7 @@ Only public API is listed — internal/private functions are omitted.
 - [core.Registry](#coreregistry) (10 functions)
 - [core.Metrics](#coremetrics) (1 functions)
 - [core.Calendar](#corecalendar) (36 functions)
-- [Dashboard](#dashboard) (57 functions)
+- [Dashboard](#dashboard) (59 functions)
 - [lib.panel](#libpanel) (55 functions)
 - [objects.RemotePanel](#objectsremotepanel) (6 functions)
 - [GPIO_DOUT](#gpio_dout) (1 functions)
@@ -1133,6 +1133,15 @@ Add a media player: artwork, title and artist, previous/play-pause/next, volume,
 - `src` (table) — A MusicCast device (Plugin.getPlugin("@vclu/musiccast"):create{...}) or a table of functions
 - `opts` (table) — Optional: {icon=string (default "music-note-beamed"), disabled=function()->bool, span=n, size=string, color=string}
 
+### `SectionHandle:forecast(id, label, src, opts)`
+
+Add a weather forecast: the next days (icon, max/min, rain) and a chart of the next hours. src gives {days={{date='YYYY-MM-DD', iconName (or icon), min, max, rain (mm), pop (0-1, or a percent when above 1)}}, hours={{at (unix s), temp, rain}}, updated (optional unix s, shown as "odświeżono HH:MM")}, or nil while there is no forecast yet; days before today in the house's time zone are dropped; opts.hours counts hours: the current one and hours-1 after it (hourly data gives exactly that many points).
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `src` (function) — A function returning the forecast, or the Weather plugin (Plugin.getPlugin("@vclu/weather"))
+- `opts` (table) — Optional: {days=1-7 (default 5), hours=0-48 (default 24, 0 hides the chart), unit=string (default "°C"), icon=string (default "cloud-sun"), disabled=function()->bool, span=n, size=string, color=string}
+
 ### `SectionHandle:dimmer(id, label, icon, fns, opts)`
 
 Add a dimmer widget to this section.
@@ -1396,6 +1405,15 @@ Add a media player to the current section: artwork, title and artist, previous/p
 - `label` (string) — Display label (e.g. the room)
 - `src` (table) — A MusicCast device or a table of functions {getState, play?, pause?, next?, previous?, setVolume?, setMute?, on?, off?}
 - `opts` (table) — Optional: {icon=string, disabled=function()->bool, span=n, size=string, color=string}
+
+### `DashboardBuilder:forecast(id, label, src, opts)`
+
+Add a weather forecast to the current section: the next days and a chart of the next hours.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `src` (function) — A function returning {days={...}, hours={...}, updated?} or nil, or the Weather plugin
+- `opts` (table) — Optional: {days=1-7, hours=0-48, unit=string, icon=string, disabled=function()->bool, span=n, size=string, color=string}
 
 ### `DashboardBuilder:dimmer(id, label, icon, fns, opts)`
 
