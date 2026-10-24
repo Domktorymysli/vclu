@@ -50,6 +50,37 @@ func TestPluginsAPIInstallUpdateKeepsConfig(t *testing.T) {
 	}
 }
 
+// The update's download removes the version it replaces, not one newer than it.
+func TestPluginsAPIInstallUpdateCleansOlderOnly(t *testing.T) {
+	repo := pluginRepo(t, "salda-recuperator", "1.2.0", true)
+
+	dir := t.TempDir()
+	base := filepath.Join(dir, "plugins", "vclu--salda-recuperator")
+	for _, v := range []string{"1.1.0", "2.0.0"} {
+		if err := os.MkdirAll(filepath.Join(base, v), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(base, v, "plugin.json"), []byte(`{"version":"`+v+`"}`), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	err := config.WriteMasterConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
+		Repositories: []config.PluginRepository{{Name: "test", URL: repo.URL, Enabled: true}},
+		Installed:    []config.InstalledPlugin{{ID: "@vclu/salda-recuperator", Version: "1.1.0", Enabled: true, Repository: "test"}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	postInstall(t, &Server{serverDir: dir}, "salda-recuperator")
+	for v, want := range map[string]bool{"1.1.0": false, "1.2.0": true, "2.0.0": true} {
+		_, err := os.Stat(filepath.Join(base, v))
+		if got := err == nil; got != want {
+			t.Errorf("%s on disk = %v, want %v", v, got, want)
+		}
+	}
+}
+
 // An update whose download fails answers with an error and leaves the config as it was (#112).
 func TestPluginsAPIInstallUpdateDownloadFails(t *testing.T) {
 	repo := pluginRepo(t, "salda-recuperator", "1.2.0", false)
