@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Domktorymysli/vclu/pkg/plugins"
 )
@@ -1075,5 +1076,45 @@ func TestPluginGetStaticMisuseRaises(t *testing.T) {
 		if !strings.Contains(result, want) {
 			t.Errorf("guard message %q does not mention %q", result, want)
 		}
+	}
+}
+
+// A plugin gets datetime in the house's zone (#96), and cannot change the zone.
+func TestPluginSandboxDatetime(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+	// 23:30 UTC on 30 March is 01:30 the next day in Warsaw, after the switch to summer time
+	SetClock(engine.state, fixedClock{time.Date(2026, 3, 30, 23, 30, 0, 0, time.UTC)})
+	if _, err := engine.Execute(`datetime.setTimezone("Europe/Warsaw"); PluginSandbox:create("@test/clock")`); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	run := func(script string) string {
+		t.Helper()
+		got, err := engine.Execute(`
+			local r, e = PluginSandbox:execute("@test/clock", [[` + script + `]])
+			if e then return "error: " .. tostring(e) end
+			return tostring(r)`)
+		if err != nil {
+			t.Fatalf("%s: %v", script, err)
+		}
+		return got
+	}
+	for script, want := range map[string]string{
+		`return datetime.timezone()`:                                                                         "Europe/Warsaw",
+		`return datetime.now().date .. " " .. datetime.now().hour`:                                           "2026-03-31 1",
+		`return datetime.format(datetime.now(), "15:04 -07:00")`:                                             "01:30 +02:00",
+		`return datetime.fromTimestamp(1774828800).hour`:                                                     "2", // 00:00 UTC on 30 March, summer time
+		`return datetime.fromTimestamp(1774656000).hour`:                                                     "1", // 00:00 UTC on 28 March, winter time
+		`return type(datetime.parse) .. type(datetime.diff) .. type(datetime.add) .. type(datetime.between)`: "functionfunctionfunctionfunction",
+		`return type(datetime.setTimezone)`:                                                                  "nil",
+	} {
+		if got := run(script); got != want {
+			t.Errorf("in a plugin, %s = %q, want %q", script, got, want)
+		}
+	}
+	// a plugin's own assignments stay in its copy; the house keeps its zone
+	run(`datetime.timezone = function() return "UTC" end; datetime.setTimezone = function() end; datetime.setTimezone("UTC")`)
+	if got, _ := engine.Execute(`return datetime.timezone() .. " " .. datetime.now().hour`); got != "Europe/Warsaw 1" {
+		t.Errorf("after the plugin's assignments the house has %q, want Europe/Warsaw 1", got)
 	}
 }

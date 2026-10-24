@@ -1,0 +1,10 @@
+{{define "dashboard_app"}}
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="{{.StatusBar}}">
+    <meta name="apple-mobile-web-app-title" content="{{.Name}}">
+    <meta name="theme-color" content="{{.ThemeColor}}">
+    <link rel="apple-touch-icon" href="/static/img/vclu-180.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="/static/img/vclu-192.png">
+    <link rel="manifest" href="{{.ManifestURL}}">
+{{end}}

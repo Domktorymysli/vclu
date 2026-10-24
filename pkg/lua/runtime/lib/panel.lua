@@ -1284,33 +1284,18 @@ function Panel.area(area, opts)
     local areas = type(area) == "table" and area or { area }
     local m = Panel.menu(opts.title or areas[1])
     m._fill = function(self)
-        local inArea, kinds, skip = {}, {}, {}
-        for _, a in ipairs(areas) do inArea[a] = true end
-        for _, k in ipairs(opts.kinds or { "light", "dimmer", "cover", "temperature", "humidity" }) do kinds[k] = true end
-        for _, p in ipairs(opts.skip or {}) do skip[p] = true end
-        local order = { light = 1, switch = 1, dimmer = 1, lock = 1, cover = 2 }
-        local found = {}
         local E = ExposedObjects
-        for path, h in pairs(E and E.list and E:list() or {}) do
-            local o = h.options or {}
-            local wanted = o.panel == true or (o.panel ~= false and kinds[h.type])
-            if inArea[o.area] and wanted and not skip[path] then
-                found[#found + 1] = { h = h, path = path, key = Panel.map(o.name or path) }
-            end
-        end
-        table.sort(found, function(a, b)
-            local oa, ob = order[a.h.type] or 3, order[b.h.type] or 3
-            if oa ~= ob then return oa < ob end
-            if a.key ~= b.key then return a.key < b.key end
-            return a.path < b.path
-        end)
-        for _, f in ipairs(found) do self:add(f.h.options.name or f.path, f.h.object) end
+        if not (E and E._inArea) then return end
+        local found = E:_inArea(areas, { kinds = opts.kinds or { "light", "dimmer", "cover", "temperature", "humidity" },
+            skip = opts.skip, floor = opts._floor, flag = "panel", key = Panel.map })
+        for _, f in ipairs(found) do self:add(f.handle.options.name or f.path, f.handle.object) end
     end
     return m
 end
 
 --- A menu of the areas on a floor (expose(..., { area = "Salon", floor = "Parter" })),
--- each a Panel.area; areas with nothing for the panel are left out. Filled each time it opens.
+-- each a Panel.area of that floor only (an area name may be on two floors); areas with
+-- nothing for the panel are left out. Filled each time it opens.
 -- @param floor string Floor name
 -- @param opts table|nil { title, order = { area, ... } (first, in this order; the rest by
 --   name), titles = { [area] = title }, kinds, skip }
@@ -1319,25 +1304,12 @@ function Panel.floor(floor, opts)
     opts = opts or {}
     local m = Panel.menu(opts.title or floor)
     m._fill = function(self)
-        local seen, list = {}, {}
         local E = ExposedObjects
-        for _, h in pairs(E and E.list and E:list() or {}) do
-            local o = h.options or {}
-            if o.floor == floor and o.area and not seen[o.area] then
-                seen[o.area] = true
-                list[#list + 1] = o.area
-            end
-        end
-        local rank = {}
-        for i, a in ipairs(opts.order or {}) do rank[a] = i end
-        table.sort(list, function(a, b)
-            local ra, rb = rank[a] or math.huge, rank[b] or math.huge
-            if ra ~= rb then return ra < rb end
-            return Panel.map(a) < Panel.map(b)
-        end)
+        if not (E and E._areasOn) then return end
+        local list = E:_areasOn(floor, opts.order, Panel.map)
         local titles = opts.titles or {}
         for _, a in ipairs(list) do
-            self:submenu(titles[a] or a, Panel.area(a, { title = titles[a], kinds = opts.kinds, skip = opts.skip }))
+            self:submenu(titles[a] or a, Panel.area(a, { title = titles[a], kinds = opts.kinds, skip = opts.skip, _floor = floor }))
         end
     end
     return m

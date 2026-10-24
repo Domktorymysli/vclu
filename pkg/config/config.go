@@ -209,9 +209,25 @@ func DefaultBackupConfig() *VCLUBackupConfig {
 type VCLUSyncConfig struct {
 	Enabled    bool     `json:"enabled"`    // Master on/off switch (default: false)
 	TTL        int      `json:"ttl"`        // Subscription TTL in seconds (default: 60)
-	BatchSize  int      `json:"batchSize"`  // Objects per subscription request (default: 4, min: 2, max: 8)
+	BatchSize  int      `json:"batchSize"`  // Entries per subscription request (default: 4, min: 2, max: 28)
 	BatchDelay int      `json:"batchDelay"` // Milliseconds delay between batches (default: 50, min: 30, max: 100)
 	Objects    []string `json:"objects"`    // Whitelist of object paths to sync
+}
+
+// Limits of VCLUSyncConfig. Object Manager itself registers 28 entries in one clientRegister.
+const (
+	SyncMinTTL        = 10
+	SyncMinBatchSize  = 2
+	SyncMaxBatchSize  = 28
+	SyncMinBatchDelay = 30
+	SyncMaxBatchDelay = 100
+)
+
+// Clamp brings TTL, BatchSize and BatchDelay into their allowed ranges.
+func (c *VCLUSyncConfig) Clamp() {
+	c.TTL = max(c.TTL, SyncMinTTL)
+	c.BatchSize = min(max(c.BatchSize, SyncMinBatchSize), SyncMaxBatchSize)
+	c.BatchDelay = min(max(c.BatchDelay, SyncMinBatchDelay), SyncMaxBatchDelay)
 }
 
 // DefaultSyncConfig returns default sync configuration (disabled, empty whitelist)

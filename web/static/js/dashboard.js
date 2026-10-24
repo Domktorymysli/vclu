@@ -13,9 +13,69 @@
     var pollTimer = null;
     var definition = null;
     var widgetEls = {}; // widgetId -> DOM element
+    var roomLayers = {}; // room tile id -> its overlay
+    var openRoomState = null; // {id, layer, tile, pushed} while a room is open
+    var roomBackPending = false; // history.back() sent, its popstate not seen yet
+    var roomRoot = document.createElement('div');
+    roomRoot.id = 'dashboardRooms';
+    document.body.appendChild(roomRoot);
+    var sectionCoverEls = {}; // section index -> its header's cover counts
     var actionGrace = {}; // widgetId -> timestamp (ignore polls until this time)
     var chartInstances = {}; // widgetId -> Chart.js instance
     var chartTimers = {};   // widgetId -> per-chart refresh timer
+
+    // Texts of the page, Polish or English; #85 moves them to web/locales.
+    var TEXTS = {
+        pl: { on: 'włączone', off: 'wyłączone', open: 'otwarta', closed: 'zamknięta', opening: 'otwiera się',
+              closing: 'zamyka się', unknown: 'brak odczytu', run: 'uruchom', sent: 'wysłano', updated: 'odświeżono',
+              nothingToday: 'nic więcej dziś', holidays: 'Święta', namedays: 'Imieniny', sun: 'Słońce', show: 'Pokaż',
+              polarDay: 'dzień polarny', polarNight: 'noc polarna', noConnection: 'Brak połączenia',
+              openN: ['otwarta', 'otwarte', 'otwartych'], closedN: ['zamknięta', 'zamknięte', 'zamkniętych'],
+              moving: 'w ruchu', allOpen: 'wszystkie otwarte', allClosed: 'wszystkie zamknięte', noCovers: 'brak rolet',
+              up: 'W górę', stop: 'Stop', down: 'W dół', position: 'Pozycja', tilt: 'Lamele',
+              fullscreen: 'Pełny ekran', exitFullscreen: 'Zamknij pełny ekran',
+              playing: 'odtwarza', paused: 'pauza', playerOff: 'wyłączony', offline: 'offline',
+              play: 'Odtwarzaj', pause: 'Pauza', previous: 'Poprzedni', next: 'Następny',
+              mute: 'Wycisz', unmute: 'Włącz dźwięk', power: 'Włącz / wyłącz', volume: 'Głośność',
+              noForecast: 'brak prognozy', rain: 'opady', temperature: 'temperatura',
+              onN: ['włączone', 'włączone', 'włączonych'], allOff: 'wszystko wyłączone', back: 'Wróć',
+              humidity: 'wilgotność' },
+        en: { on: 'on', off: 'off', open: 'open', closed: 'closed', opening: 'opening',
+              closing: 'closing', unknown: 'no reading', run: 'run', sent: 'sent', updated: 'updated',
+              nothingToday: 'nothing more today', holidays: 'Holidays', namedays: 'Name days', sun: 'Sun', show: 'Show',
+              polarDay: 'polar day', polarNight: 'polar night', noConnection: 'No connection',
+              openN: ['open', 'open', 'open'], closedN: ['closed', 'closed', 'closed'],
+              moving: 'moving', allOpen: 'all open', allClosed: 'all closed', noCovers: 'no covers',
+              up: 'Up', stop: 'Stop', down: 'Down', position: 'Position', tilt: 'Slats',
+              fullscreen: 'Full screen', exitFullscreen: 'Exit full screen',
+              playing: 'playing', paused: 'paused', playerOff: 'off', offline: 'offline',
+              play: 'Play', pause: 'Pause', previous: 'Previous', next: 'Next',
+              mute: 'Mute', unmute: 'Unmute', power: 'Power', volume: 'Volume',
+              noForecast: 'no forecast', rain: 'rain', temperature: 'temperature',
+              onN: ['on', 'on', 'on'], allOff: 'all off', back: 'Back', humidity: 'humidity' }
+    };
+    // ?lang= as on the other pages, else the browser's language
+    var lang = (function() {
+        var m = /[?&]lang=([a-z]{2})/i.exec(location.search);
+        return /^pl/i.test((m && m[1]) || document.documentElement.lang || navigator.language || '') ? 'pl' : 'en';
+    })();
+    var T = TEXTS[lang];
+
+    // A tile without its own icon gets one by type
+    var typeIcons = {
+        button: 'play-fill', toggle: 'power', slider: 'sliders', status: 'info-circle', link: 'link-45deg',
+        chart: 'graph-up', select: 'list-ul', image: 'image', cover: 'arrows-expand', covers: 'window', dimmer: 'lightbulb',
+        color: 'palette', calendar: 'calendar3', player: 'music-note-beamed', forecast: 'cloud-sun',
+        room: 'door-open'
+    };
+
+    // 23.9 -> "23,9" in Polish; text as it is
+    function fmtNum(v) {
+        return typeof v === 'number' && lang === 'pl' ? String(v).replace('.', ',') : String(v);
+    }
+    function withUnit(v, unit) {
+        return fmtNum(v) + (unit ? ' ' + unit : '');
+    }
 
     // ---- Time-of-day period tracking ----
     var currentPeriod = null;
@@ -74,17 +134,135 @@
         return colorMap[c] || c;
     }
 
-    // Apply a polled colour; a falsy one drops it (header: icon only, as when rendered)
+    // Apply a polled colour; a falsy one drops it
     function applyColor(el, c) {
         var color = resolveColor(c);
-        if (el.classList.contains('dash-header-item')) {
-            var icon = el.querySelector(':scope > i');
-            if (icon) icon.style.color = color || '';
-        } else if (color) {
+        if (color) {
             el.style.setProperty('--widget-color', color);
         } else {
             el.style.removeProperty('--widget-color');
         }
+    }
+
+    // danger and warning make a status an alarm
+    function isAlarm(c) {
+        return c === 'danger' || c === 'warning';
+    }
+
+    // 1 otwarta, 2-4 otwarte, 5 otwartych (12-14 too); English has one form
+    function plural(n, forms) {
+        var f = n === 1 ? 0 : (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14)) ? 1 : 2;
+        return n + ' ' + forms[f];
+    }
+
+    // "3 otwarte · 1 w ruchu", "wszystkie zamknięte": counts of a cover group or a section
+    // (null without covers; "brak odczytu" when none has a reading)
+    function coverCountsText(c) {
+        var open = c.open || 0, moving = c.moving || 0, closed = c.closed || 0, unknown = c.unknown || 0;
+        var n = open + moving + closed + unknown;
+        if (n === 0) return null;
+        if (unknown === n) return T.unknown;
+        if (n === open) return n > 1 ? T.allOpen : T.open;
+        if (n === closed) return n > 1 ? T.allClosed : T.closed;
+        var parts = [];
+        if (open) parts.push(plural(open, T.openN));
+        if (moving) parts.push(moving + ' ' + T.moving);
+        if (closed) parts.push(plural(closed, T.closedN));
+        if (unknown) parts.push(unknown + ' ' + T.unknown);
+        return parts.join(' · ');
+    }
+
+    // The circle and the second line: state is on, off, moving, alarm, unknown or value
+    function tileState(type, w, d) {
+        var on;
+        switch (type) {
+        case 'toggle':
+            if (d.value == null) return ['unknown', T.unknown];
+            return d.value ? ['on', T.on] : ['off', T.off];
+        case 'slider':
+            return d.value == null ? ['unknown', T.unknown] : ['value', fmtNum(d.value)];
+        case 'status':
+            if (d.value == null) return ['unknown', T.unknown];
+            return [isAlarm(d.color) ? 'alarm' : 'value', withUnit(d.value, w.unit)];
+        case 'select':
+            if (d.value == null) return ['unknown', T.unknown];
+            var label = String(d.value);
+            (w.options || []).forEach(function(o) { if (String(o.value) === String(d.value)) label = o.label; });
+            return ['value', label];
+        case 'dimmer':
+        case 'color':
+            var level = type === 'dimmer' ? d.value : d.brightness;
+            if (level == null && d.on == null) return ['unknown', T.unknown];
+            on = d.on != null ? d.on : level > 0;
+            if (!on) return ['off', T.off];
+            return ['on', level > 0 ? withUnit(level, '%') : T.on];
+        case 'cover':
+            if (d.state === 1) return ['moving', T.opening];
+            if (d.state === 2) return ['moving', T.closing];
+            if (d.position == null) return ['unknown', T.unknown];
+            if (d.position <= 0) return ['off', T.closed];
+            return ['on', d.position >= 100 ? T.open : T.open + ' ' + withUnit(d.position, '%')];
+        case 'covers':
+            var text = coverCountsText(d);
+            if (text == null) return ['unknown', T.noCovers];
+            if (d.moving > 0) return ['moving', text];
+            if (d.open > 0) return ['on', text];
+            return [d.closed > 0 ? 'off' : 'unknown', text];
+        case 'player':
+            if (d.error) return ['unknown', T.unknown];
+            if (d.online === false) return ['unknown', T.offline];
+            if (d.power === false) return ['off', T.playerOff];
+            return d.playing ? ['on', T.playing] : ['value', T.paused];
+        case 'forecast':
+            if (d.error) return ['unknown', T.unknown];
+            if (d.none) return ['unknown', T.noForecast];
+            return ['value', d.updated ? T.updated + ' ' + hhmm(d.updated, w.zone) : ''];
+        case 'room':
+            var lit = d.on || 0, opened = d.open || 0, parts = [];
+            if (lit) parts.push(plural(lit, T.onN));
+            if (opened) parts.push(plural(opened, T.openN));
+            return [d.moving > 0 ? 'moving' : (lit || opened ? 'on' : 'off'), parts.length ? parts.join(' · ') : T.allOff];
+        case 'button':
+            return ['value', T.run];
+        case 'link':
+            var m = /^[a-z]+:\/\/([^\/?#:]+)/i.exec(w.url || '');
+            return ['value', m ? m[1] : String(w.url || '')];
+        }
+        return ['value', ''];
+    }
+
+    function setState(el, state, text) {
+        el.dataset.state = state;
+        var s = el.querySelector('.dash-tile-state');
+        if (s && text != null) s.textContent = text;
+    }
+
+    // Tile state from what is known of the widget (definition, then polls and replies)
+    function refreshTile(el, w, data) {
+        var d = el._data || (el._data = {});
+        for (var k in data) if (data.hasOwnProperty(k)) d[k] = data[k];
+        var type = el.dataset.type;
+        if (type === 'chart' || type === 'image' || type === 'calendar') return;
+        var st = tileState(type, w, d);
+        setState(el, st[0], st[1]);
+        if (type === 'player') updatePlayer(el, d);
+        if (type === 'forecast') updateForecast(el, w, d);
+        if (type === 'room') updateRoom(el, w, d, st[1]);
+        if (el.classList.contains('dash-header-item')) el.title = (w.label || '') + ': ' + st[1];
+        if (el.getAttribute('role') === 'switch') el.setAttribute('aria-checked', d.value ? 'true' : 'false');
+    }
+
+    // Icon in a circle, the name, the state line
+    function tileHead(w) {
+        var head = calEl('div', 'dash-tile-head');
+        var icon = calEl('div', 'dash-widget-icon');
+        icon.innerHTML = '<i class="bi bi-' + esc(w.icon || typeIcons[w.type] || 'circle') + '"></i>';
+        var text = calEl('div', 'dash-tile-text');
+        text.appendChild(calEl('div', 'dash-widget-label', w.label || ''));
+        text.appendChild(calEl('div', 'dash-tile-state', ' '));
+        head.appendChild(icon);
+        head.appendChild(text);
+        return head;
     }
 
     // ---- Fetch helpers ----
@@ -141,6 +319,7 @@
         burger.className = 'dash-nav-burger';
         burger.innerHTML = '<i class="bi bi-list"></i>';
         header.appendChild(burger);
+        header.classList.add('dash-header-btns');
 
         var menu = document.createElement('div');
         menu.className = 'dash-nav-menu';
@@ -163,8 +342,38 @@
         });
     }
 
+    // A full-screen button where the Fullscreen API works and the page is not already an app
+    // from the home screen; iPhone and iPad get the home screen instead (Add to Home Screen).
+    function setupFullscreen() {
+        var header = document.querySelector('.dash-header');
+        var standalone = navigator.standalone === true ||
+            (window.matchMedia && (matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: fullscreen)').matches));
+        var ios = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+            (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+        if (!header || !document.fullscreenEnabled || standalone || ios) return;
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'dash-fullscreen-btn';
+        btn.appendChild(calEl('i', 'bi'));
+        function sync() {
+            var on = !!document.fullscreenElement;
+            btn.firstChild.className = 'bi bi-' + (on ? 'fullscreen-exit' : 'arrows-fullscreen');
+            btn.title = on ? T.exitFullscreen : T.fullscreen;
+            btn.setAttribute('aria-label', btn.title);
+        }
+        btn.addEventListener('click', function() {
+            var p = document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+            if (p && p.catch) p.catch(function() {});
+        });
+        document.addEventListener('fullscreenchange', sync);
+        sync();
+        header.appendChild(btn);
+        header.classList.add('dash-header-btns');
+    }
+
     function renderDashboard(def) {
         definition = def;
+        document.body.classList.toggle('dash-full', def.width === 'full');
         pollInterval = (def.poll || 2) * 1000;
         stopAllChartTimers();
         destroyAllCharts();
@@ -172,6 +381,10 @@
         contentEl.innerHTML = '';
         contentEl.style.cssText = '--dash-columns:' + (def.columns || 3);
         widgetEls = {};
+        sectionCoverEls = {};
+        closeRoom(false);
+        roomRoot.innerHTML = '';
+        roomLayers = {};
 
         // Apply time-of-day period (from server or local fallback)
         applyPeriod(def.period || calcPeriod());
@@ -206,6 +419,12 @@
             var sec = def.sections[si];
             var widgets = sectionWidgets[si] || [];
 
+            // a room tile's widgets: drawn now, shown when it is tapped
+            if (sec.room != null) {
+                roomLayers[sec.room] = renderRoomLayer(sec, widgets, def.columns || 3);
+                continue;
+            }
+
             if (sec.isHeader) {
                 // Header bar — compact flex row
                 var bar = document.createElement('div');
@@ -214,6 +433,7 @@
                     bar.appendChild(renderHeaderWidget(widgets[wi]));
                 }
                 contentEl.appendChild(bar);
+                syncHeaderBars();
                 continue;
             }
 
@@ -225,15 +445,21 @@
             hdr.className = 'dash-section-header';
             if (sec.icon) hdr.innerHTML = '<i class="bi bi-' + esc(sec.icon) + '"></i>';
             hdr.innerHTML += esc(sec.name);
+            if (sec.covers) {
+                sectionCoverEls[si] = hdr.appendChild(calEl('span', 'dash-section-covers'));
+                updateSectionCovers(si, sec.covers);
+            }
             secEl.appendChild(hdr);
 
             // Grid
             var grid = document.createElement('div');
             grid.className = 'dash-grid';
-            grid.style.cssText = '--dash-columns:' + (sec.columns || def.columns || 3);
+            var cols = sec.columns || def.columns || 3;
+            // --dash-columns-mid: a full-width page on a portrait tablet keeps up to 3 columns
+            grid.style.cssText = '--dash-columns:' + cols + ';--dash-columns-mid:' + Math.min(cols, 3);
 
             for (var wi = 0; wi < widgets.length; wi++) {
-                var wEl = renderWidget(widgets[wi]);
+                var wEl = renderWidget(widgets[wi], cols);
                 grid.appendChild(wEl);
             }
 
@@ -242,15 +468,18 @@
         }
     }
 
-    function renderWidget(w) {
+    function renderWidget(w, cols) {
+        if (w.type === 'group') return renderGroup(w);
         var el = document.createElement('div');
         el.className = 'dash-widget dash-widget-' + w.type;
         el.dataset.widgetId = w.id;
+        el.dataset.type = w.type;
 
-        // Span (stored as data-attr; CSS responsive rules can override)
-        if (w.span && w.span > 1) {
-            el.style.gridColumn = 'span ' + w.span;
-            el.dataset.span = w.span;
+        // Span (stored as data-attr; CSS responsive rules can override); a player and a forecast are two wide
+        var span = w.span || ((w.type === 'player' || w.type === 'forecast') && cols > 1 ? 2 : 0);
+        if (span > 1) {
+            el.style.gridColumn = 'span ' + span;
+            el.dataset.span = span;
         }
 
         // Size
@@ -266,22 +495,18 @@
         // Disabled
         if (w.disabled) el.classList.add('disabled');
 
-        // Error indicator
+        // Icon, name and state; an image has its caption under the picture, a player its own layout
+        var head = tileHead(w);
+        if (w.type !== 'image' && w.type !== 'player') el.appendChild(head);
+
+        // Error indicator: a badge on the icon
         if (w.error) {
             el.classList.add('has-error');
             var errIcon = document.createElement('span');
             errIcon.className = 'dash-widget-error';
             errIcon.title = w.error;
-            errIcon.innerHTML = '<i class="bi bi-exclamation-triangle"></i>';
-            el.appendChild(errIcon);
-        }
-
-        // Icon
-        if (w.icon) {
-            var iconEl = document.createElement('div');
-            iconEl.className = 'dash-widget-icon';
-            iconEl.innerHTML = '<i class="bi bi-' + esc(w.icon) + '"></i>';
-            el.appendChild(iconEl);
+            errIcon.innerHTML = '<i class="bi bi-exclamation-triangle-fill"></i>';
+            head.querySelector('.dash-widget-icon').appendChild(errIcon);
         }
 
         // Type-specific rendering
@@ -301,29 +526,36 @@
             renderSelect(el, w);
         } else if (w.type === 'cover') {
             renderCover(el, w);
+        } else if (w.type === 'covers') {
+            renderCovers(el, w);
         } else if (w.type === 'dimmer') {
             renderDimmer(el, w);
         } else if (w.type === 'color') {
             renderColor(el, w);
         } else if (w.type === 'image') {
-            renderImage(el, w);
-            return el; // image has its own label placement
-        } else if (w.type === 'group') {
-            return renderGroup(w);
+            renderImage(el, w, head);
         } else if (w.type === 'calendar') {
-            renderCalendar(el, w);
-            widgetEls[w.id] = el;
-            return el; // the label sits in the calendar's own toolbar
+            renderCalendar(el, w, head);
+        } else if (w.type === 'player') {
+            renderPlayer(el, w, head);
+        } else if (w.type === 'forecast') {
+            renderForecast(el, w);
+        } else if (w.type === 'room') {
+            renderRoom(el, w);
         }
 
-        // Label
-        var lbl = document.createElement('div');
-        lbl.className = 'dash-widget-label';
-        lbl.textContent = w.label;
-        el.appendChild(lbl);
-
+        refreshTile(el, w, w);
         widgetEls[w.id] = el;
         return el;
+    }
+
+    // Brief text on the state line, then the state again
+    function flashState(el, text) {
+        var s = el.querySelector('.dash-tile-state');
+        if (!s) return;
+        var prev = s.textContent;
+        s.textContent = text;
+        setTimeout(function() { if (s.textContent === text) s.textContent = prev; }, 1500);
     }
 
     function renderButton(el, w) {
@@ -331,28 +563,44 @@
             if (w.confirm && !confirm(w.confirm)) return;
             el.classList.add('flash');
             setTimeout(function() { el.classList.remove('flash'); }, 300);
+            flashState(el, T.sent);
             executeAction(w.id, 'tap');
         });
     }
 
-    function renderToggle(el, w) {
-        // Set active state based on value
-        if (w.value) el.classList.add('active');
-
+    // An on/off switch at the end of the head; a tap on the head (or the whole tile) flips it
+    function headSwitch(el, cls, checked, onChange, target) {
         var sw = document.createElement('div');
-        sw.className = 'dash-toggle-switch form-check form-switch';
+        sw.className = cls + ' form-check form-switch';
         var input = document.createElement('input');
         input.type = 'checkbox';
         input.className = 'form-check-input';
-        input.checked = !!w.value;
-        input.dataset.widgetId = w.id;
-        input.addEventListener('change', function() {
-            executeAction(w.id, 'toggle', input.checked);
+        input.setAttribute('role', 'switch');
+        input.setAttribute('aria-label', el.querySelector('.dash-widget-label').textContent);
+        input.checked = checked;
+        input.addEventListener('change', function(e) {
+            e.stopPropagation();
+            if (el.classList.contains('disabled')) { input.checked = !input.checked; return; }
+            onChange(input.checked);
         });
         sw.appendChild(input);
+        el.querySelector('.dash-tile-head').appendChild(sw);
+        (target || el).addEventListener('click', function(e) {
+            if (sw.contains(e.target) || el.classList.contains('disabled')) return;
+            input.checked = !input.checked;
+            onChange(input.checked);
+        });
+        return input;
+    }
 
-        // Insert before label (after icon)
-        el.appendChild(sw);
+    function renderToggle(el, w) {
+        if (w.value) el.classList.add('active');
+        var input = headSwitch(el, 'dash-toggle-switch', !!w.value, function(on) {
+            el.classList.toggle('active', on);
+            refreshTile(el, w, { value: on });
+            executeAction(w.id, 'toggle', on);
+        });
+        input.dataset.widgetId = w.id;
     }
 
     function renderSlider(el, w) {
@@ -367,34 +615,14 @@
         input.value = w.value != null ? w.value : 0;
         input.dataset.widgetId = w.id;
 
-        var valEl = document.createElement('span');
-        valEl.className = 'dash-slider-value';
-        valEl.textContent = input.value;
-
-        bindSlider(input, function(v) { valEl.textContent = v; },
+        bindSlider(input, function(v) { setState(el, 'value', fmtNum(v)); },
             function(v) { executeAction(w.id, 'set', v); }, 250);
 
         row.appendChild(input);
-        row.appendChild(valEl);
         el.appendChild(row);
     }
 
-    // A long text value ("closed · until 16:00") gets its own line on a phone
-    function markStatusText(el, display) {
-        el.classList.toggle('dash-status-text', typeof display === 'string' && display.length > 8);
-    }
-
     function renderStatus(el, w) {
-        var valEl = document.createElement('div');
-        valEl.className = 'dash-status-value';
-        var display = w.value != null ? w.value : '--';
-        markStatusText(el, display);
-        valEl.innerHTML = esc(String(display));
-        if (w.unit) {
-            valEl.innerHTML += ' <span class="dash-status-unit">' + esc(w.unit) + '</span>';
-        }
-        el.appendChild(valEl);
-
         if (w.spark) {
             var sparkWrap = document.createElement('div');
             sparkWrap.className = 'dash-sparkline';
@@ -414,14 +642,17 @@
         var ext = document.createElement('span');
         ext.className = 'dash-link-ext';
         ext.innerHTML = '<i class="bi bi-box-arrow-up-right"></i>';
-        el.appendChild(ext);
+        el.querySelector('.dash-tile-head').appendChild(ext);
         el.addEventListener('click', function() {
             window.open(w.url, '_blank');
         });
     }
 
+    // The native list lies over the whole tile: a tap anywhere opens it
     function renderSelect(el, w) {
-        el.style.cursor = 'default';
+        var chev = calEl('span', 'dash-select-chevron');
+        chev.innerHTML = '<i class="bi bi-chevron-expand"></i>';
+        el.querySelector('.dash-tile-head').appendChild(chev);
         var wrap = document.createElement('div');
         wrap.className = 'dash-select-wrap';
 
@@ -438,14 +669,16 @@
             }
             sel.appendChild(option);
         }
+        sel.setAttribute('aria-label', w.label || '');
         sel.addEventListener('change', function() {
+            refreshTile(el, w, { value: sel.value });
             executeAction(w.id, 'select', sel.value);
         });
         wrap.appendChild(sel);
         el.appendChild(wrap);
     }
 
-    function renderImage(el, w) {
+    function renderImage(el, w, head) {
         el.classList.add('dash-widget-image');
         el.style.cursor = 'default';
 
@@ -455,17 +688,19 @@
         img.src = w.url || '';
         img.alt = w.label || '';
         if (w.height) img.style.height = w.height + 'px';
-        img.onerror = function() { img.style.opacity = '0.2'; };
+        // the state line: when the picture came, or that it did not
+        img.onload = function() {
+            img.style.opacity = '';
+            setState(el, 'value', T.updated + ' ' + new Date().toLocaleTimeString(lang, {hour: '2-digit', minute: '2-digit'}));
+        };
+        img.onerror = function() { img.style.opacity = '0.2'; setState(el, 'unknown', T.unknown); };
         el.appendChild(img);
 
         // Caption below image
-        var lbl = document.createElement('div');
-        lbl.className = 'dash-image-label';
-        if (w.align) lbl.classList.add('align-' + w.align);
-        lbl.textContent = w.label;
-        el.appendChild(lbl);
-
-        widgetEls[w.id] = el;
+        head.classList.add('dash-image-label');
+        if (w.align) head.classList.add('align-' + w.align);
+        el.appendChild(head);
+        setState(el, 'unknown', ' ');
 
         // Auto-refresh image
         if (w.refresh) {
@@ -533,7 +768,7 @@
         });
     }
 
-    function renderCalendar(el, w) {
+    function renderCalendar(el, w, head) {
         el.classList.add('dash-widget-calendar');
         el.style.cursor = 'default';
         if (!w.span) el.style.gridColumn = '1 / -1';
@@ -555,14 +790,10 @@
                 });
             }
         } catch (e) { /* no storage: defaults */ }
-        var pl = /^pl/i.test(navigator.language || '');
-        var txt = pl ? { holidays: 'Święta', namedays: 'Imieniny', sun: 'Słońce', show: 'Pokaż', polarDay: 'dzień polarny', polarNight: 'noc polarna' }
-                     : { holidays: 'Holidays', namedays: 'Name days', sun: 'Sun', show: 'Show', polarDay: 'polar day', polarNight: 'polar night' };
         var rel = (window.Intl && Intl.RelativeTimeFormat) ? new Intl.RelativeTimeFormat([], {numeric: 'auto'}) : null;
         var cap = function(t) { return t.charAt(0).toUpperCase() + t.slice(1); };
 
         var bar = calEl('div', 'dash-cal-bar');
-        var label = calEl('div', 'dash-cal-label', w.label || '');
         var nav = calEl('div', 'dash-cal-nav');
         var title = calEl('div', 'dash-cal-title');
         nav.appendChild(calIconBtn('chevron-left', '-', function() { step(-1); }));
@@ -584,7 +815,7 @@
             var b = calEl('button', 'dash-cal-opt');
             b.type = 'button';
             b.setAttribute('role', 'switch');
-            b.appendChild(calEl('span', 'dash-cal-opt-label', txt[key]));
+            b.appendChild(calEl('span', 'dash-cal-opt-label', T[key]));
             b.appendChild(calEl('span', 'dash-cal-opt-switch'));
             function sync() { b.setAttribute('aria-checked', st.show[key] ? 'true' : 'false'); }
             sync();
@@ -598,7 +829,7 @@
             return b;
         }
         ['holidays', 'namedays', 'sun'].forEach(function(k) { if (allowed[k]) menu.appendChild(optionRow(k)); });
-        var menuBtn = calIconBtn('sliders', txt.show, function() {
+        var menuBtn = calIconBtn('sliders', T.show, function() {
             menu.hidden = !menu.hidden;
             menuBtn.setAttribute('aria-expanded', menu.hidden ? 'false' : 'true');
         });
@@ -613,7 +844,7 @@
         if (menu.childNodes.length) tools.appendChild(menuWrap);
         tools.appendChild(todayBtn);
         tools.appendChild(seg);
-        bar.appendChild(label);
+        bar.appendChild(head);
         bar.appendChild(nav);
         bar.appendChild(tools);
         var body = calEl('div', 'dash-cal-body');
@@ -671,7 +902,7 @@
                 el.classList.add('has-error');
                 body.textContent = '';
                 var e = calEl('div', 'dash-cal-empty', '!');
-                e.title = pl ? 'Brak połączenia' : 'No connection';
+                e.title = T.noConnection;
                 body.appendChild(e);
             });
         }
@@ -697,9 +928,25 @@
             el.classList.toggle('has-error', !!(st.data && st.data.error));
             if (st.data && st.data.error) {
                 body.appendChild(calEl('div', 'dash-cal-empty', st.data.error));
+                setState(el, 'unknown', T.unknown);
                 return;
             }
             if (st.view === 'day') drawDay(); else drawMonth();
+            drawState();
+        }
+
+        // The state line: today's next event, when the shown range has today
+        function drawState() {
+            var r = range();
+            if (st.today < r[0] || st.today > r[1]) return;
+            var now = Date.now() / 1000, next = null, allDay = null;
+            itemsOn(st.today).forEach(function(it) {
+                if (it.allDay) { allDay = allDay || it; return; }
+                if ((it.ends || it.at) >= now && (!next || it.at < next.at)) next = it;
+            });
+            if (next) setState(el, 'value', tm(next.at) + ' ' + next.title);
+            else if (allDay) setState(el, 'value', allDay.title);
+            else setState(el, 'off', T.nothingToday);
         }
 
         function drawMonth() {
@@ -765,7 +1012,7 @@
                 var sn = calEl('div', 'dash-cal-note sun');
                 if (info.polar) {
                     sn.appendChild(calEl('i', 'bi bi-sun'));
-                    sn.appendChild(document.createTextNode(info.polar === 'day' ? txt.polarDay : txt.polarNight));
+                    sn.appendChild(document.createTextNode(info.polar === 'day' ? T.polarDay : T.polarNight));
                 } else {
                     sn.appendChild(calEl('i', 'bi bi-sunrise'));
                     sn.appendChild(document.createTextNode(tm(info.sunrise)));
@@ -777,7 +1024,7 @@
             if (info.namedays && info.namedays.length && st.show.namedays) {
                 var nd = calEl('div', 'dash-cal-note');
                 nd.appendChild(calEl('i', 'bi bi-balloon'));
-                nd.appendChild(calEl('span', 'dash-cal-note-label', txt.namedays + ':'));
+                nd.appendChild(calEl('span', 'dash-cal-note-label', T.namedays + ':'));
                 nd.appendChild(document.createTextNode(' ' + info.namedays.join(', ')));
                 notes.appendChild(nd);
             }
@@ -899,7 +1146,7 @@
         var el = document.createElement('div');
         el.className = 'dash-group-label';
         if (w.icon) {
-            el.innerHTML = '<i class="bi bi-' + esc(w.icon) + '"></i> ';
+            el.innerHTML = '<span class="dash-group-icon"><i class="bi bi-' + esc(w.icon) + '"></i></span>';
         }
         el.innerHTML += esc(w.label);
         return el;
@@ -908,7 +1155,6 @@
     // ---- Cover widget ----
 
     function renderCover(el, w) {
-        el.style.cursor = 'default';
 
         var controls = document.createElement('div');
         controls.className = 'dash-cover-controls';
@@ -954,17 +1200,400 @@
             input.value = w.position != null ? w.position : 0;
             input.dataset.widgetId = w.id;
 
-            var valEl = document.createElement('span');
-            valEl.className = 'dash-slider-value';
-            valEl.textContent = w.position != null ? input.value + '%' : '--';
-
-            bindSlider(input, function(v) { valEl.textContent = v + '%'; },
+            bindSlider(input, function(v) { refreshTile(el, w, { position: v, state: 0 }); },
                 function(v) { executeAction(w.id, 'set', v); }, 500);
 
             row.appendChild(input);
-            row.appendChild(valEl);
             el.appendChild(row);
         }
+    }
+
+    // ---- Cover group ----
+
+    // Up, stop, down for every cover; a slider with the average position when a cover can be
+    // set, a slat slider while one reports a tilt
+    function renderCovers(el, w) {
+        var controls = calEl('div', 'dash-cover-controls');
+        [['open', 'chevron-up', T.up], ['stop', 'stop-fill', T.stop], ['close', 'chevron-down', T.down]].forEach(function(b) {
+            var btn = calEl('button', 'dash-cover-btn');
+            btn.type = 'button';
+            btn.title = b[2];
+            btn.setAttribute('aria-label', b[2]);
+            btn.appendChild(calEl('i', 'bi bi-' + b[1]));
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                if (el.classList.contains('disabled')) return;
+                btn.classList.add('active');
+                setTimeout(function() { btn.classList.remove('active'); }, 300);
+                executeAction(w.id, b[0]);
+            });
+            controls.appendChild(btn);
+        });
+        el.appendChild(controls);
+
+        coversSlider(el, w, 'position', 'arrows-vertical', T.position, 100, ' %', 'set');
+        coversSlider(el, w, 'tilt', 'justify', T.tilt, 90, '°', 'tilt');
+        updateCovers(el, w);
+    }
+
+    function coversSlider(el, w, role, icon, title, max, unit, action) {
+        var row = calEl('div', 'dash-slider-row dash-color-row');
+        row.title = title;
+        row.dataset.role = role;
+        row.appendChild(calEl('i', 'bi bi-' + icon + ' dash-color-row-icon'));
+        var slider = document.createElement('input');
+        slider.type = 'range';
+        slider.className = 'dash-slider-input';
+        slider.min = 0;
+        slider.max = max;
+        slider.dataset.role = role;
+        slider.setAttribute('aria-label', title);
+        var valEl = calEl('span', 'dash-slider-value');
+        valEl.dataset.role = role;
+        bindSlider(slider, function(v) { valEl.textContent = v + unit; },
+            function(v) { executeAction(w.id, action, v); }, 500);
+        row.appendChild(slider);
+        row.appendChild(valEl);
+        el.appendChild(row);
+    }
+
+    // Sliders and the average from a definition, a poll or a reply
+    // (a whole entry has the counts; a set's reply only its position)
+    function updateCovers(el, d) {
+        var whole = d.open !== undefined;
+        [['position', ' %'], ['tilt', '°']].forEach(function(r) {
+            var row = el.querySelector('.dash-slider-row[data-role="' + r[0] + '"]');
+            if (whole) row.hidden = r[0] === 'position' ? !d.set : d.tilt == null;
+            var sl = row.querySelector('.dash-slider-input');
+            var v = d[r[0]];
+            if (v == null || userHolds(sl)) return;
+            sl.value = v;
+            row.querySelector('.dash-slider-value').textContent = v + r[1];
+        });
+    }
+
+    // A section header's "2 otwarte · 1 w ruchu"; nothing while it has no covers with a reading
+    function updateSectionCovers(si, c) {
+        var el = sectionCoverEls[si];
+        if (!el) return;
+        var text = c ? coverCountsText(c) : null;
+        el.textContent = text || '';
+        el.hidden = !text;
+    }
+
+    // ---- Media player ----
+
+    var playerKeys = ['playing', 'title', 'artist', 'album', 'artwork', 'volume', 'muted', 'power', 'online', 'error'];
+
+    function playerBtn(el, cls, icon, title, onClick) {
+        var b = calEl('button', 'dash-player-btn ' + cls);
+        b.type = 'button';
+        b.appendChild(calEl('i', 'bi bi-' + icon));
+        b.title = title;
+        b.setAttribute('aria-label', title);
+        b.addEventListener('click', function(e) {
+            e.stopPropagation();
+            if (el.classList.contains('disabled')) return;
+            onClick();
+        });
+        return b;
+    }
+
+    // Pause while playing (when it can), play otherwise
+    function playerPauses(el, d) {
+        var caps = el._caps;
+        return !!d.playing && caps.pause || !caps.play;
+    }
+
+    // Artwork on the left (a note while there is none or it does not load), title and artist,
+    // the buttons the definition has, the volume
+    function renderPlayer(el, w, head) {
+        var caps = el._caps = w.capabilities || {};
+        el.style.cursor = 'default';
+        var box = calEl('div', 'dash-player');
+        var art = head.querySelector('.dash-widget-icon');
+        art.classList.add('dash-player-art');
+        var img = document.createElement('img');
+        img.alt = '';
+        img.hidden = true;
+        img.referrerPolicy = 'no-referrer';
+        // a URL that failed is not asked for again on every poll; a new track brings a new one
+        img.addEventListener('load', function() {
+            if (!img.dataset.src) return;
+            img.hidden = false;
+            art.classList.add('has-art');
+        });
+        img.addEventListener('error', function() {
+            if (!img.dataset.src) return;
+            el._artFailed = img.dataset.src;
+            img.hidden = true;
+            art.classList.remove('has-art');
+        });
+        art.insertBefore(img, art.firstChild);
+        box.appendChild(art);
+
+        var info = calEl('div', 'dash-player-info');
+        info.appendChild(head.querySelector('.dash-tile-text'));
+        info.appendChild(calEl('div', 'dash-player-title'));
+        info.appendChild(calEl('div', 'dash-player-artist'));
+        box.appendChild(info);
+
+        var ctl = calEl('div', 'dash-player-controls');
+        if (caps.previous) ctl.appendChild(playerBtn(el, 'dash-player-prev', 'skip-start-fill', T.previous, function() {
+            executeAction(w.id, 'previous');
+        }));
+        if (caps.play || caps.pause) ctl.appendChild(playerBtn(el, 'dash-player-play', 'play-fill', T.play, function() {
+            var pause = playerPauses(el, el._data);
+            refreshTile(el, w, { playing: !pause });
+            executeAction(w.id, pause ? 'pause' : 'play');
+        }));
+        if (caps.next) ctl.appendChild(playerBtn(el, 'dash-player-next', 'skip-end-fill', T.next, function() {
+            executeAction(w.id, 'next');
+        }));
+        var side = calEl('div', 'dash-player-side');
+        if (caps.mute) side.appendChild(playerBtn(el, 'dash-player-mute', 'volume-up-fill', T.mute, function() {
+            var m = !el._data.muted;
+            refreshTile(el, w, { muted: m });
+            executeAction(w.id, 'mute', m);
+        }));
+        if (caps.power) side.appendChild(playerBtn(el, 'dash-player-power', 'power', T.power, function() {
+            var on = el._data.power === false;
+            refreshTile(el, w, { power: on });
+            executeAction(w.id, 'power', on);
+        }));
+        if (side.firstChild) ctl.appendChild(side);
+        if (ctl.firstChild) box.appendChild(ctl);
+
+        if (caps.volume) {
+            var row = calEl('div', 'dash-slider-row dash-color-row dash-player-volume');
+            row.title = T.volume;
+            row.appendChild(calEl('i', 'bi bi-volume-down dash-color-row-icon'));
+            var slider = document.createElement('input');
+            slider.type = 'range';
+            slider.className = 'dash-slider-input';
+            slider.min = 0;
+            slider.max = 100;
+            slider.setAttribute('aria-label', T.volume);
+            var valEl = calEl('span', 'dash-slider-value', '--');
+            bindSlider(slider, function(v) { valEl.textContent = v + ' %'; },
+                function(v) { executeAction(w.id, 'volume', v); }, 500);
+            row.appendChild(slider);
+            row.appendChild(valEl);
+            box.appendChild(row);
+        }
+        el.appendChild(box);
+    }
+
+    // Texts, artwork, buttons and volume from what is known (definition, polls, replies)
+    function updatePlayer(el, d) {
+        var title = el.querySelector('.dash-player-title');
+        var artist = el.querySelector('.dash-player-artist');
+        title.textContent = d.title || '';
+        title.hidden = !d.title;
+        artist.textContent = [d.artist, d.album].filter(function(s) { return !!s; }).join(' · ');
+        artist.hidden = !artist.textContent;
+
+        var art = el.querySelector('.dash-player-art');
+        var img = art.querySelector('img');
+        var url = typeof d.artwork === 'string' && /^https?:\/\//i.test(d.artwork) ? d.artwork : '';
+        if (!url || url === el._artFailed) {
+            img.hidden = true;
+            art.classList.remove('has-art');
+            if (!url && img.dataset.src) { delete img.dataset.src; img.removeAttribute('src'); }
+        } else if (img.dataset.src !== url) {
+            img.hidden = true;
+            art.classList.remove('has-art');
+            img.dataset.src = url;
+            img.src = url;
+        }
+
+        var play = el.querySelector('.dash-player-play');
+        if (play) {
+            var pause = playerPauses(el, d);
+            play.firstChild.className = 'bi bi-' + (pause ? 'pause-fill' : 'play-fill');
+            play.title = pause ? T.pause : T.play;
+            play.setAttribute('aria-label', play.title);
+        }
+        var mute = el.querySelector('.dash-player-mute');
+        if (mute) {
+            mute.firstChild.className = 'bi bi-' + (d.muted ? 'volume-mute-fill' : 'volume-up-fill');
+            mute.classList.toggle('active', !!d.muted);
+            mute.title = d.muted ? T.unmute : T.mute;
+            mute.setAttribute('aria-label', mute.title);
+            mute.setAttribute('aria-pressed', d.muted ? 'true' : 'false');
+        }
+        var power = el.querySelector('.dash-player-power');
+        if (power) power.setAttribute('aria-pressed', d.power !== false ? 'true' : 'false');
+        // switched off or unreachable: the transport and the volume dim, power stays
+        el.classList.toggle('dash-player-idle', d.power === false || d.online === false);
+
+        var vol = el.querySelector('.dash-player-volume');
+        if (vol) {
+            var sl = vol.querySelector('.dash-slider-input');
+            if (!userHolds(sl)) {
+                if (d.volume != null) sl.value = d.volume;
+                vol.querySelector('.dash-slider-value').textContent = d.volume != null ? d.volume + ' %' : '--';
+            }
+        }
+    }
+
+    // ---- Weather forecast ----
+
+    var forecastRain = '#3d8bfd';
+    var forecastTemp = '#fd7e14';
+
+    // A row of days, under it the next hours as a temperature line over rain bars
+    function renderForecast(el, w) {
+        el.style.cursor = 'default';
+        var box = calEl('div', 'dash-forecast');
+        box.appendChild(calEl('div', 'dash-forecast-days'));
+        var empty = calEl('div', 'dash-forecast-empty', T.noForecast);
+        empty.hidden = true;
+        box.appendChild(empty);
+        if (w.chartHours > 0) {
+            var wrap = calEl('div', 'dash-forecast-chart');
+            wrap.appendChild(document.createElement('canvas'));
+            wrap.hidden = true;
+            box.appendChild(wrap);
+        }
+        el.appendChild(box);
+    }
+
+    // 12° for °C and °F, "280 K" otherwise; "–" without a value
+    function forecastTempText(v, unit) {
+        if (v == null) return '–';
+        var n = fmtNum(Math.round(v));
+        return /^°/.test(unit || '°') ? n + '°' : n + ' ' + unit;
+    }
+
+    function forecastWeekday(date) {
+        try { return parseYmd(date).toLocaleDateString(lang === 'pl' ? 'pl-PL' : 'en-GB', {weekday: 'short'}); }
+        catch (e) { return date.slice(5); }
+    }
+
+    function forecastDay(day, unit) {
+        var cell = calEl('div', 'dash-forecast-day');
+        cell.title = day.date;
+        cell.appendChild(calEl('div', 'dash-forecast-wd', forecastWeekday(day.date)));
+        var icon = /^[\w-]+$/.test(day.icon || '') ? day.icon : 'cloud';
+        cell.appendChild(calEl('i', 'bi bi-' + icon + ' dash-forecast-icon'));
+        var temps = calEl('div', 'dash-forecast-temps');
+        temps.appendChild(calEl('span', 'dash-forecast-max', forecastTempText(day.max, unit)));
+        temps.appendChild(calEl('span', 'dash-forecast-min', forecastTempText(day.min, unit)));
+        cell.appendChild(temps);
+        // rain and its chance only when there are some (a narrow cell puts them in two lines)
+        var rain = calEl('div', 'dash-forecast-rain');
+        if (day.rain > 0) rain.appendChild(calEl('span', null, fmtNum(day.rain) + ' mm'));
+        if (day.pop > 0) rain.appendChild(calEl('span', null, day.pop + ' %'));
+        if (rain.firstChild) rain.insertBefore(calEl('i', 'bi bi-droplet-fill'), rain.firstChild);
+        else rain.textContent = ' ';
+        cell.appendChild(rain);
+        return cell;
+    }
+
+    // Redrawn only when the forecast changed, not on every poll
+    function updateForecast(el, w, d) {
+        var days = Array.isArray(d.days) ? d.days : [];
+        var hours = Array.isArray(d.hours) ? d.hours : [];
+        // "no forecast" in the tile only when the state line does not say it already
+        el.querySelector('.dash-forecast-empty').hidden = days.length > 0 || hours.length > 0 || !!d.none || !!d.error;
+        var key = JSON.stringify([days, hours]);
+        if (el._forecastKey === key) return;
+        el._forecastKey = key;
+
+        var row = el.querySelector('.dash-forecast-days');
+        row.textContent = '';
+        days.forEach(function(day) { row.appendChild(forecastDay(day, w.unit)); });
+        row.hidden = !days.length;
+
+        var wrap = el.querySelector('.dash-forecast-chart');
+        if (!wrap) return;
+        wrap.hidden = hours.length < 2;
+        if (wrap.hidden) return;
+        var labels = hours.map(function(h) { return hhmm(h.at, w.zone); });
+        var temps = hours.map(function(h) { return h.temp; });
+        var rains = hours.map(function(h) { return h.rain || 0; });
+        var maxRain = Math.max.apply(null, rains);
+        var chartKey = 'forecast-' + w.id;
+        var chart = chartInstances[chartKey];
+        if (chart) {
+            chart.data.labels = labels;
+            chart.data.datasets[0].data = temps;
+            chart.data.datasets[1].data = rains;
+            chart.options.scales.y1.display = maxRain > 0;
+            chart.update('none');
+            return;
+        }
+        var tempColor = resolveColor(w.color) || forecastTemp;
+        var unit = w.unit || '°C';
+        chartInstances[chartKey] = new Chart(wrap.querySelector('canvas'), {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    type: 'line',
+                    label: T.temperature,
+                    data: temps,
+                    yAxisID: 'y',
+                    borderColor: tempColor,
+                    backgroundColor: tempColor,
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.35,
+                    order: 0,
+                }, {
+                    type: 'bar',
+                    label: T.rain,
+                    data: rains,
+                    yAxisID: 'y1',
+                    backgroundColor: colorToRGBA(forecastRain, 0.45),
+                    borderRadius: 2,
+                    barPercentage: 0.8,
+                    categoryPercentage: 0.9,
+                    order: 1,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        ticks: { color: 'rgba(128,128,128,0.9)', maxTicksLimit: 8, maxRotation: 0, font: {size: 10} },
+                        grid: { display: false },
+                    },
+                    y: {
+                        grace: '10%',
+                        ticks: { color: 'rgba(128,128,128,0.9)', maxTicksLimit: 5, font: {size: 10},
+                            callback: function(v) { return forecastTempText(v, unit); } },
+                        grid: { color: 'rgba(128,128,128,0.12)' },
+                    },
+                    y1: {
+                        display: maxRain > 0,
+                        position: 'right',
+                        min: 0,
+                        suggestedMax: 2,
+                        ticks: { color: colorToRGBA(forecastRain, 0.9), maxTicksLimit: 4, font: {size: 10},
+                            callback: function(v) { return fmtNum(v) + ' mm'; } },
+                        grid: { display: false },
+                    }
+                },
+                interaction: { intersect: false, mode: 'index' },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(item) {
+                                var v = item.raw;
+                                if (v == null) return '';
+                                return item.dataset.yAxisID === 'y1' ? T.rain + ': ' + fmtNum(v) + ' mm'
+                                    : T.temperature + ': ' + withUnit(v, unit);
+                            }
+                        }
+                    }
+                },
+                animation: { duration: 0 },
+            }
+        });
     }
 
     // ---- Dimmer widget ----
@@ -1005,18 +1634,13 @@
         var isOn = w.on !== false;
 
         if (caps.toggle) {
-            var sw = document.createElement('div');
-            sw.className = 'dash-dimmer-toggle form-check form-switch';
-            var input = document.createElement('input');
-            input.type = 'checkbox';
-            input.className = 'form-check-input';
-            input.checked = isOn;
-            input.addEventListener('change', function(e) {
-                e.stopPropagation();
-                executeAction(w.id, input.checked ? 'switchOn' : 'switchOff');
-            });
-            sw.appendChild(input);
-            el.appendChild(sw);
+            var head = el.querySelector('.dash-tile-head');
+            head.classList.add('dash-tile-tap');
+            headSwitch(el, 'dash-dimmer-toggle', isOn, function(on) {
+                refreshTile(el, w, { on: on });
+                el.querySelector('.dash-slider-input').classList.toggle('dimmed', !on);
+                executeAction(w.id, on ? 'switchOn' : 'switchOff');
+            }, head);
         }
 
         var row = document.createElement('div');
@@ -1031,22 +1655,11 @@
         slider.dataset.widgetId = w.id;
         if (!isOn) slider.classList.add('dimmed');
 
-        var valEl = document.createElement('span');
-        valEl.className = 'dash-slider-value';
-        valEl.textContent = (w.value != null ? w.value : 0) + '%';
-
-        bindSlider(slider, function(v) { valEl.textContent = v + '%'; },
+        bindSlider(slider, function(v) { refreshTile(el, w, { value: v, on: v > 0 }); },
             function(v) { executeAction(w.id, 'set', v); }, 500);
 
         row.appendChild(slider);
-        row.appendChild(valEl);
         el.appendChild(row);
-
-        var iconEl = el.querySelector('.dash-widget-icon');
-        if (iconEl) {
-            var brightness = w.value != null ? w.value : 0;
-            iconEl.style.opacity = isOn ? (0.3 + 0.7 * brightness / 100) : 0.3;
-        }
     }
 
     // ---- Color picker widget ----
@@ -1105,8 +1718,10 @@
         valEl.dataset.role = role;
         valEl.textContent = value != null ? value + '%' : '--';
 
-        bindSlider(slider, function(v) { valEl.textContent = v + '%'; },
-            function(v) { executeAction(w.id, action, v); }, 500);
+        bindSlider(slider, function(v) {
+            valEl.textContent = v + '%';
+            if (role === 'brightness') refreshTile(el, w, { brightness: v, on: v > 0 });
+        }, function(v) { executeAction(w.id, action, v); }, 500);
 
         row.appendChild(slider);
         row.appendChild(valEl);
@@ -1121,19 +1736,13 @@
         applyLightColor(el, w.rgb, isOn);
 
         if (caps.toggle) {
-            var sw = document.createElement('div');
-            sw.className = 'dash-color-toggle form-check form-switch';
-            var input = document.createElement('input');
-            input.type = 'checkbox';
-            input.className = 'form-check-input';
-            input.checked = isOn;
-            input.addEventListener('change', function(e) {
-                e.stopPropagation();
-                executeAction(w.id, input.checked ? 'switchOn' : 'switchOff');
-                if (!input.checked) applyLightColor(el, null, false);
-            });
-            sw.appendChild(input);
-            el.appendChild(sw);
+            var head = el.querySelector('.dash-tile-head');
+            head.classList.add('dash-tile-tap');
+            headSwitch(el, 'dash-color-toggle', isOn, function(on) {
+                refreshTile(el, w, { on: on });
+                executeAction(w.id, on ? 'switchOn' : 'switchOff');
+                if (!on) applyLightColor(el, null, false);
+            }, head);
         }
 
         var presetsRow = document.createElement('div');
@@ -1241,6 +1850,12 @@
         };
     }
 
+    // The theme's accent as a value a canvas can draw with
+    function themeAccent() {
+        var c = getComputedStyle(document.documentElement).getPropertyValue('--dash-accent').trim();
+        return /^#[0-9a-f]{3}([0-9a-f]{3})?$/i.test(c) ? c : 'rgba(39,194,168,1)';
+    }
+
     // Resolve color to an rgba string (for fill backgrounds)
     function colorToRGBA(c, alpha) {
         // Already rgba
@@ -1267,7 +1882,8 @@
         var canvas = document.createElement('canvas');
         canvas.id = 'chart-' + w.id;
         wrap.appendChild(canvas);
-        el.insertBefore(wrap, el.querySelector('.dash-widget-label'));
+        el.appendChild(wrap);
+        setState(el, 'unknown', T.unknown);
 
         fetchChartData(w, canvas);
         startChartTimer(w.id, function() {
@@ -1292,11 +1908,15 @@
                     return dt.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
                 });
                 var rawValues = data.map(function(d) { return d[1]; });
+                var tile = canvas.closest('.dash-widget');
+                if (tile && rawValues.length) {
+                    setState(tile, 'value', withUnit(Math.round(rawValues[rawValues.length - 1] * 10) / 10, w.unit));
+                }
 
                 // Smooth to reduce sensor jitter
                 var values = smoothValues(rawValues, 3);
 
-                var color = resolveColor(w.color) || 'rgba(39,194,168,1)';
+                var color = resolveColor(w.color) || themeAccent();
                 var fillBg = colorToRGBA(color, 0.08);
                 var yBounds = calcYBounds(values, w.min, w.max, 2);
 
@@ -1327,17 +1947,17 @@
                             maintainAspectRatio: false,
                             scales: {
                                 x: {
-                                    ticks: { color: 'rgba(255,255,255,0.4)', maxTicksLimit: 6, font: {size: 10} },
-                                    grid: { color: 'rgba(255,255,255,0.05)' },
+                                    ticks: { color: 'rgba(128,128,128,0.9)', maxTicksLimit: 6, font: {size: 10} },
+                                    grid: { color: 'rgba(128,128,128,0.12)' },
                                 },
                                 y: {
                                     min: yBounds.min,
                                     max: yBounds.max,
                                     ticks: {
-                                        color: 'rgba(255,255,255,0.4)', font: {size: 10},
+                                        color: 'rgba(128,128,128,0.9)', font: {size: 10},
                                         callback: function(v) { return v + (w.unit ? ' ' + w.unit : ''); }
                                     },
-                                    grid: { color: 'rgba(255,255,255,0.05)' },
+                                    grid: { color: 'rgba(128,128,128,0.12)' },
                                 }
                             },
                             interaction: { intersect: false, mode: 'index' },
@@ -1380,7 +2000,7 @@
             .then(function(data) {
                 data = downsample(data, 60);
                 var values = smoothValues(data.map(function(d) { return d[1]; }), 3);
-                var color = resolveColor(w.color) || 'rgba(39,194,168,1)';
+                var color = resolveColor(w.color) || themeAccent();
                 var key = 'spark-' + w.id;
 
                 if (chartInstances[key]) {
@@ -1446,52 +2066,309 @@
         }
     }
 
+    // A tap or Enter/Space runs it, unless the chip is disabled
+    function bindHeaderTap(el, role, label, tap) {
+        el.classList.add('dash-header-tap');
+        el.setAttribute('role', role);
+        el.setAttribute('aria-label', label);
+        el.tabIndex = 0;
+        var run = function() { if (!el.classList.contains('disabled')) tap(); };
+        el.addEventListener('click', run);
+        // one action per key press
+        el.addEventListener('keydown', function(e) {
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            e.preventDefault();
+            if (!e.repeat) run();
+        });
+    }
+
+    // A header chip (#93): text, icon and colour from its function; no state hides it
+    function renderChip(w) {
+        var el = document.createElement('div');
+        el.className = 'dash-header-item dash-header-chip';
+        el.dataset.widgetId = w.id;
+        el.dataset.type = 'chip';
+        var icon = calEl('span', 'dash-header-icon');
+        icon.appendChild(document.createElement('i'));
+        el.appendChild(icon);
+        el.appendChild(calEl('span', 'dash-header-value'));
+        if (w.link) {
+            bindHeaderTap(el, 'link', '', function() {
+                if (w.link.charAt(0) === '/') location.href = w.link;
+                else window.open(w.link, '_blank', 'noopener');
+            });
+        }
+        if (w.disabled) {
+            el.classList.add('disabled');
+            el.setAttribute('aria-disabled', 'true');
+        }
+        widgetEls[w.id] = el;
+        updateChip(el, w, w.chip);
+        return el;
+    }
+
+    function updateChip(el, w, d) {
+        el.hidden = !d;
+        if (!d) return;
+        var text = d.error ? '--' : (d.text != null ? fmtNum(d.text) : '');
+        var ic = String(d.icon || w.icon || 'circle').replace(/[^a-z0-9-]/gi, '');
+        el.querySelector('.dash-header-icon i').className = 'bi bi-' + ic;
+        el.querySelector('.dash-header-value').textContent = text;
+        el.classList.toggle('dash-chip-icon-only', text === '');
+        el.dataset.state = d.error ? 'unknown' : (isAlarm(d.color) ? 'alarm' : 'value');
+        applyColor(el, d.color);
+        if (d.disabled !== undefined) {
+            el.classList.toggle('disabled', !!d.disabled);
+            if (d.disabled) el.setAttribute('aria-disabled', 'true');
+            else el.removeAttribute('aria-disabled');
+        }
+        var errEl = el.querySelector('.dash-widget-error');
+        if (d.error && !errEl) {
+            errEl = calEl('span', 'dash-widget-error');
+            errEl.innerHTML = '<i class="bi bi-exclamation-triangle-fill"></i>';
+            el.querySelector('.dash-header-icon').appendChild(errEl);
+        } else if (!d.error && errEl) {
+            errEl.remove();
+        }
+        if (errEl) errEl.title = d.error || '';
+        el.classList.toggle('has-error', !!d.error);
+        if (w.link) el.setAttribute('aria-label', d.error || text);
+        el.title = d.error || text;
+    }
+
+    // A bar whose chips are all hidden takes no room
+    function syncHeaderBars() {
+        var bars = contentEl.querySelectorAll('.dash-header-bar');
+        for (var i = 0; i < bars.length; i++) {
+            bars[i].hidden = !bars[i].querySelector('.dash-header-item:not([hidden])');
+        }
+    }
+
+    // A chip: the icon in a small circle coloured by state, the value (status) or the name
     function renderHeaderWidget(w) {
+        if (w.type === 'chip') return renderChip(w);
         var el = document.createElement('div');
         el.className = 'dash-header-item';
         el.dataset.widgetId = w.id;
+        el.dataset.type = w.type;
 
         var color = resolveColor(w.color);
+        if (color) el.style.setProperty('--widget-color', color);
 
-        if (w.icon) {
-            var icon = document.createElement('i');
-            icon.className = 'bi bi-' + w.icon;
-            if (color) icon.style.color = color;
-            el.appendChild(icon);
-        }
+        var icon = calEl('span', 'dash-header-icon');
+        icon.innerHTML = '<i class="bi bi-' + esc(w.icon || typeIcons[w.type] || 'circle') + '"></i>';
+        el.appendChild(icon);
 
         if (w.type === 'status') {
-            var val = document.createElement('span');
-            val.className = 'dash-header-value';
-            val.textContent = w.value != null ? w.value : '--';
-            el.appendChild(val);
-            if (w.unit) {
-                var unit = document.createElement('span');
-                unit.className = 'dash-header-unit';
-                unit.textContent = w.unit;
-                el.appendChild(unit);
-            }
-        } else if (w.type === 'link') {
-            var lbl = document.createElement('span');
-            lbl.className = 'dash-header-value';
-            lbl.textContent = w.label;
-            el.appendChild(lbl);
-            el.style.cursor = 'pointer';
-            el.addEventListener('click', function() {
-                window.open(w.url, '_blank');
-            });
+            el.appendChild(calEl('span', 'dash-header-value', w.value != null ? fmtNum(w.value) : '--'));
+            if (w.unit) el.appendChild(calEl('span', 'dash-header-unit', w.unit));
         } else {
-            var lbl = document.createElement('span');
-            lbl.className = 'dash-header-value';
-            lbl.textContent = w.label;
-            el.appendChild(lbl);
+            el.appendChild(calEl('span', 'dash-header-value', w.label));
         }
 
+        var tap = null;
+        if (w.type === 'link') {
+            tap = function() { window.open(w.url, '_blank'); };
+        } else if (w.type === 'toggle') {
+            tap = function() {
+                var on = !el._data.value;
+                refreshTile(el, w, { value: on });
+                executeAction(w.id, 'toggle', on);
+            };
+        } else if (w.type === 'button') {
+            tap = function() {
+                if (w.confirm && !confirm(w.confirm)) return;
+                executeAction(w.id, 'tap');
+            };
+        }
+        if (tap) {
+            bindHeaderTap(el, w.type === 'toggle' ? 'switch' : (w.type === 'link' ? 'link' : 'button'), w.label || '', tap);
+        }
+        if (w.disabled) {
+            el.classList.add('disabled');
+            el.setAttribute('aria-disabled', 'true');
+        }
+
+        refreshTile(el, w, w);
         widgetEls[w.id] = el;
         return el;
     }
 
+    // ---- Room tile (#94): name, what is on, climate; a tap opens the room over the page ----
+
+    function renderRoom(el, w) {
+        var go = calEl('span', 'dash-room-go');
+        var ext = w.link && w.link.charAt(0) !== '/';
+        go.innerHTML = '<i class="bi bi-' + (ext ? 'box-arrow-up-right' : 'chevron-right') + '"></i>';
+        el.querySelector('.dash-tile-head').appendChild(go);
+        var climate = calEl('div', 'dash-room-climate');
+        climate.innerHTML = '<span data-role="temperature"><i class="bi bi-thermometer-half"></i><b></b></span>' +
+            '<span data-role="humidity"><i class="bi bi-droplet"></i><b></b></span>';
+        el.appendChild(climate);
+        el.tabIndex = 0;
+        el.setAttribute('role', w.link ? 'link' : 'button');
+        if (!w.link) el.setAttribute('aria-haspopup', 'dialog');
+        var run = function() {
+            if (el.classList.contains('disabled')) return;
+            if (!w.link) openRoom(w.id, el);
+            else if (!ext) location.href = w.link;
+            else window.open(w.link, '_blank', 'noopener');
+        };
+        el.addEventListener('click', run);
+        el.addEventListener('keydown', function(e) {
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            e.preventDefault();
+            if (!e.repeat) run();
+        });
+    }
+
+    // The climate line, the name read out with the state, and the open room's header
+    function updateRoom(el, w, d, text) {
+        var parts = [];
+        [['temperature', '°C'], ['humidity', '%']].forEach(function(k) {
+            var span = el.querySelector('.dash-room-climate [data-role="' + k[0] + '"]');
+            var has = typeof d[k[0]] === 'number';
+            if (span) {
+                span.hidden = !has;
+                span.querySelector('b').textContent = has ? withUnit(d[k[0]], k[1]) : '';
+                span.title = T[k[0]];
+            }
+            if (has) parts.push(withUnit(d[k[0]], k[1]));
+        });
+        var climate = el.querySelector('.dash-room-climate');
+        if (climate) climate.hidden = parts.length === 0;
+        var full = [text].concat(parts).join(' · ');
+        el.setAttribute('aria-label', (w.label || '') + ': ' + full);
+        var layer = roomLayers[el.dataset.widgetId];
+        if (layer) layer.querySelector('.dash-room-summary').textContent = full;
+    }
+
+    // A dialog with the room's widgets, kept in the page (polls update them) and hidden
+    function renderRoomLayer(sec, widgets, cols) {
+        var layer = calEl('div', 'dash-room-layer');
+        layer.hidden = true;
+        var dlg = calEl('div', 'dash-room-dialog');
+        var titleId = 'dash-room-title-' + Object.keys(roomLayers).length;
+        dlg.setAttribute('role', 'dialog');
+        dlg.setAttribute('aria-modal', 'true');
+        dlg.setAttribute('aria-labelledby', titleId);
+        var bar = calEl('div', 'dash-room-bar');
+        var back = calEl('button', 'dash-room-back');
+        back.type = 'button';
+        back.title = T.back;
+        back.setAttribute('aria-label', T.back);
+        back.innerHTML = '<i class="bi bi-chevron-left"></i>';
+        back.addEventListener('click', function() { closeRoom(); });
+        var heading = calEl('div', 'dash-room-heading');
+        var title = calEl('h2', 'dash-room-title', sec.name || '');
+        title.id = titleId;
+        heading.appendChild(title);
+        heading.appendChild(calEl('div', 'dash-room-summary', ''));
+        bar.appendChild(back);
+        bar.appendChild(heading);
+        var body = calEl('div', 'dash-room-body');
+        var grid = calEl('div', 'dash-grid');
+        grid.style.cssText = '--dash-columns:' + cols + ';--dash-columns-mid:' + Math.min(cols, 3);
+        widgets.forEach(function(w) { grid.appendChild(renderWidget(w, cols)); });
+        body.appendChild(grid);
+        dlg.appendChild(bar);
+        dlg.appendChild(body);
+        layer.appendChild(dlg);
+        // a tap outside the dialog closes it
+        layer.addEventListener('click', function(e) { if (e.target === layer) closeRoom(); });
+        roomRoot.appendChild(layer);
+        return layer;
+    }
+
+    // An open room has a history entry of its own, so the system back button closes it
+    function openRoom(id, tile) {
+        var layer = roomLayers[id];
+        if (!layer) return;
+        var prev = openRoomState;
+        if (prev) hideRoom(prev, false);
+        openRoomState = { id: id, layer: layer, tile: tile, pushed: !!(prev && prev.pushed) };
+        layer.hidden = false;
+        document.body.classList.add('dash-room-open');
+        contentEl.setAttribute('inert', '');
+        contentEl.setAttribute('aria-hidden', 'true');
+        layer.querySelector('.dash-room-body').scrollTop = 0;
+        layer.querySelector('.dash-room-back').focus();
+        if (openRoomState.pushed) {
+            history.replaceState({ vcluRoom: id }, '');
+        } else if (!roomBackPending) {
+            history.pushState({ vcluRoom: id }, '');
+            openRoomState.pushed = true;
+        }
+    }
+
+    function hideRoom(st, restore) {
+        st.layer.hidden = true;
+        document.body.classList.remove('dash-room-open');
+        contentEl.removeAttribute('inert');
+        contentEl.removeAttribute('aria-hidden');
+        if (restore !== false && st.tile && document.body.contains(st.tile)) st.tile.focus();
+    }
+
+    // restore = false: the page is redrawn, the tile it came from is gone; fromPop: the
+    // browser went back already, otherwise its entry is taken off so the history does not grow
+    function closeRoom(restore, fromPop) {
+        var st = openRoomState;
+        if (!st) return;
+        openRoomState = null;
+        hideRoom(st, restore);
+        if (st.pushed && !fromPop && history.state && history.state.vcluRoom != null) {
+            roomBackPending = true;
+            history.back();
+        }
+    }
+
+    window.addEventListener('popstate', function() {
+        if (roomBackPending) {
+            roomBackPending = false;
+            // a room opened while the browser was going back gets its entry now
+            if (openRoomState && !openRoomState.pushed) {
+                history.pushState({ vcluRoom: openRoomState.id }, '');
+                openRoomState.pushed = true;
+            }
+            return;
+        }
+        if (openRoomState) closeRoom(true, true);
+    });
+
+    // a reload keeps the entry of an open room; the page starts with every room closed
+    if (history.state && history.state.vcluRoom != null) history.replaceState(null, '');
+
+    // Escape closes the room; Tab stays inside it
+    document.addEventListener('keydown', function(e) {
+        if (!openRoomState) return;
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            closeRoom();
+            return;
+        }
+        if (e.key !== 'Tab') return;
+        var dlg = openRoomState.layer.querySelector('.dash-room-dialog');
+        var list = Array.prototype.filter.call(
+            dlg.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'),
+            function(x) { return !x.disabled && x.offsetParent !== null && !x.closest('.disabled'); });
+        if (!list.length) { e.preventDefault(); return; }
+        var first = list[0], last = list[list.length - 1];
+        if (!dlg.contains(document.activeElement)) {
+            e.preventDefault();
+            first.focus();
+        } else if (e.shiftKey && document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+        }
+    });
+
     // ---- Update widgets from poll ----
+
+    // Widgets read with getValue: no value in a poll means the function gave nil
+    var valueTypes = { toggle: true, slider: true, status: true, select: true };
 
     function updateWidget(wid, data, force) {
         var el = widgetEls[wid];
@@ -1501,7 +2378,7 @@
         if (!force && actionGrace[wid] && Date.now() < actionGrace[wid]) return;
 
         // Find widget definition
-        var wDef = null;
+        var wDef = {};
         if (definition) {
             for (var i = 0; i < definition.widgets.length; i++) {
                 if (definition.widgets[i].id === wid) {
@@ -1511,23 +2388,27 @@
             }
         }
 
+        if (el.dataset.type === 'chip') return updateChip(el, wDef, data);
+
         // Disabled state
         if (data.disabled !== undefined) {
             el.classList.toggle('disabled', !!data.disabled);
+            if (data.disabled) el.setAttribute('aria-disabled', 'true');
+            else el.removeAttribute('aria-disabled');
         }
 
         // Colour from a function (false: none)
         if (data.color !== undefined) applyColor(el, data.color);
 
-        // Error state
+        // Error state: a badge on the icon
         var errEl = el.querySelector('.dash-widget-error');
         if (data.error) {
             el.classList.add('has-error');
             if (!errEl) {
                 errEl = document.createElement('span');
                 errEl.className = 'dash-widget-error';
-                errEl.innerHTML = '<i class="bi bi-exclamation-triangle"></i>';
-                el.insertBefore(errEl, el.firstChild);
+                errEl.innerHTML = '<i class="bi bi-exclamation-triangle-fill"></i>';
+                (el.querySelector('.dash-widget-icon, .dash-header-icon') || el).appendChild(errEl);
             }
             errEl.title = data.error;
         } else if (errEl) {
@@ -1535,107 +2416,84 @@
             el.classList.remove('has-error');
         }
 
-        // Type-specific updates
-        var type = el.className.match(/dash-widget-(\w+)/);
+        var type = el.dataset.type;
         if (!type) return;
-        type = type[1];
+        var d = {};
+        for (var k in data) if (data.hasOwnProperty(k)) d[k] = data[k];
+        if (!force && valueTypes[type] && d.value === undefined) d.value = null;
+        if ((type === 'cover' || type === 'covers') && d.value !== undefined) d.position = d.value; // a set's reply
+        if (type === 'player') {
+            if (d.value !== undefined) { d.volume = d.value; delete d.value; } // a volume reply
+            // a poll is the whole state: what it leaves out is gone (a track without an album)
+            if (!force) playerKeys.forEach(function(k) { if (!(k in d)) d[k] = null; });
+        }
+        // a poll is the whole forecast; after an error the last one stays on the tile
+        if (type === 'forecast' && !force) {
+            ['none', 'error', 'updated'].concat(d.error ? [] : ['days', 'hours']).forEach(function(k) {
+                if (!(k in d)) d[k] = null;
+            });
+        }
+        if (type === 'color') delete d.value; // brightness or white: the reply does not say
+        var slider = el.querySelector('.dash-slider-input');
+        var held = slider && userHolds(slider);
+        var toggle;
 
-        // Compound widgets (multiple data fields, not just value)
         if (type === 'cover') {
-            var slider = el.querySelector('.dash-slider-input');
-            var valSpan = el.querySelector('.dash-slider-value');
-            var held = slider && userHolds(slider);
-            if (slider && !held && data.position != null) {
-                slider.value = data.position;
-            }
-            if (valSpan && !held && data.position != null) valSpan.textContent = data.position + '%';
+            if (slider && !held && d.position != null) slider.value = d.position;
             var btns = el.querySelectorAll('.dash-cover-btn');
-            if (btns.length === 3 && data.state != null) {
-                btns[0].classList.toggle('active', data.state === 1);
-                btns[1].classList.toggle('active', data.state === 0);
-                btns[2].classList.toggle('active', data.state === 2);
+            if (btns.length === 3 && d.state != null) {
+                btns[0].classList.toggle('active', d.state === 1);
+                btns[1].classList.toggle('active', d.state === 0);
+                btns[2].classList.toggle('active', d.state === 2);
             }
-            return;
+            if (held) { delete d.position; delete d.state; }
+        } else if (type === 'covers') {
+            updateCovers(el, d);
         } else if (type === 'dimmer') {
-            var slider = el.querySelector('.dash-slider-input');
-            var valSpan = el.querySelector('.dash-slider-value');
-            var held = slider && userHolds(slider);
-            if (slider && !held && data.value != null) {
-                slider.value = data.value;
-            }
-            if (valSpan && !held && data.value != null) valSpan.textContent = data.value + '%';
-            var toggle = el.querySelector('.dash-dimmer-toggle .form-check-input');
-            if (toggle && data.on !== undefined) toggle.checked = !!data.on;
-            var isOn = data.on !== false;
-            if (slider) slider.classList.toggle('dimmed', !isOn);
-            var iconEl = el.querySelector('.dash-widget-icon');
-            if (iconEl) {
-                var br = data.value != null ? data.value : 0;
-                iconEl.style.opacity = isOn ? (0.3 + 0.7 * br / 100) : 0.3;
-            }
-            return;
+            if (slider && !held && d.value != null) slider.value = d.value;
+            toggle = el.querySelector('.dash-dimmer-toggle .form-check-input');
+            if (toggle && d.on !== undefined) toggle.checked = !!d.on;
+            if (slider && d.on !== undefined) slider.classList.toggle('dimmed', !d.on);
+            if (held) { delete d.value; delete d.on; }
         } else if (type === 'color') {
             ['brightness', 'white'].forEach(function(role) {
-                if (data[role] == null) return;
+                if (d[role] == null) return;
                 var sl = el.querySelector('.dash-slider-input[data-role="' + role + '"]');
                 var vs = el.querySelector('.dash-slider-value[data-role="' + role + '"]');
-                if (sl && userHolds(sl)) return;
-                if (sl) sl.value = data[role];
-                if (vs) vs.textContent = data[role] + '%';
+                if (sl && userHolds(sl)) { delete d[role]; return; }
+                if (sl) sl.value = d[role];
+                if (vs) vs.textContent = d[role] + '%';
             });
-            var toggle = el.querySelector('.dash-color-toggle .form-check-input');
-            if (toggle && data.on !== undefined) toggle.checked = !!data.on;
-            if (data.rgb) {
-                markPreset(el, data.rgb);
+            toggle = el.querySelector('.dash-color-toggle .form-check-input');
+            if (toggle && d.on !== undefined) toggle.checked = !!d.on;
+            if (d.rgb) {
+                markPreset(el, d.rgb);
                 var pk = el.querySelector('.dash-color-custom input');
-                if (pk && document.activeElement !== pk) pk.value = toHex(data.rgb);
+                if (pk && document.activeElement !== pk) pk.value = toHex(d.rgb);
             }
             // an action's reply carries only its value: keep the tint until a poll
-            if (data.rgb !== undefined || data.on !== undefined) {
-                applyLightColor(el, data.rgb, data.on !== false);
+            if (d.rgb !== undefined || d.on !== undefined) {
+                applyLightColor(el, d.rgb, d.on !== false);
             }
-            return;
-        }
-
-        // Simple widgets (value-based)
-        if (data.value === undefined) return;
-        var value = data.value;
-
-        if (type === 'toggle') {
-            var input = el.querySelector('.form-check-input');
-            if (input) input.checked = !!value;
-            el.classList.toggle('active', !!value);
+        } else if (type === 'toggle') {
+            toggle = el.querySelector('.form-check-input');
+            if (toggle && d.value !== undefined) toggle.checked = !!d.value;
+            el.classList.toggle('active', !!d.value);
         } else if (type === 'slider') {
-            var slider = el.querySelector('.dash-slider-input');
-            var valSpan = el.querySelector('.dash-slider-value');
-            var held = slider && userHolds(slider);
-            if (slider && !held) {
-                slider.value = value;
-            }
-            if (valSpan && !held) valSpan.textContent = value;
-        } else if (type === 'status') {
-            var valEl = el.querySelector('.dash-status-value');
-            if (valEl) {
-                var display = value != null ? value : '--';
-                markStatusText(el, display);
-                var unit = wDef && wDef.unit ? wDef.unit : '';
-                valEl.innerHTML = esc(String(display));
-                if (unit) {
-                    valEl.innerHTML += '<span class="dash-status-unit">' + esc(unit) + '</span>';
-                }
-            }
+            if (slider && !held && d.value != null) slider.value = d.value;
+            if (held) delete d.value;
         } else if (type === 'select') {
             var sel = el.querySelector('.dash-select-input');
-            if (sel && document.activeElement !== sel) {
-                sel.value = String(value);
-            }
+            if (sel && document.activeElement !== sel && d.value != null) sel.value = String(d.value);
         }
 
-        // Header item update (status in header bar)
-        if (el.classList.contains('dash-header-item')) {
+        // Header status: the value is the chip's text
+        if (el.classList.contains('dash-header-item') && type === 'status' && d.value !== undefined) {
             var hVal = el.querySelector('.dash-header-value');
-            if (hVal) hVal.textContent = value != null ? value : '--';
+            if (hVal) hVal.textContent = d.value != null ? fmtNum(d.value) : '--';
         }
+
+        refreshTile(el, wDef, d);
     }
 
     // ---- Polling ----
@@ -1653,10 +2511,18 @@
                 }
                 hideOverlay();
                 for (var wid in data) {
-                    if (data.hasOwnProperty(wid)) {
-                        updateWidget(wid, data[wid]);
+                    if (!data.hasOwnProperty(wid)) continue;
+                    var sec = /^_section_(\d+)$/.exec(wid);
+                    if (sec) updateSectionCovers(+sec[1], data[wid]);
+                    else updateWidget(wid, data[wid]);
+                }
+                // a chip left out of the poll is hidden
+                for (var cid in widgetEls) {
+                    if (widgetEls[cid].dataset.type === 'chip' && !data.hasOwnProperty(cid)) {
+                        updateChip(widgetEls[cid], {}, null);
                     }
                 }
+                syncHeaderBars();
             })
             .catch(function() {
                 showOverlay();
@@ -1689,13 +2555,22 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body)
         }).then(function(result) {
+            if (result && result.error) {
+                revert();
+                return;
+            }
             if (result && result.value !== undefined) {
                 updateWidget(widgetId, result, true);
             }
             if (result && result.message) {
                 VCLU.showToast(result.message, 'success');
             }
-        });
+        }).catch(revert);
+
+        function revert() {
+            delete actionGrace[widgetId];
+            pollValues();
+        }
     }
 
     // ---- Overlay ----
@@ -1714,6 +2589,7 @@
 
     // ---- Init ----
 
+    setupFullscreen();
     fetchJSON('/api/dashboard/' + dashId)
         .then(function(def) {
             if (def._notFound || def.error) {
