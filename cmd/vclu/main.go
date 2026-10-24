@@ -188,6 +188,7 @@ func main() {
 
 	// Create and start web server
 	webSrv := web.NewServer(*webPort, webDir, cluDir, deviceConfig, keys, luaEngine)
+	webSrv.SetVersion(version)                          // Version shown in the sidebar
 	webSrv.SetCLUCommander(srv)                         // Wire up CLU commander for sending commands
 	webSrv.SetBrokerController(srv)                     // Wire up MQTT broker controller
 	webSrv.SetLuaReloader(srv)                          // Wire up Lua reloader for web editor
