@@ -1,0 +1,3 @@
+-- checkAlive() answers with the serial read from main.lua
+local serial = ...
+function checkAlive() return serial end

@@ -344,7 +344,7 @@ CLU220000592:executeNoReply(0, "SetThermostat(19)")
 ## Dashboard (Lua-defined)
 
 Public dashboard for a tablet/wall. Defined in Lua, available at `/d/:id`.
-Widget types: button, toggle, slider, status, link, select, chart, image, group, cover, dimmer, color, calendar.
+Widget types: button, toggle, slider, status, link, select, chart, image, group, cover, covers, dimmer, color, calendar, player, forecast; in the header also chip.
 `:calendar(id, label, cal, { view = 'month' | 'day', tags = {...}, schedules = { 'taryfa' } })` shows a calendar
 built with `Calendar`: a month grid and the day of a tapped date (full width); `schedules` adds a 24 h bar per schedule (`schedules = true`: all of the calendar's)
 to the day view; `holidays` (holiday names, default on), `namedays` (name days in the day view, default off) and
@@ -424,6 +424,93 @@ Dashboard.new('home')
 -- { columns = 4 }        -- override the column count for this section
 ```
 
+### Header chips
+
+Small pills in the header bar: an icon and a short text from a function. `nil` hides the chip;
+a table `{ text, icon, color }` changes the icon or colour with the state. An error in the
+function shows a warning mark on the chip, the rest of the dashboard keeps working. Header only.
+
+```lua
+:header()
+  :chip('budzik', 'alarm', function() return budzik:getValue() end, { link = 'sypialnia' }) -- opens /d/sypialnia
+  :chip('pralka', 'water', function()
+      local min = pralka:getValue()
+      if min > 0 then return min .. ' min' end -- nil: the washing machine is off, no chip
+    end, { color = 'info' })
+  :chip('alarm', 'shield', function()
+      if strefa:getValue() == 1 then return { text = 'Uzbrojony', icon = 'shield-lock-fill', color = 'danger' } end
+      return { text = 'Rozbrojony', color = 'success' }
+    end)
+-- opts: color (string or function, as status), link (http(s) URL, /path or a dashboard id), disabled
+```
+
+### A room from the house model (section:area, dash:floor)
+
+One line per room: the section gets a widget for every device `expose()` put in that area
+(`expose(obj, type, { area = "Salon", floor = "Parter" })`), picked by kind. Filled each time the
+dashboard is read, so devices a plugin exposes later show up without a rebuild.
+
+```lua
+Dashboard.new('parter')
+  :section('Salon', 'lamp'):area('Salon')       -- lights, dimmers, covers, temperature, humidity
+    :button('kino', 'Kino', 'film', function() scenaKino() end)  -- by hand: after the area's
+  :section('Wiatrołap', 'door-open'):area('Wiatrołap', { kinds = { 'light', 'lock' }, skip = { 'vclu:kinkiet' } })
+  :floor('Piętro', { order = { 'Sypialnia' }, titles = { ['Łazienka gór'] = 'Łazienka' } }) -- a section per area
+  :build()
+
+expose(domofon, 'switch', { area = 'Wiatrołap', dashboard = true })  -- on dashboards even outside kinds
+expose(pompa, 'switch', { area = 'Kotłownia', dashboard = false })   -- never on a dashboard
+```
+
+- **Widgets:** light, switch, lock a toggle; dimmer a dimmer; RGB light the colour widget; cover a
+  cover; temperature and humidity a status. A thermostat gets none yet. Labels are `name` from
+  `expose()`; lights first, then covers, then the rest by name; a `readonly` device is disabled.
+- **Ids** are `area:` + the path (`area:CLU220000592.DOU0789`, bytes other than letters, digits
+  and `._:-` as `%XX`), the same after a reload; ids starting with `area:` cannot be given by hand.
+- `dashboard = true` adds a device of a kind that has a widget (light, switch, dimmer, RGB light,
+  cover, temperature, humidity, lock) even when `kinds` leaves it out; other kinds (a thermostat,
+  a sensor, a scene) get no widget and a warning in the log. It is separate from
+  `panel = false/true`: a device can be on the wall tablet and not on the Smart Panel, or the
+  other way.
+- **Access:** whoever can open the dashboard controls everything exposed into the area later,
+  and the access profiles of MQTT, HomeKit and MCP do not apply to dashboards (as for widgets
+  added by hand). With the default `public` auth that is anyone with the link: use
+  `:auth('session')` or `:auth('pin')` for a dashboard with rooms.
+- After `:floor()` the current section ends: start a `:section()` before adding widgets.
+
+### Room tiles (section:room, dash:floor rooms)
+
+One tile per room: its name, what is on, its temperature and humidity
+("Sypialnia · 2 włączone · 1 otwarta · 21,5 °C · 60 %"). A tap opens the room's widgets over the
+page (full screen on a phone); the ‹ button, Escape, a tap outside or the system back button
+closes it.
+
+```lua
+Dashboard.new('dom'):auth('session')
+  :section('Pokoje', 'house')
+    :room('sypialnia', 'Sypialnia', { icon = 'moon-stars' })
+    :room('salon', { 'Salon', 'Jadalnia' }, { title = 'Salon', skip = { 'vclu:kinkiet' } })
+    :room('lazienka', 'Łazienka', { humidity = 'CLU220000592.HUM0001' })  -- a path: exposed or in the registry
+    :room('taras', 'Taras', { temperature = function() return pogoda:getTemperature() end })
+    :room('garaz', 'Garaż', { link = 'garaz' })  -- opens /d/garaz instead of the room
+  :floor('Piętro', { rooms = true, order = { 'Sypialnia' } })  -- one section, a tile per area
+  :build()
+```
+
+- **What is on:** lights and switches that are on, dimmers above 0, covers open above 0 or moving
+  ("2 włączone · 1 otwarta", else "wszystko wyłączone"). Only what the room shows is counted: a
+  switch counts when `kinds` includes `'switch'`; locks never count.
+- **Temperature and humidity:** by default the area's `temperature` / `humidity` devices (the
+  average of several, nothing with none); `dashboard = false` and `skip` leave a sensor out. Give a
+  path or a function for a sensor elsewhere; one that fails or returns nil leaves the value out.
+- **The room** holds what `section:area` shows for the area (same `kinds`, `skip`, order and ids
+  `area:` + path); the same device shown twice on one dashboard gets `#2`. Its widgets go through
+  the dashboard's values and actions like any other, `disabled` on the tile disables them too.
+- `link`: a dashboard id (`/d/<id>`), a path starting with `/` or an `http(s)://` URL; `//host`,
+  `javascript:` and the like are refused.
+- `dash:floor(floor, { rooms = true })` tiles get ids `area:@` + the area name.
+- Filled again only when something is exposed, unexposed or its options change, as `section:area`.
+
 ### Cover widget (blind)
 
 Buttons up / stop / down, and a 0-100% position slider when `set` is given.
@@ -451,6 +538,107 @@ local roleta = r:get("CLU220000592.ROL0001")
   `getPosition()`; the slider then shows `--`. Leave out `getPosition` and `set` for such a roller
   and keep the buttons.
 - **getState:** 0 = stopped, 1 = up, 2 = down. Without it the stop button stays lit.
+
+### Cover group (several blinds on one tile)
+
+`:covers(id, label, list, opts)` moves every cover of the list: up, stop, down, a position slider
+and, when a cover reports a slat angle (`getTilt`), a slat slider 0-90°. The tile shows the counts
+("3 otwarte · 1 w ruchu", "wszystkie zamknięte") and the slider the average position.
+`{ covers = true }` on a section puts the counts of its cover tiles and groups in its header.
+
+```lua
+:section('Rolety', 'window', { covers = true })   -- header: "2 otwarte · 1 w ruchu"
+  :covers('parter', 'Parter', { 'CLU220000592.ROL0001', 'CLU220000592.ROL0002', roleta_taras })
+  :covers('poludnie', 'Południe', function() return _:byTag('rolety-poludnie') end, { icon = 'sun' })
+```
+
+- **list:** covers (`RemoteCover`, `VirtualCover`), their paths, `_:byTag(...)`, or a function
+  returning one of these, called on every read: covers tagged later show up. A path that is not in
+  the registry is skipped (logged once).
+- **Commands** go to the covers one after another, 50 ms apart (a CLU drops bursts); a new command
+  for the group drops what is left of the previous one, so "up" then "stop" stops them all.
+  Movement and slats are separate series (a slat change does not cut a position short); stop
+  ends both. A group disabled meanwhile sends nothing more.
+- **Counts:** a cover with no reading yet is counted as "brak odczytu", never as closed. The
+  section header counts each cover once within groups; a `:cover` tile counts on its own, so a
+  cover shown both as a tile and in a group counts twice.
+- Widget ids starting with `_group_` or `_section_` are reserved.
+- The position slider calls `setPosition` on the covers that have a position, the slat slider
+  `setTilt` only on those that report a tilt.
+- opts: `icon` (default `window`), `disabled`, `span`, `size`, `color`.
+
+### Media player (MusicCast or any player)
+
+`:player(id, label, src, opts)` shows the cover art, title and artist, previous / play-pause / next,
+mute, power and a volume slider. `src` is a MusicCast device, or a table of functions for any other player.
+
+```lua
+local mc = Plugin.getPlugin("@vclu/musiccast")
+local salon = mc:create({ id = "salon", ip = "192.168.1.50", name = "Salon" })
+
+:section('Muzyka', 'music-note-beamed')
+  :player('salon', 'Salon', salon)
+  -- any other player: getState is required, the rest optional (a missing one hides its button)
+  :player('radio', 'Kuchnia', {
+      getState = function()
+        return { playing = radio:isPlaying(), title = radio:station(), volume = radio:volume(),
+                 power = radio:isOn(), online = radio:isOnline() }
+      end,
+      play = function() radio:play() end,
+      pause = function() radio:pause() end,
+      setVolume = function(p) radio:setVolume(p) end,   -- 0..100
+  }, { icon = 'broadcast' })
+```
+
+- **getState** returns `{ playing, title, artist, album, artwork, volume (0-100), muted, power, online }`;
+  every field may be nil. `power = false` shows "wyłączony", `online = false` "offline".
+- **Functions:** `play`, `pause`, `next`, `previous`, `setVolume(percent)`, `setMute(bool)`, `on`, `off`
+  (power needs both). The volume is checked to be 0-100 before `setVolume` is called.
+- **Artwork** must be an absolute `http://` or `https://` URL; anything else is dropped. The URL comes
+  from the device (through the plugin) and each viewer's browser fetches it itself; vCLU does not proxy
+  it, so it loads only inside the house (LAN). From outside (or on an https page with an http URL) the
+  tile shows a note icon instead. MusicCast gives the artwork from plugin version 0.2.0.
+- **MusicCast actions are asynchronous:** the action returns success at once and the tile follows on the
+  next poll. The plugin updates its cached state right after the receiver accepts a command; a
+  receiver that does not answer shows on the next poll (offline, or the state unchanged).
+- The tile is two columns wide (full width on a phone); `span` changes it. opts: `icon`, `disabled`,
+  `span`, `size`, `color`.
+
+### Weather forecast
+
+`:forecast(id, label, src, opts)` shows the next days (weekday, icon, max/min, rain in mm and its
+chance when there is some) and under them the next hours as a temperature line over rain bars.
+`src` is the Weather plugin, or a function returning the same table.
+
+```lua
+local weather = Plugin.getPlugin("@vclu/weather")
+
+:section('Pogoda', 'cloud-sun')
+  :forecast('fc', 'Prognoza', weather)                       -- 5 days, 24 h
+  :forecast('weekend', 'Weekend', weather, { days = 3, hours = 0 })
+  -- any other source: a function returning { days, hours } (or nil while there is none)
+  :forecast('own', 'Działka', function()
+      return {
+        days = { { date = '2026-10-23', icon = 'cloud-rain', min = 4.5, max = 11, rain = 3.2, pop = 0.8 } },
+        hours = { { at = 1792760400, temp = 7.1, rain = 0.4 } },   -- at: unix seconds
+        updated = os.time(),                                         -- optional
+      }
+    end)
+```
+
+- **days:** `{ date = 'YYYY-MM-DD', iconName (or icon), min, max, rain (mm), pop }`; days before
+  today in the house's time zone (`datetime.setTimezone`) are dropped, then `opts.days` are shown.
+  `pop` (chance of rain) is a fraction 0-1, or a percent when above 1 (`0.7` and `70` both show 70 %).
+- **hours:** `{ at, temp, rain }`; `opts.hours` is a count: the current hour and `hours - 1` after it
+  (hourly data gives exactly that many points; 3-hour steps cover the same span).
+- **updated:** optional unix time of the forecast, shown under the label as "odświeżono HH:MM".
+- Temperatures and rain are rounded to one decimal, `pop` becomes a whole percent 0-100. The icon is a Bootstrap
+  icon name (letters, digits and `-`); anything else shows a cloud.
+- `nil` from the source (the Weather plugin before its first fetch; its first `getForecast()` starts
+  fetching every 30 min) shows "brak prognozy"; an error shows the error mark.
+- opts: `days` (1-7, default 5), `hours` (0-48, default 24, 0 hides the chart), `unit` (default `°C`),
+  `icon` (default `cloud-sun`), `disabled`, `span`, `size`, `color` (the temperature line). Two columns
+  wide by default, full width on a phone.
 
 ### Select widget (dropdown)
 
@@ -735,6 +923,29 @@ Full list: https://icons.getbootstrap.com/
 | chart | `graph-up`, `bar-chart`, `activity` | Charts, statistics |
 | info | `info-circle`, `question-circle` | Information |
 | grid | `grid`, `grid-3x3` | Dashboard |
+
+## Dashboard — wall tablet (full width, home screen)
+
+`:width('full')` lets the tiles fill the screen edge to edge with an 8 px gutter; the default
+`'normal'` keeps wide screens centred at 1100 px. `:columns(n)` still sets the column count;
+`modules/custom.css` still wins.
+
+```lua
+Dashboard.new('hall')
+    :name('Przedpokój'):icon('tablet-landscape')
+    :width('full')
+    :columns(4)
+    :theme({ background = '#101418' })  -- also the colour of the status bar and the app's splash
+    :section('Światła', 'lightbulb')
+    -- ...
+    :build()
+```
+
+Every dashboard can be added to the home screen and then opens without browser bars (with
+`width('full')` in full screen where the system allows it): on an iPad Safari → Share → Add to Home
+Screen; on Android Chrome → menu → Add to Home screen (or Install app). The app's name is
+`:name()` (a `session` dashboard shows its id until the user logs in). A PIN or session dashboard
+asks for the PIN or login once more inside the app; tabs and links to other dashboards stay in the app.
 
 ## Dashboard — tab navigation (tabGroup)
 
