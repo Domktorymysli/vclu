@@ -344,7 +344,7 @@ CLU220000592:executeNoReply(0, "SetThermostat(19)")
 ## Dashboard (Lua-defined)
 
 Public dashboard for a tablet/wall. Defined in Lua, available at `/d/:id`.
-Widget types: button, toggle, slider, status, link, select, chart, image, group, cover, covers, dimmer, color, calendar; in the header also chip.
+Widget types: button, toggle, slider, status, link, select, chart, image, group, cover, covers, dimmer, color, calendar, player; in the header also chip.
 `:calendar(id, label, cal, { view = 'month' | 'day', tags = {...}, schedules = { 'taryfa' } })` shows a calendar
 built with `Calendar`: a month grid and the day of a tapped date (full width); `schedules` adds a 24 h bar per schedule (`schedules = true`: all of the calendar's)
 to the day view; `holidays` (holiday names, default on), `namedays` (name days in the day view, default off) and
@@ -499,6 +499,43 @@ and, when a cover reports a slat angle (`getTilt`), a slat slider 0-90°. The ti
 - The position slider calls `setPosition` on the covers that have a position, the slat slider
   `setTilt` only on those that report a tilt.
 - opts: `icon` (default `window`), `disabled`, `span`, `size`, `color`.
+
+### Media player (MusicCast or any player)
+
+`:player(id, label, src, opts)` shows the cover art, title and artist, previous / play-pause / next,
+mute, power and a volume slider. `src` is a MusicCast device, or a table of functions for any other player.
+
+```lua
+local mc = Plugin.getPlugin("@vclu/musiccast")
+local salon = mc:create({ id = "salon", ip = "192.168.1.50", name = "Salon" })
+
+:section('Muzyka', 'music-note-beamed')
+  :player('salon', 'Salon', salon)
+  -- any other player: getState is required, the rest optional (a missing one hides its button)
+  :player('radio', 'Kuchnia', {
+      getState = function()
+        return { playing = radio:isPlaying(), title = radio:station(), volume = radio:volume(),
+                 power = radio:isOn(), online = radio:isOnline() }
+      end,
+      play = function() radio:play() end,
+      pause = function() radio:pause() end,
+      setVolume = function(p) radio:setVolume(p) end,   -- 0..100
+  }, { icon = 'broadcast' })
+```
+
+- **getState** returns `{ playing, title, artist, album, artwork, volume (0-100), muted, power, online }`;
+  every field may be nil. `power = false` shows "wyłączony", `online = false` "offline".
+- **Functions:** `play`, `pause`, `next`, `previous`, `setVolume(percent)`, `setMute(bool)`, `on`, `off`
+  (power needs both). The volume is checked to be 0-100 before `setVolume` is called.
+- **Artwork** must be an absolute `http://` or `https://` URL; anything else is dropped. The URL comes
+  from the device (through the plugin) and each viewer's browser fetches it itself; vCLU does not proxy
+  it, so it loads only inside the house (LAN). From outside (or on an https page with an http URL) the
+  tile shows a note icon instead. MusicCast gives the artwork from plugin version 0.2.0.
+- **MusicCast actions are asynchronous:** the action returns success at once and the tile follows on the
+  next poll. The plugin updates its cached state right after the receiver accepts a command; a
+  receiver that does not answer shows on the next poll (offline, or the state unchanged).
+- The tile is two columns wide (full width on a phone); `span` changes it. opts: `icon`, `disabled`,
+  `span`, `size`, `color`.
 
 ### Select widget (dropdown)
 
