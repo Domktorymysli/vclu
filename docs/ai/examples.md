@@ -344,7 +344,7 @@ CLU220000592:executeNoReply(0, "SetThermostat(19)")
 ## Dashboard (Lua-defined)
 
 Public dashboard for a tablet/wall. Defined in Lua, available at `/d/:id`.
-Widget types: button, toggle, slider, status, link, select, chart, image, group, cover, dimmer, color, calendar.
+Widget types: button, toggle, slider, status, link, select, chart, image, group, cover, dimmer, color, calendar; in the header also chip.
 `:calendar(id, label, cal, { view = 'month' | 'day', tags = {...}, schedules = { 'taryfa' } })` shows a calendar
 built with `Calendar`: a month grid and the day of a tapped date (full width); `schedules` adds a 24 h bar per schedule (`schedules = true`: all of the calendar's)
 to the day view; `holidays` (holiday names, default on), `namedays` (name days in the day view, default off) and
@@ -422,6 +422,26 @@ Dashboard.new('home')
 
 -- Section options (3rd argument of :section()):
 -- { columns = 4 }        -- override the column count for this section
+```
+
+### Header chips
+
+Small pills in the header bar: an icon and a short text from a function. `nil` hides the chip;
+a table `{ text, icon, color }` changes the icon or colour with the state. An error in the
+function shows a warning mark on the chip, the rest of the dashboard keeps working. Header only.
+
+```lua
+:header()
+  :chip('budzik', 'alarm', function() return budzik:getValue() end, { link = 'sypialnia' }) -- opens /d/sypialnia
+  :chip('pralka', 'water', function()
+      local min = pralka:getValue()
+      if min > 0 then return min .. ' min' end -- nil: the washing machine is off, no chip
+    end, { color = 'info' })
+  :chip('alarm', 'shield', function()
+      if strefa:getValue() == 1 then return { text = 'Uzbrojony', icon = 'shield-lock-fill', color = 'danger' } end
+      return { text = 'Rozbrojony', color = 'success' }
+    end)
+-- opts: color (string or function, as status), link (http(s) URL, /path or a dashboard id), disabled
 ```
 
 ### Cover widget (blind)

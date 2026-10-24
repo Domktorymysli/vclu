@@ -304,6 +304,57 @@ function SectionHandle:color(id, label, icon, fns, opts)
     return self
 end
 
+local CHIP_KEYS = { color = true, link = true, disabled = true }
+
+-- opts.link: an http(s) URL or a path as is, anything else is a dashboard id
+local function chipLink(where, link)
+    if type(link) ~= 'string' or link == '' then
+        error(where .. ': opts.link must be a URL or a dashboard id', 3)
+    end
+    if link:match('^/[/\\]') then
+        error(where .. ': opts.link "' .. link .. '" leaves the site; give an http(s):// URL', 3)
+    end
+    if link:lower():match('^https?://') or link:sub(1, 1) == '/' then return link end
+    if link:find('[:%s/?#]') then
+        error(where .. ': opts.link must be http(s)://..., a path starting with / or a dashboard id, got "' .. link .. '"', 3)
+    end
+    return '/d/' .. link
+end
+
+--- Add a chip to the header: an icon and a short text from fn, hidden while fn returns nil.
+-- @param id string Unique widget identifier
+-- @param icon string Bootstrap icon name (e.g., "alarm", "water", "shield")
+-- @param fn function function() -> string|nil|{text=string, icon=string, color=string}; nil hides the chip
+-- @param opts table Optional: {color=string|function()->string|nil, link=URL or dashboard id, disabled=function()->bool}
+-- @api public
+function SectionHandle:chip(id, icon, fn, opts)
+    local where = 'header:chip("' .. tostring(id) .. '")'
+    if not self._builder._sections[self._sectionIndex]._isHeader then
+        error(where .. ': chips go in the header only, add them after dash:header()', 2)
+    end
+    if type(id) ~= 'string' or id == '' then error('header:chip: id must be a non-empty string', 2) end
+    if type(icon) ~= 'string' or not icon:match('^[%w%-]+$') then
+        error(where .. ': icon must be a Bootstrap icon name (letters, digits and -)', 2)
+    end
+    if type(fn) ~= 'function' then error(where .. ': fn must be a function returning the text or nil', 2) end
+    if opts ~= nil and type(opts) ~= 'table' then error(where .. ': opts must be a table', 2) end
+    opts = opts or {}
+    for k in pairs(opts) do
+        if not CHIP_KEYS[k] then error(where .. ': unknown option "' .. tostring(k) .. '" (color, link, disabled)', 2) end
+    end
+    if opts.color ~= nil and type(opts.color) ~= 'string' and type(opts.color) ~= 'function' then
+        error(where .. ': opts.color must be a colour or a function', 2)
+    end
+    if opts.disabled ~= nil and type(opts.disabled) ~= 'function' then
+        error(where .. ': opts.disabled must be a function', 2)
+    end
+    local link = opts.link ~= nil and chipLink(where, opts.link) or nil
+    self._builder:_addWidget(self._sectionIndex, {
+        id = id, type = 'chip', icon = icon, chipFn = fn, link = link, opts = opts
+    })
+    return self
+end
+
 --- Conditional block: only execute fn if current time matches any of the given periods.
 -- @param periods table Array of period names ("morning","afternoon","evening","night")
 -- @param fn function Receives self (SectionHandle) as argument
@@ -790,7 +841,7 @@ local _colorErrorLogged = {}
 local function safeColor(dashId, w)
     local c = w.opts.color
     if type(c) ~= 'function' then return c end
-    if w.type ~= 'status' then return nil end
+    if w.type ~= 'status' and w.type ~= 'chip' then return nil end
     local ok, val = pcall(c)
     if ok then
         if type(val) == 'string' then return val end
@@ -810,6 +861,38 @@ local function safeDisabled(opts)
     local ok, val = pcall(opts.disabled)
     if ok then return val == true end
     return false
+end
+
+-- What fn gives goes into a class and a CSS value: an icon name, a colour name, #hex or rgb()/hsl()
+local function chipIcon(v)
+    if type(v) == 'string' and v:match('^[%w%-]+$') then return v end
+end
+local function chipColor(v)
+    if type(v) ~= 'string' then return nil end
+    if v:match('^%a+$') or v:match('^#%x+$') or v:match('^rgba?%([%d%.%%,%s]+%)$')
+        or v:match('^hsla?%([%d%.%%,%s]+%)$') then
+        return v
+    end
+end
+
+-- A chip's state: {text, icon, color} as the page needs it, {error} when fn fails, nil hides it
+local function chipState(dashId, w)
+    local ok, val = pcall(w.chipFn)
+    if not ok then return { error = tostring(val) } end
+    if val == nil then return nil end
+    local s = {}
+    if type(val) == 'table' then
+        -- no text: an icon-only chip (and a JSON object, never [])
+        s.text = val.text ~= nil and tostring(val.text) or ''
+        s.icon = chipIcon(val.icon)
+        s.color = chipColor(val.color)
+    elseif type(val) == 'string' or type(val) == 'number' then
+        s.text = val
+    else
+        return { error = 'header:chip("' .. tostring(w.id) .. '"): fn must return a string, a table or nil, got ' .. type(val) }
+    end
+    if s.color == nil then s.color = chipColor(safeColor(dashId, w)) end
+    return s
 end
 
 --- Internal: resolve a dashboard entry. For dynamic dashboards, rebuilds fresh.
@@ -1020,7 +1103,7 @@ function DashboardAPI.getDefinition(id)
                 section = si - 1, -- 0-indexed for JS
                 span = w.opts.span,
                 size = w.opts.size,
-                color = safeColor(id, w),
+                color = w.type ~= 'chip' and safeColor(id, w) or nil,
             }
 
             -- Get current value
@@ -1052,6 +1135,12 @@ function DashboardAPI.getDefinition(id)
             -- Link URL
             if w.type == 'link' then
                 widget.url = w.url
+            end
+
+            -- Chip: the link, and its state as a poll gives it; none while fn gives nil
+            if w.type == 'chip' then
+                widget.link = w.link
+                widget.chip = chipState(id, w)
             end
 
             -- Chart fields (no getValue — frontend fetches directly)
@@ -1260,7 +1349,14 @@ function DashboardAPI.getValues(id)
     local result = {}
     for _, sec in ipairs(dash._sections) do
         for _, w in ipairs(sec.widgets) do
-            if w.getValue then
+            if w.type == 'chip' then
+                -- a hidden chip is left out; disabled only when it can change
+                local entry = chipState(id, w)
+                if entry then
+                    if type(w.opts.disabled) == 'function' then entry.disabled = safeDisabled(w.opts) end
+                    result[w.id] = entry
+                end
+            elseif w.getValue then
                 local entry = {}
                 local val, err = safeGetValue(w.getValue)
                 if err then
@@ -1425,6 +1521,9 @@ function DashboardAPI.executeAction(id, widgetId, action, value)
 
     elseif widget.type == 'group' then
         return JSON.encode({ error = 'Group label has no server action' })
+
+    elseif widget.type == 'chip' then
+        return JSON.encode({ error = 'Chip has no server action' })
 
     elseif widget.type == 'cover' then
         local fns = widget.fns or {}

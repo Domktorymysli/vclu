@@ -319,6 +319,7 @@
                     bar.appendChild(renderHeaderWidget(widgets[wi]));
                 }
                 contentEl.appendChild(bar);
+                syncHeaderBars();
                 continue;
             }
 
@@ -1548,8 +1549,87 @@
         }
     }
 
+    // A tap or Enter/Space runs it, unless the chip is disabled
+    function bindHeaderTap(el, role, label, tap) {
+        el.classList.add('dash-header-tap');
+        el.setAttribute('role', role);
+        el.setAttribute('aria-label', label);
+        el.tabIndex = 0;
+        var run = function() { if (!el.classList.contains('disabled')) tap(); };
+        el.addEventListener('click', run);
+        // one action per key press
+        el.addEventListener('keydown', function(e) {
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            e.preventDefault();
+            if (!e.repeat) run();
+        });
+    }
+
+    // A header chip (#93): text, icon and colour from its function; no state hides it
+    function renderChip(w) {
+        var el = document.createElement('div');
+        el.className = 'dash-header-item dash-header-chip';
+        el.dataset.widgetId = w.id;
+        el.dataset.type = 'chip';
+        var icon = calEl('span', 'dash-header-icon');
+        icon.appendChild(document.createElement('i'));
+        el.appendChild(icon);
+        el.appendChild(calEl('span', 'dash-header-value'));
+        if (w.link) {
+            bindHeaderTap(el, 'link', '', function() {
+                if (w.link.charAt(0) === '/') location.href = w.link;
+                else window.open(w.link, '_blank', 'noopener');
+            });
+        }
+        if (w.disabled) {
+            el.classList.add('disabled');
+            el.setAttribute('aria-disabled', 'true');
+        }
+        widgetEls[w.id] = el;
+        updateChip(el, w, w.chip);
+        return el;
+    }
+
+    function updateChip(el, w, d) {
+        el.hidden = !d;
+        if (!d) return;
+        var text = d.error ? '--' : (d.text != null ? fmtNum(d.text) : '');
+        var ic = String(d.icon || w.icon || 'circle').replace(/[^a-z0-9-]/gi, '');
+        el.querySelector('.dash-header-icon i').className = 'bi bi-' + ic;
+        el.querySelector('.dash-header-value').textContent = text;
+        el.classList.toggle('dash-chip-icon-only', text === '');
+        el.dataset.state = d.error ? 'unknown' : (isAlarm(d.color) ? 'alarm' : 'value');
+        applyColor(el, d.color);
+        if (d.disabled !== undefined) {
+            el.classList.toggle('disabled', !!d.disabled);
+            if (d.disabled) el.setAttribute('aria-disabled', 'true');
+            else el.removeAttribute('aria-disabled');
+        }
+        var errEl = el.querySelector('.dash-widget-error');
+        if (d.error && !errEl) {
+            errEl = calEl('span', 'dash-widget-error');
+            errEl.innerHTML = '<i class="bi bi-exclamation-triangle-fill"></i>';
+            el.querySelector('.dash-header-icon').appendChild(errEl);
+        } else if (!d.error && errEl) {
+            errEl.remove();
+        }
+        if (errEl) errEl.title = d.error || '';
+        el.classList.toggle('has-error', !!d.error);
+        if (w.link) el.setAttribute('aria-label', d.error || text);
+        el.title = d.error || text;
+    }
+
+    // A bar whose chips are all hidden takes no room
+    function syncHeaderBars() {
+        var bars = contentEl.querySelectorAll('.dash-header-bar');
+        for (var i = 0; i < bars.length; i++) {
+            bars[i].hidden = !bars[i].querySelector('.dash-header-item:not([hidden])');
+        }
+    }
+
     // A chip: the icon in a small circle coloured by state, the value (status) or the name
     function renderHeaderWidget(w) {
+        if (w.type === 'chip') return renderChip(w);
         var el = document.createElement('div');
         el.className = 'dash-header-item';
         el.dataset.widgetId = w.id;
@@ -1585,18 +1665,7 @@
             };
         }
         if (tap) {
-            el.classList.add('dash-header-tap');
-            el.setAttribute('role', w.type === 'toggle' ? 'switch' : (w.type === 'link' ? 'link' : 'button'));
-            el.setAttribute('aria-label', w.label || '');
-            el.tabIndex = 0;
-            var run = function() { if (!el.classList.contains('disabled')) tap(); };
-            el.addEventListener('click', run);
-            // one action per key press
-            el.addEventListener('keydown', function(e) {
-                if (e.key !== 'Enter' && e.key !== ' ') return;
-                e.preventDefault();
-                if (!e.repeat) run();
-            });
+            bindHeaderTap(el, w.type === 'toggle' ? 'switch' : (w.type === 'link' ? 'link' : 'button'), w.label || '', tap);
         }
         if (w.disabled) {
             el.classList.add('disabled');
@@ -1630,6 +1699,8 @@
                 }
             }
         }
+
+        if (el.dataset.type === 'chip') return updateChip(el, wDef, data);
 
         // Disabled state
         if (data.disabled !== undefined) {
@@ -1743,6 +1814,13 @@
                         updateWidget(wid, data[wid]);
                     }
                 }
+                // a chip left out of the poll is hidden
+                for (var cid in widgetEls) {
+                    if (widgetEls[cid].dataset.type === 'chip' && !data.hasOwnProperty(cid)) {
+                        updateChip(widgetEls[cid], {}, null);
+                    }
+                }
+                syncHeaderBars();
             })
             .catch(function() {
                 showOverlay();
