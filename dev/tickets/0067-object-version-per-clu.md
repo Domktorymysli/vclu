@@ -65,17 +65,30 @@ On CLU220000592, outside hours anyone needs the house: one session with one feat
 the CLU and whether a fresh session (not a renewal) is what does it; put the result in
 `pkg/lua/AGENTS.md` next to the Thermostat indices.
 
+Result, 2026-10-24 on 1.6.0-1e67f02 (CLU220000592, 04.08.05, uptime checked every few seconds):
+- each feature of `THE0855` (14, 12, 3, 6, 8) alone in a fresh session, 70 s with renewals, then
+  `clientDestroy`: no reset;
+- one session with all five features of `THE0855`, and one with the batch-8 shape of 2026-10-19
+  (five of `THE4346`, three of `THE0855`): no reset;
+- both thermostats on the Sync list, reload and "Sync now": polled, values read, no reset;
+- the old behaviour forced in memory (a `{major = 4, follow = "subscribe"}` row), then `autoSubscribe`:
+  both thermostats subscribed with the rest of the CLU (five sessions, 38 entries, while the
+  previous 28 had not expired yet), two minutes of renewals: no reset.
+
+The 2026-10-19 resets could not be reproduced, so what triggered them is still unknown. Firmware
+4.x stays polled; subscribing it is a new row in `FIRMWARE` once the cause is known.
+
 ## Files
 - `pkg/lua/runtime/grenton/` (`CLU_REMOTE`), `pkg/lua/runtime/objects/RemoteThermostat.lua`,
   `pkg/lua/runtime/grenton/protocol/RemoteSubscription.lua`
 - `pkg/omparser/generator.go` (firmware in the proxy), `pkg/lua/AGENTS.md`
 
 ## Acceptance criteria
-- [ ] A remote object can tell its CLU's firmware; a test with a fake CLU answering `get(17)`.
-- [ ] Subscribing a thermostat on a CLU marked unsafe for a feature leaves that feature out (or polls); a test checks the registered script.
-- [ ] The hardware test is done and its result recorded; on the maintainer's CLU a reload and "Sync now" with the thermostats on the Sync list do not reset it (uptime checked).
-- [ ] `go test ./...` and `go test -race ./...` pass.
-- [ ] CHANGELOG entry.
+- [x] A remote object can tell its CLU's firmware; a test with a fake CLU answering `get(17)`.
+- [x] Subscribing a thermostat on a CLU marked unsafe for a feature leaves that feature out (or polls); a test checks the registered script.
+- [x] The hardware test is done and its result recorded; on the maintainer's CLU a reload and "Sync now" with the thermostats on the Sync list do not reset it (uptime checked).
+- [x] `go test ./...` and `go test -race ./...` pass.
+- [x] CHANGELOG entry.
 
 ## Contract impact
 Internal to the runtime; `clu:firmware()` would be a new public method of `CLU_REMOTE`.

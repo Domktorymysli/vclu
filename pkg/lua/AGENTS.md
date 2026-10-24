@@ -112,7 +112,22 @@ What such an object keeps aside from its value changes with an event listed in `
 1 holiday, 2 auto from the schedule, 3 heat-up), 10 Min, 11 Max, 12 TargetTemp (in effect,
 with the mode), 14 CurrentTemp; execute 0 Start, 1 Stop. `RemoteThermostat` subscribes to
 3, 6, 8, 12 and 14 (five subscription entries); its value is CurrentTemp. Thermostat v1
-(CLU firmware 197 and 1f5, FwType 3) has no feature 14; the OM import sets `_version = 1`.
+(CLU firmware 197 and 1f5, FwType 3) has no feature 14.
+Which version a CLU runs and whether its thermostats are subscribed or polled is one table,
+`RemoteThermostat.FIRMWARE`: rows by om.lua FwType/FwVersion (the OM import writes
+`CLU…._omFirmware`) and by the firmware the CLU reports for `CLU…:get(17)` (`clu:firmware()`;
+only an answer like `04.08.05` counts). It is an allowlist: a thermostat is subscribed only
+when get(17) says 5.x and om.lua does not say FwType 4 (CLU v1.0); 4.x, no answer, another
+major are polled with `get` every `pollInterval` s until the hardware test says which features
+are safe. A new firmware rule is a row there, not an `if`.
+`autoSubscribe` blocks on get(17) once per CLU in a Lua state (`_firmwareAsked`, within
+`FIRMWARE_CHECK_SECONDS`); then the poll chain asks without blocking, and a CLU that turns
+out safe gets only its polled objects subscribed (`subscribeUpgraded`). The poll and renew
+chains wait for each other, so they never interleave on a CLU.
+Hardware test on CLU220000592 (04.08.05), 2026-10-24 (#67): no reset from each feature in its own
+fresh session, from one session with all five (or eight, batch 8), nor from a full `autoSubscribe`
+with both thermostats subscribed and renewed for two minutes. The 2026-10-19 resets did not come
+back, so their trigger is still unknown and 4.x stays polled.
 Feature 0 is Source (the sensor binding), so a thermostat must never be exposed as a switch:
 TypeMap makes `THERMOSTAT` a `climate`, and `ExposedHandle:setValue` on a climate calls
 `setSetpoint`, never `set(0)`.

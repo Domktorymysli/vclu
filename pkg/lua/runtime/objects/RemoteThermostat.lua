@@ -38,13 +38,53 @@ function RemoteThermostat:new(clu, objId, name)
     return obj
 end
 
---- Features to subscribe to, in report order: the settings first, the temperature last.
--- Thermostat v1 (CLU firmware 197 and 1f5, the OM import sets _version) has no CurrentTemp.
+-- Features of each object version, in report order: the settings first, the temperature last
+local T = RemoteThermostat
+RemoteThermostat.FEATURES = {
+    [1] = {T.FEATURE_STATE, T.FEATURE_MODE, T.FEATURE_POINT, T.FEATURE_TARGET}, -- v1: no CurrentTemp
+    [2] = {T.FEATURE_STATE, T.FEATURE_MODE, T.FEATURE_POINT, T.FEATURE_TARGET, T.FEATURE_CURRENT},
+}
+
+-- Object version and how values are followed, by CLU firmware; for each field the first
+-- matching row wins. om: FwType/FwVersion in om.lua, omType: FwType alone; major: the
+-- firmware the CLU reports for get(17) (unknown matches no major row).
+-- Versions from Object Manager 1.7 device-interfaces (clu_*_ft…_fv….xml, object Thermostat).
+-- Subscribed only where known to be safe; firmware 4.x (CLU v1.0) is not verified (#67).
+RemoteThermostat.FIRMWARE = {
+    {om = "3/197", version = 1},           -- clu_ft00000003_fv197
+    {om = "3/1f5", version = 1},           -- clu_ZWAVE_ft00000003_fv1f5
+    {omType = "4", follow = "poll"},       -- CLU v1.0, clu_ZWAVE_ft00000004_* (04.08.05)
+    {major = 5, follow = "subscribe"},     -- 5.x reported by the CLU (e.g. 05.15.12)
+    {version = 2, follow = "poll"},        -- all others: 4.x, unknown, a major not listed
+}
+
+--- The object version and how RemoteSubscription follows its values on its CLU.
+-- Only a row of FIRMWARE says "subscribe"; anything else, a CLU that has not reported
+-- its firmware included, is polled.
+-- @return number version, string "subscribe" or "poll"
+function RemoteThermostat:_plan()
+    local clu = self._clu or {}
+    local om = clu._omFirmwareKey and clu:_omFirmwareKey()
+    local omType = om and om:match("^(%w+)/")
+    local major = clu._firmwareMajor and clu:_firmwareMajor()
+    local version, follow
+    for _, row in ipairs(RemoteThermostat.FIRMWARE) do
+        if (row.om == nil or row.om == om) and (row.omType == nil or row.omType == omType)
+           and (row.major == nil or row.major == major) then
+            version = version or row.version
+            follow = follow or row.follow
+        end
+    end
+    -- proxies imported before #67 mark v1 with _version
+    return self._version or version, follow
+end
+
+--- Features to subscribe to (or poll), in report order, for the object version on its CLU.
 -- @return table Feature indexes
 function RemoteThermostat:subscribeFeatures()
-    local f = {RemoteThermostat.FEATURE_STATE, RemoteThermostat.FEATURE_MODE, RemoteThermostat.FEATURE_POINT,
-        RemoteThermostat.FEATURE_TARGET}
-    if self._version ~= 1 then f[#f + 1] = RemoteThermostat.FEATURE_CURRENT end
+    local version = self:_plan()
+    local f = {}
+    for i, index in ipairs(RemoteThermostat.FEATURES[version] or RemoteThermostat.FEATURES[2]) do f[i] = index end
     return f
 end
 

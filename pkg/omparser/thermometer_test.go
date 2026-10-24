@@ -3,6 +3,8 @@ package omparser
 import (
 	"strings"
 	"testing"
+
+	"github.com/Domktorymysli/vclu/pkg/lua"
 )
 
 // om.lua snippet with both thermometer flavours:
@@ -105,19 +107,43 @@ func TestGenerateThermometerProxy(t *testing.T) {
 	}
 }
 
-// Thermostat v1 (CLU firmware 197, 1f5) has no CurrentTemp: the import marks it.
-func TestGenerateThermostatV1(t *testing.T) {
-	for fw, want := range map[string]bool{"00000197": true, "000001f5": true, "000001f6": false, "00000198": false} {
-		om := strings.Replace(thermometerOM, "-- FwVersion 000001f6", "-- FwVersion "+fw, 1)
-		om = strings.Replace(om, "-- FwType ", "-- FwType 00000003\n-- was ", 1)
+// The proxy carries the CLU's FwType/FwVersion; with it RemoteThermostat picks the object
+// version from its firmware table: v1 (no CurrentTemp 14) on FwType 3 fv197 and fv1f5.
+func TestGenerateThermostatVersionFromFirmware(t *testing.T) {
+	cases := []struct{ fwType, fw, want string }{
+		{"00000003", "00000197", "6,8,3,12"},
+		{"00000003", "000001f5", "6,8,3,12"},
+		{"00000003", "000001f6", "6,8,3,12,14"},
+		{"00000004", "00000198", "6,8,3,12,14"},
+	}
+	for _, c := range cases {
+		om := strings.Replace(thermometerOM, "-- FwVersion 000001f6", "-- FwVersion "+c.fw, 1)
+		om = strings.Replace(om, "-- FwType 00000003", "-- FwType "+c.fwType, 1)
 		parsed, err := Parse(om)
 		if err != nil {
 			t.Fatalf("Parse: %v", err)
 		}
-		parsed.CLU.FwType = "00000003"
 		code := GenerateProxy(parsed, DefaultConfig())
-		if got := strings.Contains(code, ".aSalon._version = 1"); got != want {
-			t.Errorf("fw %s: _version = 1 is %v, want %v", fw, got, want)
+		wantLine := `CLU220000592._omFirmware = { type = "` + c.fwType + `", version = "` + c.fw + `" }`
+		if !strings.Contains(code, wantLine) {
+			t.Errorf("fw %s/%s: proxy missing %s", c.fwType, c.fw, wantLine)
+		}
+		if strings.Contains(code, "_version") {
+			t.Errorf("fw %s/%s: proxy sets _version; the firmware table decides", c.fwType, c.fw)
+		}
+
+		engine := lua.NewLuaEngine()
+		if _, err := engine.Execute(code); err != nil {
+			engine.Close()
+			t.Fatalf("fw %s/%s: run proxy: %v", c.fwType, c.fw, err)
+		}
+		got, err := engine.Execute(`return table.concat(dom.aSalon:subscribeFeatures(), ",")`)
+		engine.Close()
+		if err != nil {
+			t.Fatalf("fw %s/%s: %v", c.fwType, c.fw, err)
+		}
+		if got != c.want {
+			t.Errorf("fw %s/%s: features = %s, want %s", c.fwType, c.fw, got, c.want)
 		}
 	}
 }
