@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Domktorymysli/vclu/pkg/config"
+	"github.com/Domktorymysli/vclu/pkg/luastr"
 )
 
 // LuaExecutor interface for executing Lua scripts
@@ -477,41 +478,36 @@ func (l *Loader) LoadPlugin(pluginID string, pluginConfig map[string]interface{}
 	}
 
 	// 1. Create sandbox for the plugin
-	createSandboxScript := fmt.Sprintf(`PluginSandbox:create("%s")`, pluginID)
+	createSandboxScript := fmt.Sprintf(`PluginSandbox:create(%s)`, luastr.Quote(pluginID))
 	if _, err := l.luaExecutor.Execute(createSandboxScript); err != nil {
 		return fmt.Errorf("failed to create sandbox: %w", err)
 	}
 
 	// 2. Set plugin config in sandbox
 	configJSON, _ := json.Marshal(pluginConfig)
-	setConfigScript := fmt.Sprintf(`PluginSandbox:setConfig("%s", JSON:decode([[%s]]), "%s")`,
-		pluginID, string(configJSON), localDir)
+	setConfigScript := fmt.Sprintf(`PluginSandbox:setConfig(%s, JSON:decode(%s), %s)`,
+		luastr.Quote(pluginID), luastr.Quote(string(configJSON)), luastr.Quote(localDir))
 	if _, err := l.luaExecutor.Execute(setConfigScript); err != nil {
 		return fmt.Errorf("failed to set plugin config: %w", err)
 	}
 
 	// 3. Execute init.lua in sandbox
-	// Escape the code for Lua string literal
-	escapedCode := strings.ReplaceAll(string(initCode), "\\", "\\\\")
-	escapedCode = strings.ReplaceAll(escapedCode, "\"", "\\\"")
-	escapedCode = strings.ReplaceAll(escapedCode, "\n", "\\n")
-	escapedCode = strings.ReplaceAll(escapedCode, "\r", "")
-
-	executeScript := executeLua + "\n" + fmt.Sprintf(`execute("%s", "%s")`, pluginID, escapedCode)
+	code := strings.ReplaceAll(string(initCode), "\r", "")
+	executeScript := executeLua + "\n" + fmt.Sprintf(`execute(%s, %s)`, luastr.Quote(pluginID), luastr.Quote(code))
 
 	if _, err := l.executeAsPlugin(pluginID, executeScript); err != nil {
 		// Cleanup sandbox on failure
-		cleanupScript := fmt.Sprintf(`PluginSandbox:cleanup("%s")`, pluginID)
+		cleanupScript := fmt.Sprintf(`PluginSandbox:cleanup(%s)`, luastr.Quote(pluginID))
 		l.luaExecutor.Execute(cleanupScript)
 		return fmt.Errorf("failed to execute init.lua: %w", err)
 	}
 
 	// 4. Initialize plugin with config (triggers onInit callback)
-	initConfigScript := fmt.Sprintf(`Plugin.initFromConfig("%s", JSON:decode([[%s]]))`,
-		pluginID, string(configJSON))
+	initConfigScript := fmt.Sprintf(`Plugin.initFromConfig(%s, JSON:decode(%s))`,
+		luastr.Quote(pluginID), luastr.Quote(string(configJSON)))
 	if _, err := l.executeAsPlugin(pluginID, initConfigScript); err != nil {
 		// Cleanup sandbox on failure
-		cleanupScript := fmt.Sprintf(`PluginSandbox:cleanup("%s")`, pluginID)
+		cleanupScript := fmt.Sprintf(`PluginSandbox:cleanup(%s)`, luastr.Quote(pluginID))
 		l.luaExecutor.Execute(cleanupScript)
 		return fmt.Errorf("failed to init plugin with config: %w", err)
 	}
@@ -638,11 +634,11 @@ func (l *Loader) UnloadPlugin(pluginID string) error {
 
 	if l.luaExecutor != nil {
 		// 1. Call plugin's custom cleanup callback if defined
-		pluginCleanupScript := unloadLua + "\n" + fmt.Sprintf(`unload("%s")`, pluginID)
+		pluginCleanupScript := unloadLua + "\n" + fmt.Sprintf(`unload(%s)`, luastr.Quote(pluginID))
 		l.luaExecutor.Execute(pluginCleanupScript)
 
 		// 2. Cleanup sandbox (removes all tracked resources automatically)
-		sandboxCleanupScript := fmt.Sprintf(`PluginSandbox:cleanup("%s")`, pluginID)
+		sandboxCleanupScript := fmt.Sprintf(`PluginSandbox:cleanup(%s)`, luastr.Quote(pluginID))
 		l.luaExecutor.Execute(sandboxCleanupScript)
 	}
 
