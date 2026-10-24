@@ -778,19 +778,7 @@ func (s *Server) GetAccessories() []map[string]interface{} {
 // position for covers, the value otherwise. false when unknown (an object
 // that has not reported yet is not shown as off).
 func (s *Server) GetCurrentState(path string) (float64, bool) {
-	script := fmt.Sprintf(`
-		local h = ExposedObjects:get(%s)
-		if not h then return "nil" end
-		local o, v = h.object, nil
-		if h.type == "cover" and type(o) == "table" and type(o.getPosition) == "function" then
-			v = o:getPosition()
-		else
-			v = h:getValue()
-		end
-		if type(v) == "boolean" then v = v and 1 or 0 end
-		if type(v) ~= "number" then return "nil" end
-		return tostring(v)
-	`, luaString(path))
+	script := currentStateLua + "\n" + fmt.Sprintf("return currentState(%s)", luaString(path))
 
 	result, err := s.luaExecutor.Execute(script)
 	if err != nil {
