@@ -432,7 +432,7 @@ end
 --   min/max/step for a number or a climate (a climate's target is clamped to min/max),
 --   area, floor (the house model: lib/panel, section:area, dash:floor),
 --   panel/dashboard = false keeps it off panels/dashboards, true puts it on them outside kinds
---   (a dashboard has widgets only for light, switch, dimmer, cover, temperature, humidity, lock)
+--   (a dashboard has widgets only for light, switch, dimmer, cover, temperature, humidity, lock, climate)
 -- @return ExposedHandle Handle for managing the exposed object
 function ExposedObjects:expose(obj, objType, options)
     options = options or {}

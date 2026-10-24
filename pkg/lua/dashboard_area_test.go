@@ -186,7 +186,7 @@ func TestDashboardAreaChoosesDevices(t *testing.T) {
 		return out
 	}
 	// default kinds: no switch, no lock; dashboard = true adds the intercom, false hides one;
-	// a thermostat has no widget yet; panel = false does not concern dashboards
+	// a climate that is not a thermostat (no getTarget, setSetpoint) has no widget; panel = false does not concern dashboards
 	got := strings.Join(inSection(0), " ")
 	if got != "area:salon.domofon area:salon.kinkiet area:salon.panel area:salon.sufit area:salon.led area:salon.roleta area:salon.temp area:salon.wilg" {
 		t.Errorf("default section = %s", got)
@@ -298,7 +298,7 @@ func TestDashboardAreaErrors(t *testing.T) {
 	for _, c := range []struct{ code, want string }{
 		{`Dashboard.new('e'):section('S'):area(42)`, `section:area: expected an area name or a list of them, got number`},
 		{`Dashboard.new('e'):section('S'):area('Salon', { kind = { 'light' } })`, `section:area: unknown option "kind" (kinds, skip)`},
-		{`Dashboard.new('e'):section('S'):area('Salon', { kinds = { 'climate' } })`, `section:area: kind "climate" has no widget (light, switch, dimmer, cover, temperature, humidity, lock)`},
+		{`Dashboard.new('e'):section('S'):area('Salon', { kinds = { 'fan' } })`, `section:area: kind "fan" has no widget (light, switch, dimmer, cover, temperature, humidity, lock, climate)`},
 		{`Dashboard.new('e'):section('S'):area('Salon'):area('Kuchnia')`, `section:area: this section already shows an area`},
 		{`Dashboard.new('e'):floor()`, `dash:floor: expected a floor name, got nil`},
 		{`Dashboard.new('e'):section('S'):floor('Parter', { title = 'x' })`, `dash:floor: unknown option "title" (kinds, order, rooms, skip, titles)`},

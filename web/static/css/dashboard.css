@@ -606,6 +606,110 @@ body {
     display: none;
 }
 
+/* ---- Thermostat: the current temperature large, the target between - and + ---- */
+.dash-widget-thermostat {
+    cursor: default;
+}
+
+.dash-thermo {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.dash-thermo-current {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    line-height: 1;
+}
+
+.dash-thermo-current-value {
+    font-size: 2.4rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.dash-thermo-unit {
+    font-size: 1rem;
+    opacity: 0.6;
+}
+
+.dash-thermo-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.dash-thermo-target {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    line-height: 1.2;
+}
+
+.dash-thermo-target-label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    opacity: 0.6;
+}
+
+.dash-thermo-target-value {
+    font-size: 1.3rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+/* a value chosen or sent, not reported yet */
+.dash-thermo-pending .dash-thermo-target-value {
+    color: var(--tile-c);
+}
+
+/* large targets for a finger on a wall tablet */
+.dash-thermo-btn {
+    flex: none;
+    width: 56px;
+    height: 56px;
+    padding: 0;
+    border-radius: 50%;
+    border: 0;
+    background: rgba(128,128,128,0.16);
+    color: var(--dash-text);
+    font-size: 1.4rem;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s;
+    touch-action: manipulation;
+}
+
+.dash-thermo-btn:active {
+    background: rgba(128,128,128,0.3);
+}
+
+.dash-thermo-btn:focus-visible {
+    outline: 2px solid var(--tile-c);
+    outline-offset: 2px;
+}
+
+.dash-thermo-btn:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
+.dash-thermo-btn[hidden] {
+    display: none;
+}
+
+.dash-widget-thermostat.size-large .dash-thermo-current-value {
+    font-size: 3.2rem;
+}
+
 /* ---- Media player: the artwork on the left, texts, buttons and volume beside it ---- */
 .dash-widget-player {
     cursor: default;
@@ -1427,6 +1531,7 @@ body {
     .dash-grid > .dash-widget-covers,
     .dash-grid > .dash-widget-player,
     .dash-grid > .dash-widget-forecast,
+    .dash-grid > .dash-widget-thermostat,
     .dash-grid > .dash-widget-dimmer,
     .dash-grid > .dash-widget-color,
     .dash-grid > .dash-widget-calendar {
@@ -2105,6 +2210,8 @@ body.dash-room-open {
     .dash-player-btn:active { background: color-mix(in srgb, var(--dash-text) 18%, transparent); }
     .dash-player-idle .dash-player-btn.dash-player-play { background: color-mix(in srgb, var(--dash-text) 9%, transparent); }
     .dash-forecast-day { background: color-mix(in srgb, var(--dash-text) 5%, transparent); }
+    .dash-thermo-btn { background: color-mix(in srgb, var(--dash-text) 9%, transparent); }
+    .dash-thermo-btn:active { background: color-mix(in srgb, var(--dash-text) 18%, transparent); }
     .dash-forecast-icon { color: color-mix(in srgb, var(--tile-c) 75%, var(--dash-text)); }
     .dash-room-climate i { color: color-mix(in srgb, var(--tile-c) 75%, var(--dash-text)); opacity: 1; }
     .dash-room-back { background: color-mix(in srgb, var(--dash-text) 10%, transparent); }
