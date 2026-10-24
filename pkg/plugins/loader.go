@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Domktorymysli/vclu/pkg/config"
@@ -188,9 +189,16 @@ func (l *Loader) FetchRepositoryIndex(repo config.PluginRepository) (*Repository
 	return &index, nil
 }
 
+// downloadMu serialises downloads: the panel and the runtime each have a Loader on one
+// plugins dir, sharing the .tmp- dirs and the lock file.
+var downloadMu sync.Mutex
+
 // DownloadPlugin downloads a plugin from a repository
 // pluginID can be fullId (@vclu/weather) or short id (weather)
 func (l *Loader) DownloadPlugin(repo config.PluginRepository, pluginID string) error {
+	downloadMu.Lock()
+	defer downloadMu.Unlock()
+
 	// Parse fullId to get short id for repository lookup
 	_, shortId := parseFullId(pluginID)
 
@@ -224,10 +232,21 @@ func (l *Loader) DownloadPlugin(repo config.PluginRepository, pluginID string) e
 	targetDir := filepath.Join(l.pluginsDir, safeDir, version)
 	completeMarker := filepath.Join(targetDir, ".complete")
 
+	lockEntry := LockEntry{
+		Version: listing.Version,
+		GitTag:  listing.GitTag,
+		Path:    safeDir + "/" + version,
+	}
+
 	// Cache hit: immutable tag already downloaded
 	if listing.GitTag != "" {
 		if _, err := os.Stat(completeMarker); err == nil {
 			log.Printf("[PLUGINS] cached %s/%s, skipping download", safeDir, version)
+			// The lock may still name an older dir (a lost lock write)
+			if cur := l.ReadLockFile()[pluginID]; cur.Path != lockEntry.Path || cur.Version != lockEntry.Version {
+				lockEntry.LockedAt = time.Now().Format(time.RFC3339)
+				l.writeLockEntry(pluginID, lockEntry)
+			}
 			return nil
 		}
 	}
@@ -274,12 +293,8 @@ func (l *Loader) DownloadPlugin(repo config.PluginRepository, pluginID string) e
 	l.cleanupOldVersions(filepath.Join(l.pluginsDir, safeDir), version)
 
 	// Update lock file (after cleanup — lock never points to removed dir)
-	l.writeLockEntry(pluginID, LockEntry{
-		Version:  listing.Version,
-		GitTag:   listing.GitTag,
-		Path:     safeDir + "/" + version,
-		LockedAt: time.Now().Format(time.RFC3339),
-	})
+	lockEntry.LockedAt = time.Now().Format(time.RFC3339)
+	l.writeLockEntry(pluginID, lockEntry)
 
 	log.Printf("[PLUGINS] downloaded %s to %s", pluginID, targetDir)
 	return nil
