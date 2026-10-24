@@ -115,7 +115,7 @@ func (s *MCPServer) registerSandboxTools() {
 			},
 		}, []string{"path"})
 
-	s.addTool("vclu_draft_promote", "Promote drafts to production (backup + replace + reload). Omit path or pass \"all\" to promote all drafts atomically.", s.handleDraftPromote,
+	s.addTool("vclu_draft_promote", "Promote drafts to production (backup + replace + reload). Omit path or pass \"all\" to promote all drafts atomically. Files of one change (a module, its dashboard, the require in modules/init.lua) go in one call: one reload, and one of the promotes allowed per hour.", s.handleDraftPromote,
 		map[string]any{
 			"path": map[string]any{
 				"description": "Draft file path (string), array of paths, or \"all\" to promote everything. Omit to promote all drafts.",
@@ -443,10 +443,10 @@ func (s *MCPServer) handleDraftPromote(ctx context.Context, req mcplib.CallToolR
 		}
 	}
 
-	// Rate limit: max 10 promotes per hour
+	// Rate limit: every promote reloads the runtime; this stops a looping agent, not normal work
 	if !s.promoteLimiter.allow() {
 		s.addAudit(ctx, "promote", "", paths, "runtime", false, "rate limited")
-		return toolError("rate limit exceeded: max 10 promotes per hour"), nil
+		return toolError(fmt.Sprintf("rate limit exceeded: max %d promotes per hour; promote several drafts in one call (a path array or \"all\")", promotesPerHour)), nil
 	}
 
 	// Validate all drafts exist and pass validation
@@ -887,6 +887,10 @@ type rateLimiter struct {
 	max     int
 	history []time.Time
 }
+
+// promotesPerHour: each promote reloads the Lua runtime, so a looping agent is stopped at
+// one reload a minute on average; a person working with an agent does not reach it.
+const promotesPerHour = 60
 
 func newRateLimiter(window time.Duration, max int) *rateLimiter {
 	return &rateLimiter{window: window, max: max}
