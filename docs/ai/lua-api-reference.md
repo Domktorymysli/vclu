@@ -17,7 +17,7 @@ Only public API is listed — internal/private functions are omitted.
 - [core.Registry](#coreregistry) (10 functions)
 - [core.Metrics](#coremetrics) (1 functions)
 - [core.Calendar](#corecalendar) (36 functions)
-- [Dashboard](#dashboard) (59 functions)
+- [Dashboard](#dashboard) (64 functions)
 - [lib.panel](#libpanel) (55 functions)
 - [objects.RemotePanel](#objectsremotepanel) (6 functions)
 - [GPIO_DOUT](#gpio_dout) (1 functions)
@@ -1171,6 +1171,25 @@ Add a chip to the header: an icon and a short text from fn, hidden while fn retu
 - `fn` (function) — function() -> string|nil|{text=string, icon=string, color=string}; nil hides the chip
 - `opts` (table) — Optional: {color=string|function()->string|nil, link=URL or dashboard id, disabled=function()->bool}
 
+### `SectionHandle:area(area, opts)`
+
+Fill this section with a widget for every device expose() put in an area, picked by kind: a light, switch or lock a toggle, a dimmer a dimmer, an RGB light the colour widget, a cover a cover, temperature and humidity a status; lights first, then covers, then the rest by name. Filled when something is exposed or unexposed, so devices a plugin exposes later show up; widgets added by hand come after them; a read-only device's widget is disabled. Like the panel, expose(obj, type, { dashboard = false }) keeps an object off dashboards and dashboard = true puts one of those kinds on them even when kinds leaves it out (other kinds have no widget and log a warning). Widget ids are "area:" .. path, other bytes as %XX. Anyone who can open the dashboard controls what is exposed in the area later: use :auth('session') or 'pin'; access profiles of MQTT, HomeKit and MCP do not apply here.
+
+- `area` (string) — Area name, or a list of names (one room under two names)
+- `opts` (table) — Optional: {kinds={"light","dimmer","cover","temperature","humidity"} (also "switch", "lock"), skip={path, ...}}
+
+### `SectionHandle:floor(floor, opts)`
+
+Add one section per area on a floor (delegates to DashboardBuilder:floor).
+
+### `SectionHandle:room(id, area, opts)`
+
+Add a room tile: the area's name, how many lights and switches are on and covers open, its temperature and humidity ("Sypialnia · 2 włączone · 21,5 °C · 60 %"); a tap opens the room's widgets, chosen as section:area does (same kinds, skip and ids), over the page. Lights, dimmers and switches count as on above 0, covers as open above 0 or while moving; only what the room shows is counted. Temperature and humidity default to the area's devices of that kind (the average of several, left out with none).
+
+- `id` (string) — Unique widget identifier
+- `area` (string) — Area name, or a list of names (one room under two names)
+- `opts` (table) — Optional: {title=string, temperature=path|function()->number, humidity=path|function()->number, kinds, skip (as section:area), icon=string, link=dashboard id|/path|http(s) URL (opens it instead of the room), disabled=function()->bool (also disables the room's widgets), span=n, size=string, color=string}
+
 ### `SectionHandle:when(periods, fn)`
 
 Conditional block: only execute fn if current time matches any of the given periods.
@@ -1277,6 +1296,21 @@ Start a new named section for grouping widgets.
 - `opts` (table) — Optional: {columns=number, covers=true (the header counts the section's covers open, moving and closed)}
 
 **Returns:** SectionHandle Handle for adding widgets to this section
+
+### `DashboardBuilder:floor(floor, opts)`
+
+Add one section per area on a floor (expose(..., { area = "Salon", floor = "Parter" })), each filled as section:area; areas with nothing to show are left out. Read each time the dashboard is, so new areas show up. Start a section() to add widgets by hand after it. With rooms = true: one section named after the floor with a room tile per area (section:room).
+
+- `floor` (string) — Floor name
+- `opts` (table) — Optional: {order={area, ...} (first, in this order; the rest by name), titles={[area]=title}, kinds, skip, rooms=true}
+
+### `DashboardBuilder:room(id, area, opts)`
+
+Add a room tile to the current section (see SectionHandle:room).
+
+- `id` (string) — Unique widget identifier
+- `area` (string) — Area name, or a list of names
+- `opts` (table) — Optional: as SectionHandle:room
 
 ### `DashboardBuilder:button(id, label, icon, onTap, opts)`
 
@@ -1701,7 +1735,7 @@ A menu of the devices expose() put in an area, each with its row (Menu:add), nam
 
 ### `Panel.floor(floor, opts)`
 
-A menu of the areas on a floor (expose(..., { area = "Salon", floor = "Parter" })), each a Panel.area; areas with nothing for the panel are left out. Filled each time it opens. name), titles = { [area] = title }, kinds, skip }
+A menu of the areas on a floor (expose(..., { area = "Salon", floor = "Parter" })), each a Panel.area of that floor only (an area name may be on two floors); areas with nothing for the panel are left out. Filled each time it opens. name), titles = { [area] = title }, kinds, skip }
 
 - `floor` (string) — Floor name
 - `opts` (table) — |nil { title, order = { area, ... } (first, in this order; the rest by
