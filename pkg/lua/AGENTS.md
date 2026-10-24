@@ -124,7 +124,10 @@ are safe. A new firmware rule is a row there, not an `if`.
 `FIRMWARE_CHECK_SECONDS`); then the poll chain asks without blocking, and a CLU that turns
 out safe gets only its polled objects subscribed (`subscribeUpgraded`). The poll and renew
 chains wait for each other, so they never interleave on a CLU.
-Hardware test on CLU220000592 (04.08.05), one feature per fresh session: result pending (#67).
+Hardware test on CLU220000592 (04.08.05), 2026-10-24 (#67): no reset from each feature in its own
+fresh session, from one session with all five (or eight, batch 8), nor from a full `autoSubscribe`
+with both thermostats subscribed and renewed for two minutes. The 2026-10-19 resets did not come
+back, so their trigger is still unknown and 4.x stays polled.
 Feature 0 is Source (the sensor binding), so a thermostat must never be exposed as a switch:
 TypeMap makes `THERMOSTAT` a `climate`, and `ExposedHandle:setValue` on a climate calls
 `setSetpoint`, never `set(0)`.
