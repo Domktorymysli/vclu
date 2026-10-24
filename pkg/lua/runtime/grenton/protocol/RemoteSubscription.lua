@@ -138,8 +138,8 @@ end
 -- @return table Array of parsed values (numbers or strings for nested structures)
 local function parseValues(valuesStr)
     local values = {}
-    -- Remove outer braces if present
-    local clean = valuesStr:gsub("^{", ""):gsub("}$", "")
+    -- Remove outer braces if present; the CLU's answer can end with a newline
+    local clean = valuesStr:match("^%s*(.-)%s*$"):gsub("^{", ""):gsub("}$", "")
 
     Logger:getShared():debug("[parseValues] input: '%s' -> clean: '%s'", valuesStr, clean)
 
