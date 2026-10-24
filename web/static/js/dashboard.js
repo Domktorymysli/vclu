@@ -76,6 +76,7 @@
     function fmtNum(v, decimals) {
         if (typeof v !== 'number') return String(v);
         var s = decimals != null ? v.toFixed(decimals) : String(v);
+        if (Number(s) === 0) s = s.replace('-', ''); // -0.04 -> "0,0", not "-0,0"
         return lang === 'pl' ? s.replace('.', ',') : s;
     }
     function withUnit(v, unit, decimals) {

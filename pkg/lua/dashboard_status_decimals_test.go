@@ -54,3 +54,39 @@ func TestDashboardStatusDecimalsRefused(t *testing.T) {
 		}
 	}
 }
+
+// Both forms name the module's line, not Dashboard.lua; gopher-lua gives a chain its first line
+func TestDashboardStatusDecimalsErrorLine(t *testing.T) {
+	for line, script := range map[string]string{
+		"<string>:3: ": "local ok, err = pcall(function()\n" +
+			"  Dashboard.new('e')\n" +
+			"    :section('S', 'grid')\n" +
+			"    :status('a', 'L', 'x', function() return 1 end, 'W', { decimals = 7 })\n" +
+			"end) return tostring(err)",
+		"<string>:5: ": "local ok, err = pcall(function()\n" +
+			"  local b = Dashboard.new('e')\n" +
+			"  b:section('S', 'grid')\n" +
+			"  b:status('a', 'L', 'x', function() return 1 end, 'W', { decimals = 7 })\n" +
+			"end) return tostring(err)",
+	} {
+		engine := NewLuaEngine()
+		res := mustExec(t, engine, "_dashboards = {}\n"+script)
+		engine.Close()
+		if !strings.Contains(res, line) || !strings.Contains(res, "opts.decimals") {
+			t.Errorf("error = %s", res)
+		}
+	}
+}
+
+// A status from section:area has no opts.decimals and keeps its value as it is
+func TestDashboardAreaStatusWithoutDecimals(t *testing.T) {
+	engine := newAreaEngine(t, `
+		Dashboard.new('salon'):section('Salon', 'house'):area('Salon', { kinds = { 'temperature', 'humidity' } }):build()
+	`)
+	def := areaDef(t, engine, "salon")
+	for _, id := range []string{"area:salon.temp", "area:salon.wilg"} {
+		if w := def.widget(id); w["type"] != "status" || w["decimals"] != nil {
+			t.Errorf("%s = %v", id, w)
+		}
+	}
+}
