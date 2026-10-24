@@ -615,6 +615,8 @@ body {
     display: flex;
     flex-direction: column;
     gap: 10px;
+    /* a narrow tile (four columns, a room view) shrinks the buttons and the numbers */
+    container-type: inline-size;
 }
 
 .dash-thermo-current {
@@ -661,6 +663,7 @@ body {
     font-size: 1.3rem;
     font-weight: 600;
     font-variant-numeric: tabular-nums;
+    white-space: nowrap;
 }
 
 /* a value chosen or sent, not reported yet */
@@ -671,8 +674,8 @@ body {
 /* large targets for a finger on a wall tablet */
 .dash-thermo-btn {
     flex: none;
-    width: 56px;
-    height: 56px;
+    width: max(40px, min(56px, 24%));
+    aspect-ratio: 1;
     padding: 0;
     border-radius: 50%;
     border: 0;
@@ -708,6 +711,12 @@ body {
 
 .dash-widget-thermostat.size-large .dash-thermo-current-value {
     font-size: 3.2rem;
+}
+
+@container (max-width: 230px) {
+    .dash-thermo-current-value { font-size: 2rem; }
+    .dash-thermo-target-value { font-size: 1.1rem; }
+    .dash-thermo-btn { font-size: 1.2rem; }
 }
 
 /* ---- Media player: the artwork on the left, texts, buttons and volume beside it ---- */
