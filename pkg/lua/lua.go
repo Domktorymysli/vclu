@@ -17,6 +17,7 @@ import (
 
 	"github.com/Domktorymysli/vclu/pkg/camera"
 	"github.com/Domktorymysli/vclu/pkg/history"
+	"github.com/Domktorymysli/vclu/pkg/luastr"
 	"github.com/Domktorymysli/vclu/pkg/metrics"
 	"github.com/Domktorymysli/vclu/pkg/plugins"
 	lua "github.com/yuin/gopher-lua"
@@ -451,7 +452,7 @@ func (le *LuaEngine) LoadCLUData(dataPath string) error {
 
 	// Update Lua package.path
 	packagePath := fmt.Sprintf("%s/?.lua;", absPath)
-	_, err = le.Execute(fmt.Sprintf(`package.path = "%s" .. package.path`, packagePath))
+	_, err = le.Execute(fmt.Sprintf(`package.path = %s .. package.path`, luastr.Quote(packagePath)))
 	if err != nil {
 		return fmt.Errorf("failed to load lua package: %w", err)
 	}
@@ -569,7 +570,7 @@ func (le *LuaEngine) LoadUserModules(serverDir string) []ModuleLoadResult {
 	// package.path is anchored ON modules/, so require() paths are relative to it:
 	// modules/dashboards/home.lua is require("dashboards/home") or require("dashboards.home").
 	modulesPackagePath := fmt.Sprintf("%s/?.lua;%s/?/init.lua;", absModulesPath, absModulesPath)
-	_, err = le.Execute(fmt.Sprintf(`package.path = "%s" .. package.path`, modulesPackagePath))
+	_, err = le.Execute(fmt.Sprintf(`package.path = %s .. package.path`, luastr.Quote(modulesPackagePath)))
 	if err != nil {
 		log.Printf("[LUA] failed to update package.path: %v", err)
 		return le.setLastModuleLoad([]ModuleLoadResult{
