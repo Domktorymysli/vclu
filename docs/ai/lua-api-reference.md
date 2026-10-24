@@ -5,7 +5,7 @@ Only public API is listed — internal/private functions are omitted.
 
 ## Table of Contents
 
-- [utils.Helpers](#utilshelpers) (20 functions)
+- [utils.Helpers](#utilshelpers) (21 functions)
 - [objects.VirtualSwitch](#objectsvirtualswitch) (12 functions)
 - [objects.VirtualDimmer](#objectsvirtualdimmer) (14 functions)
 - [objects.VirtualNumber](#objectsvirtualnumber) (4 functions)
@@ -70,6 +70,14 @@ Round number to given precision
 - `decimals` (number) — Number of decimal places (default 0)
 
 **Returns:** number Rounded value
+
+### `optional(name) → any|nil The module, or nil`
+
+A module that may be missing: what require(name) gives, or nil when the module is not there or gives nothing (a module whose plugin is not installed returns nil, and require then gives true). A module that fails while loading is nil too, with its error in the log. local pogoda = optional("pogoda") if pogoda then ... end
+
+- `name` (string) — Module path relative to modules/ (e.g. "pogoda", "energia/power")
+
+**Returns:** any|nil The module, or nil
 
 ### `after(ms, callback) → number Timer ID`
 

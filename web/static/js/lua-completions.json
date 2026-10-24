@@ -357,6 +357,14 @@
       "insertTextRules": 4
     },
     {
+      "label": "optional",
+      "kind": "function",
+      "detail": "(name: string): any",
+      "documentation": "require a module that may be missing: nil when it is not there or gives nothing (its plugin not installed); a module that fails is nil with its error in the log",
+      "insertText": "optional(\"${1:name}\")",
+      "insertTextRules": 4
+    },
+    {
       "label": "clamp",
       "kind": "function",
       "detail": "(value: number, min: number, max: number): number",

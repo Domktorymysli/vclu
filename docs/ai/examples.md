@@ -1129,14 +1129,20 @@ return M
 
 ```lua
 -- modules/dashboards/pogoda.lua
-local pogoda = require("pogoda")
-if type(pogoda) ~= "table" then return end   -- module skipped: require gives true
+local pogoda = optional("pogoda")
+if not pogoda then return end   -- module skipped (no plugin): nothing to draw
 
 Dashboard.new("pogoda"):name("Pogoda"):icon("cloud-sun")
     :header()
     :status("temp", "Temperatura", "thermometer-half", pogoda.temp, "°C")
 -- ... sections, then build()
 ```
+
+`optional(name)` is `require` for a module that may be missing: nil when the module is not
+there or returns nothing (a plain `require` then gives `true`, and `pogoda.temp` fails on a
+boolean); a module that is there and fails while loading is nil too, with its error in the log.
+A dashboard that reads several domain modules takes each with `optional` and leaves out the
+sections of the missing ones (`if pogoda then ... end`).
 
 Each file = one module. Name = snake_case.
 user.lua and om.lua are OM files — NEVER modify them, they will be overwritten.

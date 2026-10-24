@@ -90,6 +90,31 @@ function round(value, decimals)
 end
 
 -- ============================================
+-- Modules
+-- ============================================
+
+--- A module that may be missing: what require(name) gives, or nil when the module is not there
+-- or gives nothing (a module whose plugin is not installed returns nil, and require then gives
+-- true). A module that fails while loading is nil too, with its error in the log.
+--   local pogoda = optional("pogoda")
+--   if pogoda then ... end
+-- @api public
+-- @param name string Module path relative to modules/ (e.g. "pogoda", "energia/power")
+-- @return any|nil The module, or nil
+function optional(name)
+    local ok, m = pcall(require, name)
+    if not ok then
+        -- not there is fine; a module that exists and fails is not
+        if not tostring(m):find("module " .. tostring(name) .. " not found", 1, true) then
+            Logger:getShared():warn("[MODULES] optional(%q): %s", tostring(name), tostring(m))
+        end
+        return nil
+    end
+    if m == true then return nil end
+    return m
+end
+
+-- ============================================
 -- Timer helpers (requires Go timer support)
 -- ============================================
 
