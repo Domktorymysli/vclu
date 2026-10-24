@@ -344,7 +344,7 @@ CLU220000592:executeNoReply(0, "SetThermostat(19)")
 ## Dashboard (Lua-defined)
 
 Public dashboard for a tablet/wall. Defined in Lua, available at `/d/:id`.
-Widget types: button, toggle, slider, status, link, select, chart, image, group, cover, covers, dimmer, color, calendar, player, forecast; in the header also chip.
+Widget types: button, toggle, slider, status, link, select, chart, image, group, cover, covers, dimmer, color, thermostat, calendar, player, forecast; in the header also chip.
 `:calendar(id, label, cal, { view = 'month' | 'day', tags = {...}, schedules = { 'taryfa' } })` shows a calendar
 built with `Calendar`: a month grid and the day of a tapped date (full width); `schedules` adds a 24 h bar per schedule (`schedules = true`: all of the calendar's)
 to the day view; `holidays` (holiday names, default on), `namedays` (name days in the day view, default off) and
@@ -463,13 +463,15 @@ expose(pompa, 'switch', { area = 'Kotłownia', dashboard = false })   -- never o
 ```
 
 - **Widgets:** light, switch, lock a toggle; dimmer a dimmer; RGB light the colour widget; cover a
-  cover; temperature and humidity a status. A thermostat gets none yet. Labels are `name` from
+  cover; temperature and humidity a status; a thermostat (`climate`) the thermostat widget, only
+  through `kinds = { ..., 'climate' }` or `dashboard = true`, with `min`/`max` of the expose
+  options (default 5-35). Labels are `name` from
   `expose()`; lights first, then covers, then the rest by name; a `readonly` device is disabled.
 - **Ids** are `area:` + the path (`area:CLU220000592.DOU0789`, bytes other than letters, digits
   and `._:-` as `%XX`), the same after a reload; ids starting with `area:` cannot be given by hand.
 - `dashboard = true` adds a device of a kind that has a widget (light, switch, dimmer, RGB light,
-  cover, temperature, humidity, lock) even when `kinds` leaves it out; other kinds (a thermostat,
-  a sensor, a scene) get no widget and a warning in the log. It is separate from
+  cover, temperature, humidity, lock, thermostat) even when `kinds` leaves it out; other kinds (a
+  sensor, a scene) get no widget and a warning in the log. It is separate from
   `panel = false/true`: a device can be on the wall tablet and not on the Smart Panel, or the
   other way.
 - **Access:** whoever can open the dashboard controls everything exposed into the area later,
@@ -566,6 +568,55 @@ and, when a cover reports a slat angle (`getTilt`), a slat slider 0-90°. The ti
 - The position slider calls `setPosition` on the covers that have a position, the slat slider
   `setTilt` only on those that report a tilt.
 - opts: `icon` (default `window`), `disabled`, `span`, `size`, `color`.
+
+### Thermostat
+
+`:thermostat(id, label, icon, fns, opts)` shows the current temperature large and the target
+between `-` and `+`. `fns` is a table of functions, or a Grenton thermostat (`RemoteThermostat`).
+
+```lua
+local th = _:get("CLU220000592.THE0855")
+
+:section('Ogrzewanie', 'thermometer-half')
+  :thermostat('salon', 'Salon', nil, th, { min = 16, max = 26 })       -- a Grenton thermostat
+  :thermostat('lazienka', 'Łazienka', nil, th2, { readonly = true })   -- shows only
+  -- anything else: getCurrent and getTarget required, the rest optional
+  :thermostat('pietro', 'Piętro', 'fire', {
+      getCurrent = function() return _:value("CLU220000592.ANA0001") end,
+      getTarget = function() return piec:target() end,
+      setTarget = function(v) piec:setTarget(v) end,          -- none: read-only
+      getState = function() return piec:isHeating() end,      -- 1/true on, 0/false off
+  }, { step = 1, max = 24 })
+```
+
+- **"--" until the first report:** a function returning nil (a thermostat not reported yet) shows
+  "--", never 0; `+`/`-` wait for a reported target.
+- **One set per series of taps:** each tap moves the target by `step` (default 0.5) within
+  `min`..`max` (default 5-35); `setTarget` is called once, 1 s after the last tap. The chosen value
+  stays on the tile until the thermostat reports another target, at most 90 s (a CLU confirms a
+  set point late), as `lib/panel` does.
+- **Read-only:** without `setTarget`, or with `readonly = true`, the tile has no buttons and the
+  action endpoint refuses a set. It also refuses a value that is not a number or is outside
+  `min`..`max`.
+- **Lock that can be lifted:** `readonly` may be a function, read on every refresh and set. While it
+  returns true the buttons go and the state line says "zablokowany"; when it returns false they
+  come back. A toggle on the same dashboard can unlock the thermostat for a while:
+
+  ```lua
+  local unlocked = false
+  :section('Ogrzewanie', 'thermometer-half')
+    :toggle('odblokuj', 'Zmiana temperatury', 'unlock',
+        function() return unlocked end,
+        function(on) unlocked = on end)
+    :thermostat('salon', 'Salon', nil, th, { min = 20, max = 22, step = 0.1,
+        readonly = function() return not unlocked end })
+  ```
+- **Modes:** with `getMode` (0 manual, 1 holiday, 2 schedule, 3 heat-up) the target is written only
+  in manual mode; on holiday or schedule the buttons go and the state line says the mode
+  ("włączony · harmonogram"). A `RemoteThermostat` maps to `getCurrent = getValue`, `getTarget`,
+  `setTarget = setSetpoint`, `getState`, `getMode`; the target shown is what the CLU reports.
+- opts: `min`, `max`, `step`, `unit` (default `°C`), `readonly` (true or a function), `disabled`, `span`, `size`, `color`.
+  Full width on a phone.
 
 ### Media player (MusicCast or any player)
 

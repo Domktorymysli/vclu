@@ -17,14 +17,14 @@ Only public API is listed — internal/private functions are omitted.
 - [core.Registry](#coreregistry) (10 functions)
 - [core.Metrics](#coremetrics) (1 functions)
 - [core.Calendar](#corecalendar) (36 functions)
-- [Dashboard](#dashboard) (64 functions)
+- [Dashboard](#dashboard) (66 functions)
 - [lib.panel](#libpanel) (55 functions)
 - [objects.RemotePanel](#objectsremotepanel) (6 functions)
 - [GPIO_DOUT](#gpio_dout) (1 functions)
 - [GPIO_DIN](#gpio_din) (1 functions)
 - [integrations.mqtt.MqttClient](#integrationsmqttmqttclient) (30 functions)
-- [lib.tasmota](#libtasmota) (5 functions)
 - [grenton.CLU_REMOTE](#grentonclu_remote) (1 functions)
+- [lib.tasmota](#libtasmota) (5 functions)
 
 ---
 
@@ -1163,6 +1163,16 @@ Add a color picker widget to this section. switchOn?, switchOff?, isOn?, getWhit
 - `fns` (table) — {getColor=function()->{r,g,b}, setColor=function(r,g,b), get?/set? brightness 0-100,
 - `opts` (table) — Optional: {disabled=function()->bool}
 
+### `SectionHandle:thermostat(id, label, icon, fns, opts)`
+
+Add a thermostat: current temperature, target and +/- for the target. getState=function()->number|bool? (1/true active, 0/false off), getMode=function()->number? (0 manual, 1 holiday, 2 schedule, 3 heat-up)}, or a thermostat object (RemoteThermostat: getValue, getTarget, setSetpoint, getState, getMode) Shows the current temperature and the target ("--" until reported); + and - change the target by step and setTarget is called once, 1 s after the last tap; the chosen value shows until the thermostat reports a new target, at most 90 s. Without setTarget (or opts.readonly) there are no buttons; with getMode the target is set only in manual mode (0), as lib/panel does. The action endpoint refuses a set outside min..max.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `icon` (string) — |nil Bootstrap icon name (default "thermometer-half")
+- `fns` (table) — {getCurrent=function()->number|nil, getTarget=function()->number|nil, setTarget=function(number)?,
+- `opts` (table) — Optional: {min=5, max=35, step=0.5, unit="°C", readonly=bool or function()->bool (true: no buttons; a function locks them while it returns true), disabled=function()->bool, span=n, size=string, color=string}
+
 ### `SectionHandle:chip(id, icon, fn, opts)`
 
 Add a chip to the header: an icon and a short text from fn, hidden while fn returns nil.
@@ -1469,6 +1479,16 @@ Add a color picker widget to the current section. switchOn?, switchOff?, isOn?, 
 - `icon` (string) — Bootstrap icon name (e.g., "palette")
 - `fns` (table) — {getColor=function()->{r,g,b}, setColor=function(r,g,b), get?/set? brightness 0-100,
 - `opts` (table) — Optional: {disabled=function()->bool}
+
+### `DashboardBuilder:thermostat(id, label, icon, fns, opts)`
+
+Add a thermostat to the current section: current temperature, target and +/- for the target. getState=function()->number|bool? (1/true active, 0/false off), getMode=function()->number? (0 manual, 1 holiday, 2 schedule, 3 heat-up)}, or a thermostat object (RemoteThermostat: getValue, getTarget, setSetpoint, getState, getMode) Shows the current temperature and the target ("--" until reported); + and - change the target by step and setTarget is called once, 1 s after the last tap; the chosen value shows until the thermostat reports a new target, at most 90 s. Without setTarget (or opts.readonly) there are no buttons; with getMode the target is set only in manual mode (0), as lib/panel does. The action endpoint refuses a set outside min..max.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `icon` (string) — |nil Bootstrap icon name (default "thermometer-half")
+- `fns` (table) — {getCurrent=function()->number|nil, getTarget=function()->number|nil, setTarget=function(number)?,
+- `opts` (table) — Optional: {min=5, max=35, step=0.5, unit="°C", readonly=bool or function()->bool (true: no buttons; a function locks them while it returns true), disabled=function()->bool, span=n, size=string, color=string}
 
 ### `DashboardBuilder:when(periods, fn)`
 
@@ -2097,6 +2117,16 @@ Publish state update for object
 
 ---
 
+## grenton.CLU_REMOTE
+
+### `CLU_REMOTE:firmware() → string|nil Firmware version`
+
+The firmware the CLU reported for get(17), e.g. "04.08.05" or "05.15.12-2607". Asked when its objects are subscribed; nil until the CLU answered.
+
+**Returns:** string|nil Firmware version
+
+---
+
 ## lib.tasmota
 
 ### `M.switch(topic, opts) → VirtualSwitch`
@@ -2140,16 +2170,6 @@ Whether the device is online (its LWT is Online).
 Tasmota devices seen on MQTT discovery (tasmota/discovery/<mac>/config), sorted by topic. Nothing is created from them; add a device with a line in a module.
 
 **Returns:** table list of { topic, name, device, relays, lights, ip, mac }
-
----
-
-## grenton.CLU_REMOTE
-
-### `CLU_REMOTE:firmware() → string|nil Firmware version`
-
-The firmware the CLU reported for get(17), e.g. "04.08.05" or "05.15.12-2607". Asked when its objects are subscribed; nil until the CLU answered.
-
-**Returns:** string|nil Firmware version
 
 ---
 
