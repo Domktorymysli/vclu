@@ -119,7 +119,7 @@ func TestDownloadPluginStaysInsidePluginsDir(t *testing.T) {
 					w.WriteHeader(http.StatusNotFound)
 					return
 				}
-				w.Write([]byte(content))
+				_, _ = w.Write([]byte(content))
 			}))
 			defer ts.Close()
 
