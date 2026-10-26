@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -122,6 +123,29 @@ func safePluginDir(fullId string) string {
 	return shortId
 }
 
+// pathNameRe: one path segment from a repository (namespace, id, version, file name)
+var pathNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
+// validPathName: a repository is not trusted, its names never leave the plugins directory
+func validPathName(name string) bool {
+	return pathNameRe.MatchString(name) && !strings.Contains(name, "..")
+}
+
+func validPluginID(pluginID string) bool {
+	namespace, shortId := parseFullId(pluginID)
+	if strings.HasPrefix(pluginID, "@") && namespace == "" {
+		return false
+	}
+	return (namespace == "" || validPathName(namespace)) && validPathName(shortId)
+}
+
+// insidePluginsDir: dir is under the plugins directory, not the directory itself
+func (l *Loader) insidePluginsDir(dir string) bool {
+	rel, err := filepath.Rel(l.pluginsDir, dir)
+	return err == nil && rel != "." && !filepath.IsAbs(rel) &&
+		rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
 // LoadedPlugin represents a plugin that's been loaded into memory
 type LoadedPlugin struct {
 	Manifest  PluginManifest
@@ -216,6 +240,9 @@ func (l *Loader) downloadPlugin(repo config.PluginRepository, pluginID, newerTha
 	downloadMu.Lock()
 	defer downloadMu.Unlock()
 
+	if !validPluginID(pluginID) {
+		return fmt.Errorf("invalid plugin id %q", pluginID)
+	}
 	// Parse fullId to get short id for repository lookup
 	_, shortId := parseFullId(pluginID)
 
@@ -249,6 +276,9 @@ func (l *Loader) downloadPlugin(repo config.PluginRepository, pluginID, newerTha
 	version := listing.Version
 	if listing.GitTag == "" {
 		version = "latest"
+	}
+	if !validPathName(version) {
+		return fmt.Errorf("invalid version %q of %s", listing.Version, pluginID)
 	}
 
 	targetDir := filepath.Join(l.pluginsDir, safeDir, version)
@@ -350,6 +380,9 @@ func (l *Loader) downloadAllFiles(baseURL, localDir string) error {
 
 	// 4. Download all files from the list
 	for _, filename := range files {
+		if !validPathName(filename) {
+			return fmt.Errorf("invalid file name %q in plugin.json", filename)
+		}
 		fileURL := baseURL + "/" + filename
 		localPath := filepath.Join(localDir, filename)
 
@@ -364,6 +397,10 @@ func (l *Loader) downloadAllFiles(baseURL, localDir string) error {
 // cleanupOldVersions removes the version directories older than currentVersion, the version
 // just downloaded into currentDir ("latest" for an untagged plugin)
 func (l *Loader) cleanupOldVersions(pluginBaseDir, currentDir, currentVersion string) {
+	if !l.insidePluginsDir(pluginBaseDir) {
+		log.Printf("[PLUGINS] WARNING: %s is outside the plugins directory, not cleaned up", pluginBaseDir)
+		return
+	}
 	entries, err := os.ReadDir(pluginBaseDir)
 	if err != nil {
 		return
@@ -415,11 +452,17 @@ func (l *Loader) downloadFile(url, localPath string) error {
 // resolvePluginDir returns the local directory for a plugin's files.
 // Checks lock file first, then scans for versioned dirs, then falls back to flat dir.
 func (l *Loader) resolvePluginDir(pluginID string) string {
+	// an id from an older config may hold ../: a directory that does not exist, inside plugins/
+	if !validPluginID(pluginID) {
+		return filepath.Join(l.pluginsDir, ".invalid-id")
+	}
 	// 1. Check lock file
 	lock := l.ReadLockFile()
 	if entry, ok := lock[pluginID]; ok {
 		dir := filepath.Join(l.pluginsDir, entry.Path)
-		if _, err := os.Stat(filepath.Join(dir, "plugin.json")); err == nil {
+		if !l.insidePluginsDir(dir) {
+			log.Printf("[PLUGINS] WARNING: lock entry of %s points outside the plugins directory", pluginID)
+		} else if _, err := os.Stat(filepath.Join(dir, "plugin.json")); err == nil {
 			return dir
 		}
 	}
@@ -754,10 +797,10 @@ func (l *Loader) LoadAllEnabled() error {
 	return nil
 }
 
-// findRepository finds a repository by name
+// findRepository finds an enabled repository by name
 func (l *Loader) findRepository(repos []config.PluginRepository, name string) *config.PluginRepository {
 	for i := range repos {
-		if repos[i].Name == name {
+		if repos[i].Name == name && repos[i].Enabled {
 			return &repos[i]
 		}
 	}

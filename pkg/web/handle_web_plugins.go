@@ -294,7 +294,7 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 	// Find repository
 	var targetRepo *config.PluginRepository
 	for i := range masterConfig.Plugins.Repositories {
-		if masterConfig.Plugins.Repositories[i].Name == req.Repository {
+		if masterConfig.Plugins.Repositories[i].Name == req.Repository && masterConfig.Plugins.Repositories[i].Enabled {
 			targetRepo = &masterConfig.Plugins.Repositories[i]
 			break
 		}
