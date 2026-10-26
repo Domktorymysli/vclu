@@ -5,9 +5,10 @@ import (
 	"testing"
 )
 
-// A CLU (CLU_REMOTE) that answers get(17) with FW.version (or an error when nil), a
-// thermostat and a switch on the Sync list. Every message sent is in SENT, in order; async
-// gets are answered at once from VALUES, the poll's spacing goes through stubbed timeouts.
+// A CLU (CLU_REMOTE) that answers get(17) with FW.version (or an error when nil; FW.raw as
+// it is when set), a thermostat and a switch on the Sync list. Every message sent is in
+// SENT, in order; async gets are answered at once from VALUES, the poll's spacing goes
+// through stubbed timeouts.
 const firmwareHarness = `
 SENT = {}
 FW = { version = "04.08.05", fail = false }
@@ -18,6 +19,7 @@ OFFLINE = { on = false }
 local function answer(script)
 	if OFFLINE.on then return nil, "timeout" end
 	if script:match("^CLU220000592:get%(17%)$") then
+		if FW.raw then return FW.raw, nil end
 		if FW.version == nil then return nil, "timeout" end
 		return '"' .. FW.version .. '"', nil
 	end

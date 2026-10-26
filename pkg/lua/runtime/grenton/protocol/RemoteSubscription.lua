@@ -465,9 +465,12 @@ local function logPlan(cluSerial, obj)
     local clu = obj._clu
     local version, follow = obj:_plan()
     local fw = clu.firmware and clu:firmware()
+    if not fw then
+        fw = clu._firmwareAnswered and "unknown, answer to get(17) is not a version" or "unknown, no answer to get(17)"
+    end
     local om = clu._omFirmwareKey and clu:_omFirmwareKey()
     local line = string.format("CLU %s firmware %s (om.lua %s): %s v%s, %s", tostring(cluSerial),
-        fw or "unknown, no answer to get(17)", om or "-", tostring(obj._type), tostring(version), tostring(follow))
+        fw, om or "-", tostring(obj._type), tostring(version), tostring(follow))
     local key = tostring(cluSerial) .. "/" .. tostring(obj._type)
     if RemoteSubscription._planLogged[key] ~= line then
         RemoteSubscription._planLogged[key] = line
@@ -852,8 +855,9 @@ end
 --- Reads every feature of the polled objects with get, one message at a time spaced by
 -- batchDelay, and applies the values as a report would. A CLU whose firmware is not known
 -- is asked first; when the answer makes its objects subscribable, they are subscribed at
--- the end of the run (subscribeUpgraded), not read.
--- A CLU that does not answer is skipped for the rest of the run and its firmware forgotten.
+-- the end of the run (subscribeUpgraded), not read; an answer that is not a version keeps
+-- them polled. A CLU that does not answer is skipped for the rest of the run and its
+-- firmware forgotten.
 function RemoteSubscription.pollAll()
     if not RemoteSubscription.config.enabled or not next(RemoteSubscription.polled) then return end
 
@@ -929,8 +933,8 @@ function RemoteSubscription.pollAll()
         end
 
         if st.firmware then
-            st.clu:_checkFirmwareAsync(function(fw)
-                if not fw then
+            st.clu:_checkFirmwareAsync(function(fw, answered)
+                if not answered then
                     run.down[st.clu] = true
                 else
                     -- an error here must not stop the chain: a waiting renew depends on it
