@@ -13,6 +13,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+var errPluginNotFound = &configError{http.StatusNotFound, "Plugin not found"}
+
 // PluginRegistryResponse represents the plugins.json from a repository
 type PluginRegistryResponse struct {
 	Version     int              `json:"version"`
@@ -97,35 +99,35 @@ func (s *Server) handlePluginsAPIAddRepository(c *gin.Context) {
 		return
 	}
 
-	masterConfig, _ := config.ReadMasterConfig(s.serverDir)
-	if masterConfig == nil {
-		masterConfig = &config.VCLUConfig{}
-	}
-	if masterConfig.Plugins == nil {
-		masterConfig.Plugins = config.DefaultPluginsConfig()
-	}
-
-	// Check if repo with same name or URL exists
-	for _, repo := range masterConfig.Plugins.Repositories {
-		if repo.Name == req.Name {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Repository with this name already exists"})
-			return
+	err := config.UpdateMasterConfig(s.serverDir, func(masterConfig *config.VCLUConfig) error {
+		if masterConfig.Plugins == nil {
+			masterConfig.Plugins = config.DefaultPluginsConfig()
 		}
-		if repo.URL == req.URL {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Repository with this URL already exists"})
-			return
-		}
-	}
 
-	// Add new repository
-	masterConfig.Plugins.Repositories = append(masterConfig.Plugins.Repositories, config.PluginRepository{
-		Name:    req.Name,
-		URL:     req.URL,
-		Enabled: true,
-		Default: false,
+		// Check if repo with same name or URL exists
+		for _, repo := range masterConfig.Plugins.Repositories {
+			if repo.Name == req.Name {
+				return &configError{http.StatusBadRequest, "Repository with this name already exists"}
+			}
+			if repo.URL == req.URL {
+				return &configError{http.StatusBadRequest, "Repository with this URL already exists"}
+			}
+		}
+
+		// Add new repository
+		masterConfig.Plugins.Repositories = append(masterConfig.Plugins.Repositories, config.PluginRepository{
+			Name:    req.Name,
+			URL:     req.URL,
+			Enabled: true,
+			Default: false,
+		})
+		return nil
 	})
-
-	if err := config.WriteMasterConfig(s.serverDir, masterConfig); err != nil {
+	if ce, ok := asConfigError(err); ok {
+		c.JSON(ce.status, gin.H{"error": ce.msg})
+		return
+	}
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save config"})
 		return
 	}
@@ -137,35 +139,38 @@ func (s *Server) handlePluginsAPIAddRepository(c *gin.Context) {
 func (s *Server) handlePluginsAPIRemoveRepository(c *gin.Context) {
 	name := c.Param("name")
 
-	masterConfig, _ := config.ReadMasterConfig(s.serverDir)
-	if masterConfig == nil || masterConfig.Plugins == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Repository not found"})
-		return
-	}
-
-	// Find and remove repository
-	var newRepos []config.PluginRepository
-	found := false
-	for _, repo := range masterConfig.Plugins.Repositories {
-		if repo.Name == name {
-			found = true
-			if repo.Default {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot remove default repository"})
-				return
-			}
-			continue
+	errRepoNotFound := &configError{http.StatusNotFound, "Repository not found"}
+	err := config.UpdateMasterConfig(s.serverDir, func(masterConfig *config.VCLUConfig) error {
+		if masterConfig.Plugins == nil {
+			return errRepoNotFound
 		}
-		newRepos = append(newRepos, repo)
-	}
 
-	if !found {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Repository not found"})
+		// Find and remove repository
+		var newRepos []config.PluginRepository
+		found := false
+		for _, repo := range masterConfig.Plugins.Repositories {
+			if repo.Name == name {
+				found = true
+				if repo.Default {
+					return &configError{http.StatusBadRequest, "Cannot remove default repository"}
+				}
+				continue
+			}
+			newRepos = append(newRepos, repo)
+		}
+
+		if !found {
+			return errRepoNotFound
+		}
+
+		masterConfig.Plugins.Repositories = newRepos
+		return nil
+	})
+	if ce, ok := asConfigError(err); ok {
+		c.JSON(ce.status, gin.H{"error": ce.msg})
 		return
 	}
-
-	masterConfig.Plugins.Repositories = newRepos
-
-	if err := config.WriteMasterConfig(s.serverDir, masterConfig); err != nil {
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save config"})
 		return
 	}
@@ -335,69 +340,74 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 		return
 	}
 
-	// Check if already installed
-	for i, inst := range masterConfig.Plugins.Installed {
-		if inst.ID == fullId {
-			// Update version
-			masterConfig.Plugins.Installed[i].Version = pluginMeta.Version
-			masterConfig.Plugins.Installed[i].InstalledAt = time.Now().Format(time.RFC3339)
-
-			if err := config.WriteMasterConfig(s.serverDir, masterConfig); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save config"})
-				return
-			}
-
-			c.JSON(http.StatusOK, gin.H{"success": true, "action": "updated", "fullId": fullId, "version": pluginMeta.Version})
-			return
+	// Fetched without the lock; the install goes into the file as it is now
+	action := "installed"
+	err = config.UpdateMasterConfig(s.serverDir, func(masterConfig *config.VCLUConfig) error {
+		if masterConfig.Plugins == nil {
+			masterConfig.Plugins = config.DefaultPluginsConfig()
 		}
-	}
 
-	// Add to installed
-	masterConfig.Plugins.Installed = append(masterConfig.Plugins.Installed, config.InstalledPlugin{
-		ID:          fullId,
-		Version:     pluginMeta.Version,
-		Enabled:     true,
-		Repository:  req.Repository,
-		InstalledAt: time.Now().Format(time.RFC3339),
-		Config:      make(map[string]interface{}),
+		// Check if already installed
+		for i, inst := range masterConfig.Plugins.Installed {
+			if inst.ID == fullId {
+				// Update version
+				masterConfig.Plugins.Installed[i].Version = pluginMeta.Version
+				masterConfig.Plugins.Installed[i].InstalledAt = time.Now().Format(time.RFC3339)
+				action = "updated"
+				return nil
+			}
+		}
+
+		// Add to installed
+		masterConfig.Plugins.Installed = append(masterConfig.Plugins.Installed, config.InstalledPlugin{
+			ID:          fullId,
+			Version:     pluginMeta.Version,
+			Enabled:     true,
+			Repository:  req.Repository,
+			InstalledAt: time.Now().Format(time.RFC3339),
+			Config:      make(map[string]interface{}),
+		})
+		return nil
 	})
-
-	if err := config.WriteMasterConfig(s.serverDir, masterConfig); err != nil {
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save config"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"success": true, "action": "installed", "fullId": fullId, "version": pluginMeta.Version})
+	c.JSON(http.StatusOK, gin.H{"success": true, "action": action, "fullId": fullId, "version": pluginMeta.Version})
 }
 
 // handlePluginsAPIUninstall uninstalls a plugin
 func (s *Server) handlePluginsAPIUninstall(c *gin.Context) {
 	pluginID := c.Param("id")
 
-	masterConfig, _ := config.ReadMasterConfig(s.serverDir)
-	if masterConfig == nil || masterConfig.Plugins == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Plugin not found"})
-		return
-	}
-
-	var newInstalled []config.InstalledPlugin
-	found := false
-	for _, inst := range masterConfig.Plugins.Installed {
-		if inst.ID == pluginID {
-			found = true
-			continue
+	err := config.UpdateMasterConfig(s.serverDir, func(masterConfig *config.VCLUConfig) error {
+		if masterConfig.Plugins == nil {
+			return errPluginNotFound
 		}
-		newInstalled = append(newInstalled, inst)
-	}
 
-	if !found {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Plugin not found"})
+		var newInstalled []config.InstalledPlugin
+		found := false
+		for _, inst := range masterConfig.Plugins.Installed {
+			if inst.ID == pluginID {
+				found = true
+				continue
+			}
+			newInstalled = append(newInstalled, inst)
+		}
+
+		if !found {
+			return errPluginNotFound
+		}
+
+		masterConfig.Plugins.Installed = newInstalled
+		return nil
+	})
+	if ce, ok := asConfigError(err); ok {
+		c.JSON(ce.status, gin.H{"error": ce.msg})
 		return
 	}
-
-	masterConfig.Plugins.Installed = newInstalled
-
-	if err := config.WriteMasterConfig(s.serverDir, masterConfig); err != nil {
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save config"})
 		return
 	}
@@ -418,30 +428,26 @@ func (s *Server) handlePluginsAPIToggle(c *gin.Context) {
 		return
 	}
 
-	masterConfig, _ := config.ReadMasterConfig(s.serverDir)
-	if masterConfig == nil || masterConfig.Plugins == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Plugin not found"})
-		return
-	}
-
 	// Find plugin and get its config
 	var pluginConfig map[string]interface{}
-	found := false
-	for i := range masterConfig.Plugins.Installed {
-		if masterConfig.Plugins.Installed[i].ID == pluginID {
-			masterConfig.Plugins.Installed[i].Enabled = req.Enabled
-			pluginConfig = masterConfig.Plugins.Installed[i].Config
-			found = true
-			break
+	err := config.UpdateMasterConfig(s.serverDir, func(masterConfig *config.VCLUConfig) error {
+		if masterConfig.Plugins == nil {
+			return errPluginNotFound
 		}
-	}
-
-	if !found {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Plugin not found"})
+		for i := range masterConfig.Plugins.Installed {
+			if masterConfig.Plugins.Installed[i].ID == pluginID {
+				masterConfig.Plugins.Installed[i].Enabled = req.Enabled
+				pluginConfig = masterConfig.Plugins.Installed[i].Config
+				return nil
+			}
+		}
+		return errPluginNotFound
+	})
+	if ce, ok := asConfigError(err); ok {
+		c.JSON(ce.status, gin.H{"error": ce.msg})
 		return
 	}
-
-	if err := config.WriteMasterConfig(s.serverDir, masterConfig); err != nil {
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save config"})
 		return
 	}
@@ -487,42 +493,31 @@ func (s *Server) handlePluginsAPIConfig(c *gin.Context) {
 		return
 	}
 
-	masterConfig, _ := config.ReadMasterConfig(s.serverDir)
-	if masterConfig == nil || masterConfig.Plugins == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Plugin not found"})
-		return
-	}
-
-	found := false
-	for i := range masterConfig.Plugins.Installed {
-		if masterConfig.Plugins.Installed[i].ID == pluginID {
-			masterConfig.Plugins.Installed[i].Config = req.Config
-			found = true
-			break
+	var isEnabled bool
+	err := config.UpdateMasterConfig(s.serverDir, func(masterConfig *config.VCLUConfig) error {
+		if masterConfig.Plugins == nil {
+			return errPluginNotFound
 		}
-	}
-
-	if !found {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Plugin not found"})
+		for i := range masterConfig.Plugins.Installed {
+			if masterConfig.Plugins.Installed[i].ID == pluginID {
+				masterConfig.Plugins.Installed[i].Config = req.Config
+				isEnabled = masterConfig.Plugins.Installed[i].Enabled
+				return nil
+			}
+		}
+		return errPluginNotFound
+	})
+	if ce, ok := asConfigError(err); ok {
+		c.JSON(ce.status, gin.H{"error": ce.msg})
 		return
 	}
-
-	if err := config.WriteMasterConfig(s.serverDir, masterConfig); err != nil {
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save config"})
 		return
 	}
 
 	// If plugin is enabled and has config now, load it (or reload with new config)
 	if s.pluginController != nil && len(req.Config) > 0 {
-		// Find if plugin is enabled
-		var isEnabled bool
-		for _, inst := range masterConfig.Plugins.Installed {
-			if inst.ID == pluginID {
-				isEnabled = inst.Enabled
-				break
-			}
-		}
-
 		if isEnabled {
 			// Unload if already loaded (to apply new config)
 			if s.pluginController.IsLoaded(pluginID) {

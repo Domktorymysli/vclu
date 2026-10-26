@@ -16,6 +16,13 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
+func writeTestConfig(dir string, cfg *config.VCLUConfig) error {
+	return config.UpdateMasterConfig(dir, func(mc *config.VCLUConfig) error {
+		*mc = *cfg
+		return nil
+	})
+}
+
 // An update from the panel writes the new version to .vclu.json; the loader brings the files (#112).
 
 const weatherIndex110 = `{"version":1,"name":"test","description":"d","url":"x","plugins":[{"id":"weather","name":"Weather","version":"1.1.0","path":"plugins/weather","tag":"weather-v1.1.0"}]}`
@@ -37,7 +44,7 @@ func installedWeather(t *testing.T, repoURL, configVersion string) (*Loader, *lu
 	}
 	loader.writeLockEntry("@vclu/weather", LockEntry{Version: "1.0.2", GitTag: "weather-v1.0.2", Path: sd + "/1.0.2"})
 
-	err := config.WriteMasterConfig(serverDir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
+	err := writeTestConfig(serverDir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
 		Repositories: []config.PluginRepository{configRepo("test", repoURL)},
 		Installed: []config.InstalledPlugin{
 			{ID: "@vclu/weather", Version: configVersion, Enabled: true, Repository: "test"},
@@ -174,7 +181,7 @@ func TestLoadAllEnabledMismatchWithoutRepository(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg.Plugins.Installed[0].Repository = "gone"
-	if err := config.WriteMasterConfig(loader.serverDir, cfg); err != nil {
+	if err := writeTestConfig(loader.serverDir, cfg); err != nil {
 		t.Fatal(err)
 	}
 

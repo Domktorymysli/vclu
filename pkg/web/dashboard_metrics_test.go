@@ -16,7 +16,7 @@ import (
 func TestDashboardMetricsFollowDashboardAuth(t *testing.T) {
 	dir := t.TempDir()
 	hash, _ := config.HashPassword("secret")
-	if err := config.WriteMasterConfig(dir, &config.VCLUConfig{Auth: &config.VCLUAuthConfig{Username: "u", PasswordHash: hash}}); err != nil {
+	if err := writeTestConfig(dir, &config.VCLUConfig{Auth: &config.VCLUAuthConfig{Username: "u", PasswordHash: hash}}); err != nil {
 		t.Fatal(err)
 	}
 	dashCache.Invalidate()

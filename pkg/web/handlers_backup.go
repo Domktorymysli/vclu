@@ -422,12 +422,10 @@ func (s *Server) handleAPIBackupSettingsSave(c *gin.Context) {
 	}
 
 	// Save to .vclu.json
-	masterConfig, err := config.ReadMasterConfig(s.serverDir)
-	if err != nil || masterConfig == nil {
-		masterConfig = &config.VCLUConfig{}
-	}
-	masterConfig.Backup = &req
-	if err := config.WriteMasterConfig(s.serverDir, masterConfig); err != nil {
+	if err := config.UpdateMasterConfig(s.serverDir, func(mc *config.VCLUConfig) error {
+		mc.Backup = &req
+		return nil
+	}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to save config: %v", err)})
 		return
 	}

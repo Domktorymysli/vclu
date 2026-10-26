@@ -175,41 +175,38 @@ func (s *Server) handleAPISatelSave(c *gin.Context) {
 		return
 	}
 
-	masterConfig, err := config.ReadMasterConfig(s.serverDir)
-	if err != nil || masterConfig == nil {
-		masterConfig = &config.VCLUConfig{}
-	}
-	old := masterConfig.Satel
-	if old == nil {
-		old = config.DefaultSatelConfig()
-	}
+	if err := config.UpdateMasterConfig(s.serverDir, func(mc *config.VCLUConfig) error {
+		old := mc.Satel
+		if old == nil {
+			old = config.DefaultSatelConfig()
+		}
 
-	cfg := &config.VCLUSatelConfig{
-		Enabled:       req.Enabled,
-		Host:          req.Host,
-		Port:          req.Port,
-		UserCode:      old.UserCode,
-		EncryptionKey: old.EncryptionKey,
-		PollInterval:  req.PollInterval,
-		TempPoll:      old.TempPoll,
-		Zones:         req.Zones,
-		Partitions:    req.Partitions,
-		Outputs:       req.Outputs,
-		TempZones:     req.TempZones,
-		ArmMode:       req.ArmMode,
-		AllowDisarm:   req.AllowDisarm,
-		AllowForceArm: req.AllowForceArm,
-		ReadNames:     old.ReadNames,
-	}
-	if req.UserCode != nil {
-		cfg.UserCode = *req.UserCode
-	}
-	if req.EncryptionKey != nil {
-		cfg.EncryptionKey = *req.EncryptionKey
-	}
-	masterConfig.Satel = cfg
-
-	if err := config.WriteMasterConfig(s.serverDir, masterConfig); err != nil {
+		cfg := &config.VCLUSatelConfig{
+			Enabled:       req.Enabled,
+			Host:          req.Host,
+			Port:          req.Port,
+			UserCode:      old.UserCode,
+			EncryptionKey: old.EncryptionKey,
+			PollInterval:  req.PollInterval,
+			TempPoll:      old.TempPoll,
+			Zones:         req.Zones,
+			Partitions:    req.Partitions,
+			Outputs:       req.Outputs,
+			TempZones:     req.TempZones,
+			ArmMode:       req.ArmMode,
+			AllowDisarm:   req.AllowDisarm,
+			AllowForceArm: req.AllowForceArm,
+			ReadNames:     old.ReadNames,
+		}
+		if req.UserCode != nil {
+			cfg.UserCode = *req.UserCode
+		}
+		if req.EncryptionKey != nil {
+			cfg.EncryptionKey = *req.EncryptionKey
+		}
+		mc.Satel = cfg
+		return nil
+	}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save configuration"})
 		return
 	}

@@ -92,7 +92,7 @@ func TestIsStandaloneMode_NilReceiver(t *testing.T) {
 	}
 }
 
-// --- ReadMasterConfig / WriteMasterConfig ---
+// --- ReadMasterConfig / writeMasterConfig ---
 
 func TestReadMasterConfig_NonExistentFile(t *testing.T) {
 	cfg, err := ReadMasterConfig(t.TempDir())
@@ -109,8 +109,8 @@ func TestWriteMasterConfigPermissions(t *testing.T) {
 	configPath := filepath.Join(dir, ".vclu.json")
 
 	// Fresh file must be created with 0600 (contains secrets).
-	if err := WriteMasterConfig(dir, &VCLUConfig{SetupCompleted: true}); err != nil {
-		t.Fatalf("WriteMasterConfig failed: %v", err)
+	if err := writeMasterConfig(dir, &VCLUConfig{SetupCompleted: true}); err != nil {
+		t.Fatalf("writeMasterConfig failed: %v", err)
 	}
 	info, err := os.Stat(configPath)
 	if err != nil {
@@ -124,8 +124,8 @@ func TestWriteMasterConfigPermissions(t *testing.T) {
 	if err := os.Chmod(configPath, 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := WriteMasterConfig(dir, &VCLUConfig{SetupCompleted: true}); err != nil {
-		t.Fatalf("WriteMasterConfig failed: %v", err)
+	if err := writeMasterConfig(dir, &VCLUConfig{SetupCompleted: true}); err != nil {
+		t.Fatalf("writeMasterConfig failed: %v", err)
 	}
 	info, err = os.Stat(configPath)
 	if err != nil {
@@ -153,8 +153,8 @@ func TestWriteAndReadMasterConfig(t *testing.T) {
 		},
 	}
 
-	if err := WriteMasterConfig(dir, original); err != nil {
-		t.Fatalf("WriteMasterConfig failed: %v", err)
+	if err := writeMasterConfig(dir, original); err != nil {
+		t.Fatalf("writeMasterConfig failed: %v", err)
 	}
 
 	loaded, err := ReadMasterConfig(dir)
@@ -186,8 +186,8 @@ func TestWriteMasterConfig_SetsLastModified(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &VCLUConfig{}
 
-	if err := WriteMasterConfig(dir, cfg); err != nil {
-		t.Fatalf("WriteMasterConfig failed: %v", err)
+	if err := writeMasterConfig(dir, cfg); err != nil {
+		t.Fatalf("writeMasterConfig failed: %v", err)
 	}
 
 	loaded, err := ReadMasterConfig(dir)
@@ -621,8 +621,8 @@ func TestDeleteOMFileAndCleanSync(t *testing.T) {
 			},
 		},
 	}
-	if err := WriteMasterConfig(tmpDir, cfg); err != nil {
-		t.Fatalf("WriteMasterConfig: %v", err)
+	if err := writeMasterConfig(tmpDir, cfg); err != nil {
+		t.Fatalf("writeMasterConfig: %v", err)
 	}
 
 	// Delete CLU 220000592
@@ -664,8 +664,8 @@ func TestDeleteOMFileAndCleanSync_NoSync(t *testing.T) {
 			{Filename: "om_220000592.lua", Serial: 220000592, CLUName: "DOM10"},
 		},
 	}
-	if err := WriteMasterConfig(tmpDir, cfg); err != nil {
-		t.Fatalf("WriteMasterConfig: %v", err)
+	if err := writeMasterConfig(tmpDir, cfg); err != nil {
+		t.Fatalf("writeMasterConfig: %v", err)
 	}
 
 	// Should not panic when sync is nil
@@ -695,8 +695,8 @@ func TestDeleteOMFileAndCleanSync_AllDeleted(t *testing.T) {
 			},
 		},
 	}
-	if err := WriteMasterConfig(tmpDir, cfg); err != nil {
-		t.Fatalf("WriteMasterConfig: %v", err)
+	if err := writeMasterConfig(tmpDir, cfg); err != nil {
+		t.Fatalf("writeMasterConfig: %v", err)
 	}
 
 	if err := DeleteOMFileAndCleanSync(tmpDir, 123); err != nil {
@@ -853,8 +853,8 @@ func TestPropagateConfig_ConfigTxtContainsModuleEntries(t *testing.T) {
 	dir := t.TempDir()
 
 	cfg := testCLUConfigWithModules()
-	if err := WriteMasterConfig(dir, cfg); err != nil {
-		t.Fatalf("WriteMasterConfig: %v", err)
+	if err := writeMasterConfig(dir, cfg); err != nil {
+		t.Fatalf("writeMasterConfig: %v", err)
 	}
 
 	mac, _ := net.ParseMAC("aa:bb:cc:dd:ee:ff")
@@ -924,8 +924,8 @@ func TestPropagateConfig_ConfigTxtNoModulesForGate(t *testing.T) {
 	dir := t.TempDir()
 
 	cfg := testGateConfig()
-	if err := WriteMasterConfig(dir, cfg); err != nil {
-		t.Fatalf("WriteMasterConfig: %v", err)
+	if err := writeMasterConfig(dir, cfg); err != nil {
+		t.Fatalf("writeMasterConfig: %v", err)
 	}
 
 	mac, _ := net.ParseMAC("aa:bb:cc:dd:ee:ff")
@@ -960,8 +960,8 @@ func TestPropagateConfig_ConfigJSONContainsTFBusDevices(t *testing.T) {
 	dir := t.TempDir()
 
 	cfg := testCLUConfigWithModules()
-	if err := WriteMasterConfig(dir, cfg); err != nil {
-		t.Fatalf("WriteMasterConfig: %v", err)
+	if err := writeMasterConfig(dir, cfg); err != nil {
+		t.Fatalf("writeMasterConfig: %v", err)
 	}
 
 	mac, _ := net.ParseMAC("aa:bb:cc:dd:ee:ff")
@@ -1013,8 +1013,8 @@ func TestPropagateConfig_ConfigJSONEmptyTFBusForGate(t *testing.T) {
 	dir := t.TempDir()
 
 	cfg := testGateConfig()
-	if err := WriteMasterConfig(dir, cfg); err != nil {
-		t.Fatalf("WriteMasterConfig: %v", err)
+	if err := writeMasterConfig(dir, cfg); err != nil {
+		t.Fatalf("writeMasterConfig: %v", err)
 	}
 
 	mac, _ := net.ParseMAC("aa:bb:cc:dd:ee:ff")
@@ -1050,8 +1050,8 @@ func TestPropagateConfig_OMLuaBaseObjectOnly(t *testing.T) {
 	dir := t.TempDir()
 
 	cfg := testCLUConfigWithModules()
-	if err := WriteMasterConfig(dir, cfg); err != nil {
-		t.Fatalf("WriteMasterConfig: %v", err)
+	if err := writeMasterConfig(dir, cfg); err != nil {
+		t.Fatalf("writeMasterConfig: %v", err)
 	}
 
 	// Generate om.lua via OMGenerator (same as wizard finish)
@@ -1169,8 +1169,8 @@ func TestFullPipeline_WizardConfigToFiles(t *testing.T) {
 
 	// 1. Simulate wizard: write master config
 	cfg := testCLUConfigWithModules()
-	if err := WriteMasterConfig(dir, cfg); err != nil {
-		t.Fatalf("WriteMasterConfig: %v", err)
+	if err := writeMasterConfig(dir, cfg); err != nil {
+		t.Fatalf("writeMasterConfig: %v", err)
 	}
 
 	// 2. Generate om.lua (like wizard finish)
@@ -1275,7 +1275,7 @@ func splitByNewline(s string) []string {
 func TestWriteMasterConfigAtomic(t *testing.T) {
 	dir := t.TempDir()
 	for i := 0; i < 3; i++ {
-		if err := WriteMasterConfig(dir, &VCLUConfig{}); err != nil {
+		if err := writeMasterConfig(dir, &VCLUConfig{}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -1285,5 +1285,52 @@ func TestWriteMasterConfigAtomic(t *testing.T) {
 	}
 	if _, err := ReadMasterConfig(dir); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// An fn error leaves the file as it was; helpers that change one section take
+// the same lock, so concurrent saves keep each other's changes (#6).
+func TestUpdateMasterConfigLock(t *testing.T) {
+	dir := t.TempDir()
+	if err := UpdateMasterConfig(dir, func(c *VCLUConfig) error {
+		c.ProjectName = "house"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(filepath.Join(dir, ".vclu.json"))
+	if err := UpdateMasterConfig(dir, func(c *VCLUConfig) error {
+		c.ProjectName = "changed"
+		return fmt.Errorf("refused")
+	}); err == nil {
+		t.Fatal("fn error not returned")
+	}
+	after, _ := os.ReadFile(filepath.Join(dir, ".vclu.json"))
+	if string(before) != string(after) {
+		t.Fatalf("file changed after fn error:\n%s", after)
+	}
+
+	const n = 30
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 1; i <= n; i++ {
+			if err := AddOMFile(dir, OMFileConfig{Serial: uint64(i)}); err != nil {
+				t.Error(err)
+			}
+		}
+	}()
+	for i := 1; i <= n; i++ {
+		if err := SaveMQTTClientConfig(dir, &VCLUMQTTClientConfig{Port: i}); err != nil {
+			t.Error(err)
+		}
+	}
+	<-done
+	cfg, err := ReadMasterConfig(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.OMFiles) != n || cfg.MQTTClient == nil || cfg.MQTTClient.Port != n || cfg.ProjectName != "house" {
+		t.Errorf("lost changes: %d OM files, mqtt %+v, project %q", len(cfg.OMFiles), cfg.MQTTClient, cfg.ProjectName)
 	}
 }

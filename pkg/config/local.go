@@ -16,6 +16,8 @@ func IsSetupComplete(cluDir string) bool {
 
 // SetPaired marks CLU as paired and stores project key
 func SetPaired(cluDir string, projectName, projectID, projectKey, projectIV string) error {
+	masterConfigMu.Lock()
+	defer masterConfigMu.Unlock()
 	masterConfig, err := ReadMasterConfig(cluDir)
 	if err != nil || masterConfig == nil {
 		masterConfig = &VCLUConfig{}
@@ -28,7 +30,7 @@ func SetPaired(cluDir string, projectName, projectID, projectKey, projectIV stri
 	masterConfig.ProjectKey = projectKey
 	masterConfig.ProjectIV = projectIV
 
-	return WriteMasterConfig(cluDir, masterConfig)
+	return writeMasterConfig(cluDir, masterConfig)
 }
 
 // GenerateGrentonLikeSerial generates a serial number similar to real Grenton devices
