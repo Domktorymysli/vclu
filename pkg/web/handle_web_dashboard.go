@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -691,23 +692,8 @@ func (s *Server) handleAPIDashboardAction(c *gin.Context) {
 		return
 	}
 
-	// Build Lua call
-	valueStr := "nil"
-	switch v := req.Value.(type) {
-	case bool:
-		if v {
-			valueStr = "true"
-		} else {
-			valueStr = "false"
-		}
-	case float64:
-		valueStr = fmt.Sprintf("%g", v)
-	case string:
-		valueStr = fmt.Sprintf(`"%s"`, luaEscape(v))
-	}
-
 	script := fmt.Sprintf(`Dashboard.API.executeAction("%s", "%s", "%s", %s)`,
-		luaEscape(id), luaEscape(req.WidgetID), luaEscape(req.Action), valueStr)
+		luaEscape(id), luaEscape(req.WidgetID), luaEscape(req.Action), actionValueLua(req.Value))
 	result, err := s.executeAs(c, "dashboard:"+id, script)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -889,6 +875,39 @@ func (s *Server) getDashHMACKey() []byte {
 		}
 	})
 	return dashKey
+}
+
+// actionValueLua writes an action's JSON value as a Lua literal: a bool, number, string, or an
+// object of those (the colour widget sends {r, g, b}); anything else is nil.
+func actionValueLua(value interface{}) string {
+	switch v := value.(type) {
+	case bool:
+		if v {
+			return "true"
+		}
+		return "false"
+	case float64:
+		return fmt.Sprintf("%g", v)
+	case string:
+		return fmt.Sprintf(`"%s"`, luaEscape(v))
+	case map[string]interface{}:
+		keys := make([]string, 0, len(v))
+		for k := range v {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		var b strings.Builder
+		b.WriteString("{")
+		for _, k := range keys {
+			switch v[k].(type) {
+			case bool, float64, string:
+				fmt.Fprintf(&b, `["%s"] = %s, `, luaEscape(k), actionValueLua(v[k]))
+			}
+		}
+		b.WriteString("}")
+		return b.String()
+	}
+	return "nil"
 }
 
 // luaEscape escapes a string for safe embedding in Lua string literals

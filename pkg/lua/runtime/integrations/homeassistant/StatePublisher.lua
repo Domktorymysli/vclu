@@ -398,6 +398,48 @@ function HAStatePublisher.coverPositionFromHA(payload)
     return math.floor(math.max(0, math.min(100, n)) + 0.5)
 end
 
+-- A method's result, nil when the object lacks it or it fails
+local function callOpt(obj, name)
+    if type(obj) ~= "table" or type(obj[name]) ~= "function" then return nil end
+    local ok, v = pcall(obj[name], obj)
+    if ok then return v end
+    return nil
+end
+
+-- A finite number as a payload, nil otherwise (HA rejects "nil" for a temperature)
+local function numberPayload(v)
+    v = tonumber(v)
+    if not v or v - v ~= 0 then return nil end
+    return tostring(v)
+end
+
+--- HA hvac_mode of a thermostat: off when stopped (getState() 0), heat otherwise; an
+-- object without getState is always heat.
+-- @param obj table The thermostat
+-- @return string|nil off or heat, nil before its state is reported
+function HAStatePublisher.climateMode(obj)
+    if type(obj) ~= "table" or type(obj.getState) ~= "function" then return "heat" end
+    local state = tonumber(callOpt(obj, "getState"))
+    if state == nil then return nil end
+    return state == 0 and "off" or "heat"
+end
+
+-- Topics of an exposed climate, without the suffix (vclu/exposed/{base}/climate/{id})
+local function climateBase(path)
+    return (buildExposedTopic(path, "climate"):gsub("/state$", ""))
+end
+
+-- A climate publishes its current and target temperature and its mode, each when known
+local function publishClimate(handle)
+    local mqtt, base, obj = HAStatePublisher.mqttInstance, climateBase(handle.path), handle.object
+    local current = numberPayload(handle:getValue())
+    local target = numberPayload(callOpt(obj, "getTarget"))
+    local mode = HAStatePublisher.climateMode(obj)
+    if current then mqtt:publish(base .. "/current_temp", current, 0, true) end
+    if target then mqtt:publish(base .. "/target_temp", target, 0, true) end
+    if mode then mqtt:publish(base .. "/mode", mode, 0, true) end
+end
+
 -- Handle state change for ExposedObject
 local function publishExposedState(handle)
     if not HAStatePublisher.enabled or not HAStatePublisher.mqttInstance then
@@ -414,6 +456,11 @@ local function publishExposedState(handle)
         if MqttAccess and MqttAccess.isHidden and MqttAccess.isHidden(handle.path) then
             return
         end
+    end
+
+    if handle.type == "climate" then
+        publishClimate(handle)
+        return
     end
 
     local value = handle:getValue()
@@ -747,21 +794,38 @@ local function onObjectExposed(data)
         end
     end
 
-    -- Climate type (thermostat)
+    -- Climate (a thermostat): only the topics publishClimate fills and HACommands takes;
+    -- the mode is shown (climateMode), not set
     if exposedType == "climate" then
-        local baseTopic = stateTopic:gsub("/state$", "")
-        discoveryPayload.temperature_unit = options.unit or "C"
-        discoveryPayload.temp_step = options.step or 0.5
-        discoveryPayload.min_temp = options.min or 5
-        discoveryPayload.max_temp = options.max or 35
-        -- Temperature topics
+        local baseTopic = climateBase(path)
+        local range = ExposedObjects:getCapabilities("climate").range
+        local obj = handle and handle.object
+        discoveryPayload.state_topic = nil
+        discoveryPayload.command_topic = nil
+        discoveryPayload.temperature_unit = "C"
+        discoveryPayload.temp_step = tonumber(options.step) or 0.5
+        -- the same bounds as the clamp in ExposedHandle:setValue
+        discoveryPayload.min_temp = tonumber(options.min) or range[1]
+        discoveryPayload.max_temp = tonumber(options.max) or range[2]
         discoveryPayload.current_temperature_topic = baseTopic .. "/current_temp"
-        discoveryPayload.temperature_state_topic = baseTopic .. "/target_temp"
-        discoveryPayload.temperature_command_topic = baseTopic .. "/target_temp/set"
-        -- Mode topics (optional)
-        discoveryPayload.modes = {"off", "heat", "cool", "auto"}
+        if type(obj) == "table" and type(obj.getTarget) == "function" then
+            discoveryPayload.temperature_state_topic = baseTopic .. "/target_temp"
+        end
+        if not isReadonly(path, options) and type(obj) == "table" and type(obj.setSetpoint) == "function" then
+            discoveryPayload.temperature_command_topic = baseTopic .. "/target_temp/set"
+        end
+        discoveryPayload.modes = {"off", "heat"}
         discoveryPayload.mode_state_topic = baseTopic .. "/mode"
-        discoveryPayload.mode_command_topic = baseTopic .. "/mode/set"
+        -- the target and the mode change apart from the value: publish on CHANGE_EVENTS too
+        if type(obj) == "table" and obj.onEvent and not obj._haClimateHook then
+            obj._haClimateHook = true
+            for _, event in ipairs(obj.CHANGE_EVENTS or {}) do
+                obj:onEvent(event, function()
+                    local h = ExposedObjects:get(StateChange.pathOf(obj))
+                    if h and h.type == "climate" then publishExposedState(h) end
+                end)
+            end
+        end
     end
 
     -- Garage door (cover with device_class)

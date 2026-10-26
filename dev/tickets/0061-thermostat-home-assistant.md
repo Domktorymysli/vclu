@@ -52,12 +52,12 @@ reaches the thermostat; with `readonly = true` HA only shows it.
 - tests next to `pkg/lua/ha_*_test.go`
 
 ## Acceptance criteria
-- [ ] Discovery for an exposed `RemoteThermostat` announces only the topics that get published; a test checks the payload.
-- [ ] A report from the CLU (temperature, target) publishes current and target temperature; a change of the target alone publishes too.
-- [ ] A target from HA calls `setSetpoint` (clamped to `min`/`max` of the expose options); a read-only climate refuses it; tests send the command.
-- [ ] `expose(th)` without a type exposes it as `climate`; it is never exposed as a switch (a test runs `exposeRegistry()`).
-- [ ] `go test ./...` and `go test -race ./...` pass.
-- [ ] CHANGELOG entry.
+- [x] Discovery for an exposed `RemoteThermostat` announces only the topics that get published; a test checks the payload.
+- [x] A report from the CLU (temperature, target) publishes current and target temperature; a change of the target alone publishes too.
+- [x] A target from HA calls `setSetpoint` (clamped to `min`/`max` of the expose options); a read-only climate refuses it; tests send the command.
+- [x] `expose(th)` without a type exposes it as `climate`; it is never exposed as a switch (a test runs `exposeRegistry()`).
+- [x] `go test ./...` and `go test -race ./...` pass.
+- [x] CHANGELOG entry.
 
 ## Contract impact
 Expose type `climate` gets defined behaviour (it was announced but empty), and the thermostat

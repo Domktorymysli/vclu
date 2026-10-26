@@ -292,11 +292,11 @@ PANEL = Panel.new(P)
 		click("PAN1", "btn1"); T.advance(2000); local autoPressed = sent() -- auto: + does nothing
 		report(1, 0, 21, 21, 20.4); T.advance(1000); sent()               -- manual again
 		click("PAN1", "btn1"); T.advance(2000); local edited = sent() -- + 0.5, written after 1 s
-		local exposedCount = exposeRegistry()
-		local kind = Panel.kind(TH)
-		local ok = pcall(function() TH:expose() end)
+		exposeRegistry()
+		local registry = tostring(ExposedObjects:get("CLU1.THE1"))
+		local ok, h = pcall(function() return TH:expose() end)
 		return th .. "\n#" .. home .. "\n#" .. page .. "\n#" .. pressed .. "\n#" .. target .. "\n#" .. edited ..
-			"\n#" .. auto .. "\n#" .. autoPressed .. "\n#" .. tostring(ExposedObjects:get("CLU1.THE1")) .. "/" .. kind .. "/" .. tostring(ok)
+			"\n#" .. auto .. "\n#" .. autoPressed .. "\n#" .. registry .. "/" .. tostring(ok and h.type) .. "/" .. Panel.kind(TH)
 	end)()`)
 	parts := strings.Split(got, "\n#")
 	if len(parts) != 9 {
@@ -313,9 +313,10 @@ PANEL = Panel.new(P)
 	mustContain(t, "editable writes SetPointValue in manual mode", parts[5], "THE1:set(3, 21.5)", `"21.5"`, `"+"`)
 	mustNotContain(t, "auto mode: no + and -", parts[6], `"+"`, `"-"`)
 	mustNotContain(t, "auto mode: + writes nothing", parts[7], "THE1:set")
-	// exposeRegistry must not make it a switch: toggling one would write feature 0 (Source)
-	if parts[8] != "nil/thermostat/false" {
-		t.Errorf("exposed/kind/expose() = %s, want nil/thermostat/false", parts[8])
+	// exposeRegistry leaves it out and expose() makes it a climate, never a switch: toggling
+	// one would write feature 0 (Source); the panel still sees a thermostat
+	if parts[8] != "nil/climate/thermostat" {
+		t.Errorf("registry/expose()/kind = %s, want nil/climate/thermostat", parts[8])
 	}
 }
 

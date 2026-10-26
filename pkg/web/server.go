@@ -383,7 +383,11 @@ func (s *Server) authMiddleware() gin.HandlerFunc {
 		path := c.Request.URL.Path
 
 		// Always allow these paths without auth
-		publicPaths := []string{"/login", "/static/", "/wizard", "/setup", "/api/wizard/", "/api/health", "/mcp", "/d/", "/api/dashboard/"}
+		publicPaths := []string{"/login", "/static/", "/wizard", "/setup", "/api/health", "/mcp", "/d/", "/api/dashboard/"}
+		if s.wizardOpen(path) {
+			c.Next()
+			return
+		}
 		for _, p := range publicPaths {
 			if strings.HasPrefix(path, p) {
 				c.Next()
@@ -433,6 +437,11 @@ func (s *Server) authMiddleware() gin.HandlerFunc {
 	}
 }
 
+// wizardOpen: the wizard API goes without a login only until the setup is finished
+func (s *Server) wizardOpen(path string) bool {
+	return strings.HasPrefix(path, "/api/wizard/") && !config.IsSetupComplete(s.serverDir)
+}
+
 // csrfMiddleware validates CSRF tokens on state-changing requests
 func (s *Server) csrfMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -446,7 +455,11 @@ func (s *Server) csrfMiddleware() gin.HandlerFunc {
 		path := c.Request.URL.Path
 
 		// Skip public paths (wizard, login, health, mcp)
-		publicPaths := []string{"/api/wizard/", "/login", "/api/health", "/mcp", "/api/dashboard/"}
+		publicPaths := []string{"/login", "/api/health", "/mcp", "/api/dashboard/"}
+		if s.wizardOpen(path) {
+			c.Next()
+			return
+		}
 		for _, p := range publicPaths {
 			if strings.HasPrefix(path, p) {
 				c.Next()

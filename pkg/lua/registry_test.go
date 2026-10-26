@@ -581,7 +581,8 @@ func TestRegistryGroupExposeOptionsOnly(t *testing.T) {
 	}
 }
 
-// obj:expose() refuses a thermostat (no expose type); group:expose() must not make it a switch.
+// group:expose() must not make a thermostat a switch (feature 0 is its sensor binding) and
+// leaves it out: a climate is exposed on its own, as by exposeRegistry().
 func TestRegistryGroupExposeThermostatNotSwitch(t *testing.T) {
 	engine := NewLuaEngine()
 	defer engine.Close()

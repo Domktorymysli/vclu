@@ -5,7 +5,7 @@ Only public API is listed — internal/private functions are omitted.
 
 ## Table of Contents
 
-- [utils.Helpers](#utilshelpers) (20 functions)
+- [utils.Helpers](#utilshelpers) (21 functions)
 - [objects.VirtualSwitch](#objectsvirtualswitch) (12 functions)
 - [objects.VirtualDimmer](#objectsvirtualdimmer) (14 functions)
 - [objects.VirtualNumber](#objectsvirtualnumber) (4 functions)
@@ -17,12 +17,13 @@ Only public API is listed — internal/private functions are omitted.
 - [core.Registry](#coreregistry) (10 functions)
 - [core.Metrics](#coremetrics) (1 functions)
 - [core.Calendar](#corecalendar) (36 functions)
-- [Dashboard](#dashboard) (64 functions)
+- [Dashboard](#dashboard) (66 functions)
 - [lib.panel](#libpanel) (55 functions)
 - [objects.RemotePanel](#objectsremotepanel) (6 functions)
 - [GPIO_DOUT](#gpio_dout) (1 functions)
 - [GPIO_DIN](#gpio_din) (1 functions)
 - [integrations.mqtt.MqttClient](#integrationsmqttmqttclient) (30 functions)
+- [grenton.CLU_REMOTE](#grentonclu_remote) (1 functions)
 - [lib.tasmota](#libtasmota) (5 functions)
 
 ---
@@ -69,6 +70,14 @@ Round number to given precision
 - `decimals` (number) — Number of decimal places (default 0)
 
 **Returns:** number Rounded value
+
+### `optional(name) → any|nil The module, or nil`
+
+A module that may be missing: what require(name) gives, or nil when the module is not there or gives nothing (a module whose plugin is not installed returns nil, and require then gives true). A module that fails while loading is nil too, with its error in the log. local pogoda = optional("pogoda") if pogoda then ... end
+
+- `name` (string) — Module path relative to modules/ (e.g. "pogoda", "energia/power")
+
+**Returns:** any|nil The module, or nil
 
 ### `after(ms, callback) → number Timer ID`
 
@@ -1047,7 +1056,7 @@ Add a status widget to this section.
 - `icon` (string) — Bootstrap icon name (e.g., "thermometer-half", "droplet")
 - `getValue` (function) — Returns current value: function() -> number|string
 - `unit` (string) — Unit suffix displayed after value (e.g., "°C", "%", "lx")
-- `opts` (table) — Optional: {disabled=function()->bool, color=string|function()->string|nil}
+- `opts` (table) — Optional: {decimals=0-6 (a number is shown rounded to that many places), disabled=function()->bool, color=string|function()->string|nil}
 
 ### `SectionHandle:link(id, label, icon, url, opts)`
 
@@ -1066,7 +1075,7 @@ Add a chart widget to this section.
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label (e.g., "Temperatura 24h")
 - `metricPath` (string) — Metric path registered via metric() (e.g., "temp:salon", "salda:outsideAir")
-- `opts` (table) — Optional: {range=string ("1h","6h","24h","7d"), unit=string}
+- `opts` (table) — Optional: {range=string (any duration such as "30m", "2h", "24h", "7d"; default "2h"; 30m/2h/24h/7d have tuned refresh, others refresh every 60 s), unit=string, min=n, max=n (Y axis), fill=bool (default true), refresh=seconds, span=n, color=string}
 
 ### `SectionHandle:calendar(id, label, cal, opts)`
 
@@ -1149,7 +1158,7 @@ Add a dimmer widget to this section.
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label
 - `icon` (string) — Bootstrap icon name (e.g., "brightness-high")
-- `fns` (table) — {getValue=function()->number(0-1), setValue=function(number), switchOn=function(), switchOff=function()}
+- `fns` (table) — {get=function()->number(0-100), set=function(number 0-100), switchOn=function()?, switchOff=function()?, isOn=function()->bool? (default: get() > 0)}
 - `opts` (table) — Optional: {disabled=function()->bool}
 
 ### `SectionHandle:color(id, label, icon, fns, opts)`
@@ -1161,6 +1170,16 @@ Add a color picker widget to this section. switchOn?, switchOff?, isOn?, getWhit
 - `icon` (string) — Bootstrap icon name (e.g., "palette")
 - `fns` (table) — {getColor=function()->{r,g,b}, setColor=function(r,g,b), get?/set? brightness 0-100,
 - `opts` (table) — Optional: {disabled=function()->bool}
+
+### `SectionHandle:thermostat(id, label, icon, fns, opts)`
+
+Add a thermostat: current temperature, target and +/- for the target. getState=function()->number|bool? (1/true active, 0/false off), getMode=function()->number? (0 manual, 1 holiday, 2 schedule, 3 heat-up)}, or a thermostat object (RemoteThermostat: getValue, getTarget, setSetpoint, getState, getMode) Shows the current temperature and the target ("--" until reported); + and - change the target by step and setTarget is called once, 1 s after the last tap; the chosen value shows until the thermostat reports a new target, at most 90 s. Without setTarget (or opts.readonly) there are no buttons; with getMode the target is set only in manual mode (0), as lib/panel does. The action endpoint refuses a set outside min..max.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `icon` (string) — |nil Bootstrap icon name (default "thermometer-half")
+- `fns` (table) — {getCurrent=function()->number|nil, getTarget=function()->number|nil, setTarget=function(number)?,
+- `opts` (table) — Optional: {min=5, max=35, step=0.5, unit="°C", readonly=bool or function()->bool (true: no buttons; a function locks them while it returns true), disabled=function()->bool, span=n, size=string, color=string}
 
 ### `SectionHandle:chip(id, icon, fn, opts)`
 
@@ -1354,7 +1373,7 @@ Add a status widget to the current section.
 - `icon` (string) — Bootstrap icon name (e.g., "thermometer-half", "droplet")
 - `getValue` (function) — Returns current value: function() -> number|string
 - `unit` (string) — Unit suffix displayed after value (e.g., "°C", "%", "lx")
-- `opts` (table) — Optional: {disabled=function()->bool, color=string|function()->string|nil}
+- `opts` (table) — Optional: {decimals=0-6 (a number is shown rounded to that many places), disabled=function()->bool, color=string|function()->string|nil}
 
 ### `DashboardBuilder:link(id, label, icon, url, opts)`
 
@@ -1373,7 +1392,7 @@ Add a chart widget to the current section.
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label (e.g., "Temperatura 24h")
 - `metricPath` (string) — Metric path registered via metric() (e.g., "temp:salon", "salda:outsideAir")
-- `opts` (table) — Optional: {range=string ("1h","6h","24h","7d"), unit=string}
+- `opts` (table) — Optional: {range=string (any duration such as "30m", "2h", "24h", "7d"; default "2h"; 30m/2h/24h/7d have tuned refresh, others refresh every 60 s), unit=string, min=n, max=n (Y axis), fill=bool (default true), refresh=seconds, span=n, color=string}
 
 ### `DashboardBuilder:calendar(id, label, cal, opts)`
 
@@ -1456,7 +1475,7 @@ Add a dimmer widget to the current section.
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label
 - `icon` (string) — Bootstrap icon name (e.g., "brightness-high")
-- `fns` (table) — {getValue=function()->number(0-1), setValue=function(number), switchOn=function(), switchOff=function()}
+- `fns` (table) — {get=function()->number(0-100), set=function(number 0-100), switchOn=function()?, switchOff=function()?, isOn=function()->bool? (default: get() > 0)}
 - `opts` (table) — Optional: {disabled=function()->bool}
 
 ### `DashboardBuilder:color(id, label, icon, fns, opts)`
@@ -1468,6 +1487,16 @@ Add a color picker widget to the current section. switchOn?, switchOff?, isOn?, 
 - `icon` (string) — Bootstrap icon name (e.g., "palette")
 - `fns` (table) — {getColor=function()->{r,g,b}, setColor=function(r,g,b), get?/set? brightness 0-100,
 - `opts` (table) — Optional: {disabled=function()->bool}
+
+### `DashboardBuilder:thermostat(id, label, icon, fns, opts)`
+
+Add a thermostat to the current section: current temperature, target and +/- for the target. getState=function()->number|bool? (1/true active, 0/false off), getMode=function()->number? (0 manual, 1 holiday, 2 schedule, 3 heat-up)}, or a thermostat object (RemoteThermostat: getValue, getTarget, setSetpoint, getState, getMode) Shows the current temperature and the target ("--" until reported); + and - change the target by step and setTarget is called once, 1 s after the last tap; the chosen value shows until the thermostat reports a new target, at most 90 s. Without setTarget (or opts.readonly) there are no buttons; with getMode the target is set only in manual mode (0), as lib/panel does. The action endpoint refuses a set outside min..max.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `icon` (string) — |nil Bootstrap icon name (default "thermometer-half")
+- `fns` (table) — {getCurrent=function()->number|nil, getTarget=function()->number|nil, setTarget=function(number)?,
+- `opts` (table) — Optional: {min=5, max=35, step=0.5, unit="°C", readonly=bool or function()->bool (true: no buttons; a function locks them while it returns true), disabled=function()->bool, span=n, size=string, color=string}
 
 ### `DashboardBuilder:when(periods, fn)`
 
@@ -2093,6 +2122,16 @@ Publish state update for object
 - `state` (any) — State value
 
 **Returns:** boolean Success
+
+---
+
+## grenton.CLU_REMOTE
+
+### `CLU_REMOTE:firmware() → string|nil Firmware version`
+
+The firmware the CLU reported for get(17), e.g. "04.08.05" or "05.15.12-2607". Asked when its objects are subscribed; nil until the CLU answered.
+
+**Returns:** string|nil Firmware version
 
 ---
 

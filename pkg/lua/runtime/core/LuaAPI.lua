@@ -52,6 +52,7 @@ function LuaAPI.syncRemoteConfig(config)
         for _, path in ipairs(config.objects) do wl[path] = true end
     end
     RemoteSubscription.config.whitelist = wl
+    RemoteSubscription.syncPolled()
     -- Manage renew timer
     if config.enabled then
         RemoteSubscription.startRenewTimer()

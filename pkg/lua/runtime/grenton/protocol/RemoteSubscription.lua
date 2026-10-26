@@ -25,6 +25,7 @@ RemoteSubscription.config = {
     objectTypes = {"DOUT", "DIN", "DIMM"},  -- Types to subscribe (legacy)
     enabled = false,                 -- Disabled by default; user must configure via UI
     whitelist = nil,                 -- Hash map of whitelisted paths (nil = nothing syncs)
+    pollInterval = 30,               -- s between reads of objects followed by get
 }
 
 --- Minimum spacing (ms) between renew packets; below this the CLU drops them
@@ -59,6 +60,37 @@ RemoteSubscription._renewRun = nil
 
 --- A renew chain running longer than this (s) is treated as lost
 RemoteSubscription.RENEW_STALE_SECONDS = 60
+
+--- Objects followed by get instead of a subscription (their class says "poll" for the CLU)
+-- Key: path, value: {obj, clu, cluSerial, features}
+RemoteSubscription.polled = {}
+
+--- Poll timer handle and running poll chain {startedAt = os.time()}
+RemoteSubscription._pollTimer = nil
+RemoteSubscription._pollRun = nil
+
+--- A poll chain running longer than this (s) is treated as lost
+RemoteSubscription.POLL_STALE_SECONDS = 120
+
+--- A renew waits for a running poll chain at most this long (s); the sessions' TTL is 60
+RemoteSubscription.RENEW_WAIT_SECONDS = 20
+
+--- Delay (ms) of the first poll after autoSubscribe, past its clientDestroy series
+RemoteSubscription.POLL_FIRST_DELAY_MS = 1000
+
+--- A poll or renew postponed until the other chain ends (the two never interleave)
+RemoteSubscription._pollAfterRenew = false
+RemoteSubscription._renewAfterPoll = false
+
+--- Entries autoSubscribe last meant to subscribe (nil before the first run); 0 means
+-- every Sync object is polled, so no session is not a lost subscription
+RemoteSubscription._subscribable = nil
+
+--- Time (s) one autoSubscribe may spend on blocking get(17) questions
+RemoteSubscription.FIRMWARE_CHECK_SECONDS = 30
+
+--- Last plan logged per CLU and class, so each is logged once
+RemoteSubscription._planLogged = {}
 
 --- Session ID counter for generating unique session identifiers
 -- @field nextSessionID number
@@ -106,8 +138,8 @@ end
 -- @return table Array of parsed values (numbers or strings for nested structures)
 local function parseValues(valuesStr)
     local values = {}
-    -- Remove outer braces if present
-    local clean = valuesStr:gsub("^{", ""):gsub("}$", "")
+    -- Remove outer braces if present; the CLU's answer can end with a newline
+    local clean = valuesStr:match("^%s*(.-)%s*$"):gsub("^{", ""):gsub("}$", "")
 
     Logger:getShared():debug("[parseValues] input: '%s' -> clean: '%s'", valuesStr, clean)
 
@@ -334,6 +366,49 @@ function RemoteSubscription.handleReport(cluIP, sessionID, valuesStr)
     RemoteSubscription.updateRegistry(cluIP, sessionID, values)
 end
 
+--- Applies one reported feature value to the object at registryKey (a report or a poll).
+-- @param registryKey string Object path, e.g. "CLU220000592.DOU0001"
+-- @param objInfo table {objId, featureIndex}
+-- @param newValue any The value as the CLU reported it
+-- @param ctx table StateChange context
+local function applyValue(registryKey, objInfo, newValue, ctx)
+    local obj = _registry and _registry[registryKey]
+    if not obj then return end
+
+    -- A roller reports its position and its movement; only one is the value
+    if obj.fromFeature then
+        newValue = obj:fromFeature(objInfo.featureIndex or 0, newValue)
+    end
+    if newValue == nil then return end
+
+    local oldValue = obj._lastState
+
+    -- Dead-band for analog sensors: skip noise < 0.1
+    if type(newValue) == "number" and type(oldValue) == "number"
+       and objInfo.objId:sub(1, 3) == "ANA"
+       and math.abs(newValue - oldValue) < 0.1 then
+        return
+    end
+
+    -- Use updateState() to handle validation and events
+    local mark = StateChange.mark(obj)
+    local objCtx = ctx
+    if oldValue ~= nil and oldValue ~= newValue then objCtx = StateChange.reportContext(obj, newValue, ctx) end
+    if obj.updateState then
+        StateChange.applyFrom(obj, objCtx, obj.updateState, obj, newValue)
+    else
+        obj._lastState = newValue
+    end
+
+    -- An exposed object's onChange callback may have published already
+    if obj._lastState ~= oldValue then
+        obj._lastEvent = os.time()
+        if not StateChange.publishedSince(obj, mark) then
+            StateChange.publish(registryKey, obj, oldValue, obj._lastState, objCtx)
+        end
+    end
+end
+
 --- Update registry with received values
 -- Looks up the subscription metadata and updates each subscribed object in the registry.
 -- Publishes state changes to StateBus/MQTT if the value changed.
@@ -353,55 +428,14 @@ function RemoteSubscription.updateRegistry(cluIP, sessionID, values, skip)
     -- A clientReport is the CLU telling us its state
     local ctx = { origin = "grenton", actor = "device:" .. tostring(sub.cluSerial) }
 
-    -- Update each object in registry
+    -- Update each object in registry; a skipped entry is left as it is, its movement included
     for i, objInfo in ipairs(sub.objects) do
-        local newValue = values[i]
-        if newValue == nil then
+        if values[i] == nil then
             break
         end
-
-        -- Find object in registry
-        local registryKey = sub.cluSerial .. "." .. objInfo.objId
-        local obj = _registry and _registry[registryKey]
-
-        -- A skipped entry is left as it is, its movement included
-        local skipped = skip and skip[i]
-
-        -- A roller reports its position and its movement; only one is the value
-        if obj and obj.fromFeature and not skipped then
-            newValue = obj:fromFeature(objInfo.featureIndex or 0, newValue)
+        if not (skip and skip[i]) then
+            applyValue(sub.cluSerial .. "." .. objInfo.objId, objInfo, values[i], ctx)
         end
-
-        if obj and newValue ~= nil and not skipped then
-            local oldValue = obj._lastState
-
-            -- Dead-band for analog sensors: skip noise < 0.1
-            if type(newValue) == "number" and type(oldValue) == "number"
-               and objInfo.objId:sub(1, 3) == "ANA"
-               and math.abs(newValue - oldValue) < 0.1 then
-                goto continue
-            end
-
-            -- Use updateState() to handle validation and events
-            local mark = StateChange.mark(obj)
-            local objCtx = ctx
-            if oldValue ~= nil and oldValue ~= newValue then objCtx = StateChange.reportContext(obj, newValue, ctx) end
-            if obj.updateState then
-                StateChange.applyFrom(obj, objCtx, obj.updateState, obj, newValue)
-            else
-                obj._lastState = newValue
-            end
-
-            -- An exposed object's onChange callback may have published already
-            if obj._lastState ~= oldValue then
-                obj._lastEvent = os.time()
-                if not StateChange.publishedSince(obj, mark) then
-                    StateChange.publish(registryKey, obj, oldValue, obj._lastState, objCtx)
-                end
-            end
-        end
-
-        ::continue::
     end
 end
 
@@ -423,6 +457,48 @@ function RemoteSubscription.applyRenewAnswer(cluIP, sessionID, values)
         skip[i] = obj ~= nil and StateChange.publishedSince(obj, marks[i])
     end
     RemoteSubscription.updateRegistry(cluIP, sessionID, values, skip)
+end
+
+--- Logs, once per CLU and class (and again when it changes), the CLU's firmware and how
+-- an object with a firmware plan (obj:_plan()) is followed.
+local function logPlan(cluSerial, obj)
+    local clu = obj._clu
+    local version, follow = obj:_plan()
+    local fw = clu.firmware and clu:firmware()
+    local om = clu._omFirmwareKey and clu:_omFirmwareKey()
+    local line = string.format("CLU %s firmware %s (om.lua %s): %s v%s, %s", tostring(cluSerial),
+        fw or "unknown, no answer to get(17)", om or "-", tostring(obj._type), tostring(version), tostring(follow))
+    local key = tostring(cluSerial) .. "/" .. tostring(obj._type)
+    if RemoteSubscription._planLogged[key] ~= line then
+        RemoteSubscription._planLogged[key] = line
+        Logger:getShared():info("[RemoteSub] %s", line)
+    end
+end
+
+--- Subscribes objects of one CLU in batches of config.batchSize; stops at the first failure
+-- and forgets the CLU's firmware (it may come back with another).
+-- @return number sessions, number entries subscribed, boolean all subscribed
+local function subscribeBatches(cluIP, cluSerial, clu, objects)
+    local batchSize = RemoteSubscription.batchSize()
+    local sessions, entries = 0, 0
+    for i = 1, #objects, batchSize do
+        local batch = {}
+        for j = i, math.min(i + batchSize - 1, #objects) do
+            table.insert(batch, objects[j])
+        end
+
+        local sessionID, err = RemoteSubscription.subscribe(cluIP, batch, cluSerial)
+        if sessionID then
+            sessions = sessions + 1
+            entries = entries + #batch
+        else
+            Logger:getShared():error("[RemoteSub] Failed to subscribe to %s: %s — skipping remaining batches",
+                cluIP, tostring(err))
+            if clu and clu._forgetFirmware then clu:_forgetFirmware() end
+            return sessions, entries, false
+        end
+    end
+    return sessions, entries, true
 end
 
 --- Auto-subscribe to whitelisted remote objects
@@ -460,8 +536,11 @@ function RemoteSubscription.autoSubscribe()
     table.sort(paths)
 
     -- Group whitelisted objects by CLU
-    local cluObjects = {}  -- key = cluIP, value = {cluSerial, objects}
+    local cluObjects = {}  -- key = cluIP, value = {cluSerial, clu, objects}
     local cluOrder = {}
+    local polled = {}
+    local spacing = math.max(30, math.min(100, RemoteSubscription.config.batchDelay or 50))
+    local checkStart = os.time()
 
     for _, path in ipairs(paths) do
         local cluId = path:match("^(.-)%.(.+)$")
@@ -473,17 +552,36 @@ function RemoteSubscription.autoSubscribe()
             if not cluObjects[cluIP] then
                 cluObjects[cluIP] = {
                     cluSerial = cluId,
+                    clu = obj._clu,
                     objects = {}
                 }
                 cluOrder[#cluOrder + 1] = cluIP
             end
 
+            -- A class whose features depend on the CLU's firmware needs it asked first
+            local follow = "subscribe"
+            if obj._plan then
+                -- Blocking once per CLU in a Lua state, within the budget; later the poll asks
+                local clu = obj._clu
+                if clu._checkFirmware and not clu._firmwareAsked and not clu:firmware()
+                   and os.time() - checkStart <= RemoteSubscription.FIRMWARE_CHECK_SECONDS then
+                    clu._firmwareAsked = true
+                    clu:_checkFirmware(spacing)
+                end
+                follow = select(2, obj:_plan())
+                logPlan(cluId, obj)
+            end
+
             local features = obj.subscribeFeatures and obj:subscribeFeatures() or {0}
-            for _, featureIndex in ipairs(features) do
-                table.insert(cluObjects[cluIP].objects, {
-                    objId = obj._objId,
-                    featureIndex = featureIndex
-                })
+            if follow == "poll" then
+                polled[path] = { obj = obj, clu = obj._clu, cluSerial = cluId, features = features }
+            else
+                for _, featureIndex in ipairs(features) do
+                    table.insert(cluObjects[cluIP].objects, {
+                        objId = obj._objId,
+                        featureIndex = featureIndex
+                    })
+                end
             end
         end
     end
@@ -493,6 +591,7 @@ function RemoteSubscription.autoSubscribe()
     local totalObjects = 0
     local skippedCLUs = 0
     local startTime = os.time()
+    local subscribable = 0
     local batchSize = RemoteSubscription.batchSize()
 
     -- Each batch is a blocking round-trip plus batchDelay, so the budget grows with the work
@@ -515,26 +614,17 @@ function RemoteSubscription.autoSubscribe()
         local objects = cluData.objects
         local cluSerial = cluData.cluSerial or "UNKNOWN"
 
-        Logger:getShared():info("[RemoteSub] CLU %s (%s): %d objects to subscribe", cluSerial, cluIP, #objects)
-
-        for i = 1, #objects, batchSize do
-            local batch = {}
-            for j = i, math.min(i + batchSize - 1, #objects) do
-                table.insert(batch, objects[j])
-            end
-
-            local sessionID, err = RemoteSubscription.subscribe(cluIP, batch, cluSerial)
-            if sessionID then
-                totalSubscriptions = totalSubscriptions + 1
-                totalObjects = totalObjects + #batch
-            else
-                Logger:getShared():error("[RemoteSub] Failed to subscribe to %s: %s — skipping remaining batches",
-                    cluIP, tostring(err))
-                skippedCLUs = skippedCLUs + 1
-                break
-            end
+        if #objects > 0 then
+            Logger:getShared():info("[RemoteSub] CLU %s (%s): %d objects to subscribe", cluSerial, cluIP, #objects)
         end
+        subscribable = subscribable + #objects
+
+        local sessions, entries, ok = subscribeBatches(cluIP, cluSerial, cluData.clu, objects)
+        totalSubscriptions = totalSubscriptions + sessions
+        totalObjects = totalObjects + entries
+        if not ok then skippedCLUs = skippedCLUs + 1 end
     end
+    RemoteSubscription._subscribable = subscribable
 
     -- Now destroy old subscriptions (best-effort, fire-and-forget after new ones are active)
     if oldCount > 0 and __go_send_command_noreply then
@@ -549,6 +639,13 @@ function RemoteSubscription.autoSubscribe()
             destroyed = destroyed + 1
         end
         Logger:getShared():info("[RemoteSub] Cleaned up %d old subscriptions", destroyed)
+    end
+
+    RemoteSubscription.polled = polled
+    if next(polled) then
+        RemoteSubscription.startPollTimer()
+    else
+        RemoteSubscription.stopPollTimer()
     end
 
     RemoteSubscription._lastSync = os.time()
@@ -583,9 +680,12 @@ function RemoteSubscription.getStatus()
             end
         end
     end
+    local polledCount = 0
+    for _ in pairs(RemoteSubscription.polled) do polledCount = polledCount + 1 end
     return JSON.encode({
         subscriptions = count,
         objects = objects,
+        polled = polledCount,
         lastSync = RemoteSubscription._lastSync,
         lastEvents = lastEvents,
         states = states,
@@ -610,6 +710,22 @@ function RemoteSubscription.refreshAll()
         Logger:getShared():warn("[RemoteSub] Previous renew never finished, starting a new one")
     end
 
+    -- A running poll chain sends to the same CLUs: renew when it ends
+    local polling = RemoteSubscription._pollRun
+    local waited = polling and os.time() - polling.startedAt
+    if waited and waited < RemoteSubscription.RENEW_WAIT_SECONDS then
+        -- or when the wait runs out: a long or lost poll chain must not hold it to the next tick
+        if not RemoteSubscription._renewAfterPoll then
+            RemoteSubscription._renewAfterPoll = true
+            EventBus:getShared():setTimeout(function()
+                if not RemoteSubscription._renewAfterPoll then return end
+                RemoteSubscription._renewAfterPoll = false
+                RemoteSubscription.refreshAll()
+            end, (RemoteSubscription.RENEW_WAIT_SECONDS - waited + 1) * 1000)
+        end
+        return
+    end
+
     local subs = {}
     for key, sub in pairs(RemoteSubscription.activeSubscriptions) do
         subs[#subs + 1] = { key = key, sub = sub }
@@ -624,6 +740,10 @@ function RemoteSubscription.refreshAll()
 
     local function finish()
         RemoteSubscription._renewRun = nil
+        if RemoteSubscription._pollAfterRenew then
+            RemoteSubscription._pollAfterRenew = false
+            EventBus:getShared():setTimeout(RemoteSubscription.pollAll, delay)
+        end
         if failed > 0 then
             Logger:getShared():info("[RemoteSub] %d re-registered, %d failed — running full re-subscribe", count, failed)
             RemoteSubscription.autoSubscribe()
@@ -673,7 +793,8 @@ function RemoteSubscription.startRenewTimer()
         Logger:getShared():debug("[RemoteSub] Renew timer fired")
         if next(RemoteSubscription.activeSubscriptions) then
             RemoteSubscription.refreshAll()
-        else
+        elseif RemoteSubscription._subscribable ~= 0 then
+            -- no session although something should be subscribed (a CLU was offline)
             RemoteSubscription.autoSubscribe()
         end
     end, interval)
@@ -688,10 +809,206 @@ function RemoteSubscription.stopRenewTimer()
     end
 end
 
+--- Subscribes the polled objects of one CLU whose plan now says "subscribe" (the CLU just
+-- reported its firmware), next to the sessions it has; nothing else is re-registered.
+-- On a failure they stay polled.
+-- @param clu CLU_REMOTE
+function RemoteSubscription.subscribeUpgraded(clu)
+    local paths = {}
+    for path, entry in pairs(RemoteSubscription.polled) do
+        if entry.clu == clu and select(2, entry.obj:_plan()) ~= "poll" then paths[#paths + 1] = path end
+    end
+    if #paths == 0 then return end
+    table.sort(paths)
+
+    local cluIP = numericIPToString(clu.address)
+    local objects, cluSerial, moved = {}, nil, {}
+    for _, path in ipairs(paths) do
+        local entry = RemoteSubscription.polled[path]
+        for _, f in ipairs(entry.obj:subscribeFeatures()) do
+            objects[#objects + 1] = { objId = entry.obj._objId, featureIndex = f }
+        end
+        cluSerial = entry.cluSerial
+        moved[path] = entry
+    end
+    if #objects == 0 then return end
+
+    Logger:getShared():info("[RemoteSub] CLU %s (%s): %d polled entries to subscribe", tostring(cluSerial), cluIP, #objects)
+    local _, _, ok = subscribeBatches(cluIP, cluSerial, clu, objects)
+    if not ok then return end
+    for path in pairs(moved) do RemoteSubscription.polled[path] = nil end
+    RemoteSubscription._subscribable = (RemoteSubscription._subscribable or 0) + #objects
+    if not next(RemoteSubscription.polled) then RemoteSubscription.stopPollTimer() end
+end
+
+--- A value read with get: a number, a string without quotes, or nil for none
+local function parsePolled(result)
+    if type(result) ~= "string" then return nil end
+    local v = result:match("^%s*(.-)%s*$")
+    if v == "" or v == "nil" then return nil end
+    return tonumber(v) or v:match('^"(.*)"$') or v
+end
+
+--- Reads every feature of the polled objects with get, one message at a time spaced by
+-- batchDelay, and applies the values as a report would. A CLU whose firmware is not known
+-- is asked first; when the answer makes its objects subscribable, they are subscribed at
+-- the end of the run (subscribeUpgraded), not read.
+-- A CLU that does not answer is skipped for the rest of the run and its firmware forgotten.
+function RemoteSubscription.pollAll()
+    if not RemoteSubscription.config.enabled or not next(RemoteSubscription.polled) then return end
+
+    local current = RemoteSubscription._pollRun
+    if current and os.time() - current.startedAt < RemoteSubscription.POLL_STALE_SECONDS then
+        Logger:getShared():debug("[RemoteSub] Previous poll still running, skipping this one")
+        return
+    end
+    -- A running renew chain sends to the same CLUs: poll when it ends
+    local renewing = RemoteSubscription._renewRun
+    if renewing and os.time() - renewing.startedAt < RemoteSubscription.RENEW_STALE_SECONDS then
+        RemoteSubscription._pollAfterRenew = true
+        return
+    end
+
+    -- Steps grouped by CLU, in path order
+    local paths = {}
+    for path in pairs(RemoteSubscription.polled) do paths[#paths + 1] = path end
+    table.sort(paths)
+    local byClu, cluOrder = {}, {}
+    for _, path in ipairs(paths) do
+        local entry = RemoteSubscription.polled[path]
+        if not byClu[entry.clu] then
+            byClu[entry.clu] = {}
+            cluOrder[#cluOrder + 1] = entry.clu
+        end
+        table.insert(byClu[entry.clu], { path = path, entry = entry })
+    end
+    local steps = {}
+    for _, clu in ipairs(cluOrder) do
+        if clu._checkFirmwareAsync and not clu:firmware() then
+            steps[#steps + 1] = { clu = clu, firmware = true, entries = byClu[clu] }
+        end
+        for _, item in ipairs(byClu[clu]) do
+            for _, feature in ipairs(item.entry.features) do
+                steps[#steps + 1] = { clu = clu, path = item.path, entry = item.entry, feature = feature }
+            end
+        end
+    end
+    if #steps == 0 then return end
+
+    local delay = math.max(RemoteSubscription.RENEW_MIN_SPACING_MS,
+        math.min(100, RemoteSubscription.config.batchDelay or 50))
+    local run = { startedAt = os.time(), down = {}, upgrade = {}, upgradeOrder = {} }
+    RemoteSubscription._pollRun = run
+
+    local function finish()
+        if RemoteSubscription._pollRun ~= run then return end
+        RemoteSubscription._pollRun = nil
+        for _, clu in ipairs(run.upgradeOrder) do RemoteSubscription.subscribeUpgraded(clu) end
+        if RemoteSubscription._renewAfterPoll then
+            RemoteSubscription._renewAfterPoll = false
+            EventBus:getShared():setTimeout(RemoteSubscription.refreshAll, delay)
+        end
+    end
+
+    -- run.step, not a local: a caught error can split a closure's shared local (AGENTS.md)
+    local function nextStep(i)
+        local timerId = EventBus:getShared():setTimeout(function() run.step(i + 1) end, delay)
+        if not timerId or timerId < 0 then
+            Logger:getShared():warn("[RemoteSub] Poll timer rejected, %d reads skipped", #steps - i)
+            finish()
+        end
+    end
+
+    run.step = function(i)
+        if RemoteSubscription._pollRun ~= run then return end
+        local st = steps[i]
+        if not st then return finish() end
+        -- Skip a CLU that did not answer or will be subscribed, and objects no longer polled
+        if run.down[st.clu] or run.upgrade[st.clu] or (st.entry and RemoteSubscription.polled[st.path] ~= st.entry) then
+            return run.step(i + 1)
+        end
+
+        if st.firmware then
+            st.clu:_checkFirmwareAsync(function(fw)
+                if not fw then
+                    run.down[st.clu] = true
+                else
+                    -- an error here must not stop the chain: a waiting renew depends on it
+                    local ok, perr = pcall(function()
+                        for _, item in ipairs(st.entries) do
+                            logPlan(item.entry.cluSerial, item.entry.obj)
+                            if select(2, item.entry.obj:_plan()) ~= "poll" and not run.upgrade[st.clu] then
+                                run.upgrade[st.clu] = true
+                                table.insert(run.upgradeOrder, st.clu)
+                            end
+                        end
+                    end)
+                    if not ok then
+                        Logger:getShared():warn("[RemoteSub] Firmware plan failed: %s", tostring(perr))
+                    end
+                end
+                nextStep(i)
+            end)
+            return
+        end
+
+        local objId = st.entry.obj._objId
+        st.clu:executeAsync(objId .. ":get(" .. st.feature .. ")", function(result, err)
+            if err then
+                run.down[st.clu] = true
+                if st.clu._forgetFirmware then st.clu:_forgetFirmware() end
+                Logger:getShared():warn("[RemoteSub] Poll of %s failed: %s", st.path, tostring(err))
+            else
+                local value = parsePolled(result)
+                if value ~= nil then
+                    local ctx = { origin = "grenton", actor = "device:" .. tostring(st.entry.cluSerial) }
+                    -- pcall: an error here would end the chain for all later reads
+                    local ok, e = pcall(applyValue, st.path, { objId = objId, featureIndex = st.feature }, value, ctx)
+                    if not ok then Logger:getShared():warn("[RemoteSub] Poll of %s: %s", st.path, tostring(e)) end
+                end
+            end
+            nextStep(i)
+        end)
+    end
+
+    run.step(1)
+end
+
+--- Start the poll timer (config.pollInterval) and a first poll after POLL_FIRST_DELAY_MS.
+function RemoteSubscription.startPollTimer()
+    if not RemoteSubscription._pollTimer then
+        local interval = math.max(RemoteSubscription.config.pollInterval or 30, 5) * 1000
+        RemoteSubscription._pollTimer = EventBus:getShared():setInterval(RemoteSubscription.pollAll, interval)
+        Logger:getShared():info("[RemoteSub] Poll timer started, interval=%dms", interval)
+    end
+    EventBus:getShared():setTimeout(RemoteSubscription.pollAll, RemoteSubscription.POLL_FIRST_DELAY_MS)
+end
+
+--- Stop the poll timer
+function RemoteSubscription.stopPollTimer()
+    if RemoteSubscription._pollTimer then
+        EventBus:getShared():clearInterval(RemoteSubscription._pollTimer)
+        RemoteSubscription._pollTimer = nil
+    end
+end
+
+--- After a config sync: no polling with Sync off, none of objects taken off the Sync list.
+function RemoteSubscription.syncPolled()
+    local wl = RemoteSubscription.config.whitelist or {}
+    for path in pairs(RemoteSubscription.polled) do
+        if not RemoteSubscription.config.enabled or not wl[path] then
+            RemoteSubscription.polled[path] = nil
+        end
+    end
+    if not next(RemoteSubscription.polled) then RemoteSubscription.stopPollTimer() end
+end
+
 --- Destroy all active subscriptions (cleanup)
 -- Iterates through all active subscriptions and destroys them. Used during shutdown.
 function RemoteSubscription.destroyAll()
     RemoteSubscription.stopRenewTimer()
+    RemoteSubscription.stopPollTimer()
+    RemoteSubscription.polled = {}
     Logger:getShared():info("[RemoteSub] Destroying all subscriptions...")
 
     for key, sub in pairs(RemoteSubscription.activeSubscriptions) do

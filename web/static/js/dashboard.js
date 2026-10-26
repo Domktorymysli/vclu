@@ -39,7 +39,8 @@
               mute: 'Wycisz', unmute: 'Włącz dźwięk', power: 'Włącz / wyłącz', volume: 'Głośność',
               noForecast: 'brak prognozy', rain: 'opady', temperature: 'temperatura',
               onN: ['włączone', 'włączone', 'włączonych'], allOff: 'wszystko wyłączone', back: 'Wróć',
-              humidity: 'wilgotność' },
+              humidity: 'wilgotność', target: 'cel', thermoOn: 'włączony', thermoOff: 'wyłączony',
+              modes: ['ręcznie', 'urlop', 'harmonogram', 'podgrzewanie'], locked: 'zablokowany', lower: 'Obniż', raise: 'Podnieś' },
         en: { on: 'on', off: 'off', open: 'open', closed: 'closed', opening: 'opening',
               closing: 'closing', unknown: 'no reading', run: 'run', sent: 'sent', updated: 'updated',
               nothingToday: 'nothing more today', holidays: 'Holidays', namedays: 'Name days', sun: 'Sun', show: 'Show',
@@ -52,7 +53,9 @@
               play: 'Play', pause: 'Pause', previous: 'Previous', next: 'Next',
               mute: 'Mute', unmute: 'Unmute', power: 'Power', volume: 'Volume',
               noForecast: 'no forecast', rain: 'rain', temperature: 'temperature',
-              onN: ['on', 'on', 'on'], allOff: 'all off', back: 'Back', humidity: 'humidity' }
+              onN: ['on', 'on', 'on'], allOff: 'all off', back: 'Back', humidity: 'humidity',
+              target: 'target', thermoOn: 'on', thermoOff: 'off',
+              modes: ['manual', 'holiday', 'schedule', 'heat-up'], locked: 'locked', lower: 'Lower', raise: 'Raise' }
     };
     // ?lang= as on the other pages, else the browser's language
     var lang = (function() {
@@ -66,15 +69,18 @@
         button: 'play-fill', toggle: 'power', slider: 'sliders', status: 'info-circle', link: 'link-45deg',
         chart: 'graph-up', select: 'list-ul', image: 'image', cover: 'arrows-expand', covers: 'window', dimmer: 'lightbulb',
         color: 'palette', calendar: 'calendar3', player: 'music-note-beamed', forecast: 'cloud-sun',
-        room: 'door-open'
+        room: 'door-open', thermostat: 'thermometer-half'
     };
 
-    // 23.9 -> "23,9" in Polish; text as it is
-    function fmtNum(v) {
-        return typeof v === 'number' && lang === 'pl' ? String(v).replace('.', ',') : String(v);
+    // 23.9 -> "23,9" in Polish; with decimals rounded to them (21 -> "21,0"); text as it is
+    function fmtNum(v, decimals) {
+        if (typeof v !== 'number') return String(v);
+        var s = decimals != null ? v.toFixed(decimals) : String(v);
+        if (Number(s) === 0) s = s.replace('-', ''); // -0.04 -> "0,0", not "-0,0"
+        return lang === 'pl' ? s.replace('.', ',') : s;
     }
-    function withUnit(v, unit) {
-        return fmtNum(v) + (unit ? ' ' + unit : '');
+    function withUnit(v, unit, decimals) {
+        return fmtNum(v, decimals) + (unit ? ' ' + unit : '');
     }
 
     // ---- Time-of-day period tracking ----
@@ -183,7 +189,7 @@
             return d.value == null ? ['unknown', T.unknown] : ['value', fmtNum(d.value)];
         case 'status':
             if (d.value == null) return ['unknown', T.unknown];
-            return [isAlarm(d.color) ? 'alarm' : 'value', withUnit(d.value, w.unit)];
+            return [isAlarm(d.color) ? 'alarm' : 'value', withUnit(d.value, w.unit, w.decimals)];
         case 'select':
             if (d.value == null) return ['unknown', T.unknown];
             var label = String(d.value);
@@ -217,6 +223,14 @@
             if (d.error) return ['unknown', T.unknown];
             if (d.none) return ['unknown', T.noForecast];
             return ['value', d.updated ? T.updated + ' ' + hhmm(d.updated, w.zone) : ''];
+        case 'thermostat':
+            // "włączony · harmonogram"; the temperatures are in the tile's body
+            if (d.current == null && d.target == null) return ['unknown', T.unknown];
+            var tp = [];
+            if (d.state != null) tp.push(d.state ? T.thermoOn : T.thermoOff);
+            if (d.mode != null && T.modes[d.mode]) tp.push(T.modes[d.mode]);
+            if (d.locked) tp.push(T.locked);
+            return [d.state === 0 ? 'off' : (d.state ? 'on' : 'value'), tp.join(' · ')];
         case 'room':
             var lit = d.on || 0, opened = d.open || 0, parts = [];
             if (lit) parts.push(plural(lit, T.onN));
@@ -248,6 +262,7 @@
         if (type === 'player') updatePlayer(el, d);
         if (type === 'forecast') updateForecast(el, w, d);
         if (type === 'room') updateRoom(el, w, d, st[1]);
+        if (type === 'thermostat') updateThermostat(el, w, d);
         if (el.classList.contains('dash-header-item')) el.title = (w.label || '') + ': ' + st[1];
         if (el.getAttribute('role') === 'switch') el.setAttribute('aria-checked', d.value ? 'true' : 'false');
     }
@@ -542,6 +557,8 @@
             renderForecast(el, w);
         } else if (w.type === 'room') {
             renderRoom(el, w);
+        } else if (w.type === 'thermostat') {
+            renderThermostat(el, w);
         }
 
         refreshTile(el, w, w);
@@ -1279,6 +1296,111 @@
         var text = c ? coverCountsText(c) : null;
         el.textContent = text || '';
         el.hidden = !text;
+    }
+
+    // ---- Thermostat ----
+
+    // The target is sent once, this long after the last tap; the chosen value then shows until
+    // the thermostat reports another target, at most THERMO_HOLD_MS (lib/panel's Panel.HOLD_S)
+    var THERMO_SEND_MS = 1000;
+    var THERMO_HOLD_MS = 90000;
+
+    // 21.5 -> "21,5" in Polish, one decimal (two for a finer step); null -> "--"
+    function thermoText(v, step) {
+        if (v == null) return '--';
+        var t = (+v).toFixed(step && step < 0.1 ? 2 : 1);
+        return lang === 'pl' ? t.replace('.', ',') : t;
+    }
+
+    // What the target shows: a value being chosen, one sent and not reported yet, else the report
+    function thermoShown(el, d) {
+        var st = el._thermo;
+        if (st.pending != null) return st.pending;
+        var h = st.held;
+        if (h) {
+            var same = d.target != null && h.before != null && Math.abs(d.target - h.before) < 1e-6;
+            if ((same || (d.target == null && h.before == null)) && Date.now() < h.until) return h.value;
+            st.held = null;
+        }
+        return d.target;
+    }
+
+    // The current temperature large; under it - target + (no buttons when read-only)
+    function renderThermostat(el, w) {
+        el._thermo = { pending: null, timer: null, held: null };
+        var box = calEl('div', 'dash-thermo');
+        var cur = calEl('div', 'dash-thermo-current');
+        cur.appendChild(calEl('span', 'dash-thermo-current-value', '--'));
+        cur.appendChild(calEl('span', 'dash-thermo-unit', w.unit || ''));
+        box.appendChild(cur);
+
+        var row = calEl('div', 'dash-thermo-row');
+        var target = calEl('div', 'dash-thermo-target');
+        target.setAttribute('aria-live', 'polite');
+        target.appendChild(calEl('span', 'dash-thermo-target-label', T.target));
+        target.appendChild(calEl('span', 'dash-thermo-target-value', '--'));
+        var settable = w.capabilities && w.capabilities.set;
+        function btn(dir, icon, title) {
+            var b = calEl('button', 'dash-thermo-btn');
+            b.type = 'button';
+            b.title = title;
+            b.setAttribute('aria-label', title);
+            b.dataset.dir = dir;
+            b.appendChild(calEl('i', 'bi bi-' + icon));
+            b.addEventListener('click', function(e) {
+                e.stopPropagation();
+                thermoStep(el, w, dir);
+            });
+            return b;
+        }
+        if (settable) row.appendChild(btn(-1, 'dash-lg', T.lower));
+        row.appendChild(target);
+        if (settable) row.appendChild(btn(1, 'plus-lg', T.raise));
+        box.appendChild(row);
+        el.appendChild(box);
+    }
+
+    // A tap: the next step from what shows, within min..max; sent after the last tap of a series
+    function thermoStep(el, w, dir) {
+        var d = el._data || {};
+        var st = el._thermo;
+        if (el.classList.contains('disabled') || d.set === false) return;
+        var base = thermoShown(el, d);
+        if (base == null) return; // no reported target yet: no basis for a step
+        var step = w.step || 0.5;
+        var v = Math.round((base + dir * step) / step) * step;
+        v = Math.min(w.max, Math.max(w.min, +v.toFixed(4)));
+        st.pending = v;
+        updateThermostat(el, w, d);
+        clearTimeout(st.timer);
+        st.timer = setTimeout(function() {
+            st.timer = null;
+            var value = st.pending;
+            st.pending = null;
+            if (value == null) return;
+            st.held = { value: value, before: (el._data || {}).target, until: Date.now() + THERMO_HOLD_MS };
+            executeAction(w.id, 'set', value, function() {
+                st.held = null;
+                updateThermostat(el, w, el._data || {});
+            });
+        }, THERMO_SEND_MS);
+    }
+
+    function updateThermostat(el, w, d) {
+        var st = el._thermo;
+        if (!st) return;
+        el.querySelector('.dash-thermo-current-value').textContent = thermoText(d.current, 0.1);
+        el.querySelector('.dash-thermo-unit').hidden = d.current == null;
+        var shown = thermoShown(el, d);
+        var t = el.querySelector('.dash-thermo-target-value');
+        t.textContent = thermoText(shown, w.step) + (shown != null && w.unit ? ' ' + w.unit : '');
+        el.classList.toggle('dash-thermo-pending', st.pending != null || !!st.held);
+        // outside manual mode (or before a target) the buttons go; the target still shows
+        var can = d.set !== false && d.target != null;
+        el.querySelectorAll('.dash-thermo-btn').forEach(function(b) {
+            b.hidden = d.set === false;
+            b.disabled = !can || (shown != null && (b.dataset.dir > 0 ? shown >= w.max : shown <= w.min));
+        });
     }
 
     // ---- Media player ----
@@ -2160,7 +2282,7 @@
         el.appendChild(icon);
 
         if (w.type === 'status') {
-            el.appendChild(calEl('span', 'dash-header-value', w.value != null ? fmtNum(w.value) : '--'));
+            el.appendChild(calEl('span', 'dash-header-value', w.value != null ? fmtNum(w.value, w.decimals) : '--'));
             if (w.unit) el.appendChild(calEl('span', 'dash-header-unit', w.unit));
         } else {
             el.appendChild(calEl('span', 'dash-header-value', w.label));
@@ -2434,6 +2556,11 @@
             });
         }
         if (type === 'color') delete d.value; // brightness or white: the reply does not say
+        if (type === 'thermostat') {
+            delete d.value; // a set's reply: the tile holds the value itself
+            // a poll is the whole state: what it leaves out was not reported (shown as --)
+            if (!force) ['current', 'target', 'state', 'mode', 'error'].forEach(function(k) { if (!(k in d)) d[k] = null; });
+        }
         var slider = el.querySelector('.dash-slider-input');
         var held = slider && userHolds(slider);
         var toggle;
@@ -2490,7 +2617,7 @@
         // Header status: the value is the chip's text
         if (el.classList.contains('dash-header-item') && type === 'status' && d.value !== undefined) {
             var hVal = el.querySelector('.dash-header-value');
-            if (hVal) hVal.textContent = d.value != null ? fmtNum(d.value) : '--';
+            if (hVal) hVal.textContent = d.value != null ? fmtNum(d.value, wDef.decimals) : '--';
         }
 
         refreshTile(el, wDef, d);
@@ -2543,7 +2670,8 @@
 
     // ---- Actions ----
 
-    function executeAction(widgetId, action, value) {
+    // onFail: called when the action is refused or does not reach the server
+    function executeAction(widgetId, action, value, onFail) {
         var body = { widgetId: widgetId, action: action };
         if (value !== undefined) body.value = value;
 
@@ -2568,6 +2696,7 @@
         }).catch(revert);
 
         function revert() {
+            if (onFail) onFail();
             delete actionGrace[widgetId];
             pollValues();
         }

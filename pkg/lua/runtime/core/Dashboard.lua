@@ -192,12 +192,151 @@ local function coversResolve(dashId, w)
     return out
 end
 
+-- opts.decimals of a status: whole places 0..6; the page rounds a number to them
+local function checkDecimals(what, id, opts)
+    local d = type(opts) == 'table' and opts.decimals or nil
+    if d ~= nil and (type(d) ~= 'number' or d % 1 ~= 0 or d < 0 or d > 6) then
+        error(what .. '("' .. tostring(id) .. '"): opts.decimals must be a whole number 0-6', 3)
+    end
+end
+
+-- ==========================================================================
+-- Thermostat: current temperature, target, +/- for the target
+-- ==========================================================================
+
+local THERMOSTAT_FNS = { getCurrent = true, getTarget = true, setTarget = true, getState = true, getMode = true }
+local THERMOSTAT_KEYS = { min = true, max = true, step = true, unit = true, readonly = true,
+    disabled = true, span = true, size = true, color = true }
+-- the range of an exposed climate (ExposedObjects capabilities)
+local THERMOSTAT_MIN, THERMOSTAT_MAX = 5, 35
+
+-- A thermostat object, as Home Assistant's climate takes one (RemoteThermostat)
+local function isThermostat(v)
+    return type(v) == 'table' and type(v.getValue) == 'function'
+        and type(v.getTarget) == 'function' and type(v.setSetpoint) == 'function'
+end
+
+-- The object's methods as the widget's functions; as lib/panel's menu:thermostat, the set
+-- point is written by hand, so only in manual mode (getMode 0)
+local function thermostatFns(o, readonly)
+    local function m(name)
+        if type(o[name]) == 'function' then return function() return o[name](o) end end
+    end
+    return { getCurrent = m('getValue'), getTarget = m('getTarget'), getState = m('getState'), getMode = m('getMode'),
+        setTarget = not readonly and function(v) o:setSetpoint(v) end or nil }
+end
+
+local function thermostatWidget(id, label, icon, fns, opts)
+    local where = 'section:thermostat("' .. tostring(id) .. '")'
+    if type(id) ~= 'string' or id == '' then error('section:thermostat: id must be a non-empty string', 3) end
+    if type(label) ~= 'string' then error(where .. ': label must be a string', 3) end
+    if icon ~= nil and (type(icon) ~= 'string' or not icon:match('^[%w%-]+$')) then
+        error(where .. ': icon must be a Bootstrap icon name (letters, digits and -)', 3)
+    end
+    if opts ~= nil and type(opts) ~= 'table' then error(where .. ': opts must be a table', 3) end
+    opts = opts or {}
+    for k in pairs(opts) do
+        if not THERMOSTAT_KEYS[k] then
+            error(where .. ': unknown option "' .. tostring(k) .. '" (min, max, step, unit, readonly, disabled, span, size, color)', 3)
+        end
+    end
+    for _, k in ipairs({ 'min', 'max', 'step' }) do
+        local v = opts[k]
+        if v ~= nil and (type(v) ~= 'number' or v - v ~= 0) then error(where .. ': opts.' .. k .. ' must be a number', 3) end
+    end
+    local min, max = opts.min or THERMOSTAT_MIN, opts.max or THERMOSTAT_MAX
+    if min >= max then error(where .. ': opts.min must be below opts.max', 3) end
+    if opts.step ~= nil and opts.step <= 0 then error(where .. ': opts.step must be above 0', 3) end
+    if opts.unit ~= nil and (type(opts.unit) ~= 'string' or #opts.unit > 8) then
+        error(where .. ': opts.unit must be a short string such as "°C"', 3)
+    end
+    if opts.readonly ~= nil and type(opts.readonly) ~= 'boolean' and type(opts.readonly) ~= 'function' then
+        error(where .. ': opts.readonly must be true, false or a function', 3)
+    end
+    if opts.disabled ~= nil and type(opts.disabled) ~= 'function' then error(where .. ': opts.disabled must be a function', 3) end
+    local f
+    if isThermostat(fns) then
+        f = thermostatFns(fns, opts.readonly == true)
+    elseif type(fns) == 'table' and getmetatable(fns) ~= nil and rawget(fns, 'getCurrent') == nil then
+        -- an object (it has methods), but not a thermostat: say which and what it lacks;
+        -- a table of functions with a metatable (own getCurrent) stays a table of functions
+        local missing = {}
+        for _, m in ipairs({ 'getValue', 'getTarget', 'setSetpoint' }) do
+            if type(fns[m]) ~= 'function' then missing[#missing + 1] = m end
+        end
+        local what = tostring(fns._objId or fns._name or 'the object')
+        if fns._type then what = what .. ' (' .. tostring(fns._type) .. ')' end
+        error(where .. ': ' .. what .. ' is not a thermostat: it has no ' .. table.concat(missing, ', ')
+            .. '; pass a thermostat or a table {getCurrent, getTarget, setTarget?, ...}', 3)
+    elseif type(fns) == 'table' then
+        f = {}
+        for k, v in pairs(fns) do
+            if not THERMOSTAT_FNS[k] then
+                error(where .. ': unknown key "' .. tostring(k) .. '" in fns (getCurrent, getTarget, setTarget, getState, getMode)', 3)
+            end
+            if type(v) ~= 'function' then error(where .. ': fns.' .. k .. ' must be a function', 3) end
+            f[k] = v
+        end
+        if not f.getCurrent or not f.getTarget then error(where .. ': fns needs getCurrent and getTarget', 3) end
+        if opts.readonly == true then f.setTarget = nil end
+    else
+        if fns == nil then
+            error(where .. ': no thermostat (nil): check the path in _:get(...), the object may not be imported', 3)
+        end
+        error(where .. ': fns must be {getCurrent, getTarget, setTarget?, getState?, getMode?} or a thermostat (RemoteThermostat), got ' .. type(fns), 3)
+    end
+    -- a readonly function locks and unlocks the buttons while the dashboard runs
+    return { id = id, type = 'thermostat', label = label, icon = icon or 'thermometer-half', fns = f,
+        readonly = type(opts.readonly) == 'function' and opts.readonly or nil,
+        min = min, max = max, step = opts.step or 0.5, unit = opts.unit or '°C', opts = opts }
+end
+
+-- A finite number from fn, nil before the first report; err when fn fails
+local function thermostatRead(fn)
+    if type(fn) ~= 'function' then return nil end
+    local ok, v = pcall(fn)
+    if not ok then return nil, tostring(v) end
+    if type(v) == 'boolean' then return v and 1 or 0 end
+    v = tonumber(v)
+    if v ~= nil and v - v == 0 then return v end
+end
+
+-- The target may be written: there is setTarget, opts.readonly (a function) says no lock and the mode (if
+-- known) is manual; a failing getMode or readonly says no
+local function thermostatCanSet(fns, readonly)
+    if type(fns.setTarget) ~= 'function' then return false end
+    if readonly then
+        local ok, ro = pcall(readonly)
+        if not ok or ro then return false end
+    end
+    if type(fns.getMode) ~= 'function' then return true end
+    local mode, err = thermostatRead(fns.getMode)
+    return err == nil and (mode == nil or mode == 0)
+end
+
+-- What the tile shows: {current, target, state, mode, set}, error when getCurrent or getTarget fails
+local function thermostatState(w)
+    local f = w.fns
+    local cur, err1 = thermostatRead(f.getCurrent)
+    local target, err2 = thermostatRead(f.getTarget)
+    local e = { current = cur and math.floor(cur * 10 + 0.5) / 10, target = target,
+        state = (thermostatRead(f.getState)), mode = (thermostatRead(f.getMode)), set = thermostatCanSet(f, w.readonly) }
+    if w.readonly then
+        local ok, ro = pcall(w.readonly)
+        -- false, not nil: the page merges values, so a missing field would keep the last true
+        e.locked = false
+        if not ok or ro then e.locked = true end
+    end
+    e.error = err1 or err2
+    return e
+end
+
 -- ==========================================================================
 -- Rooms from the house model (section:area, dash:floor)
 -- ==========================================================================
 
--- Kinds that have a widget; a thermostat (climate) has none yet
-local AREA_KINDS = { 'light', 'switch', 'dimmer', 'cover', 'temperature', 'humidity', 'lock' }
+-- Kinds that have a widget; a thermostat (climate) only through kinds, as switch and lock
+local AREA_KINDS = { 'light', 'switch', 'dimmer', 'cover', 'temperature', 'humidity', 'lock', 'climate' }
 local AREA_DEFAULT_KINDS = { 'light', 'dimmer', 'cover', 'temperature', 'humidity' }
 local AREA_KEYS = { 'kinds', 'skip' }
 local FLOOR_KEYS = { 'kinds', 'order', 'rooms', 'skip', 'titles' }
@@ -293,6 +432,13 @@ local function areaWidget(h, id, off)
         w.icon = kind == 'temperature' and 'thermometer-half' or 'droplet'
         w.unit = kind == 'temperature' and '°C' or '%'
         w.getValue = function() return h:getValue() end
+    elseif kind == 'climate' and isThermostat(o) then
+        -- the expose options' range, as Home Assistant clamps a target; readonly disables the widget
+        local min, max = tonumber(h.options.min) or THERMOSTAT_MIN, tonumber(h.options.max) or THERMOSTAT_MAX
+        if min >= max then min, max = THERMOSTAT_MIN, THERMOSTAT_MAX end
+        local step = tonumber(h.options.step)
+        w.type, w.icon, w.fns = 'thermostat', 'thermometer-half', thermostatFns(o)
+        w.min, w.max, w.step, w.unit = min, max, (step and step > 0) and step or 0.5, '°C'
     else
         if h.options.dashboard == true and not _noWidgetWarned[h.path] then
             _noWidgetWarned[h.path] = true
@@ -791,9 +937,10 @@ end
 -- @param icon string Bootstrap icon name (e.g., "thermometer-half", "droplet")
 -- @param getValue function Returns current value: function() -> number|string
 -- @param unit string Unit suffix displayed after value (e.g., "°C", "%", "lx")
--- @param opts table Optional: {disabled=function()->bool, color=string|function()->string|nil}
+-- @param opts table Optional: {decimals=0-6 (a number is shown rounded to that many places), disabled=function()->bool, color=string|function()->string|nil}
 -- @api public
 function SectionHandle:status(id, label, icon, getValue, unit, opts)
+    checkDecimals('section:status', id, opts)
     self._builder:_addWidget(self._sectionIndex, {
         id = id, type = 'status', label = label, icon = icon,
         getValue = getValue, unit = unit or '', opts = opts or {}
@@ -820,7 +967,7 @@ end
 -- @param id string Unique widget identifier
 -- @param label string Display label (e.g., "Temperatura 24h")
 -- @param metricPath string Metric path registered via metric() (e.g., "temp:salon", "salda:outsideAir")
--- @param opts table Optional: {range=string ("1h","6h","24h","7d"), unit=string}
+-- @param opts table Optional: {range=string (any duration such as "30m", "2h", "24h", "7d"; default "2h"; 30m/2h/24h/7d have tuned refresh, others refresh every 60 s), unit=string, min=n, max=n (Y axis), fill=bool (default true), refresh=seconds, span=n, color=string}
 -- @api public
 function SectionHandle:chart(id, label, metricPath, opts)
     self._builder:_addWidget(self._sectionIndex, {
@@ -959,7 +1106,7 @@ end
 -- @param id string Unique widget identifier
 -- @param label string Display label
 -- @param icon string Bootstrap icon name (e.g., "brightness-high")
--- @param fns table {getValue=function()->number(0-1), setValue=function(number), switchOn=function(), switchOff=function()}
+-- @param fns table {get=function()->number(0-100), set=function(number 0-100), switchOn=function()?, switchOff=function()?, isOn=function()->bool? (default: get() > 0)}
 -- @param opts table Optional: {disabled=function()->bool}
 -- @api public
 function SectionHandle:dimmer(id, label, icon, fns, opts)
@@ -983,6 +1130,27 @@ function SectionHandle:color(id, label, icon, fns, opts)
         id = id, type = 'color', label = label, icon = icon,
         fns = colorFns(fns), opts = opts or {}
     })
+    return self
+end
+
+--- Add a thermostat: current temperature, target and +/- for the target.
+-- @param id string Unique widget identifier
+-- @param label string Display label
+-- @param icon string|nil Bootstrap icon name (default "thermometer-half")
+-- @param fns table {getCurrent=function()->number|nil, getTarget=function()->number|nil, setTarget=function(number)?,
+--   getState=function()->number|bool? (1/true active, 0/false off), getMode=function()->number? (0 manual, 1 holiday,
+--   2 schedule, 3 heat-up)}, or a thermostat object (RemoteThermostat: getValue, getTarget, setSetpoint, getState, getMode)
+--   Shows the current temperature and the target ("--" until reported); + and - change the target by step and
+--   setTarget is called once, 1 s after the last tap; the chosen value shows until the thermostat reports a
+--   new target, at most 90 s. Without setTarget (or opts.readonly) there are no buttons; with getMode the
+--   target is set only in manual mode (0), as lib/panel does. The action endpoint refuses a set outside min..max.
+-- @param opts table Optional: {min=5, max=35, step=0.5, unit="°C", readonly=bool or function()->bool (true: no buttons; a function locks them while it returns true), disabled=function()->bool, span=n, size=string, color=string}
+-- @api public
+function SectionHandle:thermostat(id, label, icon, fns, opts)
+    if self._builder._sections[self._sectionIndex]._isHeader then
+        error('section:thermostat("' .. tostring(id) .. '"): a thermostat goes in a section, not the header', 2)
+    end
+    self._builder:_addWidget(self._sectionIndex, thermostatWidget(id, label, icon, fns, opts))
     return self
 end
 
@@ -1420,12 +1588,13 @@ end
 -- @param icon string Bootstrap icon name (e.g., "thermometer-half", "droplet")
 -- @param getValue function Returns current value: function() -> number|string
 -- @param unit string Unit suffix displayed after value (e.g., "°C", "%", "lx")
--- @param opts table Optional: {disabled=function()->bool, color=string|function()->string|nil}
+-- @param opts table Optional: {decimals=0-6 (a number is shown rounded to that many places), disabled=function()->bool, color=string|function()->string|nil}
 -- @api public
 function DashboardBuilder:status(id, label, icon, getValue, unit, opts)
     if not self._currentSection then
         error('Call :section() before adding widgets (dash:floor() ends the current section)', 2)
     end
+    checkDecimals('dash:status', id, opts)
     self:_addWidget(self._currentSection, {
         id = id, type = 'status', label = label, icon = icon,
         getValue = getValue, unit = unit or '', opts = opts or {}
@@ -1455,7 +1624,7 @@ end
 -- @param id string Unique widget identifier
 -- @param label string Display label (e.g., "Temperatura 24h")
 -- @param metricPath string Metric path registered via metric() (e.g., "temp:salon", "salda:outsideAir")
--- @param opts table Optional: {range=string ("1h","6h","24h","7d"), unit=string}
+-- @param opts table Optional: {range=string (any duration such as "30m", "2h", "24h", "7d"; default "2h"; 30m/2h/24h/7d have tuned refresh, others refresh every 60 s), unit=string, min=n, max=n (Y axis), fill=bool (default true), refresh=seconds, span=n, color=string}
 -- @api public
 function DashboardBuilder:chart(id, label, metricPath, opts)
     if not self._currentSection then
@@ -1615,7 +1784,7 @@ end
 -- @param id string Unique widget identifier
 -- @param label string Display label
 -- @param icon string Bootstrap icon name (e.g., "brightness-high")
--- @param fns table {getValue=function()->number(0-1), setValue=function(number), switchOn=function(), switchOff=function()}
+-- @param fns table {get=function()->number(0-100), set=function(number 0-100), switchOn=function()?, switchOff=function()?, isOn=function()->bool? (default: get() > 0)}
 -- @param opts table Optional: {disabled=function()->bool}
 -- @api public
 function DashboardBuilder:dimmer(id, label, icon, fns, opts)
@@ -1645,6 +1814,30 @@ function DashboardBuilder:color(id, label, icon, fns, opts)
         id = id, type = 'color', label = label, icon = icon,
         fns = colorFns(fns), opts = opts or {}
     })
+    return self
+end
+
+--- Add a thermostat to the current section: current temperature, target and +/- for the target.
+-- @param id string Unique widget identifier
+-- @param label string Display label
+-- @param icon string|nil Bootstrap icon name (default "thermometer-half")
+-- @param fns table {getCurrent=function()->number|nil, getTarget=function()->number|nil, setTarget=function(number)?,
+--   getState=function()->number|bool? (1/true active, 0/false off), getMode=function()->number? (0 manual, 1 holiday,
+--   2 schedule, 3 heat-up)}, or a thermostat object (RemoteThermostat: getValue, getTarget, setSetpoint, getState, getMode)
+--   Shows the current temperature and the target ("--" until reported); + and - change the target by step and
+--   setTarget is called once, 1 s after the last tap; the chosen value shows until the thermostat reports a
+--   new target, at most 90 s. Without setTarget (or opts.readonly) there are no buttons; with getMode the
+--   target is set only in manual mode (0), as lib/panel does. The action endpoint refuses a set outside min..max.
+-- @param opts table Optional: {min=5, max=35, step=0.5, unit="°C", readonly=bool or function()->bool (true: no buttons; a function locks them while it returns true), disabled=function()->bool, span=n, size=string, color=string}
+-- @api public
+function DashboardBuilder:thermostat(id, label, icon, fns, opts)
+    if not self._currentSection then
+        error('Call :section() before adding widgets (dash:floor() ends the current section)', 2)
+    end
+    if self._sections[self._currentSection]._isHeader then
+        error('section:thermostat("' .. tostring(id) .. '"): a thermostat goes in a section, not the header', 2)
+    end
+    self:_addWidget(self._currentSection, thermostatWidget(id, label, icon, fns, opts))
     return self
 end
 
@@ -2125,6 +2318,7 @@ function DashboardAPI.getDefinition(id)
             -- Status unit + sparkline
             if w.type == 'status' then
                 widget.unit = w.unit
+                widget.decimals = w.opts.decimals
                 if w.opts.spark then
                     widget.spark = w.opts.spark
                     widget.sparkRange = w.opts.sparkRange or '2h'
@@ -2228,6 +2422,13 @@ function DashboardAPI.getDefinition(id)
                 widget.unit = w.opts.unit or '°C'
                 widget.chartHours = w.opts.hours or 24
                 widget.zone = datetime.timezone()
+            end
+
+            -- Thermostat: current, target, state, mode; its range and whether it can be set at all
+            if w.type == 'thermostat' then
+                for k, v in pairs(thermostatState(w)) do widget[k] = v end
+                widget.min, widget.max, widget.step, widget.unit = w.min, w.max, w.step, w.unit
+                widget.capabilities = { set = type(w.fns.setTarget) == 'function' }
             end
 
             -- Dimmer widget
@@ -2387,6 +2588,10 @@ function DashboardAPI.getValues(id)
                 result[w.id] = entry
             elseif w.type == 'player' or w.type == 'forecast' then
                 local entry = w.type == 'player' and playerState(w) or forecastState(w)
+                entry.disabled = safeDisabled(w.opts)
+                result[w.id] = entry
+            elseif w.type == 'thermostat' then
+                local entry = thermostatState(w)
                 entry.disabled = safeDisabled(w.opts)
                 result[w.id] = entry
             elseif w.type == 'chip' then
@@ -2630,6 +2835,23 @@ function DashboardAPI.executeAction(id, widgetId, action, value)
             function() return safeDisabled(widget.opts) end)
         if action == 'set' then return JSON.encode({ success = true, value = numVal }) end
         return JSON.encode({ success = true })
+
+    elseif widget.type == 'thermostat' then
+        if action ~= 'set' then return JSON.encode({ error = 'Invalid action for thermostat' }) end
+        local fns = widget.fns
+        if type(fns.setTarget) ~= 'function' then return JSON.encode({ error = 'Read-only thermostat' }) end
+        if widget.readonly then
+            local ok, ro = pcall(widget.readonly)
+            if not ok or ro then return JSON.encode({ error = 'Read-only thermostat' }) end
+        end
+        if type(value) ~= 'number' or value - value ~= 0 then return JSON.encode({ error = 'Value must be a number' }) end
+        if value < widget.min or value > widget.max then
+            return JSON.encode({ error = 'Value out of range [' .. widget.min .. ', ' .. widget.max .. ']' })
+        end
+        if not thermostatCanSet(fns, widget.readonly) then return JSON.encode({ error = 'Thermostat is not in manual mode' }) end
+        local ok, ret = pcall(fns.setTarget, value)
+        if not ok then return JSON.encode({ error = tostring(ret) }) end
+        return JSON.encode({ success = true, value = value })
 
     elseif widget.type == 'player' then
         local name, arg

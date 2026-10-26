@@ -334,6 +334,12 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 	// Build fullId
 	fullId := fmt.Sprintf("@%s/%s", namespace, req.ID)
 
+	// The files first: the config then never names a version that is not on disk (#112)
+	if err := plugins.NewLoader(s.serverDir).DownloadPlugin(*targetRepo, fullId); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to download plugin: %v", err)})
+		return
+	}
+
 	// Fetched without the lock; the install goes into the file as it is now
 	action := "installed"
 	err = config.UpdateMasterConfig(s.serverDir, func(masterConfig *config.VCLUConfig) error {

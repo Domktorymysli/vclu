@@ -1,5 +1,71 @@
 # Changelog
 
+## v1.7.0 (2026-10-25)
+
+### English
+
+**Highlights:** a house calendar; a new look and new dashboard tiles (rooms, thermostat, forecast, player); plugin updates from the panel that actually update.
+
+**Before you update**
+- Dashboards got a new tile look: a `custom.css` written for v1.6.0 may no longer apply, and a toggle in the header bar now switches on tap ([#91](https://github.com/Domktorymysli/vclu/issues/91)).
+- Widget ids starting with `area:`, `_group_` or `_section_` are reserved; rename them if a module uses them ([#92](https://github.com/Domktorymysli/vclu/issues/92)).
+- Smart Panel: `Panel.floor()` lists only objects exposed with that `floor` ([#92](https://github.com/Domktorymysli/vclu/issues/92)).
+- Hundreds of objects on one CLU's Sync list: set the batch size to 28 in Grenton settings ([#109](https://github.com/Domktorymysli/vclu/pull/109)).
+
+**New**
+- House calendar: events, reminders, holidays, sunrise/sunset and schedules in modules, and a calendar on dashboards ([#76](https://github.com/Domktorymysli/vclu/issues/76)).
+- New tile look: an icon in a coloured circle, the name and the state; a tap anywhere on a tile switches it ([#91](https://github.com/Domktorymysli/vclu/issues/91)).
+- Rooms: `section:area` and room tiles fill themselves with what `expose()` put in a room, no list to keep ([#92](https://github.com/Domktorymysli/vclu/issues/92), [#94](https://github.com/Domktorymysli/vclu/issues/94)).
+- Grenton thermostat: a dashboard tile with + and −, read-only or locked when you want, and a climate entity in Home Assistant ([#64](https://github.com/Domktorymysli/vclu/issues/64), [#61](https://github.com/Domktorymysli/vclu/issues/61)).
+- More tiles: weather forecast, media player (MusicCast), a group of covers with slats, small chips in the header ([#68](https://github.com/Domktorymysli/vclu/issues/68)).
+- Wall tablets: a dashboard can fill the whole screen and be added to the home screen as an app ([#99](https://github.com/Domktorymysli/vclu/issues/99)).
+- A Tasmota switch, dimmer or sensor is one line in a module ([#65](https://github.com/Domktorymysli/vclu/issues/65)).
+- In modules: `_:value(path)` reads a value or gives nil, `optional(name)` loads a module that may be missing, `ExposedObjects:list()` lists exposed objects ([#82](https://github.com/Domktorymysli/vclu/issues/82), [#40](https://github.com/Domktorymysli/vclu/issues/40)).
+- A status tile rounds its number: `{ decimals = 1 }` shows "21,4 °C" ([#118](https://github.com/Domktorymysli/vclu/pull/118)).
+- For agents (MCP): 60 promotes an hour instead of 10, and they can read the house calendar ([#123](https://github.com/Domktorymysli/vclu/pull/123), [#76](https://github.com/Domktorymysli/vclu/issues/76)).
+
+**Fixes**
+- Updating a plugin from the panel brings its new code, not only the new version number ([#112](https://github.com/Domktorymysli/vclu/issues/112)).
+- Picking a colour on a dashboard works again ([#116](https://github.com/Domktorymysli/vclu/pull/116)).
+- Sync subscribes every object on the Sync list, not 64 per CLU, and up to 28 at a time; thanks @kpucynski ([#109](https://github.com/Domktorymysli/vclu/pull/109)).
+- Thermostats on CLU firmware 4.x are read every 30 s instead of subscribed ([#67](https://github.com/Domktorymysli/vclu/issues/67)).
+- Object Manager is told when vCLU's TFTP server cannot start, instead of sending a project into nothing ([#53](https://github.com/Domktorymysli/vclu/issues/53)).
+- Smaller fixes: Lua editor completions are back; a quote in an MQTT password or a name no longer breaks vCLU; `_:byTag(...):expose()` works; errors point at the module's line; vCLU version in the sidebar.
+
+Full list: https://github.com/Domktorymysli/vclu/compare/v1.6.0...v1.7.0
+
+### Po polsku
+
+**Najważniejsze:** kalendarz domu; nowy wygląd i nowe kafle dashboardów (pokoje, termostat, prognoza, odtwarzacz); aktualizacja pluginu z panelu naprawdę go aktualizuje.
+
+**Przed aktualizacją**
+- Dashboardy mają nowy wygląd kafli: `custom.css` pisany pod v1.6.0 może przestać działać, a przełącznik w pasku nagłówka przełącza po dotknięciu ([#91](https://github.com/Domktorymysli/vclu/issues/91)).
+- Id widżetów zaczynające się od `area:`, `_group_` albo `_section_` są zarezerwowane; zmień je, jeśli moduł ich używa ([#92](https://github.com/Domktorymysli/vclu/issues/92)).
+- Smart Panel: `Panel.floor()` pokazuje tylko obiekty wystawione z tym `floor` ([#92](https://github.com/Domktorymysli/vclu/issues/92)).
+- Setki obiektów na liście Sync jednego CLU: ustaw w ustawieniach Grentona rozmiar paczki 28 ([#109](https://github.com/Domktorymysli/vclu/pull/109)).
+
+**Nowe**
+- Kalendarz domu: wydarzenia, przypomnienia, święta, wschód i zachód słońca oraz harmonogramy w modułach, a na dashboardzie kalendarz ([#76](https://github.com/Domktorymysli/vclu/issues/76)).
+- Nowy wygląd kafli: ikona w kolorowym kółku, nazwa i stan; dotknięcie w dowolnym miejscu kafla przełącza ([#91](https://github.com/Domktorymysli/vclu/issues/91)).
+- Pokoje: `section:area` i kafle pokoi same pokazują to, co `expose()` przypisało do pokoju, bez osobnej listy ([#92](https://github.com/Domktorymysli/vclu/issues/92), [#94](https://github.com/Domktorymysli/vclu/issues/94)).
+- Termostat Grentona: kafel na dashboardzie z + i −, tylko do odczytu albo blokowany na żądanie, oraz encja climate w Home Assistant ([#64](https://github.com/Domktorymysli/vclu/issues/64), [#61](https://github.com/Domktorymysli/vclu/issues/61)).
+- Nowe kafle: prognoza pogody, odtwarzacz (MusicCast), grupa rolet z lamelami, małe znaczniki w nagłówku ([#68](https://github.com/Domktorymysli/vclu/issues/68)).
+- Tablety na ścianie: dashboard może zająć cały ekran i dać się dodać do ekranu głównego jako aplikacja ([#99](https://github.com/Domktorymysli/vclu/issues/99)).
+- Przełącznik, ściemniacz albo czujnik z Tasmotą to jedna linia w module ([#65](https://github.com/Domktorymysli/vclu/issues/65)).
+- W modułach: `_:value(path)` czyta wartość albo daje nil, `optional(name)` ładuje moduł, którego może nie być, `ExposedObjects:list()` wypisuje wystawione obiekty ([#82](https://github.com/Domktorymysli/vclu/issues/82), [#40](https://github.com/Domktorymysli/vclu/issues/40)).
+- Kafel statusu zaokrągla liczbę: `{ decimals = 1 }` pokazuje „21,4 °C” ([#118](https://github.com/Domktorymysli/vclu/pull/118)).
+- Dla agentów (MCP): 60 wdrożeń na godzinę zamiast 10 i podgląd kalendarza domu ([#123](https://github.com/Domktorymysli/vclu/pull/123), [#76](https://github.com/Domktorymysli/vclu/issues/76)).
+
+**Poprawki**
+- Aktualizacja pluginu z panelu pobiera jego nowy kod, a nie zmienia tylko numer wersji ([#112](https://github.com/Domktorymysli/vclu/issues/112)).
+- Wybór koloru na dashboardzie znowu działa ([#116](https://github.com/Domktorymysli/vclu/pull/116)).
+- Synchronizacja subskrybuje każdy obiekt z listy Sync, a nie 64 na CLU, i do 28 naraz; dzięki @kpucynski ([#109](https://github.com/Domktorymysli/vclu/pull/109)).
+- Termostaty na CLU z firmware 4.x są odczytywane co 30 s zamiast subskrybowane ([#67](https://github.com/Domktorymysli/vclu/issues/67)).
+- Object Manager dowiaduje się, że serwer TFTP vCLU nie wystartował, zamiast wysyłać projekt w próżnię ([#53](https://github.com/Domktorymysli/vclu/issues/53)).
+- Drobne poprawki: wróciły podpowiedzi w edytorze Lua; cudzysłów w haśle MQTT albo w nazwie już nic nie psuje; `_:byTag(...):expose()` działa; błędy wskazują linię modułu; wersja vCLU w panelu bocznym.
+
+Pełna lista: https://github.com/Domktorymysli/vclu/compare/v1.6.0...v1.7.0
+
 ## v1.6.0 (2026-10-19)
 
 ### Grenton

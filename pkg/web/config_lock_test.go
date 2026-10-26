@@ -135,3 +135,43 @@ func TestWizardDeviceTypeRefusedAfterSetup(t *testing.T) {
 		t.Errorf(".vclu.json changed on a refused device type")
 	}
 }
+
+func TestWizardAPILoginAfterSetup(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	dir := t.TempDir()
+	hash, _ := config.HashPassword("secret")
+	auth := &config.VCLUAuthConfig{Username: "u", PasswordHash: hash}
+	s := &Server{serverDir: dir, sessions: newSessionStore()}
+	session := s.sessions.create()
+	r := gin.New()
+	r.Use(s.authMiddleware(), s.csrfMiddleware())
+	r.POST("/api/wizard/security", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	post := func(withSession bool) int {
+		req := httptest.NewRequest(http.MethodPost, "/api/wizard/security", strings.NewReader(`{}`))
+		if withSession {
+			req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session})
+			req.Header.Set("X-CSRF-Token", s.sessions.getCSRF(session))
+		}
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w.Code
+	}
+
+	if err := writeTestConfig(dir, &config.VCLUConfig{Auth: auth}); err != nil {
+		t.Fatal(err)
+	}
+	if code := post(false); code != http.StatusOK {
+		t.Errorf("during setup without a login: %d, want 200", code)
+	}
+	if err := writeTestConfig(dir, &config.VCLUConfig{Auth: auth, SetupCompleted: true}); err != nil {
+		t.Fatal(err)
+	}
+	if code := post(false); code != http.StatusUnauthorized {
+		t.Errorf("after setup without a login: %d, want 401", code)
+	}
+	// the modules page on /grenton still uses /api/wizard/module
+	if code := post(true); code != http.StatusOK {
+		t.Errorf("after setup with a login: %d, want 200", code)
+	}
+}

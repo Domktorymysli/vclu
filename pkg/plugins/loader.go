@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Domktorymysli/vclu/pkg/config"
@@ -136,7 +137,18 @@ type Loader struct {
 	httpClient  *http.Client
 	luaExecutor LuaExecutor
 	loaded      map[string]*LoadedPlugin
+
+	// updateRetry: when a plugin's files may be updated again (pluginID|config|disk); a failed
+	// or pointless check is not repeated on every reload (offline, repository behind)
+	updateMu    sync.Mutex
+	updateRetry map[string]time.Time
 }
+
+// updateRetryAfter: how long a failed or pointless update check is not repeated
+const updateRetryAfter = 30 * time.Minute
+
+// errNotNewer: the repository has no version newer than the files on disk
+var errNotNewer = fmt.Errorf("the repository has no newer version")
 
 // NewLoader creates a new plugin loader
 func NewLoader(serverDir string) *Loader {
@@ -188,9 +200,22 @@ func (l *Loader) FetchRepositoryIndex(repo config.PluginRepository) (*Repository
 	return &index, nil
 }
 
+// downloadMu serialises downloads: the panel and the runtime each have a Loader on one
+// plugins dir, sharing the .tmp- dirs and the lock file.
+var downloadMu sync.Mutex
+
 // DownloadPlugin downloads a plugin from a repository
 // pluginID can be fullId (@vclu/weather) or short id (weather)
 func (l *Loader) DownloadPlugin(repo config.PluginRepository, pluginID string) error {
+	return l.downloadPlugin(repo, pluginID, "")
+}
+
+// downloadPlugin downloads the version the repository lists; with newerThan, only when that
+// version is newer (errNotNewer otherwise), so an update never goes back.
+func (l *Loader) downloadPlugin(repo config.PluginRepository, pluginID, newerThan string) error {
+	downloadMu.Lock()
+	defer downloadMu.Unlock()
+
 	// Parse fullId to get short id for repository lookup
 	_, shortId := parseFullId(pluginID)
 
@@ -212,6 +237,11 @@ func (l *Loader) DownloadPlugin(repo config.PluginRepository, pluginID string) e
 	if listing == nil {
 		return fmt.Errorf("plugin %s not found in repository", shortId)
 	}
+	if newerThan != "" {
+		if cmp, ok := compareVersions(listing.Version, newerThan); !ok || cmp <= 0 {
+			return fmt.Errorf("%w (repository %s, disk %s)", errNotNewer, listing.Version, newerThan)
+		}
+	}
 
 	safeDir := safePluginDir(pluginID)
 
@@ -224,10 +254,21 @@ func (l *Loader) DownloadPlugin(repo config.PluginRepository, pluginID string) e
 	targetDir := filepath.Join(l.pluginsDir, safeDir, version)
 	completeMarker := filepath.Join(targetDir, ".complete")
 
+	lockEntry := LockEntry{
+		Version: listing.Version,
+		GitTag:  listing.GitTag,
+		Path:    safeDir + "/" + version,
+	}
+
 	// Cache hit: immutable tag already downloaded
 	if listing.GitTag != "" {
 		if _, err := os.Stat(completeMarker); err == nil {
 			log.Printf("[PLUGINS] cached %s/%s, skipping download", safeDir, version)
+			// The lock may still name an older dir (a lost lock write)
+			if cur := l.ReadLockFile()[pluginID]; cur.Path != lockEntry.Path || cur.Version != lockEntry.Version {
+				lockEntry.LockedAt = time.Now().Format(time.RFC3339)
+				l.writeLockEntry(pluginID, lockEntry)
+			}
 			return nil
 		}
 	}
@@ -271,15 +312,11 @@ func (l *Loader) DownloadPlugin(repo config.PluginRepository, pluginID string) e
 	}
 
 	// Cleanup old versions (after successful download)
-	l.cleanupOldVersions(filepath.Join(l.pluginsDir, safeDir), version)
+	l.cleanupOldVersions(filepath.Join(l.pluginsDir, safeDir), version, listing.Version)
 
 	// Update lock file (after cleanup — lock never points to removed dir)
-	l.writeLockEntry(pluginID, LockEntry{
-		Version:  listing.Version,
-		GitTag:   listing.GitTag,
-		Path:     safeDir + "/" + version,
-		LockedAt: time.Now().Format(time.RFC3339),
-	})
+	lockEntry.LockedAt = time.Now().Format(time.RFC3339)
+	l.writeLockEntry(pluginID, lockEntry)
 
 	log.Printf("[PLUGINS] downloaded %s to %s", pluginID, targetDir)
 	return nil
@@ -324,8 +361,9 @@ func (l *Loader) downloadAllFiles(baseURL, localDir string) error {
 	return nil
 }
 
-// cleanupOldVersions removes version directories other than currentVersion
-func (l *Loader) cleanupOldVersions(pluginBaseDir, currentVersion string) {
+// cleanupOldVersions removes the version directories older than currentVersion, the version
+// just downloaded into currentDir ("latest" for an untagged plugin)
+func (l *Loader) cleanupOldVersions(pluginBaseDir, currentDir, currentVersion string) {
 	entries, err := os.ReadDir(pluginBaseDir)
 	if err != nil {
 		return
@@ -335,7 +373,12 @@ func (l *Loader) cleanupOldVersions(pluginBaseDir, currentVersion string) {
 			continue
 		}
 		name := entry.Name()
-		if name == currentVersion || strings.HasPrefix(name, ".tmp-") {
+		if name == currentDir || strings.HasPrefix(name, ".tmp-") {
+			continue
+		}
+		// only what the new version replaces: never a newer version (installed by hand), never
+		// a directory whose version cannot be compared; "latest" goes when a tagged one comes
+		if cmp, ok := compareVersions(name, currentVersion); (!ok || cmp >= 0) && name != "latest" {
 			continue
 		}
 		path := filepath.Join(pluginBaseDir, name)
@@ -402,6 +445,87 @@ func (l *Loader) resolvePluginDir(pluginID string) string {
 
 	// 3. Fallback: old flat directory (migration compat)
 	return baseDir
+}
+
+// updateDue: no failed or pointless update check of key within updateRetryAfter
+func (l *Loader) updateDue(key string) bool {
+	l.updateMu.Lock()
+	defer l.updateMu.Unlock()
+	return time.Now().After(l.updateRetry[key])
+}
+
+func (l *Loader) updateLater(key string) {
+	l.updateMu.Lock()
+	defer l.updateMu.Unlock()
+	if l.updateRetry == nil {
+		l.updateRetry = make(map[string]time.Time)
+	}
+	l.updateRetry[key] = time.Now().Add(updateRetryAfter)
+}
+
+// compareVersions compares dotted numeric versions ("1.4.0" < "1.10.0"); a part may have a
+// suffix after its number ("2-beta"). ok is false when either is not such a version.
+func compareVersions(a, b string) (int, bool) {
+	pa, oka := versionParts(a)
+	pb, okb := versionParts(b)
+	if !oka || !okb {
+		return 0, false
+	}
+	for i := 0; i < len(pa) || i < len(pb); i++ {
+		var x, y int
+		if i < len(pa) {
+			x = pa[i]
+		}
+		if i < len(pb) {
+			y = pb[i]
+		}
+		if x != y {
+			if x < y {
+				return -1, true
+			}
+			return 1, true
+		}
+	}
+	return 0, true
+}
+
+func versionParts(v string) ([]int, bool) {
+	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
+	if v == "" {
+		return nil, false
+	}
+	var out []int
+	for _, part := range strings.Split(v, ".") {
+		n, digits := 0, 0
+		for _, c := range part {
+			if c < '0' || c > '9' {
+				break
+			}
+			n = n*10 + int(c-'0')
+			digits++
+		}
+		if digits == 0 || digits > 9 { // more would overflow int on 32-bit
+			return nil, false
+		}
+		out = append(out, n)
+	}
+	return out, true
+}
+
+// localVersion is the version of the plugin files in dir: the lock entry's, else the manifest's.
+func (l *Loader) localVersion(pluginID, dir string) string {
+	if entry, ok := l.ReadLockFile()[pluginID]; ok && filepath.Join(l.pluginsDir, entry.Path) == dir {
+		return entry.Version
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "plugin.json"))
+	if err != nil {
+		return ""
+	}
+	var manifest PluginManifest
+	if json.Unmarshal(data, &manifest) != nil {
+		return ""
+	}
+	return manifest.Version
 }
 
 // Lock file operations
@@ -585,6 +709,21 @@ func (l *Loader) LoadAllEnabled() error {
 				continue
 			}
 			localDir = l.resolvePluginDir(installed.ID)
+		} else if local := l.localVersion(installed.ID, localDir); installed.Version != "" && local != "" && local != installed.Version {
+			// An update from the panel writes the version; the files follow here (#112). Only an
+			// update: files newer than the config (installed by hand) are kept and loaded.
+			repo := l.findRepository(masterConfig.Plugins.Repositories, installed.Repository)
+			if cmp, ok := compareVersions(local, installed.Version); !ok || cmp > 0 {
+				log.Printf("[PLUGINS] %s %s on disk, %s in config; not newer in config, loading %s", installed.ID, local, installed.Version, local)
+			} else if repo == nil {
+				log.Printf("[PLUGINS] WARNING: %s %s on disk, %s in config, repository %s not found; loading %s", installed.ID, local, installed.Version, installed.Repository, local)
+			} else if key := installed.ID + "|" + installed.Version + "|" + local; !l.updateDue(key) {
+				// checked lately without result: not on every reload (offline, repository behind)
+			} else if err := l.downloadPlugin(*repo, installed.ID, local); err != nil {
+				l.updateLater(key)
+				// LoadPlugin resolves the directory again, so it takes what is on disk
+				log.Printf("[PLUGINS] WARNING: %s %s on disk, %s in config, not updated (%v); loading %s, next check in %v", installed.ID, local, installed.Version, err, local, updateRetryAfter)
+			}
 		}
 
 		// Skip plugins that ask for configuration and have none. A plugin that
