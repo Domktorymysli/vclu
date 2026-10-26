@@ -156,6 +156,36 @@ func TestHasRequire(t *testing.T) {
 			modPath: "dashboards/homelab",
 			want:    false,
 		},
+		{
+			name:    "optional loads it too (#132)",
+			src:     `local h = optional("dashboards/homelab")`,
+			modPath: "dashboards/homelab",
+			want:    true,
+		},
+		{
+			name:    "optional with single quotes",
+			src:     `optional('dashboards/homelab')`,
+			modPath: "dashboards/homelab",
+			want:    true,
+		},
+		{
+			name:    "optional without parentheses",
+			src:     `optional "dashboards/homelab"`,
+			modPath: "dashboards/homelab",
+			want:    true,
+		},
+		{
+			name:    "a method called optional is not the global one",
+			src:     `x.optional("dashboards/homelab")`,
+			modPath: "dashboards/homelab",
+			want:    false,
+		},
+		{
+			name:    "optional in a comment does not count",
+			src:     `-- optional("dashboards/homelab")`,
+			modPath: "dashboards/homelab",
+			want:    false,
+		},
 	}
 
 	for _, tt := range tests {
