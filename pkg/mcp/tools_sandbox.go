@@ -580,11 +580,12 @@ func (s *MCPServer) handleDraftPromote(ctx context.Context, req mcplib.CallToolR
 	})
 }
 
-// requireCallRe matches require "mod", require("mod") and require('mod').
+// requireCallRe matches require "mod", require("mod") and require('mod'), and the same with
+// optional, which loads a module the same way (#132).
 // The leading (^|[^%w_.:]) stands in for a word boundary Go's RE2 spells as \b but
 // which must also exclude '.' and ':' — without it, safe_require("x") and
 // helpers.require("x") would count as a plain require of x.
-var requireCallRe = regexp.MustCompile(`(^|[^\w_.:])require\s*\(?\s*["']([^"']+)["']`)
+var requireCallRe = regexp.MustCompile(`(^|[^\w_.:])(?:require|optional)\s*\(?\s*["']([^"']+)["']`)
 
 // stripLuaBlockComments removes Lua long comments: --[[ ... ]] and the levelled
 // form --[==[ ... ]==]. This cannot be a regexp: matching the closing bracket to
@@ -628,7 +629,7 @@ func stripLuaBlockComments(src string) string {
 	return b.String()
 }
 
-// hasRequire reports whether luaSrc contains a require() of the given module path.
+// hasRequire reports whether luaSrc contains a require() or optional() of the given module path.
 //
 // Lua's package.path substitution turns dots into path separators, so
 // require("a.b") and require("a/b") load the same file — both must count as a
@@ -711,10 +712,10 @@ func (s *MCPServer) subdirRequireWarnings(paths []string) []string {
 			continue
 		}
 		if initErr != nil {
-			warnings = append(warnings, fmt.Sprintf("%s is in a subdirectory — modules/init.lua not found. Add require() to load it.", p))
+			warnings = append(warnings, fmt.Sprintf("%s is in a subdirectory — modules/init.lua not found. Add require() or optional() to load it.", p))
 			continue
 		}
-		warnings = append(warnings, fmt.Sprintf("%s is in a subdirectory but no module requires it (modules/init.lua has no require('%s')). It will NOT be loaded automatically.", p, reqPath))
+		warnings = append(warnings, fmt.Sprintf("%s is in a subdirectory but no module loads it (modules/init.lua has no require('%s') or optional('%s')). It will NOT be loaded automatically.", p, reqPath, reqPath))
 	}
 	return warnings
 }
