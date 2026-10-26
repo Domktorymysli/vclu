@@ -638,7 +638,7 @@ func stripLuaBlockComments(src string) string {
 // False positives here are the dangerous direction: they suppress the "module
 // will not be loaded" warning and restore the silent failure this check exists
 // to catch. So block comments and line comments are stripped before matching,
-// and 'require' must stand as its own word.
+// and 'require' or 'optional' must stand as its own word.
 //
 // Known limits, all either harmless or erring towards a spurious warning:
 //   - a require inside a long string ([[ ... ]]) or a quoted string is counted;
