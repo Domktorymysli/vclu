@@ -452,6 +452,10 @@ func (l *Loader) downloadFile(url, localPath string) error {
 // resolvePluginDir returns the local directory for a plugin's files.
 // Checks lock file first, then scans for versioned dirs, then falls back to flat dir.
 func (l *Loader) resolvePluginDir(pluginID string) string {
+	// an id from an older config may hold ../: a directory that does not exist, inside plugins/
+	if !validPluginID(pluginID) {
+		return filepath.Join(l.pluginsDir, ".invalid-id")
+	}
 	// 1. Check lock file
 	lock := l.ReadLockFile()
 	if entry, ok := lock[pluginID]; ok {

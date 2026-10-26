@@ -186,3 +186,27 @@ func TestFindRepositorySkipsDisabled(t *testing.T) {
 		t.Errorf("findRepository missed an enabled repository")
 	}
 }
+
+// The names real repositories use pass; a regexp too strict here would stop every install.
+func TestValidPathNameKeepsRealNames(t *testing.T) {
+	for _, name := range []string{"vclu", "weather", "salda-recuperator", "influx-metrics", "modbus_gateway",
+		"latest", "2.1.1", "1.0.0-beta.1", "v1.0.0", "init.lua"} {
+		if !validPathName(name) {
+			t.Errorf("validPathName(%q) = false", name)
+		}
+	}
+	for _, id := range []string{"@vclu/weather", "weather"} {
+		if !validPluginID(id) {
+			t.Errorf("validPluginID(%q) = false", id)
+		}
+	}
+}
+
+// An id in the config that climbs out is not followed to its directory.
+func TestResolvePluginDirIgnoresInvalidID(t *testing.T) {
+	root := t.TempDir()
+	loader := NewLoader(filepath.Join(root, "server", "data"))
+	if dir := loader.resolvePluginDir("@vclu/../../../victim"); !loader.insidePluginsDir(dir) {
+		t.Errorf("resolvePluginDir left the plugins directory: %s", dir)
+	}
+}
