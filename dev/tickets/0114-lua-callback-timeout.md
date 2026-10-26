@@ -38,7 +38,8 @@ dashboards) keeps working.
 - A Go function that blocks (a synchronous call into Go) is not interrupted by the context; list such
   functions if any are reachable from Lua, and leave them out of scope.
 - What state the module is left in after a stop is the module's business, but the log says which
-  callback was stopped (timer id, event or work item name, module when known).
+  callback was stopped (timer id, event or work item name, module when known). A callback that
+  belongs to a plugin always names the plugin id: `PluginSandbox` knows it.
 - Cost: setting a context per callback must not show in the busy time on a Raspberry Pi (measure).
 
 ## Files
@@ -53,9 +54,14 @@ dashboards) keeps working.
 - [ ] A loop inside `pcall` inside the callback is stopped too (test).
 - [ ] An `setInterval` whose callback was stopped keeps its schedule (next tick runs) or is cleared;
       the choice is written down and tested.
-- [ ] The log line names the callback and the limit; the misleading `KILLED` message is gone.
+- [ ] The log line names the callback and the limit, and the plugin id for a plugin's callback
+      (test with a plugin timer); the misleading `KILLED` message is gone.
 - [ ] Callbacks under the limit behave as before; `go test ./...` and `go test -race ./...` pass.
 - [ ] A changelog entry in `changelog.d/0114-lua-callback-timeout.md`.
+
+## Out of scope
+- Quarantine of a plugin whose callbacks are stopped again and again (disabled, with a message in
+  the panel). A later ticket, once this one shows how often it happens.
 
 ## Contract impact
 Runtime behaviour for module code: a callback longer than the limit is now stopped. Note it in
