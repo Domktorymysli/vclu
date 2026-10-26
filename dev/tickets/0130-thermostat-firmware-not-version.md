@@ -1,4 +1,4 @@
-# #130: A thermostat is polled when its CLU's firmware answer is not a version
+# #0130: A thermostat is polled when its CLU's firmware answer is not a version
 
 - **Type:** bug
 - **Area:** grenton
@@ -34,9 +34,10 @@ Seen in vclu-e2e with fakeclu answering `nil` to `CLU...:get(17)`. A real CLU an
 ## Acceptance criteria
 - [ ] A CLU that answers `get(17)` with a non-version gets its thermostats polled (vclu-e2e: drop the knownBug marker in `TestThermostatPolledWhenFirmwareAnswerIsNotAVersion`).
 - [ ] A CLU that does not answer is still skipped for that run.
+- [ ] The log line in `logPlan` (`RemoteSubscription.lua`) tells "no answer to get(17)" from "answer is not a version"; today both print "unknown, no answer to get(17)".
 - [ ] A sandbox test with a virtual clock covers both cases.
 - [ ] `go test ./...` and `go test -race ./...` pass.
-- [ ] A changelog entry in `changelog.d/`.
+- [ ] A changelog entry in `changelog.d/0130-thermostat-firmware-not-version.md`.
 
 ## Contract impact
 None.
