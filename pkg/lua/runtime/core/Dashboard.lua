@@ -2217,7 +2217,7 @@ function DashboardAPI.calendarRange(id, widgetId, from, to)
             end
         end
     end
-    return JSON.encode({ today = today.date, now = math.floor(__go_time_ms() / 1000), zone = datetime.timezone(),
+    return JSON.encode({ today = today.date, now = math.floor(__go_time_ms() / 1000), zone = __go_calendar_zone(),
         ready = cal:isReady(), days = days, items = items, schedules = schedules })
 end
 
@@ -2421,7 +2421,7 @@ function DashboardAPI.getDefinition(id)
                 for k, v in pairs(forecastState(w)) do widget[k] = v end
                 widget.unit = w.opts.unit or '°C'
                 widget.chartHours = w.opts.hours or 24
-                widget.zone = datetime.timezone()
+                widget.zone = __go_calendar_zone()
             end
 
             -- Thermostat: current, target, state, mode; its range and whether it can be set at all
