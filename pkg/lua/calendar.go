@@ -70,15 +70,19 @@ func zoneNameOf(lookupEnv func(string) (string, bool), localtime string) string 
 			return "UTC"
 		}
 	} else {
-		link, err := os.Readlink(localtime)
-		if err != nil {
-			return ""
+		name = localtime
+	}
+	// TZ=:/etc/localtime is the link too; a copied zone file has no name
+	if strings.HasPrefix(name, "/") {
+		if link, err := os.Readlink(name); err == nil {
+			name = link
 		}
-		name = link
 	}
 	if i := strings.LastIndex(name, "zoneinfo/"); i >= 0 {
 		name = name[i+len("zoneinfo/"):]
 	}
+	// the browser knows Europe/Warsaw, not posix/Europe/Warsaw
+	name = strings.TrimPrefix(strings.TrimPrefix(name, "posix/"), "right/")
 	if strings.HasPrefix(name, "/") || name == "Local" {
 		return ""
 	}

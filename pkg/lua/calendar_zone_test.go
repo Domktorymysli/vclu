@@ -25,6 +25,7 @@ func TestZoneNameOf(t *testing.T) {
 	relative := link("relative", "../usr/share/zoneinfo/Asia/Tokyo")
 	elsewhere := link("elsewhere", "/opt/zones/warsaw")
 	unknown := link("unknown", "/usr/share/zoneinfo/Mars/Olympus")
+	posix := link("posix", "/usr/share/zoneinfo/posix/Europe/Warsaw")
 	file := filepath.Join(dir, "file")
 	if err := os.WriteFile(file, []byte("TZif"), 0o644); err != nil {
 		t.Fatal(err)
@@ -51,9 +52,12 @@ func TestZoneNameOf(t *testing.T) {
 		{"TZ empty is UTC", "", true, linux, "UTC"},
 		{"TZ unknown", "Nowhere/Town", true, linux, ""},
 		{"TZ Local", "Local", true, linux, ""},
+		{"TZ naming the localtime link", ":" + macos, true, linux, "America/New_York"},
+		{"TZ naming a copied file", file, true, linux, ""},
 		{"link on Linux", "", false, linux, "Europe/Warsaw"},
 		{"link on macOS", "", false, macos, "America/New_York"},
 		{"relative link", "", false, relative, "Asia/Tokyo"},
+		{"link into posix/", "", false, posix, "Europe/Warsaw"},
 		{"link outside zoneinfo", "", false, elsewhere, ""},
 		{"link to an unknown zone", "", false, unknown, ""},
 		{"a copied file", "", false, file, ""},
