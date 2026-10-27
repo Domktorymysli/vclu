@@ -50,7 +50,7 @@ func ValidateAuth(cluDir string, username, password string) bool {
 	return masterConfig.Auth.Username == username && VerifyPassword(password, masterConfig.Auth.PasswordHash)
 }
 
-// SaveAuth saves authentication credentials to master config
+// SaveAuth saves authentication credentials to master config, keeping the API key
 func SaveAuth(cluDir string, username, password string) error {
 	// bcrypt takes a while; hash before taking the lock every save waits on
 	hash, err := HashPassword(password)
@@ -70,10 +70,11 @@ func SaveAuth(cluDir string, username, password string) error {
 		}
 	}
 
-	masterConfig.Auth = &VCLUAuthConfig{
-		Username:     username,
-		PasswordHash: hash,
+	if masterConfig.Auth == nil {
+		masterConfig.Auth = &VCLUAuthConfig{}
 	}
+	masterConfig.Auth.Username = username
+	masterConfig.Auth.PasswordHash = hash
 
 	return writeMasterConfig(cluDir, masterConfig)
 }
