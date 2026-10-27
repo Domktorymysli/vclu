@@ -30,6 +30,8 @@ type SandboxScenario struct {
 	Fixtures []ObjectDescriptor
 	// Timezone overrides the zone taken from the live runtime (e.g. "Europe/Warsaw").
 	Timezone string
+	// Verbose keeps what the runtime prints before the drafts load.
+	Verbose bool
 }
 
 // ObjectDescriptor rebuilds one integration object in the sandbox.
