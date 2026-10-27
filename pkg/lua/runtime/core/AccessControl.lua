@@ -5,6 +5,7 @@
 -- Integrations:
 --   "mqtt"    - MQTT/Home Assistant
 --   "homekit" - Apple HomeKit
+--   "remote"  - access from outside the local network (hidden by default)
 --
 -- Access levels:
 --   "full"     - publish states + handle commands (default)
@@ -24,8 +25,11 @@ AccessControl.DEFAULT = "full"
 -- Per-integration default overrides (set from Go config, e.g., AccessControl.DEFAULT_MQTT = "readonly")
 AccessControl.DEFAULT_MQTT = nil
 
+-- Remote access is closed until a profile opens it, also before Go syncs the profiles
+AccessControl.DEFAULT_REMOTE = "hidden"
+
 -- Available integrations
-AccessControl.INTEGRATIONS = { "mqtt", "homekit" }
+AccessControl.INTEGRATIONS = { "mqtt", "homekit", "remote" }
 
 --- Load access levels from Go (called during init/sync)
 -- @param accessMap table A nested table: { ["CLU.DOU1"] = { mqtt = "full", homekit = "hidden" }, ... }
@@ -64,6 +68,9 @@ function AccessControl.get(integration, objectPath)
     -- 3. Per-integration default override, then global default.
     if integration == "mqtt" and AccessControl.DEFAULT_MQTT then
         return AccessControl.DEFAULT_MQTT
+    end
+    if integration == "remote" then
+        return AccessControl.DEFAULT_REMOTE
     end
     return AccessControl.DEFAULT
 end

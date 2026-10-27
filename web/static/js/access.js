@@ -56,6 +56,67 @@ AccessControl.prototype.init = function() {
 
     // Load objects
     this.loadObjects();
+    this.loadRemoteProfiles();
+};
+
+/**
+ * Show the profiles assigned to remote access as checkboxes
+ */
+AccessControl.prototype.loadRemoteProfiles = function() {
+    var box = document.getElementById('remoteProfiles');
+    if (!box) return;
+    Promise.all([
+        fetch('/api/access/profiles').then(function(r) { return r.json(); }),
+        fetch('/api/access/assignments').then(function(r) { return r.json(); })
+    ]).then(function(res) {
+        var profiles = (res[0].profiles || []).map(function(p) { return p.name; }).sort();
+        var assigned = (res[1].assignments || {}).remote || [];
+        box.innerHTML = '';
+        profiles.forEach(function(name) {
+            var label = document.createElement('label');
+            label.className = 'form-check-label small';
+            var cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.className = 'form-check-input me-1 remote-profile';
+            cb.value = name;
+            cb.checked = assigned.indexOf(name) >= 0;
+            label.appendChild(cb);
+            label.appendChild(document.createTextNode(name));
+            box.appendChild(label);
+        });
+    }).catch(function(err) {
+        VCLU.showToast('Error: ' + err.message, 'danger');
+    });
+};
+
+/**
+ * Save the profiles checked for remote access (none checked: no-access)
+ */
+AccessControl.prototype.saveRemoteProfiles = function() {
+    var self = this;
+    var names = [];
+    document.querySelectorAll('#remoteProfiles .remote-profile:checked').forEach(function(cb) {
+        names.push(cb.value);
+    });
+    if (names.length === 0) names = ['no-access'];
+    fetch('/api/access/assignments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assignments: { remote: names } })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(result) {
+        if (result.error) {
+            VCLU.showToast('Error: ' + result.error, 'danger');
+        } else {
+            VCLU.showToast('Saved', 'success');
+        }
+        self.loadRemoteProfiles();
+        self.loadObjects();
+    })
+    .catch(function(err) {
+        VCLU.showToast('Error: ' + err.message, 'danger');
+    });
 };
 
 /**
@@ -241,6 +302,9 @@ AccessControl.prototype._createRow = function(obj) {
         '</td>' +
         '<td class="text-center">' +
             this._createSelect(obj.path, 'homekit', obj.access.homekit) +
+        '</td>' +
+        '<td class="text-center">' +
+            this._createSelect(obj.path, 'remote', obj.access.remote || 'hidden') +
         '</td>';
 
     // Single "Bots" column with popover

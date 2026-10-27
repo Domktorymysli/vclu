@@ -22,7 +22,7 @@ func (s *Server) handleAccess(c *gin.Context) {
 		"lang":            trans["lang"],
 		"t":               trans["t"],
 		"langs":           trans["langs"],
-		"integrations":    []string{"mqtt", "homekit", "mcp"},
+		"integrations":    []string{"mqtt", "homekit", "mcp", "remote"},
 	}
 
 	s.renderHTML(c, http.StatusOK, "access.html", data)
@@ -66,10 +66,10 @@ func (s *Server) handleAccessProfileEdit(c *gin.Context) {
 // handleAPIAccessList returns all objects with their access levels
 //
 //	@Summary		List objects with access levels
-//	@Description	Returns all exposed objects from the Lua registry together with their per-integration access levels (mqtt, homekit) and the resolved access level for each MCP bot. Returns an empty object list when the Lua engine is unavailable.
+//	@Description	Returns all exposed objects from the Lua registry together with their per-integration access levels (mqtt, homekit, remote) and the resolved access level for each MCP bot. Returns an empty object list when the Lua engine is unavailable.
 //	@Tags			access
 //	@Produce		json
-//	@Success		200	{object}	map[string]interface{}	"objects [{path, name, type, cluId, access {mqtt, homekit}, botAccess {botId: level}}], integrations []string, bots [{id, name}]"
+//	@Success		200	{object}	map[string]interface{}	"objects [{path, name, type, cluId, access {mqtt, homekit, remote}, botAccess {botId: level}}], integrations []string, bots [{id, name}]"
 //	@Security		ApiKeyAuth
 //	@Router			/api/access [get]
 func (s *Server) handleAPIAccessList(c *gin.Context) {
@@ -108,12 +108,14 @@ func (s *Server) handleAPIAccessList(c *gin.Context) {
 		accessMap := make(map[string]string)
 
 		if s.accessManager != nil {
-			// Only include MQTT and HomeKit as integration columns
+			// MCP has per-bot columns instead
 			accessMap["mqtt"] = string(s.accessManager.GetAccess(accesscontrol.IntegrationMQTT, obj.Path))
 			accessMap["homekit"] = string(s.accessManager.GetAccess(accesscontrol.IntegrationHomeKit, obj.Path))
+			accessMap["remote"] = string(s.accessManager.GetAccess(accesscontrol.IntegrationRemote, obj.Path))
 		} else {
 			accessMap["mqtt"] = "full"
 			accessMap["homekit"] = "full"
+			accessMap["remote"] = "hidden"
 		}
 
 		// Per-bot resolved access
@@ -158,7 +160,7 @@ func (s *Server) handleAPIAccessList(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"objects":      response,
-		"integrations": []string{"mqtt", "homekit"},
+		"integrations": []string{"mqtt", "homekit", "remote"},
 		"bots":         botsMeta,
 	})
 }
@@ -166,7 +168,7 @@ func (s *Server) handleAPIAccessList(c *gin.Context) {
 // handleAPIAccessSet sets access level for an object and integration
 //
 //	@Summary		Set object access level
-//	@Description	Sets the access level (full, readonly or hidden) for a single object path and integration (mqtt, homekit or mcp). Persists the change to the access control file and syncs it to the Lua runtime.
+//	@Description	Sets the access level (full, readonly or hidden) for a single object path and integration (mqtt, homekit, mcp or remote). Persists the change to the access control file and syncs it to the Lua runtime.
 //	@Tags			access
 //	@Accept			json
 //	@Produce		json
@@ -191,8 +193,8 @@ func (s *Server) handleAPIAccessSet(c *gin.Context) {
 
 	// Validate integration
 	integration := accesscontrol.Integration(req.Integration)
-	if integration != accesscontrol.IntegrationMQTT && integration != accesscontrol.IntegrationHomeKit && integration != accesscontrol.IntegrationMCP {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid integration. Must be: mqtt, homekit, or mcp"})
+	if !accesscontrol.IsIntegration(req.Integration) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid integration. Must be: mqtt, homekit, mcp or remote"})
 		return
 	}
 
@@ -231,7 +233,7 @@ func (s *Server) handleAPIAccessSet(c *gin.Context) {
 // handleAPIAccessIntegrations returns list of available integrations
 //
 //	@Summary		List available integrations
-//	@Description	Returns the static list of integrations that support access control (mqtt, homekit, mcp) with display names and icons.
+//	@Description	Returns the static list of integrations that support access control (mqtt, homekit, mcp, remote) with display names and icons.
 //	@Tags			access
 //	@Produce		json
 //	@Success		200	{object}	map[string]interface{}	"integrations [{id, name, icon}]"
@@ -242,6 +244,7 @@ func (s *Server) handleAPIAccessIntegrations(c *gin.Context) {
 		{"id": "mqtt", "name": "MQTT / Home Assistant", "icon": "bi-house-heart"},
 		{"id": "homekit", "name": "Apple HomeKit", "icon": "bi-apple"},
 		{"id": "mcp", "name": "MCP (AI Bots)", "icon": "bi-robot"},
+		{"id": "remote", "name": "Remote access", "icon": "bi-globe"},
 	}
 	c.JSON(http.StatusOK, gin.H{"integrations": integrations})
 }
@@ -251,7 +254,7 @@ func (s *Server) handleAPIAccessIntegrations(c *gin.Context) {
 // handleAPIAccessProfiles lists all profiles with usage info.
 //
 //	@Summary		List access profiles
-//	@Description	Returns all access profiles with their default level, per-object overrides and usage info (which integrations and MCP bots use each profile). The built-in full-access profile is flagged with builtin=true.
+//	@Description	Returns all access profiles with their default level, per-object overrides and usage info (which integrations and MCP bots use each profile). The built-in full-access and no-access profiles are flagged with builtin=true.
 //	@Tags			access
 //	@Produce		json
 //	@Success		200	{object}	map[string]interface{}	"profiles [{name, default, objects, builtin, usedByIntegrations, usedByBots}]"
@@ -297,7 +300,7 @@ func (s *Server) handleAPIAccessProfiles(c *gin.Context) {
 			"name":    name,
 			"default": string(p.Default),
 			"objects": objects,
-			"builtin": name == accesscontrol.BuiltinProfileFullAccess,
+			"builtin": name == accesscontrol.BuiltinProfileFullAccess || name == accesscontrol.BuiltinProfileNoAccess,
 		}
 		if intgs, ok := intgUsage[name]; ok {
 			entry["usedByIntegrations"] = intgs
@@ -314,7 +317,7 @@ func (s *Server) handleAPIAccessProfiles(c *gin.Context) {
 // handleAPIAccessProfileSave creates or updates a profile.
 //
 //	@Summary		Create or update a profile
-//	@Description	Creates or updates a named access profile with a default level (full, readonly or hidden) and per-object overrides. The built-in full-access profile cannot be modified.
+//	@Description	Creates or updates a named access profile with a default level (full, readonly or hidden) and per-object overrides. The built-in full-access and no-access profiles cannot be modified.
 //	@Tags			access
 //	@Accept			json
 //	@Produce		json
@@ -388,7 +391,7 @@ func (s *Server) handleAPIAccessProfileSave(c *gin.Context) {
 // handleAPIAccessProfileDelete deletes a profile (auto-unassigns from integrations and bots).
 //
 //	@Summary		Delete a profile
-//	@Description	Deletes an access profile and removes it from all MCP bot assignments (bots left without profiles fall back to full-access). The built-in full-access profile cannot be deleted.
+//	@Description	Deletes an access profile and removes it from all MCP bot assignments (bots left without profiles fall back to full-access, remote access to no-access). The built-in profiles cannot be deleted.
 //	@Tags			access
 //	@Produce		json
 //	@Param			name	path		string	true	"Profile name"
@@ -501,6 +504,12 @@ func (s *Server) handleAPIAccessAssignmentsSave(c *gin.Context) {
 		return
 	}
 
+	for intgStr := range req.Assignments {
+		if !accesscontrol.IsIntegration(intgStr) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid integration: %s", intgStr)})
+			return
+		}
+	}
 	for intgStr, profiles := range req.Assignments {
 		intg := accesscontrol.Integration(intgStr)
 		if err := s.accessManager.SetAssignment(intg, profiles); err != nil {
@@ -523,7 +532,7 @@ func (s *Server) handleAPIAccessAssignmentsSave(c *gin.Context) {
 // handleAPIAccessReset resets all profiles and assignments to defaults.
 //
 //	@Summary		Reset access control
-//	@Description	Resets all profiles and assignments to defaults and reassigns every MCP bot to the built-in full-access profile.
+//	@Description	Resets all profiles and assignments to defaults (remote access to no-access) and reassigns every MCP bot to the built-in full-access profile.
 //	@Tags			access
 //	@Produce		json
 //	@Success		200	{object}	web.APIOK

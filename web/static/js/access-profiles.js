@@ -57,7 +57,7 @@
             var usedParts = [];
             if (p.usedByIntegrations && p.usedByIntegrations.length > 0) {
                 p.usedByIntegrations.forEach(function(intg) {
-                    var icon = intg === 'mqtt' ? 'bi-house-heart' : intg === 'homekit' ? 'bi-apple' : 'bi-robot';
+                    var icon = intg === 'mqtt' ? 'bi-house-heart' : intg === 'homekit' ? 'bi-apple' : intg === 'remote' ? 'bi-globe' : 'bi-robot';
                     usedParts.push('<span class="badge bg-outline-secondary border me-1"><i class="bi ' + icon + '"></i> ' + VCLU.esc(intg) + '</span>');
                 });
             }
@@ -108,7 +108,7 @@
                 parts.push('bots: ' + profile.usedByBots.join(', '));
             }
             if (parts.length > 0) {
-                usageDesc = '\n\nCurrently used by ' + parts.join(' and ') + '. They will be switched to full-access.';
+                usageDesc = '\n\nCurrently used by ' + parts.join(' and ') + '. They will be switched to full-access (remote access to no-access).';
             }
         }
 
@@ -128,7 +128,7 @@
     }
 
     function resetToDefaults() {
-        if (!confirm('Reset all profiles and assignments to defaults?\n\nAll custom profiles will be deleted and all integrations will get full access.')) return;
+        if (!confirm('Reset all profiles and assignments to defaults?\n\nAll custom profiles will be deleted and all integrations will get full access, except remote access, which gets none.')) return;
 
         fetch('/api/access/reset', {
             method: 'POST',
