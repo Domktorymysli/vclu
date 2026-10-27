@@ -10,3 +10,6 @@ var commandLua string
 
 //go:embed lua/current_state.lua
 var currentStateLua string
+
+//go:embed lua/current_color.lua
+var currentColorLua string

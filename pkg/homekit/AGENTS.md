@@ -14,5 +14,11 @@ Some names (Satel zones) come from the device seconds after vCLU starts, when th
 built. A name given in `expose()` wins over a name from a device; the bridge must pick up later
 renames.
 
+## A colour is two writes
+The Home app sends Hue and Saturation separately; `addColor` in `color.go` waits
+`colorWriteDelay` and sends one `setColor`, or the CLU gets two colours in a row. Tests replace
+`afterColorWrite` instead of sleeping (`color_test.go`). A new characteristic on an existing
+accessory changes the configuration number: keep it to the objects that need it.
+
 ## Satel is read-only here on purpose
 A write from the Home app would change vCLU's state without sending anything to the alarm panel.

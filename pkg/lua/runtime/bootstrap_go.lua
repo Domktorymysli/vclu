@@ -155,6 +155,23 @@ StateBus:getShared():on("state_changed", function(data)
     end
 end)
 
+-- A colour change without a value change (OnColorChange) reaches HomeKit too
+StateBus:getShared():on("object_exposed", function(data)
+    local h = ExposedObjects:get(data.path)
+    local o = h and h.object
+    if not h or not ExposedObjects.hasColor(h) or o._hkColorHook or type(o.onEvent) ~= "function" then
+        return
+    end
+    o._hkColorHook = true
+    o:onEvent("OnColorChange", function()
+        local path = StateChange.pathOf(o)
+        local cur = path and ExposedObjects:get(path)
+        if __go_homekit_notify and cur and cur.options.homekit ~= false then
+            __go_homekit_notify(path, tonumber(cur:getValue()) or 0, cur.type)
+        end
+    end)
+end)
+
 -- ============================================
 -- Client Push Notification Hook
 -- ============================================

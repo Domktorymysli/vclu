@@ -741,6 +741,15 @@ function ExposedObjects.hasBrightness(handle)
     return handle.type == "light" and type(o) == "table" and type(o.getBrightness) == "function"
 end
 
+--- True when the handle is a light whose object has a colour (RemoteRGBLight)
+-- @param handle ExposedHandle
+-- @return boolean
+function ExposedObjects.hasColor(handle)
+    local o = handle.object
+    return handle.type == "light" and type(o) == "table"
+        and type(o.getColor) == "function" and type(o.setColor) == "function"
+end
+
 --- Capabilities of one exposed object (the type's, with brightness from the object)
 -- @param handle ExposedHandle
 -- @return table Capabilities (a copy)
@@ -802,6 +811,15 @@ function ExposedObjects:toJSON(filter)
             local o = handle.object
             if type(o) == "table" and type(o.getBrightness) == "function" then
                 table.insert(fields, '"dimmable":true')
+            end
+            if ExposedObjects.hasColor(handle) then
+                -- HomeKit: Hue and Saturation; the colour is unknown until the CLU reports it
+                table.insert(fields, '"hasColor":true')
+                local ok, r, g, b = pcall(o.getColor, o)
+                if ok and type(r) == "number" and type(g) == "number" and type(b) == "number" then
+                    table.insert(fields, string.format('"color":{"r":%d,"g":%d,"b":%d}',
+                        math.floor(r + 0.5), math.floor(g + 0.5), math.floor(b + 0.5)))
+                end
             end
             if handle.type == "cover" and type(o) == "table" and type(o.getPosition) == "function" then
                 -- a Grenton roller without a position (class 11) has its movement as the value
