@@ -35,7 +35,6 @@ func (s *sentCommands) take() string {
 
 // A Grenton relay on a CLU, heating: the command to it goes through Go.
 const heatingModule = `
-VirtualThermostat.timer.every = function() end
 CLU_FAKE = { executeNoReply = function(self, m, s) __go_send_command_noreply("192.168.0.3", s) end }
 RELAY = RemoteSwitch:new(CLU_FAKE, "DOU1", "relay")
 TEMP = VirtualNumber:new("t")

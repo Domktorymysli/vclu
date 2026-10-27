@@ -13,7 +13,8 @@ import (
 
 const vtHarness = `
 	TICKS = { list = {} }
-	VirtualThermostat.timer.every = function(ms, fn) TICKS.ms = ms; table.insert(TICKS.list, fn) end
+	-- the core timer primitive on the virtual clock, as the MCP sandbox replaces it
+	__go_setInterval = function(fn, ms) TICKS.ms = ms; table.insert(TICKS.list, fn); return #TICKS.list end
 	function tick() for i, fn in ipairs(TICKS.list) do fn() end end
 	LOGS = {}
 	Logger.warn = function(self, fmt, ...) LOGS[#LOGS + 1] = "warn " .. Logger:format(fmt, ...) end
@@ -300,7 +301,6 @@ func TestVirtualThermostat_GrentonSourceFirstReport(t *testing.T) {
 // + writes the set point, and in holiday mode the page only shows.
 func TestVirtualThermostat_Panel(t *testing.T) {
 	engine := newPanelEngine(t, `
-VirtualThermostat.timer.every = function() end
 VT_TEMP = VirtualNumber:new("vt_temp")
 VT = VirtualThermostat:new("salon", { source = VT_TEMP, output = LAMP, setpoint = 21 })
 VT_TEMP:setValue(20.4)
@@ -356,7 +356,6 @@ func TestVirtualThermostat_HomeAssistant(t *testing.T) {
 			for i, p in ipairs(_pub) do if p.topic == topic then v = p.payload end end
 			return tostring(v)
 		end
-		VirtualThermostat.timer.every = function() end
 		local temp, heater = VirtualNumber:new("t"), VirtualSwitch:new("h")
 		local th = VirtualThermostat:new("salon", { source = temp, output = heater, setpoint = 21 })
 		registerObject("virt.salon", th)
@@ -434,7 +433,6 @@ func TestVirtualThermostat_HomeAssistantCool(t *testing.T) {
 			for i, p in ipairs(_pub) do if p.topic == topic then v = p.payload end end
 			return tostring(v)
 		end
-		VirtualThermostat.timer.every = function() end
 		local temp = VirtualNumber:new("t")
 		local th = VirtualThermostat:new("sypialnia", { source = temp, output = VirtualSwitch:new("k"), direction = "cool", setpoint = 24 })
 		registerObject("virt.sypialnia", th)

@@ -154,7 +154,7 @@ nothing. `VirtualThermostat` counts a change as a reading (`staleAfter` is time 
 picks the first report up on its tick; a value present when it is created (VirtualNumber's
 default 0, a value kept over a reload) does not count. Contract: `virtual_thermostat_test.go`.
 Before a Lua state goes away (reload, `RunLoop` stop, `Close` before the loop ran) Go calls
-`VirtualThermostat.releaseAll()` (`releaseOutputs` in `history.go`), before MQTT and the other
+the internal `__vclu_release_thermostats()` (`releaseOutputs` in `history.go`), before MQTT and the other
 managers close; a Grenton command opens its own UDP socket, so `Server.Stop` closing
 `commandConn` first does not stop it. Contract: `virtual_thermostat_release_test.go`.
 

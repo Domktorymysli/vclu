@@ -14,25 +14,21 @@
 VirtualThermostat = setmetatable({}, {__index = VirtualObject})
 VirtualThermostat.__index = VirtualThermostat
 
-VirtualThermostat.MODE_SETPOINT = 0
-VirtualThermostat.MODE_HOLIDAY = 1
-
 -- Events besides OnChange that change what the object shows (a panel redraws on them)
 VirtualThermostat.CHANGE_EVENTS = {"OnSettingsChange"}
 
--- How often staleness and maxOn are checked, and a first reading picked up
-VirtualThermostat.TICK_MS = 10000
-
--- Time and the tick; tests replace them with a virtual clock
-VirtualThermostat.timer = {
-    now = function() return __go_time_ms() / 1000 end,
-    every = function(ms, fn) return TIMERS:setInterval(ms, fn) end,
-}
-
+-- Internals stay local: the class holds only the public API
+local MODE_SETPOINT, MODE_HOLIDAY = 0, 1
+local TICK_MS = 10000 -- staleness and maxOn checked, a first reading picked up
 local PERSIST_NS = "virtual-objects" -- shared with VirtualObject
 local live = setmetatable({}, {__mode = "k"}) -- thermostats of this Lua state
 local OPTIONS = { source = true, output = true, hysteresis = true, direction = true, setpoint = true,
     holiday = true, min = true, max = true, staleAfter = true, maxOn = true, persist = true }
+-- Field names in OnSettingsChange as RemoteThermostat's (_state there is the state)
+local EVENT_FIELD = { _st = "_state" }
+
+-- Seconds on the runtime clock (virtual in tests and the sandbox)
+local function now() return __go_time_ms() / 1000 end
 
 local function finite(v)
     v = tonumber(v)
@@ -61,6 +57,160 @@ local function resolve(v, what, need)
     end
     return v
 end
+
+local function clamp(self, v)
+    if v < self._min then return self._min end
+    if v > self._max then return self._max end
+    return v
+end
+
+local function targetOf(self)
+    if self._mode == MODE_HOLIDAY then return self._holiday end
+    return self._point
+end
+
+local function restore(self, key)
+    if key == true then
+        if self._name == "Virtual" then error("VirtualThermostat: persist = true needs a name (or give persist a key)", 3) end
+        key = self._name
+    end
+    if type(key) ~= "string" or key == "" or key == "get" or key == "set" or key == "save" or key == "toTable" then
+        error("VirtualThermostat: persist must be true or a string key (not get/set/save/toTable)", 3)
+    end
+    -- its own key: a virtual object of the same name keeps its value apart
+    key = "thermostat:" .. key
+    self._persistAs = key
+    local saved = persist(PERSIST_NS):get(key)
+    if type(saved) ~= "table" then return end
+    self._point = finite(saved.setpoint) or self._point
+    if saved.mode == 0 or saved.mode == 1 then self._mode = saved.mode end
+    if saved.state == 0 or saved.state == 1 then self._st = saved.state end
+end
+
+local function save(self)
+    if not self._persistAs then return end
+    persist(PERSIST_NS):set(self._persistAs, { setpoint = self._point, mode = self._mode, state = self._st })
+end
+
+-- A setting changed: emit as RemoteThermostat does, and the target with it
+local function setAside(self, field, value)
+    local old = self[field]
+    if value == old then return false end
+    self[field] = value
+    notify(self, self.emit, "OnSettingsChange", EVENT_FIELD[field] or field, value, old)
+    local target = targetOf(self)
+    if field ~= "_target" and target ~= self._target then setAside(self, "_target", target) end
+    return true
+end
+
+-- ==========================================================================
+-- Control
+-- ==========================================================================
+
+-- The source's value, nil when it has none or raises (then it goes stale)
+local function read(self)
+    local ok, v = pcall(self._source.getValue, self._source)
+    if ok then return finite(v) end
+    return nil
+end
+
+-- What the output should be: true on, false off; thresholds are target ± hysteresis
+local function wanted(self)
+    local t = self._state
+    if self._st ~= 1 or self._fault or not self._hasReading or type(t) ~= "number" then return false end
+    local target, h = targetOf(self), self._hysteresis
+    if self._cool then
+        if t >= target + h then return true end
+        if t <= target - h then return false end
+    else
+        if t <= target - h then return true end
+        if t >= target + h then return false end
+    end
+    return self._on == true -- between the thresholds: as it is
+end
+
+-- Switches the output only when what it should be changes (force: whatever it shows)
+local function apply(self, on, force)
+    if not force and on == self._on then return end
+    self._on = on
+    self._onSince = on and now() or nil
+    local out = self._output
+    local ok, err = pcall(function()
+        if on then out:switchOn() else out:switchOff() end
+    end)
+    if not ok then
+        self._on = nil -- unknown: the next decision switches again
+        log():warn("[Thermostat] %s: output not switched: %s", tostring(self._name), tostring(err))
+    end
+end
+
+local function reading(self, v, at)
+    self._readAt = at
+    self._hasReading = true
+    if self._fault == "stale" then
+        log():info("[Thermostat] %s: the source reports again", tostring(self._name))
+        setAside(self, "_fault", nil)
+    end
+    notify(self, self.updateState, v)
+end
+
+-- A change of the source's value
+local function onReading(self, v)
+    v = finite(v)
+    if v == nil then return end
+    reading(self, v, now())
+    apply(self, wanted(self))
+end
+
+local function tick(self)
+    local t = now()
+    if not self._hasReading then
+        local v = read(self)
+        -- a Grenton object's first report fires no OnChange
+        if v and v ~= self._before then
+            reading(self, v, t)
+            apply(self, wanted(self))
+            return
+        end
+    end
+    -- one fault at a time: a maxOn stop must not end with the next reading
+    if not self._fault and t - self._readAt >= self._staleAfter then
+        log():warn("[Thermostat] %s: no reading from its source for %d s, output off", tostring(self._name),
+            math.floor(t - self._readAt))
+        setAside(self, "_fault", "stale")
+        apply(self, false)
+        return
+    end
+    if self._maxOn and self._on and t - self._onSince >= self._maxOn then
+        log():warn("[Thermostat] %s: output on for %d s (maxOn), off until a setting changes", tostring(self._name),
+            math.floor(t - self._onSince))
+        setAside(self, "_fault", "maxOn")
+        apply(self, false)
+    end
+end
+
+-- A person's change ends a maxOn stop and is applied at once
+local function changed(self)
+    if self._fault == "maxOn" then setAside(self, "_fault", nil) end
+    save(self)
+    apply(self, wanted(self))
+end
+
+-- Before a Lua state goes away (reload, shutdown) Go calls this: every output that is or
+-- may be on is switched off; one failing output does not stop the others.
+function __vclu_release_thermostats()
+    for th in pairs(live) do
+        if th._on ~= false then
+            th._on = false
+            local ok, err = pcall(th._output.switchOff, th._output)
+            if not ok then log():warn("[Thermostat] %s: output not switched off: %s", tostring(th._name), tostring(err)) end
+        end
+    end
+end
+
+-- ==========================================================================
+-- Thermostat interface (as RemoteThermostat)
+-- ==========================================================================
 
 --- Creates a thermostat that switches `output` by the temperature of `source`.
 -- The output is switched off at once (also after a restart or a reload) and goes on only on a
@@ -104,169 +254,28 @@ function VirtualThermostat:new(name, opts)
     local holiday = opts.holiday == nil and (obj._cool and 28 or 16) or opts.holiday
     obj._holiday = finite(holiday)
     if not obj._holiday then error("VirtualThermostat: holiday must be a number", 2) end
-    obj._holiday = obj:_clamp(obj._holiday)
+    obj._holiday = clamp(obj, obj._holiday)
 
     obj._point = finite(opts.setpoint == nil and 21 or opts.setpoint)
     if not obj._point then error("VirtualThermostat: setpoint must be a number", 2) end
-    obj._mode = VirtualThermostat.MODE_SETPOINT
+    obj._mode = MODE_SETPOINT
     obj._st = 1
-    if opts.persist then obj:_restore(opts.persist) end
-    obj._point = obj:_clamp(obj._point)
-    obj._target = obj:getTarget()
+    if opts.persist then restore(obj, opts.persist) end
+    obj._point = clamp(obj, obj._point)
+    obj._target = targetOf(obj)
 
-    local now = VirtualThermostat.timer.now()
-    obj._readAt = now -- no reading for staleAfter from here is stale too
+    obj._readAt = now() -- no reading for staleAfter from here is stale too
     -- a value from before (a default 0, one kept over a reload) is not a reading
-    obj._before = obj:_read()
-    obj:_apply(false, true)
+    obj._before = read(obj)
+    apply(obj, false, true)
     live[obj] = true
 
     if type(obj._source.onChange) == "function" then
-        obj._source:onChange(function(v) obj:_onReading(v) end)
+        obj._source:onChange(function(v) onReading(obj, v) end)
     end
-    VirtualThermostat.timer.every(VirtualThermostat.TICK_MS, function() obj:_tick() end)
+    TIMERS:setInterval(TICK_MS, function() tick(obj) end)
     return obj
 end
-
-function VirtualThermostat:_clamp(v)
-    if v < self._min then return self._min end
-    if v > self._max then return self._max end
-    return v
-end
-
-function VirtualThermostat:_restore(key)
-    if key == true then
-        if self._name == "Virtual" then error("VirtualThermostat: persist = true needs a name (or give persist a key)", 3) end
-        key = self._name
-    end
-    if type(key) ~= "string" or key == "" or key == "get" or key == "set" or key == "save" or key == "toTable" then
-        error("VirtualThermostat: persist must be true or a string key (not get/set/save/toTable)", 3)
-    end
-    -- its own key: a virtual object of the same name keeps its value apart
-    key = "thermostat:" .. key
-    self._persistAs = key
-    local saved = persist(PERSIST_NS):get(key)
-    if type(saved) ~= "table" then return end
-    self._point = finite(saved.setpoint) or self._point
-    if saved.mode == 0 or saved.mode == 1 then self._mode = saved.mode end
-    if saved.state == 0 or saved.state == 1 then self._st = saved.state end
-end
-
-function VirtualThermostat:_save()
-    if not self._persistAs then return end
-    persist(PERSIST_NS):set(self._persistAs, { setpoint = self._point, mode = self._mode, state = self._st })
-end
-
--- Field names in OnSettingsChange as RemoteThermostat's (_state there is the state)
-local EVENT_FIELD = { _st = "_state" }
-
--- A setting changed: emit as RemoteThermostat does, and the target with it
-function VirtualThermostat:_setAside(field, value)
-    local old = self[field]
-    if value == old then return false end
-    self[field] = value
-    notify(self, self.emit, "OnSettingsChange", EVENT_FIELD[field] or field, value, old)
-    local target = self:getTarget()
-    if field ~= "_target" and target ~= self._target then self:_setAside("_target", target) end
-    return true
-end
-
--- ==========================================================================
--- Control
--- ==========================================================================
-
--- A change of the source's value
-function VirtualThermostat:_onReading(v)
-    v = finite(v)
-    if v == nil then return end
-    self:_reading(v, VirtualThermostat.timer.now())
-    self:_apply(self:_wanted())
-end
-
-function VirtualThermostat:_reading(v, now)
-    self._readAt = now
-    self._hasReading = true
-    if self._fault == "stale" then
-        log():info("[Thermostat] %s: the source reports again", tostring(self._name))
-        self:_setAside("_fault", nil)
-    end
-    notify(self, self.updateState, v)
-end
-
--- What the output should be: true on, false off; thresholds are target ± hysteresis
-function VirtualThermostat:_wanted()
-    local t = self._state
-    if self._st ~= 1 or self._fault or not self._hasReading or type(t) ~= "number" then return false end
-    local target, h = self:getTarget(), self._hysteresis
-    if self._cool then
-        if t >= target + h then return true end
-        if t <= target - h then return false end
-    else
-        if t <= target - h then return true end
-        if t >= target + h then return false end
-    end
-    return self._on == true -- between the thresholds: as it is
-end
-
--- Switches the output only when what it should be changes (force: whatever it shows)
-function VirtualThermostat:_apply(on, force)
-    if not force and on == self._on then return end
-    self._on = on
-    self._onSince = on and VirtualThermostat.timer.now() or nil
-    local out = self._output
-    local ok, err = pcall(function()
-        if on then out:switchOn() else out:switchOff() end
-    end)
-    if not ok then
-        self._on = nil -- unknown: the next decision switches again
-        log():warn("[Thermostat] %s: output not switched: %s", tostring(self._name), tostring(err))
-    end
-end
-
--- The source's value, nil when it has none or raises (then it goes stale)
-function VirtualThermostat:_read()
-    local ok, v = pcall(self._source.getValue, self._source)
-    if ok then return finite(v) end
-    return nil
-end
-
-function VirtualThermostat:_tick()
-    local now = VirtualThermostat.timer.now()
-    if not self._hasReading then
-        local v = self:_read()
-        -- a Grenton object's first report fires no OnChange
-        if v and v ~= self._before then
-            self:_reading(v, now)
-            self:_apply(self:_wanted())
-            return
-        end
-    end
-    -- one fault at a time: a maxOn stop must not end with the next reading
-    if not self._fault and now - self._readAt >= self._staleAfter then
-        log():warn("[Thermostat] %s: no reading from its source for %d s, output off", tostring(self._name),
-            math.floor(now - self._readAt))
-        self:_setAside("_fault", "stale")
-        self:_apply(false)
-        return
-    end
-    if self._maxOn and self._on and now - self._onSince >= self._maxOn then
-        log():warn("[Thermostat] %s: output on for %d s (maxOn), off until a setting changes", tostring(self._name),
-            math.floor(now - self._onSince))
-        self:_setAside("_fault", "maxOn")
-        self:_apply(false)
-    end
-end
-
--- A person's change ends a maxOn stop and is applied at once
-function VirtualThermostat:_changed()
-    if self._fault == "maxOn" then self:_setAside("_fault", nil) end
-    self:_save()
-    self:_apply(self:_wanted())
-end
-
--- ==========================================================================
--- Thermostat interface (as RemoteThermostat)
--- ==========================================================================
 
 --- Index 0 is the temperature, which only the source sets: nothing is settable by index.
 function VirtualThermostat:set(index, value)
@@ -283,8 +292,7 @@ end
 -- @api public
 -- @return number Target temperature in °C
 function VirtualThermostat:getTarget()
-    if self._mode == VirtualThermostat.MODE_HOLIDAY then return self._holiday end
-    return self._point
+    return targetOf(self)
 end
 
 --- Gets the set point (the temperature set by hand).
@@ -300,8 +308,8 @@ end
 function VirtualThermostat:setSetpoint(value)
     value = finite(value)
     if not value then return end
-    self:_setAside("_point", self:_clamp(value))
-    self:_changed()
+    setAside(self, "_point", clamp(self, value))
+    changed(self)
 end
 
 --- Gets the state: 1 active, 0 off (output off).
@@ -322,23 +330,25 @@ end
 -- @api public
 -- @param mode number 0 or 1
 function VirtualThermostat:setMode(mode)
-    if mode ~= 0 and mode ~= 1 then error("VirtualThermostat:setMode: mode must be 0 (set point) or 1 (holiday)", 2) end
-    self:_setAside("_mode", mode)
-    self:_changed()
+    if mode ~= MODE_SETPOINT and mode ~= MODE_HOLIDAY then
+        error("VirtualThermostat:setMode: mode must be 0 (set point) or 1 (holiday)", 2)
+    end
+    setAside(self, "_mode", mode)
+    changed(self)
 end
 
 --- Starts regulating (state 1).
 -- @api public
 function VirtualThermostat:start()
-    self:_setAside("_st", 1)
-    self:_changed()
+    setAside(self, "_st", 1)
+    changed(self)
 end
 
 --- Stops regulating and switches the output off (state 0).
 -- @api public
 function VirtualThermostat:stop()
-    self:_setAside("_st", 0)
-    self:_changed()
+    setAside(self, "_st", 0)
+    changed(self)
 end
 
 --- Why the output is held off besides the state: "stale" (no reading for staleAfter),
@@ -354,18 +364,6 @@ end
 -- @return string Direction
 function VirtualThermostat:getDirection()
     return self._cool and "cool" or "heat"
-end
-
---- Switches off every output that is or may be on; Go calls it before the Lua state
--- goes away (reload, shutdown). One failing output does not stop the others.
-function VirtualThermostat.releaseAll()
-    for th in pairs(live) do
-        if th._on ~= false then
-            th._on = false
-            local ok, err = pcall(th._output.switchOff, th._output)
-            if not ok then log():warn("[Thermostat] %s: output not switched off: %s", tostring(th._name), tostring(err)) end
-        end
-    end
 end
 
 return VirtualThermostat

@@ -248,11 +248,8 @@ func releaseOutputs(L *lua.LState) {
 	if L == nil {
 		return
 	}
-	vt, ok := L.GetGlobal("VirtualThermostat").(*lua.LTable)
-	if !ok {
-		return
-	}
-	if fn, ok := L.GetField(vt, "releaseAll").(*lua.LFunction); ok {
+	// an internal hook, as __vclu_command_reply: not on the public class
+	if fn, ok := L.GetGlobal("__vclu_release_thermostats").(*lua.LFunction); ok {
 		if err := L.CallByParam(lua.P{Fn: fn, NRet: 0, Protect: true}); err != nil {
 			log.Printf("[THERMOSTAT] release outputs: %v", err)
 		}
