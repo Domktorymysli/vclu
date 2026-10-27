@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/Domktorymysli/vclu/pkg/accesscontrol"
@@ -84,7 +86,107 @@ func (s *MCPServer) addTool(name, description string, handler func(ctx context.C
 	if required != nil {
 		tool.InputSchema.Required = required
 	}
-	s.server.AddTool(tool, handler)
+	s.server.AddTool(tool, func(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+		if err := checkArgs(name, props, required, req.GetArguments()); err != nil {
+			return toolError(err.Error()), nil
+		}
+		return handler(ctx, req)
+	})
+}
+
+// argAliases are names agents send for an argument that is called differently here.
+var argAliases = map[string][]string{
+	"search": {"filter", "pattern", "query"},
+	"query":  {"filter", "pattern"},
+	"grep":   {"filter", "pattern"},
+	"regex":  {"filter", "pattern"},
+	"lines":  {"limit"},
+	"count":  {"limit"},
+	"max":    {"limit", "max_results"},
+	"n":      {"limit"},
+	"code":   {"script", "content"},
+	"lua":    {"script", "content"},
+	"source": {"script", "content"},
+	"file":   {"path"},
+	"name":   {"path", "id"},
+	"glob":   {"pattern"},
+	"text":   {"content"},
+	"body":   {"content"},
+}
+
+// checkArgs refuses an argument the tool's schema does not name, and a missing required one.
+func checkArgs(tool string, props map[string]any, required []string, args map[string]any) error {
+	valid := make([]string, 0, len(props))
+	for k := range props {
+		valid = append(valid, k)
+	}
+	sort.Strings(valid)
+
+	var unknown []string
+	for k := range args {
+		if _, ok := props[k]; !ok {
+			unknown = append(unknown, k)
+		}
+	}
+	if len(unknown) > 0 {
+		sort.Strings(unknown)
+		if len(valid) == 0 {
+			return fmt.Errorf("unknown argument %q: %s takes no arguments", unknown[0], tool)
+		}
+		msg := fmt.Sprintf("unknown argument %q for %s", unknown[0], tool)
+		if s := suggestArg(unknown[0], props, valid); s != "" {
+			msg += fmt.Sprintf("; did you mean %q?", s)
+		} else {
+			msg += "."
+		}
+		return fmt.Errorf("%s Valid: %s", msg, strings.Join(valid, ", "))
+	}
+	for _, r := range required {
+		if _, ok := args[r]; !ok {
+			return fmt.Errorf("missing required argument %q for %s. Valid: %s", r, tool, strings.Join(valid, ", "))
+		}
+	}
+	return nil
+}
+
+// suggestArg names the valid argument closest to name: a known alias, else at most 2 edits away.
+func suggestArg(name string, props map[string]any, valid []string) string {
+	lower := strings.ToLower(name)
+	if _, ok := props[lower]; ok {
+		return lower
+	}
+	for _, a := range argAliases[lower] {
+		if _, ok := props[a]; ok {
+			return a
+		}
+	}
+	best, bestDist := "", 3
+	for _, v := range valid {
+		if d := editDistance(lower, v); d < bestDist && d < len(v) {
+			best, bestDist = v, d
+		}
+	}
+	return best
+}
+
+func editDistance(a, b string) int {
+	prev := make([]int, len(b)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i := 1; i <= len(a); i++ {
+		cur := make([]int, len(b)+1)
+		cur[0] = i
+		for j := 1; j <= len(b); j++ {
+			cost := 1
+			if a[i-1] == b[j-1] {
+				cost = 0
+			}
+			cur[j] = min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost)
+		}
+		prev = cur
+	}
+	return prev[len(b)]
 }
 
 // --- Bot-aware access helpers ---
