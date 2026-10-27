@@ -41,6 +41,12 @@ end
 
 local function log() return Logger:getShared() end
 
+-- A listener's error is logged: it must not keep the output from switching
+local function notify(self, fn, ...)
+    local ok, err = pcall(fn, self, ...)
+    if not ok then log():warn("[Thermostat] %s: a listener failed: %s", tostring(self._name), tostring(err)) end
+end
+
 -- An object or its registry path
 local function resolve(v, what, need)
     if type(v) == "string" then
@@ -155,7 +161,7 @@ function VirtualThermostat:_setAside(field, value)
     local old = self[field]
     if value == old then return false end
     self[field] = value
-    self:emit("OnSettingsChange", EVENT_FIELD[field] or field, value, old)
+    notify(self, self.emit, "OnSettingsChange", EVENT_FIELD[field] or field, value, old)
     local target = self:getTarget()
     if field ~= "_target" and target ~= self._target then self:_setAside("_target", target) end
     return true
@@ -180,7 +186,7 @@ function VirtualThermostat:_reading(v, now)
         log():info("[Thermostat] %s: the source reports again", tostring(self._name))
         self:_setAside("_fault", nil)
     end
-    self:updateState(v)
+    notify(self, self.updateState, v)
 end
 
 -- What the output should be: true on, false off; thresholds are target ± hysteresis
@@ -207,7 +213,10 @@ function VirtualThermostat:_apply(on, force)
     local ok, err = pcall(function()
         if on then out:switchOn() else out:switchOff() end
     end)
-    if not ok then log():warn("[Thermostat] %s: output not switched: %s", tostring(self._name), tostring(err)) end
+    if not ok then
+        self._on = nil -- unknown: the next decision switches again
+        log():warn("[Thermostat] %s: output not switched: %s", tostring(self._name), tostring(err))
+    end
 end
 
 function VirtualThermostat:_tick()

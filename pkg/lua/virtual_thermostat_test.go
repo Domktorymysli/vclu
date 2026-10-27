@@ -373,3 +373,46 @@ func TestVirtualThermostat_HomeAssistant(t *testing.T) {
 		t.Errorf("HA climate = %s, want nil,climate,20.2/21/heat,true/24/24,off/0", got)
 	}
 }
+
+// A listener that fails (a module's onChange, a panel's OnSettingsChange) never keeps the
+// output on: a reading above the target, stop() and a stale source still switch it off.
+// An output that fails to switch is switched again on the next decision.
+func TestVirtualThermostat_FailingListenerOrOutput(t *testing.T) {
+	te := newVTEngine(t)
+	got := mustExec(t, te.LuaEngine, `(function()
+		TH = VirtualThermostat:new("salon", { source = TEMP, output = HEATER, setpoint = 21, staleAfter = 60 })
+		local out = {}
+		reads(20); table.insert(out, HEATER:getValue())
+		TH:onChange(function(v) if v > 21 then error("module bug") end end)
+		reads(22); table.insert(out, HEATER:getValue())     -- above 21.5: off
+		reads(20); table.insert(out, HEATER:getValue())     -- on again
+		TH:onEvent("OnSettingsChange", function() error("panel bug") end)
+		TH:stop(); table.insert(out, HEATER:getValue() .. TH:getState())
+		TH:start(); table.insert(out, HEATER:getValue())
+		return table.concat(out, ",") .. "|" .. tostring(logs():find("a listener failed") ~= nil)
+	end)()`)
+	if got != "1,0,1,00,1|true" {
+		t.Errorf("failing listener: %s, want 1,0,1,00,1|true", got)
+	}
+	te.advance(t, 60*time.Second)
+	if got := mustExec(t, te.LuaEngine, `return HEATER:getValue() .. "/" .. tostring(TH:getFault())`); got != "0/stale" {
+		t.Errorf("stale with a failing listener: %s, want 0/stale", got)
+	}
+
+	// an output whose switchOff fails once
+	got = mustExec(t, te.LuaEngine, `(function()
+		local temp, relay = VirtualNumber:new("t3"), VirtualSwitch:new("r3")
+		local f = { fail = false }
+		local out = { switchOn = function() relay:switchOn() end,
+			switchOff = function() if f.fail then error("bus down") end; relay:switchOff() end }
+		VirtualThermostat:new("kuchnia", { source = temp, output = out, setpoint = 21 })
+		temp:setValue(20)
+		f.fail = true; temp:setValue(22)
+		local a = relay:getValue()
+		f.fail = false; temp:setValue(21.8) -- still above: off again
+		return a .. "/" .. relay:getValue()
+	end)()`)
+	if got != "1/0" {
+		t.Errorf("output retried: %s, want 1/0", got)
+	}
+}
