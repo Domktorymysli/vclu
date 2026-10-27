@@ -15,7 +15,7 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Returns all exposed objects from the Lua registry together with their per-integration access levels (mqtt, homekit) and the resolved access level for each MCP bot. Returns an empty object list when the Lua engine is unavailable.",
+                "description": "Returns all exposed objects from the Lua registry together with their per-integration access levels (mqtt, homekit, remote) and the resolved access level for each MCP bot. Returns an empty object list when the Lua engine is unavailable.",
                 "produces": [
                     "application/json"
                 ],
@@ -25,7 +25,7 @@
                 "summary": "List objects with access levels",
                 "responses": {
                     "200": {
-                        "description": "objects [{path, name, type, cluId, access {mqtt, homekit}, botAccess {botId: level}}], integrations []string, bots [{id, name}]",
+                        "description": "objects [{path, name, type, cluId, access {mqtt, homekit, remote}, botAccess {botId: level}}], integrations []string, bots [{id, name}]",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -39,7 +39,7 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Sets the access level (full, readonly or hidden) for a single object path and integration (mqtt, homekit or mcp). Persists the change to the access control file and syncs it to the Lua runtime.",
+                "description": "Sets the access level (full, readonly or hidden) for a single object path and integration (mqtt, homekit, mcp or remote). Persists the change to the access control file and syncs it to the Lua runtime.",
                 "consumes": [
                     "application/json"
                 ],
@@ -248,7 +248,7 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Returns the static list of integrations that support access control (mqtt, homekit, mcp) with display names and icons.",
+                "description": "Returns the static list of integrations that support access control (mqtt, homekit, mcp, remote) with display names and icons.",
                 "produces": [
                     "application/json"
                 ],
@@ -274,7 +274,7 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Returns all access profiles with their default level, per-object overrides and usage info (which integrations and MCP bots use each profile). The built-in full-access profile is flagged with builtin=true.",
+                "description": "Returns all access profiles with their default level, per-object overrides and usage info (which integrations and MCP bots use each profile). The built-in full-access and no-access profiles are flagged with builtin=true.",
                 "produces": [
                     "application/json"
                 ],
@@ -304,7 +304,7 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Creates or updates a named access profile with a default level (full, readonly or hidden) and per-object overrides. The built-in full-access profile cannot be modified.",
+                "description": "Creates or updates a named access profile with a default level (full, readonly or hidden) and per-object overrides. The built-in full-access and no-access profiles cannot be modified.",
                 "consumes": [
                     "application/json"
                 ],
@@ -362,7 +362,7 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Deletes an access profile and removes it from all MCP bot assignments (bots left without profiles fall back to full-access). The built-in full-access profile cannot be deleted.",
+                "description": "Deletes an access profile and removes it from all MCP bot assignments (bots left without profiles fall back to full-access, remote access to no-access). The built-in profiles cannot be deleted.",
                 "produces": [
                     "application/json"
                 ],
@@ -414,7 +414,7 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Resets all profiles and assignments to defaults and reassigns every MCP bot to the built-in full-access profile.",
+                "description": "Resets all profiles and assignments to defaults (remote access to no-access) and reassigns every MCP bot to the built-in full-access profile.",
                 "produces": [
                     "application/json"
                 ],

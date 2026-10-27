@@ -180,6 +180,12 @@ most permissive level wins. A fresh install assigns the built-in `full-access` p
 and a bot always has at least one profile: one created without a choice gets `full-access`, and so
 does a bot whose last profile is deleted.
 
+Remote access (from outside the local network) has its own profiles and starts closed: a fresh
+install, and an access file without a `remote` assignment, give it the built-in `no-access` profile
+(default `hidden`), never `full-access`. It sees only exposed objects that a profile opens;
+`readonly` ones, and ones exposed with `readonly = true`, are shown but refuse commands. Commands
+are checked in vCLU and recorded with origin `remote` and the sender as `user:<login>`.
+
 In a module, `expose(obj, type, { readonly = true })` makes an object read-only over MQTT and MCP
 whatever the profile says, and `{ mqtt = false }` keeps it out of discovery and state publishing.
 

@@ -6,7 +6,7 @@
 -- a copy of the context they were created in and restore it only for their
 -- own callback, so a cause is propagated explicitly, never leaked.
 --
---   origin  channel the cause came in through: grenton, mqtt, homekit, web,
+--   origin  channel the cause came in through: grenton, mqtt, homekit, web, remote,
 --           api, mcp, lua, physical, system, unknown
 --   actor   stable id of the initiator: user:<login>, agent:<bot>,
 --           automation:<id>, service:home-assistant, device:<id>, system:vclu

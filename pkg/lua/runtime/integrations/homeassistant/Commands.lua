@@ -420,6 +420,19 @@ function HACommands.handleExposedMessage(topic, payload)
         return false, "access denied: " .. targetPath
     end
 
+    return HACommands.applyExposed(handle, parsed.subpath, payload)
+end
+
+--- Carries out a command on an exposed object, after its access was checked.
+-- Remote access reuses it (RemoteAccess.lua).
+-- @param handle ExposedHandle
+-- @param subpath string|nil "brightness", "position", "target_temp" or nil
+-- @param payload string HA payload ("ON", "OPEN", "42", JSON for a colour light)
+-- @return boolean, string|nil
+function HACommands.applyExposed(handle, subpath, payload)
+    local targetPath = handle.path
+    local parsed = { subpath = subpath }
+
     -- Handle command based on type and payload
     local exposedType = handle.type
 

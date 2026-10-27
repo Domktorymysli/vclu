@@ -227,13 +227,14 @@ func TestLoad_MissingFile(t *testing.T) {
 func TestAllIntegrations(t *testing.T) {
 	integrations := AllIntegrations()
 
-	if len(integrations) != 3 {
-		t.Errorf("expected 3 integrations, got %d", len(integrations))
+	if len(integrations) != 4 {
+		t.Errorf("expected 4 integrations, got %d", len(integrations))
 	}
 
 	hasMQTT := false
 	hasHomeKit := false
 	hasMCP := false
+	hasRemote := false
 	for _, i := range integrations {
 		switch i {
 		case IntegrationMQTT:
@@ -242,7 +243,13 @@ func TestAllIntegrations(t *testing.T) {
 			hasHomeKit = true
 		case IntegrationMCP:
 			hasMCP = true
+		case IntegrationRemote:
+			hasRemote = true
 		}
+	}
+
+	if !hasRemote {
+		t.Error("expected remote integration")
 	}
 
 	if !hasMQTT {
@@ -618,21 +625,24 @@ func TestReset(t *testing.T) {
 
 	m.Reset()
 
-	// Only full-access should remain
+	// Only the built-in profiles should remain
 	all := m.ListProfiles()
-	if len(all) != 1 {
-		t.Errorf("expected 1 profile after reset, got %d", len(all))
+	if len(all) != 2 {
+		t.Errorf("expected 2 profiles after reset, got %d", len(all))
 	}
 	if _, ok := all[BuiltinProfileFullAccess]; !ok {
 		t.Error("expected full-access profile after reset")
 	}
 
-	// All integrations should have full-access
+	// Every integration should have its default: full-access, remote no-access
 	for _, intg := range AllIntegrations() {
 		names := m.GetAssignment(intg)
-		if len(names) != 1 || names[0] != BuiltinProfileFullAccess {
-			t.Errorf("expected [full-access] for %s, got %v", intg, names)
+		if len(names) != 1 || names[0] != DefaultProfile(intg) {
+			t.Errorf("expected [%s] for %s, got %v", DefaultProfile(intg), intg, names)
 		}
+	}
+	if got := m.GetAssignment(IntegrationMQTT); got[0] != BuiltinProfileFullAccess {
+		t.Errorf("mqtt after reset = %v, want [full-access]", got)
 	}
 }
 
