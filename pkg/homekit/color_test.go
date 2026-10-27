@@ -213,6 +213,30 @@ func TestColorForLightThatIsOff(t *testing.T) {
 	}
 }
 
+// A light that is off, lit from the Home app with a brightness: the picked colour goes out
+// at that brightness, not at full first.
+func TestColorForLightThatIsOffLitWithBrightness(t *testing.T) {
+	due := fakeColorTimer(t)
+	engine, s := newColorBridge(t, nil)
+	exec(t, engine, `(function()
+		rgb:updateState(rgb:fromFeature(0, 0.5))
+		rgb:fromFeature(6, "#7f0000")
+		rgb:updateState(rgb:fromFeature(0, 0))
+		_sent = {}
+	end)()`)
+	w := s.accessories["hk:salon"]
+	s.refreshAllStates(t.Context())
+	findChar(w.Accessory, characteristic.TypeHue).SetValueRequest(120.0, homeAppRequest())
+	for _, f := range *due {
+		f()
+	}
+
+	findChar(w.Accessory, characteristic.TypeBrightness).SetValueRequest(30, homeAppRequest())
+	if got, want := exec(t, engine, `table.concat(_sent, ";")`), `LED1:execute(0, 0.3);LED1:execute(6, "#004d00")`; got != want {
+		t.Errorf("lighting at 30 %% sent %q, want %q", got, want)
+	}
+}
+
 func TestReadonlyColorLightRefusesHueAndSaturation(t *testing.T) {
 	due := fakeColorTimer(t)
 	mgr := accesscontrol.NewManager(t.TempDir())
@@ -262,6 +286,31 @@ func TestColorWriteIsSentAfterDelay(t *testing.T) {
 		if time.Now().After(deadline) {
 			t.Fatalf("sent %q, want blue", got)
 		}
+	}
+}
+
+// A Home scene writes Brightness, Hue and Saturation at once: the brightness state change
+// comes back while the colour waits, and must not put the old colour back before it is sent.
+func TestColorWriteSurvivesStateUpdateWhileWaiting(t *testing.T) {
+	due := fakeColorTimer(t)
+	engine, s := newColorBridge(t, nil)
+	exec(t, engine, `(function()
+		rgb:updateState(rgb:fromFeature(0, 1))
+		rgb:fromFeature(6, "#ff0000")
+		_sent = {}
+	end)()`)
+	w := s.accessories["hk:salon"]
+	s.refreshAllStates(t.Context())
+
+	findChar(w.Accessory, characteristic.TypeHue).SetValueRequest(240.0, homeAppRequest())
+	findChar(w.Accessory, characteristic.TypeSaturation).SetValueRequest(100.0, homeAppRequest())
+	s.deliver("hk:salon", 1)
+	s.refreshAllStates(t.Context())
+	for _, f := range *due {
+		f()
+	}
+	if got, want := exec(t, engine, `table.concat(_sent, ";")`), `LED1:execute(6, "#0000ff")`; got != want {
+		t.Errorf("sent %q, want the picked blue %q", got, want)
 	}
 }
 

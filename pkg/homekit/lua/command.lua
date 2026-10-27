@@ -2,8 +2,8 @@
 -- return command(ExposedObjects:get(path), function(h) <call> end), the call using h and hk.
 local hk = {}
 
--- a colour picked while the light was off goes out before it lights (SwitchOn alone
--- would bring back the old one)
+-- a colour picked while the light was off goes out when it is lit from the Home app
+-- (SwitchOn alone would bring back the old one)
 local function sendPickedColor(h)
 	local c = h._hkColor
 	if c then
@@ -23,8 +23,9 @@ function hk.switchOff(h)
 end
 
 function hk.setBrightness(h, pct)
-	if pct > 0 then sendPickedColor(h) end
+	-- the brightness first: the colour then goes out scaled by it, not at full
 	if h.object.setBrightness then h.object:setBrightness(pct) else h:setValue(pct / 100) end
+	if pct > 0 then sendPickedColor(h) end
 end
 
 -- A colour (brightest channel 255) keeps the brightness; a light that is off keeps

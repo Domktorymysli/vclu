@@ -86,9 +86,16 @@ func (s *Server) addColor(svc *service.Lightbulb, obj ExposedObject, readonly bo
 	svc.AddC(hue.C)
 	svc.AddC(sat.C)
 
+	var mu sync.Mutex
+	pending := false // a write from the Home app waits: the tiles hold the colour to send
 	show := func(r, g, b int) {
 		h, sv, ok := rgbToHS(r, g, b)
 		if !ok {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if pending {
 			return
 		}
 		// a colour just set from the Home app comes back rounded: keep its values
@@ -114,8 +121,6 @@ func (s *Server) addColor(svc *service.Lightbulb, obj ExposedObject, readonly bo
 			show(r, g, b)
 		}
 	}
-	var mu sync.Mutex
-	pending := false
 	write := func(float64) {
 		if s.paused(obj.Path, revert) {
 			return
@@ -129,8 +134,8 @@ func (s *Server) addColor(svc *service.Lightbulb, obj ExposedObject, readonly bo
 		afterColorWrite(func() {
 			mu.Lock()
 			pending = false
-			mu.Unlock()
 			r, g, b := hsToRGB(hue.Value(), sat.Value())
+			mu.Unlock()
 			s.command(obj.Path, fmt.Sprintf("hk.setColor(h, %d, %d, %d)", r, g, b), revert)
 		})
 	}
