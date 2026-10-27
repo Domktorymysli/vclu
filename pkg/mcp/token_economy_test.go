@@ -182,6 +182,12 @@ func TestReadFile_OffsetLimit(t *testing.T) {
 		t.Errorf("offset to the end = %v", tail)
 	}
 
+	// a limit past int's range reads to the end
+	res, _ = srv.handleReadFile(ctx, makeCallRequest(map[string]any{"path": "modules/m.lua", "offset": 2.0, "limit": 1e300}))
+	if huge := parseJSON(t, res); huge["content"] != "l2\nl3\nl4\nl5\n" {
+		t.Errorf("huge limit = %s", extractText(t, res))
+	}
+
 	res, _ = srv.handleReadFile(ctx, makeCallRequest(map[string]any{"path": "modules/m.lua", "offset": 9.0}))
 	if !res.IsError || !strings.Contains(extractText(t, res), "5 lines") {
 		t.Errorf("offset past the end: %s", extractText(t, res))

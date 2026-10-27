@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"regexp"
 	"strings"
 	"time"
@@ -220,7 +221,7 @@ func (s *MCPServer) handleReadFile(ctx context.Context, req mcplib.CallToolReque
 		})
 	}
 
-	part, first, total, err := lineRange(content, int(offset), int(limit))
+	part, first, total, err := lineRange(content, lineArg(offset), lineArg(limit))
 	if err != nil {
 		s.recordActivity("vclu_read_file", path, false, start, err.Error(), ctx)
 		return toolError(fmt.Sprintf("%s: %v", path, err)), nil
@@ -233,6 +234,11 @@ func (s *MCPServer) handleReadFile(ctx context.Context, req mcplib.CallToolReque
 		"offset":      first,
 		"total_lines": total,
 	})
+}
+
+// lineArg makes a line number an int; a float beyond int converts differently per platform.
+func lineArg(f float64) int {
+	return int(max(min(f, math.MaxInt32), math.MinInt32))
 }
 
 // lineRange returns limit lines from the 1-based line offset (0: from 1; limit 0: to the end),
@@ -253,8 +259,8 @@ func lineRange(content string, offset, limit int) (string, int, int, error) {
 		return "", 0, total, fmt.Errorf("offset %d is past the end (%d lines)", offset, total)
 	}
 	end := total
-	if limit > 0 {
-		end = min(offset-1+limit, total)
+	if limit > 0 && limit < total-offset+1 { // not offset+limit: a huge limit overflows
+		end = offset - 1 + limit
 	}
 	return strings.Join(lines[offset-1:end], ""), offset, total, nil
 }
