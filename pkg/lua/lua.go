@@ -1402,6 +1402,7 @@ func (le *LuaEngine) RunLoop(stopChan <-chan struct{}) {
 		case <-stopChan:
 			le.engineState.Store(int32(stateStopping))
 			le.drainAllQueuesOnShutdown()
+			releaseOutputs(le.state) // before Close stops MQTT and the other managers
 			flushPersist(le.state)
 			le.engineState.Store(int32(stateClosed))
 			return
@@ -1616,6 +1617,10 @@ func (le *LuaEngine) Close() {
 	le.state = nil
 	le.mu.Unlock()
 
+	// RunLoop never ran, nobody released them: while MQTT and the rest still work
+	if prev == stateInit {
+		releaseOutputs(state)
+	}
 	if le.timerManager != nil {
 		le.timerManager.Stop()
 	}
@@ -1669,6 +1674,7 @@ func (le *LuaEngine) Reinitialize(cluName string) error {
 func (le *LuaEngine) reinitializeInner(cluName string) error {
 	// Close existing state if any
 	if le.state != nil {
+		releaseOutputs(le.state)
 		flushPersist(le.state)
 		le.state.Close()
 		le.state = nil

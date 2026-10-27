@@ -13,7 +13,7 @@ Only public API is listed — internal/private functions are omitted.
 - [objects.VirtualText](#objectsvirtualtext) (3 functions)
 - [objects.VirtualCover](#objectsvirtualcover) (10 functions)
 - [objects.VirtualObject](#objectsvirtualobject) (12 functions)
-- [objects.VirtualThermostat](#objectsvirtualthermostat) (11 functions)
+- [objects.VirtualThermostat](#objectsvirtualthermostat) (12 functions)
 - [ExposedObjects](#exposedobjects) (21 functions)
 - [core.Registry](#coreregistry) (10 functions)
 - [core.Metrics](#coremetrics) (1 functions)
@@ -685,6 +685,12 @@ Stops regulating and switches the output off (state 0).
 Why the output is held off besides the state: "stale" (no reading for staleAfter), "maxOn" (on too long), nil when regulating normally.
 
 **Returns:** string|nil Fault
+
+### `VirtualThermostat:getDirection() → string Direction`
+
+What the output does: "heat" or "cool" (Home Assistant shows it as the mode).
+
+**Returns:** string Direction
 
 ---
 

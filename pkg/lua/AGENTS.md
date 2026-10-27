@@ -138,8 +138,8 @@ An object is a thermostat when it has `getValue` (temperature), `getTarget` and 
 - `exposeRegistry()` and `group:expose()` without a type leave climates out (`explicitOnly` in
   the capabilities): only `expose(th)` shows one, writable unless `readonly`. Exposing subscribes nothing new and sends nothing to the
   CLU (`TestHAClimateExposeSubscribesNothingNew`); subscribing a thermostat can reset an old CLU (#67).
-- `hvac_mode` is shown, not set: `off` when `getState()` is 0, `heat` otherwise (ControlDirection,
-  feature 7, is not subscribed). No mode command topic; Grenton's Mode (holiday, auto) is not a preset yet.
+- `hvac_mode` is shown, not set: `off` when `getState()` is 0, otherwise `cool` when the optional
+  `getDirection()` says so (VirtualThermostat), else `heat` (ControlDirection, feature 7, is not subscribed). No mode command topic; Grenton's Mode (holiday, auto) is not a preset yet.
 - The target shown is `getTarget()` as the CLU reports it, never the value just sent: in holiday
   or auto mode a set point does not change the target. A target from HA is clamped to `min`/`max`
   of the expose options (default 5..35).
@@ -153,6 +153,10 @@ Contract: `ha_exposed_climate_test.go`, `ha_climate_readonly_test.go`.
 nothing. `VirtualThermostat` counts a change as a reading (`staleAfter` is time without one) and
 picks the first report up on its tick; a value present when it is created (VirtualNumber's
 default 0, a value kept over a reload) does not count. Contract: `virtual_thermostat_test.go`.
+Before a Lua state goes away (reload, `RunLoop` stop, `Close` before the loop ran) Go calls
+`VirtualThermostat.releaseAll()` (`releaseOutputs` in `history.go`), before MQTT and the other
+managers close; a Grenton command opens its own UDP socket, so `Server.Stop` closing
+`commandConn` first does not stop it. Contract: `virtual_thermostat_release_test.go`.
 
 ### Smart Panel (SMART_PANEL_FM_4)
 Indices from the Object Manager definition, fv05 and fv07. PANEL (class 29) execute: 0 SwitchOnDisplay,

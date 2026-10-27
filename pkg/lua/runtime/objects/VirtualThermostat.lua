@@ -30,6 +30,7 @@ VirtualThermostat.timer = {
 }
 
 local PERSIST_NS = "virtual-objects" -- shared with VirtualObject
+local live = setmetatable({}, {__mode = "k"}) -- thermostats of this Lua state
 local OPTIONS = { source = true, output = true, hysteresis = true, direction = true, setpoint = true,
     holiday = true, min = true, max = true, staleAfter = true, maxOn = true, persist = true }
 
@@ -81,7 +82,7 @@ function VirtualThermostat:new(name, opts)
     local obj = VirtualObject.new(self, name)
     obj._type = "THERMOSTAT"
     obj._allowedMethods = {"getValue", "getTarget", "getSetpoint", "setSetpoint", "getState", "getMode",
-        "setMode", "start", "stop", "getFault"}
+        "setMode", "start", "stop", "getFault", "getDirection"}
 
     obj._source = resolve(opts.source, "source", {"getValue"})
     obj._output = resolve(opts.output, "output", {"switchOn", "switchOff"})
@@ -116,8 +117,9 @@ function VirtualThermostat:new(name, opts)
     local now = VirtualThermostat.timer.now()
     obj._readAt = now -- no reading for staleAfter from here is stale too
     -- a value from before (a default 0, one kept over a reload) is not a reading
-    obj._before = finite(obj._source:getValue())
+    obj._before = obj:_read()
     obj:_apply(false, true)
+    live[obj] = true
 
     if type(obj._source.onChange) == "function" then
         obj._source:onChange(function(v) obj:_onReading(v) end)
@@ -140,6 +142,8 @@ function VirtualThermostat:_restore(key)
     if type(key) ~= "string" or key == "" or key == "get" or key == "set" or key == "save" or key == "toTable" then
         error("VirtualThermostat: persist must be true or a string key (not get/set/save/toTable)", 3)
     end
+    -- its own key: a virtual object of the same name keeps its value apart
+    key = "thermostat:" .. key
     self._persistAs = key
     local saved = persist(PERSIST_NS):get(key)
     if type(saved) ~= "table" then return end
@@ -219,10 +223,17 @@ function VirtualThermostat:_apply(on, force)
     end
 end
 
+-- The source's value, nil when it has none or raises (then it goes stale)
+function VirtualThermostat:_read()
+    local ok, v = pcall(self._source.getValue, self._source)
+    if ok then return finite(v) end
+    return nil
+end
+
 function VirtualThermostat:_tick()
     local now = VirtualThermostat.timer.now()
     if not self._hasReading then
-        local v = finite(self._source:getValue())
+        local v = self:_read()
         -- a Grenton object's first report fires no OnChange
         if v and v ~= self._before then
             self:_reading(v, now)
@@ -336,6 +347,25 @@ end
 -- @return string|nil Fault
 function VirtualThermostat:getFault()
     return self._fault
+end
+
+--- What the output does: "heat" or "cool" (Home Assistant shows it as the mode).
+-- @api public
+-- @return string Direction
+function VirtualThermostat:getDirection()
+    return self._cool and "cool" or "heat"
+end
+
+--- Switches off every output that is or may be on; Go calls it before the Lua state
+-- goes away (reload, shutdown). One failing output does not stop the others.
+function VirtualThermostat.releaseAll()
+    for th in pairs(live) do
+        if th._on ~= false then
+            th._on = false
+            local ok, err = pcall(th._output.switchOff, th._output)
+            if not ok then log():warn("[Thermostat] %s: output not switched off: %s", tostring(th._name), tostring(err)) end
+        end
+    end
 end
 
 return VirtualThermostat

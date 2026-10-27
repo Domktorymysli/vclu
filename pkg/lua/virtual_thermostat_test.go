@@ -251,9 +251,11 @@ func TestVirtualThermostat_PersistAndReload(t *testing.T) {
 		TH2:stop()`)
 	te.reload(t)
 	got := mustExec(t, te.LuaEngine, `(function()
-		-- the relay kept its state over the reload, the sensor its old value
-		TEMP:setValue(20)
+		-- released before the reload; then as after a kill: the relay on, the sensor its old value
 		local before = HEATER:getValue()
+		HEATER:switchOn()
+		TEMP:setValue(20)
+		before = before .. HEATER:getValue()
 		TH = VirtualThermostat:new("salon", { source = TEMP, output = HEATER, setpoint = 21, persist = true })
 		TH2 = VirtualThermostat:new("lazienka", { source = TEMP, output = VirtualSwitch:new("x"), persist = "th.lazienka" })
 		local plain = VirtualThermostat:new("plain", { source = TEMP, output = VirtualSwitch:new("y"), setpoint = 21 })
@@ -265,8 +267,8 @@ func TestVirtualThermostat_PersistAndReload(t *testing.T) {
 		table.insert(out, plain:getSetpoint())
 		return table.concat(out, ",")
 	end)()`)
-	if got != "1/0,0,1,22.5/0/1,21/1/0,21" {
-		t.Errorf("after a reload: %s, want 1/0,0,1,22.5/0/1,21/1/0,21", got)
+	if got != "01/0,0,1,22.5/0/1,21/1/0,21" {
+		t.Errorf("after a reload: %s, want 01/0,0,1,22.5/0/1,21/1/0,21", got)
 	}
 
 	// a saved set point above a lowered max is clamped
@@ -414,5 +416,67 @@ func TestVirtualThermostat_FailingListenerOrOutput(t *testing.T) {
 	end)()`)
 	if got != "1/0" {
 		t.Errorf("output retried: %s, want 1/0", got)
+	}
+}
+
+// A cooling thermostat is "cool" in Home Assistant, in its state and in the modes announced.
+func TestVirtualThermostat_HomeAssistantCool(t *testing.T) {
+	engine := NewLuaEngine()
+	t.Cleanup(engine.Close)
+	got := mustExec(t, engine, `(function()
+		_pub = {}
+		HAStatePublisher.setup({
+			publish = function(self, topic, payload) table.insert(_pub, { topic = topic, payload = payload }); return true end,
+			subscribe = function() end, unsubscribe = function() end,
+		})
+		local function last(topic)
+			local v
+			for i, p in ipairs(_pub) do if p.topic == topic then v = p.payload end end
+			return tostring(v)
+		end
+		VirtualThermostat.timer.every = function() end
+		local temp = VirtualNumber:new("t")
+		local th = VirtualThermostat:new("sypialnia", { source = temp, output = VirtualSwitch:new("k"), direction = "cool", setpoint = 24 })
+		registerObject("virt.sypialnia", th)
+		th:expose({ name = "Sypialnia" })
+		temp:setValue(26)
+		local config = JSON.decode(last("homeassistant/climate/vclu_virt_sypialnia/config"))
+		local mode = last("vclu/exposed/vclu/climate/virt_sypialnia/mode")
+		th:stop()
+		return table.concat(config.modes, "+") .. "," .. mode .. "," .. last("vclu/exposed/vclu/climate/virt_sypialnia/mode")
+	end)()`)
+	if got != "off+cool,cool,off" {
+		t.Errorf("cooling in HA: modes,mode,stopped = %s, want off+cool,cool,off", got)
+	}
+}
+
+// A source whose getValue() raises (a plugin that lost its device) still goes stale.
+func TestVirtualThermostat_SourceRaises(t *testing.T) {
+	te := newVTEngine(t)
+	mustExec(t, te.LuaEngine, `
+		SRC = { fail = false, getValue = function(self) if self.fail then error("device gone") end return nil end }
+		TH = VirtualThermostat:new("salon", { source = SRC, output = HEATER, staleAfter = 60 })
+		SRC.fail = true
+		logs()`)
+	te.advance(t, 60*time.Second)
+	got := mustExec(t, te.LuaEngine, `return tostring(TH:getFault()) .. "|" .. logs()`)
+	if !strings.HasPrefix(got, "stale|") || !strings.Contains(got, "no reading") {
+		t.Errorf("raising source: %q, want stale with its warning", got)
+	}
+}
+
+// The saved state has its own key, so a VirtualSwitch of the same name does not share it.
+func TestVirtualThermostat_PersistKey(t *testing.T) {
+	te := newVTEngine(t)
+	got := mustExec(t, te.LuaEngine, `(function()
+		local th = VirtualThermostat:new("salon", { source = TEMP, output = HEATER, persist = true })
+		local named = VirtualThermostat:new("x", { source = TEMP, output = HEATER, persist = "lazienka" })
+		th:setSetpoint(22)
+		named:setSetpoint(23)
+		local s = persist("virtual-objects")
+		return type(s:get("thermostat:salon")) .. "/" .. type(s:get("thermostat:lazienka")) .. "/" .. type(s:get("salon"))
+	end)()`)
+	if got != "table/table/nil" {
+		t.Errorf("persist keys: %s, want table/table/nil", got)
 	}
 }
