@@ -282,7 +282,11 @@ func (s *MCPServer) handleDraftEdit(ctx context.Context, req mcplib.CallToolRequ
 		n = 1
 	}
 	content = strings.Replace(content, oldStr, newStr, n)
+	if content == "" {
+		return fail(fmt.Sprintf("the edit leaves %s empty: delete the draft with vclu_draft_delete instead", path))
+	}
 
+	// read-modify-write without a lock: the workspace has none, a draft_write in between is lost
 	if err := s.workspace.CreateDraft(path, content); err != nil {
 		return fail(err.Error())
 	}

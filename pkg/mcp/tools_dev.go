@@ -255,7 +255,7 @@ func lineRange(content string, offset, limit int) (string, int, int, error) {
 	if limit < 0 {
 		return "", 0, total, fmt.Errorf("limit must be positive")
 	}
-	if offset > total {
+	if offset > total && offset > 1 { // an empty file reads from line 1 as empty
 		return "", 0, total, fmt.Errorf("offset %d is past the end (%d lines)", offset, total)
 	}
 	end := total

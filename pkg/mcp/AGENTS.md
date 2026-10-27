@@ -16,8 +16,9 @@ here under load (see the `fix-flaky-test` skill).
 
 ## A tool reads only the arguments in its schema
 `addTool` (`tools.go`) refuses an argument the schema does not name and a missing required one,
-before the handler runs. A handler that reads a new argument needs it in the schema too
-(`tool_args_test.go`).
+before the handler runs. A `number` argument reaches the handler as float64 (a numeric string
+is converted, anything else refused). A handler that reads a new argument needs it in the schema
+too (`tool_args_test.go`).
 
 ## Sandbox logs leave out the start-up
 `print` output in `load()` before the drafts load is the runtime's and is dropped unless `verbose`

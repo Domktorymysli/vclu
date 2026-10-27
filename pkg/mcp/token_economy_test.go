@@ -236,3 +236,39 @@ func TestDraftTest_LeavesOutStartupLines(t *testing.T) {
 		t.Errorf("verbose without start-up lines:\n%s", verbose)
 	}
 }
+
+func TestDraftEdit_RefusesEmptyResult(t *testing.T) {
+	srv, _ := newEditHarness(t)
+	if err := srv.workspace.CreateDraft("modules/m.lua", "x = 1\n"); err != nil {
+		t.Fatal(err)
+	}
+	text, isErr := callEdit(t, srv, map[string]any{"path": "modules/m.lua", "old_string": "x = 1\n", "new_string": ""})
+	if !isErr || !strings.Contains(text, "empty") {
+		t.Errorf("emptying edit: %s", text)
+	}
+	if got, _ := srv.workspace.GetDraft("modules/m.lua"); got != "x = 1\n" {
+		t.Errorf("draft = %q", got)
+	}
+}
+
+func TestReadFile_EmptyFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "modules"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "modules", "e.lua"), nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+	srv := phase2Harness(nil, nil)
+	srv.SetFileProvider(NewFileProvider(dir))
+	ctx := devBotCtx(false)
+
+	res, _ := srv.handleReadFile(ctx, makeCallRequest(map[string]any{"path": "modules/e.lua", "offset": 1.0, "limit": 10.0}))
+	if m := parseJSON(t, res); res.IsError || m["content"] != "" || m["total_lines"] != 0.0 {
+		t.Errorf("offset 1 on an empty file: %s", extractText(t, res))
+	}
+	res, _ = srv.handleReadFile(ctx, makeCallRequest(map[string]any{"path": "modules/e.lua", "offset": 2.0}))
+	if !res.IsError || !strings.Contains(extractText(t, res), "past the end") {
+		t.Errorf("offset 2 on an empty file: %s", extractText(t, res))
+	}
+}

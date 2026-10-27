@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -141,9 +143,38 @@ func checkArgs(tool string, props map[string]any, required []string, args map[st
 		}
 		return fmt.Errorf("%s Valid: %s", msg, strings.Join(valid, ", "))
 	}
+	if err := numberArgs(tool, props, args); err != nil {
+		return err
+	}
 	for _, r := range required {
 		if _, ok := args[r]; !ok {
 			return fmt.Errorf("missing required argument %q for %s. Valid: %s", r, tool, strings.Join(valid, ", "))
+		}
+	}
+	return nil
+}
+
+// numberArgs makes a number argument float64 in place (handlers read it so): a numeric string
+// such as "10" is taken, anything else that is not a number is refused, not ignored.
+func numberArgs(tool string, props map[string]any, args map[string]any) error {
+	for k, v := range args {
+		if p, _ := props[k].(map[string]any); p["type"] != "number" && p["type"] != "integer" {
+			continue
+		}
+		switch n := v.(type) {
+		case nil, float64:
+		case int:
+			args[k] = float64(n)
+		case int64:
+			args[k] = float64(n)
+		case string:
+			f, err := strconv.ParseFloat(strings.TrimSpace(n), 64)
+			if err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
+				return fmt.Errorf("argument %q for %s must be a number, got %q", k, tool, n)
+			}
+			args[k] = f
+		default:
+			return fmt.Errorf("argument %q for %s must be a number, got %v", k, tool, v)
 		}
 	}
 	return nil
