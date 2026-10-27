@@ -148,6 +148,12 @@ An object is a thermostat when it has `getValue` (temperature), `getTarget` and 
   reported target, so at worst the old one comes back until the next report or renewal (TTL/2).
 Contract: `ha_exposed_climate_test.go`, `ha_climate_readonly_test.go`.
 
+### `onChange` is not a reading
+`onChange` fires on a change only, and a Remote object's first report (old value nil) fires
+nothing. `VirtualThermostat` counts a change as a reading (`staleAfter` is time without one) and
+picks the first report up on its tick; a value present when it is created (VirtualNumber's
+default 0, a value kept over a reload) does not count. Contract: `virtual_thermostat_test.go`.
+
 ### Smart Panel (SMART_PANEL_FM_4)
 Indices from the Object Manager definition, fv05 and fv07. PANEL (class 29) execute: 0 SwitchOnDisplay,
 2 ClearScreen, 3 PrintText(x, y, text, font 1-3), 4 DrawLine, 5 DrawPoint, 6 DrawIcon(x, y, file),

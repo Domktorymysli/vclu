@@ -251,6 +251,16 @@ Use them instead of hand-building tables.
 | `VirtualSensor` | DIN | `getValue`, `isActive` (read-only, use `updateState()` from callback) |
 | `VirtualNumber` | AnalogOUT | `getValue`, `setValue`, `getMeta()` — constructor: `VirtualNumber:new(name, {min, max, step, unit, initial, persist})` |
 | `VirtualText` | TEXT | `getValue`, `setValue` — constructor: `VirtualText:new(name, {initial, maxLength, persist})` |
+| `VirtualThermostat` | THERMOSTAT | `getValue` (temperature), `getTarget`, `getSetpoint`, `setSetpoint`, `getState`, `start`, `stop`, `getMode`, `setMode(0 set point / 1 holiday)`, `getFault` — see below |
+
+`VirtualThermostat:new(name, {source, output, hysteresis = 0.5, direction = "heat"|"cool", setpoint = 21, holiday = 16, min = 5, max = 35, staleAfter = 900, maxOn, persist})`
+switches `output` (anything with `switchOn`/`switchOff`) by `source` (anything with `getValue`/`onChange`): on at target − hysteresis, off at target + hysteresis (cooling the other way), only on a crossing. No change from the source for `staleAfter` s switches the output off (`getFault() == "stale"`, logged once); `maxOn` s on in one go stops it until a setting changes. A new thermostat (also after a reload or restart) switches its output off and waits for a reading that arrives after it. `persist` keeps the set point, mode and state. It is a thermostat for `expose()` (Home Assistant climate), `lib/panel` (`menu:add`, `menu:thermostat`) and `section:thermostat`; which sensors to average or a schedule belong in a module:
+
+```lua
+local th = VirtualThermostat:new("salon", { source = _:get("z2m.salon_temp"), output = _:get("CLU1.DOU0123"),
+    setpoint = 21, holiday = 16, persist = true })
+expose(th, "climate", { name = "Salon", area = "Salon", min = 18, max = 24 })
+```
 
 Every `Virtual*:new(name, opts)` takes `initial` and `persist`: with `persist = true` (or a key string) the value survives reloads and restarts, e.g. `VirtualSwitch:new("tryb_nocny", { initial = 0, persist = true })`. State of an automation itself: `local st = persist("name", { pauseUntil = 0 })`, then `st.pauseUntil = ...` is saved. Avoid persist for values changing every second (each save rewrites a KV file).
 

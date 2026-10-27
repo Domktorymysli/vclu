@@ -546,6 +546,11 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 				"constructor": "VirtualText:new(name, {initial='str', maxLength=n, persist=true|'key'})",
 				"note":        "Text value. Display with :status() dashboard widget.",
 			},
+			"VirtualThermostat (THERMOSTAT)": map[string]any{
+				"constructor": "VirtualThermostat:new(name, {source=obj|path, output=obj|path, hysteresis=0.5, direction='heat'|'cool', setpoint=21, holiday=16, min=5, max=35, staleAfter=900, maxOn=s, persist=true|'key'})",
+				"methods":     []string{"getValue()", "getTarget()", "getSetpoint()", "setSetpoint(v)", "getState()", "start()", "stop()", "getMode()", "setMode(0|1)", "getFault()", "onChange(cb)"},
+				"note":        "Switches output (switchOn/switchOff) by source temperature at target ± hysteresis; no source change for staleAfter s or on longer than maxOn: output off (getFault 'stale'/'maxOn'). Mode 0 set point, 1 holiday. Starts with the output off. Same interface as RemoteThermostat: expose(th, \"climate\", {...}), lib/panel menu:add",
+			},
 			"PluginSensor": map[string]any{
 				"methods": []string{"get()", "onChange(cb)"},
 				"note":    "Created via plugin:sensor(). NOT getValue()!",
