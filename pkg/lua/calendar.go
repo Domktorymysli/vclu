@@ -3,6 +3,9 @@ package lua
 import (
 	"fmt"
 	"math"
+	"os"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/Domktorymysli/vclu/pkg/calendar"
@@ -22,6 +25,7 @@ func registerCalendarFunctions(L *lua.LState) {
 	L.SetGlobal("__go_calendar_sun", L.NewFunction(calendarSun))
 	L.SetGlobal("__go_calendar_sun_position", L.NewFunction(calendarSunPosition))
 	L.SetGlobal("__go_calendar_add_days", L.NewFunction(calendarAddDays))
+	L.SetGlobal("__go_calendar_zone", L.NewFunction(calendarZoneName))
 }
 
 // __go_calendar_add_days(timestamp, n) -> the same wall-clock time n days away (DST aware).
@@ -40,6 +44,52 @@ func calendarZone(L *lua.LState) *time.Location {
 		return loc
 	}
 	return time.Local
+}
+
+// __go_calendar_zone() -> the IANA name of calendarZone for the browser, "" when unknown.
+func calendarZoneName(L *lua.LState) int {
+	name, _ := L.G.Registry.RawGetString(datetimeTZKey).(lua.LString)
+	if name == "" {
+		name = lua.LString(localZoneName())
+	}
+	L.Push(name)
+	return 1
+}
+
+// localZoneName is the name of time.Local; time.Local.String() is "Local" without TZ.
+var localZoneName = sync.OnceValue(func() string {
+	return zoneNameOf(os.LookupEnv, "/etc/localtime")
+})
+
+// zoneNameOf finds the zone name the way Go picks time.Local: TZ, else the localtime link.
+func zoneNameOf(lookupEnv func(string) (string, bool), localtime string) string {
+	name, ok := lookupEnv("TZ")
+	if ok {
+		name = strings.TrimPrefix(name, ":")
+		if name == "" {
+			return "UTC"
+		}
+	} else {
+		name = localtime
+	}
+	// TZ=:/etc/localtime is the link too; a copied zone file has no name
+	if strings.HasPrefix(name, "/") {
+		if link, err := os.Readlink(name); err == nil {
+			name = link
+		}
+	}
+	if i := strings.LastIndex(name, "zoneinfo/"); i >= 0 {
+		name = name[i+len("zoneinfo/"):]
+	}
+	// the browser knows Europe/Warsaw, not posix/Europe/Warsaw
+	name = strings.TrimPrefix(strings.TrimPrefix(name, "posix/"), "right/")
+	if strings.HasPrefix(name, "/") || name == "Local" {
+		return ""
+	}
+	if _, err := loadZone(name); err != nil {
+		return ""
+	}
+	return name
 }
 
 func calendarHolidays(L *lua.LState, v lua.LValue) calendar.Holidays {
