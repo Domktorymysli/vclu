@@ -18,11 +18,14 @@ local COMMANDS = {
     scene = { run = { nil, "ON" } },
 }
 
--- The level for remote access: readonly also when expose() says so
+-- The level for remote access: readonly also when expose() says so; an unknown level is hidden
 local function level(handle)
     local l = AccessControl.get(INTEGRATION, handle.path)
     if l == "full" and handle.options and handle.options.readonly then
         return "readonly"
+    end
+    if l ~= "full" and l ~= "readonly" then
+        return "hidden"
     end
     return l
 end
@@ -58,6 +61,12 @@ local function run(handle, command, value)
         local n = tonumber(value)
         if not n or n - n ~= 0 then
             return false, "invalid value"
+        end
+        -- a number stays in the range its expose() options give
+        if handle.type == "number" then
+            local min, max = tonumber(handle.options.min), tonumber(handle.options.max)
+            if min and n < min then n = min end
+            if max and n > max then n = max end
         end
         payload = tostring(n)
     end

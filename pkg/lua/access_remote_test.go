@@ -233,3 +233,37 @@ func TestRemoteAccess_ProfileChangeTakesEffectLive(t *testing.T) {
 		assert(not RemoteAccess.command("v.boiler", "off", nil, "user:anna"), "closed boiler controlled")
 	`)
 }
+
+// A level the profile cannot mean (a typo in a hand-edited file) hides the object.
+func TestRemoteAccess_UnknownLevelIsHidden(t *testing.T) {
+	e := newRemoteAccessEngine(t)
+	luaOK(t, e, `
+		_loadDefault()
+		AccessControl._profiles.typo = { ["default"] = "hiden", objects = { ["v.lamp"] = "Full" } }
+		_assignRemote("typo")
+		assert(_visible() == "", "visible: " .. _visible())
+		local ok = RemoteAccess.command("v.lamp", "on", nil, "user:anna")
+		assert(not ok and _lamp:getValue() == 0, "typo lamp controlled")
+	`)
+}
+
+// The remote side is not trusted with a number's range: it stays within expose() min/max.
+func TestRemoteAccess_NumberClampedToExposeRange(t *testing.T) {
+	e := newRemoteAccessEngine(t)
+	luaOK(t, e, `
+		_loadDefault()
+		_num = VirtualNumber:new("num")
+		expose(_num, "number", { path = "v.num", name = "Num", min = 0, max = 10 })
+		AccessControl._profiles.outside.objects["v.num"] = "full"
+		_assignRemote("outside")
+		assert(RemoteAccess.command("v.num", "value", 1e15, "user:anna"), "huge refused")
+		assert(_num:getValue() == 10, "huge: " .. tostring(_num:getValue()))
+		assert(RemoteAccess.command("v.num", "value", -5, "user:anna"), "negative refused")
+		assert(_num:getValue() == 0, "negative: " .. tostring(_num:getValue()))
+		assert(RemoteAccess.command("v.num", "value", 7, "user:anna"), "7 refused")
+		assert(_num:getValue() == 7, "7: " .. tostring(_num:getValue()))
+		assert(not RemoteAccess.command("v.num", "value", 0/0, "user:anna"), "NaN accepted")
+		assert(not RemoteAccess.command("v.num", "value", 1/0, "user:anna"), "inf accepted")
+		assert(_num:getValue() == 7, "changed by NaN/inf")
+	`)
+}
