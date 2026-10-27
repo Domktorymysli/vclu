@@ -4,10 +4,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/Domktorymysli/vclu/pkg/accesscontrol"
+	"github.com/Domktorymysli/vclu/pkg/config"
 	"github.com/Domktorymysli/vclu/pkg/lua"
 	"github.com/gin-gonic/gin"
 )
@@ -145,5 +148,43 @@ func TestAccessAPI_RejectsUnknownIntegration(t *testing.T) {
 	}
 	if w := serve(r, http.MethodPost, "/api/access/assignments", `{"assignments":{"telnet":["full-access"]}}`); w.Code != http.StatusBadRequest {
 		t.Errorf("assignment for an unknown integration: %d %s", w.Code, w.Body)
+	}
+}
+
+// A bot on the user's own no-access follows it to its new name at startup (#143 review).
+func TestAccessRename_BotProfilesFollow(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "access_control.yaml"), []byte("profiles:\n  no-access:\n    default: full\n    objects:\n      CLU.BOILER: hidden\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.UpdateMasterConfig(dir, func(c *config.VCLUConfig) error {
+		c.MCP = &config.VCLUMCPConfig{Bots: []config.MCPBot{
+			{ID: "a", Name: "A", Profiles: []string{"no-access"}},
+			{ID: "b", Name: "B", Profiles: []string{"full-access"}},
+		}}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	mgr := accesscontrol.NewManager(dir)
+	if err := mgr.Load(); err != nil {
+		t.Fatal(err)
+	}
+	applyProfileRenames(dir, mgr)
+
+	cfg, err := config.ReadMasterConfig(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, b := cfg.MCP.Bots[0].Profiles, cfg.MCP.Bots[1].Profiles
+	if strings.Join(a, ",") != "no-access-user" || strings.Join(b, ",") != "full-access" {
+		t.Fatalf("bot profiles after startup: a=%v b=%v", a, b)
+	}
+	if got := mgr.ResolveAccess(a, "CLU.LAMP"); got != accesscontrol.AccessFull {
+		t.Errorf("bot a CLU.LAMP = %q, want full", got)
+	}
+	if got := mgr.ResolveAccess(a, "CLU.BOILER"); got != accesscontrol.AccessHidden {
+		t.Errorf("bot a CLU.BOILER = %q, want hidden", got)
 	}
 }

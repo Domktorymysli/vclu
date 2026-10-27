@@ -232,6 +232,7 @@ func NewServer(port int, webDir string, serverDir string, deviceConfig *config.C
 		// Not recoverable at runtime: every integration now denies until the file is fixed.
 		log.Printf("ERROR: access control config unusable - DENYING ALL integration access until fixed: %v", err)
 	}
+	applyProfileRenames(serverDir, accessMgr)
 
 	s := &Server{
 		port:            port,
@@ -288,6 +289,35 @@ func (s *Server) syncAccessControlToLua() {
 	}
 
 	log.Println("Synced access control profiles to Lua")
+}
+
+// applyProfileRenames points MCP bots at profiles the access manager renamed on load.
+func applyProfileRenames(serverDir string, mgr *accesscontrol.Manager) {
+	renamed := mgr.RenamedProfiles()
+	if len(renamed) == 0 {
+		return
+	}
+	err := updateMasterConfig(serverDir, func(c *config.VCLUConfig) error {
+		if c.MCP == nil {
+			return errUnchanged
+		}
+		changed := false
+		for i := range c.MCP.Bots {
+			for j, p := range c.MCP.Bots[i].Profiles {
+				if n, ok := renamed[p]; ok {
+					c.MCP.Bots[i].Profiles[j] = n
+					changed = true
+				}
+			}
+		}
+		if !changed {
+			return errUnchanged
+		}
+		return nil
+	})
+	if err != nil {
+		log.Printf("[Access] bot profiles not renamed: %v", err)
+	}
 }
 
 // applyAccessChange applies an access change made in the panel: Lua, HA and

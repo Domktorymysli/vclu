@@ -110,6 +110,9 @@ type Manager struct {
 	// Failed load (unreadable/malformed YAML) — deny everything until fixed.
 	// A missing file is not a failure; Load() handles that as a fresh install.
 	loadErr error
+
+	// Profiles renamed by the last Load, old -> new
+	renamed map[string]string
 }
 
 // NewManager creates a new access control manager
@@ -134,11 +137,46 @@ func (m *Manager) ensureBuiltinProfiles() {
 			Default: AccessFull,
 		}
 	}
-	// Always hidden, also when the file says otherwise: remote must not open by an edit
-	if p, ok := m.config.Profiles[BuiltinProfileNoAccess]; ok && (p.Default != AccessHidden || len(p.Objects) > 0) {
-		log.Printf("[AccessControl] Built-in profile %q reset to hidden", BuiltinProfileNoAccess)
-	}
+	// Always hidden: a user's own no-access was moved aside by renameUserNoAccess
 	m.config.Profiles[BuiltinProfileNoAccess] = &Profile{Default: AccessHidden}
+}
+
+// renameUserNoAccess moves a no-access profile that is not the built-in one (made before
+// remote existed) to no-access-user, with its assignments except remote's.
+func (m *Manager) renameUserNoAccess() {
+	p, ok := m.config.Profiles[BuiltinProfileNoAccess]
+	if !ok || (p.Default == AccessHidden && len(p.Objects) == 0) {
+		return
+	}
+	name := BuiltinProfileNoAccess + "-user"
+	for i := 2; m.config.Profiles[name] != nil; i++ {
+		name = fmt.Sprintf("%s-user-%d", BuiltinProfileNoAccess, i)
+	}
+	m.config.Profiles[name] = p
+	delete(m.config.Profiles, BuiltinProfileNoAccess)
+	for intg, names := range m.config.Assignments {
+		if intg == string(IntegrationRemote) {
+			continue
+		}
+		for i, n := range names {
+			if n == BuiltinProfileNoAccess {
+				names[i] = name
+			}
+		}
+	}
+	m.renamed = map[string]string{BuiltinProfileNoAccess: name}
+	log.Printf("[AccessControl] Profile %q is not the built-in one: renamed to %q", BuiltinProfileNoAccess, name)
+}
+
+// RenamedProfiles returns the profiles renamed by the last Load (old name -> new name).
+func (m *Manager) RenamedProfiles() map[string]string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make(map[string]string, len(m.renamed))
+	for k, v := range m.renamed {
+		out[k] = v
+	}
+	return out
 }
 
 // ensureAssignments gives every integration without an assignment its default profile.
@@ -156,6 +194,7 @@ func (m *Manager) Load() error {
 	defer m.mu.Unlock()
 
 	m.loadErr = nil
+	m.renamed = nil
 
 	data, err := os.ReadFile(m.configPath)
 	if err != nil {
@@ -189,11 +228,18 @@ func (m *Manager) Load() error {
 		m.migrateLegacy()
 	}
 
+	m.renameUserNoAccess()
 	m.ensureBuiltinProfiles()
 
 	// Ensure every integration has at least one assignment
 	m.ensureAssignments()
 
+	// Save the rename so it happens once
+	if len(m.renamed) > 0 {
+		if err := m.writeLocked(); err != nil {
+			log.Printf("[AccessControl] %v", err)
+		}
+	}
 	return nil
 }
 
@@ -240,7 +286,11 @@ func (m *Manager) migrateLegacy() {
 func (m *Manager) Save() error {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	return m.writeLocked()
+}
 
+// writeLocked writes the config; the caller holds the lock.
+func (m *Manager) writeLocked() error {
 	data, err := yaml.Marshal(&m.config)
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)

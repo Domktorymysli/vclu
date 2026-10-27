@@ -208,7 +208,7 @@ func TestRemote_NoAccessIsBuiltin(t *testing.T) {
 	}
 }
 
-// A no-access in the file that grants anything is put back: remote must not open by an edit.
+// A no-access in the file that grants anything does not open remote: it is renamed, remote keeps the built-in.
 func TestRemote_NoAccessFromFileIsEnforced(t *testing.T) {
 	dir := writeConfig(t, `profiles:
   no-access:
@@ -254,5 +254,99 @@ func TestRemote_IsIntegration(t *testing.T) {
 		if IsIntegration(s) {
 			t.Errorf("IsIntegration(%q) = true", s)
 		}
+	}
+}
+
+// A user's own no-access from before #39 is kept under a new name, not overwritten.
+func TestRemote_UserNoAccessIsRenamed(t *testing.T) {
+	dir := writeConfig(t, `profiles:
+  no-access:
+    default: full
+    objects:
+      CLU.BOILER: hidden
+assignments:
+  mqtt: [no-access]
+  remote: [no-access]
+`)
+	m := loadDir(t, dir)
+
+	if got := m.RenamedProfiles(); !reflect.DeepEqual(got, map[string]string{"no-access": "no-access-user"}) {
+		t.Errorf("RenamedProfiles = %v", got)
+	}
+	if got := m.GetAssignment(IntegrationMQTT); !reflect.DeepEqual(got, []string{"no-access-user"}) {
+		t.Errorf("mqtt assignment = %v, want [no-access-user]", got)
+	}
+	p := m.GetProfile("no-access-user")
+	if p == nil || p.Default != AccessFull || p.Objects["CLU.BOILER"] != AccessHidden {
+		t.Errorf("renamed profile = %+v, want the user's content", p)
+	}
+	if m.GetAccess(IntegrationMQTT, "CLU.LAMP") != AccessFull || m.GetAccess(IntegrationMQTT, "CLU.BOILER") != AccessHidden {
+		t.Error("mqtt access changed by the rename")
+	}
+	// remote keeps the built-in name: it must not open through the user's profile
+	if got := m.GetAssignment(IntegrationRemote); !reflect.DeepEqual(got, []string{BuiltinProfileNoAccess}) {
+		t.Errorf("remote assignment = %v, want [no-access]", got)
+	}
+	if m.CanRead(IntegrationRemote, "CLU.LAMP") {
+		t.Error("remote opened through the user's no-access")
+	}
+
+	// saved once: the next load has nothing to rename and the same rules
+	m2 := loadDir(t, dir)
+	if got := m2.RenamedProfiles(); len(got) != 0 {
+		t.Errorf("second load renamed again: %v", got)
+	}
+	if m2.GetAccess(IntegrationMQTT, "CLU.BOILER") != AccessHidden || m2.GetAccess(IntegrationMQTT, "CLU.LAMP") != AccessFull {
+		t.Error("rename not saved")
+	}
+}
+
+func TestRemote_UserNoAccessRenameAvoidsTakenNames(t *testing.T) {
+	dir := writeConfig(t, `profiles:
+  no-access:
+    default: readonly
+  no-access-user:
+    default: hidden
+    objects:
+      CLU.LAMP: full
+assignments:
+  homekit: [no-access, no-access-user]
+`)
+	m := loadDir(t, dir)
+	if got := m.RenamedProfiles(); !reflect.DeepEqual(got, map[string]string{"no-access": "no-access-user-2"}) {
+		t.Errorf("RenamedProfiles = %v", got)
+	}
+	if got := m.GetAssignment(IntegrationHomeKit); !reflect.DeepEqual(got, []string{"no-access-user-2", "no-access-user"}) {
+		t.Errorf("homekit assignment = %v", got)
+	}
+	if p := m.GetProfile("no-access-user"); p == nil || p.Objects["CLU.LAMP"] != AccessFull {
+		t.Errorf("existing no-access-user changed: %+v", p)
+	}
+	if m.GetAccess(IntegrationHomeKit, "CLU.OTHER") != AccessReadonly {
+		t.Error("homekit access changed by the rename")
+	}
+}
+
+func TestRemote_BuiltinShapedNoAccessNotRenamed(t *testing.T) {
+	dir := writeConfig(t, `profiles:
+  no-access:
+    default: hidden
+assignments:
+  mqtt: [no-access]
+`)
+	before, err := os.ReadFile(filepath.Join(dir, "access_control.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := loadDir(t, dir)
+	if got := m.RenamedProfiles(); len(got) != 0 {
+		t.Errorf("RenamedProfiles = %v, want none", got)
+	}
+	if got := m.GetAssignment(IntegrationMQTT); !reflect.DeepEqual(got, []string{BuiltinProfileNoAccess}) {
+		t.Errorf("mqtt assignment = %v", got)
+	}
+	after, _ := os.ReadFile(filepath.Join(dir, "access_control.yaml"))
+	if string(before) != string(after) {
+		t.Error("file written on a load with nothing to rename")
 	}
 }
