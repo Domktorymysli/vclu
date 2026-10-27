@@ -151,7 +151,7 @@ func TestHueAndSaturationMakeOneSetColor(t *testing.T) {
 		_sent = {}
 	end)()`)
 	w := s.accessories["hk:kuchnia"]
-	s.refreshAllStates(nil)
+	s.refreshAllStates(t.Context())
 	on := findChar(w.Accessory, characteristic.TypeOn)
 	bri := findChar(w.Accessory, characteristic.TypeBrightness)
 
@@ -192,7 +192,7 @@ func TestColorForLightThatIsOff(t *testing.T) {
 		_sent = {}
 	end)()`)
 	w := s.accessories["hk:salon"]
-	s.refreshAllStates(nil)
+	s.refreshAllStates(t.Context())
 	hue := findChar(w.Accessory, characteristic.TypeHue)
 
 	hue.SetValueRequest(120.0, homeAppRequest())
@@ -202,7 +202,7 @@ func TestColorForLightThatIsOff(t *testing.T) {
 	if got := exec(t, engine, `table.concat(_sent, ";")`); got != "" {
 		t.Fatalf("a colour for an off light sent %q", got)
 	}
-	s.refreshAllStates(nil)
+	s.refreshAllStates(t.Context())
 	if v := hue.Value().(float64); math.Abs(v-120) > 0.5 {
 		t.Errorf("the picked colour was not kept: hue %v", v)
 	}
