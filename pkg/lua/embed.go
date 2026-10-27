@@ -73,10 +73,13 @@ var virtualNumber string
 //go:embed runtime/objects/VirtualText.lua
 var virtualText string
 
+//go:embed runtime/objects/VirtualThermostat.lua
+var virtualThermostat string
+
 // BaseClasses returns combined Lua code for all object classes.
 // Combines: RemoteObject, RemoteSwitch, RemoteSensor, RemoteLight,
 // RemoteRGBLight, RemoteLedChannel, RemoteCover, RemoteNumber, VirtualObject, VirtualSwitch,
-// VirtualDimmer, VirtualCover, VirtualSensor, VirtualNumber, VirtualText.
+// VirtualDimmer, VirtualCover, VirtualSensor, VirtualNumber, VirtualText, VirtualThermostat.
 func BaseClasses() string {
 	var sb strings.Builder
 	sb.WriteString("-- Base classes for remote Grenton objects\n\n")
@@ -119,6 +122,8 @@ func BaseClasses() string {
 	sb.WriteString(virtualNumber)
 	sb.WriteString("\n")
 	sb.WriteString(virtualText)
+	sb.WriteString("\n")
+	sb.WriteString(virtualThermostat)
 	return sb.String()
 }
 

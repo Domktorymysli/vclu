@@ -29,6 +29,7 @@ require("VirtualCover")
 require("VirtualSensor")
 require("VirtualNumber")
 require("VirtualText")
+require("VirtualThermostat")
 
 return {
     RemoteObject = RemoteObject,
@@ -51,4 +52,5 @@ return {
     VirtualSensor = VirtualSensor,
     VirtualNumber = VirtualNumber,
     VirtualText = VirtualText,
+    VirtualThermostat = VirtualThermostat,
 }
