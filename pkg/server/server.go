@@ -699,14 +699,14 @@ func (s *Server) processBroadcastCommand(encryptedData []byte, remoteAddr *net.U
 func (s *Server) keyName(key *cipher.CipherKey) string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	switch {
-	case key == nil:
+	switch key {
+	case nil:
 		return "no key"
-	case key == s.temporaryCipherKey:
+	case s.temporaryCipherKey:
 		return fmt.Sprintf("temporary key, IV %x…", key.GetIV()[:4])
-	case key == s.projectCipherKey:
+	case s.projectCipherKey:
 		return "project key"
-	case key == cipher.DefaultBroadcastKey:
+	case cipher.DefaultBroadcastKey:
 		return "broadcast key"
 	}
 	return "other key"
