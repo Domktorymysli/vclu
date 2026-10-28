@@ -155,9 +155,28 @@ func TestSetCluIPAfterTwoDiscoveries(t *testing.T) {
 		t.Errorf("temporary IV changed between discoveries: %x, then %x", first, second)
 	}
 
+	// Unicast: the temporary key comes first there. On broadcast the broadcast key is tried first
+	// and about one ciphertext in 256 has valid padding under it too, which would make the test flaky.
 	omKey := cipher.GetInitialCipherKey(first, pin)
-	send(t, s, om, omKey, "req_set_clu_ip:0d2d452b:192.168.50.57:192.168.50.1\r\n", true)
-	if got, want := answer(t, om, omKey), "resp_set_clu_ip:0d2d452b:192.168.50.57\r\n"; got != want {
+	send(t, s, om, omKey, "req_set_clu_ip:0d2d452b:192.168.50.57:192.168.50.1\r\n", false)
+	if got, want := answer(t, om, omKey), "resp_set_clu_ip:000000000d2d452b:192.168.50.57"; got != want {
 		t.Fatalf("set IP with the first answer's key: answered %q, want %q", got, want)
+	}
+
+	// SetKey ends the temporary key: the next discovery gets a new IV
+	s.serverDir = t.TempDir()
+	newKey, newIV := []byte("pppppppppppppppp"), []byte("qqqqqqqqqqqqqqqq")
+	var setKey bytes.Buffer
+	setKey.Write(bytes.Repeat([]byte{0x5a}, 32))
+	setKey.WriteByte(':')
+	setKey.Write(newIV)
+	setKey.WriteString(":req_set_key:")
+	setKey.Write(newKey)
+	send(t, s, om, omKey, setKey.String(), false)
+	if got := answer(t, om, cipher.NewCipherKey(newKey, newIV)); got != "resp:OK" {
+		t.Fatalf("SetKey: answered %q, want resp:OK", got)
+	}
+	if third := discoverIV(t, s, om, []byte("0123456789ABCDEF")); bytes.Equal(third, first) {
+		t.Errorf("temporary IV kept after SetKey: %x", third)
 	}
 }

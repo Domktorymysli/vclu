@@ -40,12 +40,14 @@ func (s *Server) handleDiscoveryRequestFull(encryptedData []byte, remoteAddr *ne
 	// one at every discovery broke a second discovery shortly after the first (two network
 	// interfaces, a retry): Object Manager encrypted req_set_clu_ip with the IV from one answer,
 	// vCLU kept the other, and the request read as 16 garbage bytes and the rest.
-	s.mu.RLock()
+	// One lock for check and store: discoveries arrive on the broadcast and the unicast loop, and
+	// two at once must not draw two IVs.
+	s.mu.Lock()
 	temporaryIV := s.temporaryIV
-	s.mu.RUnlock()
 	if temporaryIV == nil {
 		temporaryIV = make([]byte, 16)
 		if _, err := rand.Read(temporaryIV); err != nil {
+			s.mu.Unlock()
 			log.Printf("[DISCOVERY] failed to generate temporary IV: %v", err)
 			return
 		}
@@ -55,7 +57,6 @@ func (s *Server) handleDiscoveryRequestFull(encryptedData []byte, remoteAddr *ne
 	temporaryCipherKey := cipher.GetInitialCipherKey(temporaryIV, s.keys.PIN)
 
 	// Store temporary key for further communication
-	s.mu.Lock()
 	s.temporaryCipherKey = temporaryCipherKey
 	s.temporaryIV = temporaryIV
 	s.unicastCipherKeys = []*cipher.CipherKey{temporaryCipherKey, s.projectCipherKey}
