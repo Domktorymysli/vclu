@@ -33,9 +33,12 @@ discovery:
   CLU's old address), puts the CLU at the address it asked for (`192.168.1.2`, or `null`, which
   Java resolves to localhost), and sends SetKey there: "Host is down" or "Receive timed out", and
   the project never reaches vCLU.
-- **The garbage in the report** is the first AES block of a message decrypted with the right key
-  and another IV. vCLU draws a new temporary IV at every discovery; a request made with an older
-  one reads like that. Not reproduced here; the log now says when it happens.
+- **The garbage in the report** is the first AES block of `req_set_clu_ip` decrypted with the
+  right key and another IV. vCLU drew a new temporary IV at every discovery: after a second
+  discovery shortly after the first (two network interfaces, a retry) OM encrypted the request
+  with the IV of one answer and vCLU had the other. Reproduced with an extra discovery 2 s after
+  OM's: `unknown command ... "\x83\rM...bf000ff8:192.168.1.123:192.168.1.1"`, repeated by OM
+  until it gives up. A CLU changes its temporary IV only at a reset; vCLU now keeps it until SetKey.
 
 Separately, the wizard's last step POSTs `/api/restart` from the page, but its security step has
 just turned the login on: the restart gets 401 and vCLU keeps running without the keys and the
@@ -46,19 +49,22 @@ the project's key; a vCLU without it is expected to fail that check, and OM then
 
 ## Files
 - `pkg/server/handle_set_clu_ip.go`, `pkg/server/handle_set_ip_request.go` (confirm only vCLU's own address)
-- `pkg/server/server.go`, `pkg/server/server_discovery.go` (logs)
+- `pkg/server/server_discovery.go` (temporary IV kept until SetKey)
+- `pkg/server/server.go` (logs)
 - `pkg/web/handle_api_wizard.go`, `web/static/js/wizard.js` (restart after finish)
 
 ## Acceptance criteria
 - [ ] `req_set_clu_ip` / `SetIp` for vCLU's own address is answered as before; for another address
   or `null` it is not answered, and the log names both addresses and what to change in OM; a test
   for broadcast and unicast.
+- [ ] Two discoveries in a row answer with the same temporary IV, and `req_set_clu_ip` encrypted
+  with the first answer's key is answered; a test that fails with a new IV per discovery.
 - [ ] The log shows, without keys: the temporary IV of each discovery answer, which key a set-IP
   request came with, and for an unknown command its bytes escaped plus a hint when only the first
   16 bytes are unreadable; a test for the hint.
 - [ ] Wizard finish restarts vCLU itself, without a login; a refused finish does not; a test.
-- [ ] Checked with OM 1.13.1: discovery, adding the vCLU, SetKey and sending the project succeed
-  (say so in the PR).
+- [ ] Checked with OM 1.13.1: discovery, adding the vCLU, SetKey and sending the project succeed,
+  also with a second discovery in between (say so in the PR).
 - [ ] `go test ./...` and `go test -race ./...` pass.
 - [ ] A changelog entry in `changelog.d/0149-om-1-13-discovery.md`.
 
