@@ -36,11 +36,19 @@ func (s *Server) handleDiscoveryRequestFull(encryptedData []byte, remoteAddr *ne
 	// Hash the decrypted random bytes using Grenton's custom hash
 	randomHash := commands.Hash(decryptedRandom)
 
-	// Generate temporary cipher key for initial communication
-	temporaryIV := make([]byte, 16)
-	if _, err := rand.Read(temporaryIV); err != nil {
-		log.Printf("[DISCOVERY] failed to generate temporary IV: %v", err)
-		return
+	// The temporary IV lasts until SetKey, as on a CLU, where it changes only at a reset. A new
+	// one at every discovery broke a second discovery shortly after the first (two network
+	// interfaces, a retry): Object Manager encrypted req_set_clu_ip with the IV from one answer,
+	// vCLU kept the other, and the request read as 16 garbage bytes and the rest.
+	s.mu.RLock()
+	temporaryIV := s.temporaryIV
+	s.mu.RUnlock()
+	if temporaryIV == nil {
+		temporaryIV = make([]byte, 16)
+		if _, err := rand.Read(temporaryIV); err != nil {
+			log.Printf("[DISCOVERY] failed to generate temporary IV: %v", err)
+			return
+		}
 	}
 
 	// Initial cipher key = GenerateKey(DefaultIV, PIN)
@@ -94,7 +102,7 @@ func (s *Server) handleDiscoveryRequestFull(encryptedData []byte, remoteAddr *ne
 		return
 	}
 
-	log.Printf("[DISCOVERY] responded to %s, temporary IV %x… (new at every discovery)", remoteAddr.IP, temporaryIV[:4])
+	log.Printf("[DISCOVERY] responded to %s, temporary IV %x… (kept until SetKey)", remoteAddr.IP, temporaryIV[:4])
 }
 
 // handleSetKeyRequest handles the SetKey command

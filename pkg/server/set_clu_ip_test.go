@@ -108,3 +108,56 @@ func TestWrongIVHint(t *testing.T) {
 		t.Errorf("hint for unreadable data: %q", h)
 	}
 }
+
+// discoverIV sends req_discovery_clu the way Object Manager does (the broadcast key with its
+// fixed IV around the request, ownIV inside) and returns the temporary IV of vCLU's answer.
+func discoverIV(t *testing.T, s *Server, om *net.UDPConn, ownIV []byte) []byte {
+	t.Helper()
+	var req bytes.Buffer
+	req.Write(bytes.Repeat([]byte{0x5a}, 32))
+	req.WriteByte(':')
+	req.Write(ownIV)
+	req.WriteString(":req_discovery_clu:127.0.0.1\r\n")
+	data, err := cipher.DefaultBroadcastKey.Encrypt(req.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.processBroadcastCommand(data, om.LocalAddr().(*net.UDPAddr))
+	got := []byte(answer(t, om, cipher.DefaultBroadcastKey.WithIV(ownIV)))
+	// encrypted(32):temporaryIV(16):resp_discovery_clu:...
+	if len(got) < 49 || !bytes.Contains(got, []byte("resp_discovery_clu")) {
+		t.Fatalf("discovery answered %q", got)
+	}
+	return got[33:49]
+}
+
+// Object Manager encrypts req_set_clu_ip with the temporary key from the discovery answer it
+// read. With a new temporary IV at every discovery, a second discovery shortly after the first
+// (two network interfaces, a retry) left vCLU with another IV, and the request read as "<16
+// garbage bytes>d2d452b:192.168.50.57:192.168.50.1": unknown command, no answer. The IV now lasts
+// until SetKey.
+func TestSetCluIPAfterTwoDiscoveries(t *testing.T) {
+	s, om := setCluIPSetup(t)
+	oldBroadcast, oldKey, oldBroadcastIV, oldIV := cipher.DefaultBroadcastKey, cipher.DefaultKey, cipher.DefaultBroadcastIV, cipher.DefaultIV
+	t.Cleanup(func() {
+		cipher.DefaultBroadcastKey, cipher.DefaultKey, cipher.DefaultBroadcastIV, cipher.DefaultIV = oldBroadcast, oldKey, oldBroadcastIV, oldIV
+	})
+	cipher.SetDefaultBroadcastKey([]byte("bbbbbbbbbbbbbbbb"), []byte("iiiiiiiiiiiiiiii"))
+	cipher.SetDefaultIV([]byte("dddddddddddddddd"))
+	pin := []byte("00000000")
+	s.keys = &config.CLUKeys{PIN: pin}
+	s.macAddr = net.HardwareAddr{0x02, 0, 0, 0, 0, 1}
+	s.broadcastCipherKeys = []*cipher.CipherKey{cipher.DefaultBroadcastKey, s.projectCipherKey}
+
+	first := discoverIV(t, s, om, []byte("0123456789ABCDEF"))
+	second := discoverIV(t, s, om, []byte("0123456789ABCDEF"))
+	if !bytes.Equal(first, second) {
+		t.Errorf("temporary IV changed between discoveries: %x, then %x", first, second)
+	}
+
+	omKey := cipher.GetInitialCipherKey(first, pin)
+	send(t, s, om, omKey, "req_set_clu_ip:0d2d452b:192.168.50.57:192.168.50.1\r\n", true)
+	if got, want := answer(t, om, omKey), "resp_set_clu_ip:0d2d452b:192.168.50.57\r\n"; got != want {
+		t.Fatalf("set IP with the first answer's key: answered %q, want %q", got, want)
+	}
+}

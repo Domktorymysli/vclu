@@ -713,13 +713,12 @@ func (s *Server) keyName(key *cipher.CipherKey) string {
 }
 
 // wrongIVHint explains a message whose first AES block is unreadable and the rest is text: in
-// CBC that is the right key with another IV, e.g. the temporary key of an older discovery
-// (vCLU draws a new temporary IV at every discovery and Object Manager uses the one it got).
+// CBC that is the right key with another IV, e.g. a temporary key from before a SetKey or a restart.
 func wrongIVHint(data []byte) string {
 	if len(data) <= 16 || isText(data[:16]) || !isText(data[16:]) {
 		return ""
 	}
-	return " (first 16 bytes unreadable, the rest is text: right key, another IV; was there another discovery just before?)"
+	return " (first 16 bytes unreadable, the rest is text: right key, another IV: Object Manager used a temporary IV vCLU no longer has, e.g. from before a restart)"
 }
 
 func isText(b []byte) bool {
