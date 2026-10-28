@@ -459,9 +459,14 @@ func (s *Server) handleAPIWizardFinish(c *gin.Context) {
 		len(vcluConfig.Device.Modules),
 		len(vcluConfig.Device.IOObjects))
 
+	// The server restarts itself: the wizard's security step has just turned the login on, so a
+	// POST /api/restart from the page, which has no session yet, would get 401 and vCLU would keep
+	// running without the keys and the Grenton protocol until restarted by hand.
+	s.scheduleRestart()
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "Configuration saved. Please restart Virtual CLU for changes to take effect.",
+		"message": "Configuration saved. Virtual CLU restarts to apply it.",
 		"device": gin.H{
 			"type":      vcluConfig.Device.DeviceTypeID,
 			"category":  vcluConfig.Device.Category,
@@ -517,6 +522,16 @@ func (s *Server) handleAPIHealth(c *gin.Context) {
 func (s *Server) handleAPIRestart(c *gin.Context) {
 	log.Printf("CLU restart requested")
 	c.JSON(http.StatusOK, gin.H{"message": "Restarting..."})
+	s.scheduleRestart()
+}
+
+// scheduleRestart exits the process after 500 ms, time for the answer to reach the browser, so
+// the service manager starts vCLU again. Tests set s.restart instead.
+func (s *Server) scheduleRestart() {
+	if s.restart != nil {
+		s.restart()
+		return
+	}
 	go func() {
 		time.Sleep(500 * time.Millisecond)
 		log.Printf("Restarting vCLU...")

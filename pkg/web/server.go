@@ -181,6 +181,7 @@ type Server struct {
 	isConfigured     bool
 	supportsModules  bool
 	sessions         *sessionStore
+	restart          func()       // nil: scheduleRestart exits the process; tests record the call
 	calendarLimiter  *rateLimiter // calendar widget requests that miss the cache, per IP
 	backupState      backupSchedulerState
 	version          string
