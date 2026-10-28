@@ -585,8 +585,7 @@ class DeviceWizard {
                 return;
             }
 
-            // Trigger restart
-            fetch('/api/restart', { method: 'POST' }).catch(() => {});
+            // The server restarts itself after finish (POST /api/restart would need a login now)
 
             // Show restart overlay — polls /api/health until CLU is back
             RestartOverlay.show({

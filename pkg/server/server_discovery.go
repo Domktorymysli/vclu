@@ -94,7 +94,7 @@ func (s *Server) handleDiscoveryRequestFull(encryptedData []byte, remoteAddr *ne
 		return
 	}
 
-	log.Printf("[DISCOVERY] responded to %s", remoteAddr.IP)
+	log.Printf("[DISCOVERY] responded to %s, temporary IV %x… (new at every discovery)", remoteAddr.IP, temporaryIV[:4])
 }
 
 // handleSetKeyRequest handles the SetKey command

@@ -1,0 +1,110 @@
+package server
+
+import (
+	"bytes"
+	"net"
+	"testing"
+
+	"github.com/Domktorymysli/vclu/pkg/cipher"
+	"github.com/Domktorymysli/vclu/pkg/config"
+)
+
+// setCluIPSetup builds a Server at 192.168.50.57 that answers req_set_clu_ip, and an Object
+// Manager socket that receives its answers.
+func setCluIPSetup(t *testing.T) (s *Server, om *net.UDPConn) {
+	t.Helper()
+	listen := func() *net.UDPConn {
+		c, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = c.Close() })
+		return c
+	}
+	om, resp := listen(), listen()
+
+	key := cipher.NewCipherKey([]byte("0123456789abcdef"), []byte("fedcba9876543210"))
+	broadcastKey := cipher.NewCipherKey([]byte("bbbbbbbbbbbbbbbb"), []byte("iiiiiiiiiiiiiiii"))
+	s = &Server{
+		deviceConfig:        &config.CLUDeviceConfig{SerialNumber: 0x0d2d452b},
+		localIP:             net.IPv4(192, 168, 50, 57),
+		projectCipherKey:    key,
+		broadcastCipherKeys: []*cipher.CipherKey{broadcastKey, key},
+		unicastCipherKeys:   []*cipher.CipherKey{key},
+		responseConn:        resp,
+	}
+	return s, om
+}
+
+// Object Manager 1.13 picks a CLU's address from the project's IP range and asks the CLU to move
+// there, by unicast first and then by broadcast. vCLU cannot move: it confirms only its own
+// address. A confirmation of another one made Object Manager put the CLU at that address and send
+// SetKey there ("Host is down", "Receive timed out"); "null" is what it asks for when the range
+// has no free address.
+func TestSetCluIPConfirmsOnlyOwnAddress(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		broadcast bool
+		key       func(s *Server) *cipher.CipherKey
+		want      string
+	}{
+		{"broadcast", true, func(s *Server) *cipher.CipherKey { return s.broadcastCipherKeys[0] },
+			"resp_set_clu_ip:0d2d452b:192.168.50.57\r\n"},
+		{"unicast", false, func(s *Server) *cipher.CipherKey { return s.projectCipherKey },
+			"resp_set_clu_ip:000000000d2d452b:192.168.50.57"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, om := setCluIPSetup(t)
+			key := tc.key(s)
+
+			send(t, s, om, key, "req_set_clu_ip:0d2d452b:192.168.50.57:192.168.50.1\r\n", tc.broadcast)
+			if got := answer(t, om, key); got != tc.want {
+				t.Fatalf("own address: answered %q, want %q", got, tc.want)
+			}
+
+			for _, ip := range []string{"192.168.50.2", "null"} {
+				send(t, s, om, key, "req_set_clu_ip:0d2d452b:"+ip+":192.168.50.1\r\n", tc.broadcast)
+				if got := answer(t, om, key); got != "" {
+					t.Fatalf("asked for %s: answered %q, want no answer", ip, got)
+				}
+			}
+		})
+	}
+}
+
+// Another CLU's serial is not vCLU's business, even with vCLU's own address.
+func TestSetCluIPOtherSerialUnanswered(t *testing.T) {
+	s, om := setCluIPSetup(t)
+	key := s.broadcastCipherKeys[0]
+	send(t, s, om, key, "req_set_clu_ip:0d000001:192.168.50.57:192.168.50.1\r\n", true)
+	if got := answer(t, om, key); got != "" {
+		t.Fatalf("other serial: answered %q, want no answer", got)
+	}
+}
+
+// A message encrypted with the right key and another IV, as in a report from Object Manager 1.13
+// ("unknown command ... <16 garbage bytes>d2d452b:192.168.50.57:192.168.50.1"), gets a hint
+// in the log; readable or wholly unreadable data does not.
+func TestWrongIVHint(t *testing.T) {
+	key := []byte("0123456789abcdef")
+	// IVs that differ in the top bit of every byte: the first block comes out as non-ASCII
+	sent := cipher.NewCipherKey(key, make([]byte, 16))
+	read := cipher.NewCipherKey(key, bytes.Repeat([]byte{0x80}, 16))
+	data, err := sent.Encrypt([]byte("req_set_clu_ip:0d2d452b:192.168.50.57:192.168.50.1\r\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	garbled, err := read.Decrypt(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wrongIVHint(garbled) == "" {
+		t.Errorf("no hint for %q", garbled)
+	}
+	if h := wrongIVHint([]byte("req_set_clu_ip:0d2d452b:192.168.50.57:192.168.50.1\r\n")); h != "" {
+		t.Errorf("hint for readable data: %q", h)
+	}
+	if h := wrongIVHint(bytes.Repeat([]byte{0xff}, 48)); h != "" {
+		t.Errorf("hint for unreadable data: %q", h)
+	}
+}
