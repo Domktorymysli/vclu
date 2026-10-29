@@ -143,6 +143,17 @@ func (dc *dashboardCache) setDef(id string, data string) {
 	dc.defs[id] = &cacheEntry{data: data, expiresAt: time.Now().Add(30 * time.Second)}
 }
 
+// dropValues forgets the values of a dashboard, the house's and every remote role's.
+func (dc *dashboardCache) dropValues(id string) {
+	dc.mu.Lock()
+	defer dc.mu.Unlock()
+	for k := range dc.values {
+		if k == id || strings.HasPrefix(k, id+"\x00") {
+			delete(dc.values, k)
+		}
+	}
+}
+
 // Invalidate clears all cached data (called on Lua module reload).
 func (dc *dashboardCache) Invalidate() {
 	dc.mu.Lock()
@@ -225,7 +236,7 @@ func (s *Server) handleDashboardPage(c *gin.Context) {
 	}
 
 	// Get definition to determine auth type and theme
-	script := fmt.Sprintf(`Dashboard.API.getDefinition("%s")`, luaEscape(id))
+	script := fmt.Sprintf(`Dashboard.API.getDefinition("%s"%s)`, luaEscape(id), roleArg(c))
 	result, err := s.luaExecutor.Execute(script)
 	if err != nil {
 		c.String(http.StatusInternalServerError, "Error loading dashboard")
@@ -256,7 +267,7 @@ func (s *Server) handleDashboardPage(c *gin.Context) {
 	case "pin":
 		cookieName := "vclu_dash_" + id
 		cookie, err := c.Cookie(cookieName)
-		if err != nil || !s.validateDashPinCookie(id, cookie) {
+		if err != nil || !s.validateDashPinCookie(c, id, cookie) {
 			// Show PIN entry page
 			c.HTML(http.StatusOK, "dashboard_pin.html", gin.H{
 				"v":    s.assetVersion(),
@@ -426,7 +437,7 @@ func (s *Server) handleDashboardManifest(c *gin.Context) {
 		c.String(http.StatusServiceUnavailable, "Lua engine not ready")
 		return
 	}
-	result, err := s.luaExecutor.Execute(fmt.Sprintf(`Dashboard.API.getAppInfo("%s")`, luaEscape(id)))
+	result, err := s.luaExecutor.Execute(fmt.Sprintf(`Dashboard.API.getAppInfo("%s"%s)`, luaEscape(id), roleArg(c)))
 	if err != nil {
 		log.Printf("[DASHBOARD] %s manifest: %v", id, err)
 		c.String(http.StatusInternalServerError, "dashboard unavailable")
@@ -534,13 +545,14 @@ func (s *Server) handleAPIDashboardDef(c *gin.Context) {
 		return
 	}
 
-	// Check cache
-	if cached, ok := dashCache.getDef(id); ok {
+	// Check cache; a remote viewer's answer depends on the role
+	key := id + roleKey(c)
+	if cached, ok := dashCache.getDef(key); ok {
 		c.Data(http.StatusOK, "application/json", []byte(cached))
 		return
 	}
 
-	script := fmt.Sprintf(`Dashboard.API.getDefinition("%s")`, luaEscape(id))
+	script := fmt.Sprintf(`Dashboard.API.getDefinition("%s"%s)`, luaEscape(id), roleArg(c))
 	result, err := s.luaExecutor.Execute(script)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -548,7 +560,7 @@ func (s *Server) handleAPIDashboardDef(c *gin.Context) {
 	}
 
 	// Cache the definition
-	dashCache.setDef(id, result)
+	dashCache.setDef(key, result)
 
 	c.Data(http.StatusOK, "application/json", []byte(result))
 }
@@ -566,12 +578,13 @@ func (s *Server) handleAPIDashboardValues(c *gin.Context) {
 	}
 
 	// Check values cache
-	if cached, ok := dashCache.getValues(id); ok {
+	key := id + roleKey(c)
+	if cached, ok := dashCache.getValues(key); ok {
 		c.Data(http.StatusOK, "application/json", []byte(cached))
 		return
 	}
 
-	_, read := s.dashboardValues(id)
+	_, read := s.dashboardValues(c, id)
 	result, err := read()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -579,16 +592,17 @@ func (s *Server) handleAPIDashboardValues(c *gin.Context) {
 	}
 
 	// Cache with TTL = 1s (half of default poll interval)
-	dashCache.setValues(id, result, 1*time.Second)
+	dashCache.setValues(key, result, 1*time.Second)
 
 	c.Data(http.StatusOK, "application/json", []byte(result))
 }
 
-// dashboardValues is how /values and the WebSocket read dashboard id's values: key names one
-// answer (requests with the same key share a live feed), read gets it.
-func (s *Server) dashboardValues(id string) (key string, read func() (string, error)) {
-	script := fmt.Sprintf(`Dashboard.API.getValues("%s")`, luaEscape(id))
-	return id, func() (string, error) { return s.luaExecutor.Execute(script) }
+// dashboardValues is how /values and the WebSocket read dashboard id's values for this
+// request: key names one answer (requests with the same key share a live feed), read gets it.
+func (s *Server) dashboardValues(c *gin.Context, id string) (key string, read func() (string, error)) {
+	// a remote viewer's values are those of its role: one feed per role
+	script := fmt.Sprintf(`Dashboard.API.getValues("%s"%s)`, luaEscape(id), roleArg(c))
+	return id + roleKey(c), func() (string, error) { return s.luaExecutor.Execute(script) }
 }
 
 var calendarDate = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
@@ -610,20 +624,20 @@ func (s *Server) handleAPIDashboardCalendar(c *gin.Context) {
 		return
 	}
 	// a cached answer saves the Lua loop: each request holds it while the calendar expands
-	key := id + "\x00" + widget + "\x00" + from + "\x00" + to
+	key := id + "\x00" + widget + "\x00" + from + "\x00" + to + roleKey(c)
 	result, cached := dashCache.getCalendar(key)
 	if cached && s.dashWidgetHidden(id, widget) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "calendar widget is hidden"})
 		return
 	}
 	if !cached {
-		if s.calendarLimiter != nil && !s.calendarLimiter.allow(c.ClientIP()) {
+		if s.calendarLimiter != nil && !s.calendarLimiter.allow(limitKey(c)) {
 			c.JSON(http.StatusTooManyRequests, gin.H{"error": "too many requests"})
 			return
 		}
 		var err error
-		result, err = s.luaExecutor.Execute(fmt.Sprintf(`Dashboard.API.calendarRange("%s", "%s", "%s", "%s")`,
-			luaEscape(id), luaEscape(widget), from, to))
+		result, err = s.luaExecutor.Execute(fmt.Sprintf(`Dashboard.API.calendarRange("%s", "%s", "%s", "%s"%s)`,
+			luaEscape(id), luaEscape(widget), from, to, roleArg(c)))
 		if err != nil {
 			// public dashboards reach this: the Lua error (paths, stack) goes to the log only
 			log.Printf("[DASHBOARD] %s calendar %s: %v", id, widget, err)
@@ -660,11 +674,11 @@ func (s *Server) handleAPIDashboardMetrics(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "path is required (max 256 chars)"})
 		return
 	}
-	key := id + "\x00" + path
+	key := id + "\x00" + path + roleKey(c)
 	result, ok := dashCache.getMetric(key)
 	if !ok {
 		var err error
-		result, err = s.luaExecutor.Execute(fmt.Sprintf(`Dashboard.API.usesMetric("%s", "%s")`, luaEscape(id), luaEscape(path)))
+		result, err = s.luaExecutor.Execute(fmt.Sprintf(`Dashboard.API.usesMetric("%s", "%s"%s)`, luaEscape(id), luaEscape(path), roleArg(c)))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -715,16 +729,13 @@ func (s *Server) handleAPIDashboardAction(c *gin.Context) {
 		return
 	}
 
-	// Rate limit
-	if !actionLimiter.allow(c.ClientIP()) {
-		c.JSON(http.StatusTooManyRequests, gin.H{"error": "Rate limit exceeded"})
-		return
-	}
-
 	var req struct {
-		WidgetID string      `json:"widgetId"`
-		Action   string      `json:"action"`
-		Value    interface{} `json:"value"`
+		WidgetID  string      `json:"widgetId"`
+		Action    string      `json:"action"`
+		Value     interface{} `json:"value"`
+		Confirmed bool        `json:"confirmed"` // the remote viewer confirmed (remote = { confirm = true })
+		ActionID  string      `json:"actionId"`  // a repeat of the same id gets the first answer (action_replay.go)
+		Check     bool        `json:"check"`     // only how the action under ActionID went; runs nothing
 		// the page held the press for the widget's hold; anyone can send it, so it only stops a stray tap
 		Held bool `json:"held"`
 	}
@@ -733,21 +744,81 @@ func (s *Server) handleAPIDashboardAction(c *gin.Context) {
 		return
 	}
 
-	script := fmt.Sprintf(`Dashboard.API.executeAction("%s", "%s", "%s", %s, { held = %t })`,
-		luaEscape(id), luaEscape(req.WidgetID), luaEscape(req.Action), actionValueLua(req.Value), req.Held)
+	finish := func(int, []byte) {}
+	if req.Check && req.ActionID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "check needs an actionId"})
+		return
+	}
+	if req.ActionID != "" {
+		if !actionIDRe.MatchString(req.ActionID) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid actionId"})
+			return
+		}
+		key := limitKey(c) + "\x00" + id + "\x00" + req.ActionID
+		if req.Check {
+			if a := actionReplay.lookup(c.Request.Context(), key); a != nil {
+				c.Header("X-Vclu-Replay", "1")
+				c.Data(a.status, "application/json", a.body)
+			} else {
+				c.JSON(http.StatusNotFound, gin.H{"error": "Action not run"})
+			}
+			return
+		}
+		var prev *actionAnswer
+		prev, finish = actionReplay.claim(c.Request.Context(), key)
+		if prev != nil {
+			if prev.status == 0 {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Action interrupted, try again"})
+				return
+			}
+			c.Header("X-Vclu-Replay", "1")
+			c.Data(prev.status, "application/json", prev.body)
+			return
+		}
+	}
+	status, body := s.runDashboardAction(c, id, req.WidgetID, req.Action, req.Value, req.Held, req.Confirmed)
+	if status == http.StatusTooManyRequests {
+		finish(0, nil) // did not run: a repeat may
+	} else {
+		finish(status, body)
+	}
+	if status == 0 {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": string(body)})
+		return
+	}
+	c.Data(status, "application/json", body)
+}
+
+// runDashboardAction runs one widget action: vCLU's answer and its status, 429 when the rate
+// limit stopped it, or status 0 and the error when Lua failed.
+func (s *Server) runDashboardAction(c *gin.Context, id, widget, action string, value interface{}, held, confirmed bool) (int, []byte) {
+	if !actionLimiter.allow(limitKey(c)) {
+		return http.StatusTooManyRequests, []byte(`{"error":"Rate limit exceeded"}`)
+	}
+
+	remote := ""
+	if role := remoteRole(c); role != "" {
+		remote = fmt.Sprintf(`, role = "%s", confirmed = %t`, luaEscape(role), confirmed)
+	}
+	script := fmt.Sprintf(`Dashboard.API.executeAction("%s", "%s", "%s", %s, { held = %t%s })`,
+		luaEscape(id), luaEscape(widget), luaEscape(action), actionValueLua(value), held, remote)
 	result, err := s.executeAs(c, "dashboard:"+id, script)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+		return 0, []byte(err.Error())
 	}
 
 	// Invalidate values cache after action, and read the live values again now
-	dashCache.mu.Lock()
-	delete(dashCache.values, id)
-	dashCache.mu.Unlock()
+	dashCache.dropValues(id)
 	s.live.poke(id)
 
-	c.Data(http.StatusOK, "application/json", []byte(result))
+	// a refusal for a remote viewer (readonly, not confirmed) carries its status
+	var r struct {
+		Status int `json:"status"`
+	}
+	if json.Unmarshal([]byte(result), &r) == nil && r.Status >= 400 && r.Status < 500 {
+		return r.Status, []byte(result)
+	}
+	return http.StatusOK, []byte(result)
 }
 
 // handleAPIDashboardAuth verifies PIN and sets cookie
@@ -758,7 +829,7 @@ func (s *Server) handleAPIDashboardAuth(c *gin.Context) {
 		return
 	}
 
-	if !pinLimiter.allow(c.ClientIP()) {
+	if !pinLimiter.allow(limitKey(c)) {
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": "Too many PIN attempts, try again later"})
 		return
 	}
@@ -771,7 +842,7 @@ func (s *Server) handleAPIDashboardAuth(c *gin.Context) {
 		return
 	}
 
-	script := fmt.Sprintf(`Dashboard.API.verifyPin("%s", "%s")`, luaEscape(id), luaEscape(req.Pin))
+	script := fmt.Sprintf(`Dashboard.API.verifyPin("%s", "%s"%s)`, luaEscape(id), luaEscape(req.Pin), roleArg(c))
 	result, err := s.luaExecutor.Execute(script)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -810,7 +881,6 @@ func (s *Server) handleAPIDashboardAuth(c *gin.Context) {
 
 // checkDashboardAuth checks per-dashboard auth for API endpoints.
 // Returns true if access is allowed, false if response was already written.
-// Uses lightweight getAuth() instead of getDefinition() to avoid evaluating all widget callbacks.
 func (s *Server) checkDashboardAuth(c *gin.Context, id string) bool {
 	if status, msg, _ := s.dashboardAccess(c, id); status != 0 {
 		c.JSON(status, gin.H{"error": msg})
@@ -823,7 +893,7 @@ func (s *Server) checkDashboardAuth(c *gin.Context, id string) bool {
 // error to answer. poll is the dashboard's poll interval (0 when it is not known).
 // Uses lightweight getAuth() instead of getDefinition() to avoid evaluating all widget callbacks.
 func (s *Server) dashboardAccess(c *gin.Context, id string) (status int, msg string, poll time.Duration) {
-	script := fmt.Sprintf(`Dashboard.API.getAuth("%s")`, luaEscape(id))
+	script := fmt.Sprintf(`Dashboard.API.getAuth("%s"%s)`, luaEscape(id), roleArg(c))
 	result, err := s.luaExecutor.Execute(script)
 	if err != nil {
 		// public endpoints reach this: the Lua error (paths, stack) goes to the log only
@@ -850,9 +920,9 @@ func (s *Server) dashboardAccess(c *gin.Context, id string) (status int, msg str
 	case "pin":
 		cookieName := "vclu_dash_" + id
 		cookie, err := c.Cookie(cookieName)
-		if err != nil || !s.validateDashPinCookie(id, cookie) {
-			// Also allow session-authenticated users
-			if !s.isAuthenticated(c) {
+		if err != nil || !s.validateDashPinCookie(c, id, cookie) {
+			// Also allow session-authenticated users (of this vCLU's panel, never through the cloud)
+			if remoteRole(c) != "" || !s.isAuthenticated(c) {
 				return http.StatusUnauthorized, "PIN required", poll
 			}
 		}
@@ -874,7 +944,7 @@ func dashPinMAC(key []byte, id, pin, exp string) []byte {
 }
 
 // validateDashPinCookie checks the cookie against the dashboard's current PIN.
-func (s *Server) validateDashPinCookie(id, cookieValue string) bool {
+func (s *Server) validateDashPinCookie(c *gin.Context, id, cookieValue string) bool {
 	e, sig, ok := strings.Cut(cookieValue, ".")
 	if !ok {
 		return false
@@ -887,7 +957,7 @@ func (s *Server) validateDashPinCookie(id, cookieValue string) bool {
 	if err != nil {
 		return false
 	}
-	result, err := s.luaExecutor.Execute(fmt.Sprintf(`Dashboard.API.getPin("%s")`, luaEscape(id)))
+	result, err := s.luaExecutor.Execute(fmt.Sprintf(`Dashboard.API.getPin("%s"%s)`, luaEscape(id), roleArg(c)))
 	if err != nil {
 		return false
 	}

@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="{{.lang}}" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{index .t "cloud.title"}} - Virtual CLU</title>
+    <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/vendor/bootstrap-icons/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="/static/css/dark-theme.css">
+    <meta name="csrf-token" content="{{.csrfToken}}">
+</head>
+<body>
+    <div class="app-container">
+        {{template "sidebar" .}}
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="topbar">
+                <button class="hamburger" id="hamburgerBtn"><i class="bi bi-list"></i></button>
+                <h1 class="page-title">{{index .t "cloud.title"}}</h1>
+                <div class="topbar-actions">
+                    <button class="theme-toggle" id="themeToggle" title="Toggle theme">
+                        <i class="bi bi-moon-fill"></i>
+                        <i class="bi bi-sun-fill"></i>
+                    </button>
+                    <div class="dropdown">
+                        <button class="btn-icon dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-globe"></i>
+                            <span class="lang-label">{{if eq .lang "pl"}}PL{{else}}EN{{end}}</span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item {{if eq .lang "pl"}}active{{end}}" href="?lang=pl">Polski</a></li>
+                            <li><a class="dropdown-item {{if eq .lang "en"}}active{{end}}" href="?lang=en">English</a></li>
+                        </ul>
+                    </div>
+                </div>
+            </header>
+
+            <div class="page-content">
+                <div class="content-wrapper wide">
+                    {{if not .available}}
+                    <div class="alert alert-secondary">{{index .t "cloud.unavailable"}}</div>
+                    {{else}}
+                    <div id="cloudAlert" class="alert d-none"></div>
+
+                    <div class="card mb-3">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span><i class="bi bi-cloud"></i> vclu cloud</span>
+                            <span id="cloudBadge" class="badge bg-secondary"></span>
+                        </div>
+                        <div class="card-body">
+                            <!-- not paired -->
+                            <div id="cloudOff" class="d-none">
+                                <p>{{index .t "cloud.intro"}}</p>
+                                <button type="button" class="btn btn-primary" id="cloudPairBtn">
+                                    <i class="bi bi-link-45deg"></i> {{index .t "cloud.connect"}}
+                                </button>
+                            </div>
+
+                            <!-- showing a code -->
+                            <div id="cloudPairing" class="d-none text-center">
+                                <p class="mb-2">{{index .t "cloud.pairing_open"}}</p>
+                                <p class="mb-3"><a id="cloudVerifyLink" href="#" target="_blank" rel="noopener" class="fs-5"></a></p>
+                                <p class="mb-1">{{index .t "cloud.pairing_enter"}}</p>
+                                <div id="cloudCode" class="display-5 fw-bold font-monospace mb-2"></div>
+                                <p class="text-muted small mb-3">{{index .t "cloud.pairing_expires"}} <span id="cloudExpires"></span></p>
+                                <div class="alert alert-warning small text-start">
+                                    <i class="bi bi-exclamation-triangle"></i> {{index .t "cloud.pairing_warning"}}
+                                </div>
+                                <button type="button" class="btn btn-outline-secondary" id="cloudCancelBtn">{{index .t "cloud.cancel"}}</button>
+                            </div>
+
+                            <!-- paired -->
+                            <div id="cloudPaired" class="d-none">
+                                <dl class="row mb-3">
+                                    <dt class="col-sm-3">{{index .t "cloud.home"}}</dt>
+                                    <dd class="col-sm-9" id="cloudHome"></dd>
+                                    <dt class="col-sm-3">{{index .t "cloud.server"}}</dt>
+                                    <dd class="col-sm-9" id="cloudServer"></dd>
+                                    <dt class="col-sm-3" id="cloudSinceLabel"></dt>
+                                    <dd class="col-sm-9" id="cloudSince"></dd>
+                                </dl>
+                                <div class="form-check form-switch mb-1">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="cloudEnabled">
+                                    <label class="form-check-label" for="cloudEnabled">{{index .t "cloud.enabled"}}</label>
+                                </div>
+                                <div class="form-text mb-3">{{index .t "cloud.enabled_hint"}}</div>
+                                <button type="button" class="btn btn-outline-primary d-none" id="cloudReconnectBtn">
+                                    <i class="bi bi-arrow-repeat"></i> {{index .t "cloud.reconnect"}}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    {{if .cloudMembers}}
+                    <div class="card mb-3">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span><i class="bi bi-people"></i> {{index .t "cloud.members_title"}}</span>
+                            {{if .cloudManage}}<a href="{{.cloudManage}}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary"><i class="bi bi-box-arrow-up-right"></i> {{index .t "cloud.members_manage"}}</a>{{end}}
+                        </div>
+                        <div class="card-body p-0">
+                            <table class="table table-sm mb-0 align-middle">
+                                <thead><tr>
+                                    <th>{{index .t "cloud.members_person"}}</th>
+                                    <th>{{index .t "cloud.members_role"}}</th>
+                                    <th>{{index .t "cloud.members_roles"}}</th>
+                                    <th>{{index .t "cloud.members_apps"}}</th>
+                                </tr></thead>
+                                <tbody>
+                                {{range .cloudMembers}}
+                                    <tr>
+                                        <td>{{.Name}} <span class="text-muted small">{{.User}}</span></td>
+                                        <td>{{index $.t (printf "cloud.role_%s" .Role)}}</td>
+                                        <td>{{range .Roles}}<span class="badge text-bg-secondary me-1">{{.}}</span>{{else}}<span class="text-muted">—</span>{{end}}</td>
+                                        <td>{{len .Apps}}</td>
+                                    </tr>
+                                {{end}}
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="card-footer small text-muted">{{index .t "cloud.members_hint"}}</div>
+                    </div>
+                    {{end}}
+
+                    <div class="card mb-3">
+                        <div class="card-header"><i class="bi bi-shield-lock"></i> {{index .t "cloud.privacy_title"}}</div>
+                        <div class="card-body">
+                            <ul class="mb-0">
+                                <li>{{index .t "cloud.privacy_1"}}</li>
+                                <li>{{index .t "cloud.privacy_2"}}</li>
+                                <li>{{index .t "cloud.privacy_3"}}</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <div class="card mb-3 border-danger d-none" id="cloudDanger">
+                        <div class="card-header text-danger"><i class="bi bi-exclamation-octagon"></i> {{index .t "cloud.danger_title"}}</div>
+                        <div class="card-body d-flex justify-content-between align-items-center gap-3 flex-wrap">
+                            <div class="form-text m-0">{{index .t "cloud.disconnect_hint"}}</div>
+                            <button type="button" class="btn btn-outline-danger" id="cloudUnpairBtn">
+                                <i class="bi bi-x-octagon"></i> {{index .t "cloud.disconnect"}}
+                            </button>
+                        </div>
+                    </div>
+                    {{end}}
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/utils.js"></script>
+    <script src="/static/js/csrf.js"></script>
+    <script src="/static/js/theme.js"></script>
+    <script src="/static/js/sidebar.js"></script>
+    {{if .available}}
+    <script>window.CLOUD_PAGE = { i18n: {{.cloudI18n}}, status: {{.cloudStatus}} };</script>
+    <script src="/static/js/cloud.js"></script>
+    {{end}}
+</body>
+</html>

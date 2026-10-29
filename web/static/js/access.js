@@ -241,9 +241,6 @@ AccessControl.prototype._createRow = function(obj) {
         '</td>' +
         '<td class="text-center">' +
             this._createSelect(obj.path, 'homekit', obj.access.homekit) +
-        '</td>' +
-        '<td class="text-center">' +
-            this._createSelect(obj.path, 'remote', obj.access.remote || 'hidden') +
         '</td>';
 
     // Single "Bots" column with popover

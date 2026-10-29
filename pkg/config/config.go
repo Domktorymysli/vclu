@@ -78,6 +78,8 @@ type VCLUConfig struct {
 
 	// Check for new vCLU versions (absent = on)
 	UpdateCheck *VCLUUpdateCheckConfig `json:"updateCheck,omitempty"`
+	// vclu cloud: the server and, once paired, the device token
+	Cloud *VCLUCloudConfig `json:"cloud,omitempty"`
 
 	// Lua runtime limits (absent = defaults)
 	Lua *VCLULuaConfig `json:"lua,omitempty"`

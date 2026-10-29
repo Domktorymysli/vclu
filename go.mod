@@ -5,12 +5,14 @@ go 1.26.0
 toolchain go1.26.10
 
 require (
+	github.com/Domktorymysli/vclu-cloud/proto v0.0.0
 	github.com/brutella/dnssd v1.2.14
 	github.com/brutella/hap v0.0.35
 	github.com/eclipse/paho.mqtt.golang v1.5.1
 	github.com/gin-gonic/gin v1.11.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
+	github.com/hashicorp/yamux v0.1.2
 	github.com/mark3labs/mcp-go v0.44.0
 	github.com/mochi-mqtt/server/v2 v2.7.9
 	github.com/pin/tftp/v3 v3.1.0
@@ -68,3 +70,5 @@ require (
 	google.golang.org/protobuf v1.36.10 // indirect
 	gopkg.in/Regis24GmbH/go-diacritics.v2 v2.0.3 // indirect
 )
+
+replace github.com/Domktorymysli/vclu-cloud/proto => ../vclu-cloud-ws/proto

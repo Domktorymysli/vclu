@@ -227,14 +227,13 @@ func TestLoad_MissingFile(t *testing.T) {
 func TestAllIntegrations(t *testing.T) {
 	integrations := AllIntegrations()
 
-	if len(integrations) != 4 {
-		t.Errorf("expected 4 integrations, got %d", len(integrations))
+	if len(integrations) != 3 {
+		t.Errorf("expected 3 integrations, got %d", len(integrations))
 	}
 
 	hasMQTT := false
 	hasHomeKit := false
 	hasMCP := false
-	hasRemote := false
 	for _, i := range integrations {
 		switch i {
 		case IntegrationMQTT:
@@ -243,13 +242,7 @@ func TestAllIntegrations(t *testing.T) {
 			hasHomeKit = true
 		case IntegrationMCP:
 			hasMCP = true
-		case IntegrationRemote:
-			hasRemote = true
 		}
-	}
-
-	if !hasRemote {
-		t.Error("expected remote integration")
 	}
 
 	if !hasMQTT {
@@ -625,24 +618,21 @@ func TestReset(t *testing.T) {
 
 	m.Reset()
 
-	// Only the built-in profiles should remain
+	// Only full-access should remain
 	all := m.ListProfiles()
-	if len(all) != 2 {
-		t.Errorf("expected 2 profiles after reset, got %d", len(all))
+	if len(all) != 1 {
+		t.Errorf("expected 1 profile after reset, got %d", len(all))
 	}
 	if _, ok := all[BuiltinProfileFullAccess]; !ok {
 		t.Error("expected full-access profile after reset")
 	}
 
-	// Every integration should have its default: full-access, remote no-access
+	// All integrations should have full-access
 	for _, intg := range AllIntegrations() {
 		names := m.GetAssignment(intg)
-		if len(names) != 1 || names[0] != DefaultProfile(intg) {
-			t.Errorf("expected [%s] for %s, got %v", DefaultProfile(intg), intg, names)
+		if len(names) != 1 || names[0] != BuiltinProfileFullAccess {
+			t.Errorf("expected [full-access] for %s, got %v", intg, names)
 		}
-	}
-	if got := m.GetAssignment(IntegrationMQTT); got[0] != BuiltinProfileFullAccess {
-		t.Errorf("mqtt after reset = %v, want [full-access]", got)
 	}
 }
 
@@ -724,5 +714,38 @@ func TestLoad_RecoversAfterFixingConfig(t *testing.T) {
 	}
 	if !m.CanControl(IntegrationMQTT, "CLU.LAMP") {
 		t.Error("still denying after the config was fixed")
+	}
+}
+
+// An access file written by v1.8.0 has a "remote" assignment and the built-in no-access profile:
+// it loads, the assignment is dropped and everything else stays as it was.
+func TestLoadDropsUnknownIntegration(t *testing.T) {
+	dir := t.TempDir()
+	file := `profiles:
+    no-access:
+        default: hidden
+    biuro:
+        default: hidden
+        objects:
+            light/biuro: full
+assignments:
+    mqtt: [biuro]
+    remote: [no-access]
+`
+	if err := os.WriteFile(filepath.Join(dir, "access_control.yaml"), []byte(file), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := NewManager(dir)
+	if err := m.Load(); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := m.config.Assignments["remote"]; ok {
+		t.Error("the remote assignment is kept")
+	}
+	if got := m.GetAccess(IntegrationMQTT, "light/biuro"); got != AccessFull {
+		t.Errorf("mqtt light/biuro = %s", got)
+	}
+	if got := m.GetAccess(IntegrationMQTT, "light/salon"); got != AccessHidden {
+		t.Errorf("mqtt light/salon = %s", got)
 	}
 }

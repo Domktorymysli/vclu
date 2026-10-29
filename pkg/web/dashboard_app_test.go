@@ -224,3 +224,33 @@ func TestIsLightColor(t *testing.T) {
 		}
 	}
 }
+
+// The dashboard page links its files with vCLU's version, so a browser takes new ones after an
+// update (and does not mix them with cached ones), and may keep a versioned file for long.
+func TestDashboardAssetVersion(t *testing.T) {
+	r := newDashAppServer(t)
+	page := dashAppGet(r, "/d/pub").Body.String()
+	if !strings.Contains(page, `src="/static/js/dashboard.js?v=dev-`) || !strings.Contains(page, `href="/static/css/dashboard.css?v=dev-`) {
+		t.Fatalf("development build: links without a version: %s", page)
+	}
+	pin := dashAppGet(r, "/d/pinned").Body.String()
+	if !strings.Contains(pin, `href="/static/css/dashboard.css?v=`) {
+		t.Errorf("PIN page without a version")
+	}
+
+	s := &Server{}
+	s.SetVersion("1.8.1")
+	if v := s.assetVersion(); v != "v1.8.1" {
+		t.Errorf("release: %q", v)
+	}
+
+	st := gin.New()
+	st.Use(staticCache)
+	st.Static("/static", "../../web/static")
+	if w := dashAppGet(st, "/static/js/dashboard.js?v=v1.8.1"); w.Code != 200 || !strings.Contains(w.Header().Get("Cache-Control"), "immutable") {
+		t.Errorf("versioned file: %d %q", w.Code, w.Header().Get("Cache-Control"))
+	}
+	if w := dashAppGet(st, "/static/js/dashboard.js"); w.Header().Get("Cache-Control") != "" {
+		t.Errorf("unversioned file kept for long: %q", w.Header().Get("Cache-Control"))
+	}
+}

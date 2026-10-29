@@ -127,6 +127,7 @@ type LuaEngine struct {
 	commandNoReply      CommandNoReplySender
 	homeKitStateHandler HomeKitStateHandler
 	clientPushHandler   ClientPushHandler
+	cloud               *CloudBridge
 	customGlobals       map[string]interface{}    // Globals to restore after Reinitialize
 	scriptCache         map[string]*lua.LFunction // compiled script cache (cleared on Reinitialize)
 	mu                  sync.RWMutex              // protects state in stateInit; unused in stateRunning
@@ -235,6 +236,7 @@ func (le *LuaEngine) initializeLuaState(cluName string) error {
 	registerMetricsFunctions(L, le.metricsCollector)
 	registerHistoryFunctions(L, le.historyStore)
 	registerCameraFunctions(L, le.cameraManager)
+	registerCloudFunctions(L, le.cloud)
 
 	// Load the Go-compatible bootstrap (this loads SYSTEM, GATE, OBJECT, CLU, etc.)
 	bootstrapPath := filepath.Join(le.runtimePath, "bootstrap_go.lua")

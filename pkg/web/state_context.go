@@ -13,8 +13,12 @@ type contextExecutor interface {
 // requestActor tells who makes a state-changing web request, from what the
 // auth middleware established, never from the request body: a session is
 // the single web account, an API key a service; with auth disabled the
-// local user. fallback is used for public pages (a dashboard opened by PIN).
+// local user; through the cloud, the cloud's person. fallback is used for public pages (a dashboard opened by PIN).
 func (s *Server) requestActor(c *gin.Context, fallback string) (origin, actor string) {
+	// through vclu cloud: the person the cloud named (TunnelHandler)
+	if a := c.GetString(ctxRemoteActor); a != "" {
+		return "remote", a
+	}
 	switch c.GetString("auth_method") {
 	case "apikey":
 		return "api", "service:web-api"

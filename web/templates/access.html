@@ -116,11 +116,6 @@
                                         <li><a class="dropdown-item" href="#" onclick="accessControl.bulkSetAccess('homekit', 'full'); return false;"><span class="badge bg-success">F</span> {{index .t "access.level_full"}}</a></li>
                                         <li><a class="dropdown-item" href="#" onclick="accessControl.bulkSetAccess('homekit', 'readonly'); return false;"><span class="badge bg-warning">R</span> {{index .t "access.level_readonly"}}</a></li>
                                         <li><a class="dropdown-item" href="#" onclick="accessControl.bulkSetAccess('homekit', 'hidden'); return false;"><span class="badge bg-secondary">H</span> {{index .t "access.level_hidden"}}</a></li>
-                                        <li><hr class="dropdown-divider"></li>
-                                        <li><h6 class="dropdown-header"><i class="bi bi-globe"></i> {{index .t "access.remote"}}</h6></li>
-                                        <li><a class="dropdown-item" href="#" onclick="accessControl.bulkSetAccess('remote', 'full'); return false;"><span class="badge bg-success">F</span> {{index .t "access.level_full"}}</a></li>
-                                        <li><a class="dropdown-item" href="#" onclick="accessControl.bulkSetAccess('remote', 'readonly'); return false;"><span class="badge bg-warning">R</span> {{index .t "access.level_readonly"}}</a></li>
-                                        <li><a class="dropdown-item" href="#" onclick="accessControl.bulkSetAccess('remote', 'hidden'); return false;"><span class="badge bg-secondary">H</span> {{index .t "access.level_hidden"}}</a></li>
                                         <!-- Bot sections appended dynamically by JS -->
                                     </ul>
                                 </div>
@@ -159,9 +154,6 @@
                                                 </th>
                                                 <th class="text-center">
                                                     <i class="bi bi-apple"></i> HomeKit
-                                                </th>
-                                                <th class="text-center" title="{{index .t "access.remote_desc"}}">
-                                                    <i class="bi bi-globe"></i> {{index .t "access.remote"}}
                                                 </th>
                                                 <!-- Bot columns rendered dynamically by JS -->
                                             </tr>

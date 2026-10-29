@@ -20,6 +20,7 @@ import (
 	"github.com/Domktorymysli/vclu/pkg/accesscontrol"
 	"github.com/Domktorymysli/vclu/pkg/broker"
 	"github.com/Domktorymysli/vclu/pkg/camera"
+	"github.com/Domktorymysli/vclu/pkg/cloud"
 	"github.com/Domktorymysli/vclu/pkg/config"
 	"github.com/Domktorymysli/vclu/pkg/history"
 	"github.com/Domktorymysli/vclu/pkg/homekit"
@@ -180,12 +181,18 @@ type Server struct {
 	cameraManager    *camera.Manager
 	mqttManager      *lua.MQTTManager
 	satelManager     *lua.SatelManager
+	cloudClient      *cloud.Client
+	local            *LocalAccess // the app's tokens on the LAN (local.go), nil when off
 	isConfigured     bool
 	supportsModules  bool
 	sessions         *sessionStore
 	restart          func()       // nil: scheduleRestart exits the process; tests record the call
 	calendarLimiter  *rateLimiter // calendar widget requests that miss the cache, per IP
 	live             *liveFeeds   // dashboards watched over WebSockets
+
+	// the roles each remote dashboard names, for the app on the LAN (local.go)
+	remoteRolesMu    sync.Mutex
+	remoteRolesCache map[string][]string
 	backupState      backupSchedulerState
 	version          string
 	updateChecker    *updatecheck.Checker // nil: GET /api/update says enabled false
@@ -238,7 +245,6 @@ func NewServer(port int, webDir string, serverDir string, deviceConfig *config.C
 		// Not recoverable at runtime: every integration now denies until the file is fixed.
 		log.Printf("ERROR: access control config unusable - DENYING ALL integration access until fixed: %v", err)
 	}
-	applyProfileRenames(serverDir, accessMgr)
 
 	s := &Server{
 		port:            port,
@@ -296,35 +302,6 @@ func (s *Server) syncAccessControlToLua() {
 	}
 
 	log.Println("Synced access control profiles to Lua")
-}
-
-// applyProfileRenames points MCP bots at profiles the access manager renamed on load.
-func applyProfileRenames(serverDir string, mgr *accesscontrol.Manager) {
-	renamed := mgr.RenamedProfiles()
-	if len(renamed) == 0 {
-		return
-	}
-	err := updateMasterConfig(serverDir, func(c *config.VCLUConfig) error {
-		if c.MCP == nil {
-			return errUnchanged
-		}
-		changed := false
-		for i := range c.MCP.Bots {
-			for j, p := range c.MCP.Bots[i].Profiles {
-				if n, ok := renamed[p]; ok {
-					c.MCP.Bots[i].Profiles[j] = n
-					changed = true
-				}
-			}
-		}
-		if !changed {
-			return errUnchanged
-		}
-		return nil
-	})
-	if err != nil {
-		log.Printf("[Access] bot profiles not renamed: %v", err)
-	}
 }
 
 // applyAccessChange applies an access change made in the panel: Lua, HA and
@@ -668,7 +645,7 @@ func (s *Server) assetVersion() string {
 }
 
 // staticCache lets a browser keep a versioned /static/ file (?v=) for a year: the link changes
-// with the next vCLU.
+// with the next vCLU. Through vclu cloud that saves a request down the tunnel per file.
 func staticCache(c *gin.Context) {
 	if strings.HasPrefix(c.Request.URL.Path, "/static/") && c.Query("v") != "" {
 		c.Header("Cache-Control", "public, max-age=31536000, immutable")
@@ -820,6 +797,9 @@ func (s *Server) setupRoutes() {
 	// MCP dashboard page
 	s.router.GET("/mcp-dashboard", s.handleMCPDashboard)
 
+	// vclu cloud
+	s.router.GET("/cloud", s.handleCloud)
+
 	// Plugins page
 	s.router.GET("/plugins", s.handlePlugins)
 
@@ -926,6 +906,13 @@ func (s *Server) setupRoutes() {
 		api.POST("/homekit/restart", s.handleAPIHomeKitRestart)
 
 		// MCP endpoints
+		api.GET("/cloud/status", s.handleAPICloudStatus)
+		api.POST("/cloud/pair", s.handleAPICloudPair)
+		api.POST("/cloud/pair/cancel", s.handleAPICloudPairCancel)
+		api.POST("/cloud/unpair", s.handleAPICloudUnpair)
+		api.POST("/cloud/reconnect", s.handleAPICloudReconnect)
+		api.POST("/cloud/enabled", s.handleAPICloudEnabled)
+
 		api.GET("/mcp/status", s.handleAPIMCPStatus)
 		api.POST("/mcp/save", s.handleAPIMCPSave)
 		api.GET("/mcp/stats", s.handleAPIMCPStats)

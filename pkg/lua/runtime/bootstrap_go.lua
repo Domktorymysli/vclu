@@ -19,7 +19,6 @@ package.path = runtime_path .. "/?.lua;" ..
                runtime_path .. "/integrations/satel/?.lua;" ..
                runtime_path .. "/integrations/mcp/?.lua;" ..
                runtime_path .. "/integrations/homeassistant/?.lua;" ..
-               runtime_path .. "/integrations/remote/?.lua;" ..
                runtime_path .. "/objects/?.lua;" ..
                package.path
 
@@ -63,9 +62,6 @@ HACommands = require("Commands")
 HAStatePublisher = require("StatePublisher")
 HAIntegration = require("Discovery")
 
--- LAYER 5a: Remote access (exposed objects through the "remote" profile)
-RemoteAccess = require("RemoteAccess")
-
 -- LAYER 5b: MCP (Model Context Protocol)
 MCP = require("MCP")
 
@@ -98,6 +94,9 @@ Metrics = require("Metrics")
 
 -- LAYER 7d: Camera snapshot proxy
 Camera = require("Camera")
+
+-- LAYER 7e: vclu cloud (notifications to the members' phones)
+Cloud = require("Cloud")
 
 -- LAYER 8: Factories (OM compatibility)
 OBJECT = require("ObjectFactory")

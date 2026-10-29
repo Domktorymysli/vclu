@@ -423,8 +423,8 @@ func (s *Server) handleAPIDashboardWS(c *gin.Context) {
 		c.JSON(status, gin.H{"error": msg})
 		return
 	}
-	key, read := s.dashboardValues(id)
-	sub, ok := s.live.join(c.ClientIP(), id, key, poll, read)
+	key, read := s.dashboardValues(c, id)
+	sub, ok := s.live.join(limitKey(c), id, key, poll, read)
 	if !ok {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "too many live dashboards"})
 		return
@@ -549,5 +549,8 @@ func (s *Server) NotifyStateChanged() {
 // definition again; call it after every Lua load.
 func (s *Server) DashboardsReloaded() {
 	dashCache.Invalidate()
+	s.remoteRolesMu.Lock()
+	s.remoteRolesCache = nil // :roles() may have changed
+	s.remoteRolesMu.Unlock()
 	s.live.reloaded()
 }

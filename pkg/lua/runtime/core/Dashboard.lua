@@ -15,7 +15,7 @@ local SectionHandle = {}
 SectionHandle.__index = SectionHandle
 
 local CALENDAR_WIDGET_KEYS = { view = true, tags = true, schedules = true, holidays = true, namedays = true, sun = true, span = true,
-    visible = true }
+    visible = true, remote = true }
 
 -- "a", "b": the sorted keys of a set, or "none".
 local function quoted(set)
@@ -108,7 +108,7 @@ local function calendarWidget(id, label, cal, opts)
     local where = 'calendar widget "' .. tostring(id) .. '"'
     for k in pairs(opts) do
         if not CALENDAR_WIDGET_KEYS[k] then
-            error(where .. ': unknown option "' .. tostring(k) .. '" (view, tags, schedules, holidays, namedays, sun, span, visible)', 3)
+            error(where .. ': unknown option "' .. tostring(k) .. '" (view, tags, schedules, holidays, namedays, sun, span, visible, remote)', 3)
         end
     end
     if opts.view ~= nil and opts.view ~= 'month' and opts.view ~= 'day' then
@@ -177,7 +177,7 @@ end
 -- Cover groups: one tile for several covers
 -- ==========================================================================
 
-local COVERS_KEYS = { icon = true, disabled = true, visible = true, span = true, size = true, color = true }
+local COVERS_KEYS = { icon = true, disabled = true, visible = true, span = true, size = true, color = true, remote = true }
 
 -- Spacing between commands of one series: the CLU drops bursts (pkg/lua/AGENTS.md)
 local COVERS_SPACING_MS = 50
@@ -195,7 +195,7 @@ local function coversWidget(id, label, list, opts)
     if opts ~= nil and type(opts) ~= 'table' then error(where .. ': opts must be a table', 3) end
     opts = opts or {}
     for k in pairs(opts) do
-        if not COVERS_KEYS[k] then error(where .. ': unknown option "' .. tostring(k) .. '" (icon, disabled, visible, span, size, color)', 3) end
+        if not COVERS_KEYS[k] then error(where .. ': unknown option "' .. tostring(k) .. '" (icon, disabled, visible, span, size, color, remote)', 3) end
     end
     if opts.icon ~= nil and (type(opts.icon) ~= 'string' or not opts.icon:match('^[%w%-]+$')) then
         error(where .. ': opts.icon must be a Bootstrap icon name (letters, digits and -)', 3)
@@ -339,7 +339,7 @@ end
 local THERMOSTAT_FNS = { getCurrent = true, getTarget = true, setTarget = true, getState = true, getMode = true,
     setMode = true }
 local THERMOSTAT_KEYS = { min = true, max = true, step = true, unit = true, readonly = true,
-    disabled = true, visible = true, span = true, size = true, color = true, modes = true }
+    disabled = true, visible = true, span = true, size = true, color = true, modes = true, remote = true }
 local MODE_KEYS = { value = true, label = true, icon = true, readonly = true }
 -- a map's well-known names in this order, the others after them A-Z
 local MODE_ORDER = { manual = 1, schedule = 2, holiday = 3, off = 4 }
@@ -468,7 +468,7 @@ local function thermostatWidget(id, label, icon, fns, opts)
     opts = opts or {}
     for k in pairs(opts) do
         if not THERMOSTAT_KEYS[k] then
-            error(where .. ': unknown option "' .. tostring(k) .. '" (min, max, step, unit, readonly, disabled, visible, modes, span, size, color)', 3)
+            error(where .. ': unknown option "' .. tostring(k) .. '" (min, max, step, unit, readonly, disabled, visible, modes, span, size, color, remote)', 3)
         end
     end
     for _, k in ipairs({ 'min', 'max', 'step' }) do
@@ -1136,7 +1136,7 @@ end
 -- Media player: artwork, title, artist, transport and volume
 -- ==========================================================================
 
-local PLAYER_KEYS = { icon = true, disabled = true, visible = true, span = true, size = true, color = true }
+local PLAYER_KEYS = { icon = true, disabled = true, visible = true, span = true, size = true, color = true, remote = true }
 local PLAYER_FNS = { 'getState', 'play', 'pause', 'next', 'previous', 'setVolume', 'setMute', 'on', 'off' }
 local PLAYER_FN_SET = {}
 for i = 1, #PLAYER_FNS do PLAYER_FN_SET[PLAYER_FNS[i]] = true end
@@ -1179,7 +1179,7 @@ local function playerWidget(id, label, src, opts)
     if opts ~= nil and type(opts) ~= 'table' then error(where .. ': opts must be a table', 3) end
     opts = opts or {}
     for k in pairs(opts) do
-        if not PLAYER_KEYS[k] then error(where .. ': unknown option "' .. tostring(k) .. '" (icon, disabled, visible, span, size, color)', 3) end
+        if not PLAYER_KEYS[k] then error(where .. ': unknown option "' .. tostring(k) .. '" (icon, disabled, visible, span, size, color, remote)', 3) end
     end
     if opts.icon ~= nil and (type(opts.icon) ~= 'string' or not opts.icon:match('^[%w%-]+$')) then
         error(where .. ': opts.icon must be a Bootstrap icon name (letters, digits and -)', 3)
@@ -1255,7 +1255,7 @@ end
 -- ==========================================================================
 
 local FORECAST_KEYS = { days = true, hours = true, unit = true, icon = true, disabled = true, visible = true,
-    span = true, size = true, color = true }
+    span = true, size = true, color = true, remote = true }
 
 local function forecastWidget(id, label, src, opts)
     local where = 'section:forecast("' .. tostring(id) .. '")'
@@ -1265,7 +1265,7 @@ local function forecastWidget(id, label, src, opts)
     opts = opts or {}
     for k in pairs(opts) do
         if not FORECAST_KEYS[k] then
-            error(where .. ': unknown option "' .. tostring(k) .. '" (days, hours, unit, icon, disabled, visible, span, size, color)', 3)
+            error(where .. ': unknown option "' .. tostring(k) .. '" (days, hours, unit, icon, disabled, visible, span, size, color, remote)', 3)
         end
     end
     local function count(k, lo, hi)
@@ -2074,7 +2074,7 @@ function SectionHandle:gauge(id, label, getValue, opts)
     return self
 end
 
-local CHIP_KEYS = { color = true, link = true, disabled = true, visible = true }
+local CHIP_KEYS = { color = true, link = true, disabled = true, visible = true, remote = true }
 
 -- opts.link: an http(s) URL or a path as is, anything else is a dashboard id; level as error()'s, default 3
 local function chipLink(where, link, level)
@@ -2092,8 +2092,8 @@ local function chipLink(where, link, level)
     return '/d/' .. link
 end
 
-local ROOM_KEYS = { 'color', 'disabled', 'humidity', 'icon', 'kinds', 'link', 'size', 'skip', 'span', 'temperature', 'title',
-    'visible' }
+local ROOM_KEYS = { 'color', 'disabled', 'humidity', 'icon', 'kinds', 'link', 'remote', 'size', 'skip', 'span', 'temperature',
+    'title', 'visible' }
 
 -- A room tile: the area's name, what is on and its climate; a tap opens its widgets (or opts.link).
 -- Errors name the module's line: level 3 is the caller of section:room / dash:room.
@@ -2142,7 +2142,7 @@ function SectionHandle:chip(id, icon, fn, opts)
     if opts ~= nil and type(opts) ~= 'table' then error(where .. ': opts must be a table', 2) end
     opts = opts or {}
     for k in pairs(opts) do
-        if not CHIP_KEYS[k] then error(where .. ': unknown option "' .. tostring(k) .. '" (color, link, disabled, visible)', 2) end
+        if not CHIP_KEYS[k] then error(where .. ': unknown option "' .. tostring(k) .. '" (color, link, disabled, visible, remote)', 2) end
     end
     if opts.color ~= nil and type(opts.color) ~= 'string' and type(opts.color) ~= 'function' then
         error(where .. ': opts.color must be a colour or a function', 2)
@@ -2250,6 +2250,22 @@ function SectionHandle:poll(n)  self._builder:poll(n);  return self end
 --- Add dashboard to a tab group (delegates to DashboardBuilder:tabGroup).
 -- @api public
 function SectionHandle:tabGroup(g) self._builder:tabGroup(g); return self end
+
+--- Make the dashboard reachable through vclu cloud (see DashboardBuilder:remote).
+-- @api public
+function SectionHandle:remote(spec)
+    local ok, err = pcall(self._builder.remote, self._builder, spec)
+    if not ok then error(err, 2) end
+    return self
+end
+
+--- Who sees the remote dashboard in vclu cloud (see DashboardBuilder:roles).
+-- @api public
+function SectionHandle:roles(...)
+    local ok, err = pcall(self._builder.roles, self._builder, ...)
+    if not ok then error(err, 2) end
+    return self
+end
 
 --- Set the page width (delegates to DashboardBuilder:width).
 -- @api public
@@ -2361,6 +2377,50 @@ function DashboardBuilder:tabGroup(name)
     return self
 end
 
+-- vclu cloud (docs/protocol.md in vclu-cloud, section 8). Who sees a remote dashboard is the
+-- cloud's to decide: the roles named in :roles() are labels the owner gives people there.
+local REMOTE_KEYS = { pin = true, poll = true }
+local REMOTE_POLL, REMOTE_POLL_MIN = 5, 2
+
+--- Make the dashboard reachable through vclu cloud: :remote() (or true), :remote(false) to take it back, or a table {pin = true (remote viewers also enter the PIN), poll = seconds (default 5, at least 2)}. Every member of the home sees it, or with :roles(...) only those given one of those roles in the cloud. Without it the dashboard never leaves the house. Widgets narrow it with opts.remote: false (not sent), 'readonly', or {confirm = true}.
+-- @param spec boolean|table|nil nothing or true, false, or the options
+-- @api public
+function DashboardBuilder:remote(spec)
+    local where = 'dash:remote'
+    if spec == false then
+        self._remote = nil
+        return self
+    end
+    if spec == nil or spec == true then spec = {} end
+    if type(spec) ~= 'table' then error(where .. ': expects nothing, true, false or a table', 2) end
+    for k in pairs(spec) do
+        if not REMOTE_KEYS[k] then error(where .. ': unknown option "' .. tostring(k) .. '" (pin, poll)', 2) end
+    end
+    if spec.pin ~= nil and type(spec.pin) ~= 'boolean' then error(where .. ': pin must be true or false', 2) end
+    local poll = spec.poll
+    if poll ~= nil and (type(poll) ~= 'number' or poll - poll ~= 0) then error(where .. ': poll must be a number of seconds', 2) end
+    self._remote = { roles = self._remote and self._remote.roles or {}, pin = spec.pin == true,
+        poll = math.max(poll or REMOTE_POLL, REMOTE_POLL_MIN) }
+    return self
+end
+
+--- Who sees the remote dashboard in vclu cloud: people given one of these roles there (e.g. 'domownicy', 'gosia'). The cloud decides; vCLU only passes the names on. Without it every member of the home sees it.
+-- @param ... string Role names: a-z, 0-9, - and _, as in the cloud
+-- @api public
+function DashboardBuilder:roles(...)
+    local where = 'dash:roles'
+    if not self._remote then error(where .. ': call :remote() first', 2) end
+    local list = { ... }
+    if #list == 0 then error(where .. ': expects at least one role', 2) end
+    for _, r in ipairs(list) do
+        if type(r) ~= 'string' or #r > 32 or not r:match('^[a-z0-9][a-z0-9_%-]*$') then
+            error(where .. ': invalid role "' .. tostring(r) .. '" (a-z, 0-9, - and _, as in the cloud)', 2)
+        end
+    end
+    self._remote.roles = list
+    return self
+end
+
 --- Start a header section (must be called before any section).
 -- @api public
 function DashboardBuilder:header()
@@ -2460,6 +2520,14 @@ function DashboardBuilder:_addWidget(sectionIndex, widget)
         local name = 'widget "' .. tostring(widget.id) .. '"'
         if widget.type == 'group' then name = 'group "' .. tostring(widget.label) .. '"' end
         error(name .. ': opts.visible must be a function', 3)
+    end
+    local r = type(widget.opts) == 'table' and widget.opts.remote
+    if r ~= nil and r ~= false and r ~= 'readonly'
+        and not (type(r) == 'table' and next(r) == 'confirm' and next(r, 'confirm') == nil and type(r.confirm) == 'boolean') then
+        error('widget "' .. tostring(widget.id) .. '": opts.remote is false, "readonly" or { confirm = true }', 3)
+    end
+    if type(r) == 'table' and widget.type ~= 'button' then
+        error('widget "' .. tostring(widget.id) .. '": opts.remote = { confirm = true } is for buttons', 3)
     end
     table.insert(sec.widgets, widget)
     self._areaView = nil
@@ -3340,30 +3408,121 @@ local function resolveDashboard(id, bare)
     return bare and result or expandAreas(result)
 end
 
---- Get auth type for a dashboard (lightweight, no getValue calls)
+-- Remote viewers (vclu cloud, docs/protocol.md in vclu-cloud, section 8). Go passes the role
+-- only for requests through the cloud's tunnel or with a local token; nil is the house.
+
+-- 'full' or nil: whether a remote viewer sees the dashboard. Which people may is the cloud's
+-- (its roles); here only whether it leaves the house at all.
+local function remoteAccess(dash)
+    local r = dash._remote
+    if not r then return nil end
+    if r.pin and not dash._pin then return nil end -- asks for a PIN it does not have: closed
+    return 'full'
+end
+
+local function widgetRemote(w)
+    if type(w.opts) == 'table' then return w.opts.remote end -- false is an answer, not "no"
+    return nil
+end
+
+-- What a remote viewer gets of a resolved dashboard: widgets with remote = false left out,
+-- the ones it cannot act on in _readonly (by widget, as the original tables are cache keys).
+local function remoteView(dash, role)
+    local access = remoteAccess(dash)
+    if not access then return nil end
+    local sections, readonly = {}, {}
+    for i, sec in ipairs(dash._sections) do
+        local widgets = {}
+        for _, w in ipairs(sec.widgets) do
+            local r = widgetRemote(w)
+            if r ~= false then
+                if access == 'readonly' or r == 'readonly' then readonly[w] = true end
+                widgets[#widgets + 1] = w
+            end
+        end
+        sections[i] = setmetatable({ widgets = widgets }, { __index = sec })
+    end
+    return setmetatable({ _sections = sections, _readonly = readonly, _access = access }, { __index = dash })
+end
+
+-- The dashboard as the house (role nil) or a remote viewer sees it; nil when it may not.
+local function resolveFor(id, role, bare)
+    local dash = resolveDashboard(id, bare)
+    if not dash or role == nil then return dash end
+    return remoteView(dash, role)
+end
+
+-- The auth a viewer passes: remotely only the PIN, and only with remote{pin = true}.
+local function authFor(dash, role)
+    if role == nil then return dash._auth end
+    return dash._remote.pin and 'pin' or 'public'
+end
+
+--- Get auth type and poll interval for a dashboard (lightweight, no getValue calls)
 -- @param id string Dashboard ID
--- @return string JSON with auth type
+-- @param role string|nil The remote viewer's role, nil for the house
 -- @return string JSON {auth, poll}
-function DashboardAPI.getAuth(id)
-    local dash = resolveDashboard(id, true)
+function DashboardAPI.getAuth(id, role)
+    local dash = resolveFor(id, role, true)
     if not dash then
         return JSON.encode({ error = 'Dashboard not found' })
     end
-    return JSON.encode({ auth = dash._auth, poll = dash._poll })
+    return JSON.encode({ auth = authFor(dash, role), poll = dash._poll })
+end
+
+--- The dashboards reachable through vclu cloud, for its "dashboards" message
+-- @return string JSON array of {id, name, icon, roles, pin}: roles empty for every member
+function DashboardAPI.remoteList()
+    local out = {}
+    for _, id in ipairs(_dashboardOrder) do
+        local dash = _dashboards[id] and resolveDashboard(id, true)
+        local r = dash and dash._remote
+        if r and not (r.pin and not dash._pin) then
+            out[#out + 1] = { id = id, name = tostring(dash._name), icon = dash._icon,
+                roles = r.roles, pin = r.pin }
+        end
+    end
+    return JSON.encode(out)
+end
+
+--- Whether a camera's snapshot is on a dashboard this remote viewer sees (an image widget)
+-- @return string JSON {used=bool}
+function DashboardAPI.remoteCamera(cam, role)
+    local want = Camera and Camera.snapshotUrl(cam) or ('/api/camera/' .. cam .. '/snapshot')
+    for _, id in ipairs(_dashboardOrder) do
+        local dash = _dashboards[id] and resolveFor(id, role)
+        if dash then
+            for _, sec in ipairs(dash._sections) do
+                for _, w in ipairs(sec.widgets) do
+                    if w.type == 'image' then
+                        local url = w.url
+                        if type(url) == 'function' then
+                            local ok, u = pcall(url)
+                            url = ok and u or nil
+                        end
+                        if type(url) == 'string' and (url == want or url:sub(1, #want + 1) == want .. '?') then
+                            return JSON.encode({ used = true })
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return JSON.encode({ used = false })
 end
 
 --- What the home-screen app of a dashboard needs: no widgets or values, any auth may read it
 -- @param id string Dashboard ID
 -- @return string JSON {name, auth, width, background} or {error}
-function DashboardAPI.getAppInfo(id)
-    local dash = resolveDashboard(id, true)
+function DashboardAPI.getAppInfo(id, role)
+    local dash = resolveFor(id, role, true)
     if not dash then
         return JSON.encode({ error = 'Dashboard not found' })
     end
     local theme = type(dash._theme) == 'table' and dash._theme or {}
     return JSON.encode({
         name = tostring(dash._name),
-        auth = dash._auth,
+        auth = authFor(dash, role),
         width = dash._width,
         background = type(theme.background) == 'string' and theme.background or nil,
     })
@@ -3371,8 +3530,8 @@ end
 
 --- Whether the dashboard draws this metric (chart or status sparkline)
 -- @return string JSON {used=bool, ranges=[...]} or {error=...}
-function DashboardAPI.usesMetric(id, path)
-    local dash = resolveDashboard(id)
+function DashboardAPI.usesMetric(id, path, role)
+    local dash = resolveFor(id, role)
     if not dash then
         return JSON.encode({ error = 'Dashboard not found' })
     end
@@ -3432,9 +3591,9 @@ local CALENDAR_DAY_MAX = 300  -- events in one day view
 --- Occurrences of a calendar widget's calendar for the days from..to ('YYYY-MM-DD', at most 42)
 -- @return string JSON {today, now, ready, days=[{date, weekday, workday, holiday}], items=[...]},
 --   or {error, status} with the HTTP status of a bad request
-function DashboardAPI.calendarRange(id, widgetId, from, to)
+function DashboardAPI.calendarRange(id, widgetId, from, to, role)
     local function fail(status, msg) return JSON.encode({ error = msg, status = status }) end
-    local dash = resolveDashboard(id)
+    local dash = resolveFor(id, role)
     if not dash then return fail(404, 'Dashboard not found') end
     local w
     for _, sec in ipairs(dash._sections) do
@@ -3559,8 +3718,8 @@ end
 --- Get full dashboard definition with current values
 -- @param id string Dashboard ID
 -- @return string JSON definition or error
-function DashboardAPI.getDefinition(id)
-    local dash = resolveDashboard(id)
+function DashboardAPI.getDefinition(id, role)
+    local dash = resolveFor(id, role)
     if not dash then
         return JSON.encode({ error = 'Dashboard not found' })
     end
@@ -3872,6 +4031,18 @@ function DashboardAPI.getDefinition(id)
             -- Disabled state
             widget.disabled = live and safeDisabled(w.opts)
 
+            -- A remote viewer: what it may not change is shown without controls; a confirmed
+            -- button asks first (and executeAction wants confirmed)
+            if role ~= nil then
+                if dash._readonly[w] then
+                    widget.disabled, widget.readonly = true, true
+                end
+                local r = widgetRemote(w)
+                if type(r) == 'table' and r.confirm then
+                    widget.confirm = widget.confirm or 'Na pewno?'
+                end
+            end
+
             table.insert(widgets, widget)
         end
     end
@@ -3881,8 +4052,9 @@ function DashboardAPI.getDefinition(id)
         name = dash._name,
         icon = dash._icon,
         columns = dash._columns,
-        auth = dash._auth,
-        poll = dash._poll,
+        auth = authFor(dash, role),
+        poll = role ~= nil and dash._remote.poll or dash._poll,
+        readonly = role ~= nil and dash._access == 'readonly' or nil,
         theme = dash._theme,
         width = dash._width,
         period = Dashboard.timeOfDay(),
@@ -3899,6 +4071,9 @@ function DashboardAPI.getDefinition(id)
             local tabs = {}
             for _, otherId in ipairs(_dashboardOrder) do
                 local otherDb = _dashboards[otherId]
+                if otherDb and role ~= nil and not resolveFor(otherId, role, true) then
+                    otherDb = nil -- not for this remote viewer
+                end
                 if otherDb then
                     local otherGroups = otherDb._groups or {}
                     -- For dynamic dashboards, resolve to read _groups
@@ -3949,8 +4124,8 @@ end
 --- Get widget values for polling
 -- @param id string Dashboard ID
 -- @return string JSON map of widgetId -> {value, disabled}
-function DashboardAPI.getValues(id)
-    local dash = resolveDashboard(id)
+function DashboardAPI.getValues(id, role)
+    local dash = resolveFor(id, role)
     if not dash then
         return JSON.encode({ error = 'Dashboard not found' })
     end
@@ -4068,6 +4243,9 @@ function DashboardAPI.getValues(id)
                 -- Button with disabled callback
                 result[w.id] = { disabled = safeDisabled(w.opts) }
             end
+            if role ~= nil and dash._readonly[w] and type(result[w.id]) == 'table' then
+                result[w.id].disabled = true
+            end
         end
     end
 
@@ -4088,11 +4266,13 @@ end
 -- @param widgetId string Widget ID
 -- @param action string Action type (tap, toggle, set)
 -- @param value any Action value (for toggle: bool, for set: number)
--- @param ctx table|nil The request's context: {held=true} when the page held the press for opts.hold
+-- @param ctx table|nil The request's context: {held=true} when the page held the press for opts.hold; through vclu cloud
+-- also role (the remote viewer's role) and confirmed (the person confirmed a remote = { confirm = true } button)
 -- @return string JSON result
 function DashboardAPI.executeAction(id, widgetId, action, value, ctx)
     local held = type(ctx) == 'table' and ctx.held == true
-    local dash = resolveDashboard(id)
+    local role = type(ctx) == 'table' and ctx.role or nil
+    local dash = resolveFor(id, role)
     if not dash then
         return JSON.encode({ error = 'Dashboard not found' })
     end
@@ -4119,6 +4299,17 @@ function DashboardAPI.executeAction(id, widgetId, action, value, ctx)
         return JSON.encode({ error = 'Widget is hidden' })
     end
 
+    if role ~= nil then
+        if dash._readonly[widget] then
+            return JSON.encode({ error = 'readonly', status = 403 })
+        end
+        local r = widgetRemote(widget)
+        if type(r) == 'table' and r.confirm and not (type(ctx) == 'table' and ctx.confirmed == true) then
+            return JSON.encode({ error = 'confirmation required', status = 400 })
+        end
+    end
+
+    -- Check disabled
     if safeDisabled(widget.opts) then
         return JSON.encode({ error = 'Widget is disabled' })
     end
@@ -4432,12 +4623,12 @@ end
 -- @param id string Dashboard ID
 -- @param pin string PIN to verify
 -- @return string JSON result
-function DashboardAPI.verifyPin(id, pin)
-    local dash = resolveDashboard(id, true)
+function DashboardAPI.verifyPin(id, pin, role)
+    local dash = resolveFor(id, role, true)
     if not dash then
         return JSON.encode({ valid = false })
     end
-    if dash._auth ~= 'pin' or not dash._pin then
+    if authFor(dash, role) ~= 'pin' or not dash._pin then
         return JSON.encode({ valid = false })
     end
     -- :pin(1234) is a number, the typed PIN a string
@@ -4446,9 +4637,9 @@ end
 
 --- PIN of a 'pin' dashboard, for checking cookies server-side (never sent to pages)
 -- @return string JSON {pin=...} or {}
-function DashboardAPI.getPin(id)
-    local dash = resolveDashboard(id, true)
-    if not dash or dash._auth ~= 'pin' or not dash._pin then
+function DashboardAPI.getPin(id, role)
+    local dash = resolveFor(id, role, true)
+    if not dash or authFor(dash, role) ~= 'pin' or not dash._pin then
         return JSON.encode({})
     end
     return JSON.encode({ pin = tostring(dash._pin) })

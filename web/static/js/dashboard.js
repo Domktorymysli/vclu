@@ -801,7 +801,7 @@
             el.classList.add('flash');
             setTimeout(function() { el.classList.remove('flash'); }, 300);
             flashState(el, T.sent);
-            executeAction(w.id, 'tap', undefined, null, !!w.hold);
+            executeAction(w.id, 'tap', undefined, null, !!w.hold, !!w.confirm);
         };
         if (w.hold) return bindHold(el, el, w.hold, run);
         el.addEventListener('click', function() {
@@ -3489,7 +3489,7 @@
         } else if (w.type === 'button') {
             tap = function() {
                 if (w.confirm && !confirm(w.confirm)) return;
-                executeAction(w.id, 'tap', undefined, null, !!w.hold);
+                executeAction(w.id, 'tap', undefined, null, !!w.hold, !!w.confirm);
             };
         }
         if (tap && w.hold) {
@@ -3923,10 +3923,12 @@
 
     // onFail: called when the action is refused or does not reach the server;
     // held: the press lasted the widget's hold (the server refuses it without)
-    function executeAction(widgetId, action, value, onFail, held) {
+    // confirmed: the person said yes to the widget's confirm (required through vclu cloud)
+    function executeAction(widgetId, action, value, onFail, held, confirmed) {
         var body = { widgetId: widgetId, action: action };
         if (value !== undefined) body.value = value;
         if (held) body.held = true;
+        if (confirmed) body.confirmed = true;
 
         // Protect this widget from stale poll data for 3 seconds
         actionGrace[widgetId] = Date.now() + 3000;

@@ -28,6 +28,7 @@ Only public API is listed — internal/private functions are omitted.
 - [grenton.CLU_REMOTE](#grentonclu_remote) (1 functions)
 - [lib.cct](#libcct) (1 functions)
 - [lib.tasmota](#libtasmota) (5 functions)
+- [core.Cloud](#corecloud) (6 functions)
 
 ---
 
@@ -1212,6 +1213,15 @@ Add a tile with the page's round trip to vCLU, measured by the page itself (in t
 - `icon` (string) — Bootstrap icon name (default "speedometer2")
 - `opts` (table) — Optional: {span=number, size='large'}
 
+### `SectionHandle:latency(id, label, icon, opts)`
+
+Add a tile with the page's round trip to vCLU, measured by the page itself (in the header, a chip): "24 ms", red over 300 ms, "offline" with no connection. Over the WebSocket it is a ping and its answer; while the page polls, the time of a poll (which includes reading the values). vCLU computes nothing for it, and it has no value in getValues.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `icon` (string) — Bootstrap icon name (default "speedometer2")
+- `opts` (table) — Optional: {span=number, size='large'}
+
 ### `SectionHandle:link(id, label, icon, url, opts)`
 
 Add a link widget to this section.
@@ -1451,6 +1461,14 @@ Set dashboard name (delegates to DashboardBuilder:name). Set dashboard theme (de
 
 Set dashboard name (delegates to DashboardBuilder:name). Set dashboard theme (delegates to DashboardBuilder:theme). Set dashboard poll interval (delegates to DashboardBuilder:poll). Add dashboard to a tab group (delegates to DashboardBuilder:tabGroup).
 
+### `SectionHandle:remote(spec)`
+
+Make the dashboard reachable through vclu cloud (see DashboardBuilder:remote).
+
+### `SectionHandle:roles(...)`
+
+Who sees the remote dashboard in vclu cloud (see DashboardBuilder:roles).
+
 ### `SectionHandle:width(w)`
 
 Set the page width (delegates to DashboardBuilder:width).
@@ -1508,6 +1526,18 @@ Set the dashboard theme.
 Add this dashboard to a named tab group for navigation.
 
 - `name` (string) — Tab group name (dashboards with same group show as tabs)
+
+### `DashboardBuilder:remote(spec)`
+
+Make the dashboard reachable through vclu cloud: :remote() (or true), :remote(false) to take it back, or a table {pin = true (remote viewers also enter the PIN), poll = seconds (default 5, at least 2)}. Every member of the home sees it, or with :roles(...) only those given one of those roles in the cloud. Without it the dashboard never leaves the house. Widgets narrow it with opts.remote: false (not sent), 'readonly', or {confirm = true} (buttons).
+
+- `spec` (boolean|table|nil) — nothing or true, false, or the options
+
+### `DashboardBuilder:roles(...)`
+
+Who sees the remote dashboard in vclu cloud: people given one of these roles there (e.g. 'domownicy', 'gosia'). The cloud decides; vCLU only passes the names on. Without it every member of the home sees it.
+
+- `...` (string) — Role names: a-z, 0-9, - and _, as in the cloud
 
 ### `DashboardBuilder:header()`
 
@@ -2455,3 +2485,51 @@ Tasmota devices seen on MQTT discovery (tasmota/discovery/<mac>/config), sorted 
 
 ---
 
+## core.Cloud
+
+### `Cloud.notify(opts, body) → string|nil The notification's id; nil and the reason when not sent`
+
+Sends a notification to the members' phones. opts: title (required), body, priority ("normal" or "high"), to ("all", "admins" or a list of cloud ids), tag (a newer one with the same tag replaces it), open (a dashboard id), actions (up to 3 buttons { label, run = function(who) ... end, roles = { "admin" } (who may press it; "admin" includes the owner), id }; run returns the text shown, or false and why), expires (seconds the buttons work, default 3600). Cloud.notify(title, body) is the short form.
+
+- `opts` (table) — |string The options, or the title
+- `body` (string) — |nil The body, with a title
+
+**Returns:** string|nil The notification's id; nil and the reason when not sent
+
+### `Cloud.channel(opts) → table An object with :send(e)`
+
+A channel for Calendar:notify and other code that takes an object with :send(e): each event becomes a notification with the event's title.
+
+- `opts` (table) — |nil Options of Cloud.notify for every event (to, priority, open)
+
+**Returns:** table An object with :send(e)
+
+### `Cloud.presence() → table List of { user = "cloud:<id>", name, home (boolean), since (unix seconds of the last change) }`
+
+Everyone who shares their presence with this home, sorted by name.
+
+**Returns:** table List of { user = "cloud:<id>", name, home (boolean), since (unix seconds of the last change) }
+
+### `Cloud.isHome(who) → boolean|nil true or false, nil when they do not share their presence`
+
+Whether someone is at home, by their name or cloud id.
+
+- `who` (string) — A name as in the cloud ("Anna") or "cloud:<id>"
+
+**Returns:** boolean|nil true or false, nil when they do not share their presence
+
+### `Cloud.anyoneHome() → boolean`
+
+Whether anyone who shares their presence is at home (false when nobody shares it).
+
+**Returns:** boolean
+
+### `Cloud.onPresence(fn) → function Call it to stop`
+
+Calls fn(e) when someone comes home or leaves: e = { user, name, home, since, anyone } (anyone: whether anyone is at home after this change). Runs as that person (origin "remote").
+
+- `fn` (function) — The handler
+
+**Returns:** function Call it to stop
+
+---
