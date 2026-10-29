@@ -249,6 +249,8 @@ type sandboxRun struct {
 	history      *history.Store // per scenario; survives a reload step
 	snapshot     map[string]any
 	loads        int
+	verbose      bool // keep what the runtime prints at start-up
+	startup      bool // in load() until the drafts load: print output is the runtime's
 }
 
 // runScenario does the actual sandbox execution (called in goroutine).
@@ -266,6 +268,7 @@ func (se *SandboxEngine) runScenario(ctx context.Context, draftPaths []string, s
 		result:   result,
 		clock:    &sandboxClock{now: at},
 		kv:       newSandboxKV(),
+		verbose:  sc.Verbose,
 	}
 	run.history = history.New(history.DefaultConfig(), run.clock.Now)
 	if err := run.resolveObjects(sc.Fixtures); err != nil {
@@ -309,6 +312,8 @@ func (se *SandboxEngine) runScenario(ctx context.Context, draftPaths []string, s
 func (run *sandboxRun) load() (*lua.LState, error) {
 	se, result := run.se, run.result
 	run.loads++
+	run.startup = true
+	defer func() { run.startup = false }()
 
 	// 1. Create isolated Lua state; the scenario timeout aborts running Lua
 	L := lua.NewState()
@@ -330,6 +335,9 @@ func (run *sandboxRun) load() (*lua.LState, error) {
 			args[i-1] = L.Get(i).String()
 		}
 		msg := strings.Join(args, "\t")
+		if run.startup && !run.verbose && !isLoggerWarning(msg) {
+			return 0
+		}
 		if len(result.Logs) < maxSandboxLogLines {
 			result.Logs = append(result.Logs, msg)
 		}
@@ -462,6 +470,7 @@ func (run *sandboxRun) load() (*lua.LState, error) {
 		log.Printf("[SANDBOX] failed to set draft package.path: %v", err)
 	}
 	before := vclulua.LoadedModules(L)
+	run.startup = false
 	for _, dp := range run.drafts {
 		// as in LuaEngine.LoadUserModules: a module acts as itself
 		name := strings.TrimSuffix(filepath.Base(dp), ".lua")
@@ -483,6 +492,12 @@ func (run *sandboxRun) load() (*lua.LState, error) {
 		}
 	}
 	return L, nil
+}
+
+// isLoggerWarning tells a Logger:warn or Logger:error line (LoggerGo's level tag), kept
+// from the start-up too.
+func isLoggerWarning(msg string) bool {
+	return strings.HasPrefix(msg, "[WARN] ") || strings.HasPrefix(msg, "[ERROR] ")
 }
 
 // registerBlockedStubs registers __go_* stubs that log blocked calls.

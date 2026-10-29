@@ -242,6 +242,20 @@ func flushPersist(L *lua.LState) {
 	}
 }
 
+// releaseOutputs switches off what Lua thermostats drive before the state goes away:
+// nothing would switch them off after a reload or a stop.
+func releaseOutputs(L *lua.LState) {
+	if L == nil {
+		return
+	}
+	// an internal hook, as __vclu_command_reply: not on the public class
+	if fn, ok := L.GetGlobal("__vclu_release_thermostats").(*lua.LFunction); ok {
+		if err := L.CallByParam(lua.P{Fn: fn, NRet: 0, Protect: true}); err != nil {
+			log.Printf("[THERMOSTAT] release outputs: %v", err)
+		}
+	}
+}
+
 // resetStateContext empties the context stack before a work item or timer
 // callback: a context belongs to one item, and a push left unpaired by user
 // code must not leak into unrelated work.

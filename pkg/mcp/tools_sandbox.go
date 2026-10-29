@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -30,6 +31,27 @@ func (s *MCPServer) registerSandboxTools() {
 				"description": "Lua source code content",
 			},
 		}, []string{"path", "content"})
+
+	s.addTool("vclu_draft_edit", "Edit a draft by replacing an exact string (modules/*.lua only); without a draft it starts from the production file. "+
+		"old_string must occur once, or pass replace_all. Answers with the size, not the file", s.handleDraftEdit,
+		map[string]any{
+			"path": map[string]any{
+				"type":        "string",
+				"description": "Relative file path (e.g., modules/init.lua)",
+			},
+			"old_string": map[string]any{
+				"type":        "string",
+				"description": "Exact text to replace, with enough context to be unique",
+			},
+			"new_string": map[string]any{
+				"type":        "string",
+				"description": "Text to put in its place",
+			},
+			"replace_all": map[string]any{
+				"type":        "boolean",
+				"description": "Replace every occurrence (default: false)",
+			},
+		}, []string{"path", "old_string", "new_string"})
 
 	s.addTool("vclu_draft_read", "Read a draft file from the workspace", s.handleDraftRead,
 		map[string]any{
@@ -112,6 +134,10 @@ func (s *MCPServer) registerSandboxTools() {
 				"description": "Integration objects instead of the live snapshot, for reproducible tests: " +
 					`[{"path": "satel.zone.2", "kind": "satel_zone", "state": 0, "config": {"number": 2}}]`,
 				"items": map[string]any{"type": "object"},
+			},
+			"verbose": map[string]any{
+				"type":        "boolean",
+				"description": "Also return the runtime's start-up lines in logs (default: only what the drafts print, warnings and errors)",
 			},
 		}, []string{"path"})
 
@@ -200,6 +226,79 @@ func (s *MCPServer) handleDraftWrite(ctx context.Context, req mcplib.CallToolReq
 		"ok":   true,
 		"path": path,
 		"size": len(content),
+	})
+}
+
+func (s *MCPServer) handleDraftEdit(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	start := time.Now()
+	if err := s.requireDevMode(ctx); err != nil {
+		return err, nil
+	}
+	if s.workspace == nil {
+		return toolError("workspace not configured"), nil
+	}
+
+	args := req.GetArguments()
+	path, _ := args["path"].(string)
+	oldStr, _ := args["old_string"].(string)
+	newStr, _ := args["new_string"].(string)
+	replaceAll, _ := args["replace_all"].(bool)
+	fail := func(msg string) (*mcplib.CallToolResult, error) {
+		s.recordActivity("vclu_draft_edit", path, false, start, msg, ctx)
+		return toolError(msg), nil
+	}
+	if err := workspace.ValidatePath(path); err != nil {
+		return fail(err.Error())
+	}
+	if oldStr == "" {
+		return fail("old_string is required")
+	}
+	if oldStr == newStr {
+		return fail("old_string and new_string are the same")
+	}
+
+	content, err := s.workspace.GetDraft(path)
+	if err != nil {
+		if _, statErr := os.Stat(s.workspace.GetDraftFullPath(path)); !os.IsNotExist(statErr) {
+			return fail(err.Error())
+		}
+		// GetProductionContent gives "" for a missing file
+		if content, err = s.workspace.GetProductionContent(path); err != nil {
+			return fail(err.Error())
+		}
+		if content == "" {
+			return fail(fmt.Sprintf("no draft or production file %s: create it with vclu_draft_write", path))
+		}
+	}
+
+	n := strings.Count(content, oldStr)
+	switch {
+	case n == 0:
+		return fail(fmt.Sprintf("old_string not found in %s", path))
+	case n > 1 && !replaceAll:
+		return fail(fmt.Sprintf("old_string occurs %d times in %s: add context to make it unique, or pass replace_all", n, path))
+	}
+	if !replaceAll {
+		n = 1
+	}
+	content = strings.Replace(content, oldStr, newStr, n)
+	if content == "" {
+		return fail(fmt.Sprintf("the edit leaves %s empty: delete the draft with vclu_draft_delete instead", path))
+	}
+
+	// read-modify-write without a lock: the workspace has none, a draft_write in between is lost
+	if err := s.workspace.CreateDraft(path, content); err != nil {
+		return fail(err.Error())
+	}
+
+	s.addAudit(ctx, "draft_edit", path, nil, "workspace", true, fmt.Sprintf("%d replacements, %d bytes", n, len(content)))
+	s.recordActivity("vclu_draft_edit", path, true, start, "", ctx)
+	return toolJSON(map[string]any{
+		"env":          "workspace",
+		"ok":           true,
+		"path":         path,
+		"size":         len(content),
+		"replacements": n,
 	})
 }
 
@@ -370,6 +469,7 @@ func (s *MCPServer) handleDraftTest(ctx context.Context, req mcplib.CallToolRequ
 	if tz, ok := args["timezone"].(string); ok {
 		sc.Timezone = tz
 	}
+	sc.Verbose, _ = args["verbose"].(bool)
 	if raw, ok := args["steps"]; ok && raw != nil {
 		steps, err := ParseSteps(jsonArg(raw))
 		if err != nil {

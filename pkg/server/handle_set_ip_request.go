@@ -5,16 +5,21 @@ import (
 	"github.com/Domktorymysli/vclu/pkg/commands"
 	"log"
 	"net"
+	"strings"
 )
 
 // handleSetIpRequest handles a SetIp request
 func (s *Server) handleSetIpRequest(decryptedData []byte, usedKey *cipher.CipherKey, remoteAddr *net.UDPAddr) {
+	// Before parsing: the address may be "null", which is not an IP
+	if parts := strings.Split(strings.TrimSpace(string(decryptedData)), ":"); len(parts) == 4 && !s.keepsIP(parts[2]) {
+		return
+	}
 	req, err := commands.ParseSetIpRequest(decryptedData)
 	if err != nil {
 		log.Printf("[SetIp] failed to parse request: %v", err)
 		return
 	}
-	_ = req // virtual CLU doesn't actually change IP, just acknowledge
+	_ = req // vCLU keeps its address; keepsIP let through only a request for it
 
 	response := &commands.SetIpResponse{
 		SerialNumber: s.deviceConfig.SerialNumber,

@@ -1,5 +1,49 @@
 # Changelog
 
+## v1.8.0 (2026-10-28)
+
+### English
+
+**Highlights:** a virtual thermostat for any sensor and any on/off output; adding vCLU in Object Manager 1.13 works.
+
+**Before you update**
+- An access profile of your own named `no-access` is renamed to `no-access-user`; the integrations and bots using it follow it ([#39](https://github.com/Domktorymysli/vclu/issues/39)).
+
+**New**
+- Virtual thermostat: keeps a room at its set point with any sensor and any on/off output, and shows up like a Grenton thermostat ([#63](https://github.com/Domktorymysli/vclu/issues/63)).
+- Remote access has its own access profile, closed by default; choose what it may see on the Access page ([#39](https://github.com/Domktorymysli/vclu/issues/39)).
+
+**Fixes**
+- Object Manager 1.13 adds a vCLU found by discovery; when the project's IP range or an old CLU entry is in the way, the log says what to change ([#149](https://github.com/Domktorymysli/vclu/issues/149)).
+- The setup wizard restarts vCLU when it finishes; before, vCLU ran without its keys until restarted by hand ([#149](https://github.com/Domktorymysli/vclu/issues/149)).
+- Two settings saved at the same time no longer overwrite each other ([#6](https://github.com/Domktorymysli/vclu/issues/6)).
+- A thermostat on a CLU with an unusual firmware answer shows its temperatures again ([#130](https://github.com/Domktorymysli/vclu/issues/130)).
+- Home Assistant sees vCLU right after start with the embedded broker ([#131](https://github.com/Domktorymysli/vclu/issues/131)).
+- Smaller fixes: one backup per click ([#102](https://github.com/Domktorymysli/vclu/issues/102)); calendar and forecast follow the house's time zone ([#129](https://github.com/Domktorymysli/vclu/issues/129)); saving the password keeps the API key ([#137](https://github.com/Domktorymysli/vclu/pull/137)); safer plugin names from repositories ([#134](https://github.com/Domktorymysli/vclu/pull/134)); no false promote warning for `optional()` ([#132](https://github.com/Domktorymysli/vclu/issues/132)).
+
+Full list: https://github.com/Domktorymysli/vclu/compare/v1.7.0...v1.8.0
+
+### Po polsku
+
+**Najważniejsze:** wirtualny termostat z dowolnym czujnikiem i dowolnym wyjściem wł./wył.; dodawanie vCLU w Object Managerze 1.13 działa.
+
+**Przed aktualizacją**
+- Twój własny profil dostępu o nazwie `no-access` zmieni nazwę na `no-access-user`; integracje i boty, które go używały, przejdą razem z nim ([#39](https://github.com/Domktorymysli/vclu/issues/39)).
+
+**Nowe**
+- Wirtualny termostat: trzyma temperaturę w pokoju z dowolnym czujnikiem i dowolnym wyjściem wł./wył., widoczny jak termostat Grentona ([#63](https://github.com/Domktorymysli/vclu/issues/63)).
+- Dostęp zdalny ma własny profil dostępu, domyślnie zamknięty; co może widzieć, wybierasz na stronie Dostęp ([#39](https://github.com/Domktorymysli/vclu/issues/39)).
+
+**Poprawki**
+- Object Manager 1.13 dodaje vCLU znalezione przez discovery; gdy przeszkadza zakres IP projektu albo stary wpis CLU, log mówi, co zmienić ([#149](https://github.com/Domktorymysli/vclu/issues/149)).
+- Kreator konfiguracji restartuje vCLU na koniec; wcześniej vCLU działał bez kluczy, dopóki ktoś go nie zrestartował ([#149](https://github.com/Domktorymysli/vclu/issues/149)).
+- Dwa ustawienia zapisane w tej samej chwili już się nie nadpisują ([#6](https://github.com/Domktorymysli/vclu/issues/6)).
+- Termostat na CLU z nietypową odpowiedzią o firmware znowu pokazuje temperatury ([#130](https://github.com/Domktorymysli/vclu/issues/130)).
+- Home Assistant widzi vCLU zaraz po starcie z wbudowanym brokerem ([#131](https://github.com/Domktorymysli/vclu/issues/131)).
+- Drobne poprawki: jeden backup na jedno kliknięcie ([#102](https://github.com/Domktorymysli/vclu/issues/102)); kalendarz i prognoza w strefie czasowej domu ([#129](https://github.com/Domktorymysli/vclu/issues/129)); zmiana hasła nie kasuje klucza API ([#137](https://github.com/Domktorymysli/vclu/pull/137)); bezpieczniejsze nazwy pluginów z repozytoriów ([#134](https://github.com/Domktorymysli/vclu/pull/134)); bez fałszywego ostrzeżenia promote dla `optional()` ([#132](https://github.com/Domktorymysli/vclu/issues/132)).
+
+Pełna lista: https://github.com/Domktorymysli/vclu/compare/v1.7.0...v1.8.0
+
 ## v1.7.0 (2026-10-25)
 
 ### English

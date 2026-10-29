@@ -23,9 +23,9 @@ const mcpInstructionsBase = `vCLU Smart Home Controller.
 
 Control layer: Use vclu_devices to list available devices, then vclu_device_set or vclu_device_execute to control them. Use vclu_scenes to list scenes and vclu_scene_execute to run them.
 
-Dev Mode tools (vclu_read_file, vclu_list_files, vclu_grep, vclu_logs, vclu_config, vclu_registry): explore code, search files, read logs, and inspect the full device registry. These require Dev Mode to be enabled in the dashboard. Start with vclu_registry() to discover devices, then vclu_read_file("ai/house.md") for house documentation.
+Dev Mode tools (vclu_read_file, vclu_list_files, vclu_grep, vclu_logs, vclu_config, vclu_registry): explore code, search files, read logs, and inspect the full device registry. These require Dev Mode to be enabled in the dashboard. Start with vclu_registry() to discover devices, then vclu_read_file("ai/house.md") for house documentation. vclu_read_file takes offset/limit (lines) to read part of a file. vclu_logs leaves out DEBUG lines: pass level "debug" to see a module's Logger:debug.
 
-Sandbox pipeline (vclu_draft_write, vclu_draft_read, vclu_draft_list, vclu_draft_delete, vclu_draft_validate, vclu_draft_test, vclu_draft_promote): write code to modules/*.lua drafts, validate syntax, test in an isolated sandbox (no real side effects), then promote to production with an automatic backup (promote reports modules that failed to load; there is no automatic rollback). Drafts go to modules/ directory only — never modify user.lua or om.lua (OM-generated). Test with vclu_draft_test to see state_changes, blocked_calls and clu_calls before promoting; for automations pass at/steps (set, advance, expect_clu_calls...) to check timing logic on a virtual clock.
+Sandbox pipeline (vclu_draft_write, vclu_draft_edit, vclu_draft_read, vclu_draft_list, vclu_draft_delete, vclu_draft_validate, vclu_draft_test, vclu_draft_promote): write code to modules/*.lua drafts (vclu_draft_edit changes an existing draft or production module by replacing a string, without sending the whole file), validate syntax, test in an isolated sandbox (no real side effects), then promote to production with an automatic backup (promote reports modules that failed to load; there is no automatic rollback). Drafts go to modules/ directory only — never modify user.lua or om.lua (OM-generated). Test with vclu_draft_test to see state_changes, blocked_calls and clu_calls before promoting; for automations pass at/steps (set, advance, expect_clu_calls...) to check timing logic on a virtual clock.
 
 Agent memory: Use vclu_context_save to persist notes between sessions. Read vclu://context/agent-notes at start. Code patterns: vclu_read_file("ai/examples.md").
 
@@ -33,7 +33,7 @@ Runtime schema: Use vclu_runtime_schema to get object types, dashboard widget AP
 
 Reload: Use vclu_reload to reload the Lua runtime after manual file changes (draft_promote auto-reloads).
 
-Live execution: Use vclu_exec to run Lua snippets on the live runtime (requires ExecMode on bot). Use vclu_dashboards to list registered dashboards with widgets. Use vclu_calendar for the house calendar (what is today or tomorrow, schedules and their next change) instead of vclu_exec. Use vclu_plugin_config to read plugin configuration (secrets redacted). Use vclu_device_history to see recent state changes. Use vclu_metrics to list registered metrics or query time-series data for charts (temperature, humidity, fan speed, etc.).
+Live execution: Use vclu_exec to run Lua snippets on the live runtime (requires ExecMode on bot). Use vclu_dashboards to list registered dashboards; vclu_dashboards(id) gives one dashboard's widgets. Use vclu_calendar for the house calendar (what is today or tomorrow, schedules and their next change) instead of vclu_exec. Use vclu_plugin_config to read plugin configuration (secrets redacted). Use vclu_device_history to see recent state changes. Use vclu_metrics to list registered metrics or query time-series data for charts (temperature, humidity, fan speed, etc.).
 
 MQTT discovery: Use vclu_mqtt_discover to scan MQTT brokers for smart home devices (Zigbee2MQTT, Tasmota, ESPHome, Shelly, HA Discovery). Returns discovered devices with suggested Lua integration snippets. Use the sandbox pipeline (draft_write → draft_test → draft_promote) to deploy the generated code.
 
@@ -49,7 +49,7 @@ IMPORTANT — common pitfalls when writing Lua modules:
 
 4. Never modify a/user.lua or a/om.lua — these are OM-generated and will be overwritten.
 
-5. Before writing a dashboard, READ an existing one with vclu_read_file to learn the patterns. Call vclu_dashboards to see what's already registered.
+5. Before writing a dashboard, READ an existing one with vclu_read_file to learn the patterns. Call vclu_dashboards to see what's already registered, and vclu_dashboards with an id for that dashboard's widgets.
 
 6. Read vclu://docs/examples resource for complete code cookbook with all widget types, Virtual* objects, MQTT patterns, and dashboard examples.`
 

@@ -13,6 +13,7 @@ Only public API is listed — internal/private functions are omitted.
 - [objects.VirtualText](#objectsvirtualtext) (3 functions)
 - [objects.VirtualCover](#objectsvirtualcover) (10 functions)
 - [objects.VirtualObject](#objectsvirtualobject) (12 functions)
+- [objects.VirtualThermostat](#objectsvirtualthermostat) (12 functions)
 - [ExposedObjects](#exposedobjects) (21 functions)
 - [core.Registry](#coreregistry) (10 functions)
 - [core.Metrics](#coremetrics) (1 functions)
@@ -615,6 +616,81 @@ Unexposes this object.
 Checks if this object is currently exposed.
 
 **Returns:** boolean True if exposed
+
+---
+
+## objects.VirtualThermostat
+
+### `VirtualThermostat:new(name, opts) → VirtualThermostat The new thermostat`
+
+Creates a thermostat that switches `output` by the temperature of `source`. The output is switched off at once (also after a restart or a reload) and goes on only on a reading that arrives after; the source's value at creation does not count. Options: source (object with getValue, or its path), output (object with switchOn and switchOff, or its path), hysteresis (0.5 °C), direction ("heat" or "cool"), setpoint (21), holiday (16 heating, 28 cooling), min (5), max (35), staleAfter (900 s without a change of the source's value: output off), maxOn (s on in one go, then off until a setting changes; default no limit), persist (true or a key: set point, mode and state survive restarts).
+
+- `name` (string) — Name (also the persist key with persist = true)
+- `opts` (table) — Options, see above
+
+**Returns:** VirtualThermostat The new thermostat
+
+### `VirtualThermostat:getValue() → number|nil Current temperature in °C, nil before the first reading`
+
+Gets the temperature from the source.
+
+**Returns:** number|nil Current temperature in °C, nil before the first reading
+
+### `VirtualThermostat:getTarget() → number Target temperature in °C`
+
+Gets the target in effect: the set point, or the holiday value in holiday mode.
+
+**Returns:** number Target temperature in °C
+
+### `VirtualThermostat:getSetpoint() → number Set point in °C`
+
+Gets the set point (the temperature set by hand).
+
+**Returns:** number Set point in °C
+
+### `VirtualThermostat:setSetpoint(value)`
+
+Sets the set point, clamped to min/max; the target follows in set point mode.
+
+- `value` (number) — Set point in °C (not a number: ignored)
+
+### `VirtualThermostat:getState() → number State`
+
+Gets the state: 1 active, 0 off (output off).
+
+**Returns:** number State
+
+### `VirtualThermostat:getMode() → number Mode`
+
+Gets the mode: 0 set point, 1 holiday.
+
+**Returns:** number Mode
+
+### `VirtualThermostat:setMode(mode)`
+
+Sets the mode: 0 set point, 1 holiday (the target is the holiday value).
+
+- `mode` (number) — 0 or 1
+
+### `VirtualThermostat:start()`
+
+Starts regulating (state 1).
+
+### `VirtualThermostat:stop()`
+
+Stops regulating and switches the output off (state 0).
+
+### `VirtualThermostat:getFault() → string|nil Fault`
+
+Why the output is held off besides the state: "stale" (no reading for staleAfter), "maxOn" (on too long), nil when regulating normally.
+
+**Returns:** string|nil Fault
+
+### `VirtualThermostat:getDirection() → string Direction`
+
+What the output does: "heat" or "cool" (Home Assistant shows it as the mode).
+
+**Returns:** string Direction
 
 ---
 

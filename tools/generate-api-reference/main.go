@@ -64,6 +64,7 @@ var moduleOrder = map[string]int{
 	"objects.VirtualText":          14,
 	"objects.VirtualCover":         15,
 	"objects.VirtualObject":        16,
+	"objects.VirtualThermostat":    17,
 	"ExposedObjects":               20,
 	"core.Registry":                25,
 	"core.Metrics":                 30,

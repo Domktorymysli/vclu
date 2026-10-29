@@ -19,6 +19,7 @@ package.path = runtime_path .. "/?.lua;" ..
                runtime_path .. "/integrations/satel/?.lua;" ..
                runtime_path .. "/integrations/mcp/?.lua;" ..
                runtime_path .. "/integrations/homeassistant/?.lua;" ..
+               runtime_path .. "/integrations/remote/?.lua;" ..
                runtime_path .. "/objects/?.lua;" ..
                package.path
 
@@ -62,6 +63,9 @@ MqttAccess = require("MqttAccess")
 HACommands = require("Commands")
 HAStatePublisher = require("StatePublisher")
 HAIntegration = require("Discovery")
+
+-- LAYER 5a: Remote access (exposed objects through the "remote" profile)
+RemoteAccess = require("RemoteAccess")
 
 -- LAYER 5b: MCP (Model Context Protocol)
 MCP = require("MCP")

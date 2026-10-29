@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"regexp"
 	"strings"
 	"time"
@@ -14,11 +15,20 @@ import (
 // registerDevTools registers Layer 2 (Development Pipeline) tools.
 // Tools are always registered — devMode gate is checked per request.
 func (s *MCPServer) registerDevTools() {
-	s.addTool("vclu_read_file", "Read a file from the vCLU data directory (Lua code, documentation, modules)", s.handleReadFile,
+	s.addTool("vclu_read_file", "Read a file from the vCLU data directory (Lua code, documentation, modules). "+
+		"offset/limit read only those lines and give total_lines; without them the whole file", s.handleReadFile,
 		map[string]any{
 			"path": map[string]any{
 				"type":        "string",
 				"description": "Relative file path (e.g., a/user.lua, modules/init.lua, docs/ai/house.md)",
+			},
+			"offset": map[string]any{
+				"type":        "number",
+				"description": "First line to read, 1-based (default: 1)",
+			},
+			"limit": map[string]any{
+				"type":        "number",
+				"description": "Number of lines to read (default: to the end)",
 			},
 		}, []string{"path"})
 
@@ -46,11 +56,12 @@ func (s *MCPServer) registerDevTools() {
 			},
 		}, []string{"pattern"})
 
-	s.addTool("vclu_logs", "Get recent runtime logs", s.handleLogs,
+	s.addTool("vclu_logs", "Get recent runtime logs, newest first. Without level DEBUG lines are left out: "+
+		"to see a module's Logger:debug pass level \"debug\" (with a filter). Identical lines in a row come as one entry with repeated.", s.handleLogs,
 		map[string]any{
 			"limit": map[string]any{
 				"type":        "number",
-				"description": "Number of log entries to return (default: 100, max: 1000)",
+				"description": "Number of log entries to return (default: 50, max: 1000)",
 			},
 			"filter": map[string]any{
 				"type":        "string",
@@ -58,7 +69,7 @@ func (s *MCPServer) registerDevTools() {
 			},
 			"level": map[string]any{
 				"type":        "string",
-				"description": "Minimum level: debug, info, warning, error. Use 'error' to find failures without the debug flood.",
+				"description": "Minimum level: debug, info, warning, error (default: info). Use 'error' to find failures.",
 			},
 		}, nil)
 
@@ -76,7 +87,13 @@ func (s *MCPServer) registerDevTools() {
 			},
 		}, []string{"script"})
 
-	s.addTool("vclu_dashboards", "List all registered dashboards with their widgets", s.handleDashboards, nil, nil)
+	s.addTool("vclu_dashboards", "List registered dashboards (id, name, auth, widgetCount); pass id for that dashboard's widgets", s.handleDashboards,
+		map[string]any{
+			"id": map[string]any{
+				"type":        "string",
+				"description": "Dashboard id: returns its widgets (a room tile, not the room's widgets)",
+			},
+		}, nil)
 
 	s.addTool("vclu_plugin_config", "Get plugin configuration (secrets redacted)", s.handlePluginConfig,
 		map[string]any{
@@ -192,12 +209,60 @@ func (s *MCPServer) handleReadFile(ctx context.Context, req mcplib.CallToolReque
 		return toolError(err.Error()), nil
 	}
 
+	args := req.GetArguments()
+	offset, hasOffset := args["offset"].(float64)
+	limit, hasLimit := args["limit"].(float64)
+	if !hasOffset && !hasLimit {
+		s.recordActivity("vclu_read_file", path, true, start, "", ctx)
+		return toolJSON(map[string]any{
+			"env":     "runtime",
+			"path":    path,
+			"content": content,
+		})
+	}
+
+	part, first, total, err := lineRange(content, lineArg(offset), lineArg(limit))
+	if err != nil {
+		s.recordActivity("vclu_read_file", path, false, start, err.Error(), ctx)
+		return toolError(fmt.Sprintf("%s: %v", path, err)), nil
+	}
 	s.recordActivity("vclu_read_file", path, true, start, "", ctx)
 	return toolJSON(map[string]any{
-		"env":     "runtime",
-		"path":    path,
-		"content": content,
+		"env":         "runtime",
+		"path":        path,
+		"content":     part,
+		"offset":      first,
+		"total_lines": total,
 	})
+}
+
+// lineArg makes a line number an int; a float beyond int converts differently per platform.
+func lineArg(f float64) int {
+	return int(max(min(f, math.MaxInt32), math.MinInt32))
+}
+
+// lineRange returns limit lines from the 1-based line offset (0: from 1; limit 0: to the end),
+// the first line returned and the file's line count.
+func lineRange(content string, offset, limit int) (string, int, int, error) {
+	lines := strings.SplitAfter(content, "\n")
+	if lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	total := len(lines)
+	if offset <= 0 {
+		offset = 1
+	}
+	if limit < 0 {
+		return "", 0, total, fmt.Errorf("limit must be positive")
+	}
+	if offset > total && offset > 1 { // an empty file reads from line 1 as empty
+		return "", 0, total, fmt.Errorf("offset %d is past the end (%d lines)", offset, total)
+	}
+	end := total
+	if limit > 0 && limit < total-offset+1 { // not offset+limit: a huge limit overflows
+		end = offset - 1 + limit
+	}
+	return strings.Join(lines[offset-1:end], ""), offset, total, nil
 }
 
 func (s *MCPServer) handleListFiles(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
@@ -294,6 +359,9 @@ func (s *MCPServer) handleGrep(ctx context.Context, req mcplib.CallToolRequest) 
 	})
 }
 
+// defaultLogLimit is the number of vclu_logs entries without a limit.
+const defaultLogLimit = 50
+
 // logLevelRank orders levels for minimum-level filtering.
 var logLevelRank = map[string]int{
 	"debug": 0, "info": 1, "warning": 2, "warn": 2, "error": 3,
@@ -361,12 +429,12 @@ func (s *MCPServer) handleLogs(ctx context.Context, req mcplib.CallToolRequest) 
 	}
 
 	args := req.GetArguments()
-	limit := 100
+	limit := defaultLogLimit
 	if l, ok := args["limit"].(float64); ok {
 		limit = int(l)
 	}
 	if limit <= 0 {
-		limit = 100
+		limit = defaultLogLimit
 	}
 	if limit > 1000 {
 		limit = 1000
@@ -382,7 +450,7 @@ func (s *MCPServer) handleLogs(ctx context.Context, req mcplib.CallToolRequest) 
 		}
 	}
 
-	minRank := 0
+	minRank := logLevelRank["info"] // Logger:debug only when asked
 	if lvl, ok := args["level"].(string); ok && lvl != "" {
 		r, known := logLevelRank[strings.ToLower(lvl)]
 		if !known {
@@ -399,14 +467,13 @@ func (s *MCPServer) handleLogs(ctx context.Context, req mcplib.CallToolRequest) 
 		Level   string `json:"level"`
 		Source  string `json:"source,omitempty"`
 		Message string `json:"message"`
+		// Repeated counts identical lines in a row shown as this one (the newest)
+		Repeated int `json:"repeated,omitempty"`
 	}
 
 	var entries []logEntry
 	// Walk from newest to oldest (history is oldest-first, reverse it)
 	for i := len(history) - 1; i >= 0; i-- {
-		if len(entries) >= limit {
-			break
-		}
 		h := history[i]
 		level := effectiveLogLevel(h.Level, h.Source)
 		if logLevelRank[level] < minRank {
@@ -414,6 +481,16 @@ func (s *MCPServer) handleLogs(ctx context.Context, req mcplib.CallToolRequest) 
 		}
 		if filterRe != nil && !filterRe.MatchString(h.Message) && !filterRe.MatchString(h.Source) {
 			continue
+		}
+		if n := len(entries); n > 0 {
+			last := &entries[n-1]
+			if last.Message == h.Message && last.Source == h.Source && last.Level == level {
+				last.Repeated = max(last.Repeated, 1) + 1
+				continue
+			}
+		}
+		if len(entries) >= limit {
+			break
 		}
 		entries = append(entries, logEntry{
 			Time:    h.Time.Format(time.RFC3339),
@@ -545,6 +622,11 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 				"methods":     []string{"getValue()", "setValue(v)", "onChange(cb)"},
 				"constructor": "VirtualText:new(name, {initial='str', maxLength=n, persist=true|'key'})",
 				"note":        "Text value. Display with :status() dashboard widget.",
+			},
+			"VirtualThermostat (THERMOSTAT)": map[string]any{
+				"constructor": "VirtualThermostat:new(name, {source=obj|path, output=obj|path, hysteresis=0.5, direction='heat'|'cool', setpoint=21, holiday=16, min=5, max=35, staleAfter=900, maxOn=s, persist=true|'key'})",
+				"methods":     []string{"getValue()", "getTarget()", "getSetpoint()", "setSetpoint(v)", "getState()", "start()", "stop()", "getMode()", "setMode(0|1)", "getFault()", "getDirection()", "onChange(cb)"},
+				"note":        "Switches output (switchOn/switchOff) by source temperature at target ± hysteresis; no source change for staleAfter s or on longer than maxOn: output off (getFault 'stale'/'maxOn'). Mode 0 set point, 1 holiday. Output switched off before a reload or stop, and starts off. Same interface as RemoteThermostat: expose(th, \"climate\", {...}), lib/panel menu:add",
 			},
 			"PluginSensor": map[string]any{
 				"methods": []string{"get()", "onChange(cb)"},

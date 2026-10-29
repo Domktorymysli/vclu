@@ -141,8 +141,9 @@ function CLU_REMOTE:_firmwareScript()
 end
 
 -- Keeps an answer to get(17) shaped like a version (04.08.05, 05.15.12-2607); anything
--- else, a value like 21.5 included, forgets it
+-- else, a value like 21.5 included, forgets it. nil means the CLU did not answer.
 function CLU_REMOTE:_setFirmware(result)
+    self._firmwareAnswered = result ~= nil
     local s = type(result) == "string" and result:match('^%s*"?([^"]-)"?%s*$') or nil
     if s and s:match("^%d+%.%d+%.%d+%-?%w*$") then self._firmware = s else self._firmware = nil end
     return self._firmware
@@ -151,6 +152,7 @@ end
 -- Forgets the firmware (the CLU stopped answering); the next subscribe or poll asks again
 function CLU_REMOTE:_forgetFirmware()
     self._firmware = nil
+    self._firmwareAnswered = false
 end
 
 -- Asks the CLU for its firmware, blocking; delayMs spaces the next message to this CLU
@@ -164,11 +166,12 @@ function CLU_REMOTE:_checkFirmware(delayMs)
     return self:_setFirmware(result)
 end
 
--- Asks without blocking; done(firmware) gets nil when the CLU did not answer
+-- Asks without blocking; done(firmware, answered) gets nil firmware also when the answer
+-- is not a version, answered false when the CLU did not answer
 function CLU_REMOTE:_checkFirmwareAsync(done)
     self:executeAsync(self:_firmwareScript(), function(result, err)
         local fw = self:_setFirmware(not err and result or nil)
-        if done then done(fw) end
+        if done then done(fw, self._firmwareAnswered) end
     end)
 end
 

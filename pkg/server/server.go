@@ -672,7 +672,7 @@ func (s *Server) processBroadcastCommand(encryptedData []byte, remoteAddr *net.U
 	// Check for req_set_clu_ip command (sent after PIN entry)
 	cmdStr := strings.TrimSpace(string(decryptedData))
 	if strings.HasPrefix(cmdStr, "req_set_clu_ip:") {
-		log.Printf("[BROADCAST] req_set_clu_ip from %s", remoteAddr.IP)
+		log.Printf("[BROADCAST] req_set_clu_ip from %s (%s)", remoteAddr.IP, s.keyName(usedKey))
 		s.handleSetCluIP(cmdStr, usedKey, remoteAddr)
 		return
 	}
@@ -691,7 +691,43 @@ func (s *Server) processBroadcastCommand(encryptedData []byte, remoteAddr *net.U
 		return
 	}
 
-	log.Printf("[BROADCAST] unknown command from %s: %s", remoteAddr.IP, string(decryptedData[:min(50, len(decryptedData))]))
+	log.Printf("[BROADCAST] unknown command from %s (%s): %q%s", remoteAddr.IP, s.keyName(usedKey),
+		decryptedData[:min(64, len(decryptedData))], wrongIVHint(decryptedData))
+}
+
+// keyName names a cipher key for the log, never showing the key itself.
+func (s *Server) keyName(key *cipher.CipherKey) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	switch key {
+	case nil:
+		return "no key"
+	case s.temporaryCipherKey:
+		return fmt.Sprintf("temporary key, IV %x…", key.GetIV()[:4])
+	case s.projectCipherKey:
+		return "project key"
+	case cipher.DefaultBroadcastKey:
+		return "broadcast key"
+	}
+	return "other key"
+}
+
+// wrongIVHint explains a message whose first AES block is unreadable and the rest is text: in
+// CBC that is the right key with another IV, e.g. a temporary key from before a SetKey or a restart.
+func wrongIVHint(data []byte) string {
+	if len(data) <= 16 || isText(data[:16]) || !isText(data[16:]) {
+		return ""
+	}
+	return " (first 16 bytes unreadable, the rest is text: right key, another IV: Object Manager used a temporary IV vCLU no longer has, e.g. from before a restart)"
+}
+
+func isText(b []byte) bool {
+	for _, c := range b {
+		if (c < 0x20 || c > 0x7e) && c != '\r' && c != '\n' {
+			return false
+		}
+	}
+	return true
 }
 
 // processUnicastCommand processes a unicast command
@@ -734,7 +770,7 @@ func (s *Server) processUnicastCommand(encryptedData []byte, remoteAddr *net.UDP
 
 	// Check if it's a SetIp request
 	if commands.IsSetIpRequest(decryptedData) {
-		log.Printf("[UNICAST] SetIp from %s", remoteAddr.IP)
+		log.Printf("[UNICAST] SetIp from %s (%s)", remoteAddr.IP, s.keyName(usedKey))
 		s.handleSetIpRequest(decryptedData, usedKey, remoteAddr)
 		return
 	}

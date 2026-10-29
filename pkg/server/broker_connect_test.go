@@ -17,6 +17,7 @@ func TestBrokerConnectScriptKeepsCredentials(t *testing.T) {
 		function MQTT:setClientId() return self end
 		function MQTT:setCredentials(u, p) got.user = u; got.pass = p; return self end
 		function MQTT:connect() return true end
+		function MQTT:onConnect() return self end
 		HAIntegration = { setup = function() end }
 	`); err != nil {
 		t.Fatal(err)

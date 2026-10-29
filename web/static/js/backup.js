@@ -46,7 +46,8 @@ BackupManager.prototype.create = function() {
     var self = this;
     var btn = this.elements.createBtn;
 
-    if (!btn) return;
+    // A backup is already running
+    if (!btn || btn.disabled) return;
 
     var originalText = btn.innerHTML;
     btn.disabled = true;

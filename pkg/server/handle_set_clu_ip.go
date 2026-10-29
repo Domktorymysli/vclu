@@ -28,6 +28,10 @@ func (s *Server) handleSetCluIP(cmdStr string, usedKey *cipher.CipherKey, remote
 		return
 	}
 
+	if !s.keepsIP(parts[2]) {
+		return
+	}
+
 	// Create response: resp_set_clu_ip:SERIAL_HEX:IP_ADDRESS
 	response := fmt.Sprintf("resp_set_clu_ip:%s:%s\r\n", serialHex, s.localIP.String())
 
@@ -40,4 +44,21 @@ func (s *Server) handleSetCluIP(cmdStr string, usedKey *cipher.CipherKey, remote
 	if _, err = s.responseConn.WriteToUDP(encryptedResponse, remoteAddr); err != nil {
 		log.Printf("[SET_CLU_IP] failed to send response: %v", err)
 	}
+}
+
+// keepsIP reports whether Object Manager asks for the address vCLU already has. Object Manager
+// picks a CLU's address from the project's IP range, skipping addresses of other CLUs in the
+// project, and asks the CLU to move there; it sends "null" when the range has no free address.
+// vCLU cannot move. Confirming anyway makes Object Manager put the CLU at the new address, so
+// SetKey and the project upload go nowhere; not answering keeps the CLU where it is.
+func (s *Server) keepsIP(requested string) bool {
+	requested = strings.TrimSpace(requested)
+	if requested == s.localIP.String() {
+		log.Printf("[SET_CLU_IP] Object Manager asks for %s, the address vCLU has: confirmed", requested)
+		return true
+	}
+	log.Printf("[SET_CLU_IP] Object Manager asks to move this CLU to %s, vCLU stays at %s and does not answer: "+
+		"remove other CLUs with %s from the project (e.g. this vCLU before a reset) and make the project's IP range include it",
+		requested, s.localIP, s.localIP)
+	return false
 }

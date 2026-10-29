@@ -413,15 +413,21 @@ local function numberPayload(v)
     return tostring(v)
 end
 
---- HA hvac_mode of a thermostat: off when stopped (getState() 0), heat otherwise; an
--- object without getState is always heat.
+-- What a thermostat does when on: cool when its getDirection() says so, heat otherwise
+local function climateActive(obj)
+    if callOpt(obj, "getDirection") == "cool" then return "cool" end
+    return "heat"
+end
+
+--- HA hvac_mode of a thermostat: off when stopped (getState() 0), heat (or cool, by
+-- getDirection) otherwise; an object without getState is always on.
 -- @param obj table The thermostat
--- @return string|nil off or heat, nil before its state is reported
+-- @return string|nil off, heat or cool, nil before its state is reported
 function HAStatePublisher.climateMode(obj)
-    if type(obj) ~= "table" or type(obj.getState) ~= "function" then return "heat" end
+    if type(obj) ~= "table" or type(obj.getState) ~= "function" then return climateActive(obj) end
     local state = tonumber(callOpt(obj, "getState"))
     if state == nil then return nil end
-    return state == 0 and "off" or "heat"
+    return state == 0 and "off" or climateActive(obj)
 end
 
 -- Topics of an exposed climate, without the suffix (vclu/exposed/{base}/climate/{id})
@@ -814,7 +820,7 @@ local function onObjectExposed(data)
         if not isReadonly(path, options) and type(obj) == "table" and type(obj.setSetpoint) == "function" then
             discoveryPayload.temperature_command_topic = baseTopic .. "/target_temp/set"
         end
-        discoveryPayload.modes = {"off", "heat"}
+        discoveryPayload.modes = {"off", climateActive(obj)}
         discoveryPayload.mode_state_topic = baseTopic .. "/mode"
         -- the target and the mode change apart from the value: publish on CHANGE_EVENTS too
         if type(obj) == "table" and obj.onEvent and not obj._haClimateHook then

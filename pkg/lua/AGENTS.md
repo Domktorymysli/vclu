@@ -122,8 +122,9 @@ major are polled with `get` every `pollInterval` s until the hardware test says 
 are safe. A new firmware rule is a row there, not an `if`.
 `autoSubscribe` blocks on get(17) once per CLU in a Lua state (`_firmwareAsked`, within
 `FIRMWARE_CHECK_SECONDS`); then the poll chain asks without blocking, and a CLU that turns
-out safe gets only its polled objects subscribed (`subscribeUpgraded`). The poll and renew
-chains wait for each other, so they never interleave on a CLU.
+out safe gets only its polled objects subscribed (`subscribeUpgraded`). Only no answer to
+get(17) skips the CLU for the run; an answer that is not a version (`_firmwareAnswered`) is
+polled (#130). The poll and renew chains wait for each other, so they never interleave on a CLU.
 Hardware test on CLU220000592 (04.08.05), 2026-10-24 (#67): no reset from each feature in its own
 fresh session, from one session with all five (or eight, batch 8), nor from a full `autoSubscribe`
 with both thermostats subscribed and renewed for two minutes. The 2026-10-19 resets did not come
@@ -138,8 +139,8 @@ An object is a thermostat when it has `getValue` (temperature), `getTarget` and 
 - `exposeRegistry()` and `group:expose()` without a type leave climates out (`explicitOnly` in
   the capabilities): only `expose(th)` shows one, writable unless `readonly`. Exposing subscribes nothing new and sends nothing to the
   CLU (`TestHAClimateExposeSubscribesNothingNew`); subscribing a thermostat can reset an old CLU (#67).
-- `hvac_mode` is shown, not set: `off` when `getState()` is 0, `heat` otherwise (ControlDirection,
-  feature 7, is not subscribed). No mode command topic; Grenton's Mode (holiday, auto) is not a preset yet.
+- `hvac_mode` is shown, not set: `off` when `getState()` is 0, otherwise `cool` when the optional
+  `getDirection()` says so (VirtualThermostat), else `heat` (ControlDirection, feature 7, is not subscribed). No mode command topic; Grenton's Mode (holiday, auto) is not a preset yet.
 - The target shown is `getTarget()` as the CLU reports it, never the value just sent: in holiday
   or auto mode a set point does not change the target. A target from HA is clamped to `min`/`max`
   of the expose options (default 5..35).
@@ -147,6 +148,16 @@ An object is a thermostat when it has `getValue` (temperature), `getTarget` and 
   (`applyRenewAnswer` skips only objects that published their value). HA keeps showing the
   reported target, so at worst the old one comes back until the next report or renewal (TTL/2).
 Contract: `ha_exposed_climate_test.go`, `ha_climate_readonly_test.go`.
+
+### `onChange` is not a reading
+`onChange` fires on a change only, and a Remote object's first report (old value nil) fires
+nothing. `VirtualThermostat` counts a change as a reading (`staleAfter` is time without one) and
+picks the first report up on its tick; a value present when it is created (VirtualNumber's
+default 0, a value kept over a reload) does not count. Contract: `virtual_thermostat_test.go`.
+Before a Lua state goes away (reload, `RunLoop` stop, `Close` before the loop ran) Go calls
+the internal `__vclu_release_thermostats()` (`releaseOutputs` in `history.go`), before MQTT and the other
+managers close; a Grenton command opens its own UDP socket, so `Server.Stop` closing
+`commandConn` first does not stop it. Contract: `virtual_thermostat_release_test.go`.
 
 ### Smart Panel (SMART_PANEL_FM_4)
 Indices from the Object Manager definition, fv05 and fv07. PANEL (class 29) execute: 0 SwitchOnDisplay,
