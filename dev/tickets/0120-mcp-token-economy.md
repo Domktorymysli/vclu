@@ -59,13 +59,19 @@ Agents also burn tokens on large review/implementation subagents; that is out of
    everything printed before the drafts start to load (in each load) is dropped, not matched by
    regex. Keep the module's lines, warnings and errors; a flag `verbose` brings the start-up lines
    back.
+6. Every tool refuses an argument its schema does not name, and a missing required one, instead
+   of ignoring it: `vclu_logs` got `search`/`lines` (it takes `filter`/`limit`), `vclu_exec` got
+   `code` (it takes `script`) and answered as if they were not there. One check where tools are
+   registered (`addTool` in `pkg/mcp/tools.go`) compares the names with the schema and answers
+   `unknown argument "search" for vclu_logs; did you mean "filter"? Valid: filter, level, limit`,
+   with a suggestion for a known alias or a near miss.
 
 ## Not in scope
 - `offset`/`limit` for `vclu_draft_read`: drafts are the agent's own recent writes; add it only if
   the measurement shows it is needed.
 
 ## Files
-- `pkg/mcp/tools_sandbox.go`, `pkg/mcp/tools_dev.go`, `pkg/mcp/tool_dashboards.go`, `pkg/mcp/sandbox.go`
+- `pkg/mcp/tools_sandbox.go`, `pkg/mcp/tools_dev.go`, `pkg/mcp/tool_dashboards.go`, `pkg/mcp/sandbox.go`, `pkg/mcp/tools.go` (argument check)
 - `pkg/mcp/server.go`: the server instructions (the "Sandbox pipeline" paragraph gets
   `vclu_draft_edit`; "Live execution" and pitfall 5 say `vclu_dashboards` lists dashboards and
   `id` gives the widgets)
@@ -90,6 +96,9 @@ Agents also burn tokens on large review/implementation subagents; that is out of
       returns the whole file as before (test).
 - [ ] `vclu_draft_test` on a passing module returns no runtime start-up lines unless `verbose`, and
       keeps the module's own `print` lines (test).
+- [ ] An unknown argument is an error that names the valid ones, with a suggestion for a near
+      miss (`search` → `filter`); a missing required argument is an error; valid arguments pass; a
+      tool without parameters refuses any argument; every registered tool has its schema (tests).
 - [ ] The web `/dashboards` page and `/api/dashboards` answer as before (existing tests pass).
 - [ ] A short measurement in the PR: answer sizes in bytes before and after for each tool on a
       realistic workspace (e.g. the sandbox fixtures).
@@ -106,4 +115,6 @@ an agent that wants widgets passes `id`. No decision record: it is the shape of 
 not a design choice other code builds on.
 
 The new defaults of `vclu_logs` and `vclu_dashboards` are a behaviour change agents see: they get
-contract tests and a changelog entry. The new tool and parameters are additive.
+contract tests and a changelog entry. The new tool and parameters are additive. Refusing unknown
+arguments is a behaviour change too: a call that passed an argument the tool ignored now fails and
+says which name to use.

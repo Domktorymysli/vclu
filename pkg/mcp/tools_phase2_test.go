@@ -241,6 +241,18 @@ func TestHandleDashboards_Success(t *testing.T) {
 	if len(dashboards) != 1 {
 		t.Fatalf("expected 1 dashboard, got %d", len(dashboards))
 	}
+	// the list has no widgets; they come with id
+	if _, ok := dashboards[0].(map[string]any)["widgets"]; ok {
+		t.Errorf("list has widgets: %v", dashboards[0])
+	}
+	res, err = srv.handleDashboards(ctx, makeCallRequest(map[string]any{"id": "main"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	one, _ := parseJSON(t, res)["dashboard"].(map[string]any)
+	if widgets, _ := one["widgets"].([]any); len(widgets) != 1 {
+		t.Fatalf("expected the widget with id, got %s", extractText(t, res))
+	}
 }
 
 func TestHandleDashboards_DevModeDisabled(t *testing.T) {

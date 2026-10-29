@@ -3,13 +3,16 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"time"
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 )
 
-// handleDashboards lists all registered dashboards with their widgets.
-func (s *MCPServer) handleDashboards(ctx context.Context, _ mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+// handleDashboards lists the registered dashboards; with an id it gives that one with its widgets.
+// The filtering is here: Dashboard.API.list() also serves the web.
+func (s *MCPServer) handleDashboards(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
 	start := time.Now()
 	if err := s.requireDevMode(ctx); err != nil {
 		return err, nil
@@ -36,9 +39,37 @@ func (s *MCPServer) handleDashboards(ctx context.Context, _ mcplib.CallToolReque
 		})
 	}
 
+	list, _ := dashboards.([]any)
+	if id, _ := req.GetArguments()["id"].(string); id != "" {
+		var known []string
+		for _, d := range list {
+			if m, ok := d.(map[string]any); ok {
+				if m["id"] == id {
+					s.recordActivity("vclu_dashboards", id, true, start, "", ctx)
+					return toolJSON(map[string]any{"env": "runtime", "dashboard": m})
+				}
+				if k, ok := m["id"].(string); ok {
+					known = append(known, k)
+				}
+			}
+		}
+		s.recordActivity("vclu_dashboards", id, false, start, "unknown dashboard", ctx)
+		return toolError(fmt.Sprintf("dashboard %q not found; known: %s", id, strings.Join(known, ", "))), nil
+	}
+
+	summary := make([]map[string]any, 0, len(list))
+	for _, d := range list {
+		m, ok := d.(map[string]any)
+		if !ok {
+			continue
+		}
+		summary = append(summary, map[string]any{
+			"id": m["id"], "name": m["name"], "auth": m["auth"], "widgetCount": m["widgetCount"],
+		})
+	}
 	s.recordActivity("vclu_dashboards", "", true, start, "", ctx)
 	return toolJSON(map[string]any{
 		"env":        "runtime",
-		"dashboards": dashboards,
+		"dashboards": summary,
 	})
 }
