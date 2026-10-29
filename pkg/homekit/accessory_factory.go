@@ -78,12 +78,13 @@ func (s *Server) createExposedAccessory(obj ExposedObject, readonly bool) *Acces
 
 	var acc *accessory.A
 	var updateFunc func(float64)
+	var colorFunc func(r, g, b int)
 
 	switch obj.Type {
 	case "switch":
 		acc, updateFunc = s.createExposedSwitch(info, obj, readonly)
 	case "light", "dimmer":
-		acc, updateFunc = s.createExposedLightbulb(info, obj, readonly)
+		acc, updateFunc, colorFunc = s.createExposedLightbulb(info, obj, readonly)
 	case "cover":
 		acc, updateFunc = s.createExposedCover(info, obj, readonly)
 	case "sensor", "motion":
@@ -116,6 +117,7 @@ func (s *Server) createExposedAccessory(obj ExposedObject, readonly bool) *Acces
 			Type:       obj.Type,
 			Readonly:   readonly,
 			UpdateFunc: updateFunc,
+			ColorFunc:  colorFunc,
 			Refetch:    obj.Type == "cover",
 		}
 	}
@@ -164,8 +166,8 @@ func (s *Server) createExposedSwitch(info accessory.Info, obj ExposedObject, rea
 // createExposedLightbulb creates a Lightbulb. An on/off light (a DOUT exposed
 // as "light") is switched with 1/0; a dimmable one (value 0..1) also gets a
 // Brightness slider and is switched with its switchOn/switchOff, which keep
-// the last brightness.
-func (s *Server) createExposedLightbulb(info accessory.Info, obj ExposedObject, readonly bool) (*accessory.A, func(float64)) {
+// the last brightness. A colour light also gets Hue and Saturation.
+func (s *Server) createExposedLightbulb(info accessory.Info, obj ExposedObject, readonly bool) (*accessory.A, func(float64), func(r, g, b int)) {
 	light := accessory.NewLightbulb(info)
 	on := light.Lightbulb.On
 
@@ -173,6 +175,10 @@ func (s *Server) createExposedLightbulb(info accessory.Info, obj ExposedObject, 
 	if obj.Dimmable {
 		brightness = characteristic.NewBrightness()
 		light.Lightbulb.AddC(brightness.C)
+	}
+	var colorFunc func(r, g, b int)
+	if obj.HasColor {
+		colorFunc = s.addColor(light.Lightbulb, obj, readonly)
 	}
 
 	updateFunc := func(value float64) {
@@ -190,7 +196,7 @@ func (s *Server) createExposedLightbulb(info accessory.Info, obj ExposedObject, 
 		if brightness != nil {
 			brightness.Permissions = readonlyPerms
 		}
-		return light.A, updateFunc
+		return light.A, updateFunc, colorFunc
 	}
 
 	on.OnValueRemoteUpdate(func(want bool) {
@@ -222,7 +228,7 @@ func (s *Server) createExposedLightbulb(info accessory.Info, obj ExposedObject, 
 		})
 	}
 
-	return light.A, updateFunc
+	return light.A, updateFunc, colorFunc
 }
 
 // createExposedCover creates a WindowCovering; vCLU and HomeKit both count 0 = closed.

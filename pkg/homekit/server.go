@@ -41,17 +41,19 @@ func (s *Server) executeCommand(script string) (string, error) {
 
 // ExposedObject represents an object from ExposedObjects API
 type ExposedObject struct {
-	Path     string      `json:"path"`
-	Type     string      `json:"type"`
-	Name     string      `json:"name"`
-	Area     string      `json:"area"`
-	Value    any         `json:"value"`
-	Readonly bool        `json:"readonly"`
-	Satel    bool        `json:"satel,omitempty"`       // alarm objects: read-only in HomeKit
-	Dimmable bool        `json:"dimmable,omitempty"`    // has brightness (value 0..1)
-	Position *float64    `json:"position,omitempty"`    // covers: 0 = closed, 100 = open
-	HasPos   bool        `json:"hasPosition,omitempty"` // cover with getPosition (value is not a position)
-	Caps     ExposedCaps `json:"caps"`
+	Path     string        `json:"path"`
+	Type     string        `json:"type"`
+	Name     string        `json:"name"`
+	Area     string        `json:"area"`
+	Value    any           `json:"value"`
+	Readonly bool          `json:"readonly"`
+	Satel    bool          `json:"satel,omitempty"`       // alarm objects: read-only in HomeKit
+	Dimmable bool          `json:"dimmable,omitempty"`    // has brightness (value 0..1)
+	Position *float64      `json:"position,omitempty"`    // covers: 0 = closed, 100 = open
+	HasPos   bool          `json:"hasPosition,omitempty"` // cover with getPosition (value is not a position)
+	HasColor bool          `json:"hasColor,omitempty"`    // colour light: Hue and Saturation
+	Color    *ExposedColor `json:"color,omitempty"`       // its colour, once reported
+	Caps     ExposedCaps   `json:"caps"`
 }
 
 // displayName prefixes the accessory name with its room, so that during Apple Home
@@ -126,6 +128,7 @@ type AccessoryWrapper struct {
 	Type           string
 	Readonly       bool
 	UpdateFunc     func(value float64) // Function to update accessory state
+	ColorFunc      func(r, g, b int)   // colour lights: shows the colour
 	Refetch        bool                // state events do not carry the shown value (covers): read it
 	LastKnownState float64             // Last known state for comparison
 }
@@ -650,7 +653,11 @@ func (s *Server) signatureOf(objs []ExposedObject) string {
 	lines := make([]string, 0, len(objs))
 	for _, o := range objs {
 		hidden, ro := s.effectiveAccess(o)
-		lines = append(lines, fmt.Sprintf("%s\x00%s\x00%s\x00%t\x00%t", o.Path, o.Type, o.displayName(), hidden, ro))
+		line := fmt.Sprintf("%s\x00%s\x00%s\x00%t\x00%t", o.Path, o.Type, o.displayName(), hidden, ro)
+		if o.HasColor {
+			line += "\x00color" // Hue and Saturation are characteristics of their own
+		}
+		lines = append(lines, line)
 	}
 	sort.Strings(lines)
 	return strings.Join(lines, "\n")
@@ -751,6 +758,7 @@ func (s *Server) deliver(path string, value float64) {
 		value = v
 	}
 	wrapper.UpdateFunc(value)
+	s.showColor(path, wrapper) // a colour change comes with the unchanged value
 	if metrics != nil {
 		metrics.RecordHomeKitEvent()
 	}
@@ -822,6 +830,7 @@ func (s *Server) refreshAllStates(ctx context.Context) {
 		// Update HomeKit state
 		if wrapper.UpdateFunc != nil {
 			wrapper.UpdateFunc(value)
+			s.showColor(path, wrapper)
 			refreshed++
 		}
 	}
