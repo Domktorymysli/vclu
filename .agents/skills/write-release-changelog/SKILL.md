@@ -124,6 +124,11 @@ Full list / Pełna lista: https://github.com/Domktorymysli/vclu/compare/v1.6.0..
 - **Thanks:** a point from an outside contributor ends with "thanks @login", as in earlier releases.
 - **Hardware:** say what was checked on real hardware and what was not, only in the GitHub release
   description (one line), not in the post.
+- **Each language part stands alone:** the `### English` and `### Po polsku` sections are cut out
+  of the GitHub release description automatically and shown without the rest. So: these exact two
+  headings; no other `#`, `##` or `###` heading inside them (bold lines like `**New**` only); the
+  update instructions and the hardware line stay above `### English`, never inside a part; no raw
+  HTML; links are full `https://` URLs.
 - Polish: plain words and the names of the vCLU panel and Object Manager (moduł, obiekt, cecha,
   dashboard). Read it aloud once.
 
@@ -139,7 +144,7 @@ Full list / Pełna lista: https://github.com/Domktorymysli/vclu/compare/v1.6.0..
 5. The GitHub release description: how to update (`curl -sSL
    https://raw.githubusercontent.com/Domktorymysli/vclu/main/deploy/update.sh | sudo bash -s --
    --version vX.Y.Z`, the Docker image tag `ghcr.io/domktorymysli/vclu:X.Y.Z`), one line on
-   hardware checks, then the section.
+   hardware checks, then the section: `### English`, then `### Po polsku`, nothing after it.
 
 ## Check
 
@@ -147,4 +152,6 @@ Full list / Pełna lista: https://github.com/Domktorymysli/vclu/compare/v1.6.0..
   (check against the preview of step 1: step 2 removes the files).
 - English and Polish have the same points in the same order; the post matches the section.
 - Under the length limits.
+- Each language part reads on its own: cut from its heading to the next one, it needs nothing from
+  the rest of the description.
 - `go test ./tools/changelog/` passes; `changelog.d/` holds only its README.
