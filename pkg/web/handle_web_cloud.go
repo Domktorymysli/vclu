@@ -42,7 +42,12 @@ func (s *Server) handleCloud(c *gin.Context) {
 	if st.HomeID != 0 && st.URL != "" {
 		manage = strings.TrimSuffix(st.URL, "/") + "/app/homes/" + strconv.FormatInt(st.HomeID, 10) + "/members"
 	}
+	var remote string
+	if s.luaExecutor != nil {
+		remote, _ = s.luaExecutor.Execute("Dashboard.API.remoteList()")
+	}
 	s.renderHTML(c, http.StatusOK, "cloud.html", gin.H{
+		"cloudShared":  sharedDashboards(remote, members),
 		"cloudMembers": members,
 		"cloudManage":  manage,
 		"title":        "Cloud",
@@ -147,4 +152,50 @@ func (s *Server) handleAPICloudReconnect(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, s.cloudClient.Status())
+}
+
+// sharedDashboard is a dashboard Lua shares through the cloud (:remote()), as the cloud page
+// lists it: who sees it, and which of its roles no member has (most likely a typo in Lua).
+type sharedDashboard struct {
+	ID, Name, Icon string
+	Roles          []string // empty: every member
+	Nobody         []string // roles that no member has
+	Pin            bool
+}
+
+// sharedDashboards reads Dashboard.API.remoteList()'s JSON; members are the cloud's last list
+// (nil before the first, then no role is flagged).
+func sharedDashboards(remoteJSON string, members []proto.Member) []sharedDashboard {
+	var list []struct {
+		ID    string   `json:"id"`
+		Name  string   `json:"name"`
+		Icon  string   `json:"icon"`
+		Roles []string `json:"roles"`
+		Pin   bool     `json:"pin"`
+	}
+	if remoteJSON == "" || json.Unmarshal([]byte(remoteJSON), &list) != nil {
+		return nil
+	}
+	held := map[string]bool{}
+	for _, m := range members {
+		for _, r := range m.Roles {
+			held[r] = true
+		}
+	}
+	out := make([]sharedDashboard, 0, len(list))
+	for _, d := range list {
+		sd := sharedDashboard{ID: d.ID, Name: d.Name, Icon: d.Icon, Roles: d.Roles, Pin: d.Pin}
+		if sd.Name == "" {
+			sd.Name = d.ID
+		}
+		if members != nil {
+			for _, r := range d.Roles {
+				if !held[r] {
+					sd.Nobody = append(sd.Nobody, r)
+				}
+			}
+		}
+		out = append(out, sd)
+	}
+	return out
 }

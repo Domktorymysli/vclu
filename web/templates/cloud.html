@@ -80,17 +80,38 @@
                                     <dt class="col-sm-3" id="cloudSinceLabel"></dt>
                                     <dd class="col-sm-9" id="cloudSince"></dd>
                                 </dl>
-                                <div class="form-check form-switch mb-1">
+                                <div class="form-check form-switch mb-3">
                                     <input class="form-check-input" type="checkbox" role="switch" id="cloudEnabled">
                                     <label class="form-check-label" for="cloudEnabled">{{index .t "cloud.enabled"}}</label>
                                 </div>
-                                <div class="form-text mb-3">{{index .t "cloud.enabled_hint"}}</div>
                                 <button type="button" class="btn btn-outline-primary d-none" id="cloudReconnectBtn">
                                     <i class="bi bi-arrow-repeat"></i> {{index .t "cloud.reconnect"}}
                                 </button>
                             </div>
                         </div>
                     </div>
+
+                    {{if .cloudShared}}
+                    <div class="card mb-3">
+                        <div class="card-header"><i class="bi bi-share"></i> {{index .t "cloud.shared_title"}}</div>
+                        <div class="card-body p-0">
+                            <table class="table table-sm mb-0 align-middle">
+                                <tbody>
+                                {{range .cloudShared}}
+                                    <tr>
+                                        <td><i class="bi bi-{{or .Icon "grid"}}"></i> <a href="/d/{{.ID}}">{{.Name}}</a> <span class="text-muted small">/d/{{.ID}}</span></td>
+                                        <td>
+                                            {{range .Roles}}<span class="badge text-bg-secondary me-1">{{.}}</span>{{else}}<span class="text-muted">{{index $.t "cloud.shared_everyone"}}</span>{{end}}
+                                            {{range .Nobody}}<div class="small text-warning"><i class="bi bi-exclamation-triangle"></i> {{printf (index $.t "cloud.shared_nobody") .}}</div>{{end}}
+                                        </td>
+                                        <td class="text-end">{{if .Pin}}<span class="badge text-bg-dark"><i class="bi bi-lock"></i> PIN</span>{{end}}</td>
+                                    </tr>
+                                {{end}}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    {{end}}
 
                     {{if .cloudMembers}}
                     <div class="card mb-3">
@@ -118,20 +139,8 @@
                                 </tbody>
                             </table>
                         </div>
-                        <div class="card-footer small text-muted">{{index .t "cloud.members_hint"}}</div>
                     </div>
                     {{end}}
-
-                    <div class="card mb-3">
-                        <div class="card-header"><i class="bi bi-shield-lock"></i> {{index .t "cloud.privacy_title"}}</div>
-                        <div class="card-body">
-                            <ul class="mb-0">
-                                <li>{{index .t "cloud.privacy_1"}}</li>
-                                <li>{{index .t "cloud.privacy_2"}}</li>
-                                <li>{{index .t "cloud.privacy_3"}}</li>
-                            </ul>
-                        </div>
-                    </div>
 
                     <div class="card mb-3 border-danger d-none" id="cloudDanger">
                         <div class="card-header text-danger"><i class="bi bi-exclamation-octagon"></i> {{index .t "cloud.danger_title"}}</div>
