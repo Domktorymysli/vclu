@@ -71,4 +71,4 @@ require (
 	gopkg.in/Regis24GmbH/go-diacritics.v2 v2.0.3 // indirect
 )
 
-replace github.com/Domktorymysli/vclu-cloud/proto => ../vclu-cloud-ws/proto
+replace github.com/Domktorymysli/vclu-cloud/proto => ../vclu-cloud/proto
