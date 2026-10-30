@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Domktorymysli/vclu/pkg/history"
 )
 
 // VirtualPresence: one presence per room from triggers, keep sources and a door, on a
@@ -335,6 +337,18 @@ func TestVirtualPresence_StartsEmpty(t *testing.T) {
 	mustExec(t, te.LuaEngine, `KEPT:updateState(0); KEPT:updateState(1)`)
 	te.expect(t, "after a change", `return st(P) .. "|" .. ev()`, "1/trigger: kept/0/0|+")
 
+	// a source that reports its unchanged value again does not arm the trigger
+	mustExec(t, te.LuaEngine, `
+		SRC = { v = 1, cbs = {} }
+		function SRC:getValue() return self.v end
+		function SRC:onChange(cb) table.insert(self.cbs, cb) end
+		function SRC:report(v) self.v = v; for i, cb in ipairs(self.cbs) do cb(v) end end
+		P3 = VirtualPresence:new("kuchnia", { trigger = { SRC } })
+		SRC:report(1)`)
+	te.expect(t, "same value again", `return P3:getValue()`, "0")
+	mustExec(t, te.LuaEngine, `SRC:report(0); SRC:report(1)`)
+	te.expect(t, "after a change", `return P3:getValue()`, "1")
+
 	// a Grenton input: its first report fires no OnChange
 	mustExec(t, te.LuaEngine, `
 		local clu = { executeNoReply = function() end }
@@ -344,6 +358,25 @@ func TestVirtualPresence_StartsEmpty(t *testing.T) {
 	te.expect(t, "first report", `return P2:getValue()`, "0")
 	te.advance(t, 10)
 	te.expect(t, "after the tick", `return P2:getValue()`, "1")
+}
+
+// A failing onChange or event handler skips none of the others nor the publish.
+func TestVirtualPresence_FailingHandlerFirst(t *testing.T) {
+	te := newVPEngine(t)
+	te.SetHistoryStore(history.New(history.DefaultConfig(), te.clk.now))
+	mustExec(t, te.LuaEngine, `
+		LIGHT = { n = 0, on = false }
+		P = VirtualPresence:new("salon", { trigger = { PIR }, hold = 0 })
+		registerObject("room.salon", P)
+		P:onChange(function(v) if v == 0 then error("onChange") end end)
+		P:onSwitchOn(function() error("first on") end)
+		P:onSwitchOn(function() LIGHT.on = true; LIGHT.n = LIGHT.n + 1 end)
+		P:onSwitchOff(function() error("first off") end)
+		P:onSwitchOff(function() LIGHT.on = false; LIGHT.n = LIGHT.n + 1 end)`)
+	mustExec(t, te.LuaEngine, `PIR:updateState(1)`)
+	te.expect(t, "on", `return P:getValue() .. "|" .. tostring(LIGHT.on) .. "|" .. P:lastChange().value`, "1|true|1")
+	mustExec(t, te.LuaEngine, `PIR:updateState(0)`)
+	te.expect(t, "off", `return P:getValue() .. "|" .. tostring(LIGHT.on) .. "|" .. LIGHT.n .. "|" .. P:lastChange().value`, "0|false|2|0")
 }
 
 // Unknown options, sources that do not resolve and bad values are errors at new().

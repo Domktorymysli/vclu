@@ -263,7 +263,9 @@ expose(th, "climate", { name = "Salon", area = "Salon", min = 18, max = 24 })
 ```
 
 `VirtualPresence:new(name, {trigger, keep, door, hold = 300, doorGrace = 10})` makes one presence per room from
-many sensors (objects or registry paths; active is `1` or `true`). It is on while a `trigger`
+many sensors (objects or registry paths; active is `1` or `true`). A source needs `getValue()` (Grenton,
+virtual, Satel, GPIO objects); a plugin sensor has `get()`, so bridge it through a `VirtualSensor`:
+`s:onChange(function(v) vs:updateState(v) end)`. It is on while a `trigger`
 (motion detector, button) is active, or a `keep` source (radar, TV, a socket drawing power) is
 active after a start, or the `door` (`1` = open) is closed with someone inside, and for `hold` s
 after the last of these ends; a new signal during the hold extends it without a second

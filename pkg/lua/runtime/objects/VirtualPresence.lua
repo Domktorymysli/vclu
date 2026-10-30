@@ -74,6 +74,18 @@ local function checkHold(sec, where)
     return sec
 end
 
+-- A handler that logs its error, so the other handlers and the publish still run
+local function guard(self, cb)
+    if type(cb) ~= "function" then return cb end
+    return function(...)
+        local ok, err = pcall(cb, ...)
+        if not ok then log():warn("[Presence] %s: a listener failed: %s", tostring(self._name), tostring(err)) end
+    end
+end
+
+local function onChange(self, cb) return VirtualSensor.onChange(self, guard(self, cb)) end
+local function onEvent(self, name, cb) return VirtualSensor.onEvent(self, name, guard(self, cb)) end
+
 -- Events go through VirtualSensor; a listener's error must not stop the presence
 local function setState(self, v)
     local ok, err = pcall(VirtualSensor.updateState, self, v)
@@ -220,7 +232,8 @@ local function watch(self, src, kind)
     if type(src.obj.onChange) ~= "function" then return end
     src.obj:onChange(function(v)
         if kind == "trigger" then
-            src.armed = true
+            -- an active value reported again is no change
+            if not (active(v) and active(src.last)) then src.armed = true end
             triggerSeen(self, src, v)
         elseif kind == "door" then
             doorChanged(self)
@@ -239,6 +252,8 @@ end
 -- on, or one on at closing still on doorGrace s later; closing it on leaving lets the hold run
 -- out), doorGrace (10 s: a detector that stays on longer by itself belongs in keep, or needs
 -- more), hold (300 s).
+-- Sources need getValue() (Grenton, virtual, Satel, GPIO objects); a plugin sensor has get(),
+-- so bridge it: s:onChange(function(v) vs:updateState(v) end) with vs a VirtualSensor.
 -- Do not make a light switched by this presence its own keep source.
 -- @api public
 -- @param name string Name
@@ -251,6 +266,9 @@ function VirtualPresence:new(name, opts)
         if not OPTIONS[k] then error("VirtualPresence: unknown option '" .. tostring(k) .. "'", 2) end
     end
     local obj = VirtualSensor.new(self, name)
+    -- on the instance: the class keeps the public API only
+    obj.onChange = onChange
+    obj.onEvent = onEvent
     obj._allowedMethods = {"getValue", "isActive", "getReason", "getRemaining", "getDuration", "getHold",
         "setHold", "trigger", "setOverride"}
     obj._triggers = resolveList(opts.trigger, "trigger")
