@@ -71,7 +71,7 @@
         button: 'play-fill', toggle: 'power', slider: 'sliders', status: 'info-circle', link: 'link-45deg',
         chart: 'graph-up', select: 'list-ul', image: 'image', cover: 'arrows-expand', covers: 'window', dimmer: 'lightbulb',
         color: 'palette', calendar: 'calendar3', player: 'music-note-beamed', forecast: 'cloud-sun',
-        room: 'door-open', thermostat: 'thermometer-half', table: 'table'
+        room: 'door-open', thermostat: 'thermometer-half', table: 'table', gauge: 'speedometer2'
     };
 
     // 23.9 -> "23,9" in Polish; with decimals rounded to them (21 -> "21,0"); text as it is
@@ -238,6 +238,11 @@
             if (d.mode != null && T.modes[d.mode]) tp.push(T.modes[d.mode]);
             if (d.locked) tp.push(T.locked);
             return [d.state === 0 ? 'off' : (d.state ? 'on' : 'value'), tp.join(' · ')];
+        case 'gauge':
+            // the value is in the tile's body; the line says where the marker stands
+            if (d.value == null) return ['unknown', T.unknown];
+            return [isAlarm(gaugeBand(w, d.value)) ? 'alarm' : 'value',
+                d.target != null ? T.target + ' ' + withUnit(d.target, w.unit, w.decimals) : ''];
         case 'room':
             var lit = d.on || 0, opened = d.open || 0, parts = [];
             if (lit) parts.push(plural(lit, T.onN));
@@ -271,6 +276,7 @@
         if (type === 'table') updateTable(el, w, d);
         if (type === 'room') updateRoom(el, w, d, st[1]);
         if (type === 'thermostat') updateThermostat(el, w, d);
+        if (type === 'gauge') updateGauge(el, w, d);
         if (el.classList.contains('dash-header-item')) el.title = (w.label || '') + ': ' + st[1];
         if (el.getAttribute('role') === 'switch') el.setAttribute('aria-checked', d.value ? 'true' : 'false');
     }
@@ -624,6 +630,8 @@
             renderRoom(el, w);
         } else if (w.type === 'thermostat') {
             renderThermostat(el, w);
+        } else if (w.type === 'gauge') {
+            renderGauge(el, w);
         }
 
         refreshTile(el, w, w);
@@ -1466,6 +1474,159 @@
             b.hidden = d.set === false;
             b.disabled = !can || (shown != null && (b.dataset.dir > 0 ? shown >= w.max : shown <= w.min));
         });
+    }
+
+    // ---- Gauge: a value on a 240° arc or a bar, coloured by thresholds ----
+
+    var SVG_NS = 'http://www.w3.org/2000/svg';
+    var GAUGE_CX = 100, GAUGE_CY = 96, GAUGE_R = 80, GAUGE_SWEEP = 240;
+    var gaugeSeq = 0;
+
+    function svgEl(tag, attrs, cls) {
+        var e = document.createElementNS(SVG_NS, tag);
+        for (var k in attrs) if (attrs.hasOwnProperty(k)) e.setAttribute(k, attrs[k]);
+        if (cls) e.setAttribute('class', cls);
+        return e;
+    }
+
+    // Where v sits in min..max, 0..1 (clamped: the number shows the true value); null without one
+    function gaugeFrac(w, v) {
+        if (typeof v !== 'number' || !isFinite(v)) return null;
+        return Math.min(1, Math.max(0, (v - w.min) / (w.max - w.min)));
+    }
+
+    // A point on the arc, f 0 its left end and 1 its right end
+    function gaugePoint(f, r) {
+        var a = (f - 0.5) * GAUGE_SWEEP * Math.PI / 180;
+        return (GAUGE_CX + r * Math.sin(a)).toFixed(2) + ' ' + (GAUGE_CY - r * Math.cos(a)).toFixed(2);
+    }
+
+    function gaugeArc(f0, f1, r) {
+        var large = (f1 - f0) * GAUGE_SWEEP > 180 ? 1 : 0;
+        return 'M' + gaugePoint(f0, r) + ' A' + r + ' ' + r + ' 0 ' + large + ' 1 ' + gaugePoint(f1, r);
+    }
+
+    // The colour of the last threshold at or below v, else none (the tile's own)
+    function gaugeBand(w, v) {
+        var c = null;
+        if (typeof v !== 'number') return c;
+        (w.thresholds || []).forEach(function(t) { if (v >= t.value) c = t.color; });
+        return c;
+    }
+
+    // Threshold bands: from each value to the next one (or max); below the first in the tile's colour
+    function gaugeBands(w) {
+        var th = w.thresholds || [], out = [];
+        if (!th.length) return out;
+        var edges = [{ value: w.min, color: w.color || 'accent' }].concat(th);
+        edges.forEach(function(t, i) {
+            var f0 = gaugeFrac(w, t.value), f1 = i + 1 < edges.length ? gaugeFrac(w, edges[i + 1].value) : 1;
+            if (f1 > f0) out.push({ f0: f0, f1: f1, color: resolveColor(t.color) });
+        });
+        return out;
+    }
+
+    function renderGauge(el, w) {
+        var bar = w.style === 'bar';
+        var box = calEl('div', 'dash-gauge ' + (bar ? 'dash-gauge-bar' : 'dash-gauge-arc'));
+        box.setAttribute('role', 'meter');
+        box.setAttribute('aria-label', w.label || '');
+        box.setAttribute('aria-valuemin', w.min);
+        box.setAttribute('aria-valuemax', w.max);
+        var readout = calEl('div', 'dash-gauge-readout');
+        readout.appendChild(calEl('span', 'dash-gauge-value', '—'));
+        readout.appendChild(calEl('span', 'dash-gauge-unit', w.unit || ''));
+        var bands = gaugeBands(w), svg, fill, target;
+
+        if (bar) {
+            var clip = 'dash-gauge-clip-' + (++gaugeSeq);
+            svg = svgEl('svg', { width: '100%', height: '30', 'aria-hidden': 'true' }, 'dash-gauge-svg');
+            var defs = svgEl('defs', {});
+            var cp = svgEl('clipPath', { id: clip });
+            cp.appendChild(svgEl('rect', { x: 0, y: 4, width: '100%', height: 18, rx: 9 }));
+            defs.appendChild(cp);
+            svg.appendChild(defs);
+            svg.appendChild(svgEl('rect', { x: 0, y: 4, width: '100%', height: 18, rx: 9 }, 'dash-gauge-track'));
+            var g = svgEl('g', { 'clip-path': 'url(#' + clip + ')' });
+            fill = svgEl('rect', { x: 0, y: 4, width: '100%', height: 18 }, 'dash-gauge-fill');
+            g.appendChild(fill);
+            svg.appendChild(g);
+            bands.forEach(function(b) {
+                var r = svgEl('rect', { x: (b.f0 * 100) + '%', y: 26, width: ((b.f1 - b.f0) * 100) + '%', height: 4 }, 'dash-gauge-band');
+                r.style.fill = b.color;
+                svg.appendChild(r);
+            });
+            target = svgEl('line', { y1: 0, y2: 30 }, 'dash-gauge-target');
+            svg.appendChild(target);
+            var col = calEl('div', 'dash-gauge-col');
+            col.appendChild(svg);
+            var scale = calEl('div', 'dash-gauge-scale');
+            scale.appendChild(calEl('span', '', fmtNum(w.min)));
+            scale.appendChild(calEl('span', '', fmtNum(w.max)));
+            col.appendChild(scale);
+            var row = calEl('div', 'dash-gauge-row');
+            row.appendChild(col);
+            row.appendChild(readout);
+            box.appendChild(row);
+        } else {
+            svg = svgEl('svg', { viewBox: '0 0 200 160', 'aria-hidden': 'true' }, 'dash-gauge-svg');
+            var whole = gaugeArc(0, 1, GAUGE_R);
+            svg.appendChild(svgEl('path', { d: whole }, 'dash-gauge-track'));
+            bands.forEach(function(b) {
+                var p = svgEl('path', { d: gaugeArc(b.f0, b.f1, GAUGE_R + 14) }, 'dash-gauge-band');
+                p.style.stroke = b.color;
+                svg.appendChild(p);
+            });
+            // the whole arc with pathLength 100: the dash offset draws the value's part
+            fill = svgEl('path', { d: whole, pathLength: 100 }, 'dash-gauge-fill');
+            svg.appendChild(fill);
+            target = svgEl('line', { x1: GAUGE_CX, x2: GAUGE_CX, y1: GAUGE_CY - GAUGE_R - 13, y2: GAUGE_CY - GAUGE_R + 13 }, 'dash-gauge-target');
+            svg.appendChild(target);
+            [[0, w.min, 'start'], [1, w.max, 'end']].forEach(function(e) {
+                var p = gaugePoint(e[0], GAUGE_R).split(' ');
+                var t = svgEl('text', { x: p[0], y: 156, 'text-anchor': 'middle' }, 'dash-gauge-scale-text');
+                t.textContent = fmtNum(e[1]);
+                svg.appendChild(t);
+            });
+            var dial = calEl('div', 'dash-gauge-dial');
+            dial.appendChild(svg);
+            dial.appendChild(readout);
+            box.appendChild(dial);
+        }
+        el._gauge = { fill: fill, target: target, bar: bar };
+        el.appendChild(box);
+    }
+
+    function updateGauge(el, w, d) {
+        var st = el._gauge;
+        if (!st) return;
+        var has = typeof d.value === 'number';
+        el.querySelector('.dash-gauge-value').textContent = has ? fmtNum(d.value, w.decimals) : '—';
+        el.querySelector('.dash-gauge-unit').hidden = !has || !w.unit;
+        var box = el.querySelector('.dash-gauge');
+        // aria-valuenow within min..max; the true value is in the text
+        box.setAttribute('aria-valuenow', has ? Math.min(w.max, Math.max(w.min, d.value)) : w.min);
+        box.setAttribute('aria-valuetext', has ? withUnit(d.value, w.unit, w.decimals) : T.unknown);
+        var f = gaugeFrac(w, d.value) || 0;
+        if (st.bar) st.fill.style.transform = 'scaleX(' + f + ')';
+        else st.fill.style.strokeDashoffset = String(100 - f * 100);
+        // a round cap would draw a dot at 0
+        st.fill.classList.toggle('dash-gauge-none', !has || f === 0);
+        // the band's colour is the tile's while the value is in it (warning and danger also make it an alarm)
+        applyColor(el, gaugeBand(w, d.value) || w.color);
+
+        var tf = gaugeFrac(w, d.target);
+        st.target.classList.toggle('dash-gauge-none', tf == null);
+        if (tf != null) {
+            if (st.bar) {
+                // 1.5 px in from the ends so the 3 px line is not cut off
+                st.target.setAttribute('x1', (tf * 100) + '%');
+                st.target.setAttribute('x2', (tf * 100) + '%');
+                st.target.style.transform = 'translateX(' + (1.5 - 3 * tf) + 'px)';
+            } else {
+                st.target.style.transform = 'rotate(' + ((tf - 0.5) * GAUGE_SWEEP) + 'deg)';
+            }
+        }
     }
 
     // ---- Media player ----
@@ -2738,6 +2899,8 @@
             });
         }
         if (type === 'color') delete d.value; // brightness or white: the reply does not say
+        // a poll is the whole state: no value is a dash, no target drops the marker
+        if (type === 'gauge' && !force) ['value', 'target', 'error'].forEach(function(k) { if (!(k in d)) d[k] = null; });
         if (type === 'thermostat') {
             delete d.value; // a set's reply: the tile holds the value itself
             // a poll is the whole state: what it leaves out was not reported (shown as --)

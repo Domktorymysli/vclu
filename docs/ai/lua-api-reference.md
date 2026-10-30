@@ -1267,6 +1267,15 @@ Add a thermostat: current temperature, target and +/- for the target. getState=f
 - `fns` (table) — {getCurrent=function()->number|nil, getTarget=function()->number|nil, setTarget=function(number)?,
 - `opts` (table) — Optional: {min=5, max=35, step=0.5, unit="°C", readonly=bool or function()->bool (true: no buttons; a function locks them while it returns true), disabled=function()->bool, visible=function()->bool, span=n, size=string, color=string}
 
+### `SectionHandle:gauge(id, label, getValue, opts)`
+
+Add a gauge: a value on an arc or a bar between min and max, coloured by thresholds. style="arc" (default) is a 240° arc with the value in the middle, "bar" a horizontal bar with the value at its right; from each threshold's value on the fill takes its colour; a value outside min..max is drawn at the end, the number shows it as it is.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `getValue` (function) — Returns the value: function() -> number|nil (nil shows a dash)
+- `opts` (table) — Optional: {min=0, max=100 (above min), unit=string, decimals=0-6, style="arc"|"bar", thresholds={{value, color}, ...} (ascending), target=number|function()->number|nil (a marker, e.g. a power limit), icon=string (default "speedometer2"), disabled=function()->bool, span=n, size=string, color=string (the fill below the first threshold)}
+
 ### `SectionHandle:chip(id, icon, fn, opts)`
 
 Add a chip to the header: an icon and a short text from fn, hidden while fn returns nil.
@@ -1583,6 +1592,15 @@ Add a color picker widget to the current section. switchOn?, switchOff?, isOn?, 
 - `icon` (string) — Bootstrap icon name (e.g., "palette")
 - `fns` (table) — {getColor=function()->{r,g,b}, setColor=function(r,g,b), get?/set? brightness 0-100,
 - `opts` (table) — Optional: {disabled=function()->bool, visible=function()->bool}
+
+### `DashboardBuilder:gauge(id, label, getValue, opts)`
+
+Add a gauge to the current section: a value on an arc or a bar between min and max. style="arc" (default) is a 240° arc with the value in the middle, "bar" a horizontal bar with the value at its right; from each threshold's value on the fill takes its colour; a value outside min..max is drawn at the end, the number shows it as it is.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `getValue` (function) — Returns the value: function() -> number|nil (nil shows a dash)
+- `opts` (table) — Optional: {min=0, max=100 (above min), unit=string, decimals=0-6, style="arc"|"bar", thresholds={{value, color}, ...} (ascending), target=number|function()->number|nil (a marker, e.g. a power limit), icon=string (default "speedometer2"), disabled=function()->bool, span=n, size=string, color=string (the fill below the first threshold)}
 
 ### `DashboardBuilder:thermostat(id, label, icon, fns, opts)`
 
