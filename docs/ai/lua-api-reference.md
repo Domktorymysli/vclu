@@ -18,7 +18,7 @@ Only public API is listed — internal/private functions are omitted.
 - [core.Registry](#coreregistry) (10 functions)
 - [core.Metrics](#coremetrics) (1 functions)
 - [core.Calendar](#corecalendar) (36 functions)
-- [Dashboard](#dashboard) (66 functions)
+- [Dashboard](#dashboard) (68 functions)
 - [lib.panel](#libpanel) (55 functions)
 - [objects.RemotePanel](#objectsremotepanel) (6 functions)
 - [GPIO_DOUT](#gpio_dout) (1 functions)
@@ -1227,6 +1227,14 @@ Add a weather forecast: the next days (icon, max/min, rain) and a chart of the n
 - `src` (function) — A function returning the forecast, or the Weather plugin (Plugin.getPlugin("@vclu/weather"))
 - `opts` (table) — Optional: {days=1-7 (default 5), hours=0-48 (default 24, 0 hides the chart), unit=string (default "°C"), icon=string (default "cloud-sun"), disabled=function()->bool, span=n, size=string, color=string}
 
+### `SectionHandle:energy(id, label, opts)`
+
+Add an energy flow: PV, grid, battery and home as nodes, with the power flowing between them. Each function returns the power now (W, or kW with unit="kW"), nil while there is no reading; pv is 0 or more, grid is + taken from the grid and - given to it, battery + charging and - discharging (invert flips one that counts the other way). A node without its function is left out (a house without a battery); home without one is pv + grid - battery, at least 0 (PV without a reading counts as 0). A function that fails shows "—" on its node, the rest of the tile stays.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `opts` (table) — {pv=fn, grid=fn, battery=fn, batterySoc=fn (%), home=fn, unit="W"|"kW" (default "W"), invert={grid=bool, battery=bool}, today={pv=fn, grid_import=fn, grid_export=fn, home=fn} (kWh today, shown under the nodes), icon=string (default "lightning-charge"), disabled=function()->bool, span=n (default 2)}
+
 ### `SectionHandle:dimmer(id, label, icon, fns, opts)`
 
 Add a dimmer widget to this section.
@@ -1543,6 +1551,14 @@ Add a weather forecast to the current section: the next days and a chart of the 
 - `label` (string) — Display label
 - `src` (function) — A function returning {days={...}, hours={...}, updated?} or nil, or the Weather plugin
 - `opts` (table) — Optional: {days=1-7, hours=0-48, unit=string, icon=string, disabled=function()->bool, span=n, size=string, color=string}
+
+### `DashboardBuilder:energy(id, label, opts)`
+
+Add an energy flow to the current section: PV, grid, battery and home with the power between them.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `opts` (table) — {pv=fn, grid=fn, battery=fn, batterySoc=fn, home=fn, unit="W"|"kW", invert={grid, battery}, today={pv, grid_import, grid_export, home}, icon=string, disabled=function()->bool, span=n}
 
 ### `DashboardBuilder:dimmer(id, label, icon, fns, opts)`
 

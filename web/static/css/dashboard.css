@@ -194,6 +194,7 @@ body {
     .dash-widget-covers:hover,
     .dash-widget-player:hover,
     .dash-widget-forecast:hover,
+    .dash-widget-energy:hover,
     .dash-widget-dimmer:hover,
     .dash-widget-color:hover,
     .dash-widget-slider:hover {
@@ -444,6 +445,7 @@ body {
 .dash-widget-covers:active,
 .dash-widget-player:active,
 .dash-widget-forecast:active,
+.dash-widget-energy:active,
 .dash-widget-dimmer:active,
 .dash-widget-color:active {
     transform: none;
@@ -1047,6 +1049,175 @@ body {
 }
 
 
+/* ---- Energy flow: four nodes, the power on the lines between them ---- */
+.dash-widget-energy {
+    cursor: default;
+    --energy-pv: #e6a700;
+    --energy-grid: #3d8bfd;
+    --energy-battery: #20a85a;
+    --energy-home: var(--dash-accent);
+}
+
+.dash-energy {
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: start;
+    row-gap: 4px;
+    padding: 4px 0 2px;
+}
+
+.dash-energy-lines {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    pointer-events: none;
+}
+
+.dash-energy-node {
+    position: relative; /* above the lines */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    text-align: center;
+    --node-c: var(--energy-home);
+}
+.dash-energy-node[data-node="pv"] { --node-c: var(--energy-pv); }
+.dash-energy-node[data-node="grid"] { --node-c: var(--energy-grid); }
+.dash-energy-node[data-node="battery"] { --node-c: var(--energy-battery); }
+
+/* the top node has its texts above the circle, the bottom one below */
+.dash-energy-node[data-pos="top"] .dash-energy-circle { order: 3; }
+.dash-energy-node[data-pos="top"] .dash-energy-today { order: 2; }
+.dash-energy-node[data-pos="bottom"] .dash-energy-label { order: 2; }
+.dash-energy-node[data-pos="bottom"] .dash-energy-today { order: 3; }
+/* in the cross a side node's counters hang below it, so both side circles stay level */
+.dash-energy[data-count="4"] .dash-energy-node[data-pos="left"] .dash-energy-today,
+.dash-energy[data-count="4"] .dash-energy-node[data-pos="right"] .dash-energy-today {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+}
+
+.dash-energy-label {
+    font-size: 0.78rem;
+    font-weight: 600;
+    opacity: 0.75;
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dash-energy-circle {
+    position: relative;
+    width: 88px;
+    height: 88px;
+    border-radius: 50%;
+    border: 3px solid var(--node-c);
+    background: var(--dash-card-bg);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    line-height: 1.15;
+    box-sizing: border-box;
+}
+.dash-energy-circle.has-ring { border-color: transparent; }
+
+.dash-energy-ring {
+    position: absolute;
+    inset: -3px;
+    width: calc(100% + 6px);
+    height: calc(100% + 6px);
+}
+.dash-energy-ring circle { fill: none; stroke-width: 6; }
+.dash-energy-ring-track { stroke: rgba(128,128,128,0.25); }
+.dash-energy-ring-arc {
+    stroke: var(--node-c);
+    stroke-linecap: round;
+    stroke-dasharray: 0 100;
+    transition: stroke-dasharray 0.6s ease;
+}
+
+.dash-energy-icon {
+    font-size: 1.1rem;
+    color: var(--node-c);
+}
+
+.dash-energy-value {
+    font-size: 0.95rem;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.dash-energy-dir {
+    font-size: 0.62rem;
+    opacity: 0.7;
+    min-height: 0.8em;
+    white-space: nowrap;
+}
+
+.dash-energy-node.has-error .dash-energy-value { opacity: 0.5; }
+.dash-energy-node.has-error .dash-energy-circle { border-style: dashed; }
+
+.dash-energy-today {
+    font-size: 0.72rem;
+    opacity: 0.65;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+.dash-energy-today:empty { display: none; }
+
+.dash-energy-flow { color: var(--energy-home); }
+.dash-energy-flow[data-src="pv"] { color: var(--energy-pv); }
+.dash-energy-flow[data-src="grid"] { color: var(--energy-grid); }
+.dash-energy-flow[data-src="battery"] { color: var(--energy-battery); }
+
+.dash-energy-path {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    opacity: 0.55;
+    transition: stroke-width 0.6s ease;
+}
+.dash-energy-flow.idle .dash-energy-path {
+    stroke: rgba(128,128,128,0.45);
+    stroke-dasharray: 2 5;
+    opacity: 1;
+}
+
+.dash-energy-dot { fill: currentColor; }
+.dash-energy-arrow { fill: currentColor; display: none; }
+.dash-energy-flow.idle .dash-energy-dot,
+.dash-energy-flow.idle .dash-energy-arrow { display: none; }
+
+/* no moving dots: an arrow says which way the power flows */
+@media (prefers-reduced-motion: reduce) {
+    .dash-energy-dot { display: none; }
+    .dash-energy-flow:not(.idle) .dash-energy-arrow { display: inline; }
+    .dash-energy-ring-arc, .dash-energy-path { transition: none; }
+}
+
+@media (max-width: 600px) {
+    .dash-energy-circle {
+        width: 74px;
+        height: 74px;
+    }
+    .dash-energy-dir { font-size: 0.56rem; }
+    .dash-energy-value { font-size: 0.85rem; }
+    .dash-energy-icon { font-size: 0.95rem; }
+    .dash-energy-label, .dash-energy-today { font-size: 0.7rem; }
+}
+
+
 /* "2 otwarte · 1 w ruchu" after a section's name */
 .dash-section-covers {
     margin-left: auto;
@@ -1554,6 +1725,7 @@ body {
     .dash-grid > .dash-widget-covers,
     .dash-grid > .dash-widget-player,
     .dash-grid > .dash-widget-forecast,
+    .dash-grid > .dash-widget-energy,
     .dash-grid > .dash-widget-thermostat,
     .dash-grid > .dash-widget-dimmer,
     .dash-grid > .dash-widget-color,
@@ -2233,6 +2405,8 @@ body.dash-room-open {
     .dash-player-btn:active { background: color-mix(in srgb, var(--dash-text) 18%, transparent); }
     .dash-player-idle .dash-player-btn.dash-player-play { background: color-mix(in srgb, var(--dash-text) 9%, transparent); }
     .dash-forecast-day { background: color-mix(in srgb, var(--dash-text) 5%, transparent); }
+    .dash-energy-circle { background: color-mix(in srgb, var(--node-c) 10%, var(--dash-card-bg)); }
+    .dash-energy-icon { color: color-mix(in srgb, var(--node-c) 80%, var(--dash-text)); }
     .dash-thermo-btn { background: color-mix(in srgb, var(--dash-text) 9%, transparent); }
     .dash-thermo-btn:active { background: color-mix(in srgb, var(--dash-text) 18%, transparent); }
     .dash-forecast-icon { color: color-mix(in srgb, var(--tile-c) 75%, var(--dash-text)); }

@@ -354,7 +354,7 @@ CLU220000592:executeNoReply(0, "SetThermostat(19)")
 ## Dashboard (Lua-defined)
 
 Public dashboard for a tablet/wall. Defined in Lua, available at `/d/:id`.
-Widget types: button, toggle, slider, status, link, select, chart, image, group, cover, covers, dimmer, color, thermostat, calendar, player, forecast; in the header also chip.
+Widget types: button, toggle, slider, status, link, select, chart, image, group, cover, covers, dimmer, color, thermostat, calendar, player, forecast, energy; in the header also chip.
 `:calendar(id, label, cal, { view = 'month' | 'day', tags = {...}, schedules = { 'taryfa' } })` shows a calendar
 built with `Calendar`: a month grid and the day of a tapped date (full width); `schedules` adds a 24 h bar per schedule (`schedules = true`: all of the calendar's)
 to the day view; `holidays` (holiday names, default on), `namedays` (name days in the day view, default off) and
@@ -701,6 +701,49 @@ local weather = Plugin.getPlugin("@vclu/weather")
 - opts: `days` (1-7, default 5), `hours` (0-48, default 24, 0 hides the chart), `unit` (default `°C`),
   `icon` (default `cloud-sun`), `disabled`, `span`, `size`, `color` (the temperature line). Two columns
   wide by default, full width on a phone.
+
+### Energy flow
+
+`:energy(id, label, opts)` draws PV, the grid, a battery and the home as nodes, with dots moving
+along the lines between them: faster and thicker with more power, in the direction it flows.
+Each function returns the power now in W (`unit = 'kW'` when it returns kW).
+
+```lua
+-- PV from an inverter, the grid from a bidirectional meter at the house's entry
+local function watts(path)
+  return function() return _:value(path) end
+end
+
+:section('Energia', 'lightning-charge')
+  :energy('flow', 'Prąd teraz', {
+      pv   = watts('solax.power'),          -- AC power of the inverter, 0 or more
+      grid = watts('meter.power'),          -- + taken from the grid, - given to it
+      today = {
+        pv          = watts('solax.today'), -- kWh since midnight
+        grid_import = watts('meter.today_import'),
+        grid_export = watts('meter.today_export'),
+      },
+  })
+```
+
+- **Signs:** `pv` is 0 or more; `grid` is + taken from the grid and - given to it; `battery` is
+  + charging and - discharging. A source counting the other way: `invert = { grid = true }`
+  (or `battery = true`).
+- **home:** without a function it is `pv + grid - battery`, at least 0. With one (a meter on
+  the house's own circuits) the tile shows that, and the lines into the home are scaled to it.
+- **Nodes:** a node without its function is left out with its lines (a house without a battery,
+  one without PV). `batterySoc` (0-100 %) draws a ring around the battery.
+- **today:** kWh numbers under the nodes (`pv`, `grid_import`, `grid_export`, `home`), rounded
+  to 0.1.
+- A function that fails, or returns something that is not a number (a decimal string counts,
+  `"1,5"` too), shows "—" on its node; the rest of the tile stays. `nil` is no reading: "—" as
+  well. PV without a reading (an inverter asleep at night) counts as 0 in the home's balance;
+  grid or battery without one, or any source that fails, makes a home from the balance "—".
+- A line under 10 W has no dots. With reduced motion in the system settings the dots stop and
+  an arrow shows the direction.
+- opts: `pv`, `grid`, `battery`, `batterySoc`, `home`, `unit` (`'W'` or `'kW'`), `invert`,
+  `today`, `icon` (default `lightning-charge`), `disabled`, `span`. Two columns wide by default,
+  full width on a phone.
 
 ### Select widget (dropdown)
 
