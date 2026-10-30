@@ -21,20 +21,19 @@ expose(scene, "scene", {
 
 ## Automatyzacja (event-driven)
 
-Reaction to an event (motion sensor, state change). StateBus + setTimeout.
+Reaction to an event (motion sensor, state change). A light on motion is a `VirtualPresence`,
+not a hand-made `setTimeout`: a new motion counts the time again, so the light does not go off
+while someone moves.
 
 ```lua
---- Automation: kitchen motion sensor -> counter light ON for 5 min
--- state_changed goes through StateBus: one event per change, fields path/old/value
-StateBus:getShared():on("state_changed", function(data)
-    if data.path == "s:kitchen_motion" and data.value == 1 then
-        _registry:get("custom:kitchen_counter"):set(0, 80)
-        setTimeout(function()
-            _registry:get("custom:kitchen_counter"):set(0, 0)
-        end, 300000)
-    end
-end)
+--- Automation: kitchen motion sensor -> counter light on, off 5 min after the last motion
+local kitchen = VirtualPresence:new("kuchnia", { trigger = { "s:kitchen_motion" }, hold = 300 })
+kitchen:onSwitchOn(function() _registry:get("custom:kitchen_counter"):set(0, 80) end)
+kitchen:onSwitchOff(function() _registry:get("custom:kitchen_counter"):set(0, 0) end)
 ```
+
+Any other change: `StateBus:getShared():on("state_changed", function(data) ... end)`, one event
+per change with the fields `path`, `old` and `value`.
 
 ## Harmonogram (schedule)
 
@@ -239,7 +238,7 @@ Subscribe callback: `function(topic, payload, qos, retain)`. In `vclu_draft_test
 
 ### Virtual Objects
 
-Virtual objects (`VirtualSwitch`, `VirtualDimmer`, `VirtualCover`, `VirtualSensor`, `VirtualNumber`)
+Virtual objects (`VirtualSwitch`, `VirtualDimmer`, `VirtualCover`, `VirtualSensor`, `VirtualNumber`, `VirtualPresence`)
 provide ready-made state management, `onChange` with unsubscribe, events and integration with `expose()`.
 Use them instead of hand-building tables.
 
@@ -252,6 +251,7 @@ Use them instead of hand-building tables.
 | `VirtualNumber` | AnalogOUT | `getValue`, `setValue`, `getMeta()` — constructor: `VirtualNumber:new(name, {min, max, step, unit, initial, persist})` |
 | `VirtualText` | TEXT | `getValue`, `setValue` — constructor: `VirtualText:new(name, {initial, maxLength, persist})` |
 | `VirtualThermostat` | THERMOSTAT | `getValue` (temperature), `getTarget`, `getSetpoint`, `setSetpoint`, `getState`, `start`, `stop`, `getMode`, `setMode(0 set point / 1 holiday)`, `getFault`, `getDirection` — see below |
+| `VirtualPresence` | DIN | `getValue`, `isActive`, `onSwitchOn`, `onSwitchOff`, `getReason`, `getRemaining`, `getDuration`, `trigger(sec)`, `setOverride(1/0/nil)`, `setHold`, `getHold` — see below |
 
 `VirtualThermostat:new(name, {source, output, hysteresis = 0.5, direction = "heat"|"cool", setpoint = 21, holiday = 16, min = 5, max = 35, staleAfter = 900, maxOn, persist})`
 switches `output` (anything with `switchOn`/`switchOff`) by `source` (anything with `getValue`/`onChange`): on at target − hysteresis, off at target + hysteresis (cooling the other way), only on a crossing. No change from the source for `staleAfter` s switches the output off (`getFault() == "stale"`, logged once); `maxOn` s on in one go stops it until a setting changes. Before a reload or a stop vCLU switches every thermostat's output off, and a new one (also after a restart) starts with it off and waits for a reading that arrives after it. `persist` keeps the set point, mode and state. It is a thermostat for `expose()` (Home Assistant climate), `lib/panel` (`menu:add`, `menu:thermostat`) and `section:thermostat`; which sensors to average or a schedule belong in a module:
@@ -260,6 +260,37 @@ switches `output` (anything with `switchOn`/`switchOff`) by `source` (anything w
 local th = VirtualThermostat:new("salon", { source = _:get("z2m.salon_temp"), output = _:get("CLU1.DOU0123"),
     setpoint = 21, holiday = 16, persist = true })
 expose(th, "climate", { name = "Salon", area = "Salon", min = 18, max = 24 })
+```
+
+`VirtualPresence:new(name, {trigger, keep, door, hold = 300, doorGrace = 10})` makes one presence per room from
+many sensors (objects or registry paths; active is `1` or `true`). It is on while a `trigger`
+(motion detector, button) is active, or a `keep` source (radar, TV, a socket drawing power) is
+active after a start, or the `door` (`1` = open) is closed with someone inside, and for `hold` s
+after the last of these ends; a new signal during the hold extends it without a second
+`OnSwitchOn`. A `keep` source never starts it, so a radar seeing a curtain does not light an empty
+room. The door is "wasp in a box": once someone is seen inside after it closed (a trigger goes
+on, or one on at the closing is still on `doorGrace` s later) presence stays until the door
+opens, then the hold runs. A trigger that clears within `doorGrace` is someone leaving, so
+closing the door behind you lets the hold run out; a door closed on an empty room does not start
+it. A detector with a long timeout of its own (many Zigbee occupancy sensors) needs a larger
+`doorGrace`, or goes in `keep`. It starts empty, also after a reload. `getReason()` says
+what holds it (`"trigger: satel.zone.3"`, `"keep: zigbee.salon.tv"`, `"door"` while the closed door holds it, `"hold 42 s"`,
+`"override"`, nil when empty); `getRemaining()` and `getDuration()` give seconds; `trigger(sec)`
+is a signal from code; `setOverride(1)` forces present (guests), `setOverride(0)` empty (alarm
+armed), `setOverride(nil)` returns to the sensors; `setHold(sec)` (a module or the calendar sets
+day and night) applies from the next hold.
+
+**Never make a light switched by the presence its own `keep` source:** the light keeps the
+presence and the presence keeps the light on forever. `new()` cannot always see it.
+
+```lua
+local bath = VirtualPresence:new("lazienka", {
+    trigger = { "satel.zone.3" },                -- PIR
+    keep = { "z2m.lazienka_radar" },             -- not the bathroom light itself
+    door = "satel.zone.7", hold = 120 })
+bath:onSwitchOn(function() _:get("CLU1.DOU0124"):switchOn() end)
+bath:onSwitchOff(function() _:get("CLU1.DOU0124"):switchOff() end)
+expose(bath, "occupancy", { name = "Łazienka", area = "Łazienka" })
 ```
 
 Every `Virtual*:new(name, opts)` takes `initial` and `persist`: with `persist = true` (or a key string) the value survives reloads and restarts, e.g. `VirtualSwitch:new("tryb_nocny", { initial = 0, persist = true })`. State of an automation itself: `local st = persist("name", { pauseUntil = 0 })`, then `st.pauseUntil = ...` is saved. Avoid persist for values changing every second (each save rewrites a KV file).

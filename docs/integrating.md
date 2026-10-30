@@ -68,9 +68,9 @@ How `<base>`, `<id>` and `<component>` come from the object:
   gets base `vclu` and the whole path as id. Both are lowercased and every character that is not a
   letter or digit becomes `_`: `vclu/exposed/vclu/switch/clu220000592_dou0789/state`.
 - `<component>` is the Home Assistant component of the expose type: `switch` → `switch`,
-  `light` and `dimmer` → `light`, `cover` → `cover`, `sensor` and `motion` → `binary_sensor`,
-  `temperature`, `humidity`, `illuminance` and `text` → `sensor`, `number` → `number`,
-  `scene` → `switch`. The state and command topics keep this component even when the object is
+  `light` and `dimmer` → `light`, `cover` → `cover`, `sensor`, `motion` and `occupancy` →
+  `binary_sensor`, `temperature`, `humidity`, `illuminance` and `text` → `sensor`, `number` →
+  `number`, `scene` → `switch`. The state and command topics keep this component even when the object is
   read-only.
 - `<unique_id>` is `<base>_<id>` in the same form (`demo_kitchen`).
 
@@ -119,8 +119,9 @@ command on `.../set` with any of `state`, `brightness` (0..100) and `color` (`r`
   position topic, and a position command is refused.
 
 **Others:** a scene (`scene`) runs on `ON` sent to its `.../set`; a `number` takes a number;
-`sensor` and `motion` publish `ON` / `OFF`; `temperature`, `humidity`, `illuminance`, `number` and
-`text` publish the value as text. Other types (`lock`, `fan`, `climate`, `garage_door`, `button`)
+`sensor`, `motion` and `occupancy` publish `ON` / `OFF` (`occupancy`, a room presence such as
+`VirtualPresence`, is announced with `"device_class":"occupancy"`); `temperature`, `humidity`,
+`illuminance`, `number` and `text` publish the value as text. Other types (`lock`, `fan`, `climate`, `garage_door`, `button`)
 follow their discovery message; an unknown type is announced as `sensor`.
 
 ### Example

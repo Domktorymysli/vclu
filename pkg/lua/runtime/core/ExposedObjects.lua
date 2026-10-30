@@ -310,6 +310,7 @@ local capabilities = {
     sensor = { read = true, write = false, binary = true },
     binary_sensor = { read = true, write = false, binary = true },
     motion = { read = true, write = false, binary = true, event = true },
+    occupancy = { read = true, write = false, binary = true },
     temperature = { read = true, write = false, numeric = true, unit = "°C", range = {-40, 80} },
     humidity = { read = true, write = false, numeric = true, unit = "%", range = {0, 100} },
     illuminance = { read = true, write = false, numeric = true, unit = "lx", range = {0, 100000} },

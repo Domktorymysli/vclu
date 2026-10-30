@@ -51,6 +51,7 @@ TypeMap.exposeToHA = {
     dimmer = "light",       -- HA uses light with brightness
     sensor = "binary_sensor",
     motion = "binary_sensor",
+    occupancy = "binary_sensor",
     temperature = "sensor",
     humidity = "sensor",
     illuminance = "sensor",

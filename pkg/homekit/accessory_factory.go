@@ -89,6 +89,8 @@ func (s *Server) createExposedAccessory(obj ExposedObject, readonly bool) *Acces
 		acc, updateFunc = s.createExposedCover(info, obj, readonly)
 	case "sensor", "motion":
 		acc, updateFunc = s.createExposedMotionSensor(info, obj)
+	case "occupancy":
+		acc, updateFunc = s.createExposedOccupancySensor(info, obj)
 	case "temperature":
 		acc, updateFunc = s.createExposedThermometer(info, obj)
 	case "humidity":
@@ -289,6 +291,27 @@ func (s *Server) createExposedMotionSensor(info accessory.Info, obj ExposedObjec
 	}
 
 	return motion.A, updateFunc
+}
+
+// createExposedOccupancySensor creates an OccupancySensor: value 1 (or true) is occupied.
+func (s *Server) createExposedOccupancySensor(info accessory.Info, obj ExposedObject) (*accessory.A, func(float64)) {
+	a := accessory.New(info, accessory.TypeSensor)
+	svc := service.NewOccupancySensor()
+	a.AddS(svc.S)
+
+	updateFunc := func(value float64) {
+		if value > 0 {
+			svc.OccupancyDetected.SetValue(characteristic.OccupancyDetectedOccupancyDetected)
+		} else {
+			svc.OccupancyDetected.SetValue(characteristic.OccupancyDetectedOccupancyNotDetected)
+		}
+	}
+	if state, ok := obj.Value.(float64); ok {
+		updateFunc(state)
+	} else if state, ok := obj.Value.(bool); ok && state {
+		updateFunc(1)
+	}
+	return a, updateFunc
 }
 
 // createExposedThermometer creates a TemperatureSensor for an ExposedObject

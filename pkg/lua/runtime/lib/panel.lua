@@ -1118,7 +1118,7 @@ function Panel.press(obj)
 end
 
 local FORMATS = { temperature = "%.1f", humidity = "%.0f%%", illuminance = "%.0f", number = "%g" }
-local BINARY = { sensor = true, binary_sensor = true, motion = true }
+local BINARY = { sensor = true, binary_sensor = true, motion = true, occupancy = true }
 
 -- 1/0 as Panel.strings on/off, read when drawn (a module may set the texts after its menus)
 local function onOff(v)

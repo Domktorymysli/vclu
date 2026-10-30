@@ -103,3 +103,29 @@ func TestHiddenWinsOverReadonly(t *testing.T) {
 		t.Error("non-hidden object must become an accessory")
 	}
 }
+
+// expose(p, "occupancy") is an OccupancySensor (not a motion sensor), read-only, 1 = occupied.
+func TestOccupancyAccessory(t *testing.T) {
+	s := &Server{}
+	w := s.createExposedAccessory(ExposedObject{Path: "room:lazienka", Type: "occupancy", Name: "Łazienka", Value: float64(1)}, true)
+	if w == nil {
+		t.Fatal("no accessory for occupancy")
+	}
+	c := findChar(w.Accessory, characteristic.TypeOccupancyDetected)
+	if c == nil {
+		t.Fatal("no OccupancyDetected characteristic")
+	}
+	if findChar(w.Accessory, characteristic.TypeMotionDetected) != nil {
+		t.Error("occupancy must not be a motion sensor")
+	}
+	if hasPerm(c, characteristic.PermissionWrite) {
+		t.Error("OccupancyDetected must be read-only")
+	}
+	if c.Value() != characteristic.OccupancyDetectedOccupancyDetected {
+		t.Errorf("initial = %v, want detected", c.Value())
+	}
+	w.UpdateFunc(0)
+	if c.Value() != characteristic.OccupancyDetectedOccupancyNotDetected {
+		t.Errorf("after 0 = %v, want not detected", c.Value())
+	}
+}
