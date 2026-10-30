@@ -430,9 +430,44 @@ Dashboard.new('home')
 -- { size = 'large' }     -- larger widget
 -- { color = 'warning' }  -- color: accent/success/warning/danger or hex
 -- { disabled = function() return true end }  -- conditionally disabled
+-- { visible = function() return true end }   -- shown only while it returns true (see below)
 
 -- Section options (3rd argument of :section()):
 -- { columns = 4 }        -- override the column count for this section
+-- { visible = function() return true end }   -- the whole section, header included
+```
+
+### Shown by state (visible)
+
+`opts.visible` is read on every poll: while it returns `false` or `nil` the widget is hidden and
+takes no room. It works on every widget, a chip, a room tile (its room goes with it),
+`section:group(label, icon, { visible = fn })` (the label and the widgets after it, up to the next
+group), `dash:section` and `dash:floor`. A section or group whose widgets are all hidden goes too,
+header included. A hidden widget is not read and its actions are refused. An error in the
+function shows the widget and is logged once. `when()` is different: it knows only the time of
+day and is decided once, when the dashboard is built.
+
+`visible` tidies the page; it is not access control. Anyone who can open the dashboard can read its
+definition, so keep secrets off a public dashboard and use `:auth('session')` or `:auth('pin')`.
+
+```lua
+local r = _registry
+local rolety = { r:get("CLU220000592.ROL0001"), r:get("CLU220000592.ROL0002") }
+
+local function otwarte(lista)
+  local n = 0
+  for i = 1, #lista do if (lista[i]:getPosition() or 0) > 0 then n = n + 1 end end
+  return n
+end
+
+Dashboard.new('dom')
+  :section('Rolety', 'window')
+    -- the tile shows only while a cover is open
+    :covers('rolety', 'Otwarte rolety', rolety, { visible = function() return otwarte(rolety) > 0 end })
+  -- the section and its header show only while partition 1 is armed
+  :section('Alarm', 'shield', { visible = function() return Satel.getPartition(1):isArmed() end })
+    :link('kamery', 'Kamery', 'camera-video', 'http://192.168.1.100/')
+  :build()
 ```
 
 ### Header chips

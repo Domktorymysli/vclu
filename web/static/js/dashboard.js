@@ -20,6 +20,8 @@
     roomRoot.id = 'dashboardRooms';
     document.body.appendChild(roomRoot);
     var sectionCoverEls = {}; // section index -> its header's cover counts
+    var layoutEls = {}; // "_section_N" and "_section_N/_group_M" -> section and group label elements
+    var hiddenNow = {}; // keys visible() hides: widget ids, sections, group labels
     var actionGrace = {}; // widgetId -> timestamp (ignore polls until this time)
     var chartInstances = {}; // widgetId -> Chart.js instance
     var chartTimers = {};   // widgetId -> per-chart refresh timer
@@ -397,6 +399,8 @@
         contentEl.style.cssText = '--dash-columns:' + (def.columns || 3);
         widgetEls = {};
         sectionCoverEls = {};
+        layoutEls = {};
+        hiddenNow = {};
         closeRoom(false);
         roomRoot.innerHTML = '';
         roomLayers = {};
@@ -475,11 +479,64 @@
 
             for (var wi = 0; wi < widgets.length; wi++) {
                 var wEl = renderWidget(widgets[wi], cols);
+                if (widgets[wi].type === 'group') layoutEls['_section_' + si + '/' + widgets[wi].id] = wEl;
                 grid.appendChild(wEl);
             }
 
             secEl.appendChild(grid);
+            layoutEls['_section_' + si] = secEl;
             contentEl.appendChild(secEl);
+        }
+        applyHidden(def.hidden, false);
+    }
+
+    // What visible() hides: a short fade, then it takes no room; a poll without _hidden shows all
+    function applyHidden(keys, animate) {
+        keys = keys || {};
+        var k, all = {};
+        for (k in hiddenNow) all[k] = true;
+        for (k in keys) all[k] = true;
+        for (k in all) {
+            var hide = !!keys[k];
+            if (hide === !!hiddenNow[k]) continue;
+            var el = layoutEls[k] || widgetEls[k];
+            if (el) setShown(el, !hide, animate);
+            if (hide && openRoomState && openRoomState.id === k) closeRoom(false);
+            if (!hide && animate) refreshShown(k);
+        }
+        hiddenNow = {};
+        for (k in keys) if (keys[k]) hiddenNow[k] = true;
+        syncHeaderBars();
+    }
+
+    // A calendar or chart gets no data while hidden: fetch it again once shown
+    function refreshShown(id) {
+        if (calendars[id]) calendars[id].refresh();
+        var canvas = document.getElementById('chart-' + id);
+        if (!canvas || !definition) return;
+        for (var i = 0; i < definition.widgets.length; i++) {
+            if (definition.widgets[i].id === id) fetchChartData(definition.widgets[i], canvas);
+        }
+    }
+
+    function setShown(el, show, animate) {
+        clearTimeout(el._visTimer);
+        el.classList.remove('dash-vis-in', 'dash-vis-out');
+        if (show) {
+            el.hidden = false;
+            if (animate) {
+                el.classList.add('dash-vis-in');
+                el._visTimer = setTimeout(function() { el.classList.remove('dash-vis-in'); }, 250);
+            }
+        } else if (animate) {
+            el.classList.add('dash-vis-out');
+            el._visTimer = setTimeout(function() {
+                el.classList.remove('dash-vis-out');
+                el.hidden = true;
+                syncHeaderBars();
+            }, 180);
+        } else {
+            el.hidden = true;
         }
     }
 
@@ -2637,8 +2694,9 @@
                     return;
                 }
                 hideOverlay();
+                applyHidden(data._hidden, true);
                 for (var wid in data) {
-                    if (!data.hasOwnProperty(wid)) continue;
+                    if (!data.hasOwnProperty(wid) || wid === '_hidden') continue;
                     var sec = /^_section_(\d+)$/.exec(wid);
                     if (sec) updateSectionCovers(+sec[1], data[wid]);
                     else updateWidget(wid, data[wid]);

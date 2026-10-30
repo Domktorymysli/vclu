@@ -157,6 +157,37 @@ body {
     gap: 12px;
 }
 
+/* visible(): hidden takes no room; a short fade in and out */
+.dash-section[hidden],
+.dash-widget[hidden],
+.dash-group-label[hidden] {
+    display: none;
+}
+
+.dash-vis-in {
+    animation: dashVisIn 0.2s ease-out;
+}
+
+.dash-vis-out {
+    animation: dashVisOut 0.18s ease-in forwards;
+    pointer-events: none;
+}
+
+@keyframes dashVisIn {
+    from { opacity: 0; transform: scale(0.96); }
+}
+
+@keyframes dashVisOut {
+    to { opacity: 0; transform: scale(0.96); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dash-vis-in,
+    .dash-vis-out {
+        animation: none;
+    }
+}
+
 /* Widget base: a tile with the icon in a circle, the name and the state, controls below */
 .dash-widget {
     --tile-c: var(--widget-color, var(--dash-accent));

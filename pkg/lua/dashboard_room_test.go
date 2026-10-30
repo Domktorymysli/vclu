@@ -408,7 +408,7 @@ func TestDashboardRoomErrors(t *testing.T) {
 		{`Dashboard.new('e'):section('S'):room(nil, 'Salon')`, `section:room: id must be a non-empty string`},
 		{`Dashboard.new('e'):section('S'):room('r', 42)`, `section:room("r"): expected an area name or a list of them, got number`},
 		{`Dashboard.new('e'):section('S'):room('r', {})`, `section:room("r"): expected an area name`},
-		{`Dashboard.new('e'):section('S'):room('r', 'Salon', { tytul = 'x' })`, `section:room("r"): unknown option "tytul" (color, disabled, humidity, icon, kinds, link, size, skip, span, temperature, title)`},
+		{`Dashboard.new('e'):section('S'):room('r', 'Salon', { tytul = 'x' })`, `section:room("r"): unknown option "tytul" (color, disabled, humidity, icon, kinds, link, size, skip, span, temperature, title, visible)`},
 		{`Dashboard.new('e'):section('S'):room('r', 'Salon', { kinds = { 'fan' } })`, `section:room("r"): kind "fan" has no widget`},
 		{`Dashboard.new('e'):section('S'):room('r', 'Salon', { skip = 'x' })`, `section:room("r"): skip expects a list of paths`},
 		{`Dashboard.new('e'):section('S'):room('r', 'Salon', { temperature = 21 })`, `section:room("r"): opts.temperature must be a path or a function`},
