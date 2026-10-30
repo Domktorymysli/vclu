@@ -998,6 +998,73 @@ body {
     font-size: 3.2rem;
 }
 
+/* the mode switch: one row of segments, the current one in the tile's colour */
+.dash-thermo-modes {
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    border-radius: 14px;
+    background: rgba(128,128,128,0.12);
+}
+
+.dash-thermo-mode {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 44px;
+    padding: 4px 6px;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--dash-text);
+    font-size: 0.85rem;
+    line-height: 1.1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    transition: background 0.15s, color 0.15s;
+    touch-action: manipulation;
+}
+
+/* four modes or more: the icon above the label, so a long label keeps its room */
+.dash-thermo-modes-many .dash-thermo-mode {
+    flex-direction: column;
+    gap: 2px;
+    padding: 4px 2px;
+    font-size: 0.78rem;
+}
+
+.dash-thermo-mode-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dash-thermo-mode:active {
+    background: rgba(128,128,128,0.24);
+}
+
+.dash-thermo-mode.active {
+    background: var(--tile-c);
+    color: rgba(0,0,0,0.78);
+    font-weight: 600;
+}
+
+.dash-thermo-mode:focus-visible {
+    outline: 2px solid var(--tile-c);
+    outline-offset: 1px;
+}
+
+.dash-thermo-mode:disabled {
+    cursor: default;
+    opacity: 0.5;
+}
+
+.dash-thermo-mode.active:disabled {
+    opacity: 0.7;
+}
+
 /* at most a quarter of the row; browsers without aspect-ratio keep 56 px circles */
 @supports (aspect-ratio: 1) {
     .dash-thermo-btn {
@@ -1011,6 +1078,9 @@ body {
     .dash-thermo-current-value { font-size: 2rem; }
     .dash-thermo-target-value { font-size: 1.1rem; }
     .dash-thermo-btn { font-size: 1.2rem; }
+    /* the labels say it; icons only crowd a narrow tile */
+    .dash-thermo-mode i { display: none; }
+    .dash-thermo-mode { font-size: 0.8rem; padding: 4px; }
 }
 
 /* a large number overflows a tile this narrow */
@@ -2861,6 +2931,8 @@ body.dash-room-open {
     .dash-thermo-btn:active { background: color-mix(in srgb, var(--dash-text) 18%, transparent); }
     .dash-gauge-track { stroke: color-mix(in srgb, var(--dash-text) 12%, transparent); }
     .dash-gauge-bar .dash-gauge-track { fill: color-mix(in srgb, var(--dash-text) 12%, transparent); }
+    .dash-thermo-modes { background: color-mix(in srgb, var(--dash-text) 6%, transparent); }
+    .dash-thermo-mode:active { background: color-mix(in srgb, var(--dash-text) 14%, transparent); }
     .dash-forecast-icon { color: color-mix(in srgb, var(--tile-c) 75%, var(--dash-text)); }
     .dash-room-climate i { color: color-mix(in srgb, var(--tile-c) 75%, var(--dash-text)); opacity: 1; }
     .dash-room-back { background: color-mix(in srgb, var(--dash-text) 10%, transparent); }

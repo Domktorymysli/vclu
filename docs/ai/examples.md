@@ -618,7 +618,7 @@ and, when a cover reports a slat angle (`getTilt`), a slat slider 0-90°. The ti
 ### Thermostat
 
 `:thermostat(id, label, icon, fns, opts)` shows the current temperature large and the target
-between `-` and `+`. `fns` is a table of functions, or a Grenton thermostat (`RemoteThermostat`).
+between `-` and `+`. `fns` is a table of functions, or a thermostat (`RemoteThermostat`, `VirtualThermostat`).
 
 ```lua
 local th = _:get("CLU220000592.THE0855")
@@ -661,7 +661,86 @@ local th = _:get("CLU220000592.THE0855")
   in manual mode; on holiday or schedule the buttons go and the state line says the mode
   ("włączony · harmonogram"). A `RemoteThermostat` maps to `getCurrent = getValue`, `getTarget`,
   `setTarget = setSetpoint`, `getState`, `getMode`; the target shown is what the CLU reports.
-- opts: `min`, `max`, `step`, `unit` (default `°C`), `readonly` (true or a function), `disabled`, `span`, `size`, `color`.
+- **Mode switch:** a row of buttons under the target. A `VirtualThermostat` brings its own: Ręczny
+  (0), Urlop (1, the holiday target, no `+`/`-`) and Wył. (`stop()`; choosing another mode starts it
+  again). `opts.modes` relabels or narrows them, `modes = false` hides the switch. A
+  `RemoteThermostat` only shows its mode (no switch). `readonly` locks the switch too, and the
+  action endpoint refuses a mode that is not listed, read-only or disabled. A stopped
+  `VirtualThermostat` reports the mode `"off"` in the dashboard values. In its holiday mode `+`/`-`
+  are hidden even with `readonly = false` on that mode: the holiday target is not the set point.
+
+  ```lua
+  local th = VirtualThermostat:new("salon", { source = _:get("z2m.salon_temp"), output = _:get("CLU1.DOU0123"),
+      setpoint = 21, holiday = 16, persist = true })
+
+  :section('Ogrzewanie', 'thermometer-half')
+    :thermostat('salon', 'Salon', nil, th)          -- Ręczny / Urlop / Wył.
+    :thermostat('salon2', 'Salon', nil, th, { modes = {
+        { value = 0, label = 'Komfort' },
+        { value = 1, label = 'Wyjazd' },             -- no "off": the switch has two buttons
+    } })
+  ```
+- **Modes of a module (a schedule):** a table of functions gets a switch with `getMode`,
+  `setMode(value)` and `opts.modes`: a list `{ {value, label, icon?, readonly?}, ... }` in its
+  order, or a map `{ manual = 'Ręczny', holiday = 'Urlop' }` (numbers first, then manual, schedule,
+  holiday, off). `getMode` returns one of the values; `readonly = true` on a mode hides `+`/`-` in
+  it (a map has none). A schedule is not the thermostat's: the module keeps a flag and the calendar
+  sets the set point while it is on.
+
+  ```lua
+  -- File: modules/ogrzewanie/init.lua; the schedule 'ogrzewanie' (values komfort, eco) is in modules/kalendarz
+  local dom = Calendar.get('dom')
+  local th = VirtualThermostat:new("salon", { source = _:get("z2m.salon_temp"), output = _:get("CLU1.DOU0123"),
+      setpoint = 21, holiday = 16, persist = true })
+  local st = persist("ogrzewanie", { harmonogram = true })
+  local TEMP = { komfort = 21.5, eco = 18 }
+
+  -- in schedule mode the calendar's value sets the set point
+  local function follow()
+      local t = TEMP[dom:value('ogrzewanie')]
+      if st.harmonogram and th:getMode() == 0 and t then th:setSetpoint(t) end
+  end
+  dom:on('change', 'ogrzewanie', follow)
+
+  local function mode()
+      if th:getState() == 0 then return 'off' end
+      if th:getMode() == 1 then return 'holiday' end
+      if st.harmonogram then return 'schedule' end
+      return 'manual'
+  end
+
+  local function setMode(v)
+      if v == 'off' then
+          th:stop()
+          return
+      end
+      if v == 'holiday' then th:setMode(1) else th:setMode(0) end
+      st.harmonogram = v == 'schedule'
+      th:start()
+      follow()
+  end
+
+  Dashboard.new('ogrzewanie')
+    :section('Ogrzewanie', 'thermometer-half')
+      :thermostat('salon', 'Salon', nil, {
+          getCurrent = function() return th:getValue() end,
+          getTarget = function() return th:getTarget() end,
+          setTarget = function(v) th:setSetpoint(v) end,
+          getState = function() return th:getState() end,
+          getMode = mode,
+          setMode = setMode,
+      }, { modes = {
+          { value = 'manual', label = 'Ręczny', icon = 'hand-index' },
+          { value = 'schedule', label = 'Harmonogram', icon = 'calendar-week', readonly = true },
+          { value = 'holiday', label = 'Urlop', icon = 'airplane', readonly = true },
+          { value = 'off', label = 'Wył.', icon = 'power' },
+      } })
+    :build()
+  ```
+
+  `build()` refuses unknown keys in a mode, a `modes` that is neither a list nor a map, a value
+  twice, `modes` without `getMode`/`setMode` and `setMode` without `modes`.
+- opts: `min`, `max`, `step`, `unit` (default `°C`), `readonly` (true or a function), `modes`, `disabled`, `span`, `size`, `color`.
   Full width on a phone.
 
 ### Colour temperature (tunable white)

@@ -47,7 +47,8 @@
               weekdays: ['nd', 'pn', 'wt', 'śr', 'cz', 'pt', 'sb'], today: 'dziś', thisHour: 'ta godzina',
               soFar: 'do teraz', compare: 'porównanie',
               notKept: 'brak danych: vCLU trzyma metryki {n} dni',
-              ctWarm: 'ciepła', ctNeutral: 'neutralna', ctCool: 'zimna', colorTemp: 'Temperatura barwy', brightness: 'Jasność' },
+              ctWarm: 'ciepła', ctNeutral: 'neutralna', ctCool: 'zimna', colorTemp: 'Temperatura barwy', brightness: 'Jasność',
+              mode: 'Tryb', modeNames: { manual: 'Ręczny', holiday: 'Urlop', off: 'Wył.' } },
         en: { on: 'on', off: 'off', open: 'open', closed: 'closed', opening: 'opening',
               closing: 'closing', unknown: 'no reading', run: 'run', sent: 'sent', updated: 'updated',
               nothingToday: 'nothing more today', holidays: 'Holidays', namedays: 'Name days', sun: 'Sun', show: 'Show',
@@ -67,7 +68,8 @@
               weekdays: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], today: 'today', thisHour: 'this hour',
               soFar: 'so far', compare: 'compare',
               notKept: 'no data: vCLU keeps metrics {n} days',
-              ctWarm: 'warm', ctNeutral: 'neutral', ctCool: 'cool', colorTemp: 'Colour temperature', brightness: 'Brightness' }
+              ctWarm: 'warm', ctNeutral: 'neutral', ctCool: 'cool', colorTemp: 'Colour temperature', brightness: 'Brightness',
+              mode: 'Mode', modeNames: { manual: 'Manual', holiday: 'Holiday', off: 'Off' } }
     };
     // ?lang= as on the other pages, else the browser's language
     var lang = (function() {
@@ -250,7 +252,8 @@
             if (d.current == null && d.target == null) return ['unknown', T.unknown];
             var tp = [];
             if (d.state != null) tp.push(d.state ? T.thermoOn : T.thermoOff);
-            if (d.mode != null && T.modes[d.mode]) tp.push(T.modes[d.mode]);
+            var mt = thermoModeText(w, d.mode);
+            if (mt) tp.push(mt);
             if (d.locked) tp.push(T.locked);
             return [d.state === 0 ? 'off' : (d.state ? 'on' : 'value'), tp.join(' · ')];
         case 'gauge':
@@ -1596,9 +1599,59 @@
         return d.target;
     }
 
-    // The current temperature large; under it - target + (no buttons when read-only)
+    // A mode's name on its button: the module's label, else ours for the object's own modes
+    function thermoModeLabel(m) {
+        if (m.label) return m.label;
+        if (m.name && T.modeNames[m.name]) return T.modeNames[m.name];
+        return String(m.value);
+    }
+
+    // The mode on the state line; "off" is already there as the state
+    function thermoModeText(w, mode) {
+        if (mode == null) return '';
+        if (!w.modes) return typeof mode === 'number' && T.modes[mode] ? T.modes[mode] : '';
+        var m = w.modes.filter(function(x) { return x.value === mode; })[0];
+        if (!m || m.name === 'off') return '';
+        // "Harmonogram" -> "harmonogram" as the rest of the line; "CO" stays
+        if (m.label) {
+            var c0 = m.label.charAt(0), c1 = m.label.charAt(1);
+            var lower = c1 !== '' && c1.toLocaleLowerCase(lang) === c1 && c1.toLocaleUpperCase(lang) !== c1;
+            return lower ? c0.toLocaleLowerCase(lang) + m.label.slice(1) : m.label;
+        }
+        return typeof m.value === 'number' && T.modes[m.value] ? T.modes[m.value] : thermoModeLabel(m);
+    }
+
+    // The mode switch under the target: one button per mode, the current one lit
+    function thermoModes(el, w) {
+        var bar = calEl('div', 'dash-thermo-modes' + (w.modes.length > 3 ? ' dash-thermo-modes-many' : ''));
+        bar.setAttribute('role', 'group');
+        bar.setAttribute('aria-label', T.mode);
+        w.modes.forEach(function(m) {
+            var b = calEl('button', 'dash-thermo-mode');
+            b.type = 'button';
+            b._mode = m.value;
+            if (m.icon) b.appendChild(calEl('i', 'bi bi-' + m.icon));
+            b.appendChild(calEl('span', 'dash-thermo-mode-label', thermoModeLabel(m)));
+            b.addEventListener('click', function(e) {
+                e.stopPropagation();
+                var d = el._data || {};
+                if (el.classList.contains('disabled') || d.locked || d.mode === m.value) return;
+                var st = el._thermo;
+                st.mode = m.value;
+                updateThermostat(el, w, d);
+                executeAction(w.id, 'mode', m.value, function() {
+                    st.mode = null;
+                    updateThermostat(el, w, el._data || {});
+                });
+            });
+            bar.appendChild(b);
+        });
+        return bar;
+    }
+
+    // The current temperature large; under it - target + (no buttons when read-only), then the modes
     function renderThermostat(el, w) {
-        el._thermo = { pending: null, timer: null, held: null };
+        el._thermo = { pending: null, timer: null, held: null, mode: null };
         var box = calEl('div', 'dash-thermo');
         var cur = calEl('div', 'dash-thermo-current');
         cur.appendChild(calEl('span', 'dash-thermo-current-value', '--'));
@@ -1628,6 +1681,7 @@
         row.appendChild(target);
         if (settable) row.appendChild(btn(1, 'plus-lg', T.raise));
         box.appendChild(row);
+        if (w.modes && w.capabilities && w.capabilities.mode) box.appendChild(thermoModes(el, w));
         el.appendChild(box);
     }
 
@@ -1671,6 +1725,16 @@
         el.querySelectorAll('.dash-thermo-btn').forEach(function(b) {
             b.hidden = d.set === false;
             b.disabled = !can || (shown != null && (b.dataset.dir > 0 ? shown >= w.max : shown <= w.min));
+        });
+        // a mode chosen shows until the reply; the reported one then
+        if (st.mode != null && d.mode === st.mode) st.mode = null;
+        var mode = st.mode != null ? st.mode : d.mode;
+        var off = el.classList.contains('disabled') || !!d.locked;
+        el.querySelectorAll('.dash-thermo-mode').forEach(function(b) {
+            var on = b._mode === mode;
+            b.classList.toggle('active', on);
+            b.setAttribute('aria-pressed', on ? 'true' : 'false');
+            b.disabled = off;
         });
     }
 
@@ -3422,6 +3486,8 @@
         // a poll is the whole state: an error goes away with it, a missing reading is unknown
         if (type === 'colorTemp' && !force) ['kelvin', 'on', 'brightness', 'error'].forEach(function(k) { if (!(k in d)) d[k] = null; });
         if (type === 'thermostat') {
+            // a mode's reply says what the thermostat reports now: the chosen one is no longer pending
+            if (force && 'mode' in d && el._thermo) el._thermo.mode = null;
             delete d.value; // a set's reply: the tile holds the value itself
             // a poll is the whole state: what it leaves out was not reported (shown as --)
             if (!force) ['current', 'target', 'state', 'mode', 'error'].forEach(function(k) { if (!(k in d)) d[k] = null; });

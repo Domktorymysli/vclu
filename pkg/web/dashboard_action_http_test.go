@@ -96,6 +96,12 @@ func TestDashboardActionEndpointValues(t *testing.T) {
 					setTarget = function(v) GOT.target = v end }, { min = 15, max = 25 })
 				:thermostat('ro', 'Ro', nil, { getCurrent = function() return 20 end, getTarget = function() return 20 end,
 					setTarget = function(v) GOT.ro = v end }, { readonly = true })
+				:thermostat('md', 'Md', nil, { getCurrent = function() return 20 end, getTarget = function() return 20 end,
+					getMode = function() return GOT.mode or 'manual' end, setMode = function(v) GOT.mode = v end },
+					{ modes = { manual = 'Ręczny', schedule = 'Harmonogram' } })
+				:thermostat('mdro', 'MdRo', nil, { getCurrent = function() return 20 end, getTarget = function() return 20 end,
+					getMode = function() return 'manual' end, setMode = function(v) GOT.mdro = v end },
+					{ modes = { manual = 'Ręczny', schedule = 'Harmonogram' }, readonly = true })
 			:build()`); err != nil {
 		t.Fatal(err)
 	}
@@ -151,6 +157,22 @@ func TestDashboardActionEndpointValues(t *testing.T) {
 	}
 	if v := got("target"); v != "21.5" {
 		t.Errorf("setTarget got %s, want 21.5", v)
+	}
+	// a mode: a JSON string reaches setMode as is; an object or an unlisted value is refused
+	if res := post(`{"widgetId":"md","action":"mode","value":{"v":"schedule"}}`); res["error"] != "Unknown mode" {
+		t.Errorf("mode with an object = %v", res)
+	}
+	if res := post(`{"widgetId":"md","action":"mode","value":"eco"}`); res["error"] != "Unknown mode" || got("mode") != "nil" {
+		t.Errorf("unlisted mode = %v (%s)", res, got("mode"))
+	}
+	if res := post(`{"widgetId":"mdro","action":"mode","value":"schedule"}`); res["error"] != "Read-only thermostat" || got("mdro") != "nil" {
+		t.Errorf("read-only mode = %v (%s)", res, got("mdro"))
+	}
+	if res := post(`{"widgetId":"md","action":"mode","value":"schedule"}`); res["success"] != true || res["mode"] != "schedule" {
+		t.Errorf("mode = %v", res)
+	}
+	if v := got("mode"); v != "schedule" {
+		t.Errorf("setMode got %s, want schedule", v)
 	}
 }
 

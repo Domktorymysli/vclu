@@ -336,9 +336,13 @@ end
 -- Thermostat: current temperature, target, +/- for the target
 -- ==========================================================================
 
-local THERMOSTAT_FNS = { getCurrent = true, getTarget = true, setTarget = true, getState = true, getMode = true }
+local THERMOSTAT_FNS = { getCurrent = true, getTarget = true, setTarget = true, getState = true, getMode = true,
+    setMode = true }
 local THERMOSTAT_KEYS = { min = true, max = true, step = true, unit = true, readonly = true,
-    disabled = true, visible = true, span = true, size = true, color = true }
+    disabled = true, visible = true, span = true, size = true, color = true, modes = true }
+local MODE_KEYS = { value = true, label = true, icon = true, readonly = true }
+-- a map's well-known names in this order, the others after them A-Z
+local MODE_ORDER = { manual = 1, schedule = 2, holiday = 3, off = 4 }
 -- the range of an exposed climate (ExposedObjects capabilities)
 local THERMOSTAT_MIN, THERMOSTAT_MAX = 5, 35
 
@@ -346,6 +350,13 @@ local THERMOSTAT_MIN, THERMOSTAT_MAX = 5, 35
 local function isThermostat(v)
     return type(v) == 'table' and type(v.getValue) == 'function'
         and type(v.getTarget) == 'function' and type(v.setSetpoint) == 'function'
+end
+
+-- An error value as text; tostring itself may fail (a bad __tostring)
+local function errText(e)
+    local ok, s = pcall(tostring, e)
+    if ok then return s end
+    return 'error'
 end
 
 -- The object's methods as the widget's functions; as lib/panel's menu:thermostat, the set
@@ -356,6 +367,94 @@ local function thermostatFns(o, readonly)
     end
     return { getCurrent = m('getValue'), getTarget = m('getTarget'), getState = m('getState'), getMode = m('getMode'),
         setTarget = not readonly and function(v) o:setSetpoint(v) end or nil }
+end
+
+-- The modes an object switches itself (VirtualThermostat): set point and holiday by setMode, "off"
+-- by stop when it has start/stop; nil without setMode (a RemoteThermostat only reports its mode)
+local function objectModes(o)
+    if o._type ~= 'THERMOSTAT' or type(o.setMode) ~= 'function' or type(o.getMode) ~= 'function' then return nil end
+    local list = {
+        { value = 0, name = 'manual', icon = 'hand-index' },
+        { value = 1, name = 'holiday', icon = 'airplane', readonly = true },
+    }
+    local canStop = type(o.start) == 'function' and type(o.stop) == 'function' and type(o.getState) == 'function'
+    if canStop then list[3] = { value = 'off', name = 'off', icon = 'power' } end
+    local function get()
+        if canStop and o:getState() == 0 then return 'off' end
+        return o:getMode()
+    end
+    -- a mode chosen while stopped starts it again
+    local function set(v)
+        if v == 'off' then
+            o:stop()
+            return
+        end
+        o:setMode(v)
+        if canStop and o:getState() == 0 then o:start() end
+    end
+    return list, get, set
+end
+
+local function modeEntry(modes, v)
+    for _, m in ipairs(modes) do
+        if m.value == v then return m end
+    end
+end
+
+-- opts.modes as a list of {value, label, icon?, readonly?}: a list as given, a map {value = label}
+-- ordered by value (numbers, then manual, schedule, holiday, off, then A-Z)
+local function thermostatModes(where, modes)
+    local shape = ': opts.modes must be a list { {value=..., label="..."}, ... } or a map {value = "label"}'
+    if type(modes) ~= 'table' then error(where .. shape, 4) end
+    local list = {}
+    -- a list starts with a table; {[0] = "Ręczny", [1] = "Urlop"} is a map
+    if type(rawget(modes, 1)) == 'table' then
+        local n = #modes
+        for k in pairs(modes) do
+            if type(k) ~= 'number' or k % 1 ~= 0 or k < 1 or k > n then error(where .. shape .. ', not both', 4) end
+        end
+        for i = 1, n do
+            local m = modes[i]
+            local at = where .. ': opts.modes[' .. i .. ']'
+            if type(m) ~= 'table' then error(at .. ' must be a table {value=..., label="..."}', 4) end
+            for k in pairs(m) do
+                if not MODE_KEYS[k] then error(at .. ': unknown key "' .. errText(k) .. '" (value, label, icon, readonly)', 4) end
+            end
+            if m.label ~= nil and (type(m.label) ~= 'string' or m.label == '') then
+                error(at .. '.label must be a non-empty string', 4)
+            end
+            if m.icon ~= nil and (type(m.icon) ~= 'string' or not m.icon:match('^[%w%-]+$')) then
+                error(at .. '.icon must be a Bootstrap icon name (letters, digits and -)', 4)
+            end
+            if m.readonly ~= nil and type(m.readonly) ~= 'boolean' then error(at .. '.readonly must be true or false', 4) end
+            list[i] = { value = m.value, label = m.label, icon = m.icon, readonly = m.readonly }
+        end
+    else
+        for v, label in pairs(modes) do
+            if type(label) ~= 'string' or label == '' then
+                error(where .. ': opts.modes[' .. errText(v) .. '] must be a label (a non-empty string)', 4)
+            end
+            list[#list + 1] = { value = v, label = label }
+        end
+        table.sort(list, function(a, b)
+            local ta, tb = type(a.value), type(b.value)
+            if ta ~= tb then return ta == 'number' end
+            if ta == 'number' then return a.value < b.value end
+            local oa, ob = MODE_ORDER[a.value] or 99, MODE_ORDER[b.value] or 99
+            if oa ~= ob then return oa < ob end
+            return a.value < b.value
+        end)
+    end
+    if #list == 0 then error(where .. ': opts.modes is empty', 4) end
+    local seen = {}
+    for i, m in ipairs(list) do
+        local v = m.value
+        local valid = (type(v) == 'number' and v - v == 0) or (type(v) == 'string' and v ~= '')
+        if not valid then error(where .. ': opts.modes[' .. i .. '].value must be a number or a non-empty string', 4) end
+        if seen[v] then error(where .. ': opts.modes: the value ' .. errText(v) .. ' is there twice', 4) end
+        seen[v] = true
+    end
+    return list
 end
 
 local function thermostatWidget(id, label, icon, fns, opts)
@@ -369,7 +468,7 @@ local function thermostatWidget(id, label, icon, fns, opts)
     opts = opts or {}
     for k in pairs(opts) do
         if not THERMOSTAT_KEYS[k] then
-            error(where .. ': unknown option "' .. tostring(k) .. '" (min, max, step, unit, readonly, disabled, visible, span, size, color)', 3)
+            error(where .. ': unknown option "' .. tostring(k) .. '" (min, max, step, unit, readonly, disabled, visible, modes, span, size, color)', 3)
         end
     end
     for _, k in ipairs({ 'min', 'max', 'step' }) do
@@ -386,9 +485,36 @@ local function thermostatWidget(id, label, icon, fns, opts)
         error(where .. ': opts.readonly must be true, false or a function', 3)
     end
     if opts.disabled ~= nil and type(opts.disabled) ~= 'function' then error(where .. ': opts.disabled must be a function', 3) end
-    local f
+    if opts.modes ~= nil and opts.modes ~= false and type(opts.modes) ~= 'table' then
+        error(where .. ': opts.modes must be a list { {value=..., label="..."}, ... }, a map {value = "label"} or false', 3)
+    end
+    local readonly = opts.readonly == true
+    local f, modes, getMode, setMode
     if isThermostat(fns) then
-        f = thermostatFns(fns, opts.readonly == true)
+        f = thermostatFns(fns, readonly)
+        local own
+        own, getMode, setMode = objectModes(fns)
+        if opts.modes == false then
+            own = nil
+        elseif opts.modes ~= nil then
+            if not own then
+                error(where .. ': this thermostat has no setMode: for opts.modes pass a table'
+                    .. ' {getCurrent, getTarget, getMode, setMode, ...} that switches the modes', 3)
+            end
+            -- the object's modes under the module's labels and order
+            modes = thermostatModes(where, opts.modes)
+            for i, m in ipairs(modes) do
+                local o = modeEntry(own, m.value)
+                if not o then
+                    error(where .. ': opts.modes[' .. i .. '].value ' .. errText(m.value)
+                        .. ' is not a mode of this thermostat (0 manual, 1 holiday, "off")', 3)
+                end
+                if m.label == nil then m.name = o.name end
+                if m.icon == nil then m.icon = o.icon end
+                if m.readonly == nil then m.readonly = o.readonly end
+            end
+        end
+        modes = modes or own
     elseif type(fns) == 'table' and getmetatable(fns) ~= nil and rawget(fns, 'getCurrent') == nil then
         -- an object (it has methods), but not a thermostat: say which and what it lacks;
         -- a table of functions with a metatable (own getCurrent) stays a table of functions
@@ -404,22 +530,36 @@ local function thermostatWidget(id, label, icon, fns, opts)
         f = {}
         for k, v in pairs(fns) do
             if not THERMOSTAT_FNS[k] then
-                error(where .. ': unknown key "' .. tostring(k) .. '" in fns (getCurrent, getTarget, setTarget, getState, getMode)', 3)
+                error(where .. ': unknown key "' .. tostring(k) .. '" in fns (getCurrent, getTarget, setTarget, getState, getMode, setMode)', 3)
             end
             if type(v) ~= 'function' then error(where .. ': fns.' .. k .. ' must be a function', 3) end
             f[k] = v
         end
         if not f.getCurrent or not f.getTarget then error(where .. ': fns needs getCurrent and getTarget', 3) end
-        if opts.readonly == true then f.setTarget = nil end
+        if f.setMode and not opts.modes then error(where .. ': fns.setMode needs opts.modes (the modes it takes)', 3) end
+        if opts.modes then
+            if not f.setMode or not f.getMode then error(where .. ': opts.modes needs fns.getMode and fns.setMode', 3) end
+            modes = thermostatModes(where, opts.modes)
+            for i, m in ipairs(modes) do
+                if not m.label then error(where .. ': opts.modes[' .. i .. '] needs a label', 3) end
+            end
+            getMode, setMode = f.getMode, f.setMode
+        end
+        f.setMode = nil
+        if readonly then f.setTarget = nil end
     else
         if fns == nil then
             error(where .. ': no thermostat (nil): check the path in _:get(...), the object may not be imported', 3)
         end
         error(where .. ': fns must be {getCurrent, getTarget, setTarget?, getState?, getMode?} or a thermostat (RemoteThermostat), got ' .. type(fns), 3)
     end
-    -- a readonly function locks and unlocks the buttons while the dashboard runs
+    -- a readonly function locks and unlocks the buttons while the dashboard runs; readonly = true
+    -- keeps the modes for the state line, without the switch
+    if readonly or not modes then setMode = nil end
+    if not modes then getMode = nil end
     return { id = id, type = 'thermostat', label = label, icon = icon or 'thermometer-half', fns = f,
         readonly = type(opts.readonly) == 'function' and opts.readonly or nil,
+        modes = modes, getMode = getMode, setMode = setMode, objectModes = modes ~= nil and isThermostat(fns),
         min = min, max = max, step = opts.step or 0.5, unit = opts.unit or '°C', opts = opts }
 end
 
@@ -433,13 +573,37 @@ local function thermostatRead(fn)
     if v ~= nil and v - v == 0 then return v end
 end
 
--- The target may be written: there is setTarget, opts.readonly (a function) says no lock and the mode (if
--- known) is manual; a failing getMode or readonly says no
-local function thermostatCanSet(fns, readonly)
+-- opts.readonly as a function: true (or failing) locks the target and the modes
+local function thermostatLocked(w)
+    if not w.readonly then return false end
+    local ok, ro = pcall(w.readonly)
+    if not ok or ro then return true end
+    return false
+end
+
+-- The mode the switch shows: a number or a string, nil before a report; err when getMode fails
+local function thermostatMode(w)
+    local ok, v = pcall(w.getMode)
+    if not ok then return nil, errText(v) end
+    if type(v) == 'number' and v - v == 0 then return v end
+    if type(v) == 'string' and v ~= '' then return v end
+end
+
+-- The target may be written: there is setTarget, nothing locks it and the mode allows it: with modes
+-- one not marked readonly (one not in the list does not); an object's own mode manual (0, or not known
+-- yet), also while it is off; a failing getMode or readonly says no
+local function thermostatCanSet(w)
+    local fns = w.fns
     if type(fns.setTarget) ~= 'function' then return false end
-    if readonly then
-        local ok, ro = pcall(readonly)
-        if not ok or ro then return false end
+    if thermostatLocked(w) then return false end
+    if w.modes then
+        local mode, err = thermostatMode(w)
+        if err then return false end
+        if mode ~= nil then
+            local m = modeEntry(w.modes, mode)
+            if m == nil or m.readonly then return false end
+        end
+        if not w.objectModes then return true end
     end
     if type(fns.getMode) ~= 'function' then return true end
     local mode, err = thermostatRead(fns.getMode)
@@ -452,13 +616,14 @@ local function thermostatState(w)
     local cur, err1 = thermostatRead(f.getCurrent)
     local target, err2 = thermostatRead(f.getTarget)
     local e = { current = cur and math.floor(cur * 10 + 0.5) / 10, target = target,
-        state = (thermostatRead(f.getState)), mode = (thermostatRead(f.getMode)), set = thermostatCanSet(f, w.readonly) }
-    if w.readonly then
-        local ok, ro = pcall(w.readonly)
-        -- false, not nil: the page merges values, so a missing field would keep the last true
-        e.locked = false
-        if not ok or ro then e.locked = true end
+        state = (thermostatRead(f.getState)), set = thermostatCanSet(w) }
+    if w.modes then
+        e.mode = (thermostatMode(w))
+    else
+        e.mode = (thermostatRead(f.getMode))
     end
+    -- false, not nil: the page merges values, so a missing field would keep the last true
+    if w.readonly then e.locked = thermostatLocked(w) end
     e.error = err1 or err2
     return e
 end
@@ -815,6 +980,8 @@ local function areaWidget(h, id, off)
         if min >= max then min, max = THERMOSTAT_MIN, THERMOSTAT_MAX end
         local step = tonumber(h.options.step)
         w.type, w.icon, w.fns = 'thermostat', 'thermometer-half', thermostatFns(o)
+        w.modes, w.getMode, w.setMode = objectModes(o)
+        w.objectModes = w.modes ~= nil
         w.min, w.max, w.step, w.unit = min, max, (step and step > 0) and step or 0.5, '°C'
     else
         if h.options.dashboard == true and not _noWidgetWarned[h.path] then
@@ -1658,12 +1825,17 @@ end
 -- @param icon string|nil Bootstrap icon name (default "thermometer-half")
 -- @param fns table {getCurrent=function()->number|nil, getTarget=function()->number|nil, setTarget=function(number)?,
 --   getState=function()->number|bool? (1/true active, 0/false off), getMode=function()->number? (0 manual, 1 holiday,
---   2 schedule, 3 heat-up)}, or a thermostat object (RemoteThermostat: getValue, getTarget, setSetpoint, getState, getMode)
+--   2 schedule, 3 heat-up), setMode=function(value)? (with opts.modes)}, or a thermostat object (RemoteThermostat,
+--   VirtualThermostat: getValue, getTarget, setSetpoint, getState, getMode, setMode?)
 --   Shows the current temperature and the target ("--" until reported); + and - change the target by step and
 --   setTarget is called once, 1 s after the last tap; the chosen value shows until the thermostat reports a
 --   new target, at most 90 s. Without setTarget (or opts.readonly) there are no buttons; with getMode the
 --   target is set only in manual mode (0), as lib/panel does. The action endpoint refuses a set outside min..max.
--- @param opts table Optional: {min=5, max=35, step=0.5, unit="°C", readonly=bool or function()->bool (true: no buttons; a function locks them while it returns true), disabled=function()->bool, visible=function()->bool, span=n, size=string, color=string}
+--   Modes: a switch under the target. A VirtualThermostat gets manual (0), holiday (1) and "off" (stop; another
+--   mode starts it again) by itself; a RemoteThermostat only shows its mode. A table of functions gets one with
+--   fns.getMode, fns.setMode and opts.modes; getMode gives one of the values, setMode(value) gets the chosen one.
+--   In a mode marked readonly (holiday) there are no + and -. opts.readonly locks the switch too.
+-- @param opts table Optional: {min=5, max=35, step=0.5, unit="°C", readonly=bool or function()->bool (true: no buttons and no mode switch; a function locks them while it returns true), modes={ {value=number|string, label=string, icon=string?, readonly=bool? (no + and - in this mode)}, ... } or {[value]=label} (ordered by value) or false (no switch for an object), disabled=function()->bool, visible=function()->bool, span=n, size=string, color=string}
 -- @api public
 function SectionHandle:thermostat(id, label, icon, fns, opts)
     if self._builder._sections[self._sectionIndex]._isHeader then
@@ -2467,12 +2639,17 @@ end
 -- @param icon string|nil Bootstrap icon name (default "thermometer-half")
 -- @param fns table {getCurrent=function()->number|nil, getTarget=function()->number|nil, setTarget=function(number)?,
 --   getState=function()->number|bool? (1/true active, 0/false off), getMode=function()->number? (0 manual, 1 holiday,
---   2 schedule, 3 heat-up)}, or a thermostat object (RemoteThermostat: getValue, getTarget, setSetpoint, getState, getMode)
+--   2 schedule, 3 heat-up), setMode=function(value)? (with opts.modes)}, or a thermostat object (RemoteThermostat,
+--   VirtualThermostat: getValue, getTarget, setSetpoint, getState, getMode, setMode?)
 --   Shows the current temperature and the target ("--" until reported); + and - change the target by step and
 --   setTarget is called once, 1 s after the last tap; the chosen value shows until the thermostat reports a
 --   new target, at most 90 s. Without setTarget (or opts.readonly) there are no buttons; with getMode the
 --   target is set only in manual mode (0), as lib/panel does. The action endpoint refuses a set outside min..max.
--- @param opts table Optional: {min=5, max=35, step=0.5, unit="°C", readonly=bool or function()->bool (true: no buttons; a function locks them while it returns true), disabled=function()->bool, visible=function()->bool, span=n, size=string, color=string}
+--   Modes: a switch under the target. A VirtualThermostat gets manual (0), holiday (1) and "off" (stop; another
+--   mode starts it again) by itself; a RemoteThermostat only shows its mode. A table of functions gets one with
+--   fns.getMode, fns.setMode and opts.modes; getMode gives one of the values, setMode(value) gets the chosen one.
+--   In a mode marked readonly (holiday) there are no + and -. opts.readonly locks the switch too.
+-- @param opts table Optional: {min=5, max=35, step=0.5, unit="°C", readonly=bool or function()->bool (true: no buttons and no mode switch; a function locks them while it returns true), modes={ {value=number|string, label=string, icon=string?, readonly=bool? (no + and - in this mode)}, ... } or {[value]=label} (ordered by value) or false (no switch for an object), disabled=function()->bool, visible=function()->bool, span=n, size=string, color=string}
 -- @api public
 function DashboardBuilder:thermostat(id, label, icon, fns, opts)
     if not self._currentSection then
@@ -3345,7 +3522,13 @@ function DashboardAPI.getDefinition(id)
                     for k, v in pairs(thermostatState(w)) do widget[k] = v end
                 end
                 widget.min, widget.max, widget.step, widget.unit = w.min, w.max, w.step, w.unit
-                widget.capabilities = { set = type(w.fns.setTarget) == 'function' }
+                widget.capabilities = { set = type(w.fns.setTarget) == 'function', mode = type(w.setMode) == 'function' }
+                if w.modes then
+                    widget.modes = {}
+                    for i, m in ipairs(w.modes) do
+                        widget.modes[i] = { value = m.value, label = m.label, name = m.name, icon = m.icon }
+                    end
+                end
             end
 
             -- Colour temperature: kelvin, on, brightness; its range and what it can do
@@ -3839,20 +4022,34 @@ function DashboardAPI.executeAction(id, widgetId, action, value, ctx)
         return JSON.encode({ success = true })
 
     elseif widget.type == 'thermostat' then
+        if action == 'mode' then
+            if type(widget.setMode) ~= 'function' or thermostatLocked(widget) then
+                return JSON.encode({ error = 'Read-only thermostat' })
+            end
+            local m
+            if type(value) == 'number' or type(value) == 'string' then m = modeEntry(widget.modes, value) end
+            if not m then return JSON.encode({ error = 'Unknown mode' }) end
+            local ok, ret = pcall(widget.setMode, m.value)
+            if not ok then return JSON.encode({ error = errText(ret) }) end
+            -- the tile as it is now (a holiday target, no + and -, the mode read back); a sensor's
+            -- error is for the next poll, not a failed change
+            local reply = thermostatState(widget)
+            reply.error = nil
+            reply.success, reply.value = true, m.value
+            return JSON.encode(reply)
+        end
         if action ~= 'set' then return JSON.encode({ error = 'Invalid action for thermostat' }) end
         local fns = widget.fns
-        if type(fns.setTarget) ~= 'function' then return JSON.encode({ error = 'Read-only thermostat' }) end
-        if widget.readonly then
-            local ok, ro = pcall(widget.readonly)
-            if not ok or ro then return JSON.encode({ error = 'Read-only thermostat' }) end
+        if type(fns.setTarget) ~= 'function' or thermostatLocked(widget) then
+            return JSON.encode({ error = 'Read-only thermostat' })
         end
         if type(value) ~= 'number' or value - value ~= 0 then return JSON.encode({ error = 'Value must be a number' }) end
         if value < widget.min or value > widget.max then
             return JSON.encode({ error = 'Value out of range [' .. widget.min .. ', ' .. widget.max .. ']' })
         end
-        if not thermostatCanSet(fns, widget.readonly) then return JSON.encode({ error = 'Thermostat is not in manual mode' }) end
+        if not thermostatCanSet(widget) then return JSON.encode({ error = 'Thermostat is not in manual mode' }) end
         local ok, ret = pcall(fns.setTarget, value)
-        if not ok then return JSON.encode({ error = tostring(ret) }) end
+        if not ok then return JSON.encode({ error = errText(ret) }) end
         return JSON.encode({ success = true, value = value })
 
     elseif widget.type == 'player' then
