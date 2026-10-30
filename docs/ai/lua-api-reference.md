@@ -25,8 +25,8 @@ Only public API is listed — internal/private functions are omitted.
 - [GPIO_DOUT](#gpio_dout) (1 functions)
 - [GPIO_DIN](#gpio_din) (1 functions)
 - [integrations.mqtt.MqttClient](#integrationsmqttmqttclient) (30 functions)
-- [lib.cct](#libcct) (1 functions)
 - [grenton.CLU_REMOTE](#grentonclu_remote) (1 functions)
+- [lib.cct](#libcct) (1 functions)
 - [lib.tasmota](#libtasmota) (5 functions)
 
 ---
@@ -2364,6 +2364,16 @@ Publish state update for object
 
 ---
 
+## grenton.CLU_REMOTE
+
+### `CLU_REMOTE:firmware() → string|nil Firmware version`
+
+The firmware the CLU reported for get(17), e.g. "04.08.05" or "05.15.12-2607". Asked when its objects are subscribed; nil until the CLU answered.
+
+**Returns:** string|nil Firmware version
+
+---
+
 ## lib.cct
 
 ### `M.mix(warm, cold, opts) → table {getKelvin, setKelvin, getBrightness, setBrightness (0-100), isOn, switchOn, switchOff}`
@@ -2375,16 +2385,6 @@ A warm and a cold dimmer as the functions of section:colorTemp.
 - `opts` (table) — Optional: {warm=2700, cold=6500} the kelvin of each channel alone
 
 **Returns:** table {getKelvin, setKelvin, getBrightness, setBrightness (0-100), isOn, switchOn, switchOff}
-
----
-
-## grenton.CLU_REMOTE
-
-### `CLU_REMOTE:firmware() → string|nil Firmware version`
-
-The firmware the CLU reported for get(17), e.g. "04.08.05" or "05.15.12-2607". Asked when its objects are subscribed; nil until the CLU answered.
-
-**Returns:** string|nil Firmware version
 
 ---
 

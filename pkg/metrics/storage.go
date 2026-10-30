@@ -61,9 +61,11 @@ func appendToFile(dataDir, metricPath string, samples []Sample) {
 		w := bufio.NewWriter(f)
 		for _, s := range daySamples {
 			// 10 digits: a kWh meter at 123456.78 keeps its hundredths for daily deltas
-			fmt.Fprintf(w, "%d %.10g\n", s.Timestamp, s.Value)
+			_, _ = fmt.Fprintf(w, "%d %.10g\n", s.Timestamp, s.Value) // a write error shows at Flush
 		}
-		w.Flush()
+		if err := w.Flush(); err != nil {
+			log.Printf("[METRICS] failed to write %s: %v", filePath, err)
+		}
 		f.Close()
 	}
 }

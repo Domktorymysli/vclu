@@ -32,8 +32,13 @@ func writeHourly(t *testing.T, dataDir, dirName string, from, to time.Time, step
 		if err != nil {
 			t.Fatal(err)
 		}
-		fmt.Fprintf(f, "%d %.10g\n", ts.Unix(), v)
-		f.Close()
+		_, err = fmt.Fprintf(f, "%d %.10g\n", ts.Unix(), v)
+		if cerr := f.Close(); err == nil {
+			err = cerr
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
 		v += step
 	}
 }

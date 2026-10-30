@@ -220,7 +220,7 @@ func TestDashboardActionEndpointHold(t *testing.T) {
 		}
 		r.ServeHTTP(w, req)
 		var res map[string]interface{}
-		json.Unmarshal(w.Body.Bytes(), &res)
+		_ = json.Unmarshal(w.Body.Bytes(), &res) // a non-JSON body leaves res nil
 		return w.Code, res
 	}
 	count := func() string {

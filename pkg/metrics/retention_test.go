@@ -18,7 +18,9 @@ func TestReadSingleFileSkipsHalfWrittenLine(t *testing.T) {
 	if len(got) != 2 || got[1].Value != 2.5 {
 		t.Errorf("samples = %v, want the two complete lines", got)
 	}
-	os.WriteFile(path, []byte("100 1"), 0644)
+	if err := os.WriteFile(path, []byte("100 1"), 0644); err != nil {
+		t.Fatal(err)
+	}
 	if got := readSingleFile(path, 0); len(got) != 0 {
 		t.Errorf("one half-written line = %v", got)
 	}

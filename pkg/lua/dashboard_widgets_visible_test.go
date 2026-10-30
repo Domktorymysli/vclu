@@ -37,7 +37,9 @@ func TestDashboardEveryWidgetVisible(t *testing.T) {
 	defer engine.Close()
 	mustExec(t, engine, dashWidgetsVisibleSetup)
 
-	reads := func() string { return mustExec(t, engine, `local n = 0; for _ in pairs(W.reads) do n = n + 1 end; return tostring(n)`) }
+	reads := func() string {
+		return mustExec(t, engine, `local n = 0; for _ in pairs(W.reads) do n = n + 1 end; return tostring(n)`)
+	}
 
 	var def struct {
 		dashDef

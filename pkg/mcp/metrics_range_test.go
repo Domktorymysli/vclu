@@ -20,7 +20,9 @@ func TestMetricsToolCapsRangeAndPoints(t *testing.T) {
 	for ts := now.Add(-3 * 24 * time.Hour); ts.Before(now); ts = ts.Add(time.Minute) {
 		fmt.Fprintf(&b, "%d 1\n", ts.Unix())
 	}
-	os.MkdirAll(filepath.Join(dir, "t.x"), 0755)
+	if err := os.MkdirAll(filepath.Join(dir, "t.x"), 0755); err != nil {
+		t.Fatal(err)
+	}
 	// one file is enough: the reader takes every file from the first day on
 	if err := os.WriteFile(filepath.Join(dir, "t.x", now.Format("2006-01-02")+".ts"), []byte(b.String()), 0644); err != nil {
 		t.Fatal(err)
