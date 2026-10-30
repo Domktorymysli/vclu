@@ -19,6 +19,12 @@ const (
 	DefaultTimeout = 5 * time.Second
 )
 
+// Object Manager reads the Grenton cloud certificate from the CLU after sending a configuration.
+const (
+	cloudCertFile        = "CLOUD-PUBLIC.CRT"
+	cloudCertPlaceholder = "vCLU: no Grenton cloud\n"
+)
+
 // ServerMode defines the TFTP server operation mode
 type ServerMode int
 
@@ -147,6 +153,16 @@ func (s *Server) readHandler(filename string, rf io.ReaderFrom) error {
 		_, err = os.Stat(upperPath)
 		if err == nil {
 			filePath = upperPath
+		} else if strings.EqualFold(base, cloudCertFile) {
+			// a non-empty certificate makes Object Manager skip the Grenton cloud setup, which
+			// vCLU cannot do; after a failed setup OM does not reset the CLU (LOCAL_ONLY)
+			n, err := rf.ReadFrom(strings.NewReader(cloudCertPlaceholder))
+			if err != nil {
+				log.Printf("[TFTP] read failed: %s - %v", filename, err)
+				return err
+			}
+			log.Printf("[TFTP] read %s (%d bytes, no Grenton cloud)", filename, n)
+			return nil
 		} else {
 			log.Printf("[TFTP] read file not found: %s", filePath)
 			return err

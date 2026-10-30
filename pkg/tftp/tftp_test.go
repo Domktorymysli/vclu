@@ -174,3 +174,35 @@ func TestStopWaitingForStalledUploadDoesNotBlock(t *testing.T) {
 	// the restarted server; the first Stop still waits for the stalled client
 	t.Cleanup(func() { go s.Stop() })
 }
+
+// Object Manager gets a non-empty cloud certificate, so it skips the Grenton cloud setup and resets the CLU.
+func TestReadCloudCertWithoutFile(t *testing.T) {
+	port, blocker := takePort(t)
+	_ = blocker.Close()
+	s := NewServer(t.TempDir(), "127.0.0.1", port, GetAndReplace)
+	if err := s.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer stopWithin(t, s)
+
+	c, err := tftp.NewClient("127.0.0.1:" + strconv.Itoa(port))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wt, err := c.Receive(`a:\CLOUD-PUBLIC.CRT`, "octet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got bytes.Buffer
+	if _, err := wt.WriteTo(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Len() == 0 {
+		t.Fatal("CLOUD-PUBLIC.CRT is empty")
+	}
+
+	// Other missing files are still not found
+	if _, err := c.Receive(`a:\CLOUD-PUBLIC.CSR`, "octet"); err == nil {
+		t.Fatal("CLOUD-PUBLIC.CSR was served")
+	}
+}
