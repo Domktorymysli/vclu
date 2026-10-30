@@ -354,7 +354,7 @@ CLU220000592:executeNoReply(0, "SetThermostat(19)")
 ## Dashboard (Lua-defined)
 
 Public dashboard for a tablet/wall. Defined in Lua, available at `/d/:id`.
-Widget types: button, toggle, slider, status, link, select, chart, image, group, cover, covers, dimmer, color, thermostat, calendar, player, forecast; in the header also chip.
+Widget types: button, toggle, slider, status, link, select, chart, image, group, cover, covers, dimmer, color, thermostat, gauge, calendar, player, forecast; in the header also chip.
 `:calendar(id, label, cal, { view = 'month' | 'day', tags = {...}, schedules = { 'taryfa' } })` shows a calendar
 built with `Calendar`: a month grid and the day of a tapped date (full width); `schedules` adds a 24 h bar per schedule (`schedules = true`: all of the calendar's)
 to the day view; `holidays` (holiday names, default on), `namedays` (name days in the day view, default off) and
@@ -701,6 +701,40 @@ local weather = Plugin.getPlugin("@vclu/weather")
 - opts: `days` (1-7, default 5), `hours` (0-48, default 24, 0 hides the chart), `unit` (default `°C`),
   `icon` (default `cloud-sun`), `disabled`, `span`, `size`, `color` (the temperature line). Two columns
   wide by default, full width on a phone.
+
+### Gauge (arc or bar)
+
+`:gauge(id, label, getValue, opts)` shows a number between `min` and `max` on a 240° arc with the
+value in the middle, or with `style = 'bar'` on a horizontal bar with the value at its right.
+`thresholds` colour the fill (and the tile) from each value on; `target` draws a marker.
+
+```lua
+
+:section('Energia', 'lightning')
+  -- house power against the contracted 11 kW
+  :gauge('power', 'Moc domu', function() return _:value('energia/moc_domu') end, {
+      min = 0, max = 14, unit = 'kW', decimals = 1,
+      thresholds = { { 8, 'warning' }, { 11, 'danger' } },
+      target = 11,                       -- or a function, re-read on every poll
+  })
+  :gauge('tank', 'Zbiornik', function() return _:value('ogrod/zbiornik') end, {
+      style = 'bar', unit = '%', icon = 'droplet',
+      thresholds = { { 0, 'danger' }, { 20, 'warning' }, { 40, 'success' } },
+  })
+```
+
+- **getValue:** return a number (a decimal string from a CLU such as `"7.4"` counts); `nil` shows `—`, NaN, an error
+  or anything else shows the error mark. A value outside `min..max` is drawn at the end of the
+  scale and the number shows it as it is (`128 %`).
+- **thresholds:** `{ value, color }` in ascending order; the last one at or below the value
+  colours the fill and the tile's icon, `warning` and `danger` make the tile an alarm. Below the
+  first threshold the fill is `color` (default the accent). Colours: `accent`, `success`,
+  `warning`, `danger`, `info`, `primary`, `#hex`, `rgb()`, `hsl()`.
+- **target:** a number or a function returning one (nil hides the marker); the tile's second line says
+  "cel 11,0 kW".
+- opts: `min` (default 0), `max` (default 100, above `min`), `unit`, `decimals` (0-6), `style`
+  (`'arc'` default or `'bar'`), `thresholds`, `target`, `icon` (default `speedometer2`),
+  `disabled`, `span`, `size`, `color`. Unknown options fail at build.
 
 ### Select widget (dropdown)
 

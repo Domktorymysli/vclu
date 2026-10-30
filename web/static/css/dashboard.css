@@ -194,6 +194,7 @@ body {
     .dash-widget-covers:hover,
     .dash-widget-player:hover,
     .dash-widget-forecast:hover,
+    .dash-widget-gauge:hover,
     .dash-widget-dimmer:hover,
     .dash-widget-color:hover,
     .dash-widget-slider:hover {
@@ -731,6 +732,195 @@ body {
 /* a large number overflows a tile this narrow */
 @container (max-width: 180px) {
     .dash-widget-thermostat.size-large .dash-thermo-current-value { font-size: 2.4rem; }
+}
+
+/* ---- Gauge: a 240° arc with the value in the middle, or a bar with the value at its right ---- */
+.dash-widget-gauge {
+    cursor: default;
+}
+
+.dash-gauge {
+    container-type: inline-size;
+}
+
+.dash-gauge-svg {
+    display: block;
+    overflow: visible;
+}
+
+.dash-gauge-track {
+    fill: none;
+    stroke: rgba(128,128,128,0.2);
+}
+
+.dash-gauge-fill {
+    fill: var(--tile-c);
+    stroke: var(--tile-c);
+    transition: stroke-dashoffset 0.6s ease, transform 0.6s ease, stroke 0.3s, fill 0.3s, opacity 0.3s;
+}
+
+.dash-gauge-band {
+    fill: none;
+    opacity: 0.75;
+}
+
+.dash-gauge-target {
+    stroke: var(--dash-text);
+    stroke-width: 3;
+    stroke-linecap: round;
+    transition: transform 0.6s ease, opacity 0.3s;
+}
+
+.dash-gauge-none {
+    opacity: 0;
+}
+
+.dash-gauge-readout {
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 4px;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.dash-gauge-value {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.dash-gauge-unit {
+    opacity: 0.6;
+}
+
+.dash-gauge-unit[hidden] {
+    display: none;
+}
+
+/* the arc: as wide as the tile allows, up to 280 px; the readout in its middle */
+.dash-gauge-dial {
+    position: relative;
+    width: 100%;
+    max-width: 280px;
+    margin: 0 auto;
+}
+
+.dash-gauge-arc .dash-gauge-svg {
+    width: 100%;
+    height: auto;
+}
+
+.dash-gauge-arc .dash-gauge-track,
+.dash-gauge-arc .dash-gauge-fill {
+    fill: none;
+    stroke-width: 16;
+    stroke-linecap: round;
+}
+
+.dash-gauge-arc .dash-gauge-fill {
+    stroke-dasharray: 100 100;
+    stroke-dashoffset: 100;
+}
+
+.dash-gauge-arc .dash-gauge-band {
+    stroke-width: 4;
+}
+
+.dash-gauge-arc .dash-gauge-target {
+    transform-origin: 100px 96px;
+}
+
+.dash-gauge-scale-text {
+    fill: var(--dash-text);
+    opacity: 0.55;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+}
+
+.dash-gauge-arc .dash-gauge-readout {
+    position: absolute;
+    left: 10%;
+    right: 10%;
+    top: 46%;
+    transform: translateY(-50%);
+}
+
+.dash-gauge-arc .dash-gauge-value {
+    font-size: 2.4rem;
+    font-size: clamp(1.5rem, 15cqw, 3.4rem);
+}
+
+.dash-gauge-arc .dash-gauge-unit {
+    font-size: 1rem;
+    font-size: clamp(0.8rem, 6cqw, 1.3rem);
+}
+
+/* the bar: the value at the right, min and max under the bar */
+.dash-gauge-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.dash-gauge-col {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.dash-gauge-bar .dash-gauge-fill {
+    stroke: none;
+    transform-box: fill-box;
+    transform-origin: left center;
+    transform: scaleX(0);
+}
+
+.dash-gauge-bar .dash-gauge-band {
+    stroke: none;
+}
+
+.dash-gauge-bar .dash-gauge-track {
+    fill: rgba(128,128,128,0.2);
+    stroke: none;
+}
+
+.dash-gauge-scale {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.75rem;
+    opacity: 0.55;
+    font-variant-numeric: tabular-nums;
+    margin-top: 2px;
+}
+
+.dash-gauge-bar .dash-gauge-readout {
+    flex: none;
+    min-width: 4.5em;
+    justify-content: flex-end;
+}
+
+.dash-gauge-bar .dash-gauge-value {
+    font-size: 1.9rem;
+}
+
+.dash-widget-gauge.size-large .dash-gauge-bar .dash-gauge-value {
+    font-size: 2.6rem;
+}
+
+.dash-widget-gauge.size-large .dash-gauge-dial {
+    max-width: 360px;
+}
+
+/* a narrow tile (a phone, four columns): the value above the bar */
+@container (max-width: 300px) {
+    .dash-gauge-row { flex-direction: column; align-items: stretch; gap: 6px; }
+    .dash-gauge-bar .dash-gauge-readout { order: -1; min-width: 0; justify-content: flex-start; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dash-gauge-fill,
+    .dash-gauge-target {
+        transition: none;
+    }
 }
 
 /* ---- Media player: the artwork on the left, texts, buttons and volume beside it ---- */
@@ -2235,6 +2425,8 @@ body.dash-room-open {
     .dash-forecast-day { background: color-mix(in srgb, var(--dash-text) 5%, transparent); }
     .dash-thermo-btn { background: color-mix(in srgb, var(--dash-text) 9%, transparent); }
     .dash-thermo-btn:active { background: color-mix(in srgb, var(--dash-text) 18%, transparent); }
+    .dash-gauge-track { stroke: color-mix(in srgb, var(--dash-text) 12%, transparent); }
+    .dash-gauge-bar .dash-gauge-track { fill: color-mix(in srgb, var(--dash-text) 12%, transparent); }
     .dash-forecast-icon { color: color-mix(in srgb, var(--tile-c) 75%, var(--dash-text)); }
     .dash-room-climate i { color: color-mix(in srgb, var(--tile-c) 75%, var(--dash-text)); opacity: 1; }
     .dash-room-back { background: color-mix(in srgb, var(--dash-text) 10%, transparent); }

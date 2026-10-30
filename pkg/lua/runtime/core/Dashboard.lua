@@ -193,10 +193,10 @@ local function coversResolve(dashId, w)
 end
 
 -- opts.decimals of a status: whole places 0..6; the page rounds a number to them
-local function checkDecimals(what, id, opts)
+local function checkDecimals(what, id, opts, level)
     local d = type(opts) == 'table' and opts.decimals or nil
     if d ~= nil and (type(d) ~= 'number' or d % 1 ~= 0 or d < 0 or d > 6) then
-        error(what .. '("' .. tostring(id) .. '"): opts.decimals must be a whole number 0-6', 3)
+        error(what .. '("' .. tostring(id) .. '"): opts.decimals must be a whole number 0-6', level or 3)
     end
 end
 
@@ -328,6 +328,127 @@ local function thermostatState(w)
         if not ok or ro then e.locked = true end
     end
     e.error = err1 or err2
+    return e
+end
+
+-- ==========================================================================
+-- Gauge: a value on an arc or a bar between min and max
+-- ==========================================================================
+
+local GAUGE_KEYS = { min = true, max = true, unit = true, decimals = true, style = true, thresholds = true,
+    target = true, icon = true, disabled = true, span = true, size = true, color = true }
+local GAUGE_COLORS = { accent = true, success = true, warning = true, danger = true, info = true, primary = true }
+
+local function finite(v) return type(v) == 'number' and v - v == 0 end
+
+-- A colour the page can use as is: a name it knows, #hex, rgb()/hsl()
+local function gaugeColor(c)
+    if type(c) ~= 'string' then return false end
+    return GAUGE_COLORS[c] or c:match('^#%x%x%x%x?$') or c:match('^#%x%x%x%x%x%x$') or c:match('^#%x%x%x%x%x%x%x%x$')
+        or c:match('^rgba?%([%d%.%%,%s]+%)$') or c:match('^hsla?%([%d%.%%,%s]+%)$') or false
+end
+
+local function gaugeWidget(id, label, getValue, opts)
+    local where = 'section:gauge("' .. tostring(id) .. '")'
+    if type(id) ~= 'string' or id == '' then error('section:gauge: id must be a non-empty string', 3) end
+    if type(label) ~= 'string' then error(where .. ': label must be a string', 3) end
+    if type(getValue) ~= 'function' then error(where .. ': getValue must be a function, got ' .. type(getValue), 3) end
+    if opts ~= nil and type(opts) ~= 'table' then error(where .. ': opts must be a table', 3) end
+    opts = opts or {}
+    for k in pairs(opts) do
+        if not GAUGE_KEYS[k] then
+            error(where .. ': unknown option "' .. tostring(k)
+                .. '" (min, max, unit, decimals, style, thresholds, target, icon, disabled, span, size, color)', 3)
+        end
+    end
+    for _, k in ipairs({ 'min', 'max' }) do
+        if opts[k] ~= nil and not finite(opts[k]) then error(where .. ': opts.' .. k .. ' must be a number', 3) end
+    end
+    local min, max = opts.min or 0, opts.max or 100
+    if min >= max then error(where .. ': opts.min must be below opts.max', 3) end
+    checkDecimals('section:gauge', id, opts, 4)
+    if opts.unit ~= nil and (type(opts.unit) ~= 'string' or #opts.unit > 8) then
+        error(where .. ': opts.unit must be a short string such as "kW"', 3)
+    end
+    if opts.style ~= nil and opts.style ~= 'arc' and opts.style ~= 'bar' then
+        error(where .. ': opts.style must be "arc" or "bar"', 3)
+    end
+    if opts.icon ~= nil and (type(opts.icon) ~= 'string' or not opts.icon:match('^[%w%-]+$')) then
+        error(where .. ': opts.icon must be a Bootstrap icon name (letters, digits and -)', 3)
+    end
+    if opts.disabled ~= nil and type(opts.disabled) ~= 'function' then error(where .. ': opts.disabled must be a function', 3) end
+    if opts.color ~= nil and not gaugeColor(opts.color) then
+        error(where .. ': opts.color must be accent, success, warning, danger, info, primary, #hex, rgb() or hsl()', 3)
+    end
+    if opts.target ~= nil and not finite(opts.target) and type(opts.target) ~= 'function' then
+        error(where .. ': opts.target must be a number or a function', 3)
+    end
+    local thresholds = {}
+    if opts.thresholds ~= nil then
+        local n = 0
+        if type(opts.thresholds) == 'table' then for _ in pairs(opts.thresholds) do n = n + 1 end end
+        if type(opts.thresholds) ~= 'table' or n ~= #opts.thresholds then
+            error(where .. ': opts.thresholds must be a list of { value, color }', 3)
+        end
+        for i, t in ipairs(opts.thresholds) do
+            if type(t) ~= 'table' or not finite(t[1]) then
+                error(where .. ': threshold ' .. i .. ' must be { value, color } with a number value', 3)
+            end
+            if not gaugeColor(t[2]) then
+                error(where .. ': threshold ' .. i .. ': colour must be accent, success, warning, danger, info, primary, #hex, rgb() or hsl()', 3)
+            end
+            if i > 1 and t[1] <= thresholds[i - 1].value then
+                error(where .. ': thresholds must be in ascending order of value', 3)
+            end
+            thresholds[i] = { value = t[1], color = t[2] }
+        end
+    end
+    return { id = id, type = 'gauge', label = label, icon = opts.icon or 'speedometer2', getValue = getValue,
+        min = min, max = max, style = opts.style or 'arc', thresholds = thresholds, opts = opts }
+end
+
+-- A decimal numeral ("12", "-3.5", ".5"), not hex or other forms tonumber takes
+local function decimalNumber(s)
+    if s:match('^%s*[-+]?%d+%.?%d*%s*$') or s:match('^%s*[-+]?%.%d+%s*$') then return tonumber(s) end
+end
+
+-- Target functions that failed, logged once by "dashboard/widget"
+local _gaugeLogged = {}
+
+-- What the tile shows: {value, target, error}; nil is left out (a poll is the whole state, the page
+-- reads a missing field as none), error when getValue fails or gives what is not a number
+local function gaugeState(dashId, w)
+    local e = {}
+    local ok, v = pcall(w.getValue)
+    if not ok then
+        local okS, msg = pcall(tostring, v)
+        e.error = okS and msg or 'getValue failed'
+    else
+        if type(v) == 'string' then v = decimalNumber(v) or v end
+        if finite(v) then
+            e.value = v
+        elseif v ~= nil then
+            local what = type(v) == 'number' and 'a number that is not finite' or type(v)
+            e.error = 'section:gauge("' .. tostring(w.id) .. '"): getValue must return a finite number or nil, got ' .. what
+        end
+    end
+    local t = w.opts.target
+    if type(t) == 'function' then
+        local okT, tv = pcall(t)
+        if not okT then
+            local key = tostring(dashId) .. '/' .. tostring(w.id)
+            if not _gaugeLogged[key] then
+                _gaugeLogged[key] = true
+                local okS, msg = pcall(tostring, tv)
+                Logger:getShared():warn("[DASHBOARD] Gauge target of '%s' failed: %s", key, okS and msg or '?')
+            end
+            tv = nil
+        end
+        if type(tv) == 'string' then tv = decimalNumber(tv) end
+        if finite(tv) then e.target = tv end
+    else
+        e.target = t
+    end
     return e
 end
 
@@ -1154,6 +1275,22 @@ function SectionHandle:thermostat(id, label, icon, fns, opts)
     return self
 end
 
+--- Add a gauge: a value on an arc or a bar between min and max, coloured by thresholds.
+-- style="arc" (default) is a 240° arc with the value in the middle, "bar" a horizontal bar with the value at its right;
+-- from each threshold's value on the fill takes its colour; a value outside min..max is drawn at the end, the number shows it as it is.
+-- @param id string Unique widget identifier
+-- @param label string Display label
+-- @param getValue function Returns the value: function() -> number|nil (nil shows a dash)
+-- @param opts table Optional: {min=0, max=100 (above min), unit=string, decimals=0-6, style="arc"|"bar", thresholds={{value, color}, ...} (ascending), target=number|function()->number|nil (a marker, e.g. a power limit), icon=string (default "speedometer2"), disabled=function()->bool, span=n, size=string, color=string (the fill below the first threshold)}
+-- @api public
+function SectionHandle:gauge(id, label, getValue, opts)
+    if self._builder._sections[self._sectionIndex]._isHeader then
+        error('section:gauge("' .. tostring(id) .. '"): a gauge goes in a section, not the header', 2)
+    end
+    self._builder:_addWidget(self._sectionIndex, gaugeWidget(id, label, getValue, opts))
+    return self
+end
+
 local CHIP_KEYS = { color = true, link = true, disabled = true }
 
 -- opts.link: an http(s) URL or a path as is, anything else is a dashboard id; level as error()'s, default 3
@@ -1817,6 +1954,25 @@ function DashboardBuilder:color(id, label, icon, fns, opts)
     return self
 end
 
+--- Add a gauge to the current section: a value on an arc or a bar between min and max.
+-- style="arc" (default) is a 240° arc with the value in the middle, "bar" a horizontal bar with the value at its right;
+-- from each threshold's value on the fill takes its colour; a value outside min..max is drawn at the end, the number shows it as it is.
+-- @param id string Unique widget identifier
+-- @param label string Display label
+-- @param getValue function Returns the value: function() -> number|nil (nil shows a dash)
+-- @param opts table Optional: {min=0, max=100 (above min), unit=string, decimals=0-6, style="arc"|"bar", thresholds={{value, color}, ...} (ascending), target=number|function()->number|nil (a marker, e.g. a power limit), icon=string (default "speedometer2"), disabled=function()->bool, span=n, size=string, color=string (the fill below the first threshold)}
+-- @api public
+function DashboardBuilder:gauge(id, label, getValue, opts)
+    if not self._currentSection then
+        error('Call :section() before adding widgets (dash:floor() ends the current section)', 2)
+    end
+    if self._sections[self._currentSection]._isHeader then
+        error('section:gauge("' .. tostring(id) .. '"): a gauge goes in a section, not the header', 2)
+    end
+    self:_addWidget(self._currentSection, gaugeWidget(id, label, getValue, opts))
+    return self
+end
+
 --- Add a thermostat to the current section: current temperature, target and +/- for the target.
 -- @param id string Unique widget identifier
 -- @param label string Display label
@@ -2424,6 +2580,13 @@ function DashboardAPI.getDefinition(id)
                 widget.zone = __go_calendar_zone()
             end
 
+            -- Gauge: value and target as a poll gives them, its range and how it is drawn
+            if w.type == 'gauge' then
+                for k, v in pairs(gaugeState(id, w)) do widget[k] = v end
+                widget.min, widget.max, widget.style, widget.thresholds = w.min, w.max, w.style, w.thresholds
+                widget.unit, widget.decimals = w.opts.unit or '', w.opts.decimals
+            end
+
             -- Thermostat: current, target, state, mode; its range and whether it can be set at all
             if w.type == 'thermostat' then
                 for k, v in pairs(thermostatState(w)) do widget[k] = v end
@@ -2588,6 +2751,10 @@ function DashboardAPI.getValues(id)
                 result[w.id] = entry
             elseif w.type == 'player' or w.type == 'forecast' then
                 local entry = w.type == 'player' and playerState(w) or forecastState(w)
+                entry.disabled = safeDisabled(w.opts)
+                result[w.id] = entry
+            elseif w.type == 'gauge' then
+                local entry = gaugeState(id, w)
                 entry.disabled = safeDisabled(w.opts)
                 result[w.id] = entry
             elseif w.type == 'thermostat' then
@@ -2755,7 +2922,7 @@ function DashboardAPI.executeAction(id, widgetId, action, value)
         if type(ret) == 'string' then result.message = ret end
         return JSON.encode(result)
 
-    elseif widget.type == 'status' then
+    elseif widget.type == 'status' or widget.type == 'gauge' then
         return JSON.encode({ error = 'Read-only widget' })
 
     elseif widget.type == 'link' then
