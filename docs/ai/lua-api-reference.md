@@ -18,7 +18,7 @@ Only public API is listed — internal/private functions are omitted.
 - [core.Registry](#coreregistry) (10 functions)
 - [core.Metrics](#coremetrics) (1 functions)
 - [core.Calendar](#corecalendar) (36 functions)
-- [Dashboard](#dashboard) (66 functions)
+- [Dashboard](#dashboard) (68 functions)
 - [lib.panel](#libpanel) (55 functions)
 - [objects.RemotePanel](#objectsremotepanel) (6 functions)
 - [GPIO_DOUT](#gpio_dout) (1 functions)
@@ -1227,6 +1227,15 @@ Add a weather forecast: the next days (icon, max/min, rain) and a chart of the n
 - `src` (function) — A function returning the forecast, or the Weather plugin (Plugin.getPlugin("@vclu/weather"))
 - `opts` (table) — Optional: {days=1-7 (default 5), hours=0-48 (default 24, 0 hides the chart), unit=string (default "°C"), icon=string (default "cloud-sun"), disabled=function()->bool, span=n, size=string, color=string}
 
+### `SectionHandle:table(id, label, rows, opts)`
+
+Add a table: rows from a function, read on every poll, in the columns of opts.columns. Numbers are rounded to the column's decimals, booleans show as ✓ and —, nil as an empty cell; a header tap sorts on the page; on a phone each row is a card. rows must be a list (1..n, no holes); the first 1000 are read and sorted, at most 200 go to the page.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `rows` (function) — Returns the rows: function() -> { {key=value, ...}, ... } (nil or {} shows "brak danych")
+- `opts` (table) — {columns={{key=string, label=string?, unit=string?, decimals=0-6?, align="left"|"right"?}, ...} (required), sort=column key (ascending, before limit, empty cells last; default: the order rows gives), desc=true (sort descending), limit=1-200, color=function(row, key)->colour name|#hex|rgb()|hsl()|nil (the cell's colour), icon=string (default "table"), disabled=function()->bool, span=n, size=string}
+
 ### `SectionHandle:dimmer(id, label, icon, fns, opts)`
 
 Add a dimmer widget to this section.
@@ -1543,6 +1552,15 @@ Add a weather forecast to the current section: the next days and a chart of the 
 - `label` (string) — Display label
 - `src` (function) — A function returning {days={...}, hours={...}, updated?} or nil, or the Weather plugin
 - `opts` (table) — Optional: {days=1-7, hours=0-48, unit=string, icon=string, disabled=function()->bool, span=n, size=string, color=string}
+
+### `DashboardBuilder:table(id, label, rows, opts)`
+
+Add a table to the current section: rows from a function, in the columns of opts.columns.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `rows` (function) — Returns the rows: function() -> { {key=value, ...}, ... }
+- `opts` (table) — {columns={{key, label?, unit?, decimals?, align?}, ...} (required), sort, desc, limit=1-200, color=function(row, key), icon, disabled, span, size}
 
 ### `DashboardBuilder:dimmer(id, label, icon, fns, opts)`
 

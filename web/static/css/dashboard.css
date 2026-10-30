@@ -194,6 +194,7 @@ body {
     .dash-widget-covers:hover,
     .dash-widget-player:hover,
     .dash-widget-forecast:hover,
+    .dash-widget-table:hover,
     .dash-widget-dimmer:hover,
     .dash-widget-color:hover,
     .dash-widget-slider:hover {
@@ -444,6 +445,7 @@ body {
 .dash-widget-covers:active,
 .dash-widget-player:active,
 .dash-widget-forecast:active,
+.dash-widget-table:active,
 .dash-widget-dimmer:active,
 .dash-widget-color:active {
     transform: none;
@@ -1046,6 +1048,140 @@ body {
     }
 }
 
+/* ---- Table: rows from Lua, headers sort; cards on a phone ---- */
+.dash-widget-table {
+    cursor: default;
+}
+
+.dash-table-wrap {
+    min-width: 0;
+    overflow-x: auto;
+}
+
+.dash-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.dash-table th,
+.dash-table td {
+    padding: 6px 8px;
+    text-align: left;
+    vertical-align: baseline;
+}
+.dash-table th.right,
+.dash-table td.right {
+    text-align: right;
+}
+
+.dash-table th {
+    font-weight: 600;
+    white-space: nowrap;
+    border-bottom: 1px solid rgba(128,128,128,0.25);
+}
+
+.dash-table-sort {
+    background: none;
+    border: 0;
+    padding: 0;
+    color: inherit;
+    font: inherit;
+    font-size: 0.78rem;
+    opacity: 0.7;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.dash-table th[aria-sort] .dash-table-sort { opacity: 1; }
+.dash-table-sort:focus-visible {
+    outline: 2px solid var(--tile-c);
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+.dash-table-arrow {
+    font-size: 0.65rem;
+    margin-left: 3px;
+}
+
+.dash-table tbody tr + tr td {
+    border-top: 1px solid rgba(128,128,128,0.12);
+}
+
+.dash-table td.dash-table-colored {
+    color: var(--cell-c);
+    font-weight: 600;
+}
+
+.dash-table-empty {
+    font-size: 0.9rem;
+    opacity: 0.55;
+    padding: 6px 0;
+}
+
+.dash-table[hidden],
+.dash-table-empty[hidden] {
+    display: none;
+}
+
+/* a row is a card: the first column its title, the others "label: value" lines */
+@media (max-width: 600px) {
+    .dash-table,
+    .dash-table tbody,
+    .dash-table tr,
+    .dash-table td {
+        display: block;
+    }
+    .dash-table thead tr {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 12px;
+        padding-bottom: 6px;
+    }
+    .dash-table th {
+        display: block;
+        padding: 0;
+        border: 0;
+    }
+    .dash-table tbody tr {
+        padding: 8px 10px;
+        border-radius: 12px;
+        background: rgba(128,128,128,0.08);
+    }
+    .dash-table tbody tr + tr {
+        margin-top: 6px;
+    }
+    .dash-table tbody tr + tr td {
+        border-top: 0;
+    }
+    .dash-table td,
+    .dash-table td.right {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 2px 0;
+        text-align: right;
+    }
+    .dash-table td::before {
+        content: attr(data-label);
+        font-weight: 400;
+        opacity: 0.6;
+        text-align: left;
+        color: var(--dash-text);
+    }
+    .dash-table td:first-child {
+        font-weight: 600;
+        text-align: left;
+    }
+    .dash-table td:first-child::before {
+        content: none;
+    }
+    /* a card leaves out what has no value */
+    .dash-table td:empty {
+        display: none;
+    }
+}
+
 
 /* "2 otwarte · 1 w ruchu" after a section's name */
 .dash-section-covers {
@@ -1554,6 +1690,7 @@ body {
     .dash-grid > .dash-widget-covers,
     .dash-grid > .dash-widget-player,
     .dash-grid > .dash-widget-forecast,
+    .dash-grid > .dash-widget-table,
     .dash-grid > .dash-widget-thermostat,
     .dash-grid > .dash-widget-dimmer,
     .dash-grid > .dash-widget-color,
@@ -2233,6 +2370,7 @@ body.dash-room-open {
     .dash-player-btn:active { background: color-mix(in srgb, var(--dash-text) 18%, transparent); }
     .dash-player-idle .dash-player-btn.dash-player-play { background: color-mix(in srgb, var(--dash-text) 9%, transparent); }
     .dash-forecast-day { background: color-mix(in srgb, var(--dash-text) 5%, transparent); }
+    .dash-table td.dash-table-colored { color: color-mix(in srgb, var(--cell-c) 80%, var(--dash-text)); }
     .dash-thermo-btn { background: color-mix(in srgb, var(--dash-text) 9%, transparent); }
     .dash-thermo-btn:active { background: color-mix(in srgb, var(--dash-text) 18%, transparent); }
     .dash-forecast-icon { color: color-mix(in srgb, var(--tile-c) 75%, var(--dash-text)); }

@@ -37,7 +37,7 @@
               playing: 'odtwarza', paused: 'pauza', playerOff: 'wyłączony', offline: 'offline',
               play: 'Odtwarzaj', pause: 'Pauza', previous: 'Poprzedni', next: 'Następny',
               mute: 'Wycisz', unmute: 'Włącz dźwięk', power: 'Włącz / wyłącz', volume: 'Głośność',
-              noForecast: 'brak prognozy', rain: 'opady', temperature: 'temperatura',
+              noForecast: 'brak prognozy', rain: 'opady', temperature: 'temperatura', noData: 'brak danych', of: 'z',
               onN: ['włączone', 'włączone', 'włączonych'], allOff: 'wszystko wyłączone', back: 'Wróć',
               humidity: 'wilgotność', target: 'cel', thermoOn: 'włączony', thermoOff: 'wyłączony',
               modes: ['ręcznie', 'urlop', 'harmonogram', 'podgrzewanie'], locked: 'zablokowany', lower: 'Obniż', raise: 'Podnieś' },
@@ -52,7 +52,7 @@
               playing: 'playing', paused: 'paused', playerOff: 'off', offline: 'offline',
               play: 'Play', pause: 'Pause', previous: 'Previous', next: 'Next',
               mute: 'Mute', unmute: 'Unmute', power: 'Power', volume: 'Volume',
-              noForecast: 'no forecast', rain: 'rain', temperature: 'temperature',
+              noForecast: 'no forecast', rain: 'rain', temperature: 'temperature', noData: 'no data', of: 'of',
               onN: ['on', 'on', 'on'], allOff: 'all off', back: 'Back', humidity: 'humidity',
               target: 'target', thermoOn: 'on', thermoOff: 'off',
               modes: ['manual', 'holiday', 'schedule', 'heat-up'], locked: 'locked', lower: 'Lower', raise: 'Raise' }
@@ -69,7 +69,7 @@
         button: 'play-fill', toggle: 'power', slider: 'sliders', status: 'info-circle', link: 'link-45deg',
         chart: 'graph-up', select: 'list-ul', image: 'image', cover: 'arrows-expand', covers: 'window', dimmer: 'lightbulb',
         color: 'palette', calendar: 'calendar3', player: 'music-note-beamed', forecast: 'cloud-sun',
-        room: 'door-open', thermostat: 'thermometer-half'
+        room: 'door-open', thermostat: 'thermometer-half', table: 'table'
     };
 
     // 23.9 -> "23,9" in Polish; with decimals rounded to them (21 -> "21,0"); text as it is
@@ -223,6 +223,11 @@
             if (d.error) return ['unknown', T.unknown];
             if (d.none) return ['unknown', T.noForecast];
             return ['value', d.updated ? T.updated + ' ' + hhmm(d.updated, w.zone) : ''];
+        case 'table':
+            // "10 z 34" when limit or the cap cut the rows
+            if (d.error) return ['unknown', T.unknown];
+            var shown = Array.isArray(d.rows) ? d.rows.length : 0;
+            return ['value', d.total > shown ? shown + ' ' + T.of + ' ' + d.total : ''];
         case 'thermostat':
             // "włączony · harmonogram"; the temperatures are in the tile's body
             if (d.current == null && d.target == null) return ['unknown', T.unknown];
@@ -261,6 +266,7 @@
         setState(el, st[0], st[1]);
         if (type === 'player') updatePlayer(el, d);
         if (type === 'forecast') updateForecast(el, w, d);
+        if (type === 'table') updateTable(el, w, d);
         if (type === 'room') updateRoom(el, w, d, st[1]);
         if (type === 'thermostat') updateThermostat(el, w, d);
         if (el.classList.contains('dash-header-item')) el.title = (w.label || '') + ': ' + st[1];
@@ -490,8 +496,8 @@
         el.dataset.widgetId = w.id;
         el.dataset.type = w.type;
 
-        // Span (stored as data-attr; CSS responsive rules can override); a player and a forecast are two wide
-        var span = w.span || ((w.type === 'player' || w.type === 'forecast') && cols > 1 ? 2 : 0);
+        // Span (stored as data-attr; CSS responsive rules can override); a player, a forecast and a table are two wide
+        var span = w.span || ((w.type === 'player' || w.type === 'forecast' || w.type === 'table') && cols > 1 ? 2 : 0);
         if (span > 1) {
             el.style.gridColumn = 'span ' + span;
             el.dataset.span = span;
@@ -555,6 +561,8 @@
             renderPlayer(el, w, head);
         } else if (w.type === 'forecast') {
             renderForecast(el, w);
+        } else if (w.type === 'table') {
+            renderTable(el, w);
         } else if (w.type === 'room') {
             renderRoom(el, w);
         } else if (w.type === 'thermostat') {
@@ -1718,6 +1726,117 @@
         });
     }
 
+    // ---- Table ----
+
+    function own(o, k) { return o && typeof o === 'object' && Object.prototype.hasOwnProperty.call(o, k) ? o[k] : null; }
+
+    // ✓ and — for booleans, a number rounded with its unit, text as it is, nothing for nil
+    function tableCellText(v, col) {
+        if (v == null) return '';
+        if (typeof v === 'boolean') return v ? '✓' : '—';
+        if (typeof v === 'number') return withUnit(v, col.unit, col.decimals);
+        return String(v);
+    }
+
+    // numbers, text, booleans, empty last (as the server sorts); text in the viewer's language
+    function tableRank(v) {
+        return typeof v === 'number' ? 1 : typeof v === 'string' ? 2 : typeof v === 'boolean' ? 3 : 4;
+    }
+    function tableCompare(a, b) {
+        var ra = tableRank(a), rb = tableRank(b);
+        if (ra !== rb) return ra - rb;
+        if (ra === 1) return a - b;
+        if (ra === 2) return a.localeCompare(b, lang, {numeric: true, sensitivity: 'base'});
+        if (ra === 3) return (a ? 1 : 0) - (b ? 1 : 0);
+        return 0;
+    }
+
+    // Column headers sort the rows: a tap ascending, another descending
+    function renderTable(el, w) {
+        el.style.cursor = 'default';
+        var box = calEl('div', 'dash-table-wrap');
+        var table = calEl('table', 'dash-table');
+        var tr = document.createElement('tr');
+        (w.columns || []).forEach(function(col) {
+            var th = calEl('th', col.align === 'right' ? 'right' : null);
+            th.scope = 'col';
+            th.dataset.key = col.key;
+            var btn = calEl('button', 'dash-table-sort', col.label || col.key);
+            btn.type = 'button';
+            btn.appendChild(calEl('i', 'bi dash-table-arrow'));
+            btn.addEventListener('click', function(ev) {
+                ev.stopPropagation();
+                var s = el._tableSort;
+                el._tableSort = { key: col.key, dir: s && s.key === col.key ? -s.dir : 1 };
+                drawTable(el, w);
+            });
+            th.appendChild(btn);
+            tr.appendChild(th);
+        });
+        table.appendChild(document.createElement('thead')).appendChild(tr);
+        table.appendChild(document.createElement('tbody'));
+        table.hidden = true; // until rows come: a failing table shows no empty headers
+        box.appendChild(table);
+        var empty = calEl('div', 'dash-table-empty', T.noData);
+        empty.hidden = true;
+        box.appendChild(empty);
+        el.appendChild(box);
+        el._tableSort = w.sort ? { key: w.sort, dir: w.desc ? -1 : 1 } : null;
+    }
+
+    // Redrawn only when the rows changed; after an error the last rows stay
+    function updateTable(el, w, d) {
+        if (!Array.isArray(d.rows)) return;
+        var key = JSON.stringify(d.rows);
+        if (el._tableKey === key) return;
+        el._tableKey = key;
+        el._tableRows = d.rows;
+        drawTable(el, w);
+    }
+
+    // Cells with textContent only: row data never becomes markup
+    function drawTable(el, w) {
+        var cols = w.columns || [];
+        var rows = (el._tableRows || []).map(function(r, i) {
+            return { v: own(r, 'v'), c: own(r, 'c'), i: i };
+        });
+        var s = el._tableSort;
+        if (s) {
+            // empty cells stay last both ways
+            rows.sort(function(a, b) {
+                var x = own(a.v, s.key), y = own(b.v, s.key);
+                if ((x == null) !== (y == null)) return x == null ? 1 : -1;
+                return s.dir * tableCompare(x, y) || a.i - b.i;
+            });
+        }
+        el.querySelectorAll('.dash-table th').forEach(function(th) {
+            var on = !!s && th.dataset.key === s.key;
+            if (on) th.setAttribute('aria-sort', s.dir > 0 ? 'ascending' : 'descending');
+            else th.removeAttribute('aria-sort');
+            th.querySelector('.dash-table-arrow').className = 'bi dash-table-arrow' +
+                (on ? (s.dir > 0 ? ' bi-caret-up-fill' : ' bi-caret-down-fill') : '');
+        });
+        var tbody = el.querySelector('.dash-table tbody');
+        tbody.textContent = '';
+        rows.forEach(function(row) {
+            var tr = document.createElement('tr');
+            cols.forEach(function(col) {
+                var td = calEl('td', col.align === 'right' ? 'right' : null, tableCellText(own(row.v, col.key), col));
+                td.dataset.label = col.label || col.key;
+                var c = own(row.c, col.key);
+                c = typeof c === 'string' ? resolveColor(c) : null;
+                if (typeof c === 'string') {
+                    td.classList.add('dash-table-colored');
+                    td.style.setProperty('--cell-c', c);
+                }
+                tr.appendChild(td);
+            });
+            tbody.appendChild(tr);
+        });
+        el.querySelector('.dash-table').hidden = !rows.length;
+        el.querySelector('.dash-table-empty').hidden = rows.length > 0;
+    }
+
     // ---- Dimmer widget ----
 
     // A slider sends the value it was moved to: after a pause, or at once when let go, so
@@ -2552,6 +2671,12 @@
         // a poll is the whole forecast; after an error the last one stays on the tile
         if (type === 'forecast' && !force) {
             ['none', 'error', 'updated'].concat(d.error ? [] : ['days', 'hours']).forEach(function(k) {
+                if (!(k in d)) d[k] = null;
+            });
+        }
+        // a poll is the whole table; after an error the last rows stay
+        if (type === 'table' && !force) {
+            ['error'].concat(d.error ? [] : ['rows', 'total']).forEach(function(k) {
                 if (!(k in d)) d[k] = null;
             });
         }

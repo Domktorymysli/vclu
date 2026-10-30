@@ -354,7 +354,7 @@ CLU220000592:executeNoReply(0, "SetThermostat(19)")
 ## Dashboard (Lua-defined)
 
 Public dashboard for a tablet/wall. Defined in Lua, available at `/d/:id`.
-Widget types: button, toggle, slider, status, link, select, chart, image, group, cover, covers, dimmer, color, thermostat, calendar, player, forecast; in the header also chip.
+Widget types: button, toggle, slider, status, link, select, chart, image, group, cover, covers, dimmer, color, thermostat, calendar, player, forecast, table; in the header also chip.
 `:calendar(id, label, cal, { view = 'month' | 'day', tags = {...}, schedules = { 'taryfa' } })` shows a calendar
 built with `Calendar`: a month grid and the day of a tapped date (full width); `schedules` adds a 24 h bar per schedule (`schedules = true`: all of the calendar's)
 to the day view; `holidays` (holiday names, default on), `namedays` (name days in the day view, default off) and
@@ -701,6 +701,65 @@ local weather = Plugin.getPlugin("@vclu/weather")
 - opts: `days` (1-7, default 5), `hours` (0-48, default 24, 0 hides the chart), `unit` (default `°C`),
   `icon` (default `cloud-sun`), `disabled`, `span`, `size`, `color` (the temperature line). Two columns
   wide by default, full width on a phone.
+
+### Table
+
+`:table(id, label, rows, opts)` shows rows from a function, read on every poll, in the columns of
+`opts.columns`. A tap on a column header sorts the rows on the page (again: the other way); on a
+phone each row is a card with the first column as its title.
+
+```lua
+local rooms = {
+  { name = 'Salon',   temp = 'CLU220000592.ANA0001', window = 'CLU220000592.DIN0095' },
+  { name = 'Kuchnia', temp = 'CLU220000592.ANA0002', window = 'CLU220000592.DIN0096' },
+}
+
+:section('Pokoje', 'house')
+  :table('rooms', 'Pokoje', function()
+      local rows = {}
+      for i, r in ipairs(rooms) do
+        -- nil (no reading yet) is an empty cell
+        local open = _:value(r.window)
+        if open ~= nil then open = open == 1 end
+        rows[i] = { name = r.name, temp = _:value(r.temp), window = open }
+      end
+      return rows
+    end, {
+      columns = {
+        { key = 'name', label = 'Pokój' },
+        { key = 'temp', label = 'Temperatura', unit = '°C', decimals = 1, align = 'right' },
+        { key = 'window', label = 'Okno otwarte' },
+      },
+      sort = 'temp',
+      color = function(row, key)
+        local t = tonumber(row.temp)
+        if key == 'temp' and t and t < 18 then return 'info' end
+      end,
+    })
+```
+
+- **columns** (required): `{ key, label, unit, decimals (0-6), align = 'left' | 'right' }`; `label`
+  defaults to the key. A key a row does not have is an empty cell; keys without a column are not sent.
+- **Cells:** a number is rounded to the column's `decimals` with the viewer's decimal separator and
+  gets the `unit`; decimal text in a column with `decimals` (a Remote object's value, `"21.5"`;
+  not hex such as `"0x1F"` or an exponent) is read as a number;
+  `true`/`false` show as ✓ and —; `nil` is empty. A table, a function or another type in a cell
+  is the tile's error, as is an error in `rows`; the last rows stay on the tile.
+- **sort:** a column key; ascending, empty cells last, equal cells in the order `rows` gave them;
+  `desc = true` sorts descending (empty cells still last), and the header arrow starts that way.
+  Without `sort` the rows keep their order. **limit** (1-200) keeps the first rows after the sort,
+  so `sort = 'power', desc = true, limit = 5` shows the five highest: the server's sort decides
+  which rows `limit` keeps, a header tap only reorders those. Text sorts without regard to case and
+  with digit runs as numbers (`room 2` before `room 10`); letters outside ASCII in byte order.
+  The first 1000 rows are read and sorted (more are cut, logged once), at most 200 are sent, and
+  the state line says "10 z 34" when some were cut.
+- **rows** must be a list (keys 1..n): a map such as `{ kuchnia = {...} }` or a list with holes is
+  the tile's error, as is a row whose fields cannot be read.
+- **color:** `function(row, key)` called for every cell shown with the row as `rows` gave it;
+  a colour name (`success`, `warning`, `danger`, `info`, `primary`, `accent`), `#hex`, `rgb()`,
+  `hsl()`, or nil.
+- `nil` or `{}` from `rows` shows "brak danych". opts: `icon` (default `table`), `disabled`, `span`,
+  `size`. Two columns wide by default, full width on a phone.
 
 ### Select widget (dropdown)
 
