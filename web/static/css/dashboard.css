@@ -231,6 +231,7 @@ body {
     .dash-widget-gauge:hover,
     .dash-widget-dimmer:hover,
     .dash-widget-color:hover,
+    .dash-widget-colorTemp:hover,
     .dash-widget-slider:hover {
         transform: none;
         box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 4px 14px rgba(0,0,0,0.08);
@@ -381,7 +382,8 @@ body {
 /* ---- Toggle widget ---- */
 .dash-toggle-switch,
 .dash-dimmer-toggle,
-.dash-color-toggle {
+.dash-color-toggle,
+.dash-ct-toggle {
     flex: none;
     margin: 0;
     padding: 0;
@@ -391,7 +393,8 @@ body {
 
 .dash-toggle-switch .form-check-input,
 .dash-dimmer-toggle .form-check-input,
-.dash-color-toggle .form-check-input {
+.dash-color-toggle .form-check-input,
+.dash-ct-toggle .form-check-input {
     float: none;
     margin: 0;
     width: 2.6em;
@@ -401,7 +404,8 @@ body {
 
 .dash-toggle-switch .form-check-input:checked,
 .dash-dimmer-toggle .form-check-input:checked,
-.dash-color-toggle .form-check-input:checked {
+.dash-color-toggle .form-check-input:checked,
+.dash-ct-toggle .form-check-input:checked {
     background-color: var(--tile-c);
     border-color: var(--tile-c);
 }
@@ -482,7 +486,8 @@ body {
 .dash-widget-forecast:active,
 .dash-widget-table:active,
 .dash-widget-dimmer:active,
-.dash-widget-color:active {
+.dash-widget-color:active,
+.dash-widget-colorTemp:active {
     transform: none;
 }
 
@@ -1676,6 +1681,18 @@ body {
     cursor: default;
 }
 
+/* ---- Colour temperature widget ---- */
+.dash-widget-colorTemp {
+    cursor: default;
+}
+
+/* the track is the light itself, warm to cool (the page sets the gradient) */
+.dash-slider-input.dash-ct-input {
+    height: 12px;
+    border-radius: 6px;
+    box-shadow: inset 0 0 0 1px rgba(128,128,128,0.3);
+}
+
 .dash-color-presets {
     display: flex;
     flex-wrap: wrap;
@@ -2162,6 +2179,7 @@ body {
     .dash-grid > .dash-widget-thermostat,
     .dash-grid > .dash-widget-dimmer,
     .dash-grid > .dash-widget-color,
+    .dash-grid > .dash-widget-colorTemp,
     .dash-grid > .dash-widget-calendar {
         grid-column: 1 / -1 !important;
     }
