@@ -1737,7 +1737,7 @@
         // outside manual mode (or before a target) the buttons go; the target still shows
         var can = d.set !== false && d.target != null;
         el.querySelectorAll('.dash-thermo-btn').forEach(function(b) {
-            b.hidden = d.set === false;
+            b.classList.toggle('dash-thermo-btn-off', d.set === false);
             b.disabled = !can || (shown != null && (b.dataset.dir > 0 ? shown >= w.max : shown <= w.min));
         });
         // a mode chosen shows until the reply; the reported one then

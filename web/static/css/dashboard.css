@@ -992,8 +992,9 @@ body {
     cursor: default;
 }
 
-.dash-thermo-btn[hidden] {
-    display: none;
+/* hidden outside manual mode, in place: the tile keeps its height ([hidden] is display: none) */
+.dash-thermo-btn-off {
+    visibility: hidden;
 }
 
 .dash-widget-thermostat.size-large .dash-thermo-current-value {
@@ -2084,6 +2085,7 @@ body {
     border-radius: 999px;
     background: rgba(128,128,128,0.12);
     font-size: 0.85rem;
+    font-variant-numeric: tabular-nums; /* a new reading does not nudge the chips beside it */
 }
 
 .dash-header-tap {
