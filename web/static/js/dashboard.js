@@ -42,7 +42,8 @@
               noForecast: 'brak prognozy', rain: 'opady', temperature: 'temperatura', noData: 'brak danych', of: 'z',
               onN: ['włączone', 'włączone', 'włączonych'], allOff: 'wszystko wyłączone', back: 'Wróć',
               humidity: 'wilgotność', target: 'cel', thermoOn: 'włączony', thermoOff: 'wyłączony',
-              modes: ['ręcznie', 'urlop', 'harmonogram', 'podgrzewanie'], locked: 'zablokowany', lower: 'Obniż', raise: 'Podnieś' },
+              modes: ['ręcznie', 'urlop', 'harmonogram', 'podgrzewanie'], locked: 'zablokowany', lower: 'Obniż', raise: 'Podnieś',
+              hold: 'Przytrzymaj', openGate: 'Otwórz', closeGate: 'Zamknij' },
         en: { on: 'on', off: 'off', open: 'open', closed: 'closed', opening: 'opening',
               closing: 'closing', unknown: 'no reading', run: 'run', sent: 'sent', updated: 'updated',
               nothingToday: 'nothing more today', holidays: 'Holidays', namedays: 'Name days', sun: 'Sun', show: 'Show',
@@ -57,7 +58,8 @@
               noForecast: 'no forecast', rain: 'rain', temperature: 'temperature', noData: 'no data', of: 'of',
               onN: ['on', 'on', 'on'], allOff: 'all off', back: 'Back', humidity: 'humidity',
               target: 'target', thermoOn: 'on', thermoOff: 'off',
-              modes: ['manual', 'holiday', 'schedule', 'heat-up'], locked: 'locked', lower: 'Lower', raise: 'Raise' }
+              modes: ['manual', 'holiday', 'schedule', 'heat-up'], locked: 'locked', lower: 'Lower', raise: 'Raise',
+              hold: 'Hold', openGate: 'Open', closeGate: 'Close' }
     };
     // ?lang= as on the other pages, else the browser's language
     var lang = (function() {
@@ -71,7 +73,7 @@
         button: 'play-fill', toggle: 'power', slider: 'sliders', status: 'info-circle', link: 'link-45deg',
         chart: 'graph-up', select: 'list-ul', image: 'image', cover: 'arrows-expand', covers: 'window', dimmer: 'lightbulb',
         color: 'palette', calendar: 'calendar3', player: 'music-note-beamed', forecast: 'cloud-sun',
-        room: 'door-open', thermostat: 'thermometer-half', table: 'table', gauge: 'speedometer2'
+        room: 'door-open', thermostat: 'thermometer-half', table: 'table', gauge: 'speedometer2', gate: 'door-closed'
     };
 
     // 23.9 -> "23,9" in Polish; with decimals rounded to them (21 -> "21,0"); text as it is
@@ -248,6 +250,13 @@
             if (lit) parts.push(plural(lit, T.onN));
             if (opened) parts.push(plural(opened, T.openN));
             return [d.moving > 0 ? 'moving' : (lit || opened ? 'on' : 'off'), parts.length ? parts.join(' · ') : T.allOff];
+        case 'gate':
+            // open is filled, closed tinted, moving pulses; colours in dashboard.css by data-gate
+            if (d.error) return ['unknown', T.unknown];
+            if (d.state === 'open') return ['on', T.open];
+            if (d.state === 'closed') return ['value', T.closed];
+            if (d.state === 'opening' || d.state === 'closing' || d.state === 'moving') return ['moving', T[d.state]];
+            return ['unknown', T.unknown];
         case 'button':
             return ['value', T.run];
         case 'link':
@@ -277,6 +286,7 @@
         if (type === 'room') updateRoom(el, w, d, st[1]);
         if (type === 'thermostat') updateThermostat(el, w, d);
         if (type === 'gauge') updateGauge(el, w, d);
+        if (type === 'gate') el.dataset.gate = (!d.error && d.state) || '';
         if (el.classList.contains('dash-header-item')) el.title = (w.label || '') + ': ' + st[1];
         if (el.getAttribute('role') === 'switch') el.setAttribute('aria-checked', d.value ? 'true' : 'false');
     }
@@ -409,6 +419,7 @@
         contentEl.className = '';
         contentEl.innerHTML = '';
         contentEl.style.cssText = '--dash-columns:' + (def.columns || 3);
+        cancelHold();
         widgetEls = {};
         sectionCoverEls = {};
         layoutEls = {};
@@ -632,6 +643,8 @@
             renderThermostat(el, w);
         } else if (w.type === 'gauge') {
             renderGauge(el, w);
+        } else if (w.type === 'gate') {
+            renderGate(el, w);
         }
 
         refreshTile(el, w, w);
@@ -648,13 +661,129 @@
         setTimeout(function() { if (s.textContent === text) s.textContent = prev; }, 1500);
     }
 
+    // ---- Press and hold (opts.hold) ----
+
+    var HOLD_R = 22, HOLD_C = 2 * Math.PI * HOLD_R;
+    var activeHold = null; // cancel() of the press in progress
+
+    // leaving the page or the window, or drawing it again, drops the press
+    function cancelHold() { if (activeHold) activeHold(false); }
+    document.addEventListener('visibilitychange', function() { if (document.hidden) cancelHold(); });
+    window.addEventListener('blur', cancelHold);
+
+    // The ring around the tile's icon, made on the first hold
+    function holdRing(el) {
+        var host = el.querySelector('.dash-widget-icon, .dash-header-icon');
+        if (!host) return null;
+        var circle = host.querySelector('.dash-hold-ring circle');
+        if (!circle) {
+            host.insertAdjacentHTML('beforeend', '<svg class="dash-hold-ring" viewBox="0 0 48 48" aria-hidden="true">' +
+                '<circle cx="24" cy="24" r="' + HOLD_R + '"></circle></svg>');
+            circle = host.querySelector('.dash-hold-ring circle');
+            circle.style.strokeDasharray = HOLD_C;
+            circle.style.strokeDashoffset = HOLD_C;
+        }
+        return circle;
+    }
+
+    // A tap says to hold; a tile without a state line says it in a toast
+    function holdHint(el) {
+        if (el.querySelector('.dash-tile-state')) flashState(el, T.hold);
+        else VCLU.showToast(T.hold, 'info');
+    }
+
+    // run() after the press on target lasts ms (mouse, touch, or Enter/Space held); releasing
+    // early, leaving target or a scroll cancels. The ring fills on el's icon.
+    function bindHold(target, el, ms, run) {
+        var timer = null, pointer = null, ring = null;
+        target.classList.add('dash-hold');
+        if (target.tagName !== 'BUTTON') {
+            target.tabIndex = 0;
+            if (!target.getAttribute('role')) target.setAttribute('role', 'button');
+        }
+        target.title = T.hold;
+        function start() {
+            if (timer || el.classList.contains('disabled')) return false;
+            cancelHold();
+            activeHold = cancel;
+            ring = holdRing(el);
+            el.classList.add('holding');
+            target.classList.add('holding');
+            if (ring) {
+                ring.style.transition = 'none';
+                ring.style.strokeDashoffset = HOLD_C;
+                ring.getBoundingClientRect(); // start the transition from empty
+                ring.style.transition = 'stroke-dashoffset ' + ms + 'ms linear';
+                ring.style.strokeDashoffset = 0;
+            }
+            timer = setTimeout(function() {
+                timer = null;
+                var current = activeHold === cancel;
+                end();
+                if (!current || !el.isConnected || !target.isConnected) return;
+                if (navigator.vibrate) navigator.vibrate(30);
+                run();
+            }, ms);
+            return true;
+        }
+        function end() {
+            if (activeHold === cancel) activeHold = null;
+            el.classList.remove('holding');
+            target.classList.remove('holding');
+            pointer = null;
+            if (ring) {
+                ring.style.transition = 'stroke-dashoffset 0.2s ease-out';
+                ring.style.strokeDashoffset = HOLD_C;
+            }
+        }
+        function cancel(hint) {
+            if (!timer) return;
+            clearTimeout(timer);
+            timer = null;
+            end();
+            if (hint) holdHint(el);
+        }
+        target.addEventListener('pointerdown', function(e) {
+            if (e.pointerType === 'mouse' && e.button !== 0) return;
+            e.stopPropagation();
+            // a second finger or the mouse during a press is ignored
+            if (timer) return;
+            if (start()) pointer = e.pointerId;
+        });
+        target.addEventListener('pointerup', function(e) { if (e.pointerId === pointer) cancel(true); });
+        target.addEventListener('pointercancel', function() { cancel(false); });
+        target.addEventListener('pointerleave', function() { cancel(false); });
+        // a touch stays on its element until it is lifted: leaving is checked by position
+        target.addEventListener('pointermove', function(e) {
+            if (!timer || e.pointerId !== pointer) return;
+            var r = target.getBoundingClientRect();
+            if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) cancel(false);
+        });
+        target.addEventListener('contextmenu', function(e) { e.preventDefault(); });
+        target.addEventListener('click', function(e) { e.preventDefault(); e.stopPropagation(); });
+        target.addEventListener('keydown', function(e) {
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            e.preventDefault();
+            e.stopPropagation();
+            if (!e.repeat) start();
+        });
+        target.addEventListener('keyup', function(e) {
+            if (e.key === 'Enter' || e.key === ' ') cancel(true);
+        });
+        target.addEventListener('blur', function() { cancel(false); });
+    }
+
     function renderButton(el, w) {
-        el.addEventListener('click', function() {
-            if (w.confirm && !confirm(w.confirm)) return;
+        var run = function() {
             el.classList.add('flash');
             setTimeout(function() { el.classList.remove('flash'); }, 300);
             flashState(el, T.sent);
-            executeAction(w.id, 'tap');
+            executeAction(w.id, 'tap', undefined, null, !!w.hold);
+        };
+        if (w.hold) return bindHold(el, el, w.hold, run);
+        el.addEventListener('click', function() {
+            if (w.confirm && !confirm(w.confirm)) return;
+            run();
         });
     }
 
@@ -668,12 +797,19 @@
         input.setAttribute('role', 'switch');
         input.setAttribute('aria-label', el.querySelector('.dash-widget-label').textContent);
         input.checked = checked;
+        sw.appendChild(input);
+        // no onChange: the switch only shows the state (a held toggle)
+        if (!onChange) {
+            input.tabIndex = -1;
+            sw.classList.add('dash-hold-switch');
+            el.querySelector('.dash-tile-head').appendChild(sw);
+            return input;
+        }
         input.addEventListener('change', function(e) {
             e.stopPropagation();
             if (el.classList.contains('disabled')) { input.checked = !input.checked; return; }
             onChange(input.checked);
         });
-        sw.appendChild(input);
         el.querySelector('.dash-tile-head').appendChild(sw);
         (target || el).addEventListener('click', function(e) {
             if (sw.contains(e.target) || el.classList.contains('disabled')) return;
@@ -685,12 +821,57 @@
 
     function renderToggle(el, w) {
         if (w.value) el.classList.add('active');
-        var input = headSwitch(el, 'dash-toggle-switch', !!w.value, function(on) {
+        var flip = function(on) {
             el.classList.toggle('active', on);
             refreshTile(el, w, { value: on });
-            executeAction(w.id, 'toggle', on);
-        });
+            executeAction(w.id, 'toggle', on, null, !!w.hold);
+        };
+        var input = headSwitch(el, 'dash-toggle-switch', !!w.value, w.hold ? null : flip);
         input.dataset.widgetId = w.id;
+        if (w.hold) {
+            input.setAttribute('aria-hidden', 'true'); // the tile is the switch
+
+            el.setAttribute('role', 'switch');
+            el.setAttribute('aria-label', w.label || '');
+            bindHold(el, el, w.hold, function() {
+                input.checked = !el._data.value;
+                flip(input.checked);
+            });
+        }
+    }
+
+    // ---- Gate: its state; Open and Close held (opts.hold), Stop a tap ----
+
+    function renderGate(el, w) {
+        var caps = w.capabilities || {};
+        var controls = calEl('div', 'dash-cover-controls dash-gate-controls');
+        [['open', 'door-open', T.openGate, true], ['stop', 'stop-fill', T.stop, caps.stop],
+            ['close', 'door-closed', T.closeGate, caps.close]].forEach(function(b) {
+            if (!b[3]) return;
+            var btn = calEl('button', 'dash-cover-btn dash-gate-btn');
+            btn.type = 'button';
+            btn.dataset.action = b[0];
+            btn.setAttribute('aria-label', b[2]);
+            btn.appendChild(calEl('i', 'bi bi-' + b[1]));
+            btn.appendChild(calEl('span', '', b[2]));
+            var held = b[0] !== 'stop' && !!w.hold;
+            var run = function() { executeAction(w.id, b[0], undefined, null, held); };
+            if (held) {
+                bindHold(btn, el, w.hold, run);
+                btn.title = b[2] + ' · ' + T.hold;
+            } else {
+                btn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    if (el.classList.contains('disabled')) return;
+                    btn.classList.add('active');
+                    setTimeout(function() { btn.classList.remove('active'); }, 300);
+                    run();
+                });
+            }
+            controls.appendChild(btn);
+        });
+        controls.style.gridTemplateColumns = 'repeat(' + controls.children.length + ', minmax(0, 1fr))';
+        el.appendChild(controls);
     }
 
     function renderSlider(el, w) {
@@ -2637,10 +2818,22 @@
         } else if (w.type === 'button') {
             tap = function() {
                 if (w.confirm && !confirm(w.confirm)) return;
-                executeAction(w.id, 'tap');
+                executeAction(w.id, 'tap', undefined, null, !!w.hold);
             };
         }
-        if (tap) {
+        if (tap && w.hold) {
+            if (w.type === 'toggle') {
+                el.setAttribute('role', 'switch');
+                tap = function() {
+                    var on = !el._data.value;
+                    refreshTile(el, w, { value: on });
+                    executeAction(w.id, 'toggle', on, null, true);
+                };
+            }
+            el.classList.add('dash-header-tap');
+            el.setAttribute('aria-label', w.label || '');
+            bindHold(el, el, w.hold, tap);
+        } else if (tap) {
             bindHeaderTap(el, w.type === 'toggle' ? 'switch' : (w.type === 'link' ? 'link' : 'button'), w.label || '', tap);
         }
         if (w.disabled) {
@@ -2901,6 +3094,8 @@
         if (type === 'color') delete d.value; // brightness or white: the reply does not say
         // a poll is the whole state: no value is a dash, no target drops the marker
         if (type === 'gauge' && !force) ['value', 'target', 'error'].forEach(function(k) { if (!(k in d)) d[k] = null; });
+        // a poll is the gate's whole state: none means no reading
+        if (type === 'gate' && !force) ['state', 'error'].forEach(function(k) { if (!(k in d)) d[k] = null; });
         if (type === 'thermostat') {
             delete d.value; // a set's reply: the tile holds the value itself
             // a poll is the whole state: what it leaves out was not reported (shown as --)
@@ -3016,10 +3211,12 @@
 
     // ---- Actions ----
 
-    // onFail: called when the action is refused or does not reach the server
-    function executeAction(widgetId, action, value, onFail) {
+    // onFail: called when the action is refused or does not reach the server;
+    // held: the press lasted the widget's hold (the server refuses it without)
+    function executeAction(widgetId, action, value, onFail, held) {
         var body = { widgetId: widgetId, action: action };
         if (value !== undefined) body.value = value;
+        if (held) body.held = true;
 
         // Protect this widget from stale poll data for 3 seconds
         actionGrace[widgetId] = Date.now() + 3000;

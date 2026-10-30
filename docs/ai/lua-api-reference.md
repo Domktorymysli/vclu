@@ -1210,6 +1210,14 @@ Add a cover group: one tile moving several covers, with their counts and average
 - `list` (table) — Covers (RemoteCover, VirtualCover) or their paths, _:byTag(...), or a function returning one (read each time; missing paths skipped)
 - `opts` (table) — Optional: {icon=string (default "window"), disabled=function()->bool, visible=function()->bool, span=n, size=string, color=string}
 
+### `SectionHandle:gate(id, label, opts)`
+
+Add a gate (or a door lock): its state, Open, Close and Stop. Open and Close are pressed and held (Close shown only with close), Stop is a tap.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `opts` (table) — {open=function() (required), close=function()?, stop=function()?, state=function()->"open"|"closed"|"opening"|"closing"|"moving"|nil, hold=true|false|ms (default true = 800 ms; 300-5000), icon=string (default "door-closed"), disabled=function()->bool, span=n}
+
 ### `SectionHandle:player(id, label, src, opts)`
 
 Add a media player: artwork, title and artist, previous/play-pause/next, volume, mute and power. {getState=function()->{playing, title, artist, album, artwork (http(s) URL), volume (0-100), muted, power, online}, play?, pause?, next?, previous?, setVolume?(percent), setMute?(bool), on?, off?}; a missing function hides its button
@@ -1536,6 +1544,14 @@ Add a cover widget to the current section. Buttons up/stop/down call open/stop/c
 - `icon` (string) — Bootstrap icon name (e.g., "arrows-expand")
 - `fns` (table) — {getPosition=function()->number|nil, getState=function()->number|nil, open=function(), close=function(), stop=function(), set=function(position)}
 - `opts` (table) — Optional: {disabled=function()->bool, visible=function()->bool}
+
+### `DashboardBuilder:gate(id, label, opts)`
+
+Add a gate (or a door lock) to the current section: its state, Open, Close and Stop. Open and Close are pressed and held (Close shown only with close), Stop is a tap.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `opts` (table) — {open=function() (required), close=function()?, stop=function()?, state=function()->"open"|"closed"|"opening"|"closing"|"moving"|nil, hold=true|false|ms (default true = 800 ms; 300-5000), icon=string (default "door-closed"), disabled=function()->bool, span=n}
 
 ### `DashboardBuilder:covers(id, label, list, opts)`
 

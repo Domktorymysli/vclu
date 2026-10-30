@@ -33,6 +33,71 @@ local function setWidth(b, w, level)
     b._width = w
 end
 
+-- ==========================================================================
+-- Press and hold: opts.hold on a button, a toggle and a gate
+-- ==========================================================================
+
+local HOLD_MS = 800
+
+-- opts.hold in ms (true = 800, 300-5000), nil without; dflt is a gate's default (true)
+local function holdMs(where, opts, dflt, level)
+    local h = opts.hold
+    if h == nil then h = dflt end
+    if h == nil or h == false then return nil end
+    if h == true then h = HOLD_MS end
+    if type(h) ~= 'number' or h ~= h or h < 300 or h > 5000 then
+        error(where .. ': opts.hold must be true, false or a time in ms (300-5000)', level)
+    end
+    if opts.confirm ~= nil then error(where .. ': use opts.hold or opts.confirm, not both', level) end
+    return math.floor(h)
+end
+
+-- A button or a toggle: its hold checked when it is added, so a mistake fails the module
+local function holdWidget(kind, widget, level)
+    local where = kind .. '("' .. tostring(widget.id) .. '")'
+    if type(widget.opts) ~= 'table' then error(where .. ': opts must be a table', level) end
+    widget.hold = holdMs(where, widget.opts, nil, level + 1)
+    return widget
+end
+
+-- ==========================================================================
+-- Gate (or a lock): its state, open/close held, stop at a tap
+-- ==========================================================================
+
+local GATE_KEYS = { open = true, close = true, stop = true, state = true, hold = true, icon = true, disabled = true, visible = true, span = true }
+local GATE_STATES = { open = true, closed = true, opening = true, closing = true, moving = true }
+
+local function gateWidget(id, label, opts)
+    local where = 'section:gate("' .. tostring(id) .. '")'
+    if type(id) ~= 'string' or id == '' then error('section:gate: id must be a non-empty string', 3) end
+    if type(label) ~= 'string' then error(where .. ': label must be a string', 3) end
+    if type(opts) ~= 'table' then error(where .. ': opts must be a table with open = function', 3) end
+    for k in pairs(opts) do
+        if not GATE_KEYS[k] then error(where .. ': unknown option "' .. tostring(k) .. '" (' .. quoted(GATE_KEYS) .. ')', 3) end
+    end
+    if type(opts.open) ~= 'function' then error(where .. ': opts.open must be a function', 3) end
+    for _, k in ipairs({ 'close', 'stop', 'state', 'disabled' }) do
+        if opts[k] ~= nil and type(opts[k]) ~= 'function' then error(where .. ': opts.' .. k .. ' must be a function', 3) end
+    end
+    if opts.icon ~= nil and (type(opts.icon) ~= 'string' or not opts.icon:match('^[%w%-]+$')) then
+        error(where .. ': opts.icon must be a Bootstrap icon name (letters, digits and -)', 3)
+    end
+    return { id = id, type = 'gate', label = label, icon = opts.icon or 'door-closed',
+        hold = holdMs(where, opts, true, 4), opts = opts }
+end
+
+-- What the tile shows: {state} (none while state gives nil or is not given), or {error}
+local function gateState(w)
+    if not w.opts.state then return {} end
+    local ok, s = pcall(w.opts.state)
+    if not ok then return { error = tostring(s) } end
+    if s == nil then return {} end
+    if not GATE_STATES[s] then
+        return { error = 'section:gate("' .. tostring(w.id) .. '"): state must return "open", "closed", "opening", "closing", "moving" or nil, got ' .. tostring(s) }
+    end
+    return { state = s }
+end
+
 -- A calendar widget keeps the calendar's id, so a dashboard may be built before the calendar.
 local function calendarWidget(id, label, cal, opts)
     local calId = type(cal) == 'table' and cal.id or cal
@@ -1090,13 +1155,13 @@ end
 -- @param label string Display label
 -- @param icon string Bootstrap icon name (e.g., "power", "door-open")
 -- @param onTap function Callback fired on button press: function()
--- @param opts table Optional: {disabled=function()->bool, visible=function()->bool, confirm=string}
+-- @param opts table Optional: {disabled=function()->bool, visible=function()->bool, confirm=string, hold=true|ms (press and hold 800 ms or 300-5000 ms; not with confirm)}
 -- @api public
 function SectionHandle:button(id, label, icon, onTap, opts)
-    self._builder:_addWidget(self._sectionIndex, {
+    self._builder:_addWidget(self._sectionIndex, holdWidget('section:button', {
         id = id, type = 'button', label = label, icon = icon,
         onTap = onTap, opts = opts or {}
-    })
+    }, 3))
     return self
 end
 
@@ -1106,13 +1171,13 @@ end
 -- @param icon string Bootstrap icon name (e.g., "lightbulb", "lamp")
 -- @param getValue function Returns current state: function() -> boolean|number (truthy=on)
 -- @param onToggle function Called with desired state: function(bool) — use switchOn/switchOff, NOT toggle()
--- @param opts table Optional: {disabled=function()->bool, visible=function()->bool}
+-- @param opts table Optional: {disabled=function()->bool, visible=function()->bool, hold=true|ms (press and hold 800 ms or 300-5000 ms to switch)}
 -- @api public
 function SectionHandle:toggle(id, label, icon, getValue, onToggle, opts)
-    self._builder:_addWidget(self._sectionIndex, {
+    self._builder:_addWidget(self._sectionIndex, holdWidget('section:toggle', {
         id = id, type = 'toggle', label = label, icon = icon,
         getValue = getValue, onToggle = onToggle, opts = opts or {}
-    })
+    }, 3))
     return self
 end
 
@@ -1269,6 +1334,20 @@ function SectionHandle:covers(id, label, list, opts)
         error('section:covers("' .. tostring(id) .. '"): a cover group goes in a section, not the header', 2)
     end
     self._builder:_addWidget(self._sectionIndex, coversWidget(id, label, list, opts))
+    return self
+end
+
+--- Add a gate (or a door lock): its state, Open, Close and Stop. Open and Close are pressed and held
+-- (Close shown only with close), Stop is a tap.
+-- @param id string Unique widget identifier
+-- @param label string Display label
+-- @param opts table {open=function() (required), close=function()?, stop=function()?, state=function()->"open"|"closed"|"opening"|"closing"|"moving"|nil, hold=true|false|ms (default true = 800 ms; 300-5000), icon=string (default "door-closed"), disabled=function()->bool, span=n}
+-- @api public
+function SectionHandle:gate(id, label, opts)
+    if self._builder._sections[self._sectionIndex]._isHeader then
+        error('section:gate("' .. tostring(id) .. '"): a gate goes in a section, not the header', 2)
+    end
+    self._builder:_addWidget(self._sectionIndex, gateWidget(id, label, opts))
     return self
 end
 
@@ -1784,16 +1863,16 @@ end
 -- @param label string Display label
 -- @param icon string Bootstrap icon name (e.g., "power", "door-open")
 -- @param onTap function Callback fired on button press: function()
--- @param opts table Optional: {disabled=function()->bool, visible=function()->bool, confirm=string}
+-- @param opts table Optional: {disabled=function()->bool, visible=function()->bool, confirm=string, hold=true|ms (press and hold 800 ms or 300-5000 ms; not with confirm)}
 -- @api public
 function DashboardBuilder:button(id, label, icon, onTap, opts)
     if not self._currentSection then
         error('Call :section() before adding widgets (dash:floor() ends the current section)', 2)
     end
-    self:_addWidget(self._currentSection, {
+    self:_addWidget(self._currentSection, holdWidget('section:button', {
         id = id, type = 'button', label = label, icon = icon,
         onTap = onTap, opts = opts or {}
-    })
+    }, 3))
     return self
 end
 
@@ -1803,16 +1882,16 @@ end
 -- @param icon string Bootstrap icon name (e.g., "lightbulb", "lamp")
 -- @param getValue function Returns current state: function() -> boolean|number (truthy=on)
 -- @param onToggle function Called with desired state: function(bool) — use switchOn/switchOff, NOT toggle()
--- @param opts table Optional: {disabled=function()->bool, visible=function()->bool}
+-- @param opts table Optional: {disabled=function()->bool, visible=function()->bool, hold=true|ms (press and hold 800 ms or 300-5000 ms to switch)}
 -- @api public
 function DashboardBuilder:toggle(id, label, icon, getValue, onToggle, opts)
     if not self._currentSection then
         error('Call :section() before adding widgets (dash:floor() ends the current section)', 2)
     end
-    self:_addWidget(self._currentSection, {
+    self:_addWidget(self._currentSection, holdWidget('section:toggle', {
         id = id, type = 'toggle', label = label, icon = icon,
         getValue = getValue, onToggle = onToggle, opts = opts or {}
-    })
+    }, 3))
     return self
 end
 
@@ -1979,6 +2058,23 @@ function DashboardBuilder:cover(id, label, icon, fns, opts)
         id = id, type = 'cover', label = label, icon = icon,
         fns = fns, opts = opts or {}
     })
+    return self
+end
+
+--- Add a gate (or a door lock) to the current section: its state, Open, Close and Stop. Open and Close are pressed and held
+-- (Close shown only with close), Stop is a tap.
+-- @param id string Unique widget identifier
+-- @param label string Display label
+-- @param opts table {open=function() (required), close=function()?, stop=function()?, state=function()->"open"|"closed"|"opening"|"closing"|"moving"|nil, hold=true|false|ms (default true = 800 ms; 300-5000), icon=string (default "door-closed"), disabled=function()->bool, span=n}
+-- @api public
+function DashboardBuilder:gate(id, label, opts)
+    if not self._currentSection then
+        error('Call :section() before adding widgets', 2)
+    end
+    if self._sections[self._currentSection]._isHeader then
+        error('section:gate("' .. tostring(id) .. '"): a gate goes in a section, not the header', 2)
+    end
+    self:_addWidget(self._currentSection, gateWidget(id, label, opts))
     return self
 end
 
@@ -3023,10 +3119,21 @@ function DashboardAPI.getDefinition(id)
                 }
             end
 
+            -- Gate: its state and the buttons it has
+            if w.type == 'gate' then
+                if live then
+                    for k, v in pairs(gateState(w)) do widget[k] = v end
+                end
+                widget.capabilities = { close = type(w.opts.close) == 'function', stop = type(w.opts.stop) == 'function' }
+            end
+
             -- Confirm dialog text (for buttons)
             if w.opts.confirm then
                 widget.confirm = w.opts.confirm
             end
+
+            -- Press and hold, in ms
+            widget.hold = w.hold
 
             -- Disabled state
             widget.disabled = live and safeDisabled(w.opts)
@@ -3151,6 +3258,10 @@ function DashboardAPI.getValues(id)
                 local entry = thermostatState(w)
                 entry.disabled = safeDisabled(w.opts)
                 result[w.id] = entry
+            elseif w.type == 'gate' then
+                local entry = gateState(w)
+                entry.disabled = safeDisabled(w.opts)
+                result[w.id] = entry
             elseif w.type == 'chip' then
                 -- a hidden chip is left out; disabled only when it can change
                 local entry = chipState(id, w)
@@ -3221,13 +3332,24 @@ function DashboardAPI.getValues(id)
     return JSON.encode(result)
 end
 
+-- The actions a widget with opts.hold runs only after a full press
+local function holdAction(w, action)
+    if not w.hold then return false end
+    if w.type == 'button' then return action == 'tap' end
+    if w.type == 'toggle' then return action == 'toggle' end
+    if w.type == 'gate' then return action == 'open' or action == 'close' end
+    return false
+end
+
 --- Execute a widget action
 -- @param id string Dashboard ID
 -- @param widgetId string Widget ID
 -- @param action string Action type (tap, toggle, set)
 -- @param value any Action value (for toggle: bool, for set: number)
+-- @param ctx table|nil The request's context: {held=true} when the page held the press for opts.hold
 -- @return string JSON result
-function DashboardAPI.executeAction(id, widgetId, action, value)
+function DashboardAPI.executeAction(id, widgetId, action, value, ctx)
+    local held = type(ctx) == 'table' and ctx.held == true
     local dash = resolveDashboard(id)
     if not dash then
         return JSON.encode({ error = 'Dashboard not found' })
@@ -3258,6 +3380,11 @@ function DashboardAPI.executeAction(id, widgetId, action, value)
     local hidden = dashHidden(id, dash)
     if hidden[widget] then
         return JSON.encode({ error = 'Widget is hidden' })
+    end
+
+    -- held is what the page says: it stops a stray tap or a naive script, not someone sending it on purpose
+    if holdAction(widget, action) and not held then
+        return JSON.encode({ error = 'Press and hold to confirm' })
     end
 
     -- Validate action matches widget type
@@ -3335,6 +3462,18 @@ function DashboardAPI.executeAction(id, widgetId, action, value)
 
     elseif widget.type == 'room' then
         return JSON.encode({ error = 'Room tile has no server action' })
+
+    elseif widget.type == 'gate' then
+        if action ~= 'open' and action ~= 'close' and action ~= 'stop' then
+            return JSON.encode({ error = 'Invalid action for gate' })
+        end
+        local fn = widget.opts[action]
+        if type(fn) ~= 'function' then return JSON.encode({ error = 'No ' .. action .. ' function' }) end
+        local ok, ret = pcall(fn)
+        if not ok then return JSON.encode({ error = tostring(ret) }) end
+        local result = { success = true }
+        if type(ret) == 'string' then result.message = ret end
+        return JSON.encode(result)
 
     elseif widget.type == 'cover' then
         local fns = widget.fns or {}

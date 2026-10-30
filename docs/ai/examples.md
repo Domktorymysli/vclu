@@ -883,6 +883,58 @@ The `confirm` option on a button shows a confirmation dialog before executing.
     {confirm = "Czy na pewno chcesz zresetowac?", color = 'danger'})
 ```
 
+### Press and hold (hold)
+
+`hold = true` (800 ms) or a time in ms (300-5000) on a `button` or a `toggle`: the action runs
+only after the tile is pressed that long (mouse, touch, or Enter/Space held); a ring fills around
+the icon, releasing early or sliding off cancels, a tap only shows "Przytrzymaj". Use it instead of
+`confirm` where a stray tap must not do anything (a gate, a door lock, a boiler); `hold` and
+`confirm` together fail the build. The page sends `held: true` with the action and the server
+refuses the action without it. That stops a stray tap and a naive script calling the API, not
+someone sending the flag on purpose: for that, use `:auth('session')` or `'pin'`.
+
+```lua
+:button('wicket', 'Furtka', 'door-open', function() furtka:switchOn(1000) end, { hold = true })
+:toggle('lock', 'Zamek', 'lock', function() return zamek:getValue() == 1 end,
+    function(v) if v then zamek:switchOn() else zamek:switchOff() end end, { hold = 1500 })
+```
+
+### Gate (section:gate)
+
+A gate or a door lock: its state on the tile (open in yellow, closed in green, moving in cyan),
+Open and Close pressed and held (`hold`, default 800 ms; `hold = false` for a tap), Stop a tap.
+`open` is required; without `close` or `stop` their buttons are left out. `state` returns
+`"open"`, `"closed"`, `"opening"`, `"closing"`, `"moving"` or nil (no reading). Options:
+`open`, `close`, `stop`, `state`, `hold`, `icon` (default `door-closed`), `disabled`, `span`;
+any other fails the build. A callback may return a string for a toast.
+
+```lua
+-- a Grenton relay gives the gate's controller a 1 s pulse; a reed contact on a digital input says closed
+local brama = _:get("CLU212345678.DOU0012")
+local kontaktron = _:get("CLU212345678.DIN0004")
+
+Dashboard.new('wjazd')
+  :name('Wjazd')
+  :auth('pin'):pin('2580')
+  :section('Wjazd', 'house-door')
+  :gate('brama', 'Brama', {
+      open = function() brama:switchOn(1000) end,
+      -- one button on the controller: the same pulse closes it
+      close = function() brama:switchOn(1000) end,
+      state = function()
+          local v = kontaktron:getValue()
+          if v == nil then return nil end
+          if v == 1 then
+              return 'closed'
+          else
+              return 'open'
+          end
+      end,
+      hold = 1000,
+  })
+  :build()
+```
+
 ### Toast (notification)
 
 Callbacks (onTap, onToggle, onSet, onSelect) can return a string.
