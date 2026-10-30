@@ -18,7 +18,7 @@ Only public API is listed — internal/private functions are omitted.
 - [core.Registry](#coreregistry) (10 functions)
 - [core.Metrics](#coremetrics) (1 functions)
 - [core.Calendar](#corecalendar) (36 functions)
-- [Dashboard](#dashboard) (66 functions)
+- [Dashboard](#dashboard) (68 functions)
 - [lib.panel](#libpanel) (55 functions)
 - [objects.RemotePanel](#objectsremotepanel) (6 functions)
 - [GPIO_DOUT](#gpio_dout) (1 functions)
@@ -1098,7 +1098,7 @@ Add a button widget to this section.
 - `label` (string) — Display label
 - `icon` (string) — Bootstrap icon name (e.g., "power", "door-open")
 - `onTap` (function) — Callback fired on button press: function()
-- `opts` (table) — Optional: {disabled=function()->bool, confirm=string}
+- `opts` (table) — Optional: {disabled=function()->bool, confirm=string, hold=true|ms (press and hold 800 ms or 300-5000 ms; not with confirm)}
 
 ### `SectionHandle:toggle(id, label, icon, getValue, onToggle, opts)`
 
@@ -1109,7 +1109,7 @@ Add a toggle widget to this section.
 - `icon` (string) — Bootstrap icon name (e.g., "lightbulb", "lamp")
 - `getValue` (function) — Returns current state: function() -> boolean|number (truthy=on)
 - `onToggle` (function) — Called with desired state: function(bool) — use switchOn/switchOff, NOT toggle()
-- `opts` (table) — Optional: {disabled=function()->bool}
+- `opts` (table) — Optional: {disabled=function()->bool, hold=true|ms (press and hold 800 ms or 300-5000 ms to switch)}
 
 ### `SectionHandle:slider(id, label, min, max, getValue, onSet, opts)`
 
@@ -1208,6 +1208,14 @@ Add a cover group: one tile moving several covers, with their counts and average
 - `label` (string) — Display label
 - `list` (table) — Covers (RemoteCover, VirtualCover) or their paths, _:byTag(...), or a function returning one (read each time; missing paths skipped)
 - `opts` (table) — Optional: {icon=string (default "window"), disabled=function()->bool, span=n, size=string, color=string}
+
+### `SectionHandle:gate(id, label, opts)`
+
+Add a gate (or a door lock): its state, Open, Close and Stop. Open and Close are pressed and held (Close shown only with close), Stop is a tap.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `opts` (table) — {open=function() (required), close=function()?, stop=function()?, state=function()->"open"|"closed"|"opening"|"closing"|"moving"|nil, hold=true|false|ms (default true = 800 ms; 300-5000), icon=string (default "door-closed"), disabled=function()->bool, span=n}
 
 ### `SectionHandle:player(id, label, src, opts)`
 
@@ -1415,7 +1423,7 @@ Add a button widget to the current section.
 - `label` (string) — Display label
 - `icon` (string) — Bootstrap icon name (e.g., "power", "door-open")
 - `onTap` (function) — Callback fired on button press: function()
-- `opts` (table) — Optional: {disabled=function()->bool, confirm=string}
+- `opts` (table) — Optional: {disabled=function()->bool, confirm=string, hold=true|ms (press and hold 800 ms or 300-5000 ms; not with confirm)}
 
 ### `DashboardBuilder:toggle(id, label, icon, getValue, onToggle, opts)`
 
@@ -1426,7 +1434,7 @@ Add a toggle widget to the current section.
 - `icon` (string) — Bootstrap icon name (e.g., "lightbulb", "lamp")
 - `getValue` (function) — Returns current state: function() -> boolean|number (truthy=on)
 - `onToggle` (function) — Called with desired state: function(bool) — use switchOn/switchOff, NOT toggle()
-- `opts` (table) — Optional: {disabled=function()->bool}
+- `opts` (table) — Optional: {disabled=function()->bool, hold=true|ms (press and hold 800 ms or 300-5000 ms to switch)}
 
 ### `DashboardBuilder:slider(id, label, min, max, getValue, onSet, opts)`
 
@@ -1516,6 +1524,14 @@ Add a cover widget to the current section. Buttons up/stop/down call open/stop/c
 - `icon` (string) — Bootstrap icon name (e.g., "arrows-expand")
 - `fns` (table) — {getPosition=function()->number|nil, getState=function()->number|nil, open=function(), close=function(), stop=function(), set=function(position)}
 - `opts` (table) — Optional: {disabled=function()->bool}
+
+### `DashboardBuilder:gate(id, label, opts)`
+
+Add a gate (or a door lock) to the current section: its state, Open, Close and Stop. Open and Close are pressed and held (Close shown only with close), Stop is a tap.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `opts` (table) — {open=function() (required), close=function()?, stop=function()?, state=function()->"open"|"closed"|"opening"|"closing"|"moving"|nil, hold=true|false|ms (default true = 800 ms; 300-5000), icon=string (default "door-closed"), disabled=function()->bool, span=n}
 
 ### `DashboardBuilder:covers(id, label, list, opts)`
 

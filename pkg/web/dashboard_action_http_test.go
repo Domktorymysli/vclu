@@ -6,7 +6,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/Domktorymysli/vclu/pkg/config"
 	"github.com/Domktorymysli/vclu/pkg/lua"
 	"github.com/gin-gonic/gin"
 	glua "github.com/yuin/gopher-lua"
@@ -149,5 +151,100 @@ func TestDashboardActionEndpointValues(t *testing.T) {
 	}
 	if v := got("target"); v != "21.5" {
 		t.Errorf("setTarget got %s, want 21.5", v)
+	}
+}
+
+// Through the endpoint: a widget with hold runs only with "held": true in the body, on a public
+// and on a PIN dashboard (with its cookie); a widget without hold works either way.
+func TestDashboardActionEndpointHold(t *testing.T) {
+	dashCache.Invalidate()
+	saved := actionLimiter
+	actionLimiter = &rateLimiter{buckets: make(map[string]*bucket), rate: 1000, burst: 1000}
+	t.Cleanup(func() { actionLimiter = saved })
+	engine := lua.NewLuaEngine()
+	defer engine.Close()
+	if _, err := engine.Execute(`
+		GOT = { n = 0 }
+		local function run() GOT.n = GOT.n + 1 end
+		for _, id in ipairs({ 'pub', 'pin' }) do
+			local d = Dashboard.new(id)
+			if id == 'pin' then d:auth('pin'):pin('1234') end
+			d:section('S', 'i')
+				:button('b', 'B', nil, run, { hold = true })
+				:toggle('t', 'T', nil, function() return false end, run, { hold = 500 })
+				:gate('g', 'G', { open = run, stop = run })
+				:button('plain', 'P', nil, run)
+			d:build()
+		end`); err != nil {
+		t.Fatal(err)
+	}
+	// a login configured, so a PIN dashboard needs its cookie
+	dir := t.TempDir()
+	hash, _ := config.HashPassword("secret")
+	if err := writeTestConfig(dir, &config.VCLUConfig{Auth: &config.VCLUAuthConfig{Username: "u", PasswordHash: hash}}); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{serverDir: dir, sessions: newSessionStore(), luaExecutor: engine}
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/api/dashboard/:id/action", s.handleAPIDashboardAction)
+	cookie := &http.Cookie{Name: "vclu_dash_pin", Value: s.makeDashPinCookie("pin", "1234", time.Now().Add(time.Hour).Unix())}
+	post := func(dash, body string, withCookie bool) (int, map[string]interface{}) {
+		t.Helper()
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/dashboard/"+dash+"/action", strings.NewReader(body))
+		if withCookie {
+			req.AddCookie(cookie)
+		}
+		r.ServeHTTP(w, req)
+		var res map[string]interface{}
+		json.Unmarshal(w.Body.Bytes(), &res)
+		return w.Code, res
+	}
+	count := func() string {
+		t.Helper()
+		v, err := engine.Execute(`local n = GOT.n; GOT.n = 0; return tostring(n)`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+
+	held := []string{
+		`{"widgetId":"b","action":"tap","held":true}`,
+		`{"widgetId":"t","action":"toggle","value":true,"held":true}`,
+		`{"widgetId":"g","action":"open","held":true}`,
+	}
+	for _, dash := range []string{"pub", "pin"} {
+		withCookie := dash == "pin"
+		for _, body := range held {
+			for _, unheld := range []string{strings.Replace(body, `,"held":true`, "", 1), strings.Replace(body, `"held":true`, `"held":false`, 1)} {
+				if code, res := post(dash, unheld, withCookie); code != http.StatusOK || res["error"] != "Press and hold to confirm" {
+					t.Errorf("%s %s: %d %v", dash, unheld, code, res)
+				}
+			}
+			if code, res := post(dash, body, withCookie); code != http.StatusOK || res["success"] != true {
+				t.Errorf("%s %s: %d %v", dash, body, code, res)
+			}
+		}
+		for _, body := range []string{`{"widgetId":"g","action":"stop"}`, `{"widgetId":"plain","action":"tap"}`, `{"widgetId":"plain","action":"tap","held":true}`} {
+			if code, res := post(dash, body, withCookie); code != http.StatusOK || res["success"] != true {
+				t.Errorf("%s %s: %d %v", dash, body, code, res)
+			}
+		}
+		if n := count(); n != "6" {
+			t.Errorf("%s: %s actions ran, want 6", dash, n)
+		}
+		// held is a boolean, nothing else
+		if code, _ := post(dash, `{"widgetId":"b","action":"tap","held":"true"}`, withCookie); code != http.StatusBadRequest {
+			t.Errorf("%s held as a string: %d", dash, code)
+		}
+	}
+	// held does not stand in for the PIN
+	if code, _ := post("pin", held[0], false); code != http.StatusUnauthorized {
+		t.Errorf("pin without cookie: %d", code)
+	}
+	if n := count(); n != "0" {
+		t.Errorf("%s actions ran after the refusals", n)
 	}
 }

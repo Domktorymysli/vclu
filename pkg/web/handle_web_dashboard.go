@@ -686,14 +686,16 @@ func (s *Server) handleAPIDashboardAction(c *gin.Context) {
 		WidgetID string      `json:"widgetId"`
 		Action   string      `json:"action"`
 		Value    interface{} `json:"value"`
+		// the page held the press for the widget's hold; anyone can send it, so it only stops a stray tap
+		Held bool `json:"held"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
 
-	script := fmt.Sprintf(`Dashboard.API.executeAction("%s", "%s", "%s", %s)`,
-		luaEscape(id), luaEscape(req.WidgetID), luaEscape(req.Action), actionValueLua(req.Value))
+	script := fmt.Sprintf(`Dashboard.API.executeAction("%s", "%s", "%s", %s, { held = %t })`,
+		luaEscape(id), luaEscape(req.WidgetID), luaEscape(req.Action), actionValueLua(req.Value), req.Held)
 	result, err := s.executeAs(c, "dashboard:"+id, script)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

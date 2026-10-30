@@ -192,6 +192,7 @@ body {
     .dash-widget-image:hover,
     .dash-widget-cover:hover,
     .dash-widget-covers:hover,
+    .dash-widget-gate:hover,
     .dash-widget-player:hover,
     .dash-widget-forecast:hover,
     .dash-widget-dimmer:hover,
@@ -599,6 +600,87 @@ body {
 .dash-cover-btn.active {
     background: var(--tile-c);
     color: rgba(0,0,0,0.78);
+}
+
+/* ---- Press and hold (opts.hold): a ring fills around the icon; no menu or selection on a long touch ---- */
+.dash-hold {
+    touch-action: manipulation;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.dash-hold-ring {
+    position: absolute;
+    inset: -5px;
+    width: calc(100% + 10px);
+    height: calc(100% + 10px);
+    transform: rotate(-90deg);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.dash-hold-ring circle {
+    fill: none;
+    stroke: var(--tile-c);
+    stroke-width: 3;
+    stroke-linecap: round;
+}
+
+.holding .dash-hold-ring {
+    opacity: 1;
+}
+
+.dash-widget.dash-hold.holding,
+.dash-cover-btn.holding {
+    transform: scale(0.98);
+}
+
+.dash-cover-btn.holding {
+    background: rgba(128,128,128,0.3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dash-widget.dash-hold.holding,
+    .dash-cover-btn.holding {
+        transform: none;
+    }
+}
+
+/* the switch of a held toggle shows the state; the tile takes the press */
+.dash-hold-switch {
+    pointer-events: none;
+}
+
+/* ---- Gate: open warning, closed success, moving info ---- */
+.dash-widget-gate {
+    cursor: default;
+    container-type: inline-size;
+}
+
+.dash-widget-gate[data-gate="open"] { --tile-c: #ffc107; }
+.dash-widget-gate[data-gate="closed"] { --tile-c: #198754; }
+.dash-widget-gate[data-gate="opening"],
+.dash-widget-gate[data-gate="closing"],
+.dash-widget-gate[data-gate="moving"] { --tile-c: #0dcaf0; }
+
+.dash-gate-btn {
+    min-width: 0;
+    gap: 6px;
+    font-size: 0.95rem;
+    font-weight: 600;
+}
+
+.dash-gate-btn span {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* a narrow tile (a phone's two columns) keeps the icons only */
+@container (max-width: 240px) {
+    .dash-gate-btn span { display: none; }
 }
 
 /* ---- Cover group: a slider row shows while a cover can take it ---- */
