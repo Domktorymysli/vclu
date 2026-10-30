@@ -332,6 +332,125 @@ local function thermostatState(w)
 end
 
 -- ==========================================================================
+-- Colour temperature: a warm-to-cool slider in kelvin
+-- ==========================================================================
+
+local COLOR_TEMP_FNS = { getKelvin = true, setKelvin = true, isOn = true, switchOn = true, switchOff = true,
+    getBrightness = true, setBrightness = true }
+local COLOR_TEMP_KEYS = { min = true, max = true, step = true, unit = true, icon = true, disabled = true,
+    span = true, size = true, color = true }
+local COLOR_TEMP_MIN, COLOR_TEMP_MAX, COLOR_TEMP_STEP = 2700, 6500, 50
+
+-- A number, or a string of decimal digits ("3000", not "0x10"); nil otherwise
+local function decimalNumber(v)
+    if type(v) == 'string' then
+        if not v:match('^%s*%-?%d+%.?%d*%s*$') then return nil end
+        v = tonumber(v)
+    end
+    if type(v) == 'number' and v - v == 0 then return v end
+end
+
+-- An object with getColorTemp/setColorTemp (kelvin) as the widget's functions; the rest when it has them
+local function colorTempObjectFns(o)
+    local function m(name)
+        if type(o[name]) == 'function' then return function(...) return o[name](o, ...) end end
+    end
+    return { getKelvin = m('getColorTemp'), setKelvin = m('setColorTemp'), isOn = m('isOn'),
+        switchOn = m('switchOn'), switchOff = m('switchOff'),
+        getBrightness = m('getBrightness'), setBrightness = m('setBrightness') }
+end
+
+-- opts.unit = "mired": the functions speak mireds, the widget kelvin (1e6 / x, rounded)
+local function colorTempMired(f)
+    local function conv(v)
+        v = decimalNumber(v)
+        if v and v > 0 then return math.floor(1e6 / v + 0.5) end
+    end
+    local out = {}
+    for k, v in pairs(f) do out[k] = v end
+    local get, set = f.getKelvin, f.setKelvin
+    out.getKelvin = function() return conv(get()) end
+    out.setKelvin = function(k) return set(conv(k)) end
+    return out
+end
+
+local function colorTempWidget(id, label, fns, opts)
+    local where = 'section:colorTemp("' .. tostring(id) .. '")'
+    if type(id) ~= 'string' or id == '' then error('section:colorTemp: id must be a non-empty string', 3) end
+    if type(label) ~= 'string' then error(where .. ': label must be a string', 3) end
+    if opts ~= nil and type(opts) ~= 'table' then error(where .. ': opts must be a table', 3) end
+    opts = opts or {}
+    for k in pairs(opts) do
+        if not COLOR_TEMP_KEYS[k] then
+            error(where .. ': unknown option "' .. tostring(k) .. '" (min, max, step, unit, icon, disabled, span, size, color)', 3)
+        end
+    end
+    for _, k in ipairs({ 'min', 'max', 'step' }) do
+        local v = opts[k]
+        if v ~= nil and (type(v) ~= 'number' or v - v ~= 0) then error(where .. ': opts.' .. k .. ' must be a number', 3) end
+    end
+    local min, max = opts.min or COLOR_TEMP_MIN, opts.max or COLOR_TEMP_MAX
+    if min <= 0 then error(where .. ': opts.min must be above 0 K', 3) end
+    if min >= max then error(where .. ': opts.min must be below opts.max', 3) end
+    if opts.step ~= nil and opts.step <= 0 then error(where .. ': opts.step must be above 0', 3) end
+    if opts.unit ~= nil and opts.unit ~= 'kelvin' and opts.unit ~= 'mired' then
+        error(where .. ': opts.unit must be "kelvin" or "mired"', 3)
+    end
+    if opts.icon ~= nil and (type(opts.icon) ~= 'string' or not opts.icon:match('^[%w%-]+$')) then
+        error(where .. ': opts.icon must be a Bootstrap icon name (letters, digits and -)', 3)
+    end
+    if opts.disabled ~= nil and type(opts.disabled) ~= 'function' then error(where .. ': opts.disabled must be a function', 3) end
+    local f
+    if type(fns) == 'table' and rawget(fns, 'getKelvin') == nil and type(fns.getColorTemp) == 'function' then
+        if type(fns.setColorTemp) ~= 'function' then error(where .. ': the object has getColorTemp but no setColorTemp', 3) end
+        f = colorTempObjectFns(fns)
+    elseif type(fns) == 'table' then
+        f = {}
+        for k, v in pairs(fns) do
+            if not COLOR_TEMP_FNS[k] then
+                error(where .. ': unknown key "' .. tostring(k) .. '" in fns (getKelvin, setKelvin, isOn, switchOn, switchOff, getBrightness, setBrightness)', 3)
+            end
+            if type(v) ~= 'function' then error(where .. ': fns.' .. k .. ' must be a function', 3) end
+            f[k] = v
+        end
+        if not f.getKelvin or not f.setKelvin then
+            error(where .. ': fns needs getKelvin and setKelvin, or pass an object with getColorTemp/setColorTemp', 3)
+        end
+    else
+        if fns == nil then error(where .. ': no light (nil): check the path in _:get(...), the object may not be imported', 3) end
+        error(where .. ': fns must be {getKelvin, setKelvin, ...} or an object with getColorTemp/setColorTemp, got ' .. type(fns), 3)
+    end
+    if opts.unit == 'mired' then f = colorTempMired(f) end
+    return { id = id, type = 'colorTemp', label = label, icon = opts.icon or 'lightbulb', fns = f,
+        min = min, max = max, step = opts.step or COLOR_TEMP_STEP, opts = opts }
+end
+
+-- What the tile shows: {kelvin, on, brightness}; a failing function gives error, nothing else
+local function colorTempState(w)
+    local ok, res = pcall(function()
+        local f = w.fns
+        local e = {}
+        local k = decimalNumber(f.getKelvin())
+        -- a reading out of min..max is shown as it is; the slider stops at its end
+        if k and k > 0 then e.kelvin = math.floor(k + 0.5) end
+        if f.getBrightness then
+            local b = decimalNumber(f.getBrightness())
+            if b then e.brightness = math.floor(math.max(0, math.min(100, b)) + 0.5) end
+        end
+        if f.isOn then
+            local on = f.isOn()
+            if on ~= nil then e.on = on == true or (decimalNumber(on) or 0) > 0 end
+        elseif e.brightness then
+            e.on = e.brightness > 0
+        end
+        return e
+    end)
+    if ok then return res end
+    local okS, msg = pcall(tostring, res)
+    return { error = okS and msg or 'error' }
+end
+
+-- ==========================================================================
 -- Rooms from the house model (section:area, dash:floor)
 -- ==========================================================================
 
@@ -399,8 +518,12 @@ local function areaWidget(h, id, off)
         opts = { disabled = function() return h.options.readonly == true or (off ~= nil and off()) end } }
     local rgb = o._objId and type(o.setColor) == 'function' and type(o.getColor) == 'function'
     local dims = type(o.getBrightness) == 'function' and type(o.setBrightness) == 'function'
+    local cct = type(o.getColorTemp) == 'function' and type(o.setColorTemp) == 'function'
     if (kind == 'light' or kind == 'dimmer') and rgb then
         w.type, w.icon, w.fns = 'color', 'palette', lightColorFns(o)
+    elseif (kind == 'light' or kind == 'dimmer') and cct then
+        w.type, w.icon, w.fns = 'colorTemp', 'lightbulb', colorTempObjectFns(o)
+        w.min, w.max, w.step = COLOR_TEMP_MIN, COLOR_TEMP_MAX, COLOR_TEMP_STEP
     elseif kind == 'dimmer' or (kind == 'light' and dims) then
         w.type, w.icon = 'dimmer', 'lightbulb'
         w.fns = {
@@ -1133,6 +1256,25 @@ function SectionHandle:color(id, label, icon, fns, opts)
     return self
 end
 
+--- Add a colour temperature slider (warm to cool white) to this section.
+-- @param id string Unique widget identifier
+-- @param label string Display label
+-- @param fns table {getKelvin=function()->number|nil, setKelvin=function(kelvin), isOn?, switchOn?, switchOff?,
+--   getBrightness?/setBrightness? 0-100}, or an object with getColorTemp/setColorTemp in kelvin (and its
+--   switchOn/switchOff/getBrightness/setBrightness when it has them); a two-channel warm/cold white: require("lib/cct").mix(warm, cold)
+--   The slider runs warm to cool over a gradient; the value shows as "3000 K" and a word (warm, neutral, cool).
+--   A set outside min..max is clamped to it; a reading outside is shown as it is. A toggle when there are
+--   switchOn and switchOff, a brightness slider when there are getBrightness and setBrightness.
+-- @param opts table Optional: {min=2700, max=6500, step=50, unit="kelvin"|"mired" (the functions speak mireds, e.g. Zigbee color_temp), icon=string (default "lightbulb"), disabled=function()->bool, span=n, size=string, color=string}
+-- @api public
+function SectionHandle:colorTemp(id, label, fns, opts)
+    if self._builder._sections[self._sectionIndex]._isHeader then
+        error('section:colorTemp("' .. tostring(id) .. '"): a colour temperature goes in a section, not the header', 2)
+    end
+    self._builder:_addWidget(self._sectionIndex, colorTempWidget(id, label, fns, opts))
+    return self
+end
+
 --- Add a thermostat: current temperature, target and +/- for the target.
 -- @param id string Unique widget identifier
 -- @param label string Display label
@@ -1237,8 +1379,9 @@ function SectionHandle:chip(id, icon, fn, opts)
 end
 
 --- Fill this section with a widget for every device expose() put in an area, picked by kind:
--- a light, switch or lock a toggle, a dimmer a dimmer, an RGB light the colour widget, a cover
--- a cover, temperature and humidity a status; lights first, then covers, then the rest by name.
+-- a light, switch or lock a toggle, a dimmer a dimmer, an RGB light the colour widget, a light
+-- with getColorTemp/setColorTemp the colour temperature (2700-6500 K), a cover a cover, temperature and
+-- humidity a status; lights first, then covers, then the rest by name.
 -- Filled when something is exposed or unexposed, so devices a plugin exposes later show up;
 -- widgets added by hand come after them; a read-only device's widget is disabled. Like the
 -- panel, expose(obj, type, { dashboard = false }) keeps an object off dashboards and
@@ -1814,6 +1957,28 @@ function DashboardBuilder:color(id, label, icon, fns, opts)
         id = id, type = 'color', label = label, icon = icon,
         fns = colorFns(fns), opts = opts or {}
     })
+    return self
+end
+
+--- Add a colour temperature slider (warm to cool white) to the current section.
+-- @param id string Unique widget identifier
+-- @param label string Display label
+-- @param fns table {getKelvin=function()->number|nil, setKelvin=function(kelvin), isOn?, switchOn?, switchOff?,
+--   getBrightness?/setBrightness? 0-100}, or an object with getColorTemp/setColorTemp in kelvin (and its
+--   switchOn/switchOff/getBrightness/setBrightness when it has them); a two-channel warm/cold white: require("lib/cct").mix(warm, cold)
+--   The slider runs warm to cool over a gradient; the value shows as "3000 K" and a word (warm, neutral, cool).
+--   A set outside min..max is clamped to it; a reading outside is shown as it is. A toggle when there are
+--   switchOn and switchOff, a brightness slider when there are getBrightness and setBrightness.
+-- @param opts table Optional: {min=2700, max=6500, step=50, unit="kelvin"|"mired" (the functions speak mireds, e.g. Zigbee color_temp), icon=string (default "lightbulb"), disabled=function()->bool, span=n, size=string, color=string}
+-- @api public
+function DashboardBuilder:colorTemp(id, label, fns, opts)
+    if not self._currentSection then
+        error('Call :section() before adding widgets (dash:floor() ends the current section)', 2)
+    end
+    if self._sections[self._currentSection]._isHeader then
+        error('section:colorTemp("' .. tostring(id) .. '"): a colour temperature goes in a section, not the header', 2)
+    end
+    self:_addWidget(self._currentSection, colorTempWidget(id, label, fns, opts))
     return self
 end
 
@@ -2431,6 +2596,15 @@ function DashboardAPI.getDefinition(id)
                 widget.capabilities = { set = type(w.fns.setTarget) == 'function' }
             end
 
+            -- Colour temperature: kelvin, on, brightness; its range and what it can do
+            if w.type == 'colorTemp' then
+                for k, v in pairs(colorTempState(w)) do widget[k] = v end
+                widget.min, widget.max, widget.step = w.min, w.max, w.step
+                local f = w.fns
+                widget.capabilities = { toggle = f.switchOn ~= nil and f.switchOff ~= nil,
+                    brightness = f.getBrightness ~= nil and f.setBrightness ~= nil }
+            end
+
             -- Dimmer widget
             if w.type == 'dimmer' then
                 local fns = w.fns or {}
@@ -2588,6 +2762,10 @@ function DashboardAPI.getValues(id)
                 result[w.id] = entry
             elseif w.type == 'player' or w.type == 'forecast' then
                 local entry = w.type == 'player' and playerState(w) or forecastState(w)
+                entry.disabled = safeDisabled(w.opts)
+                result[w.id] = entry
+            elseif w.type == 'colorTemp' then
+                local entry = colorTempState(w)
                 entry.disabled = safeDisabled(w.opts)
                 result[w.id] = entry
             elseif w.type == 'thermostat' then
@@ -2875,6 +3053,33 @@ function DashboardAPI.executeAction(id, widgetId, action, value)
         local ok, ret = pcall(fn, arg)
         if not ok then return JSON.encode({ error = tostring(ret) }) end
         if action == 'volume' then return JSON.encode({ success = true, value = arg }) end
+        return JSON.encode({ success = true })
+
+    elseif widget.type == 'colorTemp' then
+        local fns = widget.fns
+        local name, arg
+        if action == 'setKelvin' then
+            arg = decimalNumber(value)
+            if not arg then return JSON.encode({ error = 'Value must be a number' }) end
+            arg = math.floor(math.max(widget.min, math.min(widget.max, arg)) + 0.5)
+            name = 'setKelvin'
+        elseif action == 'set' then
+            arg = decimalNumber(value)
+            if not arg then return JSON.encode({ error = 'Value must be a number' }) end
+            if arg < 0 or arg > 100 then return JSON.encode({ error = 'Value out of range [0, 100]' }) end
+            name = 'setBrightness'
+        elseif action == 'switchOn' or action == 'switchOff' then
+            name = action
+        else
+            return JSON.encode({ error = 'Invalid action for colorTemp' })
+        end
+        if type(fns[name]) ~= 'function' then return JSON.encode({ error = 'No ' .. name .. ' function' }) end
+        local ok, ret = pcall(fns[name], arg)
+        if not ok then
+            local okS, msg = pcall(tostring, ret)
+            return JSON.encode({ error = okS and msg or 'error' })
+        end
+        if arg ~= nil then return JSON.encode({ success = true, value = arg }) end
         return JSON.encode({ success = true })
 
     elseif widget.type == 'dimmer' then

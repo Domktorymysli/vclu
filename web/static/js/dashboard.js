@@ -40,7 +40,8 @@
               noForecast: 'brak prognozy', rain: 'opady', temperature: 'temperatura',
               onN: ['włączone', 'włączone', 'włączonych'], allOff: 'wszystko wyłączone', back: 'Wróć',
               humidity: 'wilgotność', target: 'cel', thermoOn: 'włączony', thermoOff: 'wyłączony',
-              modes: ['ręcznie', 'urlop', 'harmonogram', 'podgrzewanie'], locked: 'zablokowany', lower: 'Obniż', raise: 'Podnieś' },
+              modes: ['ręcznie', 'urlop', 'harmonogram', 'podgrzewanie'], locked: 'zablokowany', lower: 'Obniż', raise: 'Podnieś',
+              ctWarm: 'ciepła', ctNeutral: 'neutralna', ctCool: 'zimna', colorTemp: 'Temperatura barwy', brightness: 'Jasność' },
         en: { on: 'on', off: 'off', open: 'open', closed: 'closed', opening: 'opening',
               closing: 'closing', unknown: 'no reading', run: 'run', sent: 'sent', updated: 'updated',
               nothingToday: 'nothing more today', holidays: 'Holidays', namedays: 'Name days', sun: 'Sun', show: 'Show',
@@ -55,7 +56,8 @@
               noForecast: 'no forecast', rain: 'rain', temperature: 'temperature',
               onN: ['on', 'on', 'on'], allOff: 'all off', back: 'Back', humidity: 'humidity',
               target: 'target', thermoOn: 'on', thermoOff: 'off',
-              modes: ['manual', 'holiday', 'schedule', 'heat-up'], locked: 'locked', lower: 'Lower', raise: 'Raise' }
+              modes: ['manual', 'holiday', 'schedule', 'heat-up'], locked: 'locked', lower: 'Lower', raise: 'Raise',
+              ctWarm: 'warm', ctNeutral: 'neutral', ctCool: 'cool', colorTemp: 'Colour temperature', brightness: 'Brightness' }
     };
     // ?lang= as on the other pages, else the browser's language
     var lang = (function() {
@@ -69,7 +71,7 @@
         button: 'play-fill', toggle: 'power', slider: 'sliders', status: 'info-circle', link: 'link-45deg',
         chart: 'graph-up', select: 'list-ul', image: 'image', cover: 'arrows-expand', covers: 'window', dimmer: 'lightbulb',
         color: 'palette', calendar: 'calendar3', player: 'music-note-beamed', forecast: 'cloud-sun',
-        room: 'door-open', thermostat: 'thermometer-half'
+        room: 'door-open', thermostat: 'thermometer-half', colorTemp: 'lightbulb'
     };
 
     // 23.9 -> "23,9" in Polish; with decimals rounded to them (21 -> "21,0"); text as it is
@@ -202,6 +204,11 @@
             on = d.on != null ? d.on : level > 0;
             if (!on) return ['off', T.off];
             return ['on', level > 0 ? withUnit(level, '%') : T.on];
+        case 'colorTemp':
+            if (d.error) return ['unknown', T.unknown];
+            if (d.kelvin == null && d.on == null) return ['unknown', T.unknown];
+            if (d.on === false) return ['off', T.off];
+            return [d.on ? 'on' : 'value', d.kelvin != null ? kelvinText(d.kelvin) : T.on];
         case 'cover':
             if (d.state === 1) return ['moving', T.opening];
             if (d.state === 2) return ['moving', T.closing];
@@ -547,6 +554,8 @@
             renderDimmer(el, w);
         } else if (w.type === 'color') {
             renderColor(el, w);
+        } else if (w.type === 'colorTemp') {
+            renderColorTemp(el, w);
         } else if (w.type === 'image') {
             renderImage(el, w, head);
         } else if (w.type === 'calendar') {
@@ -1722,9 +1731,12 @@
 
     // A slider sends the value it was moved to: after a pause, or at once when let go, so
     // a page reload right after does not lose it. Until then a poll leaves it alone
-    // (on a phone a dragged slider has no focus).
+    // (on a phone a dragged slider has no focus). Arrow keys send after the pause too, not per step.
     function bindSlider(input, show, send, delay) {
-        var timer = null, pending = null;
+        var timer = null, pending = null, keyed = false;
+        input.addEventListener('keydown', function() { keyed = true; });
+        input.addEventListener('pointerdown', function() { keyed = false; });
+        input.addEventListener('blur', function() { flush(); });
         function flush() {
             clearTimeout(timer);
             timer = null;
@@ -1741,7 +1753,7 @@
             clearTimeout(timer);
             timer = setTimeout(flush, delay);
         });
-        input.addEventListener('change', flush);
+        input.addEventListener('change', function() { if (!keyed) flush(); });
     }
 
     // The user is moving it, or it has a value not sent yet: a poll must not overwrite it
@@ -1911,6 +1923,94 @@
         }
         if (caps.white) {
             colorSlider(el, w, 'white', 'lightbulb', 'White', w.white, 'setWhite');
+        }
+    }
+
+    // ---- Colour temperature widget ----
+
+    // Approximate RGB of white light at k kelvin (Tanner Helland, as color.kelvinToRGB in Lua)
+    function kelvinRGB(k) {
+        var t = Math.max(1000, Math.min(40000, k)) / 100;
+        function c(v) { return Math.round(Math.max(0, Math.min(255, v))); }
+        var r = t <= 66 ? 255 : 329.698727446 * Math.pow(t - 60, -0.1332047592);
+        var g = t <= 66 ? 99.4708025861 * Math.log(t) - 161.1195681661 : 288.1221695283 * Math.pow(t - 60, -0.0755148492);
+        var b = t >= 66 ? 255 : (t <= 19 ? 0 : 138.5177312231 * Math.log(t - 10) - 305.0447927307);
+        return { r: c(r), g: c(g), b: c(b) };
+    }
+
+    // The tile's tint: amber to blue, as white light reads poorly on a light tile
+    var tintStops = [[2700, [255, 159, 67]], [3800, [240, 190, 90]], [4800, [120, 180, 230]], [6500, [70, 150, 255]]];
+    function kelvinTint(k) {
+        var a = tintStops[0], b = tintStops[tintStops.length - 1];
+        for (var i = 1; i < tintStops.length; i++) {
+            if (k <= tintStops[i][0]) { a = tintStops[i - 1]; b = tintStops[i]; break; }
+        }
+        var t = Math.max(0, Math.min(1, (k - a[0]) / (b[0] - a[0])));
+        function c(j) { return Math.round(a[1][j] + (b[1][j] - a[1][j]) * t); }
+        return { r: c(0), g: c(1), b: c(2) };
+    }
+
+    // "3000 K · ciepła"
+    function kelvinText(k) {
+        var word = k < 3500 ? T.ctWarm : (k > 5000 ? T.ctCool : T.ctNeutral);
+        return Math.round(k) + ' K · ' + word;
+    }
+
+    // The track from min to max as the light looks
+    function kelvinGradient(min, max) {
+        var stops = [];
+        for (var i = 0; i <= 6; i++) {
+            var rgb = kelvinRGB(min + (max - min) * i / 6);
+            stops.push('rgb(' + rgb.r + ',' + rgb.g + ',' + rgb.b + ') ' + Math.round(i * 100 / 6) + '%');
+        }
+        return 'linear-gradient(to right, ' + stops.join(', ') + ')';
+    }
+
+    // Off, or nothing known yet: the track is dimmed
+    function ctDimmed(d) {
+        return d.on === false || (d.on == null && d.kelvin == null);
+    }
+
+    function renderColorTemp(el, w) {
+        el.style.cursor = 'default';
+        var caps = w.capabilities || {};
+        var isOn = w.on !== false;
+        if (w.kelvin != null) applyLightColor(el, kelvinTint(w.kelvin), isOn);
+        el._data = { on: w.on, kelvin: w.kelvin };
+
+        var row = document.createElement('div');
+        row.className = 'dash-slider-row';
+        var slider = document.createElement('input');
+        slider.type = 'range';
+        slider.className = 'dash-slider-input dash-ct-input';
+        slider.min = w.min;
+        slider.max = w.max;
+        slider.step = w.step;
+        slider.value = w.kelvin != null ? w.kelvin : (w.min + w.max) / 2;
+        slider.dataset.role = 'kelvin';
+        slider.setAttribute('aria-label', T.colorTemp);
+        slider.style.background = kelvinGradient(w.min, w.max);
+        slider.classList.toggle('dimmed', ctDimmed(w));
+        bindSlider(slider, function(v) {
+            refreshTile(el, w, { kelvin: v });
+            if (el._data.on !== false) applyLightColor(el, kelvinTint(v), true);
+        }, function(v) { executeAction(w.id, 'setKelvin', v); }, 500);
+        row.appendChild(slider);
+
+        if (caps.toggle) {
+            var head = el.querySelector('.dash-tile-head');
+            head.classList.add('dash-tile-tap');
+            headSwitch(el, 'dash-ct-toggle', w.on === true, function(on) {
+                refreshTile(el, w, { on: on });
+                slider.classList.toggle('dimmed', !on);
+                applyLightColor(el, on ? kelvinTint(parseFloat(slider.value)) : null, on);
+                executeAction(w.id, on ? 'switchOn' : 'switchOff');
+            }, head);
+        }
+        el.appendChild(row);
+
+        if (caps.brightness) {
+            colorSlider(el, w, 'brightness', 'brightness-high', T.brightness, w.brightness, 'set');
         }
     }
 
@@ -2555,7 +2655,9 @@
                 if (!(k in d)) d[k] = null;
             });
         }
-        if (type === 'color') delete d.value; // brightness or white: the reply does not say
+        if (type === 'color' || type === 'colorTemp') delete d.value; // the reply does not say which slider
+        // a poll is the whole state: an error goes away with it, a missing reading is unknown
+        if (type === 'colorTemp' && !force) ['kelvin', 'on', 'brightness', 'error'].forEach(function(k) { if (!(k in d)) d[k] = null; });
         if (type === 'thermostat') {
             delete d.value; // a set's reply: the tile holds the value itself
             // a poll is the whole state: what it leaves out was not reported (shown as --)
@@ -2602,6 +2704,25 @@
             if (d.rgb !== undefined || d.on !== undefined) {
                 applyLightColor(el, d.rgb, d.on !== false);
             }
+        } else if (type === 'colorTemp') {
+            var ks = el.querySelector('.dash-slider-input[data-role="kelvin"]');
+            if (ks && userHolds(ks)) delete d.kelvin;
+            else if (ks && d.kelvin != null) ks.value = d.kelvin;
+            var bs = el.querySelector('.dash-slider-input[data-role="brightness"]');
+            var bv = el.querySelector('.dash-slider-value[data-role="brightness"]');
+            if (bs && userHolds(bs)) delete d.brightness;
+            else if (d.brightness != null) {
+                if (bs) bs.value = d.brightness;
+                if (bv) bv.textContent = d.brightness + '%';
+            }
+            toggle = el.querySelector('.dash-ct-toggle .form-check-input');
+            if (toggle && d.on !== undefined) toggle.checked = d.on === true;
+            var known = el._data || {};
+            if (ks) ks.classList.toggle('dimmed', ctDimmed({
+                on: d.on !== undefined ? d.on : known.on, kelvin: d.kelvin !== undefined ? d.kelvin : known.kelvin }));
+            var k = d.kelvin != null ? d.kelvin : known.kelvin;
+            var lit = d.on !== undefined ? d.on !== false : known.on !== false;
+            if (k != null) applyLightColor(el, kelvinTint(k), lit);
         } else if (type === 'toggle') {
             toggle = el.querySelector('.form-check-input');
             if (toggle && d.value !== undefined) toggle.checked = !!d.value;

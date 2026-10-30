@@ -629,6 +629,38 @@ local th = _:get("CLU220000592.THE0855")
 - opts: `min`, `max`, `step`, `unit` (default `°C`), `readonly` (true or a function), `disabled`, `span`, `size`, `color`.
   Full width on a phone.
 
+### Colour temperature (tunable white)
+
+`:colorTemp(id, label, fns, opts)` is a slider from warm to cool white over a gradient; the tile
+says "3000 K · ciepła". Two Grenton dimmers wired as warm and cold white become one light with
+`lib/cct`:
+
+```lua
+local cct = require("lib/cct")
+local biuro = cct.mix(_:get("CLU220000592.DIM0001"), _:get("CLU220000592.DIM0002"),
+    { warm = 2700, cold = 6500 })                                  -- kelvin of each strip alone
+
+:section('Światło', 'lightbulb')
+  :colorTemp('biuro', 'Biuro', biuro, { min = 2700, max = 6500 })
+  -- a lamp in mireds (Zigbee color_temp): the widget converts
+  :colorTemp('salon', 'Salon', {
+      getKelvin = function() return lampa.colorTemp end,
+      setKelvin = function(v) lampa:send({ color_temp = v }) end,
+  }, { unit = 'mired', min = 2200, max = 6500 })
+```
+
+- `fns`: `getKelvin` and `setKelvin` required; `switchOn`/`switchOff` add a switch,
+  `getBrightness`/`setBrightness` (0-100) a brightness slider, `isOn` the on/off state. An object
+  with `getColorTemp`/`setColorTemp` in kelvin works as it is, also in `section:area`, which
+  always uses 2700-6500 K in kelvin; for another range or mireds use `section:colorTemp` directly.
+- `cct.mix` keeps the brightness (the sum of both channels) when the colour temperature changes and
+  the ratio when the brightness changes; a colour temperature set while off waits for `switchOn`,
+  and switching on (also after a wall switch or brightness 0) brings back the last level and
+  kelvin a poll saw. Commands go out at least 50 ms apart.
+- A set outside `min`..`max` is clamped; a reading outside is shown as it is.
+- opts: `min` (2700), `max` (6500), `step` (50), `unit` (`"kelvin"` or `"mired"`), `icon`,
+  `disabled`, `span`, `size`, `color`.
+
 ### Media player (MusicCast or any player)
 
 `:player(id, label, src, opts)` shows the cover art, title and artist, previous / play-pause / next,

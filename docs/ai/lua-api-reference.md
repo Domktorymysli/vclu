@@ -18,7 +18,7 @@ Only public API is listed — internal/private functions are omitted.
 - [core.Registry](#coreregistry) (10 functions)
 - [core.Metrics](#coremetrics) (1 functions)
 - [core.Calendar](#corecalendar) (36 functions)
-- [Dashboard](#dashboard) (66 functions)
+- [Dashboard](#dashboard) (68 functions)
 - [lib.panel](#libpanel) (55 functions)
 - [objects.RemotePanel](#objectsremotepanel) (6 functions)
 - [GPIO_DOUT](#gpio_dout) (1 functions)
@@ -26,6 +26,7 @@ Only public API is listed — internal/private functions are omitted.
 - [integrations.mqtt.MqttClient](#integrationsmqttmqttclient) (30 functions)
 - [grenton.CLU_REMOTE](#grentonclu_remote) (1 functions)
 - [lib.tasmota](#libtasmota) (5 functions)
+- [lib.cct](#libcct) (1 functions)
 
 ---
 
@@ -1247,6 +1248,15 @@ Add a color picker widget to this section. switchOn?, switchOff?, isOn?, getWhit
 - `fns` (table) — {getColor=function()->{r,g,b}, setColor=function(r,g,b), get?/set? brightness 0-100,
 - `opts` (table) — Optional: {disabled=function()->bool}
 
+### `SectionHandle:colorTemp(id, label, fns, opts)`
+
+Add a colour temperature slider (warm to cool white) to this section. getBrightness?/setBrightness? 0-100}, or an object with getColorTemp/setColorTemp in kelvin (and its switchOn/switchOff/getBrightness/setBrightness when it has them); a two-channel warm/cold white: require("lib/cct").mix(warm, cold) The slider runs warm to cool over a gradient; the value shows as "3000 K" and a word (warm, neutral, cool). A set outside min..max is clamped to it; a reading outside is shown as it is. A toggle when there are switchOn and switchOff, a brightness slider when there are getBrightness and setBrightness.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `fns` (table) — {getKelvin=function()->number|nil, setKelvin=function(kelvin), isOn?, switchOn?, switchOff?,
+- `opts` (table) — Optional: {min=2700, max=6500, step=50, unit="kelvin"|"mired" (the functions speak mireds, e.g. Zigbee color_temp), icon=string (default "lightbulb"), disabled=function()->bool, span=n, size=string, color=string}
+
 ### `SectionHandle:thermostat(id, label, icon, fns, opts)`
 
 Add a thermostat: current temperature, target and +/- for the target. getState=function()->number|bool? (1/true active, 0/false off), getMode=function()->number? (0 manual, 1 holiday, 2 schedule, 3 heat-up)}, or a thermostat object (RemoteThermostat: getValue, getTarget, setSetpoint, getState, getMode) Shows the current temperature and the target ("--" until reported); + and - change the target by step and setTarget is called once, 1 s after the last tap; the chosen value shows until the thermostat reports a new target, at most 90 s. Without setTarget (or opts.readonly) there are no buttons; with getMode the target is set only in manual mode (0), as lib/panel does. The action endpoint refuses a set outside min..max.
@@ -1268,7 +1278,7 @@ Add a chip to the header: an icon and a short text from fn, hidden while fn retu
 
 ### `SectionHandle:area(area, opts)`
 
-Fill this section with a widget for every device expose() put in an area, picked by kind: a light, switch or lock a toggle, a dimmer a dimmer, an RGB light the colour widget, a cover a cover, temperature and humidity a status; lights first, then covers, then the rest by name. Filled when something is exposed or unexposed, so devices a plugin exposes later show up; widgets added by hand come after them; a read-only device's widget is disabled. Like the panel, expose(obj, type, { dashboard = false }) keeps an object off dashboards and dashboard = true puts one of those kinds on them even when kinds leaves it out (other kinds have no widget and log a warning). Widget ids are "area:" .. path, other bytes as %XX. Anyone who can open the dashboard controls what is exposed in the area later: use :auth('session') or 'pin'; access profiles of MQTT, HomeKit and MCP do not apply here.
+Fill this section with a widget for every device expose() put in an area, picked by kind: a light, switch or lock a toggle, a dimmer a dimmer, an RGB light the colour widget, a light with getColorTemp/setColorTemp the colour temperature (2700-6500 K), a cover a cover, temperature and humidity a status; lights first, then covers, then the rest by name. Filled when something is exposed or unexposed, so devices a plugin exposes later show up; widgets added by hand come after them; a read-only device's widget is disabled. Like the panel, expose(obj, type, { dashboard = false }) keeps an object off dashboards and dashboard = true puts one of those kinds on them even when kinds leaves it out (other kinds have no widget and log a warning). Widget ids are "area:" .. path, other bytes as %XX. Anyone who can open the dashboard controls what is exposed in the area later: use :auth('session') or 'pin'; access profiles of MQTT, HomeKit and MCP do not apply here.
 
 - `area` (string) — Area name, or a list of names (one room under two names)
 - `opts` (table) — Optional: {kinds={"light","dimmer","cover","temperature","humidity"} (also "switch", "lock"), skip={path, ...}}
@@ -1563,6 +1573,15 @@ Add a color picker widget to the current section. switchOn?, switchOff?, isOn?, 
 - `icon` (string) — Bootstrap icon name (e.g., "palette")
 - `fns` (table) — {getColor=function()->{r,g,b}, setColor=function(r,g,b), get?/set? brightness 0-100,
 - `opts` (table) — Optional: {disabled=function()->bool}
+
+### `DashboardBuilder:colorTemp(id, label, fns, opts)`
+
+Add a colour temperature slider (warm to cool white) to the current section. getBrightness?/setBrightness? 0-100}, or an object with getColorTemp/setColorTemp in kelvin (and its switchOn/switchOff/getBrightness/setBrightness when it has them); a two-channel warm/cold white: require("lib/cct").mix(warm, cold) The slider runs warm to cool over a gradient; the value shows as "3000 K" and a word (warm, neutral, cool). A set outside min..max is clamped to it; a reading outside is shown as it is. A toggle when there are switchOn and switchOff, a brightness slider when there are getBrightness and setBrightness.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `fns` (table) — {getKelvin=function()->number|nil, setKelvin=function(kelvin), isOn?, switchOn?, switchOff?,
+- `opts` (table) — Optional: {min=2700, max=6500, step=50, unit="kelvin"|"mired" (the functions speak mireds, e.g. Zigbee color_temp), icon=string (default "lightbulb"), disabled=function()->bool, span=n, size=string, color=string}
 
 ### `DashboardBuilder:thermostat(id, label, icon, fns, opts)`
 
@@ -2254,6 +2273,20 @@ Whether the device is online (its LWT is Online).
 Tasmota devices seen on MQTT discovery (tasmota/discovery/<mac>/config), sorted by topic. Nothing is created from them; add a device with a line in a module.
 
 **Returns:** table list of { topic, name, device, relays, lights, ip, mac }
+
+---
+
+## lib.cct
+
+### `M.mix(warm, cold, opts) → table {getKelvin, setKelvin, getBrightness, setBrightness (0-100), isOn, switchOn, switchOff}`
+
+A warm and a cold dimmer as the functions of section:colorTemp.
+
+- `warm` (table) — The warm white channel (getValue/setValue 0..1)
+- `cold` (table) — The cold white channel (getValue/setValue 0..1)
+- `opts` (table) — Optional: {warm=2700, cold=6500} the kelvin of each channel alone
+
+**Returns:** table {getKelvin, setKelvin, getBrightness, setBrightness (0-100), isOn, switchOn, switchOff}
 
 ---
 
