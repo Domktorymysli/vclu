@@ -114,8 +114,13 @@ func cloudCommand(engine *lua.LuaEngine) func(proto.Cmd, time.Time) proto.CmdRes
 			roles = []string{}
 		}
 		rolesJSON, _ := json.Marshal(roles)
+		// no level is -1, which Lua only reads with set (and refuses there)
+		value := -1.0
+		if cmd.Value != nil {
+			value = *cmd.Value
+		}
 		out, err := engine.CallAs("remote", cmd.Actor.User, cmd.ID, "Cloud._command",
-			cmd.Path, cmd.Action, string(rolesJSON), cmd.Confirmed, cmd.Pin, float64(deadline.UnixMilli()))
+			cmd.Path, cmd.Action, string(rolesJSON), cmd.Confirmed, cmd.Pin, float64(deadline.UnixMilli()), value)
 		var res proto.CmdResult
 		if err == nil {
 			err = json.Unmarshal([]byte(out), &res)

@@ -36,7 +36,7 @@ const (
 var (
 	cmdIDRe    = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 	cmdActorRe = regexp.MustCompile(`^cloud:[0-9]{1,18}$`)
-	cmdActions = []string{proto.ActionOn, proto.ActionOff, proto.ActionOpen, proto.ActionClose, proto.ActionStop, proto.ActionExecute}
+	cmdActions = []string{proto.ActionOn, proto.ActionOff, proto.ActionOpen, proto.ActionClose, proto.ActionStop, proto.ActionExecute, proto.ActionSet}
 )
 
 // ObjectsChanged marks the device list changed: it is sent after the debounce. Called from the
@@ -226,7 +226,9 @@ func (c *Client) command(t *tunnel, cmd proto.Cmd, done <-chan struct{}) {
 	case !cmdActorRe.MatchString(cmd.Actor.User) || !c.isMember(cmd.Actor.User):
 		answer(proto.ReasonUnknownActor)
 		return
-	case !slices.Contains(cmdActions, cmd.Action), cmd.Path == "", len(cmd.Path) > cmdPathMax:
+	case !slices.Contains(cmdActions, cmd.Action), cmd.Path == "", len(cmd.Path) > cmdPathMax,
+		(cmd.Action == proto.ActionSet) != (cmd.Value != nil),
+		cmd.Value != nil && !(*cmd.Value >= 0 && *cmd.Value <= 100):
 		answer(proto.ReasonInvalid)
 		return
 	}

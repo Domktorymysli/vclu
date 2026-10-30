@@ -266,6 +266,9 @@ func TestCmdChecksAndResult(t *testing.T) {
 		{proto.Cmd{ID: "c2", Actor: proto.Actor{User: "cloud:1234567890123456789"}}, proto.ReasonUnknownActor},
 		{proto.Cmd{ID: "c3", Action: "setValue"}, proto.ReasonInvalid},
 		{proto.Cmd{ID: "c4", Path: strings.Repeat("p", 257)}, proto.ReasonInvalid},
+		{proto.Cmd{ID: "c5", Action: proto.ActionSet}, proto.ReasonInvalid},                    // set without a level
+		{proto.Cmd{ID: "c6", Value: level(50)}, proto.ReasonInvalid},                           // a level without set
+		{proto.Cmd{ID: "c7", Action: proto.ActionSet, Value: level(101)}, proto.ReasonInvalid}, // out of range
 	} {
 		sendCmd(t, conn, tc.cmd)
 		if r := readResult(t, conn); r.OK || r.Reason != tc.want {
@@ -418,3 +421,5 @@ func TestNotifyActionRepeatWhileRunning(t *testing.T) {
 		t.Errorf("the button ran %d times", n)
 	}
 }
+
+func level(v float64) *float64 { return &v }

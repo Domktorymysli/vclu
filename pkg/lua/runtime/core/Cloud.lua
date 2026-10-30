@@ -302,8 +302,8 @@ end
 local ACTIONS = {
     switch = { on = true, off = true },
     light = { on = true, off = true },
-    dimmer = { on = true, off = true },
-    cover = { open = true, close = true, stop = true },
+    dimmer = { on = true, off = true, set = true },
+    cover = { open = true, close = true, stop = true, set = true },
     scene = { execute = true },
 }
 local PIN_TRIES, PIN_WAIT_MS = 5, 30000
@@ -330,9 +330,20 @@ local function run(fn, ...)
     return true
 end
 
--- Calls the device's own method for action: true, false and why, or nil when it has none
-local function perform(h, action)
+-- Calls the device's own method for action (set with value 0..100): true, false and why, or nil
+-- when it has none
+local function perform(h, action, value)
     local obj = h.object
+    if action == 'set' then
+        if h.type == 'dimmer' then
+            if hasMethod(obj, 'setBrightness') then return run(obj.setBrightness, obj, value) end
+            return run(h.setValue, h, value / 100)
+        end
+        -- a Grenton roller without a position (class 11) only opens and closes
+        if type(obj) == 'table' and obj._hasPosition == false then return nil end
+        if not hasMethod(obj, 'setPosition') then return nil end
+        return run(obj.setPosition, obj, value)
+    end
     if action == 'on' or action == 'off' then
         local method = action == 'on' and 'switchOn' or 'switchOff'
         if hasMethod(obj, method) then return run(obj[method], obj) end
@@ -369,7 +380,7 @@ end
 
 --- Runs a remote command on a device exposed with :remote() (called by Go with the cloud's cmd,
 -- as the person). Returns the answer as JSON: { ok, reason?, message? }.
-function Cloud._command(path, action, rolesJSON, confirmed, pin, deadlineMs)
+function Cloud._command(path, action, rolesJSON, confirmed, pin, deadlineMs, value)
     local function answer(ok, reason, message)
         return JSON.encode({ ok = ok, reason = reason, message = message })
     end
@@ -408,13 +419,17 @@ function Cloud._command(path, action, rolesJSON, confirmed, pin, deadlineMs)
     if not fits or not fits[action] then
         return answer(false, 'invalid', 'Tego nie da się zrobić z tym urządzeniem.')
     end
+    value = tonumber(value)
+    if action == 'set' and (not value or value - value ~= 0 or value < 0 or value > 100) then
+        return answer(false, 'invalid', 'Poziom musi być od 0 do 100%.')
+    end
     -- the Lua queue may have held the command past the time the cloud waits
     local deadline = tonumber(deadlineMs)
     if deadline and wallMs() > deadline then
         return answer(false, 'expired', 'Polecenie przyszło za późno.')
     end
 
-    local ok, err = perform(h, action)
+    local ok, err = perform(h, action, value)
     if ok == nil then
         return answer(false, 'invalid', 'Tego nie da się zrobić z tym urządzeniem.')
     end

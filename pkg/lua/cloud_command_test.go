@@ -226,3 +226,55 @@ func TestCloudCommandChecks(t *testing.T) {
 		t.Errorf("a late command called %q", got)
 	}
 }
+
+// Contract: set takes a level 0..100 to the device's own setPosition / setBrightness; a roller
+// without positions and a level out of range are refused, nothing written.
+func TestCloudCommandSetsLevels(t *testing.T) {
+	engine, _, _ := newHistoryEngine(t)
+	luaOK(t, engine, `
+		_cover = VirtualCover:new("roleta_salon", { initial = 100 })
+		expose(_cover, "cover", { id = "rolety" }):remote()
+		_dimmer = VirtualDimmer:new("kinkiet", { initial = 0 })
+		expose(_dimmer, "dimmer", { id = "kinkiet" }):remote()
+		_roller = { _lastState = 0, _hasPosition = false, get = function(s) return s._lastState end,
+			set = function(s, i, v) s._lastState = v end, onChange = function() return function() end end,
+			open = function() end, close = function() end, setPosition = function() error("no positions") end }
+		expose(_roller, "cover", { id = "stara" }):remote()
+		expose(VirtualSwitch:new("lampa2"), "light", { id = "lampa" }):remote()`)
+	set := func(path string, value float64) cmdAnswer {
+		t.Helper()
+		out, err := engine.CallAs("remote", "cloud:7", "cmd-set", "Cloud._command", path, "set", "[]", false, "",
+			float64(time.Now().Add(time.Minute).UnixMilli()), value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var a cmdAnswer
+		if err := json.Unmarshal([]byte(out), &a); err != nil {
+			t.Fatalf("answer %q: %v", out, err)
+		}
+		return a
+	}
+	if a := set("vclu:rolety", 30); !a.OK {
+		t.Fatalf("cover to 30 = %+v", a)
+	}
+	if v := mustExec(t, engine, `_cover:getPosition()`); v != "30" {
+		t.Errorf("cover at %s", v)
+	}
+	if a := set("vclu:kinkiet", 70); !a.OK {
+		t.Fatalf("dimmer to 70 = %+v", a)
+	}
+	if v := mustExec(t, engine, `_dimmer:getBrightness()`); v != "70" {
+		t.Errorf("dimmer at %s", v)
+	}
+	for _, c := range []struct {
+		path  string
+		value float64
+	}{{"vclu:stara", 50}, {"vclu:lampa", 50}, {"vclu:rolety", 101}, {"vclu:rolety", -1}} {
+		if a := set(c.path, c.value); a.OK || a.Reason != "invalid" {
+			t.Errorf("%s to %v = %+v, want invalid", c.path, c.value, a)
+		}
+	}
+	if v := mustExec(t, engine, `_cover:getPosition()`); v != "30" {
+		t.Errorf("a refused level moved the cover to %s", v)
+	}
+}
