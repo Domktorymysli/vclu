@@ -13,9 +13,12 @@ local ExposedHandle = {}
 local checkOptions -- defined after capabilities
 local climateRange -- defined after capabilities
 
--- Counts changes of what is exposed and how; dashboards reuse their rooms until it moves
+-- Counts changes of what is exposed and how; dashboards reuse their rooms until it moves.
+-- The cloud client is told too: it only marks its device list dirty and sends it later, so
+-- this never waits for Go.
 local function changed()
     if ExposedObjects then ExposedObjects._generation = (ExposedObjects._generation or 0) + 1 end
+    if __go_cloud_objectsChanged then __go_cloud_objectsChanged() end
 end
 ExposedHandle.__index = ExposedHandle
 
@@ -129,6 +132,93 @@ end
 -- @return ExposedHandle self for chaining
 function ExposedHandle:description(d)
     self.options.description = d
+    changed()
+    return self
+end
+
+-- vclu cloud: devices a member may see and command from the app (:remote(), :roles(), :pin()).
+-- Kept on the handle, not in options: options are merged by a re-expose and by update(),
+-- which would skip the checks below. The PIN never leaves the handle.
+local REMOTE_KEYS = { confirm = true, pin = true, readonly = true }
+local ROLE_PATTERN = '^[a-z0-9][a-z0-9_%-]*$'
+local nameWarned = {} -- paths already warned about a path taken from the name
+local pinWarned = {}  -- paths already warned about remote{pin = true} without a PIN
+
+local function warn(fmt, ...)
+    if Logger then Logger:getShared():warn(fmt, ...) end
+end
+
+--- Make the device reachable from the vclu cloud app: :remote() (or true) lets every member of the home control it, :remote(false) takes it back (with its roles), or a table {confirm = true (the person confirms each command), pin = true (each command needs the PIN set with :pin()), readonly = true (seen, never commanded)}. With :roles(...) only people given one of those roles in the cloud reach it. Without it the device never leaves the house. Give the object an id (expose(obj, type, {id = "..."})): the cloud names the device by its path.
+-- @param spec table nothing, true, false or {confirm, pin, readonly}
+-- @return ExposedHandle self for chaining
+-- @api public
+function ExposedHandle:remote(spec)
+    if self._hidden then return self end
+    local where = 'expose:remote'
+    if spec == false then
+        self._remote = nil
+        changed()
+        return self
+    end
+    if spec == nil or spec == true then spec = {} end
+    if type(spec) ~= 'table' then error(where .. ': expects nothing, true, false or a table', 2) end
+    for k in pairs(spec) do
+        if not REMOTE_KEYS[k] then error(where .. ': unknown option "' .. tostring(k) .. '" (confirm, pin, readonly)', 2) end
+    end
+    for _, k in ipairs({ 'confirm', 'pin', 'readonly' }) do
+        if spec[k] ~= nil and type(spec[k]) ~= 'boolean' then error(where .. ': ' .. k .. ' must be true or false', 2) end
+    end
+    if spec.readonly and (spec.confirm or spec.pin) then
+        error(where .. ': readonly cannot be combined with confirm or pin', 2)
+    end
+    self._remote = { roles = self._remote and self._remote.roles or {}, confirm = spec.confirm == true,
+        pin = spec.pin == true, readonly = spec.readonly == true }
+    if self._pathFrom == 'name' and not nameWarned[self.path] then
+        nameWarned[self.path] = true
+        warn("[ExposedObjects] %s: the path comes from the name, so renaming the device changes it in the cloud; " ..
+            "give it an id (expose(obj, type, { id = \"...\" }))", tostring(self.path))
+    end
+    changed()
+    return self
+end
+
+--- Who reaches the remote device in vclu cloud: people given one of these roles there (e.g. 'domownicy', 'gosia'). Call :remote() first. Without it every member of the home does.
+-- @param ... string Role names: a-z, 0-9, - and _, as in the cloud
+-- @return ExposedHandle self for chaining
+-- @api public
+function ExposedHandle:roles(...)
+    if self._hidden then return self end
+    local where = 'expose:roles'
+    if not self._remote then error(where .. ': call :remote() first', 2) end
+    local list = { ... }
+    if #list == 0 then error(where .. ': expects at least one role', 2) end
+    for i = 1, #list do
+        local r = list[i]
+        if type(r) ~= 'string' or #r > 32 or not r:match(ROLE_PATTERN) then
+            error(where .. ': invalid role "' .. tostring(r) .. '" (a-z, 0-9, - and _, as in the cloud)', 2)
+        end
+    end
+    self._remote.roles = list
+    changed()
+    return self
+end
+
+--- The PIN a remote command needs with :remote({pin = true}): 4 to 8 digits, as a string ("0420") or a number. It stays in vCLU: the cloud and the app never see it. A device with remote{pin = true} and no PIN is not offered at all.
+-- @param p string The PIN
+-- @return ExposedHandle self for chaining
+-- @api public
+function ExposedHandle:pin(p)
+    if self._hidden then return self end
+    local s
+    if type(p) == 'number' and p - p == 0 and p >= 0 and p == math.floor(p) then
+        s = string.format('%d', p)
+    elseif type(p) == 'string' then
+        s = p
+    end
+    if not s or #s < 4 or #s > 8 or not s:match('^%d+$') then
+        error('expose:pin: the PIN is 4 to 8 digits', 2)
+    end
+    self._pin = s
     changed()
     return self
 end
@@ -347,6 +437,9 @@ end
 
 -- Raises for invalid expose options; nothing is changed before it passes
 checkOptions = function(objType, opts)
+    for _, k in ipairs({ 'remote', 'roles', 'pin' }) do
+        if opts[k] ~= nil then error('expose: use :' .. k .. '() instead of the option ' .. k, 3) end
+    end
     checkFilterOption(objType, opts.filter)
     if opts.history ~= nil and type(opts.history) ~= "boolean" then
         error("ExposedObjects:expose() - history must be true or false", 3)
@@ -398,6 +491,8 @@ setmetatable(ExposedObjects._noUnsubscribeWarned, { __mode = "k" })
 -- @param options table Options with optional path/id/name
 -- @param pluginId string Optional plugin ID
 -- @return string Generated path
+-- @return string Generated path, and "name" when it was made from options.name (it changes
+-- with the name: :remote() warns about it)
 local function generatePath(obj, objType, options, pluginId)
     -- Priority 1: explicit path
     if options.path then
@@ -422,13 +517,14 @@ local function generatePath(obj, objType, options, pluginId)
     -- Priority 4: plugin_id:id or plugin_id:name or obj._id or obj._name
     local base = pluginId or "vclu"
     local id = options.id or obj._id or options.name or obj._name
+    local from = (options.id == nil and obj._id == nil and options.name ~= nil) and "name" or nil
 
     -- Priority 5: stable hash
     if not id then
         id = hashStable(obj, objType)
     end
 
-    return base .. ":" .. id
+    return base .. ":" .. id, from
 end
 
 --- Expose an object to MQTT and HomeKit
@@ -468,6 +564,7 @@ function ExposedObjects:expose(obj, objType, options)
         -- Return a dummy handle that does nothing
         local dummy = ExposedHandle:new("_hidden_", obj, objType, options)
         dummy._exposed = false
+        dummy._hidden = true
         return dummy
     end
 
@@ -506,7 +603,7 @@ function ExposedObjects:expose(obj, objType, options)
 
     -- Generate path for new object
     local pluginId = self._pluginContext
-    local path = generatePath(obj, objType, options, pluginId)
+    local path, pathFrom = generatePath(obj, objType, options, pluginId)
 
     -- Check for path collision (different object, same path)
     if self._objects[path] then
@@ -526,6 +623,7 @@ function ExposedObjects:expose(obj, objType, options)
 
     -- Create handle
     local handle = ExposedHandle:new(path, obj, objType, options)
+    handle._pathFrom = pathFrom
 
     -- Apply defaults
     if options.mqtt == nil then handle.options.mqtt = true end
@@ -723,6 +821,62 @@ function ExposedObjects:_areasOn(floor, order, key)
         return a < b
     end)
     return list
+end
+
+-- What a remote command reaches: the handle when it is exposed with :remote() and, with
+-- remote{pin = true}, has a PIN (Cloud._command)
+function ExposedObjects:_remoteHandle(path)
+    local h = self._objects[path]
+    if not h or not h._exposed or h._hidden or not h._remote then return nil end
+    if h._remote.pin and not h._pin then return nil end
+    return h
+end
+
+-- The access a remote viewer gets: readonly, pin, confirm or full (proto.Object.Access)
+function ExposedObjects._remoteAccess(h)
+    local r = h._remote
+    if r.readonly or h.options.readonly then return 'readonly' end
+    if r.pin then return 'pin' end
+    if r.confirm then return 'confirm' end
+    return 'full'
+end
+
+local function plainString(v)
+    if type(v) == 'string' then return v end
+    if type(v) == 'number' then return tostring(v) end
+    return nil
+end
+
+--- The devices exposed with :remote(), for the cloud's snapshot: sorted by path, each
+-- {path, type, name, area, floor, access, roles}, never the PIN
+-- @return table Array of plain tables
+function ExposedObjects:remoteList()
+    local out = {}
+    for path, h in pairs(self._objects) do
+        if h._exposed and not h._hidden and h._remote then
+            if h._remote.pin and not h._pin then
+                if not pinWarned[path] then
+                    pinWarned[path] = true
+                    warn("[ExposedObjects] %s: remote{pin = true} without :pin(...), not offered to the cloud", tostring(path))
+                end
+            else
+                local o = h.options or {}
+                local obj = h.object
+                local name = plainString(o.name) or (type(obj) == 'table' and plainString(obj._name)) or tostring(path)
+                local e = { path = tostring(path), type = tostring(h.type), name = name,
+                    area = plainString(o.area), floor = plainString(o.floor),
+                    access = ExposedObjects._remoteAccess(h) }
+                if #h._remote.roles > 0 then
+                    local roles = {}
+                    for i = 1, #h._remote.roles do roles[i] = h._remote.roles[i] end
+                    e.roles = roles
+                end
+                out[#out + 1] = e
+            end
+        end
+    end
+    table.sort(out, function(a, b) return a.path < b.path end)
+    return out
 end
 
 --- Get count of exposed objects

@@ -297,4 +297,132 @@ function Cloud._action(notifyId, actionId, user, name, role)
     return answer({ ok = true, message = type(r1) == 'string' and r1 or nil })
 end
 
+-- Remote commands (the protocol's cmd) for devices exposed with :remote() (ExposedObjects.lua).
+-- Only these actions, each on the device's own method; never a method named by the cloud.
+local ACTIONS = {
+    switch = { on = true, off = true },
+    light = { on = true, off = true },
+    dimmer = { on = true, off = true },
+    cover = { open = true, close = true, stop = true },
+    scene = { execute = true },
+}
+local PIN_TRIES, PIN_WAIT_MS = 5, 30000
+local pinFails = {} -- path -> { n = wrong PINs in a row, untilMs = locked until }
+
+-- The clock the cloud client computed the deadline with (Go's wall clock)
+local function wallMs()
+    if __go_cloud_now_ms then return __go_cloud_now_ms() end
+    return os.time() * 1000
+end
+
+local function hasMethod(obj, name)
+    return type(obj) == 'table' and type(obj[name]) == 'function'
+end
+
+-- Runs fn(...) protected: true, or false and the device's own message
+local function run(fn, ...)
+    local ok, r1, r2 = pcall(fn, ...)
+    if not ok then
+        log():error('[CLOUD] command: %s', tostring(r1))
+        return false, 'Błąd w skrypcie vCLU.'
+    end
+    if r1 == false then return false, type(r2) == 'string' and r2 or nil end
+    return true
+end
+
+-- Calls the device's own method for action: true, false and why, or nil when it has none
+local function perform(h, action)
+    local obj = h.object
+    if action == 'on' or action == 'off' then
+        local method = action == 'on' and 'switchOn' or 'switchOff'
+        if hasMethod(obj, method) then return run(obj[method], obj) end
+        return run(h.setValue, h, action == 'on' and 1 or 0)
+    elseif action == 'open' or action == 'close' or action == 'stop' then
+        -- a roller moves by its own methods; setValue would write its feature 0
+        if not hasMethod(obj, action) then return nil end
+        return run(obj[action], obj)
+    elseif action == 'execute' then
+        if not hasMethod(obj, 'execute') then return nil end
+        -- false is the cooldown after a run a moment ago: the scene ran
+        local ok, err = pcall(h.executeScene, h)
+        if not ok then
+            log():error('[CLOUD] command: %s', tostring(err))
+            return false, 'Błąd w skrypcie vCLU.'
+        end
+        return true
+    end
+    return nil
+end
+
+-- Whether the person's roles (JSON array from the cloud) reach a device with these roles
+local function rolesAllow(want, rolesJSON)
+    local ok, roles = pcall(JSON.decode, rolesJSON)
+    if not ok or type(roles) ~= 'table' then return false end
+    if #want == 0 then return true end
+    for i = 1, #roles do
+        for j = 1, #want do
+            if roles[i] == want[j] then return true end
+        end
+    end
+    return false
+end
+
+--- Runs a remote command on a device exposed with :remote() (called by Go with the cloud's cmd,
+-- as the person). Returns the answer as JSON: { ok, reason?, message? }.
+function Cloud._command(path, action, rolesJSON, confirmed, pin, deadlineMs)
+    local function answer(ok, reason, message)
+        return JSON.encode({ ok = ok, reason = reason, message = message })
+    end
+    local h = ExposedObjects and ExposedObjects:_remoteHandle(path)
+    if not h then return answer(false, 'not_found', 'Nie ma takiego urządzenia.') end
+    local r = h._remote
+
+    if not rolesAllow(r.roles, rolesJSON) then
+        return answer(false, 'forbidden', 'Nie masz do tego uprawnień.')
+    end
+    if ExposedObjects._remoteAccess(h) == 'readonly' then
+        return answer(false, 'forbidden', 'To urządzenie jest tylko do podglądu.')
+    end
+    if r.confirm and confirmed ~= true then
+        return answer(false, 'confirm', 'Potwierdź polecenie.')
+    end
+    if r.pin then
+        local f = pinFails[path]
+        if f and f.untilMs and wallMs() < f.untilMs then
+            return answer(false, 'rate_limited', 'Za dużo błędnych PIN-ów. Spróbuj za chwilę.')
+        end
+        if pin == nil or tostring(pin) == '' then
+            return answer(false, 'pin_required', 'Podaj PIN.')
+        end
+        if tostring(pin) ~= h._pin then
+            f = f or { n = 0 }
+            f.n, f.untilMs = f.n + 1, nil
+            if f.n >= PIN_TRIES then f.n, f.untilMs = 0, wallMs() + PIN_WAIT_MS end
+            pinFails[path] = f
+            return answer(false, 'pin_wrong', 'Zły PIN.')
+        end
+        pinFails[path] = nil
+    end
+
+    local fits = ACTIONS[h.type]
+    if not fits or not fits[action] then
+        return answer(false, 'invalid', 'Tego nie da się zrobić z tym urządzeniem.')
+    end
+    -- the Lua queue may have held the command past the time the cloud waits
+    local deadline = tonumber(deadlineMs)
+    if deadline and wallMs() > deadline then
+        return answer(false, 'expired', 'Polecenie przyszło za późno.')
+    end
+
+    local ok, err = perform(h, action)
+    if ok == nil then
+        return answer(false, 'invalid', 'Tego nie da się zrobić z tym urządzeniem.')
+    end
+    if not ok then
+        log():warn('[CLOUD] command %s on %s: %s', tostring(action), tostring(path), tostring(err))
+        return answer(false, 'error', err or 'Nie udało się.')
+    end
+    return answer(true)
+end
+
 return Cloud

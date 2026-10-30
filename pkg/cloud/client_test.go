@@ -33,7 +33,8 @@ type fakeCloud struct {
 	token    string // the valid device token, once approved
 	unpairs  []string
 	conns    chan *fakeConn
-	hold     chan struct{} // when set, connections wait for it to close
+	hold     chan struct{}           // when set, connections wait for it to close
+	enable   func([]string) []string // what welcome enables of hello's caps; nil: all
 }
 
 type fakeConn struct {
@@ -119,7 +120,13 @@ func newFakeCloud(t *testing.T) *fakeCloud {
 		if err != nil || m.Decode(&fc.hello) != nil {
 			return
 		}
-		proto.Write(ctrl, proto.Welcome{Type: proto.TypeWelcome, Proto: proto.Version, HomeID: 42, HomeName: "Dom testowy", Enable: fc.hello.Caps})
+		enable := fc.hello.Caps
+		f.mu.Lock()
+		if f.enable != nil {
+			enable = f.enable(enable)
+		}
+		f.mu.Unlock()
+		proto.Write(ctrl, proto.Welcome{Type: proto.TypeWelcome, Proto: proto.Version, HomeID: 42, HomeName: "Dom testowy", Enable: enable})
 		f.conns <- fc
 	})
 	f.ts = httptest.NewServer(mux)

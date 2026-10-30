@@ -1,6 +1,8 @@
 package lua
 
 import (
+	"time"
+
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -15,6 +17,10 @@ type CloudBridge struct {
 	SetEnabled func(on bool) error
 	// Enabled reports whether vCLU is paired and the connection is switched on.
 	Enabled func() bool
+	// ObjectsChanged is called on every change of what is exposed and how (ExposedObjects.lua,
+	// changed()). It runs on the Lua loop: it must only mark the device list dirty and return,
+	// never call back into Lua.
+	ObjectsChanged func()
 }
 
 // SetCloud connects the Cloud module to the cloud client. Without it Cloud.notify returns nil
@@ -28,11 +34,23 @@ func (le *LuaEngine) SetCloud(b CloudBridge) {
 }
 
 // registerCloudFunctions registers __go_cloud_notify(json) -> true | nil, err,
-// __go_cloud_presence() -> json | nil, __go_cloud_set_enabled(on) -> true | nil, err and
-// __go_cloud_enabled() -> bool.
+// __go_cloud_presence() -> json | nil, __go_cloud_set_enabled(on) -> true | nil, err,
+// __go_cloud_enabled() -> bool, __go_cloud_objectsChanged() and __go_cloud_now_ms().
 func registerCloudFunctions(L *lua.LState, b *CloudBridge) {
+	// The wall clock the cloud client computes a command's deadline with (Cloud._command), not
+	// the Lua clock, which a test may replace.
+	L.SetGlobal("__go_cloud_now_ms", L.NewFunction(func(L *lua.LState) int {
+		L.Push(lua.LNumber(time.Now().UnixMilli()))
+		return 1
+	}))
 	if b == nil {
 		return
+	}
+	if b.ObjectsChanged != nil {
+		L.SetGlobal("__go_cloud_objectsChanged", L.NewFunction(func(L *lua.LState) int {
+			b.ObjectsChanged()
+			return 0
+		}))
 	}
 	if b.Notify != nil {
 		L.SetGlobal("__go_cloud_notify", L.NewFunction(func(L *lua.LState) int {

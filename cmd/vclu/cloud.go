@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -82,8 +83,48 @@ func cloudBridge(c *cloud.Client) lua.CloudBridge {
 			b, _ := json.Marshal(p.People)
 			return string(b)
 		},
-		SetEnabled: c.SetEnabledLater,
-		Enabled:    c.Enabled,
+		SetEnabled:     c.SetEnabledLater,
+		Enabled:        c.Enabled,
+		ObjectsChanged: c.ObjectsChanged,
+	}
+}
+
+// cloudObjects lists the devices exposed with :remote() in Lua, for the cloud's snapshot.
+func cloudObjects(engine *lua.LuaEngine) func() ([]proto.Object, error) {
+	return func() ([]proto.Object, error) {
+		out, err := engine.Execute("JSON.encode(ExposedObjects:remoteList())")
+		if err != nil {
+			return nil, err
+		}
+		var list []proto.Object
+		if err := json.Unmarshal([]byte(out), &list); err != nil {
+			return nil, fmt.Errorf("remoteList: %w", err)
+		}
+		return list, nil
+	}
+}
+
+// cloudCommand runs a command from the app in Lua (Cloud._command) as the person: history records
+// origin "remote", their cloud id and the command's id. Lua checks :remote(), the roles, the PIN
+// and the deadline again, since the Lua queue may hold the call.
+func cloudCommand(engine *lua.LuaEngine) func(proto.Cmd, time.Time) proto.CmdResult {
+	return func(cmd proto.Cmd, deadline time.Time) proto.CmdResult {
+		roles := cmd.Actor.Roles
+		if roles == nil {
+			roles = []string{}
+		}
+		rolesJSON, _ := json.Marshal(roles)
+		out, err := engine.CallAs("remote", cmd.Actor.User, cmd.ID, "Cloud._command",
+			cmd.Path, cmd.Action, string(rolesJSON), cmd.Confirmed, cmd.Pin, float64(deadline.UnixMilli()))
+		var res proto.CmdResult
+		if err == nil {
+			err = json.Unmarshal([]byte(out), &res)
+		}
+		if err != nil {
+			log.Printf("[Cloud] command %s on %q: %v", cmd.Action, cmd.Path, err)
+			return proto.CmdResult{Reason: proto.ReasonError}
+		}
+		return res
 	}
 }
 

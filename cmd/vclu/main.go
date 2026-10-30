@@ -292,9 +292,16 @@ func main() {
 	webSrv.SetMCPServer(mcpSrv)
 
 	// Register pre-reset callback to block HomeKit callbacks BEFORE Lua reload
+	// Made below, before the first load; a reload tells it which dashboards are remote.
+	var cloudClient *cloud.Client
+
 	srv.SetOnLuaPreReset(func() {
 		if homekitSrv != nil {
 			homekitSrv.SetInitializing(true)
+		}
+		// the device list from a half-loaded Lua must not reach the cloud
+		if cloudClient != nil {
+			cloudClient.ObjectsHold()
 		}
 	})
 
@@ -312,9 +319,6 @@ func main() {
 			log.Printf("Warning: Some plugins failed to load: %v", err)
 		}
 	})
-
-	// Made below, before the first load; a reload tells it which dashboards are remote.
-	var cloudClient *cloud.Client
 
 	// Register post-load callback: auto-expose + HomeKit (runs AFTER user.lua + plugins)
 	srv.SetOnLuaReset(func() {
@@ -337,6 +341,7 @@ func main() {
 		}
 		if cloudClient != nil {
 			go cloudClient.DashboardsChanged()
+			cloudClient.ObjectsRelease() // after exposeRegistry: the whole list, once
 		}
 	})
 
@@ -356,6 +361,8 @@ func main() {
 		Tunnel:       webSrv.TunnelHandler(),
 		Dashboards:   cloudDashboards(luaEngine),
 		Members:      cloudMembers(localAccess),
+		Objects:      cloudObjects(luaEngine),
+		Command:      cloudCommand(luaEngine),
 	})
 	luaEngine.SetCloud(cloudBridge(cloudClient))
 

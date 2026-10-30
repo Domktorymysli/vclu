@@ -30,3 +30,12 @@
   the CLU directory) to `Authorization: Bearer vclu_local_…`. A token counts only while the last
   `members` list (`Options.Members`, kept in `cloud-local.json`) names its person and app, with
   the role from there. Tests: `pkg/web/local_test.go`.
+- Remote devices (`objects.go`): `snapshot` comes from `ExposedObjects:remoteList()` through
+  `Options.Objects`, on its own goroutine per connection; Lua's `changed()` only calls
+  `ObjectsChanged`, which must never block or call Lua (it runs on the Lua loop). A reload holds
+  the list (`ObjectsHold` in the pre-reset hook, `ObjectsRelease` after `exposeRegistry()`), so a
+  half-loaded list never reaches the cloud. `cmd` runs `Cloud._command` (`Options.Command`) with a
+  local deadline; Lua checks the deadline again with `__go_cloud_now_ms`, Go's wall clock, not
+  `__go_time_ms`, which tests replace. `cmd` and `notify_action` are at most once per id through
+  `replays` (`replay.go`): a repeat waits for the first answer. Tests: `objects_test.go`,
+  `pkg/lua/cloud_command_test.go`, `pkg/lua/expose_remote_contract_test.go`.

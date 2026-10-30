@@ -15,20 +15,20 @@ Only public API is listed — internal/private functions are omitted.
 - [objects.VirtualObject](#objectsvirtualobject) (12 functions)
 - [objects.VirtualThermostat](#objectsvirtualthermostat) (12 functions)
 - [objects.VirtualPresence](#objectsvirtualpresence) (8 functions)
-- [ExposedObjects](#exposedobjects) (21 functions)
+- [ExposedObjects](#exposedobjects) (24 functions)
 - [core.Registry](#coreregistry) (10 functions)
 - [core.Metrics](#coremetrics) (1 functions)
 - [core.Calendar](#corecalendar) (39 functions)
-- [Dashboard](#dashboard) (79 functions)
+- [Dashboard](#dashboard) (83 functions)
 - [lib.panel](#libpanel) (55 functions)
 - [objects.RemotePanel](#objectsremotepanel) (6 functions)
 - [GPIO_DOUT](#gpio_dout) (1 functions)
 - [GPIO_DIN](#gpio_din) (1 functions)
 - [integrations.mqtt.MqttClient](#integrationsmqttmqttclient) (30 functions)
+- [core.Cloud](#corecloud) (9 functions)
 - [grenton.CLU_REMOTE](#grentonclu_remote) (1 functions)
 - [lib.cct](#libcct) (1 functions)
 - [lib.tasmota](#libtasmota) (5 functions)
-- [core.Cloud](#corecloud) (6 functions)
 
 ---
 
@@ -812,6 +812,28 @@ Set description for AI agents (fluent)
 
 **Returns:** ExposedHandle self for chaining
 
+### `ExposedHandle:remote(spec) → ExposedHandle self for chaining`
+
+Make the device reachable from the vclu cloud app: :remote() (or true) lets every member of the home control it, :remote(false) takes it back (with its roles), or a table {confirm = true (the person confirms each command), pin = true (each command needs the PIN set with :pin()), readonly = true (seen, never commanded)}. With :roles(...) only people given one of those roles in the cloud reach it. Without it the device never leaves the house. Give the object an id (expose(obj, type, {id = "..."})): the cloud names the device by its path.
+
+- `spec` (table) — nothing, true, false or {confirm, pin, readonly}
+
+**Returns:** ExposedHandle self for chaining
+
+### `ExposedHandle:roles(...) → ExposedHandle self for chaining`
+
+Who reaches the remote device in vclu cloud: people given one of these roles there (e.g. 'domownicy', 'gosia'). Call :remote() first. Without it every member of the home does.
+
+**Returns:** ExposedHandle self for chaining
+
+### `ExposedHandle:pin(p) → ExposedHandle self for chaining`
+
+The PIN a remote command needs with :remote({pin = true}): 4 to 8 digits, as a string ("0420") or a number. It stays in vCLU: the cloud and the app never see it. A device with remote{pin = true} and no PIN is not offered at all.
+
+- `p` (string) — The PIN
+
+**Returns:** ExposedHandle self for chaining
+
 ### `ExposedHandle:update(opts) → boolean Success, false if handle is inactive`
 
 Update options at runtime
@@ -1213,15 +1235,6 @@ Add a tile with the page's round trip to vCLU, measured by the page itself (in t
 - `icon` (string) — Bootstrap icon name (default "speedometer2")
 - `opts` (table) — Optional: {span=number, size='large'}
 
-### `SectionHandle:latency(id, label, icon, opts)`
-
-Add a tile with the page's round trip to vCLU, measured by the page itself (in the header, a chip): "24 ms", red over 300 ms, "offline" with no connection. Over the WebSocket it is a ping and its answer; while the page polls, the time of a poll (which includes reading the values). vCLU computes nothing for it, and it has no value in getValues.
-
-- `id` (string) — Unique widget identifier
-- `label` (string) — Display label
-- `icon` (string) — Bootstrap icon name (default "speedometer2")
-- `opts` (table) — Optional: {span=number, size='large'}
-
 ### `SectionHandle:link(id, label, icon, url, opts)`
 
 Add a link widget to this section.
@@ -1529,15 +1542,13 @@ Add this dashboard to a named tab group for navigation.
 
 ### `DashboardBuilder:remote(spec)`
 
-Make the dashboard reachable through vclu cloud: :remote() (or true), :remote(false) to take it back, or a table {pin = true (remote viewers also enter the PIN), poll = seconds (default 5, at least 2)}. Every member of the home sees it, or with :roles(...) only those given one of those roles in the cloud. Without it the dashboard never leaves the house. Widgets narrow it with opts.remote: false (not sent), 'readonly', or {confirm = true} (buttons).
+Make the dashboard reachable through vclu cloud: :remote() (or true), :remote(false) to take it back, or a table {pin = true (remote viewers also enter the PIN), poll = seconds (default 5, at least 2)}. Every member of the home sees it, or with :roles(...) only those given one of those roles in the cloud. Without it the dashboard never leaves the house. Widgets narrow it with opts.remote: false (not sent), 'readonly', or {confirm = true}.
 
-- `spec` (boolean|table|nil) — nothing or true, false, or the options
+- `spec` (boolean) — |table|nil nothing or true, false, or the options
 
 ### `DashboardBuilder:roles(...)`
 
 Who sees the remote dashboard in vclu cloud: people given one of these roles there (e.g. 'domownicy', 'gosia'). The cloud decides; vCLU only passes the names on. Without it every member of the home sees it.
-
-- `...` (string) — Role names: a-z, 0-9, - and _, as in the cloud
 
 ### `DashboardBuilder:header()`
 
@@ -2415,6 +2426,73 @@ Publish state update for object
 
 ---
 
+## core.Cloud
+
+### `Cloud.notify(opts, body) → string|nil The notification's id; nil and the reason when not sent`
+
+Sends a notification to the members' phones. opts: title (required), body, priority ("normal" or "high"), to ("all", "admins" or a list of cloud ids), tag (a newer one with the same tag replaces it), open (a dashboard id), actions (up to 3 buttons { label, run = function(who) ... end, roles = { "admin" } (who may press it; "admin" includes the owner), id }; run returns the text shown, or false and why), expires (seconds the buttons work, default 3600). Cloud.notify(title, body) is the short form.
+
+- `opts` (table) — |string The options, or the title
+- `body` (string) — |nil The body, with a title
+
+**Returns:** string|nil The notification's id; nil and the reason when not sent
+
+### `Cloud.channel(opts) → table An object with :send(e)`
+
+A channel for Calendar:notify and other code that takes an object with :send(e): each event becomes a notification with the event's title.
+
+- `opts` (table) — |nil Options of Cloud.notify for every event (to, priority, open)
+
+**Returns:** table An object with :send(e)
+
+### `Cloud.presence() → table List of { user = "cloud:<id>", name, home (boolean), since (unix seconds of the last change) }`
+
+Everyone who shares their presence with this home, sorted by name.
+
+**Returns:** table List of { user = "cloud:<id>", name, home (boolean), since (unix seconds of the last change) }
+
+### `Cloud.isHome(who) → boolean|nil true or false, nil when they do not share their presence`
+
+Whether someone is at home, by their name or cloud id.
+
+- `who` (string) — A name as in the cloud ("Anna") or "cloud:<id>"
+
+**Returns:** boolean|nil true or false, nil when they do not share their presence
+
+### `Cloud.disable() → boolean|nil true, or nil and an error (e.g. not paired)`
+
+Switches the connection to the cloud off, keeping the pairing: dashboards, the app and notifications stop until Cloud.enable() or the switch on the cloud page. It is saved and survives a restart; the cloud shows the home as switched off and sends no offline alert.
+
+**Returns:** boolean|nil true, or nil and an error (e.g. not paired)
+
+### `Cloud.enable() → boolean|nil true, or nil and an error (e.g. not paired)`
+
+Switches the connection to the cloud on again, with the same pairing.
+
+**Returns:** boolean|nil true, or nil and an error (e.g. not paired)
+
+### `Cloud.enabled() → boolean`
+
+Whether vCLU is paired with the cloud and the connection is switched on.
+
+**Returns:** boolean
+
+### `Cloud.anyoneHome() → boolean`
+
+Whether anyone who shares their presence is at home (false when nobody shares it).
+
+**Returns:** boolean
+
+### `Cloud.onPresence(fn) → function Call it to stop`
+
+Calls fn(e) when someone comes home or leaves: e = { user, name, home, since, anyone } (anyone: whether anyone is at home after this change). Runs as that person (origin "remote").
+
+- `fn` (function) — The handler
+
+**Returns:** function Call it to stop
+
+---
+
 ## grenton.CLU_REMOTE
 
 ### `CLU_REMOTE:firmware() → string|nil Firmware version`
@@ -2485,51 +2563,3 @@ Tasmota devices seen on MQTT discovery (tasmota/discovery/<mac>/config), sorted 
 
 ---
 
-## core.Cloud
-
-### `Cloud.notify(opts, body) → string|nil The notification's id; nil and the reason when not sent`
-
-Sends a notification to the members' phones. opts: title (required), body, priority ("normal" or "high"), to ("all", "admins" or a list of cloud ids), tag (a newer one with the same tag replaces it), open (a dashboard id), actions (up to 3 buttons { label, run = function(who) ... end, roles = { "admin" } (who may press it; "admin" includes the owner), id }; run returns the text shown, or false and why), expires (seconds the buttons work, default 3600). Cloud.notify(title, body) is the short form.
-
-- `opts` (table) — |string The options, or the title
-- `body` (string) — |nil The body, with a title
-
-**Returns:** string|nil The notification's id; nil and the reason when not sent
-
-### `Cloud.channel(opts) → table An object with :send(e)`
-
-A channel for Calendar:notify and other code that takes an object with :send(e): each event becomes a notification with the event's title.
-
-- `opts` (table) — |nil Options of Cloud.notify for every event (to, priority, open)
-
-**Returns:** table An object with :send(e)
-
-### `Cloud.presence() → table List of { user = "cloud:<id>", name, home (boolean), since (unix seconds of the last change) }`
-
-Everyone who shares their presence with this home, sorted by name.
-
-**Returns:** table List of { user = "cloud:<id>", name, home (boolean), since (unix seconds of the last change) }
-
-### `Cloud.isHome(who) → boolean|nil true or false, nil when they do not share their presence`
-
-Whether someone is at home, by their name or cloud id.
-
-- `who` (string) — A name as in the cloud ("Anna") or "cloud:<id>"
-
-**Returns:** boolean|nil true or false, nil when they do not share their presence
-
-### `Cloud.anyoneHome() → boolean`
-
-Whether anyone who shares their presence is at home (false when nobody shares it).
-
-**Returns:** boolean
-
-### `Cloud.onPresence(fn) → function Call it to stop`
-
-Calls fn(e) when someone comes home or leaves: e = { user, name, home, since, anyone } (anyone: whether anyone is at home after this change). Runs as that person (origin "remote").
-
-- `fn` (function) — The handler
-
-**Returns:** function Call it to stop
-
----

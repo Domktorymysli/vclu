@@ -21,6 +21,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Domktorymysli/vclu-cloud/proto"
@@ -96,10 +97,17 @@ type Options struct {
 	// 6a). With Tunnel serving proto.PathLocalToken it offers local tokens
 	// for the app on the LAN, which the lists keep valid.
 	Members func(proto.Members)
+	// Objects lists the devices exposed with :remote() in Lua, for the snapshot message after
+	// welcome and after ObjectsChanged (protocol section 5). Called on its own goroutine.
+	Objects func() ([]proto.Object, error)
+	// Command runs a cmd for one of them as the person (Cloud._command in Lua), not after
+	// deadline. Called on its own goroutine, at most once per cmd id; nil answers not_found.
+	Command func(cmd proto.Cmd, deadline time.Time) proto.CmdResult
 
-	HTTP        *http.Client
-	HealthEvery time.Duration                   // default proto.HealthIntervalSeconds
-	Backoff     func(attempt int) time.Duration // default 1, 2, 4, 8, 16, then 30 s, with jitter
+	HTTP            *http.Client
+	ObjectsDebounce time.Duration                   // default objectsDebounce
+	HealthEvery     time.Duration                   // default proto.HealthIntervalSeconds
+	Backoff         func(attempt int) time.Duration // default 1, 2, 4, 8, 16, then 30 s, with jitter
 }
 
 type Client struct {
@@ -114,9 +122,22 @@ type Client struct {
 	done   chan struct{}      // closed when it has ended
 	tun    *tunnel            // the live connection, nil when there is none
 
-	presence *proto.Presence         // the last list from the cloud, nil before the first
-	queue    []queued                // notifications waiting for a connection
-	results  map[string]actionResult // notify_action answers by id, for repeats
+	presence *proto.Presence // the last list from the cloud, nil before the first
+	queue    []queued        // notifications waiting for a connection
+
+	// answers by request id, for repeats: each runs at most once
+	actions *replays[proto.NotifyActionResult]
+	cmds    *replays[proto.CmdResult]
+
+	members        map[string]bool // users in the last members list of this connection, nil before one
+	membersVersion int64
+
+	objKick      chan struct{} // ObjectsChanged: send the device list after the debounce
+	objNow       chan struct{} // ObjectsRelease: send it now
+	objHeldUntil time.Time     // ObjectsHold, under mu
+	objSeq       int64         // Seq of the last snapshot, under mu
+
+	clock func() time.Time // for commands' deadlines and rate; tests replace it
 }
 
 // queued is a notification sent while the connection was down.
@@ -125,19 +146,11 @@ type queued struct {
 	at time.Time
 }
 
-type actionResult struct {
-	res proto.NotifyActionResult
-	at  time.Time
-}
-
 // Notifications wait this long for the connection to come back, at most
 // maxQueued of them; older ones would only confuse ("Alarm!" an hour late).
 const (
 	queueFor  = 10 * time.Minute
 	maxQueued = 20
-	// Answers to notify_action are remembered this long: a repeated id gets
-	// the same answer without running the button again (at most once).
-	resultsFor = 10 * time.Minute
 )
 
 var (
@@ -159,7 +172,16 @@ func New(opts Options) *Client {
 	if opts.Name == "" {
 		opts.Name = "vCLU"
 	}
-	return &Client{opts: opts, bootID: randomID()}
+	if opts.ObjectsDebounce == 0 {
+		opts.ObjectsDebounce = objectsDebounce
+	}
+	return &Client{
+		opts: opts, bootID: randomID(),
+		actions: newReplays[proto.NotifyActionResult](replaysFor, replaysMax),
+		cmds:    newReplays[proto.CmdResult](replaysFor, replaysMax),
+		objKick: make(chan struct{}, 1), objNow: make(chan struct{}, 1),
+		clock: time.Now,
+	}
 }
 
 // Start connects when vCLU is paired. It returns at once.
@@ -518,12 +540,16 @@ func (c *Client) run(ctx context.Context) {
 
 // tunnel is one live connection.
 type tunnel struct {
-	nc     *wsConn
-	sess   *yamux.Session
-	mu     sync.Mutex
-	ctrl   *yamux.Stream
-	notify bool // the cloud enabled notify in welcome
-	dashes bool // ... and dashboards
+	nc      *wsConn
+	sess    *yamux.Session
+	mu      sync.Mutex
+	ctrl    *yamux.Stream
+	notify  bool // the cloud enabled notify in welcome
+	dashes  bool // ... and dashboards
+	objects bool // ... and objects (snapshot)
+
+	cmdRate    cmdLimiter   // used by the read loop only
+	cmdRunning atomic.Int32 // commands running now
 }
 
 func (t *tunnel) send(v any) error {
@@ -602,6 +628,7 @@ func (c *Client) connect(ctx context.Context, cfg config.VCLUCloudConfig) error 
 
 	t.notify = slices.Contains(w.Enable, proto.CapNotify)
 	t.dashes = slices.Contains(w.Enable, proto.CapDashboards) && c.opts.Dashboards != nil
+	t.objects = slices.Contains(w.Enable, proto.CapObjects) && c.opts.Objects != nil
 	if c.opts.Tunnel != nil && slices.Contains(w.Enable, proto.CapHTTP) {
 		// The cloud opens a stream per request; the session is their listener.
 		hs := &http.Server{Handler: c.opts.Tunnel, ReadHeaderTimeout: 10 * time.Second, ErrorLog: log.New(io.Discard, "", 0)}
@@ -610,6 +637,7 @@ func (c *Client) connect(ctx context.Context, cfg config.VCLUCloudConfig) error 
 	}
 	c.mu.Lock()
 	c.tun = t
+	c.members, c.membersVersion = nil, 0 // this connection sends its own
 	pending := c.queue
 	c.queue = nil
 	c.status.State, c.status.Since, c.status.Error = StateOnline, time.Now(), ""
@@ -634,12 +662,15 @@ func (c *Client) connect(ctx context.Context, cfg config.VCLUCloudConfig) error 
 	}
 
 	if t.dashes {
-		t.send(c.dashboardsMessage())
+		c.sendDashboards(t)
 	}
 
 	done := make(chan struct{})
 	defer close(done)
 	go c.sendHealth(t, done)
+	if t.objects {
+		go c.sendObjects(t, done)
+	}
 
 	var after time.Duration
 	unpaired := false
@@ -675,13 +706,23 @@ func (c *Client) connect(ctx context.Context, cfg config.VCLUCloudConfig) error 
 			}
 		case proto.TypeMembers:
 			var ms proto.Members
-			if m.Decode(&ms) == nil && c.opts.Members != nil {
-				c.opts.Members(ms)
+			if m.Decode(&ms) == nil {
+				c.setMembers(ms)
+				if c.opts.Members != nil {
+					c.opts.Members(ms)
+				}
 			}
 		case proto.TypeNotifyAction:
 			var a proto.NotifyAction
 			if m.Decode(&a) == nil {
-				go c.notifyAction(t, a)
+				c.notifyAction(t, a, done)
+			}
+		case proto.TypeCmd:
+			var cmd proto.Cmd
+			if err := m.Decode(&cmd); err != nil {
+				log.Printf("[Cloud] bad cmd: %v", err)
+			} else {
+				c.command(t, cmd, done)
 			}
 		case proto.TypeError:
 			var e proto.Error
@@ -708,6 +749,12 @@ func (c *Client) caps() []string {
 	if c.opts.Tunnel != nil && c.opts.Members != nil {
 		caps = append(caps, proto.CapLocal)
 	}
+	if c.opts.Objects != nil {
+		caps = append(caps, proto.CapObjects)
+	}
+	if c.opts.Command != nil {
+		caps = append(caps, proto.CapCmd)
+	}
 	return caps
 }
 
@@ -723,6 +770,12 @@ func (c *Client) dashboardsMessage() proto.Dashboards {
 	return proto.Dashboards{Type: proto.TypeDashboards, Dashboards: list}
 }
 
+func (c *Client) sendDashboards(t *tunnel) {
+	if err := t.send(c.dashboardsMessage()); err != nil {
+		log.Printf("[Cloud] remote dashboards not sent: %v", err)
+	}
+}
+
 // DashboardsChanged sends the list of remote dashboards again (after a Lua
 // reload); the cloud keeps it only when it changed.
 func (c *Client) DashboardsChanged() {
@@ -730,7 +783,7 @@ func (c *Client) DashboardsChanged() {
 	t := c.tun
 	c.mu.Unlock()
 	if t != nil && t.dashes {
-		t.send(c.dashboardsMessage())
+		c.sendDashboards(t)
 	}
 }
 
@@ -781,36 +834,32 @@ func (c *Client) Presence() (proto.Presence, bool) {
 	return *c.presence, true
 }
 
-// notifyAction runs a notification's button at most once per request id.
-func (c *Client) notifyAction(t *tunnel, a proto.NotifyAction) {
-	now := time.Now()
-	c.mu.Lock()
-	for id, r := range c.results {
-		if now.Sub(r.at) > resultsFor {
-			delete(c.results, id)
-		}
-	}
-	prev, seen := c.results[a.ID]
-	c.mu.Unlock()
-	if seen {
-		t.send(prev.res)
+// notifyAction runs a notification's button at most once per request id: a repeat waits for
+// the first answer, even while the button still runs. It returns at once.
+func (c *Client) notifyAction(t *tunnel, a proto.NotifyAction, done <-chan struct{}) {
+	e, first := c.actions.claim(a.ID)
+	if !first {
+		go func() {
+			select {
+			case <-e.done:
+				t.send(e.res)
+			case <-done:
+			}
+		}()
 		return
 	}
-	res := proto.NotifyActionResult{Reason: proto.ReasonNotFound}
-	switch {
-	case a.DeadlineMs > 0 && now.UnixMilli() > a.DeadlineMs:
-		res = proto.NotifyActionResult{Reason: proto.ReasonExpired}
-	case c.opts.NotifyAction != nil:
-		res = c.opts.NotifyAction(a)
-	}
-	res.Type, res.ID = proto.TypeNotifyActionResult, a.ID
-	c.mu.Lock()
-	if c.results == nil {
-		c.results = map[string]actionResult{}
-	}
-	c.results[a.ID] = actionResult{res: res, at: now}
-	c.mu.Unlock()
-	t.send(res)
+	go func() {
+		res := proto.NotifyActionResult{Reason: proto.ReasonNotFound}
+		switch {
+		case a.DeadlineMs > 0 && time.Now().UnixMilli() > a.DeadlineMs:
+			res = proto.NotifyActionResult{Reason: proto.ReasonExpired}
+		case c.opts.NotifyAction != nil:
+			res = c.opts.NotifyAction(a)
+		}
+		res.Type, res.ID = proto.TypeNotifyActionResult, a.ID
+		c.actions.finish(a.ID, e, res, true)
+		t.send(res)
+	}()
 }
 
 // ended turns the end of a connection into the reason the cloud gave.
