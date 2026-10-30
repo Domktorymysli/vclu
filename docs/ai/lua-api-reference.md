@@ -18,14 +18,15 @@ Only public API is listed — internal/private functions are omitted.
 - [core.Registry](#coreregistry) (10 functions)
 - [core.Metrics](#coremetrics) (1 functions)
 - [core.Calendar](#corecalendar) (36 functions)
-- [Dashboard](#dashboard) (68 functions)
+- [Dashboard](#dashboard) (78 functions)
 - [lib.panel](#libpanel) (55 functions)
 - [objects.RemotePanel](#objectsremotepanel) (6 functions)
 - [GPIO_DOUT](#gpio_dout) (1 functions)
 - [GPIO_DIN](#gpio_din) (1 functions)
 - [integrations.mqtt.MqttClient](#integrationsmqttmqttclient) (30 functions)
-- [lib.tasmota](#libtasmota) (5 functions)
+- [lib.cct](#libcct) (1 functions)
 - [grenton.CLU_REMOTE](#grentonclu_remote) (1 functions)
+- [lib.tasmota](#libtasmota) (5 functions)
 
 ---
 
@@ -1098,7 +1099,7 @@ Add a button widget to this section.
 - `label` (string) — Display label
 - `icon` (string) — Bootstrap icon name (e.g., "power", "door-open")
 - `onTap` (function) — Callback fired on button press: function()
-- `opts` (table) — Optional: {disabled=function()->bool, visible=function()->bool, confirm=string}
+- `opts` (table) — Optional: {disabled=function()->bool, visible=function()->bool, confirm=string, hold=true|ms (press and hold 800 ms or 300-5000 ms; not with confirm)}
 
 ### `SectionHandle:toggle(id, label, icon, getValue, onToggle, opts)`
 
@@ -1109,7 +1110,7 @@ Add a toggle widget to this section.
 - `icon` (string) — Bootstrap icon name (e.g., "lightbulb", "lamp")
 - `getValue` (function) — Returns current state: function() -> boolean|number (truthy=on)
 - `onToggle` (function) — Called with desired state: function(bool) — use switchOn/switchOff, NOT toggle()
-- `opts` (table) — Optional: {disabled=function()->bool, visible=function()->bool}
+- `opts` (table) — Optional: {disabled=function()->bool, visible=function()->bool, hold=true|ms (press and hold 800 ms or 300-5000 ms to switch)}
 
 ### `SectionHandle:slider(id, label, min, max, getValue, onSet, opts)`
 
@@ -1160,7 +1161,7 @@ Add a bar chart of a metric to this section: one bar per hour or day of the hous
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label (e.g., "Energia dziennie")
 - `metricPath` (string) — Metric path registered via metric() (e.g., "energia:licznik")
-- `opts` (table) — Optional: {range=string (a duration up to "31d"; default "7d"), bucket="1h"|"1d" (default "1d" from a 2-day range, else "1h"), agg="avg"|"sum"|"max"|"min"|"delta" (default "avg", the mean of the samples; sum depends on the sampling interval; delta: what a growing counter such as a kWh meter added in each bar, a single bad reading or a reset adds nothing), unit=string, decimals=0-6, color=string, compare=metricPath (a second bar beside each), compareLabel=string, span=n, size=string, refresh=seconds (at least 30)}; samples are kept metrics.retentionDays (default 7) days
+- `opts` (table) — Optional: {range=string (a duration up to "31d"; default "7d"), bucket="1h"|"1d" (default "1d" from a 2-day range, else "1h"), agg="avg"|"sum"|"max"|"min"|"delta" (default "avg", the mean of the samples; sum depends on the sampling interval; delta: what a growing counter such as a kWh meter added in each bar, a single bad reading or a reset adds nothing), unit=string, decimals=0-6, color=string, compare=metricPath (a second bar beside each), compareLabel=string, visible=function()->bool, span=n, size=string, refresh=seconds (at least 30)}; samples are kept metrics.retentionDays (default 7) days
 
 ### `SectionHandle:calendar(id, label, cal, opts)`
 
@@ -1254,6 +1255,14 @@ Add a table: rows from a function, read on every poll, in the columns of opts.co
 - `rows` (function) — Returns the rows: function() -> { {key=value, ...}, ... } (nil or {} shows "brak danych")
 - `opts` (table) — {columns={{key=string, label=string?, unit=string?, decimals=0-6?, align="left"|"right"?}, ...} (required), sort=column key (ascending, before limit, empty cells last; default: the order rows gives), desc=true (sort descending), limit=1-200, color=function(row, key)->colour name|#hex|rgb()|hsl()|nil (the cell's colour), icon=string (default "table"), disabled=function()->bool, span=n, size=string}
 
+### `SectionHandle:energy(id, label, opts)`
+
+Add an energy flow: PV, grid, battery and home as nodes, with the power flowing between them. Each function returns the power now (W, or kW with unit="kW"), nil while there is no reading; pv is 0 or more, grid is + taken from the grid and - given to it, battery + charging and - discharging (invert flips one that counts the other way). A node without its function is left out (a house without a battery); home without one is pv + grid - battery, at least 0 (PV without a reading counts as 0). A function that fails shows "—" on its node, the rest of the tile stays.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `opts` (table) — {pv=fn, grid=fn, battery=fn, batterySoc=fn (%), home=fn, unit="W"|"kW" (default "W"), invert={grid=bool, battery=bool}, today={pv=fn, grid_import=fn, grid_export=fn, home=fn} (kWh today, shown under the nodes), icon=string (default "lightning-charge"), disabled=function()->bool, visible=function()->bool, span=n (default 2)}
+
 ### `SectionHandle:dimmer(id, label, icon, fns, opts)`
 
 Add a dimmer widget to this section.
@@ -1281,7 +1290,7 @@ Add a colour temperature slider (warm to cool white) to this section. getBrightn
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label
 - `fns` (table) — {getKelvin=function()->number|nil, setKelvin=function(kelvin), isOn?, switchOn?, switchOff?,
-- `opts` (table) — Optional: {min=2700, max=6500, step=50, unit="kelvin"|"mired" (the functions speak mireds, e.g. Zigbee color_temp), icon=string (default "lightbulb"), disabled=function()->bool, span=n, size=string, color=string}
+- `opts` (table) — Optional: {min=2700, max=6500, step=50, unit="kelvin"|"mired" (the functions speak mireds, e.g. Zigbee color_temp), icon=string (default "lightbulb"), disabled=function()->bool, visible=function()->bool, span=n, size=string, color=string}
 
 ### `SectionHandle:thermostat(id, label, icon, fns, opts)`
 
@@ -1291,7 +1300,7 @@ Add a thermostat: current temperature, target and +/- for the target. getState=f
 - `label` (string) — Display label
 - `icon` (string) — |nil Bootstrap icon name (default "thermometer-half")
 - `fns` (table) — {getCurrent=function()->number|nil, getTarget=function()->number|nil, setTarget=function(number)?,
-- `opts` (table) — Optional: {min=5, max=35, step=0.5, unit="°C", readonly=bool or function()->bool (true: no buttons; a function locks them while it returns true), disabled=function()->bool, visible=function()->bool, span=n, size=string, color=string}
+- `opts` (table) — Optional: {min=5, max=35, step=0.5, unit="°C", readonly=bool or function()->bool (true: no buttons and no mode switch; a function locks them while it returns true), modes={ {value=number|string, label=string, icon=string?, readonly=bool? (no + and - in this mode)}, ... } or {[value]=label} (ordered by value) or false (no switch for an object), disabled=function()->bool, visible=function()->bool, span=n, size=string, color=string}
 
 ### `SectionHandle:gauge(id, label, getValue, opts)`
 
@@ -1460,7 +1469,7 @@ Add a button widget to the current section.
 - `label` (string) — Display label
 - `icon` (string) — Bootstrap icon name (e.g., "power", "door-open")
 - `onTap` (function) — Callback fired on button press: function()
-- `opts` (table) — Optional: {disabled=function()->bool, visible=function()->bool, confirm=string}
+- `opts` (table) — Optional: {disabled=function()->bool, visible=function()->bool, confirm=string, hold=true|ms (press and hold 800 ms or 300-5000 ms; not with confirm)}
 
 ### `DashboardBuilder:toggle(id, label, icon, getValue, onToggle, opts)`
 
@@ -1471,7 +1480,7 @@ Add a toggle widget to the current section.
 - `icon` (string) — Bootstrap icon name (e.g., "lightbulb", "lamp")
 - `getValue` (function) — Returns current state: function() -> boolean|number (truthy=on)
 - `onToggle` (function) — Called with desired state: function(bool) — use switchOn/switchOff, NOT toggle()
-- `opts` (table) — Optional: {disabled=function()->bool, visible=function()->bool}
+- `opts` (table) — Optional: {disabled=function()->bool, visible=function()->bool, hold=true|ms (press and hold 800 ms or 300-5000 ms to switch)}
 
 ### `DashboardBuilder:slider(id, label, min, max, getValue, onSet, opts)`
 
@@ -1522,7 +1531,7 @@ Add a bar chart of a metric to the current section: one bar per hour or day of t
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label (e.g., "Energia dziennie")
 - `metricPath` (string) — Metric path registered via metric() (e.g., "energia:licznik")
-- `opts` (table) — Optional: {range=string (a duration up to "31d"; default "7d"), bucket="1h"|"1d" (default "1d" from a 2-day range, else "1h"), agg="avg"|"sum"|"max"|"min"|"delta" (default "avg", the mean of the samples; sum depends on the sampling interval; delta: what a growing counter such as a kWh meter added in each bar, a single bad reading or a reset adds nothing), unit=string, decimals=0-6, color=string, compare=metricPath (a second bar beside each), compareLabel=string, span=n, size=string, refresh=seconds (at least 30)}; samples are kept metrics.retentionDays (default 7) days
+- `opts` (table) — Optional: {range=string (a duration up to "31d"; default "7d"), bucket="1h"|"1d" (default "1d" from a 2-day range, else "1h"), agg="avg"|"sum"|"max"|"min"|"delta" (default "avg", the mean of the samples; sum depends on the sampling interval; delta: what a growing counter such as a kWh meter added in each bar, a single bad reading or a reset adds nothing), unit=string, decimals=0-6, color=string, compare=metricPath (a second bar beside each), compareLabel=string, visible=function()->bool, span=n, size=string, refresh=seconds (at least 30)}; samples are kept metrics.retentionDays (default 7) days
 
 ### `DashboardBuilder:calendar(id, label, cal, opts)`
 
@@ -1616,6 +1625,14 @@ Add a table to the current section: rows from a function, in the columns of opts
 - `rows` (function) — Returns the rows: function() -> { {key=value, ...}, ... }
 - `opts` (table) — {columns={{key, label?, unit?, decimals?, align?}, ...} (required), sort, desc, limit=1-200, color=function(row, key), icon, disabled, span, size}
 
+### `DashboardBuilder:energy(id, label, opts)`
+
+Add an energy flow to the current section: PV, grid, battery and home with the power between them.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `opts` (table) — {pv=fn, grid=fn, battery=fn, batterySoc=fn, home=fn, unit="W"|"kW", invert={grid, battery}, today={pv, grid_import, grid_export, home}, icon=string, disabled=function()->bool, visible=function()->bool, span=n}
+
 ### `DashboardBuilder:dimmer(id, label, icon, fns, opts)`
 
 Add a dimmer widget to the current section.
@@ -1652,7 +1669,7 @@ Add a colour temperature slider (warm to cool white) to the current section. get
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label
 - `fns` (table) — {getKelvin=function()->number|nil, setKelvin=function(kelvin), isOn?, switchOn?, switchOff?,
-- `opts` (table) — Optional: {min=2700, max=6500, step=50, unit="kelvin"|"mired" (the functions speak mireds, e.g. Zigbee color_temp), icon=string (default "lightbulb"), disabled=function()->bool, span=n, size=string, color=string}
+- `opts` (table) — Optional: {min=2700, max=6500, step=50, unit="kelvin"|"mired" (the functions speak mireds, e.g. Zigbee color_temp), icon=string (default "lightbulb"), disabled=function()->bool, visible=function()->bool, span=n, size=string, color=string}
 
 ### `DashboardBuilder:thermostat(id, label, icon, fns, opts)`
 
@@ -1662,7 +1679,7 @@ Add a thermostat to the current section: current temperature, target and +/- for
 - `label` (string) — Display label
 - `icon` (string) — |nil Bootstrap icon name (default "thermometer-half")
 - `fns` (table) — {getCurrent=function()->number|nil, getTarget=function()->number|nil, setTarget=function(number)?,
-- `opts` (table) — Optional: {min=5, max=35, step=0.5, unit="°C", readonly=bool or function()->bool (true: no buttons; a function locks them while it returns true), disabled=function()->bool, visible=function()->bool, span=n, size=string, color=string}
+- `opts` (table) — Optional: {min=5, max=35, step=0.5, unit="°C", readonly=bool or function()->bool (true: no buttons and no mode switch; a function locks them while it returns true), modes={ {value=number|string, label=string, icon=string?, readonly=bool? (no + and - in this mode)}, ... } or {[value]=label} (ordered by value) or false (no switch for an object), disabled=function()->bool, visible=function()->bool, span=n, size=string, color=string}
 
 ### `DashboardBuilder:when(periods, fn)`
 
@@ -2291,6 +2308,30 @@ Publish state update for object
 
 ---
 
+## lib.cct
+
+### `M.mix(warm, cold, opts) → table {getKelvin, setKelvin, getBrightness, setBrightness (0-100), isOn, switchOn, switchOff}`
+
+A warm and a cold dimmer as the functions of section:colorTemp.
+
+- `warm` (table) — The warm white channel (getValue/setValue 0..1)
+- `cold` (table) — The cold white channel (getValue/setValue 0..1)
+- `opts` (table) — Optional: {warm=2700, cold=6500} the kelvin of each channel alone
+
+**Returns:** table {getKelvin, setKelvin, getBrightness, setBrightness (0-100), isOn, switchOn, switchOff}
+
+---
+
+## grenton.CLU_REMOTE
+
+### `CLU_REMOTE:firmware() → string|nil Firmware version`
+
+The firmware the CLU reported for get(17), e.g. "04.08.05" or "05.15.12-2607". Asked when its objects are subscribed; nil until the CLU answered.
+
+**Returns:** string|nil Firmware version
+
+---
+
 ## lib.tasmota
 
 ### `M.switch(topic, opts) → VirtualSwitch`
@@ -2334,16 +2375,6 @@ Whether the device is online (its LWT is Online).
 Tasmota devices seen on MQTT discovery (tasmota/discovery/<mac>/config), sorted by topic. Nothing is created from them; add a device with a line in a module.
 
 **Returns:** table list of { topic, name, device, relays, lights, ip, mac }
-
----
-
-## grenton.CLU_REMOTE
-
-### `CLU_REMOTE:firmware() → string|nil Firmware version`
-
-The firmware the CLU reported for get(17), e.g. "04.08.05" or "05.15.12-2607". Asked when its objects are subscribed; nil until the CLU answered.
-
-**Returns:** string|nil Firmware version
 
 ---
 

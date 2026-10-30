@@ -48,7 +48,10 @@
               soFar: 'do teraz', compare: 'porównanie',
               notKept: 'brak danych: vCLU trzyma metryki {n} dni',
               ctWarm: 'ciepła', ctNeutral: 'neutralna', ctCool: 'zimna', colorTemp: 'Temperatura barwy', brightness: 'Jasność',
-              mode: 'Tryb', modeNames: { manual: 'Ręczny', holiday: 'Urlop', off: 'Wył.' } },
+              mode: 'Tryb', modeNames: { manual: 'Ręczny', holiday: 'Urlop', off: 'Wył.' },
+              energyNames: { pv: 'Fotowoltaika', grid: 'Sieć', battery: 'Bateria', home: 'Dom' },
+              energyImport: 'pobór', energyExport: 'oddawanie', energyCharge: 'ładowanie', energyDischarge: 'rozładowanie',
+              energyToday: 'dziś' },
         en: { on: 'on', off: 'off', open: 'open', closed: 'closed', opening: 'opening',
               closing: 'closing', unknown: 'no reading', run: 'run', sent: 'sent', updated: 'updated',
               nothingToday: 'nothing more today', holidays: 'Holidays', namedays: 'Name days', sun: 'Sun', show: 'Show',
@@ -69,7 +72,10 @@
               soFar: 'so far', compare: 'compare',
               notKept: 'no data: vCLU keeps metrics {n} days',
               ctWarm: 'warm', ctNeutral: 'neutral', ctCool: 'cool', colorTemp: 'Colour temperature', brightness: 'Brightness',
-              mode: 'Mode', modeNames: { manual: 'Manual', holiday: 'Holiday', off: 'Off' } }
+              mode: 'Mode', modeNames: { manual: 'Manual', holiday: 'Holiday', off: 'Off' },
+              energyNames: { pv: 'Solar', grid: 'Grid', battery: 'Battery', home: 'Home' },
+              energyImport: 'import', energyExport: 'export', energyCharge: 'charging', energyDischarge: 'discharging',
+              energyToday: 'today' }
     };
     // ?lang= as on the other pages, else the browser's language
     var lang = (function() {
@@ -83,7 +89,7 @@
         button: 'play-fill', toggle: 'power', slider: 'sliders', status: 'info-circle', link: 'link-45deg',
         chart: 'graph-up', select: 'list-ul', image: 'image', cover: 'arrows-expand', covers: 'window', dimmer: 'lightbulb',
         color: 'palette', calendar: 'calendar3', player: 'music-note-beamed', forecast: 'cloud-sun',
-        room: 'door-open', thermostat: 'thermometer-half', table: 'table', gauge: 'speedometer2', gate: 'door-closed', bars: 'bar-chart', colorTemp: 'lightbulb'
+        room: 'door-open', thermostat: 'thermometer-half', table: 'table', gauge: 'speedometer2', gate: 'door-closed', bars: 'bar-chart', colorTemp: 'lightbulb', energy: 'lightning-charge'
     };
 
     // 23.9 -> "23,9" in Polish; with decimals rounded to them (21 -> "21,0"); text as it is
@@ -247,6 +253,9 @@
             if (d.error) return ['unknown', T.unknown];
             var shown = Array.isArray(d.rows) ? d.rows.length : 0;
             return ['value', d.total > shown ? shown + ' ' + T.of + ' ' + d.total : ''];
+        case 'energy':
+            var sum = energySummary(d);
+            return sum == null ? ['unknown', T.unknown] : ['value', sum];
         case 'thermostat':
             // "włączony · harmonogram"; the temperatures are in the tile's body
             if (d.current == null && d.target == null) return ['unknown', T.unknown];
@@ -299,6 +308,7 @@
         if (type === 'player') updatePlayer(el, d);
         if (type === 'forecast') updateForecast(el, w, d);
         if (type === 'table') updateTable(el, w, d);
+        if (type === 'energy') updateEnergy(el, w, d);
         if (type === 'room') updateRoom(el, w, d, st[1]);
         if (type === 'thermostat') updateThermostat(el, w, d);
         if (type === 'gauge') updateGauge(el, w, d);
@@ -443,6 +453,7 @@
         closeRoom(false);
         roomRoot.innerHTML = '';
         roomLayers = {};
+        energyPrune();
 
         // Apply time-of-day period (from server or local fallback)
         applyPeriod(def.period || calcPeriod());
@@ -586,8 +597,9 @@
         el.dataset.widgetId = w.id;
         el.dataset.type = w.type;
 
-        // Span (stored as data-attr; CSS responsive rules can override); a player, a forecast and a table are two wide
-        var span = w.span || ((w.type === 'player' || w.type === 'forecast' || w.type === 'table') && cols > 1 ? 2 : 0);
+        // Span (stored as data-attr; CSS responsive rules can override); a player, a forecast, a table and an energy flow are two wide
+        var wide = w.type === 'player' || w.type === 'forecast' || w.type === 'table' || w.type === 'energy';
+        var span = w.span || (wide && cols > 1 ? 2 : 0);
         if (span > 1) {
             el.style.gridColumn = 'span ' + span;
             el.dataset.span = span;
@@ -657,6 +669,8 @@
             renderForecast(el, w);
         } else if (w.type === 'table') {
             renderTable(el, w);
+        } else if (w.type === 'energy') {
+            renderEnergy(el, w);
         } else if (w.type === 'room') {
             renderRoom(el, w);
         } else if (w.type === 'thermostat') {
@@ -2045,6 +2059,299 @@
                 vol.querySelector('.dash-slider-value').textContent = d.volume != null ? d.volume + ' %' : '--';
             }
         }
+    }
+
+    // ---- Energy flow ----
+
+    var svgNS = 'http://www.w3.org/2000/svg';
+    var energyIdle = 10; // W: a line below it has no dots
+    // a positive power flows from the first node to the second
+    var energyLines = [['pv', 'home'], ['pv', 'grid'], ['pv', 'battery'], ['grid', 'home'], ['grid', 'battery'], ['battery', 'home']];
+    var energyIcons = { pv: 'sun', grid: 'plug', battery: 'battery-half', home: 'house' };
+    var energyTiles = []; // tiles whose dots move
+    var energyFrame = null;
+    var reducedMotion = window.matchMedia ? matchMedia('(prefers-reduced-motion: reduce)') : null;
+
+    function svgEl(tag, cls) {
+        var e = document.createElementNS(svgNS, tag);
+        if (cls) e.setAttribute('class', cls);
+        return e;
+    }
+
+    // Where each node sits: a cross with all four, else the first source on top
+    function energyLayout(nodes) {
+        var has = {}, out = {};
+        nodes.forEach(function(n) { has[n] = true; });
+        if (nodes.length === 4) {
+            return { pv: [1, 2, 'top'], grid: [2, 1, 'left'], battery: [2, 3, 'right'], home: [3, 2, 'bottom'] };
+        }
+        var others = ['pv', 'battery', 'grid'].filter(function(n) { return has[n]; });
+        if (others.length === 1) {
+            out[others[0]] = [1, 1, 'left'];
+            out.home = [1, 3, 'right'];
+        } else {
+            out[others[0]] = [1, 2, 'top'];
+            out[others[1]] = [2, 1, 'left'];
+            out.home = [2, 3, 'right'];
+        }
+        return out;
+    }
+
+    // 850 W, 2,4 kW; "—" without a reading
+    function energyPower(v) {
+        if (v == null) return '—';
+        v = Math.abs(v);
+        return v < 1000 ? fmtNum(Math.round(v)) + ' W' : fmtNum(v / 1000, 1) + ' kW';
+    }
+
+    function renderEnergy(el, w) {
+        el.style.cursor = 'default';
+        var box = calEl('div', 'dash-energy');
+        var nodes = Array.isArray(w.nodeList) ? w.nodeList : [];
+        var layout = energyLayout(nodes);
+        box.dataset.count = nodes.length;
+        var svg = svgEl('svg', 'dash-energy-lines');
+        svg.setAttribute('aria-hidden', 'true');
+        box.appendChild(svg);
+        var st = { box: box, svg: svg, nodes: {}, lines: {}, el: el };
+
+        nodes.forEach(function(name) {
+            var p = layout[name];
+            if (!p) return;
+            var node = calEl('div', 'dash-energy-node');
+            node.dataset.node = name;
+            node.dataset.pos = p[2];
+            node.style.gridRow = p[0];
+            node.style.gridColumn = p[1];
+            var label = calEl('div', 'dash-energy-label', T.energyNames[name]);
+            var circle = calEl('div', 'dash-energy-circle');
+            if (name === 'battery') {
+                // the state of charge as a ring around the node
+                var ring = svgEl('svg', 'dash-energy-ring');
+                ring.setAttribute('viewBox', '0 0 100 100');
+                ring.setAttribute('aria-hidden', 'true');
+                var track = svgEl('circle', 'dash-energy-ring-track');
+                var arc = svgEl('circle', 'dash-energy-ring-arc');
+                [track, arc].forEach(function(c) {
+                    c.setAttribute('cx', 50); c.setAttribute('cy', 50); c.setAttribute('r', 46);
+                    c.setAttribute('pathLength', 100);
+                    ring.appendChild(c);
+                });
+                arc.setAttribute('transform', 'rotate(-90 50 50)');
+                circle.appendChild(ring);
+                circle.classList.add('has-ring');
+            }
+            var icon = calEl('i', 'bi bi-' + energyIcons[name] + ' dash-energy-icon');
+            icon.setAttribute('aria-hidden', 'true');
+            circle.appendChild(icon);
+            circle.appendChild(calEl('div', 'dash-energy-value', '—'));
+            circle.appendChild(calEl('div', 'dash-energy-dir', ''));
+            node.appendChild(label);
+            node.appendChild(circle);
+            node.appendChild(calEl('div', 'dash-energy-today'));
+            box.appendChild(node);
+            st.nodes[name] = { node: node, label: label, circle: circle, icon: icon };
+        });
+
+        energyLines.forEach(function(pair) {
+            if (!st.nodes[pair[0]] || !st.nodes[pair[1]]) return;
+            var key = pair[0] + '_' + pair[1];
+            var g = svgEl('g', 'dash-energy-flow idle');
+            var path = svgEl('path', 'dash-energy-path');
+            var arrow = svgEl('polygon', 'dash-energy-arrow');
+            arrow.setAttribute('points', '-4,-4.5 5,0 -4,4.5');
+            g.appendChild(path);
+            g.appendChild(arrow);
+            var dots = [];
+            for (var i = 0; i < 3; i++) {
+                var dot = svgEl('circle', 'dash-energy-dot');
+                dot.setAttribute('r', 3);
+                g.appendChild(dot);
+                dots.push(dot);
+            }
+            svg.appendChild(g);
+            st.lines[key] = { g: g, path: path, arrow: arrow, dots: dots, a: pair[0], b: pair[1],
+                power: null, len: 0, phase: Math.random() };
+        });
+
+        el._energy = st;
+        el.appendChild(box);
+        var relayout = function() { energyGeometry(st); };
+        if (window.ResizeObserver) {
+            st.observer = new ResizeObserver(relayout);
+            st.observer.observe(box);
+        } else {
+            window.addEventListener('resize', relayout);
+            st.dispose = function() { window.removeEventListener('resize', relayout); };
+            setTimeout(relayout, 0);
+        }
+        energyTiles.push(st);
+    }
+
+    // Lines between the node circles, bent towards the middle of the layout
+    function energyGeometry(st) {
+        var box = st.box.getBoundingClientRect();
+        if (!box.width) return;
+        st.svg.setAttribute('viewBox', '0 0 ' + box.width + ' ' + box.height);
+        var c = {}, cx = 0, cy = 0, n = 0;
+        for (var name in st.nodes) {
+            var r = st.nodes[name].circle.getBoundingClientRect();
+            c[name] = { x: r.left - box.left + r.width / 2, y: r.top - box.top + r.height / 2, r: r.width / 2 + 4 };
+            cx += c[name].x; cy += c[name].y; n++;
+        }
+        cx /= n; cy /= n;
+        function toward(p, q, d) {
+            var dx = q.x - p.x, dy = q.y - p.y, l = Math.sqrt(dx * dx + dy * dy) || 1;
+            return { x: p.x + dx / l * d, y: p.y + dy / l * d };
+        }
+        for (var key in st.lines) {
+            var ln = st.lines[key], a = c[ln.a], b = c[ln.b];
+            var mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+            var ctrl = { x: mx + (cx - mx) * 0.45, y: my + (cy - my) * 0.45 };
+            var s = toward(a, ctrl, a.r), e = toward(b, ctrl, b.r);
+            ln.path.setAttribute('d', 'M' + s.x.toFixed(1) + ' ' + s.y.toFixed(1) + ' Q' + ctrl.x.toFixed(1) + ' ' +
+                ctrl.y.toFixed(1) + ' ' + e.x.toFixed(1) + ' ' + e.y.toFixed(1));
+            ln.len = ln.path.getTotalLength();
+            energyArrow(ln);
+        }
+        energyDots(st, 0);
+        energyAnimate();
+    }
+
+    // The arrow in the middle of a line, pointing the way the power flows
+    function energyArrow(ln) {
+        if (!ln.len || ln.power == null) return;
+        var m = ln.len / 2, p = ln.path.getPointAtLength(m);
+        var q = ln.path.getPointAtLength(Math.min(ln.len, m + 1));
+        var angle = Math.atan2(q.y - p.y, q.x - p.x) * 180 / Math.PI + (ln.power < 0 ? 180 : 0);
+        ln.arrow.setAttribute('transform', 'translate(' + p.x.toFixed(1) + ' ' + p.y.toFixed(1) + ') rotate(' + angle.toFixed(0) + ')');
+    }
+
+    // Log-ish: 10 W slow and thin, 10 kW fast and thick
+    function energyScale(p) {
+        return Math.min(3, Math.max(0, Math.log(Math.abs(p) / energyIdle) / Math.LN10));
+    }
+
+    function energyDots(st, dt) {
+        for (var key in st.lines) {
+            var ln = st.lines[key];
+            if (ln.power == null || Math.abs(ln.power) < energyIdle || !ln.len) continue;
+            ln.phase = (ln.phase + dt * (25 + 30 * energyScale(ln.power)) / ln.len) % 1;
+            for (var i = 0; i < ln.dots.length; i++) {
+                var t = (ln.phase + i / ln.dots.length) % 1;
+                if (ln.power < 0) t = 1 - t;
+                var pt = ln.path.getPointAtLength(t * ln.len);
+                ln.dots[i].setAttribute('cx', pt.x.toFixed(1));
+                ln.dots[i].setAttribute('cy', pt.y.toFixed(1));
+            }
+        }
+    }
+
+    // Tiles no longer on the page stop being watched
+    function energyPrune() {
+        energyTiles = energyTiles.filter(function(st) {
+            if (st.el.isConnected) return true;
+            if (st.observer) st.observer.disconnect();
+            if (st.dispose) st.dispose();
+            return false;
+        });
+    }
+
+    // A tile on screen with a line that has dots
+    function energyMoving() {
+        return energyTiles.some(function(st) {
+            if (!st.box.offsetParent) return false;
+            for (var key in st.lines) if (st.lines[key].power != null && st.lines[key].len) return true;
+            return false;
+        });
+    }
+
+    // One animation loop for all tiles; none with reduced motion (arrows instead) or nothing to move;
+    // updateEnergy starts it again
+    function energyAnimate() {
+        if (energyFrame || (reducedMotion && reducedMotion.matches)) return;
+        var last = null;
+        function step(ts) {
+            energyPrune();
+            if (!energyMoving() || (reducedMotion && reducedMotion.matches)) { energyFrame = null; return; }
+            var dt = last == null ? 0 : Math.min(0.1, (ts - last) / 1000);
+            last = ts;
+            energyTiles.forEach(function(st) { energyDots(st, dt); });
+            energyFrame = requestAnimationFrame(step);
+        }
+        energyFrame = requestAnimationFrame(step);
+    }
+    // the dots start again when reduced motion is switched off
+    if (reducedMotion && reducedMotion.addEventListener) reducedMotion.addEventListener('change', energyAnimate);
+
+    function energyKwh(v) {
+        return v == null ? '—' : fmtNum(v, 1) + ' kWh';
+    }
+
+    function updateEnergy(el, w, d) {
+        var st = el._energy;
+        if (!st) return;
+        var nodes = d.nodes && typeof d.nodes === 'object' ? d.nodes : {};
+        var today = d.today && typeof d.today === 'object' ? d.today : {};
+        var todayList = Array.isArray(w.todayList) ? w.todayList : [];
+        for (var name in st.nodes) {
+            var ui = st.nodes[name], n = nodes[name] || {};
+            var p = typeof n.power === 'number' ? n.power : null;
+            ui.circle.querySelector('.dash-energy-value').textContent = energyPower(p);
+            var dir = '';
+            if (p != null && Math.abs(p) >= energyIdle) {
+                if (name === 'grid') dir = p > 0 ? T.energyImport : T.energyExport;
+                if (name === 'battery') dir = p > 0 ? T.energyCharge : T.energyDischarge;
+            }
+            ui.circle.querySelector('.dash-energy-dir').textContent = dir;
+            ui.node.classList.toggle('has-error', !!n.error);
+            ui.circle.title = n.error || n.socError || '';
+            ui.node.classList.toggle('active', p != null && Math.abs(p) >= energyIdle);
+            if (name === 'battery') {
+                var soc = typeof n.soc === 'number' ? n.soc : null;
+                ui.label.textContent = T.energyNames.battery + (soc != null ? ' · ' + soc + ' %' : '');
+                ui.circle.querySelector('.dash-energy-ring-arc').style.strokeDasharray = (soc || 0) + ' 100';
+                var level = soc == null ? 'half' : soc >= 75 ? 'full' : soc >= 25 ? 'half' : '';
+                var icon = p != null && p >= energyIdle ? 'battery-charging' : 'battery' + (level ? '-' + level : '');
+                ui.icon.className = 'bi bi-' + icon + ' dash-energy-icon';
+            }
+            // today's kWh under the node
+            var tEl = ui.node.querySelector('.dash-energy-today');
+            tEl.textContent = '';
+            todayList.forEach(function(k) {
+                var node = k === 'grid_import' || k === 'grid_export' ? 'grid' : k;
+                if (node !== name) return;
+                var text = energyKwh(today[k]);
+                if (k === 'grid_import') text = T.energyImport + ' ' + text;
+                else if (k === 'grid_export') text = T.energyExport + ' ' + text;
+                else text = T.energyToday + ' ' + text;
+                tEl.appendChild(calEl('div', null, text));
+            });
+        }
+        var flows = d.flows && typeof d.flows === 'object' ? d.flows : {};
+        for (var key in st.lines) {
+            var ln = st.lines[key];
+            var f = typeof flows[key] === 'number' ? flows[key] : null;
+            var on = f != null && Math.abs(f) >= energyIdle;
+            ln.power = on ? f : null;
+            ln.g.classList.toggle('idle', !on);
+            // colour of where the power comes from
+            ln.g.setAttribute('data-src', f != null && f < 0 ? ln.b : ln.a);
+            ln.path.style.strokeWidth = on ? (1.5 + energyScale(f)).toFixed(1) : '';
+            ln.dots.forEach(function(dot) { dot.setAttribute('r', on ? (2.5 + energyScale(f) * 0.6).toFixed(1) : 0); });
+            energyArrow(ln);
+        }
+        energyAnimate();
+    }
+
+    // "oddawanie 1,2 kW" from the grid, else what the home takes, else what the PV gives
+    function energySummary(d) {
+        var nodes = d.nodes && typeof d.nodes === 'object' ? d.nodes : {};
+        var g = nodes.grid && nodes.grid.power, h = nodes.home && nodes.home.power, pv = nodes.pv && nodes.pv.power;
+        if (typeof g === 'number' && Math.abs(g) >= energyIdle) return (g > 0 ? T.energyImport : T.energyExport) + ' ' + energyPower(g);
+        if (typeof h === 'number') return T.energyNames.home + ' ' + energyPower(h);
+        if (typeof pv === 'number') return T.energyNames.pv + ' ' + energyPower(pv);
+        return null;
     }
 
     // ---- Weather forecast ----

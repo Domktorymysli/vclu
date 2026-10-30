@@ -1,0 +1,3 @@
+### Dashboards
+
+- **Energy flow widget** - `section:energy(id, label, { pv, grid, battery, batterySoc, home, today })` shows PV, the grid, a battery and the home as nodes with dots moving along the lines between them, faster and thicker with more power, in the direction it flows; the battery has a ring for its charge, `today` puts kWh under the nodes. Signs: grid + from the grid and - to it, battery + charging (`invert` flips a source counting the other way); without `home` the home is the balance. A node without its function is left out (a house without a battery), and a source that fails shows "—" on its node only. With reduced motion the dots become arrows ([#163](https://github.com/Domktorymysli/vclu/issues/163)).

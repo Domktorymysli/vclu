@@ -1420,6 +1420,185 @@ local function tableWidget(id, label, rows, opts)
     return { id = id, type = 'table', label = label, icon = opts.icon or 'table', fn = rows, columns = columns, opts = opts }
 end
 
+-- ==========================================================================
+-- Energy flow: PV, grid, battery and home with the power between them
+-- ==========================================================================
+
+local ENERGY_KEYS = { pv = true, grid = true, battery = true, batterySoc = true, home = true, unit = true,
+    invert = true, today = true, icon = true, disabled = true, visible = true, span = true }
+local ENERGY_SOURCES = { 'pv', 'grid', 'battery', 'batterySoc', 'home' }
+local ENERGY_INVERT = { grid = true, battery = true }
+local ENERGY_TODAY = { pv = 'pv', grid_import = 'grid', grid_export = 'grid', home = 'home' }
+-- the lines between nodes; a positive power flows from the first to the second
+local ENERGY_FLOWS = { { 'pv', 'home' }, { 'pv', 'grid' }, { 'pv', 'battery' },
+    { 'grid', 'home' }, { 'grid', 'battery' }, { 'battery', 'home' } }
+
+local function energyWidget(id, label, opts)
+    local where = 'section:energy("' .. tostring(id) .. '")'
+    if type(id) ~= 'string' or id == '' then error('section:energy: id must be a non-empty string', 3) end
+    if type(label) ~= 'string' then error(where .. ': label must be a string', 3) end
+    if type(opts) ~= 'table' then error(where .. ': opts must be a table with pv, grid, battery or home', 3) end
+    for k in pairs(opts) do
+        if not ENERGY_KEYS[k] then
+            error(where .. ': unknown option "' .. tostring(k) .. '" (pv, grid, battery, batterySoc, home, unit, invert, today, icon, disabled, visible, span)', 3)
+        end
+    end
+    for i, k in ipairs(ENERGY_SOURCES) do
+        if opts[k] ~= nil and type(opts[k]) ~= 'function' then
+            error(where .. ': opts.' .. k .. ' must be a function, got ' .. type(opts[k]), 3)
+        end
+    end
+    if not opts.pv and not opts.grid and not opts.battery then
+        error(where .. ': give at least one of opts.pv, opts.grid, opts.battery', 3)
+    end
+    if opts.batterySoc and not opts.battery then error(where .. ': opts.batterySoc needs opts.battery', 3) end
+    if opts.unit ~= nil and opts.unit ~= 'W' and opts.unit ~= 'kW' then
+        error(where .. ': opts.unit must be "W" or "kW" (what the functions return)', 3)
+    end
+    if opts.invert ~= nil then
+        if type(opts.invert) ~= 'table' then error(where .. ': opts.invert must be a table such as { grid = true }', 3) end
+        for k, v in pairs(opts.invert) do
+            if not ENERGY_INVERT[k] then error(where .. ': opts.invert: unknown key "' .. tostring(k) .. '" (grid, battery)', 3) end
+            if type(v) ~= 'boolean' then error(where .. ': opts.invert.' .. k .. ' must be true or false', 3) end
+        end
+    end
+    if opts.today ~= nil then
+        if type(opts.today) ~= 'table' then error(where .. ': opts.today must be a table of functions', 3) end
+        for k, v in pairs(opts.today) do
+            if not ENERGY_TODAY[k] then
+                error(where .. ': opts.today: unknown key "' .. tostring(k) .. '" (pv, grid_import, grid_export, home)', 3)
+            end
+            if type(v) ~= 'function' then error(where .. ': opts.today.' .. k .. ' must be a function', 3) end
+            if k ~= 'home' and not opts[ENERGY_TODAY[k]] then
+                error(where .. ': opts.today.' .. k .. ' needs opts.' .. ENERGY_TODAY[k], 3)
+            end
+        end
+    end
+    if opts.icon ~= nil and (type(opts.icon) ~= 'string' or not opts.icon:match('^[%w%-]+$')) then
+        error(where .. ': opts.icon must be a Bootstrap icon name (letters, digits and -)', 3)
+    end
+    if opts.disabled ~= nil and type(opts.disabled) ~= 'function' then error(where .. ': opts.disabled must be a function', 3) end
+    if opts.span ~= nil and (type(opts.span) ~= 'number' or opts.span % 1 ~= 0 or opts.span < 1 or opts.span > 6) then
+        error(where .. ': opts.span must be a whole number 1-6', 3)
+    end
+    local nodes = {}
+    for i, k in ipairs({ 'pv', 'grid', 'battery', 'home' }) do
+        if opts[k] or k == 'home' then nodes[#nodes + 1] = k end
+    end
+    local today = {}
+    for i, k in ipairs({ 'pv', 'grid_import', 'grid_export', 'home' }) do
+        if opts.today and opts.today[k] then today[#today + 1] = k end
+    end
+    return { id = id, type = 'energy', label = label, icon = opts.icon or 'lightning-charge', opts = opts,
+        nodes = nodes, today = today, scale = opts.unit == 'kW' and 1000 or 1 }
+end
+
+-- A reading as a finite number (a decimal string counts, "1,5" too), nil without one, or nil and the error
+local function energyRead(fn)
+    local ok, v = pcall(fn)
+    if not ok then
+        local okS, msg = pcall(tostring, v)
+        return nil, okS and msg or 'error'
+    end
+    if v == nil then return nil end
+    if type(v) == 'string' and v:match('^%s*%-?%d+,%d+%s*$') then v = v:gsub(',', '.') end
+    if type(v) == 'string' and (v:match('^%s*%-?%d+%.?%d*%s*$') or v:match('^%s*%-?%.%d+%s*$')) then v = tonumber(v) end
+    if type(v) ~= 'number' then return nil, 'expected a number, got ' .. type(v) end
+    if v ~= v or v - v ~= 0 then return nil, 'expected a finite number, got ' .. tostring(v) end
+    return v
+end
+
+local function roundTo(v, places)
+    local m = 10 ^ places
+    return math.floor(v * m + 0.5) / m
+end
+
+-- What the tile shows: each node's power in W ({power}, {none} or {error}), the battery's SoC,
+-- the power on each line between nodes, and the kWh of today
+local function energyState(w)
+    local opts, where = w.opts, 'section:energy("' .. tostring(w.id) .. '"): '
+    local nodes, power, known = {}, {}, true
+    for i, k in ipairs({ 'pv', 'grid', 'battery', 'home' }) do
+        if opts[k] then
+            local v, err = energyRead(opts[k])
+            if err then
+                nodes[k] = { error = where .. k .. ': ' .. err }
+            elseif v == nil then
+                nodes[k] = { none = true }
+            else
+                v = v * w.scale
+                if k == 'pv' or k == 'home' then v = math.max(0, v) end
+                if opts.invert and opts.invert[k] then v = -v end
+                power[k] = roundTo(v, 0)
+                nodes[k] = { power = power[k] }
+            end
+            -- PV without a reading (an inverter asleep at night) counts as 0; an error does not
+            if power[k] == nil and k ~= 'home' and not (k == 'pv' and nodes.pv.none) then known = false end
+        end
+    end
+    -- home from the balance, unknown when grid or battery is
+    if not opts.home then
+        if known then
+            power.home = math.max(0, (power.pv or 0) + (power.grid or 0) - (power.battery or 0))
+            nodes.home = { power = power.home, computed = true }
+        else
+            nodes.home = { none = true, computed = true }
+        end
+    end
+    if opts.batterySoc then
+        local v, err = energyRead(opts.batterySoc)
+        if err then
+            nodes.battery.socError = where .. 'batterySoc: ' .. err
+        elseif v ~= nil then
+            nodes.battery.soc = roundTo(math.max(0, math.min(100, v)), 0)
+        end
+    end
+
+    -- PV goes to the battery first, then out to the grid, the rest to the home; a discharging
+    -- battery feeds the home, what it gives beyond that goes to the grid
+    local pv, grid, bat = power.pv or 0, power.grid or 0, power.battery or 0
+    local import, export = math.max(grid, 0), math.max(-grid, 0)
+    local charge, discharge = math.max(bat, 0), math.max(-bat, 0)
+    local pvBattery = math.min(pv, charge)
+    local pvGrid = math.min(pv - pvBattery, export)
+    local batteryGrid = math.min(discharge, export - pvGrid)
+    local gridBattery = math.min(import, charge - pvBattery)
+    local f = {
+        pv_home = pv - pvBattery - pvGrid,
+        pv_grid = pvGrid,
+        pv_battery = pvBattery,
+        grid_home = import - gridBattery,
+        grid_battery = gridBattery - batteryGrid,
+        battery_home = discharge - batteryGrid,
+    }
+    -- a measured home: the lines into it scaled to what it takes
+    local into = f.pv_home + f.grid_home + f.battery_home
+    if opts.home and power.home ~= nil and into > 0 then
+        local scale = power.home / into
+        f.pv_home = f.pv_home * scale
+        f.grid_home = f.grid_home * scale
+        f.battery_home = f.battery_home * scale
+    end
+    local flows = {}
+    for i, pair in ipairs(ENERGY_FLOWS) do
+        local a, b = pair[1], pair[2]
+        -- a line exists between two nodes; it carries a power only when both are read
+        if nodes[a] and nodes[b] and power[a] ~= nil and power[b] ~= nil then
+            local v = f[a .. '_' .. b]
+            -- grid_battery goes both ways: below zero the battery feeds the grid
+            if a ~= 'grid' or b ~= 'battery' then v = math.max(0, v) end
+            flows[a .. '_' .. b] = roundTo(v, 0)
+        end
+    end
+
+    local today = {}
+    for i, k in ipairs(w.today) do
+        local v = energyRead(opts.today[k])
+        if v ~= nil then today[k] = roundTo(math.max(0, v), 1) end
+    end
+    return { nodes = nodes, flows = flows, today = today }
+end
+
 -- The dashboard as the API reads it: area sections filled from what is exposed, a floor one
 -- section per area (or one of room tiles); reused until something is exposed, unexposed or its
 -- options change (widgets read the objects live). A room tile's overlay is a hidden section
@@ -1766,6 +1945,24 @@ function SectionHandle:table(id, label, rows, opts)
         error('section:table("' .. tostring(id) .. '"): a table goes in a section, not the header', 2)
     end
     self._builder:_addWidget(self._sectionIndex, tableWidget(id, label, rows, opts))
+    return self
+end
+
+--- Add an energy flow: PV, grid, battery and home as nodes, with the power flowing between them.
+-- Each function returns the power now (W, or kW with unit="kW"), nil while there is no reading;
+-- pv is 0 or more, grid is + taken from the grid and - given to it, battery + charging and
+-- - discharging (invert flips one that counts the other way). A node without its function is
+-- left out (a house without a battery); home without one is pv + grid - battery, at least 0
+-- (PV without a reading counts as 0). A function that fails shows "—" on its node, the rest of the tile stays.
+-- @param id string Unique widget identifier
+-- @param label string Display label
+-- @param opts table {pv=fn, grid=fn, battery=fn, batterySoc=fn (%), home=fn, unit="W"|"kW" (default "W"), invert={grid=bool, battery=bool}, today={pv=fn, grid_import=fn, grid_export=fn, home=fn} (kWh today, shown under the nodes), icon=string (default "lightning-charge"), disabled=function()->bool, visible=function()->bool, span=n (default 2)}
+-- @api public
+function SectionHandle:energy(id, label, opts)
+    if self._builder._sections[self._sectionIndex]._isHeader then
+        error('section:energy("' .. tostring(id) .. '"): an energy flow goes in a section, not the header', 2)
+    end
+    self._builder:_addWidget(self._sectionIndex, energyWidget(id, label, opts))
     return self
 end
 
@@ -2552,6 +2749,22 @@ function DashboardBuilder:table(id, label, rows, opts)
         error('section:table("' .. tostring(id) .. '"): a table goes in a section, not the header', 2)
     end
     self:_addWidget(self._currentSection, tableWidget(id, label, rows, opts))
+    return self
+end
+
+--- Add an energy flow to the current section: PV, grid, battery and home with the power between them.
+-- @param id string Unique widget identifier
+-- @param label string Display label
+-- @param opts table {pv=fn, grid=fn, battery=fn, batterySoc=fn, home=fn, unit="W"|"kW", invert={grid, battery}, today={pv, grid_import, grid_export, home}, icon=string, disabled=function()->bool, visible=function()->bool, span=n}
+-- @api public
+function DashboardBuilder:energy(id, label, opts)
+    if not self._currentSection then
+        error('Call :section() before adding widgets', 2)
+    end
+    if self._sections[self._currentSection]._isHeader then
+        error('section:energy("' .. tostring(id) .. '"): an energy flow goes in a section, not the header', 2)
+    end
+    self:_addWidget(self._currentSection, energyWidget(id, label, opts))
     return self
 end
 
@@ -3516,6 +3729,15 @@ function DashboardAPI.getDefinition(id)
                 widget.unit, widget.decimals = w.opts.unit or '', w.opts.decimals
             end
 
+            -- Energy flow: which nodes and today's counters it has, their readings and the lines
+            if w.type == 'energy' then
+                if live then
+                    for k, v in pairs(energyState(w)) do widget[k] = v end
+                end
+                widget.nodeList = w.nodes
+                widget.todayList = w.today
+            end
+
             -- Thermostat: current, target, state, mode; its range and whether it can be set at all
             if w.type == 'thermostat' then
                 if live then
@@ -3735,6 +3957,10 @@ function DashboardAPI.getValues(id)
                 result[w.id] = entry
             elseif w.type == 'colorTemp' then
                 local entry = colorTempState(w)
+                entry.disabled = safeDisabled(w.opts)
+                result[w.id] = entry
+            elseif w.type == 'energy' then
+                local entry = energyState(w)
                 entry.disabled = safeDisabled(w.opts)
                 result[w.id] = entry
             elseif w.type == 'thermostat' then
