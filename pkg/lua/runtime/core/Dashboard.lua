@@ -810,6 +810,74 @@ local function forecastState(w)
     return { days = days, hours = hours, updated = updated and updated - updated == 0 and math.floor(updated) or nil }
 end
 
+-- ==========================================================================
+-- Table: rows from a function, columns from opts
+-- ==========================================================================
+
+local TABLE_KEYS = { columns = true, sort = true, desc = true, limit = true, color = true, icon = true,
+    disabled = true, span = true, size = true }
+local TABLE_COLUMN_KEYS = { key = true, label = true, unit = true, decimals = true, align = true }
+-- rows sent to the page at most, whatever limit says
+local TABLE_MAX_ROWS = 200
+
+local function tableWidget(id, label, rows, opts)
+    local where = 'section:table("' .. tostring(id) .. '")'
+    if type(id) ~= 'string' or id == '' then error('section:table: id must be a non-empty string', 3) end
+    if type(label) ~= 'string' then error(where .. ': label must be a string', 3) end
+    if type(rows) ~= 'function' then error(where .. ': rows must be a function returning a list of rows, got ' .. type(rows), 3) end
+    if type(opts) ~= 'table' then error(where .. ': opts with columns is required', 3) end
+    for k in pairs(opts) do
+        if not TABLE_KEYS[k] then
+            error(where .. ': unknown option "' .. tostring(k) .. '" (' .. quoted(TABLE_KEYS) .. ')', 3)
+        end
+    end
+    if type(opts.columns) ~= 'table' or #opts.columns == 0 then
+        error(where .. ': opts.columns must be a list of { key, label, unit?, decimals?, align? }', 3)
+    end
+    local columns, seen = {}, {}
+    for i, c in ipairs(opts.columns) do
+        local at = where .. ': column ' .. i
+        if type(c) ~= 'table' then error(at .. ' must be a table', 3) end
+        for k in pairs(c) do
+            if not TABLE_COLUMN_KEYS[k] then
+                error(at .. ': unknown key "' .. tostring(k) .. '" (' .. quoted(TABLE_COLUMN_KEYS) .. ')', 3)
+            end
+        end
+        if type(c.key) ~= 'string' or c.key == '' then error(at .. ': key must be a non-empty string', 3) end
+        if seen[c.key] then error(at .. ': key "' .. c.key .. '" is used twice', 3) end
+        seen[c.key] = true
+        if c.label ~= nil and type(c.label) ~= 'string' then error(at .. ': label must be a string', 3) end
+        if c.unit ~= nil and (type(c.unit) ~= 'string' or #c.unit > 8) then
+            error(at .. ': unit must be a short string such as "°C"', 3)
+        end
+        local d = c.decimals
+        if d ~= nil and (type(d) ~= 'number' or d % 1 ~= 0 or d < 0 or d > 6) then
+            error(at .. ': decimals must be a whole number 0-6', 3)
+        end
+        if c.align ~= nil and c.align ~= 'left' and c.align ~= 'right' then
+            error(at .. ': align must be "left" or "right"', 3)
+        end
+        columns[i] = { key = c.key, label = c.label or c.key, unit = c.unit, decimals = d, align = c.align }
+    end
+    if opts.sort ~= nil and not seen[opts.sort] then
+        error(where .. ': opts.sort must be the key of a column, got ' .. tostring(opts.sort), 3)
+    end
+    if opts.desc ~= nil and type(opts.desc) ~= 'boolean' then error(where .. ': opts.desc must be a boolean', 3) end
+    if opts.desc and opts.sort == nil then error(where .. ': opts.desc needs opts.sort', 3) end
+    local n = opts.limit
+    if n ~= nil and (type(n) ~= 'number' or n % 1 ~= 0 or n < 1 or n > TABLE_MAX_ROWS) then
+        error(where .. ': opts.limit must be a whole number 1-' .. TABLE_MAX_ROWS, 3)
+    end
+    if opts.color ~= nil and type(opts.color) ~= 'function' then
+        error(where .. ': opts.color must be a function(row, key) -> colour or nil', 3)
+    end
+    if opts.icon ~= nil and (type(opts.icon) ~= 'string' or not opts.icon:match('^[%w%-]+$')) then
+        error(where .. ': opts.icon must be a Bootstrap icon name (letters, digits and -)', 3)
+    end
+    if opts.disabled ~= nil and type(opts.disabled) ~= 'function' then error(where .. ': opts.disabled must be a function', 3) end
+    return { id = id, type = 'table', label = label, icon = opts.icon or 'table', fn = rows, columns = columns, opts = opts }
+end
+
 -- The dashboard as the API reads it: area sections filled from what is exposed, a floor one
 -- section per area (or one of room tiles); reused until something is exposed, unexposed or its
 -- options change (widgets read the objects live). A room tile's overlay is a hidden section
@@ -1114,6 +1182,23 @@ function SectionHandle:forecast(id, label, src, opts)
         error('section:forecast("' .. tostring(id) .. '"): a forecast goes in a section, not the header', 2)
     end
     self._builder:_addWidget(self._sectionIndex, forecastWidget(id, label, src, opts))
+    return self
+end
+
+--- Add a table: rows from a function, read on every poll, in the columns of opts.columns.
+-- Numbers are rounded to the column's decimals, booleans show as ✓ and —, nil as an empty cell;
+-- a header tap sorts on the page; on a phone each row is a card. rows must be a list (1..n, no holes);
+-- the first 1000 are read and sorted, at most 200 go to the page.
+-- @param id string Unique widget identifier
+-- @param label string Display label
+-- @param rows function Returns the rows: function() -> { {key=value, ...}, ... } (nil or {} shows "brak danych")
+-- @param opts table {columns={{key=string, label=string?, unit=string?, decimals=0-6?, align="left"|"right"?}, ...} (required), sort=column key (ascending, before limit, empty cells last; default: the order rows gives), desc=true (sort descending), limit=1-200, color=function(row, key)->colour name|#hex|rgb()|hsl()|nil (the cell's colour), icon=string (default "table"), disabled=function()->bool, span=n, size=string}
+-- @api public
+function SectionHandle:table(id, label, rows, opts)
+    if self._builder._sections[self._sectionIndex]._isHeader then
+        error('section:table("' .. tostring(id) .. '"): a table goes in a section, not the header', 2)
+    end
+    self._builder:_addWidget(self._sectionIndex, tableWidget(id, label, rows, opts))
     return self
 end
 
@@ -1814,6 +1899,23 @@ function DashboardBuilder:forecast(id, label, src, opts)
     return self
 end
 
+--- Add a table to the current section: rows from a function, in the columns of opts.columns.
+-- @param id string Unique widget identifier
+-- @param label string Display label
+-- @param rows function Returns the rows: function() -> { {key=value, ...}, ... }
+-- @param opts table {columns={{key, label?, unit?, decimals?, align?}, ...} (required), sort, desc, limit=1-200, color=function(row, key), icon, disabled, span, size}
+-- @api public
+function DashboardBuilder:table(id, label, rows, opts)
+    if not self._currentSection then
+        error('Call :section() before adding widgets', 2)
+    end
+    if self._sections[self._currentSection]._isHeader then
+        error('section:table("' .. tostring(id) .. '"): a table goes in a section, not the header', 2)
+    end
+    self:_addWidget(self._currentSection, tableWidget(id, label, rows, opts))
+    return self
+end
+
 --- Add a dimmer widget to the current section.
 -- @param id string Unique widget identifier
 -- @param label string Display label
@@ -2102,6 +2204,143 @@ local function chipState(dashId, w)
     end
     if s.color == nil then s.color = chipColor(safeColor(dashId, w)) end
     return s
+end
+
+-- rows read and sorted at most; more are cut (and logged once)
+local TABLE_MAX_INPUT = 1000
+-- Inputs already cut, by "dashboard/widget"
+local _tableCutLogged = {}
+
+-- Text the way the page sorts it: case does not matter, digit runs compare as numbers ("2" < "10");
+-- letters outside ASCII in byte order
+local function naturalLess(a, b)
+    a = a:lower()
+    b = b:lower()
+    local i, j = 1, 1
+    while i <= #a and j <= #b do
+        local _, ea = a:find('^%d+', i)
+        local _, eb = b:find('^%d+', j)
+        if ea and eb then
+            local na, nb = tonumber(a:sub(i, ea)), tonumber(b:sub(j, eb))
+            if na ~= nb then return na < nb end
+            i = ea + 1
+            j = eb + 1
+        else
+            local ca, cb = a:sub(i, i), b:sub(j, j)
+            if ca ~= cb then return ca < cb end
+            i = i + 1
+            j = j + 1
+        end
+    end
+    return i > #a and j <= #b
+end
+
+-- Sort order of table cells: numbers, text, booleans, empty last
+local TABLE_RANK = { number = 1, string = 2, boolean = 3 }
+local function tableRank(v)
+    if type(v) == 'number' and v - v ~= 0 then return 4 end
+    return TABLE_RANK[type(v)] or 4
+end
+local function tableLess(a, b)
+    local ra, rb = tableRank(a), tableRank(b)
+    if ra ~= rb then return ra < rb end
+    if ra == 3 then return a == false and b == true end
+    if ra == 4 then return false end
+    if ra == 2 then return naturalLess(a, b) end
+    return a < b
+end
+
+-- A decimal numeral ("21.5", "-3"), not hex, an exponent or "inf"
+local function decimalText(s)
+    return s:match('^%s*[-+]?[%d%.]+%s*$') ~= nil
+end
+
+-- tableState without the guard: any error here is the tile's error
+local function tableRows(dashId, w)
+    local where = 'section:table("' .. tostring(w.id) .. '")'
+    local list = w.fn()
+    if list == nil then list = {} end
+    if type(list) ~= 'table' then return { error = where .. ': rows must return a list of tables, got ' .. type(list) } end
+    -- a list 1..n: a map or a list with holes would lose rows without a word
+    local n, keys = 0, 0
+    for _ in ipairs(list) do n = n + 1 end
+    for _ in pairs(list) do keys = keys + 1 end
+    if keys ~= n then
+        return { error = where .. ': rows must return a list (keys 1..n without holes), got ' .. keys .. ' keys and ' .. n .. ' in a row' }
+    end
+    if n > TABLE_MAX_INPUT then
+        local logKey = tostring(dashId) .. '/' .. tostring(w.id)
+        if not _tableCutLogged[logKey] then
+            _tableCutLogged[logKey] = true
+            Logger:getShared():warn("[DASHBOARD] Table '%s': %d rows, only the first %d are read", logKey, n, TABLE_MAX_INPUT)
+        end
+    end
+    local rows = {}
+    for i = 1, math.min(n, TABLE_MAX_INPUT) do
+        local r = list[i]
+        if type(r) ~= 'table' then
+            return { error = where .. ': row ' .. i .. ' must be a table, got ' .. type(r) }
+        end
+        local v = {}
+        for _, col in ipairs(w.columns) do
+            local x = r[col.key]
+            -- a Remote object's value comes as text: a column with decimals is a number
+            if type(x) == 'string' and col.decimals and decimalText(x) then x = tonumber(x) or x end
+            if type(x) == 'number' and x - x ~= 0 then x = nil end
+            if x ~= nil and type(x) ~= 'number' and type(x) ~= 'string' and type(x) ~= 'boolean' then
+                return { error = where .. ': row ' .. i .. ' "' .. col.key .. '" must be a number, text or boolean, got ' .. type(x) }
+            end
+            v[col.key] = x
+        end
+        rows[i] = { r = r, v = v, i = i }
+    end
+    local key, desc = w.opts.sort, w.opts.desc == true
+    if key then
+        -- stable: equal cells keep the order rows gave them; empty cells last both ways
+        table.sort(rows, function(a, b)
+            local x, y = a.v[key], b.v[key]
+            local ex, ey = tableRank(x) == 4, tableRank(y) == 4
+            if ex ~= ey then return ey end
+            if desc then
+                x = b.v[key]
+                y = a.v[key]
+            end
+            if tableLess(x, y) then return true end
+            if tableLess(y, x) then return false end
+            return a.i < b.i
+        end)
+    end
+    local out = {}
+    local limit = math.min(w.opts.limit or TABLE_MAX_ROWS, TABLE_MAX_ROWS)
+    for i = 1, math.min(#rows, limit) do
+        local row = rows[i]
+        local c = {}
+        if w.opts.color then
+            for _, col in ipairs(w.columns) do
+                local okc, cv = pcall(w.opts.color, row.r, col.key)
+                if okc then
+                    c[col.key] = chipColor(cv)
+                else
+                    local logKey = tostring(dashId) .. '/' .. tostring(w.id)
+                    if not _colorErrorLogged[logKey] then
+                        _colorErrorLogged[logKey] = true
+                        Logger:getShared():warn("[DASHBOARD] Color error for '%s': %s", logKey, tostring(cv))
+                    end
+                end
+            end
+        end
+        -- no colours: no key (an empty table would go out as [])
+        if next(c) then out[i] = { v = row.v, c = c } else out[i] = { v = row.v } end
+    end
+    return { rows = out, total = n }
+end
+
+-- A table's rows as the page needs them: {rows = {{v = {key = value}, c = {key = colour}}}, total},
+-- or {error} when rows fails, gives something that is not a list of tables, or a row cannot be read
+local function tableState(dashId, w)
+    local ok, st = pcall(tableRows, dashId, w)
+    if not ok then return { error = tostring(st) } end
+    return st
 end
 
 -- Problems with a room's temperature or humidity already logged, by "dashboard/widget/kind"
@@ -2544,6 +2783,14 @@ function DashboardAPI.getDefinition(id)
                 widget.zone = __go_calendar_zone()
             end
 
+            -- Table: its columns, the first sort and the rows
+            if w.type == 'table' then
+                for k, v in pairs(tableState(id, w)) do widget[k] = v end
+                widget.columns = w.columns
+                widget.sort = w.opts.sort
+                widget.desc = w.opts.desc
+            end
+
             -- Thermostat: current, target, state, mode; its range and whether it can be set at all
             if w.type == 'thermostat' then
                 if live then
@@ -2719,6 +2966,10 @@ function DashboardAPI.getValues(id)
                 result[w.id] = entry
             elseif w.type == 'room' then
                 local entry = roomState(id, w)
+                entry.disabled = safeDisabled(w.opts)
+                result[w.id] = entry
+            elseif w.type == 'table' then
+                local entry = tableState(id, w)
                 entry.disabled = safeDisabled(w.opts)
                 result[w.id] = entry
             elseif w.type == 'player' or w.type == 'forecast' then

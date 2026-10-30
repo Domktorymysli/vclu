@@ -1,0 +1,3 @@
+### Dashboards
+
+- **A table widget** - `section:table(id, label, rows, { columns = {...} })` shows rows from a Lua function, read on every poll, in named columns with a unit, decimals and alignment. A tap on a header sorts the rows (again: the other way); `sort` (with `desc = true` descending) gives the first order and `limit` the number of rows, so the five highest are `sort = 'power', desc = true, limit = 5` (at most 200 are sent). `color = function(row, key)` colours a cell. Booleans show as ✓ and —, an empty list as "brak danych"; on a phone each row is a card. Wrong options fail when the dashboard is built ([#157](https://github.com/Domktorymysli/vclu/issues/157)).
