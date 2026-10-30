@@ -1249,13 +1249,13 @@ Add a color picker widget to this section. switchOn?, switchOff?, isOn?, getWhit
 
 ### `SectionHandle:thermostat(id, label, icon, fns, opts)`
 
-Add a thermostat: current temperature, target and +/- for the target. getState=function()->number|bool? (1/true active, 0/false off), getMode=function()->number? (0 manual, 1 holiday, 2 schedule, 3 heat-up)}, or a thermostat object (RemoteThermostat: getValue, getTarget, setSetpoint, getState, getMode) Shows the current temperature and the target ("--" until reported); + and - change the target by step and setTarget is called once, 1 s after the last tap; the chosen value shows until the thermostat reports a new target, at most 90 s. Without setTarget (or opts.readonly) there are no buttons; with getMode the target is set only in manual mode (0), as lib/panel does. The action endpoint refuses a set outside min..max.
+Add a thermostat: current temperature, target and +/- for the target. getState=function()->number|bool? (1/true active, 0/false off), getMode=function()->number? (0 manual, 1 holiday, 2 schedule, 3 heat-up), setMode=function(value)? (with opts.modes)}, or a thermostat object (RemoteThermostat, VirtualThermostat: getValue, getTarget, setSetpoint, getState, getMode, setMode?) Shows the current temperature and the target ("--" until reported); + and - change the target by step and setTarget is called once, 1 s after the last tap; the chosen value shows until the thermostat reports a new target, at most 90 s. Without setTarget (or opts.readonly) there are no buttons; with getMode the target is set only in manual mode (0), as lib/panel does. The action endpoint refuses a set outside min..max. Modes: a switch under the target. A VirtualThermostat gets manual (0), holiday (1) and "off" (stop; another mode starts it again) by itself; a RemoteThermostat only shows its mode. A table of functions gets one with fns.getMode, fns.setMode and opts.modes; getMode gives one of the values, setMode(value) gets the chosen one. In a mode marked readonly (holiday) there are no + and -. opts.readonly locks the switch too.
 
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label
 - `icon` (string) — |nil Bootstrap icon name (default "thermometer-half")
 - `fns` (table) — {getCurrent=function()->number|nil, getTarget=function()->number|nil, setTarget=function(number)?,
-- `opts` (table) — Optional: {min=5, max=35, step=0.5, unit="°C", readonly=bool or function()->bool (true: no buttons; a function locks them while it returns true), disabled=function()->bool, span=n, size=string, color=string}
+- `opts` (table) — Optional: {min=5, max=35, step=0.5, unit="°C", readonly=bool or function()->bool (true: no buttons and no mode switch; a function locks them while it returns true), modes={ {value=number|string, label=string, icon=string?, readonly=bool? (no + and - in this mode)}, ... } or {[value]=label} (ordered by value) or false (no switch for an object), disabled=function()->bool, span=n, size=string, color=string}
 
 ### `SectionHandle:chip(id, icon, fn, opts)`
 
@@ -1566,13 +1566,13 @@ Add a color picker widget to the current section. switchOn?, switchOff?, isOn?, 
 
 ### `DashboardBuilder:thermostat(id, label, icon, fns, opts)`
 
-Add a thermostat to the current section: current temperature, target and +/- for the target. getState=function()->number|bool? (1/true active, 0/false off), getMode=function()->number? (0 manual, 1 holiday, 2 schedule, 3 heat-up)}, or a thermostat object (RemoteThermostat: getValue, getTarget, setSetpoint, getState, getMode) Shows the current temperature and the target ("--" until reported); + and - change the target by step and setTarget is called once, 1 s after the last tap; the chosen value shows until the thermostat reports a new target, at most 90 s. Without setTarget (or opts.readonly) there are no buttons; with getMode the target is set only in manual mode (0), as lib/panel does. The action endpoint refuses a set outside min..max.
+Add a thermostat to the current section: current temperature, target and +/- for the target. getState=function()->number|bool? (1/true active, 0/false off), getMode=function()->number? (0 manual, 1 holiday, 2 schedule, 3 heat-up), setMode=function(value)? (with opts.modes)}, or a thermostat object (RemoteThermostat, VirtualThermostat: getValue, getTarget, setSetpoint, getState, getMode, setMode?) Shows the current temperature and the target ("--" until reported); + and - change the target by step and setTarget is called once, 1 s after the last tap; the chosen value shows until the thermostat reports a new target, at most 90 s. Without setTarget (or opts.readonly) there are no buttons; with getMode the target is set only in manual mode (0), as lib/panel does. The action endpoint refuses a set outside min..max. Modes: a switch under the target. A VirtualThermostat gets manual (0), holiday (1) and "off" (stop; another mode starts it again) by itself; a RemoteThermostat only shows its mode. A table of functions gets one with fns.getMode, fns.setMode and opts.modes; getMode gives one of the values, setMode(value) gets the chosen one. In a mode marked readonly (holiday) there are no + and -. opts.readonly locks the switch too.
 
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label
 - `icon` (string) — |nil Bootstrap icon name (default "thermometer-half")
 - `fns` (table) — {getCurrent=function()->number|nil, getTarget=function()->number|nil, setTarget=function(number)?,
-- `opts` (table) — Optional: {min=5, max=35, step=0.5, unit="°C", readonly=bool or function()->bool (true: no buttons; a function locks them while it returns true), disabled=function()->bool, span=n, size=string, color=string}
+- `opts` (table) — Optional: {min=5, max=35, step=0.5, unit="°C", readonly=bool or function()->bool (true: no buttons and no mode switch; a function locks them while it returns true), modes={ {value=number|string, label=string, icon=string?, readonly=bool? (no + and - in this mode)}, ... } or {[value]=label} (ordered by value) or false (no switch for an object), disabled=function()->bool, span=n, size=string, color=string}
 
 ### `DashboardBuilder:when(periods, fn)`
 
