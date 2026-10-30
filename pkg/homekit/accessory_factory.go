@@ -300,10 +300,11 @@ func (s *Server) createExposedOccupancySensor(info accessory.Info, obj ExposedOb
 	a.AddS(svc.S)
 
 	updateFunc := func(value float64) {
+		// both are valid values of the characteristic, so SetValue does not fail
 		if value > 0 {
-			svc.OccupancyDetected.SetValue(characteristic.OccupancyDetectedOccupancyDetected)
+			_ = svc.OccupancyDetected.SetValue(characteristic.OccupancyDetectedOccupancyDetected)
 		} else {
-			svc.OccupancyDetected.SetValue(characteristic.OccupancyDetectedOccupancyNotDetected)
+			_ = svc.OccupancyDetected.SetValue(characteristic.OccupancyDetectedOccupancyNotDetected)
 		}
 	}
 	if state, ok := obj.Value.(float64); ok {
