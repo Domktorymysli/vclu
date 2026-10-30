@@ -139,7 +139,7 @@
     "js_confirm_revoke": "Unieważnić aktualny klucz API? Wszystkie integracje używające go przestaną działać.",
     "updates": "Aktualizacje",
     "update_check": "Sprawdzaj nowe wersje",
-    "update_check_desc": "Pokazuje informację, gdy wyjdzie nowa wersja vCLU. Sprawdzenie wysyła losowy identyfikator instalacji i wersję, co pozwala też policzyć używane instalacje.",
+    "update_check_desc": "Pokazuje informację, gdy wyjdzie nowa wersja vCLU. Sprawdzenie wysyła losowy identyfikator instalacji, wersję, system i architekturę.",
     "update_check_forced_off": "Wyłączone przez",
     "js_update_check_saved": "Zapisano"
   },

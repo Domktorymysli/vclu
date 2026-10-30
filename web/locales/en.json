@@ -139,7 +139,7 @@
     "js_confirm_revoke": "Revoke the current API key? Any integrations using it will stop working.",
     "updates": "Updates",
     "update_check": "Check for new versions",
-    "update_check_desc": "Shows a notice when a new vCLU version is out. Each check sends a random installation id and the version, which also lets us count installations in use.",
+    "update_check_desc": "Shows a notice when a new vCLU version is out. Each check sends a random installation id, the version, os and arch.",
     "update_check_forced_off": "Turned off by",
     "js_update_check_saved": "Saved"
   },
