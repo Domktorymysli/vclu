@@ -2063,7 +2063,6 @@
 
     // ---- Energy flow ----
 
-    var svgNS = 'http://www.w3.org/2000/svg';
     var energyIdle = 10; // W: a line below it has no dots
     // a positive power flows from the first node to the second
     var energyLines = [['pv', 'home'], ['pv', 'grid'], ['pv', 'battery'], ['grid', 'home'], ['grid', 'battery'], ['battery', 'home']];
@@ -2071,12 +2070,6 @@
     var energyTiles = []; // tiles whose dots move
     var energyFrame = null;
     var reducedMotion = window.matchMedia ? matchMedia('(prefers-reduced-motion: reduce)') : null;
-
-    function svgEl(tag, cls) {
-        var e = document.createElementNS(svgNS, tag);
-        if (cls) e.setAttribute('class', cls);
-        return e;
-    }
 
     // Where each node sits: a cross with all four, else the first source on top
     function energyLayout(nodes) {
@@ -2110,7 +2103,7 @@
         var nodes = Array.isArray(w.nodeList) ? w.nodeList : [];
         var layout = energyLayout(nodes);
         box.dataset.count = nodes.length;
-        var svg = svgEl('svg', 'dash-energy-lines');
+        var svg = svgEl('svg', null, 'dash-energy-lines');
         svg.setAttribute('aria-hidden', 'true');
         box.appendChild(svg);
         var st = { box: box, svg: svg, nodes: {}, lines: {}, el: el };
@@ -2127,11 +2120,11 @@
             var circle = calEl('div', 'dash-energy-circle');
             if (name === 'battery') {
                 // the state of charge as a ring around the node
-                var ring = svgEl('svg', 'dash-energy-ring');
+                var ring = svgEl('svg', null, 'dash-energy-ring');
                 ring.setAttribute('viewBox', '0 0 100 100');
                 ring.setAttribute('aria-hidden', 'true');
-                var track = svgEl('circle', 'dash-energy-ring-track');
-                var arc = svgEl('circle', 'dash-energy-ring-arc');
+                var track = svgEl('circle', null, 'dash-energy-ring-track');
+                var arc = svgEl('circle', null, 'dash-energy-ring-arc');
                 [track, arc].forEach(function(c) {
                     c.setAttribute('cx', 50); c.setAttribute('cy', 50); c.setAttribute('r', 46);
                     c.setAttribute('pathLength', 100);
@@ -2156,15 +2149,15 @@
         energyLines.forEach(function(pair) {
             if (!st.nodes[pair[0]] || !st.nodes[pair[1]]) return;
             var key = pair[0] + '_' + pair[1];
-            var g = svgEl('g', 'dash-energy-flow idle');
-            var path = svgEl('path', 'dash-energy-path');
-            var arrow = svgEl('polygon', 'dash-energy-arrow');
+            var g = svgEl('g', null, 'dash-energy-flow idle');
+            var path = svgEl('path', null, 'dash-energy-path');
+            var arrow = svgEl('polygon', null, 'dash-energy-arrow');
             arrow.setAttribute('points', '-4,-4.5 5,0 -4,4.5');
             g.appendChild(path);
             g.appendChild(arrow);
             var dots = [];
             for (var i = 0; i < 3; i++) {
-                var dot = svgEl('circle', 'dash-energy-dot');
+                var dot = svgEl('circle', null, 'dash-energy-dot');
                 dot.setAttribute('r', 3);
                 g.appendChild(dot);
                 dots.push(dot);
@@ -3168,14 +3161,6 @@
     // ---- Bars: one bar per hour or day of the house's zone, aggregated by the server ----
 
     var bars = {}; // widgetId -> {refresh, observer}
-    var SVG_NS = 'http://www.w3.org/2000/svg';
-
-    function svgEl(tag, attrs, cls) {
-        var e = document.createElementNS(SVG_NS, tag);
-        for (var k in attrs) if (attrs.hasOwnProperty(k)) e.setAttribute(k, attrs[k]);
-        if (cls) e.setAttribute('class', cls);
-        return e;
-    }
 
     function barsRefreshMs(w) {
         if (w.refresh) return w.refresh * 1000;
@@ -3992,6 +3977,7 @@
         .catch(function(err) {
             contentEl.className = '';
             contentEl.innerHTML = '<div class="text-center py-5"><p class="text-danger">Error loading dashboard.</p></div>';
+            if (window.console) console.error(err);
         });
 
     // Pause polling when page is hidden, resume when visible
