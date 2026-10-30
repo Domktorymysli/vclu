@@ -9,22 +9,24 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// SetUpdateChecker wires the new-version check shown in the top bar.
+// SetUpdateChecker wires the new-version check shown in the top bar; call it before Start.
 func (s *Server) SetUpdateChecker(c *updatecheck.Checker) {
 	s.updateChecker = c
 }
 
-// updateRelease is a release with its summary and notes rendered to safe HTML in the
-// panel's language (else English).
+// updateRelease is a release as the panel shows it: summary and notes rendered to safe
+// HTML in the panel's language (else English), the raw markdown left out.
 type updateRelease struct {
-	updatecheck.Release
+	Version          string   `json:"version"`
+	PublishedAt      string   `json:"published_at"`
+	URL              string   `json:"url"`
 	HighlightsHTML   string   `json:"highlights_html,omitempty"`
 	BeforeUpdateHTML []string `json:"before_update_html,omitempty"`
 	NotesHTML        string   `json:"notes_html,omitempty"`
 }
 
 func renderRelease(r updatecheck.Release, lang string) updateRelease {
-	ur := updateRelease{Release: r}
+	ur := updateRelease{Version: r.Version, PublishedAt: r.PublishedAt, URL: r.URL}
 	sum, ok := r.Summary[lang]
 	if !ok {
 		sum = r.Summary["en"]
@@ -47,18 +49,18 @@ func renderRelease(r updatecheck.Release, lang string) updateRelease {
 
 // updateStatus is the answer of GET /api/update while the check is on.
 type updateStatus struct {
-	Enabled         bool                 `json:"enabled"`
-	CheckedAt       *time.Time           `json:"checked_at"`
-	Current         string               `json:"current"`
-	UpdateAvailable bool                 `json:"update_available"`
-	Latest          *updatecheck.Release `json:"latest"`
-	Releases        []updateRelease      `json:"releases"`
+	Enabled         bool            `json:"enabled"`
+	CheckedAt       *time.Time      `json:"checked_at"`
+	Current         string          `json:"current"`
+	UpdateAvailable bool            `json:"update_available"`
+	Latest          *updateRelease  `json:"latest"`
+	Releases        []updateRelease `json:"releases"`
 }
 
 // handleAPIUpdate returns the last good answer of the new-version check
 //
 //	@Summary		New vCLU version
-//	@Description	The last good answer of the check for new vCLU versions: whether one is available, the latest release and every release newer than the running one, newest first. `highlights_html`, `before_update_html` (from `summary`) and `notes_html` are rendered to safe HTML in the panel's language, else English. `checked_at` and `latest` are null before the first answer. When the check is off only `enabled: false` is returned.
+//	@Description	The last good answer of the check for new vCLU versions: whether one is available, the latest release and every release newer than the running one, newest first. `highlights_html`, `before_update_html` and `notes_html` are the release's summary and notes rendered to safe HTML in the panel's language, else English. `checked_at` and `latest` are null before the first answer. When the check is off only `enabled: false` is returned.
 //	@Tags			settings
 //	@Produce		json
 //	@Success		200	{object}	web.updateStatus
@@ -74,7 +76,10 @@ func (s *Server) handleAPIUpdate(c *gin.Context) {
 	res := updateStatus{Enabled: true, Current: s.updateChecker.Version(), Releases: []updateRelease{}}
 	if a, at := s.updateChecker.Last(); a != nil {
 		at = at.UTC()
-		res.CheckedAt, res.UpdateAvailable, res.Latest = &at, a.UpdateAvailable, a.Latest
+		res.CheckedAt, res.UpdateAvailable = &at, a.UpdateAvailable
+		if l := a.Latest; l != nil {
+			res.Latest = &updateRelease{Version: l.Version, PublishedAt: l.PublishedAt, URL: l.URL}
+		}
 		lang := s.getLang(c)
 		for _, r := range a.Releases {
 			res.Releases = append(res.Releases, renderRelease(r, lang))

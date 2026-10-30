@@ -312,14 +312,16 @@ func TestKeepsLastGoodAnswer(t *testing.T) {
 	for _, bad := range []struct {
 		status int
 		body   string
-	}{{500, `{"error":"x"}`}, {200, `not json`}, {429, ``}} {
+	}{{500, `{"error":"x"}`}, {200, `not json`}, {429, ``},
+		// valid but over maxBodySize: cut off, so it fails to decode
+		{200, `{"current":"1.6.0","update_available":true,"latest":{"version":"9.9.9","notes":{"en":"` + strings.Repeat("x", maxBodySize) + `"}},"releases":[]}`}} {
 		e.svc.status.Store(int32(bad.status))
 		e.svc.body.Store(bad.body)
 		e.clock.fire(w)
 		w = e.clock.next(t)
 		got, gotAt := e.c.Last()
 		if got != a || !gotAt.Equal(at) {
-			t.Fatalf("after %d %q the last good answer is gone: %+v", bad.status, bad.body, got)
+			t.Fatalf("after %d %.40q the last good answer is gone: %+v", bad.status, bad.body, got)
 		}
 	}
 }

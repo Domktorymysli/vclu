@@ -2658,7 +2658,7 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "The last good answer of the check for new vCLU versions: whether one is available, the latest release and every release newer than the running one, newest first. `highlights_html`, `before_update_html` (from `summary`) and `notes_html` are rendered to safe HTML in the panel's language, else English. `checked_at` and `latest` are null before the first answer. When the check is off only `enabled: false` is returned.",
+                "description": "The last good answer of the check for new vCLU versions: whether one is available, the latest release and every release newer than the running one, newest first. `highlights_html`, `before_update_html` and `notes_html` are the release's summary and notes rendered to safe HTML in the panel's language, else English. `checked_at` and `latest` are null before the first answer. When the check is off only `enabled: false` is returned.",
                 "produces": [
                     "application/json"
                 ],
@@ -3500,51 +3500,6 @@
                 "Hour"
             ]
         },
-        "updatecheck.Release": {
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string"
-                },
-                "notes": {
-                    "description": "\"en\", \"pl\": markdown",
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
-                },
-                "published_at": {
-                    "type": "string"
-                },
-                "summary": {
-                    "description": "\"en\", \"pl\"",
-                    "type": "object",
-                    "additionalProperties": {
-                        "$ref": "#/definitions/updatecheck.Summary"
-                    }
-                },
-                "url": {
-                    "type": "string"
-                },
-                "version": {
-                    "type": "string"
-                }
-            }
-        },
-        "updatecheck.Summary": {
-            "type": "object",
-            "properties": {
-                "before_update": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "highlights": {
-                    "type": "string"
-                }
-            }
-        },
         "web.APIError": {
             "type": "object",
             "properties": {
@@ -3724,28 +3679,11 @@
                 "highlights_html": {
                     "type": "string"
                 },
-                "name": {
-                    "type": "string"
-                },
-                "notes": {
-                    "description": "\"en\", \"pl\": markdown",
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
-                },
                 "notes_html": {
                     "type": "string"
                 },
                 "published_at": {
                     "type": "string"
-                },
-                "summary": {
-                    "description": "\"en\", \"pl\"",
-                    "type": "object",
-                    "additionalProperties": {
-                        "$ref": "#/definitions/updatecheck.Summary"
-                    }
                 },
                 "url": {
                     "type": "string"
@@ -3768,7 +3706,7 @@
                     "type": "boolean"
                 },
                 "latest": {
-                    "$ref": "#/definitions/updatecheck.Release"
+                    "$ref": "#/definitions/web.updateRelease"
                 },
                 "releases": {
                     "type": "array",

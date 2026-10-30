@@ -332,10 +332,6 @@ func main() {
 		}
 	}
 
-	if err := webSrv.Start(); err != nil {
-		log.Fatalf("Failed to start web server: %v", err)
-	}
-
 	// New-version check; the setting is read before every check, so the switch needs no restart
 	updateChecker := updatecheck.New(updatecheck.Options{
 		Dir:     cluDir,
@@ -343,6 +339,11 @@ func main() {
 		Enabled: func() bool { return config.UpdateCheckEnabled(cluDir) },
 	})
 	webSrv.SetUpdateChecker(updateChecker)
+
+	if err := webSrv.Start(); err != nil {
+		log.Fatalf("Failed to start web server: %v", err)
+	}
+
 	updateCtx, stopUpdateCheck := context.WithCancel(context.Background())
 	go updateChecker.Run(updateCtx)
 

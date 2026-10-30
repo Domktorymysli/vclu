@@ -34,7 +34,8 @@ func (f *firstNowClock) After(d time.Duration) <-chan time.Time {
 }
 
 const updateAnswer = `{"current":"1.6.0","update_available":true,"extra":1,
-	"latest":{"version":"1.8.0","name":"vCLU v1.8.0","published_at":"2026-10-28T10:00:00Z","url":"https://github.com/Domktorymysli/vclu/releases/tag/v1.8.0"},
+	"latest":{"version":"1.8.0","name":"vCLU v1.8.0","published_at":"2026-10-28T10:00:00Z","url":"https://github.com/Domktorymysli/vclu/releases/tag/v1.8.0",
+	  "notes":{"en":"**New**"},"summary":{"en":{"highlights":"a thermostat"}}},
 	"releases":[
 	 {"version":"1.8.0","published_at":"2026-10-28T10:00:00Z","url":"https://github.com/Domktorymysli/vclu/releases/tag/v1.8.0",
 	  "notes":{"en":"**New** <script>alert(1)</script>","pl":"**Nowe** [x](javascript:alert(1))"},
@@ -88,21 +89,30 @@ func TestUpdateAPI_Shape(t *testing.T) {
 	for _, lang := range []string{"en", "pl"} {
 		w := e.do(t, "GET", "/api/update?lang="+lang, "", "session")
 		var res struct {
-			Enabled         bool       `json:"enabled"`
-			CheckedAt       *time.Time `json:"checked_at"`
-			Current         string     `json:"current"`
-			UpdateAvailable bool       `json:"update_available"`
-			Latest          *struct {
-				Version, URL string
-			} `json:"latest"`
-			Releases []map[string]any `json:"releases"`
+			Enabled         bool             `json:"enabled"`
+			CheckedAt       *time.Time       `json:"checked_at"`
+			Current         string           `json:"current"`
+			UpdateAvailable bool             `json:"update_available"`
+			Latest          map[string]any   `json:"latest"`
+			Releases        []map[string]any `json:"releases"`
 		}
 		if err := json.Unmarshal(w.Body.Bytes(), &res); err != nil || w.Code != 200 {
 			t.Fatalf("%s: %d %s", lang, w.Code, w.Body)
 		}
 		if !res.Enabled || res.CheckedAt == nil || res.Current != "1.6.0-1c0df52" || !res.UpdateAvailable ||
-			res.Latest == nil || res.Latest.Version != "1.8.0" || len(res.Releases) != 2 {
+			res.Latest["version"] != "1.8.0" || len(res.Releases) != 2 {
 			t.Fatalf("%s: %s", lang, w.Body)
+		}
+		// the panel gets rendered HTML only, not the service's markdown
+		for _, r := range append(res.Releases, res.Latest) {
+			for _, raw := range []string{"notes", "summary", "name"} {
+				if _, ok := r[raw]; ok {
+					t.Errorf("%s: raw %q passed on: %v", lang, raw, r)
+				}
+			}
+		}
+		if res.Latest["url"] == nil || res.Latest["published_at"] == nil {
+			t.Errorf("%s latest: %v", lang, res.Latest)
 		}
 		html, _ := res.Releases[0]["notes_html"].(string)
 		switch lang {
