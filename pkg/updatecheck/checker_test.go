@@ -108,7 +108,7 @@ func newService(t *testing.T) *service {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(int(s.status.Load()))
-		fmt.Fprint(w, s.body.Load().(string))
+		_, _ = fmt.Fprint(w, s.body.Load().(string))
 	}))
 	t.Cleanup(s.srv.Close)
 	return s
@@ -244,10 +244,12 @@ func TestOffSendsNothing(t *testing.T) {
 		e := start(t, func() bool { return config.UpdateCheckEnabled(dir) })
 		dir = e.dir
 		off := false
-		config.UpdateMasterConfig(dir, func(c *config.VCLUConfig) error {
+		if err := config.UpdateMasterConfig(dir, func(c *config.VCLUConfig) error {
 			c.UpdateCheck = &config.VCLUUpdateCheckConfig{Enabled: &off}
 			return nil
-		})
+		}); err != nil {
+			t.Fatal(err)
+		}
 		for range 3 {
 			e.clock.fire(e.clock.next(t))
 		}
@@ -282,7 +284,7 @@ func TestTurnOffAndOnAtRunTime(t *testing.T) {
 	w := e.clock.next(t)
 	on.Store(false)
 	e.clock.fire(w)
-	w = e.clock.next(t)
+	e.clock.next(t)
 	if n := e.svc.calls.Load(); n != 1 {
 		t.Fatalf("%d requests, the one after turning off must not happen", n)
 	}
@@ -347,7 +349,7 @@ func TestRedirectFailsCheck(t *testing.T) {
 	var other atomic.Int32
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		other.Add(1)
-		fmt.Fprint(w, `{"current":"1.7.0","update_available":true,"latest":{"version":"9.9.9"},"releases":[]}`)
+		_, _ = fmt.Fprint(w, `{"current":"1.7.0","update_available":true,"latest":{"version":"9.9.9"},"releases":[]}`)
 	}))
 	defer target.Close()
 	redirect := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

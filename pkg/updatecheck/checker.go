@@ -194,13 +194,13 @@ func (c *Checker) fetch(ctx context.Context, id string) (*Answer, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body := io.LimitReader(resp.Body, maxBodySize)
 	if resp.StatusCode == http.StatusBadRequest {
 		var e struct {
 			Error string `json:"error"`
 		}
-		json.NewDecoder(body).Decode(&e)
+		_ = json.NewDecoder(body).Decode(&e) // the status says enough without the reason
 		c.logOnce("400", "[Update] the update service refused the check (%q): a vCLU bug, please report it", e.Error)
 		return nil, fmt.Errorf("HTTP 400 %q", e.Error)
 	}

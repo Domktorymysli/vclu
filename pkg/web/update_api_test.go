@@ -46,7 +46,7 @@ const updateAnswer = `{"current":"1.6.0","update_available":true,"extra":1,
 func withUpdateChecker(t *testing.T, e *historyEnv) *firstNowClock {
 	t.Helper()
 	svc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, updateAnswer)
+		_, _ = fmt.Fprint(w, updateAnswer)
 	}))
 	t.Cleanup(svc.Close)
 	clock := &firstNowClock{waits: make(chan time.Duration, 8)}

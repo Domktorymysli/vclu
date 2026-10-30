@@ -21,12 +21,16 @@ func TestInstanceID(t *testing.T) {
 	}
 
 	path := filepath.Join(dir, IDFile)
-	os.Remove(path) // the user wants a fresh id
+	if err := os.Remove(path); err != nil { // the user wants a fresh id
+		t.Fatal(err)
+	}
 	fresh, err := LoadOrCreateID(dir)
 	if err != nil || fresh == id || !uuidRe.MatchString(fresh) {
 		t.Fatalf("after deleting the file %q, %v", fresh, err)
 	}
-	os.WriteFile(path, []byte("garbage\n"), 0o644)
+	if err := os.WriteFile(path, []byte("garbage\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if fixed, _ := LoadOrCreateID(dir); !uuidRe.MatchString(fixed) {
 		t.Fatalf("a broken file gives %q", fixed)
 	}

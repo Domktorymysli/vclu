@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"html"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -79,8 +80,7 @@ func inline(line string) string {
 	s = bold(s)
 	for range 2 { // a link's text may hold code
 		s = slotRe.ReplaceAllStringFunc(s, func(m string) string {
-			var i int
-			fmt.Sscanf(slotRe.FindStringSubmatch(m)[1], "%d", &i)
+			i, _ := strconv.Atoi(slotRe.FindStringSubmatch(m)[1]) // the pattern holds digits only
 			return slots[i]
 		})
 	}
