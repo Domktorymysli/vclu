@@ -2,11 +2,13 @@ package metrics
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -58,7 +60,8 @@ func appendToFile(dataDir, metricPath string, samples []Sample) {
 
 		w := bufio.NewWriter(f)
 		for _, s := range daySamples {
-			fmt.Fprintf(w, "%d %.6g\n", s.Timestamp, s.Value)
+			// 10 digits: a kWh meter at 123456.78 keeps its hundredths for daily deltas
+			fmt.Fprintf(w, "%d %.10g\n", s.Timestamp, s.Value)
 		}
 		w.Flush()
 		f.Close()
@@ -103,24 +106,34 @@ func readFiles(dataDir, metricPath string, since int64) []Sample {
 }
 
 // readSingleFile parses a daily .ts file and returns samples at or after since.
+// A last line without its newline is still being written and is left out.
 func readSingleFile(path string, since int64) []Sample {
-	f, err := os.Open(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil
 	}
-	defer f.Close()
+	if i := bytes.LastIndexByte(data, '\n'); i >= 0 {
+		data = data[:i]
+	} else {
+		return nil
+	}
 
 	var samples []Sample
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := scanner.Text()
-		var ts int64
-		var val float64
-		if n, _ := fmt.Sscanf(line, "%d %f", &ts, &val); n == 2 {
-			if ts >= since {
-				samples = append(samples, Sample{Timestamp: ts, Value: val})
-			}
+	for _, line := range strings.Split(string(data), "\n") {
+		// strconv, not Sscanf: a 30-day bars widget reads a month of lines
+		tsStr, valStr, ok := strings.Cut(strings.TrimSpace(line), " ")
+		if !ok {
+			continue
 		}
+		ts, err := strconv.ParseInt(tsStr, 10, 64)
+		if err != nil || ts < since {
+			continue
+		}
+		val, err := strconv.ParseFloat(strings.TrimSpace(valStr), 64)
+		if err != nil {
+			continue
+		}
+		samples = append(samples, Sample{Timestamp: ts, Value: val})
 	}
 	return samples
 }

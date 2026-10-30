@@ -267,6 +267,72 @@ local function checkDecimals(what, id, opts, level)
 end
 
 -- ==========================================================================
+-- Bars: a metric summed, averaged... per hour or day of the house's zone
+-- ==========================================================================
+
+local BARS_KEYS = { range = true, bucket = true, agg = true, unit = true, decimals = true, color = true,
+    compare = true, compareLabel = true, visible = true, span = true, size = true, refresh = true }
+local BARS_AGG = { sum = true, avg = true, max = true, min = true, delta = true }
+local BARS_BUCKET = { ['1h'] = 3600, ['1d'] = 86400 }
+local BARS_MAX_RANGE = 31 * 86400 -- metrics keep 31 days
+
+-- "7d", "24h", "90m", "1h30m" -> seconds, nil when it is not a duration
+local function rangeSeconds(r)
+    if type(r) ~= 'string' then return nil end
+    local days = r:match('^(%d+)d$')
+    if days then
+        local n = tonumber(days)
+        if n > 0 then return n * 86400 end
+        return nil
+    end
+    local total, rest = 0, r
+    while rest ~= '' do
+        local n, unit, tail = rest:match('^(%d+)([hms])(.*)$')
+        if not n then return nil end
+        total = total + tonumber(n) * ({ h = 3600, m = 60, s = 1 })[unit]
+        rest = tail
+    end
+    return total > 0 and total or nil
+end
+
+local function barsWidget(id, label, metricPath, opts)
+    local where = 'bars widget "' .. tostring(id) .. '"'
+    if type(metricPath) ~= 'string' or metricPath == '' then
+        error(where .. ': expected a metric path registered with metric()', 3)
+    end
+    opts = opts or {}
+    for k in pairs(opts) do
+        if not BARS_KEYS[k] then
+            error(where .. ': unknown option "' .. tostring(k) .. '" (' .. quoted(BARS_KEYS) .. ')', 3)
+        end
+    end
+    local range = opts.range or '7d'
+    local secs = rangeSeconds(range)
+    if not secs or secs > BARS_MAX_RANGE then
+        error(where .. ': range must be a duration up to 31d such as "24h", "7d", "30d"', 3)
+    end
+    local bucket = opts.bucket or (secs >= 2 * 86400 and '1d' or '1h')
+    if not BARS_BUCKET[bucket] then error(where .. ': bucket must be "1h" or "1d"', 3) end
+    local agg = opts.agg or 'avg'
+    if not BARS_AGG[agg] then error(where .. ': agg must be one of ' .. quoted(BARS_AGG), 3) end
+    if opts.compare ~= nil and (type(opts.compare) ~= 'string' or opts.compare == '') then
+        error(where .. ': compare expects a second metric path', 3)
+    end
+    local d = opts.decimals
+    if d ~= nil and (type(d) ~= 'number' or d % 1 ~= 0 or d < 0 or d > 6) then
+        error(where .. ': opts.decimals must be a whole number 0-6', 3)
+    end
+    if opts.refresh ~= nil and (type(opts.refresh) ~= 'number' or opts.refresh < 30) then
+        error(where .. ': refresh must be a number of seconds, at least 30', 3)
+    end
+    return {
+        id = id, type = 'bars', label = label, metricPath = metricPath, opts = opts,
+        range = range, bucket = bucket, agg = agg,
+        buckets = math.max(1, math.ceil(secs / BARS_BUCKET[bucket])),
+    }
+end
+
+-- ==========================================================================
 -- Thermostat: current temperature, target, +/- for the target
 -- ==========================================================================
 
@@ -1245,6 +1311,17 @@ function SectionHandle:chart(id, label, metricPath, opts)
     return self
 end
 
+--- Add a bar chart of a metric to this section: one bar per hour or day of the house's zone.
+-- @param id string Unique widget identifier
+-- @param label string Display label (e.g., "Energia dziennie")
+-- @param metricPath string Metric path registered via metric() (e.g., "energia:licznik")
+-- @param opts table Optional: {range=string (a duration up to "31d"; default "7d"), bucket="1h"|"1d" (default "1d" from a 2-day range, else "1h"), agg="avg"|"sum"|"max"|"min"|"delta" (default "avg", the mean of the samples; sum depends on the sampling interval; delta: what a growing counter such as a kWh meter added in each bar, a single bad reading or a reset adds nothing), unit=string, decimals=0-6, color=string, compare=metricPath (a second bar beside each), compareLabel=string, visible=function()->bool, span=n, size=string, refresh=seconds (at least 30)}; samples are kept metrics.retentionDays (default 7) days
+-- @api public
+function SectionHandle:bars(id, label, metricPath, opts)
+    self._builder:_addWidget(self._sectionIndex, barsWidget(id, label, metricPath, opts))
+    return self
+end
+
 --- Add a calendar widget to this section: a month grid and the day of a tapped date.
 -- @param id string Unique widget identifier
 -- @param label string Display label
@@ -1968,6 +2045,20 @@ function DashboardBuilder:chart(id, label, metricPath, opts)
         id = id, type = 'chart', label = label,
         metricPath = metricPath, opts = opts or {}
     })
+    return self
+end
+
+--- Add a bar chart of a metric to the current section: one bar per hour or day of the house's zone.
+-- @param id string Unique widget identifier
+-- @param label string Display label (e.g., "Energia dziennie")
+-- @param metricPath string Metric path registered via metric() (e.g., "energia:licznik")
+-- @param opts table Optional: {range=string (a duration up to "31d"; default "7d"), bucket="1h"|"1d" (default "1d" from a 2-day range, else "1h"), agg="avg"|"sum"|"max"|"min"|"delta" (default "avg", the mean of the samples; sum depends on the sampling interval; delta: what a growing counter such as a kWh meter added in each bar, a single bad reading or a reset adds nothing), unit=string, decimals=0-6, color=string, compare=metricPath (a second bar beside each), compareLabel=string, visible=function()->bool, span=n, size=string, refresh=seconds (at least 30)}; samples are kept metrics.retentionDays (default 7) days
+-- @api public
+function DashboardBuilder:bars(id, label, metricPath, opts)
+    if not self._currentSection then
+        error('Call :section() before adding widgets (dash:floor() ends the current section)', 2)
+    end
+    self:_addWidget(self._currentSection, barsWidget(id, label, metricPath, opts))
     return self
 end
 
@@ -2728,6 +2819,25 @@ function DashboardAPI.usesMetric(id, path)
     return JSON.encode({ used = true, ranges = ranges })
 end
 
+--- What a bars widget aggregates: its metrics, buckets and the house's zone
+-- @return string JSON {path, compare, bucket, buckets, agg, zone} or {error, status}
+function DashboardAPI.barsSpec(id, widgetId)
+    local dash = resolveDashboard(id)
+    if not dash then return JSON.encode({ error = 'Dashboard not found', status = 404 }) end
+    for _, sec in ipairs(dash._sections) do
+        for _, w in ipairs(sec.widgets) do
+            if w.id == widgetId and w.type == 'bars' then
+                if dashHidden(id, dash)[w] then return JSON.encode({ error = 'bars widget is hidden', status = 403 }) end
+                return JSON.encode({
+                    path = w.metricPath, compare = w.opts.compare, bucket = w.bucket,
+                    buckets = w.buckets, agg = w.agg, zone = __go_calendar_zone(),
+                })
+            end
+        end
+    end
+    return JSON.encode({ error = 'bars widget not on this dashboard', status = 403 })
+end
+
 local CALENDAR_CHIPS = 3      -- a month cell shows 3 events and "+n"
 local CALENDAR_DAY_MAX = 300  -- events in one day view
 
@@ -2946,6 +3056,16 @@ function DashboardAPI.getDefinition(id)
                 widget.min = w.opts.min
                 widget.max = w.opts.max
                 widget.fill = w.opts.fill
+            end
+
+            -- Bars: the page asks /bars for the widget's own series, not for a metric
+            if w.type == 'bars' then
+                widget.range, widget.bucket, widget.agg = w.range, w.bucket, w.agg
+                widget.unit = w.opts.unit or ''
+                widget.decimals = w.opts.decimals
+                widget.refresh = w.opts.refresh
+                widget.compare = w.opts.compare ~= nil
+                widget.compareLabel = w.opts.compareLabel
             end
 
             if w.type == 'calendar' then

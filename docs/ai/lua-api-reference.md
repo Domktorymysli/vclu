@@ -1153,6 +1153,15 @@ Add a chart widget to this section.
 - `metricPath` (string) — Metric path registered via metric() (e.g., "temp:salon", "salda:outsideAir")
 - `opts` (table) — Optional: {range=string (any duration such as "30m", "2h", "24h", "7d"; default "2h"; 30m/2h/24h/7d have tuned refresh, others refresh every 60 s), unit=string, min=n, max=n (Y axis), fill=bool (default true), refresh=seconds, span=n, color=string, visible=function()->bool}
 
+### `SectionHandle:bars(id, label, metricPath, opts)`
+
+Add a bar chart of a metric to this section: one bar per hour or day of the house's zone.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label (e.g., "Energia dziennie")
+- `metricPath` (string) — Metric path registered via metric() (e.g., "energia:licznik")
+- `opts` (table) — Optional: {range=string (a duration up to "31d"; default "7d"), bucket="1h"|"1d" (default "1d" from a 2-day range, else "1h"), agg="avg"|"sum"|"max"|"min"|"delta" (default "avg", the mean of the samples; sum depends on the sampling interval; delta: what a growing counter such as a kWh meter added in each bar, a single bad reading or a reset adds nothing), unit=string, decimals=0-6, color=string, compare=metricPath (a second bar beside each), compareLabel=string, span=n, size=string, refresh=seconds (at least 30)}; samples are kept metrics.retentionDays (default 7) days
+
 ### `SectionHandle:calendar(id, label, cal, opts)`
 
 Add a calendar widget to this section: a month grid and the day of a tapped date. holidays=true (holiday names, on by default), namedays=false (name days in the day view), sun=true (sunrise and sunset in the day view, with :location()), span=n, visible=function()->bool}; what is off is not sent to the browser
@@ -1496,6 +1505,15 @@ Add a chart widget to the current section.
 - `label` (string) — Display label (e.g., "Temperatura 24h")
 - `metricPath` (string) — Metric path registered via metric() (e.g., "temp:salon", "salda:outsideAir")
 - `opts` (table) — Optional: {range=string (any duration such as "30m", "2h", "24h", "7d"; default "2h"; 30m/2h/24h/7d have tuned refresh, others refresh every 60 s), unit=string, min=n, max=n (Y axis), fill=bool (default true), refresh=seconds, span=n, color=string, visible=function()->bool}
+
+### `DashboardBuilder:bars(id, label, metricPath, opts)`
+
+Add a bar chart of a metric to the current section: one bar per hour or day of the house's zone.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label (e.g., "Energia dziennie")
+- `metricPath` (string) — Metric path registered via metric() (e.g., "energia:licznik")
+- `opts` (table) — Optional: {range=string (a duration up to "31d"; default "7d"), bucket="1h"|"1d" (default "1d" from a 2-day range, else "1h"), agg="avg"|"sum"|"max"|"min"|"delta" (default "avg", the mean of the samples; sum depends on the sampling interval; delta: what a growing counter such as a kWh meter added in each bar, a single bad reading or a reset adds nothing), unit=string, decimals=0-6, color=string, compare=metricPath (a second bar beside each), compareLabel=string, span=n, size=string, refresh=seconds (at least 30)}; samples are kept metrics.retentionDays (default 7) days
 
 ### `DashboardBuilder:calendar(id, label, cal, opts)`
 

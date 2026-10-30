@@ -220,6 +220,7 @@ body {
     }
     .dash-widget-status:hover,
     .dash-widget-chart-container:hover,
+    .dash-widget-bars:hover,
     .dash-widget-image:hover,
     .dash-widget-cover:hover,
     .dash-widget-covers:hover,
@@ -473,6 +474,7 @@ body {
 .dash-widget-status:active,
 .dash-widget-slider:active,
 .dash-widget-chart-container:active,
+.dash-widget-bars:active,
 .dash-widget-image:active,
 .dash-widget-cover:active,
 .dash-widget-covers:active,
@@ -538,6 +540,168 @@ body {
 
 .dash-widget-chart-container.size-large .dash-chart-wrap {
     height: 220px;
+}
+
+/* ---- Bars widget: SVG drawn by dashboard.js; colours follow the theme's text and accent ---- */
+.dash-widget-bars {
+    cursor: default;
+    --bars-c: var(--widget-color, var(--dash-accent));
+}
+
+.dash-bars-wrap {
+    position: relative;
+    width: 100%;
+    height: 150px;
+    outline: none;
+    touch-action: pan-y;
+}
+
+.dash-widget-bars.size-large .dash-bars-wrap {
+    height: 220px;
+}
+
+.dash-bars-wrap:focus-visible {
+    outline: 2px solid var(--bars-c);
+    outline-offset: 2px;
+    border-radius: 6px;
+}
+
+.dash-bars-svg {
+    display: block;
+    overflow: visible;
+}
+
+.dash-bars-grid,
+.dash-bars-zero {
+    stroke: var(--dash-text);
+    stroke-opacity: 0.12;
+    shape-rendering: crispEdges;
+}
+
+.dash-bars-zero {
+    stroke-opacity: 0.35;
+}
+
+.dash-bars-axis {
+    fill: var(--dash-text);
+    fill-opacity: 0.6;
+    font-size: 10px;
+}
+
+.dash-bars-bar {
+    fill: var(--bars-c);
+}
+
+/* the second series: the theme's text colour, muted, so it reads against any accent */
+.dash-bars-cmp {
+    fill: var(--dash-text);
+    fill-opacity: 0.45;
+}
+
+/* the bar still filling (today, this hour): lighter, with a dashed edge */
+.dash-bars-bucket.partial .dash-bars-bar {
+    fill-opacity: 0.5;
+    stroke: var(--bars-c);
+    stroke-dasharray: 3 2;
+    stroke-width: 1;
+}
+
+.dash-bars-bucket.partial .dash-bars-cmp {
+    fill-opacity: 0.25;
+    stroke: var(--dash-text);
+}
+
+.dash-bars-gap {
+    stroke: var(--dash-text);
+    stroke-opacity: 0.35;
+    stroke-width: 2;
+    stroke-dasharray: 2 2;
+}
+
+.dash-bars-hit {
+    fill: transparent;
+    cursor: pointer;
+}
+
+.dash-bars-bucket.sel .dash-bars-hit {
+    fill: var(--dash-text);
+    fill-opacity: 0.07;
+}
+
+.dash-bars-anim .dash-bars-bar {
+    transform-box: fill-box;
+    transform-origin: bottom;
+    animation: dash-bars-in 0.35s ease-out;
+}
+
+@keyframes dash-bars-in {
+    from { transform: scaleY(0); }
+    to { transform: scaleY(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dash-bars-anim .dash-bars-bar { animation: none; }
+}
+
+.dash-bars-tip {
+    position: absolute;
+    top: 0;
+    pointer-events: none;
+    background: var(--dash-card-bg);
+    color: var(--dash-text);
+    border: 1px solid rgba(128,128,128,0.35);
+    border-radius: 8px;
+    padding: 4px 8px;
+    font-size: 0.78rem;
+    line-height: 1.35;
+    white-space: nowrap;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+}
+
+.dash-bars-tip[hidden] {
+    display: none;
+}
+
+.dash-bars-tip-when {
+    opacity: 0.7;
+}
+
+.dash-bars-tip-v {
+    font-weight: 600;
+}
+
+.dash-bars-legend {
+    display: flex;
+    gap: 14px;
+    font-size: 0.78rem;
+    opacity: 0.8;
+    margin: -2px 0 4px;
+}
+
+.dash-bars-key {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+}
+
+.dash-bars-swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    background: var(--bars-c);
+    flex: none;
+}
+
+.dash-bars-swatch-cmp {
+    background: var(--dash-text);
+    opacity: 0.45;
+}
+
+@media (max-width: 600px) {
+    .dash-bars-wrap {
+        height: 140px;
+    }
 }
 
 /* ---- Select widget: the list lies invisibly over the tile ---- */
@@ -1988,6 +2152,7 @@ body {
     }
     /* Charts, images, and compound widgets span full width, also with a span */
     .dash-grid > .dash-widget-chart-container,
+    .dash-grid > .dash-widget-bars,
     .dash-grid > .dash-widget-image,
     .dash-grid > .dash-widget-cover,
     .dash-grid > .dash-widget-covers,

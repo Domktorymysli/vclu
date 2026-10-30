@@ -961,6 +961,50 @@ directly by the browser from `/api/metrics/data`, NOT through Lua polling.
 -- min, max: fixed Y axis limits
 ```
 
+### Bars widget (per hour or per day)
+
+`section:bars` draws one bar per hour or day of the house's zone (midnight to midnight; a DST day
+is 23 or 25 hours). vCLU aggregates the `metric()` samples itself. An hour or day without samples
+is a gap, not 0; the newest bar is still filling and is drawn lighter.
+
+Samples are kept 7 days by default, so `range = '30d'` needs `"metrics": {"retentionDays": 31}`
+in `.vclu.json` (1-366, read at start). Days before the retention show "brak danych" (no data
+kept), not an outage. Disk: a metric sampled every 60 s takes about 25 KB a day, every 10 s
+about 200 KB a day (31 days of 20 such metrics: about 125 MB). Backups include `metrics/`, so a
+longer retention also makes backups larger.
+
+Daily kWh from a meter that only counts up (SDM120, an inverter's total): `agg = 'delta'` is what
+the counter added in each day. A single bad reading (a 0 from a Modbus timeout) adds nothing; a
+value that stays lower for 3 samples (or an hour) is a reset or a replaced meter, and the count
+goes on from it. A rise across a gap (vCLU was off) goes to the bar after the gap when the gap is
+at most one bar long, otherwise it is left out.
+
+```lua
+-- licznik: any object whose value is the meter's total energy in kWh
+metric('energia:dom', function() return licznik:getValue() end, { unit = 'kWh', interval = 60 })
+
+Dashboard.new('energia'):name('Energia'):section('Zużycie', 'lightning')
+    :bars('dzien', 'Zużycie dziennie', 'energia:dom', { agg = 'delta', unit = 'kWh', decimals = 1 })
+    :bars('godz', 'Ostatnie 24 h', 'energia:dom', { range = '24h', agg = 'delta', unit = 'kWh' })
+    :build()
+```
+
+PV against consumption: `compare` draws a second bar beside each, with its own label.
+
+```lua
+metric('energia:pv', function() return falownik:getValue() end, { unit = 'kWh', interval = 60 })
+
+d:section('Bilans', 'sun')
+    :bars('pv', 'Zużycie', 'energia:dom', { range = '30d', agg = 'delta', unit = 'kWh',
+        compare = 'energia:pv', compareLabel = 'PV', color = 'warning', span = 2 })
+```
+
+Other aggregations: `avg` (default) is the plain mean of the samples in the bar, `sum` their
+total (it depends on the sampling interval: use it for counts, not for power), `max` and `min`,
+e.g. the warmest hour of each day: `:bars('t', 'Temp. max', 'temp:zewn', { agg = 'max', unit = '°C' })`.
+`refresh` is at least 30 s (default 60 s for hours, 300 s for days). The page reads only the
+widget's own bars, never the raw metric, also on a public dashboard.
+
 ### Sparkline on a status widget
 
 Small chart under the status value. Takes data from Metrics.

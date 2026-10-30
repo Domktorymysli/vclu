@@ -37,10 +37,8 @@ func (s *MCPServer) handleMetrics(ctx context.Context, req mcplib.CallToolReques
 	if r, ok := args["range"].(string); ok && r != "" {
 		rangeStr = r
 	}
-	duration := parseMetricRange(rangeStr)
-	since := time.Now().Add(-duration).Unix()
-
-	samples := s.metricsCollector.Query(path, since)
+	// at most the retention back, at most metrics.MaxPoints samples (averaged)
+	samples := s.metricsCollector.QueryRange(path, parseMetricRange(rangeStr))
 
 	// Return as [[timestamp, value], ...] for chart compatibility
 	data := make([][2]float64, len(samples))
