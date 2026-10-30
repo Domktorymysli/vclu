@@ -650,6 +650,39 @@ func TestScenario_TimedCommandAttribution(t *testing.T) {
 	requireSuccess(t, res)
 }
 
+// VirtualPresence runs on the sandbox's virtual clock: motion during the hold extends it,
+// the light goes off hold s after the last motion.
+func TestScenario_VirtualPresence(t *testing.T) {
+	se, ws, _ := newTestSandbox(t)
+	writeDraft(t, ws, "modules/presence.lua", `
+		local pir = VirtualSensor:new("pir")
+		registerObject("virt.pir", pir)
+		local light = VirtualSwitch:new("light")
+		registerObject("virt.light", light)
+		local p = VirtualPresence:new("hall", { trigger = { "virt.pir" }, hold = 60 })
+		registerObject("virt.hall", p)
+		p:onSwitchOn(function() light:switchOn() end)
+		p:onSwitchOff(function() light:switchOff() end)
+		EventBus:getShared():on("motion", function() pir:updateState(1) pir:updateState(0) end)
+	`)
+	res, err := se.RunScenario([]string{"modules/presence.lua"}, SandboxScenario{
+		Steps: mustSteps(t, `[
+			{"emit": "motion", "data": {}},
+			{"advance": 50},
+			{"emit": "motion", "data": {}},
+			{"advance": 50},
+			{"expect_state": {"virt.light": 1, "virt.hall": 1}},
+			{"advance": 11},
+			{"expect_state": {"virt.light": 0, "virt.hall": 0}},
+			{"expect_history": {"path": "virt.light", "changes": [{"value": 1}, {"value": 0}]}}
+		]`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireSuccess(t, res)
+}
+
 func TestScenario_DraftLoadsAsModule(t *testing.T) {
 	se, ws, _ := newTestSandbox(t)
 	writeDraft(t, ws, "modules/energy.lua", `

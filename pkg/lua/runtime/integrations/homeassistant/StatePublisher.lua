@@ -221,7 +221,7 @@ end
 
 -- Format state value for MQTT based on exposed type
 local function formatExposedState(value, exposedType)
-    if exposedType == "switch" or exposedType == "sensor" or exposedType == "motion" then
+    if exposedType == "switch" or exposedType == "sensor" or exposedType == "motion" or exposedType == "occupancy" then
         -- Binary: 0/1/true/false -> OFF/ON
         if value == 1 or value == true or value == "1" or value == "ON" or value == "on" then
             return "ON"
@@ -765,6 +765,8 @@ local function onObjectExposed(data)
     elseif exposedType == "illuminance" then
         discoveryPayload.unit_of_measurement = options.unit or "lx"
         discoveryPayload.device_class = "illuminance"
+    elseif exposedType == "occupancy" then
+        discoveryPayload.device_class = "occupancy"
     end
 
     -- Add min/max/step for number type (not when remapped to a read-only sensor)

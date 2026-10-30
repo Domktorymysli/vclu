@@ -65,6 +65,7 @@ var moduleOrder = map[string]int{
 	"objects.VirtualCover":         15,
 	"objects.VirtualObject":        16,
 	"objects.VirtualThermostat":    17,
+	"objects.VirtualPresence":      18,
 	"ExposedObjects":               20,
 	"core.Registry":                25,
 	"core.Metrics":                 30,
@@ -362,8 +363,12 @@ func generateMarkdown(modules map[string]*ModuleDoc) string {
 	for _, mod := range modules {
 		sorted = append(sorted, mod)
 	}
+	// by name within an order: the output does not change from run to run
 	sort.Slice(sorted, func(i, j int) bool {
-		return sorted[i].Order < sorted[j].Order
+		if sorted[i].Order != sorted[j].Order {
+			return sorted[i].Order < sorted[j].Order
+		}
+		return sorted[i].Name < sorted[j].Name
 	})
 
 	// TOC
