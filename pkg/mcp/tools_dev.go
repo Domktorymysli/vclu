@@ -628,6 +628,11 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 				"methods":     []string{"getValue()", "getTarget()", "getSetpoint()", "setSetpoint(v)", "getState()", "start()", "stop()", "getMode()", "setMode(0|1)", "getFault()", "getDirection()", "onChange(cb)"},
 				"note":        "Switches output (switchOn/switchOff) by source temperature at target ± hysteresis; no source change for staleAfter s or on longer than maxOn: output off (getFault 'stale'/'maxOn'). Mode 0 set point, 1 holiday. Output switched off before a reload or stop, and starts off. Same interface as RemoteThermostat: expose(th, \"climate\", {...}), lib/panel menu:add",
 			},
+			"VirtualPresence (DIN)": map[string]any{
+				"constructor": "VirtualPresence:new(name, {trigger={obj|path,...}, keep={obj|path,...}, door=obj|path, hold=300, doorGrace=10})",
+				"methods":     []string{"getValue()", "isActive()", "onSwitchOn(cb)", "onSwitchOff(cb)", "getReason()", "getRemaining()", "getDuration()", "trigger(sec?)", "setOverride(1|0|nil)", "setHold(sec)", "getHold()", "onChange(cb)"},
+				"note":        "Room presence: on while a trigger is active (1/true), or a keep source is active after a start, or the door (1 = open) is closed with someone seen inside after it closed (a trigger went 0->1, or one on at closing still on doorGrace s later; until it opens); off hold s after the last ends. keep never starts it. Starts empty, also after a reload. A light switched by the presence must not be its own keep source. expose(p, \"occupancy\", {...})",
+			},
 			"PluginSensor": map[string]any{
 				"methods": []string{"get()", "onChange(cb)"},
 				"note":    "Created via plugin:sensor(). NOT getValue()!",

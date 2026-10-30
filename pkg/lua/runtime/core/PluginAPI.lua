@@ -602,7 +602,7 @@ end
 -- and HomeKit accessories without requiring the plugin to know
 -- about these integrations.
 -- @param obj table Object to expose (must implement get(0) at minimum)
--- @param objType string Type: switch, light, dimmer, sensor, motion, temperature, humidity, cover, scene, number, button
+-- @param objType string Type: switch, light, dimmer, sensor, motion, occupancy, temperature, humidity, cover, scene, number, button
 -- @param options table Optional settings: name, path, id, readonly, hidden, mqtt, homekit, group
 -- @return ExposedHandle Handle for managing the exposed object
 -- @usage

@@ -14,6 +14,7 @@ Only public API is listed — internal/private functions are omitted.
 - [objects.VirtualCover](#objectsvirtualcover) (10 functions)
 - [objects.VirtualObject](#objectsvirtualobject) (12 functions)
 - [objects.VirtualThermostat](#objectsvirtualthermostat) (12 functions)
+- [objects.VirtualPresence](#objectsvirtualpresence) (8 functions)
 - [ExposedObjects](#exposedobjects) (21 functions)
 - [core.Registry](#coreregistry) (10 functions)
 - [core.Metrics](#coremetrics) (1 functions)
@@ -692,6 +693,61 @@ Why the output is held off besides the state: "stale" (no reading for staleAfter
 What the output does: "heat" or "cool" (Home Assistant shows it as the mode).
 
 **Returns:** string Direction
+
+---
+
+## objects.VirtualPresence
+
+### `VirtualPresence:new(name, opts) → VirtualPresence The new presence`
+
+Creates a presence that is on while a `trigger` source is active, or a `keep` source is active after a start, or the `door` is closed with someone inside, and for `hold` seconds after the last of these ends. It starts empty (also after a restart or a reload): a trigger active at creation counts once it has changed. Options: trigger (list of objects or registry paths; 1 or true starts and keeps presence), keep (list; keeps presence that is on, never starts it), door (one object or path, 1 = open: it keeps presence until it opens once someone is seen inside after it closed: a trigger going on, or one on at closing still on doorGrace s later; closing it on leaving lets the hold run out), doorGrace (10 s: a detector that stays on longer by itself belongs in keep, or needs more), hold (300 s). Sources need getValue() (Grenton, virtual, Satel, GPIO objects); a plugin sensor has get(), so bridge it: s:onChange(function(v) vs:updateState(v) end) with vs a VirtualSensor. Do not make a light switched by this presence its own keep source.
+
+- `name` (string) — Name
+- `opts` (table) — Options, see above
+
+**Returns:** VirtualPresence The new presence
+
+### `VirtualPresence:getReason() → string|nil Reason`
+
+What holds presence now: "trigger: <path>", "keep: <path>", "door", "hold 42 s", "override", nil when empty.
+
+**Returns:** string|nil Reason
+
+### `VirtualPresence:getRemaining() → number Seconds`
+
+Seconds of hold left: 0 while a source or an override holds it, or when empty.
+
+**Returns:** number Seconds
+
+### `VirtualPresence:getDuration() → number Seconds`
+
+Seconds since presence started, 0 when empty.
+
+**Returns:** number Seconds
+
+### `VirtualPresence:trigger(sec)`
+
+A signal from code ("I'm here"): starts presence or extends it by sec (default hold). Ignored while an override is set.
+
+- `sec` (number) — Seconds (nil: the hold)
+
+### `VirtualPresence:setOverride(v)`
+
+Forces presence: 1 present (guests), 0 empty (alarm armed), nil back to the sensors (a presence that was on then holds for hold seconds unless a source keeps it).
+
+- `v` (number) — 1, 0 or nil
+
+### `VirtualPresence:setHold(sec)`
+
+Sets the hold time; a hold already running keeps its end.
+
+- `sec` (number) — Seconds >= 0
+
+### `VirtualPresence:getHold() → number Seconds`
+
+Gets the hold time.
+
+**Returns:** number Seconds
 
 ---
 
