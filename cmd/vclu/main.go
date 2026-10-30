@@ -150,7 +150,8 @@ func main() {
 
 	// Initialize metrics collector early — must be available before Lua modules load
 	cluDir := filepath.Join(serverDir, "clu")
-	metricsCollector := metrics.NewCollector(filepath.Join(cluDir, "metrics"))
+	metricsCollector := metrics.NewCollector(filepath.Join(cluDir, "metrics"),
+		metrics.WithRetainDays(config.GetMetricsConfig(cluDir).RetentionDays))
 
 	// Create CLU server
 	dir := filepath.Join(serverDir, "clu")

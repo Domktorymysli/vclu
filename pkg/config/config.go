@@ -153,6 +153,9 @@ type VCLUMetricsConfig struct {
 	Auth     bool   `json:"auth"`               // Whether to require authentication (default: false)
 	Username string `json:"username,omitempty"` // Basic auth username (if auth enabled)
 	Password string `json:"password,omitempty"` // Basic auth password (if auth enabled)
+	// Days of metric() samples kept on disk for charts and bars (1-366, default 7); a 30-day
+	// bars widget needs 31
+	RetentionDays int `json:"retentionDays,omitempty"`
 }
 
 // VCLUSatelConfig contains Satel Integra alarm integration settings.

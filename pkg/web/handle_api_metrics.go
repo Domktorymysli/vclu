@@ -37,13 +37,10 @@ func (s *Server) handleAPIMetricsData(c *gin.Context) {
 	s.writeMetricSamples(c, path)
 }
 
-// writeMetricSamples answers with the path's samples over ?range= (default 2h).
+// writeMetricSamples answers with the path's samples over ?range= (default 2h), at most the
+// retention back and at most metrics.MaxPoints of them.
 func (s *Server) writeMetricSamples(c *gin.Context, path string) {
-	rangeStr := c.DefaultQuery("range", "2h")
-	duration := parseRange(rangeStr)
-	since := time.Now().Add(-duration).Unix()
-
-	samples := s.metricsCollector.Query(path, since)
+	samples := s.metricsCollector.QueryRange(path, parseRange(c.DefaultQuery("range", "2h")))
 
 	// Output: [[timestamp, value], ...]
 	out := make([][2]float64, len(samples))

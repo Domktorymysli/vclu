@@ -40,7 +40,10 @@
               noForecast: 'brak prognozy', rain: 'opady', temperature: 'temperatura',
               onN: ['włączone', 'włączone', 'włączonych'], allOff: 'wszystko wyłączone', back: 'Wróć',
               humidity: 'wilgotność', target: 'cel', thermoOn: 'włączony', thermoOff: 'wyłączony',
-              modes: ['ręcznie', 'urlop', 'harmonogram', 'podgrzewanie'], locked: 'zablokowany', lower: 'Obniż', raise: 'Podnieś' },
+              modes: ['ręcznie', 'urlop', 'harmonogram', 'podgrzewanie'], locked: 'zablokowany', lower: 'Obniż', raise: 'Podnieś',
+              weekdays: ['nd', 'pn', 'wt', 'śr', 'cz', 'pt', 'sb'], today: 'dziś', thisHour: 'ta godzina',
+              soFar: 'do teraz', noData: 'brak danych', compare: 'porównanie',
+              notKept: 'brak danych: vCLU trzyma metryki {n} dni' },
         en: { on: 'on', off: 'off', open: 'open', closed: 'closed', opening: 'opening',
               closing: 'closing', unknown: 'no reading', run: 'run', sent: 'sent', updated: 'updated',
               nothingToday: 'nothing more today', holidays: 'Holidays', namedays: 'Name days', sun: 'Sun', show: 'Show',
@@ -55,7 +58,10 @@
               noForecast: 'no forecast', rain: 'rain', temperature: 'temperature',
               onN: ['on', 'on', 'on'], allOff: 'all off', back: 'Back', humidity: 'humidity',
               target: 'target', thermoOn: 'on', thermoOff: 'off',
-              modes: ['manual', 'holiday', 'schedule', 'heat-up'], locked: 'locked', lower: 'Lower', raise: 'Raise' }
+              modes: ['manual', 'holiday', 'schedule', 'heat-up'], locked: 'locked', lower: 'Lower', raise: 'Raise',
+              weekdays: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], today: 'today', thisHour: 'this hour',
+              soFar: 'so far', noData: 'no data', compare: 'compare',
+              notKept: 'no data: vCLU keeps metrics {n} days' }
     };
     // ?lang= as on the other pages, else the browser's language
     var lang = (function() {
@@ -69,7 +75,7 @@
         button: 'play-fill', toggle: 'power', slider: 'sliders', status: 'info-circle', link: 'link-45deg',
         chart: 'graph-up', select: 'list-ul', image: 'image', cover: 'arrows-expand', covers: 'window', dimmer: 'lightbulb',
         color: 'palette', calendar: 'calendar3', player: 'music-note-beamed', forecast: 'cloud-sun',
-        room: 'door-open', thermostat: 'thermometer-half'
+        room: 'door-open', thermostat: 'thermometer-half', bars: 'bar-chart'
     };
 
     // 23.9 -> "23,9" in Polish; with decimals rounded to them (21 -> "21,0"); text as it is
@@ -256,7 +262,7 @@
         var d = el._data || (el._data = {});
         for (var k in data) if (data.hasOwnProperty(k)) d[k] = data[k];
         var type = el.dataset.type;
-        if (type === 'chart' || type === 'image' || type === 'calendar') return;
+        if (type === 'chart' || type === 'bars' || type === 'image' || type === 'calendar') return;
         var st = tileState(type, w, d);
         setState(el, st[0], st[1]);
         if (type === 'player') updatePlayer(el, d);
@@ -537,6 +543,8 @@
             renderLink(el, w);
         } else if (w.type === 'chart') {
             renderChart(el, w);
+        } else if (w.type === 'bars') {
+            renderBars(el, w);
         } else if (w.type === 'select') {
             renderSelect(el, w);
         } else if (w.type === 'cover') {
@@ -2168,6 +2176,217 @@
             });
     }
 
+    // ---- Bars: one bar per hour or day of the house's zone, aggregated by the server ----
+
+    var bars = {}; // widgetId -> {refresh, observer}
+    var SVG_NS = 'http://www.w3.org/2000/svg';
+
+    function svgEl(tag, attrs, cls) {
+        var e = document.createElementNS(SVG_NS, tag);
+        for (var k in attrs) if (attrs.hasOwnProperty(k)) e.setAttribute(k, attrs[k]);
+        if (cls) e.setAttribute('class', cls);
+        return e;
+    }
+
+    function barsRefreshMs(w) {
+        if (w.refresh) return w.refresh * 1000;
+        return w.bucket === '1h' ? 60000 : 300000;
+    }
+
+    // 1, 2 or 5 times a power of ten, so the grid lines fall on round numbers
+    function niceStep(span) {
+        if (!(span > 0)) return 1;
+        var p = Math.pow(10, Math.floor(Math.log(span) / Math.LN10));
+        var f = span / p;
+        return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * p;
+    }
+
+    function barsDecimals(w, maxAbs) {
+        if (w.decimals != null) return w.decimals;
+        if (maxAbs >= 100) return 0;
+        return maxAbs >= 1 ? 1 : 2;
+    }
+
+    // "cz 30.10" for a day, "14:00–15:00" for an hour (with the day beyond one day of hours)
+    function barsWhen(w, b, n) {
+        var dm = Number(b.date.slice(8)) + '.' + b.date.slice(5, 7);
+        if (w.bucket === '1d') return T.weekdays[b.wd] + ' ' + dm;
+        // the bucket's own end: 01:00–03:00 on a spring-forward night
+        var h = pad2(b.h) + ':00–' + pad2(b.eh != null ? b.eh : (b.h + 1) % 24) + ':00';
+        return n > 24 ? T.weekdays[b.wd] + ' ' + dm + ', ' + h : h;
+    }
+
+    function renderBars(el, w) {
+        el.style.cursor = 'default';
+        if (w.compare) {
+            var legend = calEl('div', 'dash-bars-legend');
+            var a = legend.appendChild(calEl('span', 'dash-bars-key'));
+            a.appendChild(calEl('i', 'dash-bars-swatch'));
+            a.appendChild(document.createTextNode(w.label || ''));
+            var b = legend.appendChild(calEl('span', 'dash-bars-key dash-bars-key-cmp'));
+            b.appendChild(calEl('i', 'dash-bars-swatch dash-bars-swatch-cmp'));
+            b.appendChild(document.createTextNode(w.compareLabel || T.compare));
+            el.appendChild(legend);
+        }
+        var wrap = el.appendChild(calEl('div', 'dash-bars-wrap'));
+        wrap.tabIndex = 0;
+        var tip = calEl('div', 'dash-bars-tip');
+        tip.setAttribute('role', 'status');
+        tip.setAttribute('aria-live', 'polite');
+        tip.hidden = true;
+        wrap.appendChild(tip);
+        setState(el, 'unknown', T.unknown);
+
+        var st = { el: el, wrap: wrap, tip: tip, w: w, data: null, sel: -1, drawn: false };
+        function load() {
+            fetchJSON('/api/dashboard/' + dashId + '/bars?widget=' + encodeURIComponent(w.id))
+                .then(function(res) {
+                    if (!res || !res.buckets) return;
+                    st.data = res;
+                    drawBars(st);
+                })
+                .catch(function() {});
+        }
+        wrap.addEventListener('keydown', function(e) {
+            if (!st.data) return;
+            var n = st.data.buckets.length;
+            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                e.preventDefault();
+                var i = st.sel < 0 ? n - 1 : st.sel + (e.key === 'ArrowLeft' ? -1 : 1);
+                selectBar(st, Math.max(0, Math.min(n - 1, i)));
+            } else if (e.key === 'Escape') {
+                selectBar(st, -1);
+            }
+        });
+        wrap.addEventListener('blur', function() { selectBar(st, -1); });
+        var observer = null;
+        if (window.ResizeObserver) {
+            var lastW = 0;
+            observer = new ResizeObserver(function() {
+                if (wrap.clientWidth !== lastW) { lastW = wrap.clientWidth; drawBars(st); }
+            });
+            observer.observe(wrap);
+        }
+        bars[w.id] = { refresh: load, observer: observer };
+        load();
+        startChartTimer('bars-' + w.id, load, barsRefreshMs(w));
+    }
+
+    function drawBars(st) {
+        if (!st.data || !st.wrap.isConnected) return;
+        var w = st.w, wrap = st.wrap;
+        var buckets = st.data.buckets;
+        var n = buckets.length;
+        var W = wrap.clientWidth || 300, H = wrap.clientHeight || 150;
+        var lo = 0, hi = 0, maxAbs = 0;
+        buckets.forEach(function(b) {
+            [b.v, w.compare ? b.c : null].forEach(function(v) {
+                if (v == null) return;
+                lo = Math.min(lo, v); hi = Math.max(hi, v); maxAbs = Math.max(maxAbs, Math.abs(v));
+            });
+        });
+        if (hi === lo) hi = lo + 1;
+        var step = niceStep((hi - lo) / 3);
+        hi = Math.ceil(hi / step - 1e-9) * step;
+        lo = Math.floor(lo / step + 1e-9) * step;
+        st.dec = barsDecimals(w, maxAbs);
+        var tickDec = Math.max(0, -Math.floor(Math.log(step) / Math.LN10 + 1e-9));
+
+        // the widest tick label sets the left margin
+        var ticks = [];
+        for (var t = lo; t <= hi + step / 2; t += step) ticks.push(Math.round(t / step) * step);
+        var labelW = 0;
+        ticks.forEach(function(t) { labelW = Math.max(labelW, fmtNum(t, tickDec).length); });
+        var padL = 8 + labelW * 6.5, padR = 2, padT = 6, padB = 18;
+        var plotW = Math.max(10, W - padL - padR), plotH = Math.max(10, H - padT - padB);
+        var y = function(v) { return padT + (hi - v) / (hi - lo) * plotH; };
+        var slot = plotW / n;
+        st.padL = padL; st.slot = slot; st.W = W;
+
+        var svg = svgEl('svg', { width: W, height: H, viewBox: '0 0 ' + W + ' ' + H, role: 'img' }, 'dash-bars-svg');
+        svg.setAttribute('aria-label', w.label || '');
+        if (!st.drawn) svg.classList.add('dash-bars-anim');
+        st.drawn = true;
+        ticks.forEach(function(t) {
+            var gy = Math.round(y(t)) + 0.5;
+            svg.appendChild(svgEl('line', { x1: padL, x2: W - padR, y1: gy, y2: gy }, t === 0 ? 'dash-bars-zero' : 'dash-bars-grid'));
+            var tx = svgEl('text', { x: padL - 6, y: gy + 3.5, 'text-anchor': 'end' }, 'dash-bars-axis');
+            tx.textContent = fmtNum(t, tickDec);
+            svg.appendChild(tx);
+        });
+
+        // x labels at least 30 px apart, counted from the newest bar; hours on round steps
+        var every = Math.max(1, Math.ceil(30 / slot));
+        if (w.bucket === '1h') {
+            var steps = [1, 2, 3, 4, 6, 12, 24];
+            for (var k = 0; k < steps.length; k++) if (steps[k] >= every) { every = steps[k]; break; }
+        }
+        var y0 = y(Math.max(lo, Math.min(0, hi)));
+        var gap = w.compare ? 0.12 : 0.18;
+        var bw = slot * (1 - 2 * gap) / (w.compare ? 2 : 1);
+        st.groups = [];
+        buckets.forEach(function(b, i) {
+            var x0 = padL + i * slot;
+            var g = svgEl('g', {}, 'dash-bars-bucket' + (b.partial ? ' partial' : ''));
+            [[b.v, 0, 'dash-bars-bar'], [w.compare ? b.c : null, 1, 'dash-bars-bar dash-bars-cmp']].forEach(function(s) {
+                if (s[0] == null) return;
+                var top = Math.min(y(s[0]), y0), h = Math.max(1, Math.abs(y(s[0]) - y0));
+                g.appendChild(svgEl('rect', { x: x0 + slot * gap + s[1] * bw, y: top,
+                    width: Math.max(1, bw - (w.compare ? 1 : 0)), height: h, rx: Math.min(3, bw / 4) }, s[2]));
+            });
+            // a bucket without samples: a mark on the baseline, not a zero bar; none before the retention
+            if (b.v == null && !(w.compare && b.c != null) && !b.old) {
+                g.appendChild(svgEl('line', { x1: x0 + slot * 0.3, x2: x0 + slot * 0.7, y1: y0, y2: y0 }, 'dash-bars-gap'));
+            }
+            // the whole column answers hover and tap
+            var hit = svgEl('rect', { x: x0, y: 0, width: slot, height: H }, 'dash-bars-hit');
+            hit.addEventListener('pointerenter', function(e) { if (e.pointerType === 'mouse') selectBar(st, i); });
+            hit.addEventListener('click', function() { selectBar(st, st.sel === i ? -1 : i); });
+            g.appendChild(hit);
+            svg.appendChild(g);
+            st.groups.push(g);
+            if ((n - 1 - i) % every === 0) {
+                var lx = svgEl('text', { x: x0 + slot / 2, y: H - 4, 'text-anchor': 'middle' }, 'dash-bars-axis');
+                lx.textContent = w.bucket === '1h' ? pad2(b.h) : n > 10 ? String(Number(b.date.slice(8))) : T.weekdays[b.wd];
+                svg.appendChild(lx);
+            }
+        });
+        svg.addEventListener('pointerleave', function(e) {
+            if (e.pointerType === 'mouse' && document.activeElement !== wrap) selectBar(st, -1);
+        });
+        var old = wrap.querySelector('svg');
+        if (old) wrap.replaceChild(svg, old); else wrap.insertBefore(svg, st.tip);
+
+        // the state line: the newest bar so far
+        var last = buckets[n - 1];
+        if (last.v != null) {
+            setState(st.el, 'value', (w.bucket === '1d' ? T.today : T.thisHour) + ' ' + withUnit(last.v, w.unit, st.dec));
+        } else {
+            setState(st.el, 'unknown', T.noData);
+        }
+        selectBar(st, st.sel < n ? st.sel : -1);
+    }
+
+    // Marks bar i and shows its time and values over it; -1 hides the tip
+    function selectBar(st, i) {
+        st.sel = i;
+        if (!st.groups) return;
+        st.groups.forEach(function(g, k) { g.classList.toggle('sel', k === i); });
+        var tip = st.tip, w = st.w;
+        if (i < 0 || !st.data) { tip.hidden = true; return; }
+        var b = st.data.buckets[i];
+        var none = b.old ? T.notKept.replace('{n}', st.data.kept) : T.noData;
+        var val = function(v) { return v == null ? none : withUnit(v, w.unit, st.dec); };
+        tip.textContent = '';
+        tip.appendChild(calEl('div', 'dash-bars-tip-when', barsWhen(w, b, st.data.buckets.length) + (b.partial ? ' · ' + T.soFar : '')));
+        tip.appendChild(calEl('div', 'dash-bars-tip-v', (w.compare ? (w.label || '') + ': ' : '') + val(b.v)));
+        if (w.compare) tip.appendChild(calEl('div', 'dash-bars-tip-v dash-bars-tip-cmp', (w.compareLabel || T.compare) + ': ' + val(b.c)));
+        tip.hidden = false;
+        var cx = st.padL + (i + 0.5) * st.slot;
+        var tw = tip.offsetWidth;
+        tip.style.left = Math.max(0, Math.min(st.W - tw, cx - tw / 2)) + 'px';
+    }
+
     function startChartTimer(id, fn, ms) {
         stopChartTimer(id);
         chartTimers[id] = setInterval(fn, ms);
@@ -2185,6 +2404,10 @@
         for (var id in chartInstances) {
             chartInstances[id].destroy();
             delete chartInstances[id];
+        }
+        for (var bid in bars) {
+            if (bars[bid].observer) bars[bid].observer.disconnect();
+            delete bars[bid];
         }
     }
 
@@ -2749,6 +2972,10 @@
                     if (w.type === 'calendar' && calendars[w.id]) {
                         calendars[w.id].refresh();
                         startChartTimer('cal-' + w.id, calendars[w.id].refresh, 60000);
+                    }
+                    if (w.type === 'bars' && bars[w.id]) {
+                        bars[w.id].refresh();
+                        startChartTimer('bars-' + w.id, bars[w.id].refresh, barsRefreshMs(w));
                     }
                     if (w.type === 'chart') {
                         var canvas = document.getElementById('chart-' + w.id);
