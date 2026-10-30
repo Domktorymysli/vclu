@@ -50,6 +50,11 @@ func (s *Server) getSettingsData(trans map[string]interface{}) gin.H {
 		}
 	}
 
+	data["updateCheck"] = gin.H{
+		"enabled":   masterConfig.UpdateCheckOn(),
+		"forcedOff": config.UpdateCheckForcedOff(),
+	}
+
 	return data
 }
 

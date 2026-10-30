@@ -30,6 +30,7 @@ import (
 	"github.com/Domktorymysli/vclu/pkg/metrics"
 	"github.com/Domktorymysli/vclu/pkg/server"
 	"github.com/Domktorymysli/vclu/pkg/stats"
+	"github.com/Domktorymysli/vclu/pkg/updatecheck"
 	"github.com/gin-gonic/gin"
 )
 
@@ -185,6 +186,7 @@ type Server struct {
 	calendarLimiter  *rateLimiter // calendar widget requests that miss the cache, per IP
 	backupState      backupSchedulerState
 	version          string
+	updateChecker    *updatecheck.Checker // nil: GET /api/update says enabled false
 }
 
 // NewServer creates a new web server
@@ -975,6 +977,10 @@ func (s *Server) setupRoutes() {
 		api.POST("/history/clear-memory", s.handleAPIHistoryClearMemory)
 		api.POST("/history/clear-disk", s.handleAPIHistoryClearDisk)
 		api.POST("/backup/settings", s.handleAPIBackupSettingsSave)
+
+		// New-version check (top bar badge, Settings)
+		api.GET("/update", s.handleAPIUpdate)
+		api.PUT("/update/settings", s.handleAPIUpdateSettings)
 
 		// OM Files endpoints
 		api.POST("/om/upload", s.handleAPIOMUpload)
