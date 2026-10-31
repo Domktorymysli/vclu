@@ -952,6 +952,7 @@ func (s *Server) setupRoutes() {
 		api.GET("/dashboard/:id", s.handleAPIDashboardDef)
 		api.GET("/dashboard/:id/values", s.handleAPIDashboardValues)
 		api.GET("/dashboard/:id/metrics", s.handleAPIDashboardMetrics)
+		api.GET("/dashboard/:id/bars", s.handleAPIDashboardBars)
 		api.GET("/dashboard/:id/calendar", s.handleAPIDashboardCalendar)
 		api.POST("/dashboard/:id/action", s.handleAPIDashboardAction)
 		api.POST("/dashboard/:id/auth", s.handleAPIDashboardAuth)

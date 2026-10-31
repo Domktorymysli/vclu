@@ -387,7 +387,7 @@ CLU220000592:executeNoReply(0, "SetThermostat(19)")
 ## Dashboard (Lua-defined)
 
 Public dashboard for a tablet/wall. Defined in Lua, available at `/d/:id`.
-Widget types: button, toggle, slider, status, link, select, chart, image, group, cover, covers, dimmer, color, thermostat, calendar, player, forecast; in the header also chip.
+Widget types: button, toggle, slider, status, link, select, chart, image, group, cover, covers, dimmer, color, thermostat, gauge, colorTemp, calendar, player, forecast, table, bars, energy, gate; in the header also chip.
 `:calendar(id, label, cal, { view = 'month' | 'day', tags = {...}, schedules = { 'taryfa' } })` shows a calendar
 built with `Calendar`: a month grid and the day of a tapped date (full width); `schedules` adds a 24 h bar per schedule (`schedules = true`: all of the calendar's)
 to the day view; `holidays` (holiday names, default on), `namedays` (name days in the day view, default off) and
@@ -463,9 +463,44 @@ Dashboard.new('home')
 -- { size = 'large' }     -- larger widget
 -- { color = 'warning' }  -- color: accent/success/warning/danger or hex
 -- { disabled = function() return true end }  -- conditionally disabled
+-- { visible = function() return true end }   -- shown only while it returns true (see below)
 
 -- Section options (3rd argument of :section()):
 -- { columns = 4 }        -- override the column count for this section
+-- { visible = function() return true end }   -- the whole section, header included
+```
+
+### Shown by state (visible)
+
+`opts.visible` is read on every poll: while it returns `false` or `nil` the widget is hidden and
+takes no room. It works on every widget, a chip, a room tile (its room goes with it),
+`section:group(label, icon, { visible = fn })` (the label and the widgets after it, up to the next
+group), `dash:section` and `dash:floor`. A section or group whose widgets are all hidden goes too,
+header included. A hidden widget is not read and its actions are refused. An error in the
+function shows the widget and is logged once. `when()` is different: it knows only the time of
+day and is decided once, when the dashboard is built.
+
+`visible` tidies the page; it is not access control. Anyone who can open the dashboard can read its
+definition, so keep secrets off a public dashboard and use `:auth('session')` or `:auth('pin')`.
+
+```lua
+local r = _registry
+local rolety = { r:get("CLU220000592.ROL0001"), r:get("CLU220000592.ROL0002") }
+
+local function otwarte(lista)
+  local n = 0
+  for i = 1, #lista do if (lista[i]:getPosition() or 0) > 0 then n = n + 1 end end
+  return n
+end
+
+Dashboard.new('dom')
+  :section('Rolety', 'window')
+    -- the tile shows only while a cover is open
+    :covers('rolety', 'Otwarte rolety', rolety, { visible = function() return otwarte(rolety) > 0 end })
+  -- the section and its header show only while partition 1 is armed
+  :section('Alarm', 'shield', { visible = function() return Satel.getPartition(1):isArmed() end })
+    :link('kamery', 'Kamery', 'camera-video', 'http://192.168.1.100/')
+  :build()
 ```
 
 ### Header chips
@@ -616,7 +651,7 @@ and, when a cover reports a slat angle (`getTilt`), a slat slider 0-90°. The ti
 ### Thermostat
 
 `:thermostat(id, label, icon, fns, opts)` shows the current temperature large and the target
-between `-` and `+`. `fns` is a table of functions, or a Grenton thermostat (`RemoteThermostat`).
+between `-` and `+`. `fns` is a table of functions, or a thermostat (`RemoteThermostat`, `VirtualThermostat`).
 
 ```lua
 local th = _:get("CLU220000592.THE0855")
@@ -659,8 +694,119 @@ local th = _:get("CLU220000592.THE0855")
   in manual mode; on holiday or schedule the buttons go and the state line says the mode
   ("włączony · harmonogram"). A `RemoteThermostat` maps to `getCurrent = getValue`, `getTarget`,
   `setTarget = setSetpoint`, `getState`, `getMode`; the target shown is what the CLU reports.
-- opts: `min`, `max`, `step`, `unit` (default `°C`), `readonly` (true or a function), `disabled`, `span`, `size`, `color`.
+- **Mode switch:** a row of buttons under the target. A `VirtualThermostat` brings its own: Ręczny
+  (0), Urlop (1, the holiday target, no `+`/`-`) and Wył. (`stop()`; choosing another mode starts it
+  again). `opts.modes` relabels or narrows them, `modes = false` hides the switch. A
+  `RemoteThermostat` only shows its mode (no switch). `readonly` locks the switch too, and the
+  action endpoint refuses a mode that is not listed, read-only or disabled. A stopped
+  `VirtualThermostat` reports the mode `"off"` in the dashboard values. In its holiday mode `+`/`-`
+  are hidden even with `readonly = false` on that mode: the holiday target is not the set point.
+
+  ```lua
+  local th = VirtualThermostat:new("salon", { source = _:get("z2m.salon_temp"), output = _:get("CLU1.DOU0123"),
+      setpoint = 21, holiday = 16, persist = true })
+
+  :section('Ogrzewanie', 'thermometer-half')
+    :thermostat('salon', 'Salon', nil, th)          -- Ręczny / Urlop / Wył.
+    :thermostat('salon2', 'Salon', nil, th, { modes = {
+        { value = 0, label = 'Komfort' },
+        { value = 1, label = 'Wyjazd' },             -- no "off": the switch has two buttons
+    } })
+  ```
+- **Modes of a module (a schedule):** a table of functions gets a switch with `getMode`,
+  `setMode(value)` and `opts.modes`: a list `{ {value, label, icon?, readonly?}, ... }` in its
+  order, or a map `{ manual = 'Ręczny', holiday = 'Urlop' }` (numbers first, then manual, schedule,
+  holiday, off). `getMode` returns one of the values; `readonly = true` on a mode hides `+`/`-` in
+  it (a map has none). A schedule is not the thermostat's: the module keeps a flag and the calendar
+  sets the set point while it is on.
+
+  ```lua
+  -- File: modules/ogrzewanie/init.lua; the schedule 'ogrzewanie' (values komfort, eco) is in modules/kalendarz
+  local dom = Calendar.get('dom')
+  local th = VirtualThermostat:new("salon", { source = _:get("z2m.salon_temp"), output = _:get("CLU1.DOU0123"),
+      setpoint = 21, holiday = 16, persist = true })
+  local st = persist("ogrzewanie", { harmonogram = true })
+  local TEMP = { komfort = 21.5, eco = 18 }
+
+  -- in schedule mode the calendar's value sets the set point
+  local function follow()
+      local t = TEMP[dom:value('ogrzewanie')]
+      if st.harmonogram and th:getMode() == 0 and t then th:setSetpoint(t) end
+  end
+  dom:on('change', 'ogrzewanie', follow)
+
+  local function mode()
+      if th:getState() == 0 then return 'off' end
+      if th:getMode() == 1 then return 'holiday' end
+      if st.harmonogram then return 'schedule' end
+      return 'manual'
+  end
+
+  local function setMode(v)
+      if v == 'off' then
+          th:stop()
+          return
+      end
+      if v == 'holiday' then th:setMode(1) else th:setMode(0) end
+      st.harmonogram = v == 'schedule'
+      th:start()
+      follow()
+  end
+
+  Dashboard.new('ogrzewanie')
+    :section('Ogrzewanie', 'thermometer-half')
+      :thermostat('salon', 'Salon', nil, {
+          getCurrent = function() return th:getValue() end,
+          getTarget = function() return th:getTarget() end,
+          setTarget = function(v) th:setSetpoint(v) end,
+          getState = function() return th:getState() end,
+          getMode = mode,
+          setMode = setMode,
+      }, { modes = {
+          { value = 'manual', label = 'Ręczny', icon = 'hand-index' },
+          { value = 'schedule', label = 'Harmonogram', icon = 'calendar-week', readonly = true },
+          { value = 'holiday', label = 'Urlop', icon = 'airplane', readonly = true },
+          { value = 'off', label = 'Wył.', icon = 'power' },
+      } })
+    :build()
+  ```
+
+  `build()` refuses unknown keys in a mode, a `modes` that is neither a list nor a map, a value
+  twice, `modes` without `getMode`/`setMode` and `setMode` without `modes`.
+- opts: `min`, `max`, `step`, `unit` (default `°C`), `readonly` (true or a function), `modes`, `disabled`, `span`, `size`, `color`.
   Full width on a phone.
+
+### Colour temperature (tunable white)
+
+`:colorTemp(id, label, fns, opts)` is a slider from warm to cool white over a gradient; the tile
+says "3000 K · ciepła". Two Grenton dimmers wired as warm and cold white become one light with
+`lib/cct`:
+
+```lua
+local cct = require("lib/cct")
+local biuro = cct.mix(_:get("CLU220000592.DIM0001"), _:get("CLU220000592.DIM0002"),
+    { warm = 2700, cold = 6500 })                                  -- kelvin of each strip alone
+
+:section('Światło', 'lightbulb')
+  :colorTemp('biuro', 'Biuro', biuro, { min = 2700, max = 6500 })
+  -- a lamp in mireds (Zigbee color_temp): the widget converts
+  :colorTemp('salon', 'Salon', {
+      getKelvin = function() return lampa.colorTemp end,
+      setKelvin = function(v) lampa:send({ color_temp = v }) end,
+  }, { unit = 'mired', min = 2200, max = 6500 })
+```
+
+- `fns`: `getKelvin` and `setKelvin` required; `switchOn`/`switchOff` add a switch,
+  `getBrightness`/`setBrightness` (0-100) a brightness slider, `isOn` the on/off state. An object
+  with `getColorTemp`/`setColorTemp` in kelvin works as it is, also in `section:area`, which
+  always uses 2700-6500 K in kelvin; for another range or mireds use `section:colorTemp` directly.
+- `cct.mix` keeps the brightness (the sum of both channels) when the colour temperature changes and
+  the ratio when the brightness changes; a colour temperature set while off waits for `switchOn`,
+  and switching on (also after a wall switch or brightness 0) brings back the last level and
+  kelvin a poll saw. Commands go out at least 50 ms apart.
+- A set outside `min`..`max` is clamped; a reading outside is shown as it is.
+- opts: `min` (2700), `max` (6500), `step` (50), `unit` (`"kelvin"` or `"mired"`), `icon`,
+  `disabled`, `span`, `size`, `color`.
 
 ### Media player (MusicCast or any player)
 
@@ -735,6 +881,142 @@ local weather = Plugin.getPlugin("@vclu/weather")
   `icon` (default `cloud-sun`), `disabled`, `span`, `size`, `color` (the temperature line). Two columns
   wide by default, full width on a phone.
 
+### Table
+
+`:table(id, label, rows, opts)` shows rows from a function, read on every poll, in the columns of
+`opts.columns`. A tap on a column header sorts the rows on the page (again: the other way); on a
+phone each row is a card with the first column as its title.
+
+```lua
+local rooms = {
+  { name = 'Salon',   temp = 'CLU220000592.ANA0001', window = 'CLU220000592.DIN0095' },
+  { name = 'Kuchnia', temp = 'CLU220000592.ANA0002', window = 'CLU220000592.DIN0096' },
+}
+
+:section('Pokoje', 'house')
+  :table('rooms', 'Pokoje', function()
+      local rows = {}
+      for i, r in ipairs(rooms) do
+        -- nil (no reading yet) is an empty cell
+        local open = _:value(r.window)
+        if open ~= nil then open = open == 1 end
+        rows[i] = { name = r.name, temp = _:value(r.temp), window = open }
+      end
+      return rows
+    end, {
+      columns = {
+        { key = 'name', label = 'Pokój' },
+        { key = 'temp', label = 'Temperatura', unit = '°C', decimals = 1, align = 'right' },
+        { key = 'window', label = 'Okno otwarte' },
+      },
+      sort = 'temp',
+      color = function(row, key)
+        local t = tonumber(row.temp)
+        if key == 'temp' and t and t < 18 then return 'info' end
+      end,
+    })
+```
+
+- **columns** (required): `{ key, label, unit, decimals (0-6), align = 'left' | 'right' }`; `label`
+  defaults to the key. A key a row does not have is an empty cell; keys without a column are not sent.
+- **Cells:** a number is rounded to the column's `decimals` with the viewer's decimal separator and
+  gets the `unit`; decimal text in a column with `decimals` (a Remote object's value, `"21.5"`;
+  not hex such as `"0x1F"` or an exponent) is read as a number;
+  `true`/`false` show as ✓ and —; `nil` is empty. A table, a function or another type in a cell
+  is the tile's error, as is an error in `rows`; the last rows stay on the tile.
+- **sort:** a column key; ascending, empty cells last, equal cells in the order `rows` gave them;
+  `desc = true` sorts descending (empty cells still last), and the header arrow starts that way.
+  Without `sort` the rows keep their order. **limit** (1-200) keeps the first rows after the sort,
+  so `sort = 'power', desc = true, limit = 5` shows the five highest: the server's sort decides
+  which rows `limit` keeps, a header tap only reorders those. Text sorts without regard to case and
+  with digit runs as numbers (`room 2` before `room 10`); letters outside ASCII in byte order.
+  The first 1000 rows are read and sorted (more are cut, logged once), at most 200 are sent, and
+  the state line says "10 z 34" when some were cut.
+- **rows** must be a list (keys 1..n): a map such as `{ kuchnia = {...} }` or a list with holes is
+  the tile's error, as is a row whose fields cannot be read.
+- **color:** `function(row, key)` called for every cell shown with the row as `rows` gave it;
+  a colour name (`success`, `warning`, `danger`, `info`, `primary`, `accent`), `#hex`, `rgb()`,
+  `hsl()`, or nil.
+- `nil` or `{}` from `rows` shows "brak danych". opts: `icon` (default `table`), `disabled`, `span`,
+  `size`. Two columns wide by default, full width on a phone.
+
+### Gauge (arc or bar)
+
+`:gauge(id, label, getValue, opts)` shows a number between `min` and `max` on a 240° arc with the
+value in the middle, or with `style = 'bar'` on a horizontal bar with the value at its right.
+`thresholds` colour the fill (and the tile) from each value on; `target` draws a marker.
+
+```lua
+
+:section('Energia', 'lightning')
+  -- house power against the contracted 11 kW
+  :gauge('power', 'Moc domu', function() return _:value('energia/moc_domu') end, {
+      min = 0, max = 14, unit = 'kW', decimals = 1,
+      thresholds = { { 8, 'warning' }, { 11, 'danger' } },
+      target = 11,                       -- or a function, re-read on every poll
+  })
+  :gauge('tank', 'Zbiornik', function() return _:value('ogrod/zbiornik') end, {
+      style = 'bar', unit = '%', icon = 'droplet',
+      thresholds = { { 0, 'danger' }, { 20, 'warning' }, { 40, 'success' } },
+  })
+```
+
+- **getValue:** return a number (a decimal string from a CLU such as `"7.4"` counts); `nil` shows `—`, NaN, an error
+  or anything else shows the error mark. A value outside `min..max` is drawn at the end of the
+  scale and the number shows it as it is (`128 %`).
+- **thresholds:** `{ value, color }` in ascending order; the last one at or below the value
+  colours the fill and the tile's icon, `warning` and `danger` make the tile an alarm. Below the
+  first threshold the fill is `color` (default the accent). Colours: `accent`, `success`,
+  `warning`, `danger`, `info`, `primary`, `#hex`, `rgb()`, `hsl()`.
+- **target:** a number or a function returning one (nil hides the marker); the tile's second line says
+  "cel 11,0 kW".
+- opts: `min` (default 0), `max` (default 100, above `min`), `unit`, `decimals` (0-6), `style`
+  (`'arc'` default or `'bar'`), `thresholds`, `target`, `icon` (default `speedometer2`),
+  `disabled`, `span`, `size`, `color`. Unknown options fail at build.
+
+### Energy flow
+
+`:energy(id, label, opts)` draws PV, the grid, a battery and the home as nodes, with dots moving
+along the lines between them: faster and thicker with more power, in the direction it flows.
+Each function returns the power now in W (`unit = 'kW'` when it returns kW).
+
+```lua
+-- PV from an inverter, the grid from a bidirectional meter at the house's entry
+local function watts(path)
+  return function() return _:value(path) end
+end
+
+:section('Energia', 'lightning-charge')
+  :energy('flow', 'Prąd teraz', {
+      pv   = watts('solax.power'),          -- AC power of the inverter, 0 or more
+      grid = watts('meter.power'),          -- + taken from the grid, - given to it
+      today = {
+        pv          = watts('solax.today'), -- kWh since midnight
+        grid_import = watts('meter.today_import'),
+        grid_export = watts('meter.today_export'),
+      },
+  })
+```
+
+- **Signs:** `pv` is 0 or more; `grid` is + taken from the grid and - given to it; `battery` is
+  + charging and - discharging. A source counting the other way: `invert = { grid = true }`
+  (or `battery = true`).
+- **home:** without a function it is `pv + grid - battery`, at least 0. With one (a meter on
+  the house's own circuits) the tile shows that, and the lines into the home are scaled to it.
+- **Nodes:** a node without its function is left out with its lines (a house without a battery,
+  one without PV). `batterySoc` (0-100 %) draws a ring around the battery.
+- **today:** kWh numbers under the nodes (`pv`, `grid_import`, `grid_export`, `home`), rounded
+  to 0.1.
+- A function that fails, or returns something that is not a number (a decimal string counts,
+  `"1,5"` too), shows "—" on its node; the rest of the tile stays. `nil` is no reading: "—" as
+  well. PV without a reading (an inverter asleep at night) counts as 0 in the home's balance;
+  grid or battery without one, or any source that fails, makes a home from the balance "—".
+- A line under 10 W has no dots. With reduced motion in the system settings the dots stop and
+  an arrow shows the direction.
+- opts: `pv`, `grid`, `battery`, `batterySoc`, `home`, `unit` (`'W'` or `'kW'`), `invert`,
+  `today`, `icon` (default `lightning-charge`), `disabled`, `span`. Two columns wide by default,
+  full width on a phone.
+
 ### Select widget (dropdown)
 
 Dropdown for choosing from a list of options. Two option formats: plain strings or {value, label}.
@@ -788,6 +1070,58 @@ The `confirm` option on a button shows a confirmation dialog before executing.
     {confirm = "Czy na pewno chcesz zresetowac?", color = 'danger'})
 ```
 
+### Press and hold (hold)
+
+`hold = true` (800 ms) or a time in ms (300-5000) on a `button` or a `toggle`: the action runs
+only after the tile is pressed that long (mouse, touch, or Enter/Space held); a ring fills around
+the icon, releasing early or sliding off cancels, a tap only shows "Przytrzymaj". Use it instead of
+`confirm` where a stray tap must not do anything (a gate, a door lock, a boiler); `hold` and
+`confirm` together fail the build. The page sends `held: true` with the action and the server
+refuses the action without it. That stops a stray tap and a naive script calling the API, not
+someone sending the flag on purpose: for that, use `:auth('session')` or `'pin'`.
+
+```lua
+:button('wicket', 'Furtka', 'door-open', function() furtka:switchOn(1000) end, { hold = true })
+:toggle('lock', 'Zamek', 'lock', function() return zamek:getValue() == 1 end,
+    function(v) if v then zamek:switchOn() else zamek:switchOff() end end, { hold = 1500 })
+```
+
+### Gate (section:gate)
+
+A gate or a door lock: its state on the tile (open in yellow, closed in green, moving in cyan),
+Open and Close pressed and held (`hold`, default 800 ms; `hold = false` for a tap), Stop a tap.
+`open` is required; without `close` or `stop` their buttons are left out. `state` returns
+`"open"`, `"closed"`, `"opening"`, `"closing"`, `"moving"` or nil (no reading). Options:
+`open`, `close`, `stop`, `state`, `hold`, `icon` (default `door-closed`), `disabled`, `span`;
+any other fails the build. A callback may return a string for a toast.
+
+```lua
+-- a Grenton relay gives the gate's controller a 1 s pulse; a reed contact on a digital input says closed
+local brama = _:get("CLU212345678.DOU0012")
+local kontaktron = _:get("CLU212345678.DIN0004")
+
+Dashboard.new('wjazd')
+  :name('Wjazd')
+  :auth('pin'):pin('2580')
+  :section('Wjazd', 'house-door')
+  :gate('brama', 'Brama', {
+      open = function() brama:switchOn(1000) end,
+      -- one button on the controller: the same pulse closes it
+      close = function() brama:switchOn(1000) end,
+      state = function()
+          local v = kontaktron:getValue()
+          if v == nil then return nil end
+          if v == 1 then
+              return 'closed'
+          else
+              return 'open'
+          end
+      end,
+      hold = 1000,
+  })
+  :build()
+```
+
 ### Toast (notification)
 
 Callbacks (onTap, onToggle, onSet, onSelect) can return a string.
@@ -813,6 +1147,50 @@ directly by the browser from `/api/metrics/data`, NOT through Lua polling.
 -- fill: true = fill under the line
 -- min, max: fixed Y axis limits
 ```
+
+### Bars widget (per hour or per day)
+
+`section:bars` draws one bar per hour or day of the house's zone (midnight to midnight; a DST day
+is 23 or 25 hours). vCLU aggregates the `metric()` samples itself. An hour or day without samples
+is a gap, not 0; the newest bar is still filling and is drawn lighter.
+
+Samples are kept 7 days by default, so `range = '30d'` needs `"metrics": {"retentionDays": 31}`
+in `.vclu.json` (1-366, read at start). Days before the retention show "brak danych" (no data
+kept), not an outage. Disk: a metric sampled every 60 s takes about 25 KB a day, every 10 s
+about 200 KB a day (31 days of 20 such metrics: about 125 MB). Backups include `metrics/`, so a
+longer retention also makes backups larger.
+
+Daily kWh from a meter that only counts up (SDM120, an inverter's total): `agg = 'delta'` is what
+the counter added in each day. A single bad reading (a 0 from a Modbus timeout) adds nothing; a
+value that stays lower for 3 samples (or an hour) is a reset or a replaced meter, and the count
+goes on from it. A rise across a gap (vCLU was off) goes to the bar after the gap when the gap is
+at most one bar long, otherwise it is left out.
+
+```lua
+-- licznik: any object whose value is the meter's total energy in kWh
+metric('energia:dom', function() return licznik:getValue() end, { unit = 'kWh', interval = 60 })
+
+Dashboard.new('energia'):name('Energia'):section('Zużycie', 'lightning')
+    :bars('dzien', 'Zużycie dziennie', 'energia:dom', { agg = 'delta', unit = 'kWh', decimals = 1 })
+    :bars('godz', 'Ostatnie 24 h', 'energia:dom', { range = '24h', agg = 'delta', unit = 'kWh' })
+    :build()
+```
+
+PV against consumption: `compare` draws a second bar beside each, with its own label.
+
+```lua
+metric('energia:pv', function() return falownik:getValue() end, { unit = 'kWh', interval = 60 })
+
+d:section('Bilans', 'sun')
+    :bars('pv', 'Zużycie', 'energia:dom', { range = '30d', agg = 'delta', unit = 'kWh',
+        compare = 'energia:pv', compareLabel = 'PV', color = 'warning', span = 2 })
+```
+
+Other aggregations: `avg` (default) is the plain mean of the samples in the bar, `sum` their
+total (it depends on the sampling interval: use it for counts, not for power), `max` and `min`,
+e.g. the warmest hour of each day: `:bars('t', 'Temp. max', 'temp:zewn', { agg = 'max', unit = '°C' })`.
+`refresh` is at least 30 s (default 60 s for hours, 300 s for days). The page reads only the
+widget's own bars, never the raw metric, also on a public dashboard.
 
 ### Sparkline on a status widget
 

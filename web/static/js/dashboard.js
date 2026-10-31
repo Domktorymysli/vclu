@@ -20,6 +20,8 @@
     roomRoot.id = 'dashboardRooms';
     document.body.appendChild(roomRoot);
     var sectionCoverEls = {}; // section index -> its header's cover counts
+    var layoutEls = {}; // "_section_N" and "_section_N/_group_M" -> section and group label elements
+    var hiddenNow = {}; // keys visible() hides: widget ids, sections, group labels
     var actionGrace = {}; // widgetId -> timestamp (ignore polls until this time)
     var chartInstances = {}; // widgetId -> Chart.js instance
     var chartTimers = {};   // widgetId -> per-chart refresh timer
@@ -37,10 +39,19 @@
               playing: 'odtwarza', paused: 'pauza', playerOff: 'wyłączony', offline: 'offline',
               play: 'Odtwarzaj', pause: 'Pauza', previous: 'Poprzedni', next: 'Następny',
               mute: 'Wycisz', unmute: 'Włącz dźwięk', power: 'Włącz / wyłącz', volume: 'Głośność',
-              noForecast: 'brak prognozy', rain: 'opady', temperature: 'temperatura',
+              noForecast: 'brak prognozy', rain: 'opady', temperature: 'temperatura', noData: 'brak danych', of: 'z',
               onN: ['włączone', 'włączone', 'włączonych'], allOff: 'wszystko wyłączone', back: 'Wróć',
               humidity: 'wilgotność', target: 'cel', thermoOn: 'włączony', thermoOff: 'wyłączony',
-              modes: ['ręcznie', 'urlop', 'harmonogram', 'podgrzewanie'], locked: 'zablokowany', lower: 'Obniż', raise: 'Podnieś' },
+              modes: ['ręcznie', 'urlop', 'harmonogram', 'podgrzewanie'], locked: 'zablokowany', lower: 'Obniż', raise: 'Podnieś',
+              hold: 'Przytrzymaj', openGate: 'Otwórz', closeGate: 'Zamknij',
+              weekdays: ['nd', 'pn', 'wt', 'śr', 'cz', 'pt', 'sb'], today: 'dziś', thisHour: 'ta godzina',
+              soFar: 'do teraz', compare: 'porównanie',
+              notKept: 'brak danych: vCLU trzyma metryki {n} dni',
+              ctWarm: 'ciepła', ctNeutral: 'neutralna', ctCool: 'zimna', colorTemp: 'Temperatura barwy', brightness: 'Jasność',
+              mode: 'Tryb', modeNames: { manual: 'Ręczny', holiday: 'Urlop', off: 'Wył.' },
+              energyNames: { pv: 'Fotowoltaika', grid: 'Sieć', battery: 'Bateria', home: 'Dom' },
+              energyImport: 'pobór', energyExport: 'oddawanie', energyCharge: 'ładowanie', energyDischarge: 'rozładowanie',
+              energyToday: 'dziś' },
         en: { on: 'on', off: 'off', open: 'open', closed: 'closed', opening: 'opening',
               closing: 'closing', unknown: 'no reading', run: 'run', sent: 'sent', updated: 'updated',
               nothingToday: 'nothing more today', holidays: 'Holidays', namedays: 'Name days', sun: 'Sun', show: 'Show',
@@ -52,10 +63,19 @@
               playing: 'playing', paused: 'paused', playerOff: 'off', offline: 'offline',
               play: 'Play', pause: 'Pause', previous: 'Previous', next: 'Next',
               mute: 'Mute', unmute: 'Unmute', power: 'Power', volume: 'Volume',
-              noForecast: 'no forecast', rain: 'rain', temperature: 'temperature',
+              noForecast: 'no forecast', rain: 'rain', temperature: 'temperature', noData: 'no data', of: 'of',
               onN: ['on', 'on', 'on'], allOff: 'all off', back: 'Back', humidity: 'humidity',
               target: 'target', thermoOn: 'on', thermoOff: 'off',
-              modes: ['manual', 'holiday', 'schedule', 'heat-up'], locked: 'locked', lower: 'Lower', raise: 'Raise' }
+              modes: ['manual', 'holiday', 'schedule', 'heat-up'], locked: 'locked', lower: 'Lower', raise: 'Raise',
+              hold: 'Hold', openGate: 'Open', closeGate: 'Close',
+              weekdays: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], today: 'today', thisHour: 'this hour',
+              soFar: 'so far', compare: 'compare',
+              notKept: 'no data: vCLU keeps metrics {n} days',
+              ctWarm: 'warm', ctNeutral: 'neutral', ctCool: 'cool', colorTemp: 'Colour temperature', brightness: 'Brightness',
+              mode: 'Mode', modeNames: { manual: 'Manual', holiday: 'Holiday', off: 'Off' },
+              energyNames: { pv: 'Solar', grid: 'Grid', battery: 'Battery', home: 'Home' },
+              energyImport: 'import', energyExport: 'export', energyCharge: 'charging', energyDischarge: 'discharging',
+              energyToday: 'today' }
     };
     // ?lang= as on the other pages, else the browser's language
     var lang = (function() {
@@ -69,7 +89,7 @@
         button: 'play-fill', toggle: 'power', slider: 'sliders', status: 'info-circle', link: 'link-45deg',
         chart: 'graph-up', select: 'list-ul', image: 'image', cover: 'arrows-expand', covers: 'window', dimmer: 'lightbulb',
         color: 'palette', calendar: 'calendar3', player: 'music-note-beamed', forecast: 'cloud-sun',
-        room: 'door-open', thermostat: 'thermometer-half'
+        room: 'door-open', thermostat: 'thermometer-half', table: 'table', gauge: 'speedometer2', gate: 'door-closed', bars: 'bar-chart', colorTemp: 'lightbulb', energy: 'lightning-charge'
     };
 
     // 23.9 -> "23,9" in Polish; with decimals rounded to them (21 -> "21,0"); text as it is
@@ -202,6 +222,11 @@
             on = d.on != null ? d.on : level > 0;
             if (!on) return ['off', T.off];
             return ['on', level > 0 ? withUnit(level, '%') : T.on];
+        case 'colorTemp':
+            if (d.error) return ['unknown', T.unknown];
+            if (d.kelvin == null && d.on == null) return ['unknown', T.unknown];
+            if (d.on === false) return ['off', T.off];
+            return [d.on ? 'on' : 'value', d.kelvin != null ? kelvinText(d.kelvin) : T.on];
         case 'cover':
             if (d.state === 1) return ['moving', T.opening];
             if (d.state === 2) return ['moving', T.closing];
@@ -223,19 +248,40 @@
             if (d.error) return ['unknown', T.unknown];
             if (d.none) return ['unknown', T.noForecast];
             return ['value', d.updated ? T.updated + ' ' + hhmm(d.updated, w.zone) : ''];
+        case 'table':
+            // "10 z 34" when limit or the cap cut the rows
+            if (d.error) return ['unknown', T.unknown];
+            var shown = Array.isArray(d.rows) ? d.rows.length : 0;
+            return ['value', d.total > shown ? shown + ' ' + T.of + ' ' + d.total : ''];
+        case 'energy':
+            var sum = energySummary(d);
+            return sum == null ? ['unknown', T.unknown] : ['value', sum];
         case 'thermostat':
             // "włączony · harmonogram"; the temperatures are in the tile's body
             if (d.current == null && d.target == null) return ['unknown', T.unknown];
             var tp = [];
             if (d.state != null) tp.push(d.state ? T.thermoOn : T.thermoOff);
-            if (d.mode != null && T.modes[d.mode]) tp.push(T.modes[d.mode]);
+            var mt = thermoModeText(w, d.mode);
+            if (mt) tp.push(mt);
             if (d.locked) tp.push(T.locked);
             return [d.state === 0 ? 'off' : (d.state ? 'on' : 'value'), tp.join(' · ')];
+        case 'gauge':
+            // the value is in the tile's body; the line says where the marker stands
+            if (d.value == null) return ['unknown', T.unknown];
+            return [isAlarm(gaugeBand(w, d.value)) ? 'alarm' : 'value',
+                d.target != null ? T.target + ' ' + withUnit(d.target, w.unit, w.decimals) : ''];
         case 'room':
             var lit = d.on || 0, opened = d.open || 0, parts = [];
             if (lit) parts.push(plural(lit, T.onN));
             if (opened) parts.push(plural(opened, T.openN));
             return [d.moving > 0 ? 'moving' : (lit || opened ? 'on' : 'off'), parts.length ? parts.join(' · ') : T.allOff];
+        case 'gate':
+            // open is filled, closed tinted, moving pulses; colours in dashboard.css by data-gate
+            if (d.error) return ['unknown', T.unknown];
+            if (d.state === 'open') return ['on', T.open];
+            if (d.state === 'closed') return ['value', T.closed];
+            if (d.state === 'opening' || d.state === 'closing' || d.state === 'moving') return ['moving', T[d.state]];
+            return ['unknown', T.unknown];
         case 'button':
             return ['value', T.run];
         case 'link':
@@ -256,13 +302,17 @@
         var d = el._data || (el._data = {});
         for (var k in data) if (data.hasOwnProperty(k)) d[k] = data[k];
         var type = el.dataset.type;
-        if (type === 'chart' || type === 'image' || type === 'calendar') return;
+        if (type === 'chart' || type === 'bars' || type === 'image' || type === 'calendar') return;
         var st = tileState(type, w, d);
         setState(el, st[0], st[1]);
         if (type === 'player') updatePlayer(el, d);
         if (type === 'forecast') updateForecast(el, w, d);
+        if (type === 'table') updateTable(el, w, d);
+        if (type === 'energy') updateEnergy(el, w, d);
         if (type === 'room') updateRoom(el, w, d, st[1]);
         if (type === 'thermostat') updateThermostat(el, w, d);
+        if (type === 'gauge') updateGauge(el, w, d);
+        if (type === 'gate') el.dataset.gate = (!d.error && d.state) || '';
         if (el.classList.contains('dash-header-item')) el.title = (w.label || '') + ': ' + st[1];
         if (el.getAttribute('role') === 'switch') el.setAttribute('aria-checked', d.value ? 'true' : 'false');
     }
@@ -395,11 +445,15 @@
         contentEl.className = '';
         contentEl.innerHTML = '';
         contentEl.style.cssText = '--dash-columns:' + (def.columns || 3);
+        cancelHold();
         widgetEls = {};
         sectionCoverEls = {};
+        layoutEls = {};
+        hiddenNow = {};
         closeRoom(false);
         roomRoot.innerHTML = '';
         roomLayers = {};
+        energyPrune();
 
         // Apply time-of-day period (from server or local fallback)
         applyPeriod(def.period || calcPeriod());
@@ -475,11 +529,64 @@
 
             for (var wi = 0; wi < widgets.length; wi++) {
                 var wEl = renderWidget(widgets[wi], cols);
+                if (widgets[wi].type === 'group') layoutEls['_section_' + si + '/' + widgets[wi].id] = wEl;
                 grid.appendChild(wEl);
             }
 
             secEl.appendChild(grid);
+            layoutEls['_section_' + si] = secEl;
             contentEl.appendChild(secEl);
+        }
+        applyHidden(def.hidden, false);
+    }
+
+    // What visible() hides: a short fade, then it takes no room; a poll without _hidden shows all
+    function applyHidden(keys, animate) {
+        keys = keys || {};
+        var k, all = {};
+        for (k in hiddenNow) all[k] = true;
+        for (k in keys) all[k] = true;
+        for (k in all) {
+            var hide = !!keys[k];
+            if (hide === !!hiddenNow[k]) continue;
+            var el = layoutEls[k] || widgetEls[k];
+            if (el) setShown(el, !hide, animate);
+            if (hide && openRoomState && openRoomState.id === k) closeRoom(false);
+            if (!hide && animate) refreshShown(k);
+        }
+        hiddenNow = {};
+        for (k in keys) if (keys[k]) hiddenNow[k] = true;
+        syncHeaderBars();
+    }
+
+    // A calendar or chart gets no data while hidden: fetch it again once shown
+    function refreshShown(id) {
+        if (calendars[id]) calendars[id].refresh();
+        var canvas = document.getElementById('chart-' + id);
+        if (!canvas || !definition) return;
+        for (var i = 0; i < definition.widgets.length; i++) {
+            if (definition.widgets[i].id === id) fetchChartData(definition.widgets[i], canvas);
+        }
+    }
+
+    function setShown(el, show, animate) {
+        clearTimeout(el._visTimer);
+        el.classList.remove('dash-vis-in', 'dash-vis-out');
+        if (show) {
+            el.hidden = false;
+            if (animate) {
+                el.classList.add('dash-vis-in');
+                el._visTimer = setTimeout(function() { el.classList.remove('dash-vis-in'); }, 250);
+            }
+        } else if (animate) {
+            el.classList.add('dash-vis-out');
+            el._visTimer = setTimeout(function() {
+                el.classList.remove('dash-vis-out');
+                el.hidden = true;
+                syncHeaderBars();
+            }, 180);
+        } else {
+            el.hidden = true;
         }
     }
 
@@ -490,8 +597,9 @@
         el.dataset.widgetId = w.id;
         el.dataset.type = w.type;
 
-        // Span (stored as data-attr; CSS responsive rules can override); a player and a forecast are two wide
-        var span = w.span || ((w.type === 'player' || w.type === 'forecast') && cols > 1 ? 2 : 0);
+        // Span (stored as data-attr; CSS responsive rules can override); a player, a forecast, a table and an energy flow are two wide
+        var wide = w.type === 'player' || w.type === 'forecast' || w.type === 'table' || w.type === 'energy';
+        var span = w.span || (wide && cols > 1 ? 2 : 0);
         if (span > 1) {
             el.style.gridColumn = 'span ' + span;
             el.dataset.span = span;
@@ -537,6 +645,8 @@
             renderLink(el, w);
         } else if (w.type === 'chart') {
             renderChart(el, w);
+        } else if (w.type === 'bars') {
+            renderBars(el, w);
         } else if (w.type === 'select') {
             renderSelect(el, w);
         } else if (w.type === 'cover') {
@@ -547,6 +657,8 @@
             renderDimmer(el, w);
         } else if (w.type === 'color') {
             renderColor(el, w);
+        } else if (w.type === 'colorTemp') {
+            renderColorTemp(el, w);
         } else if (w.type === 'image') {
             renderImage(el, w, head);
         } else if (w.type === 'calendar') {
@@ -555,10 +667,18 @@
             renderPlayer(el, w, head);
         } else if (w.type === 'forecast') {
             renderForecast(el, w);
+        } else if (w.type === 'table') {
+            renderTable(el, w);
+        } else if (w.type === 'energy') {
+            renderEnergy(el, w);
         } else if (w.type === 'room') {
             renderRoom(el, w);
         } else if (w.type === 'thermostat') {
             renderThermostat(el, w);
+        } else if (w.type === 'gauge') {
+            renderGauge(el, w);
+        } else if (w.type === 'gate') {
+            renderGate(el, w);
         }
 
         refreshTile(el, w, w);
@@ -575,13 +695,129 @@
         setTimeout(function() { if (s.textContent === text) s.textContent = prev; }, 1500);
     }
 
+    // ---- Press and hold (opts.hold) ----
+
+    var HOLD_R = 22, HOLD_C = 2 * Math.PI * HOLD_R;
+    var activeHold = null; // cancel() of the press in progress
+
+    // leaving the page or the window, or drawing it again, drops the press
+    function cancelHold() { if (activeHold) activeHold(false); }
+    document.addEventListener('visibilitychange', function() { if (document.hidden) cancelHold(); });
+    window.addEventListener('blur', cancelHold);
+
+    // The ring around the tile's icon, made on the first hold
+    function holdRing(el) {
+        var host = el.querySelector('.dash-widget-icon, .dash-header-icon');
+        if (!host) return null;
+        var circle = host.querySelector('.dash-hold-ring circle');
+        if (!circle) {
+            host.insertAdjacentHTML('beforeend', '<svg class="dash-hold-ring" viewBox="0 0 48 48" aria-hidden="true">' +
+                '<circle cx="24" cy="24" r="' + HOLD_R + '"></circle></svg>');
+            circle = host.querySelector('.dash-hold-ring circle');
+            circle.style.strokeDasharray = HOLD_C;
+            circle.style.strokeDashoffset = HOLD_C;
+        }
+        return circle;
+    }
+
+    // A tap says to hold; a tile without a state line says it in a toast
+    function holdHint(el) {
+        if (el.querySelector('.dash-tile-state')) flashState(el, T.hold);
+        else VCLU.showToast(T.hold, 'info');
+    }
+
+    // run() after the press on target lasts ms (mouse, touch, or Enter/Space held); releasing
+    // early, leaving target or a scroll cancels. The ring fills on el's icon.
+    function bindHold(target, el, ms, run) {
+        var timer = null, pointer = null, ring = null;
+        target.classList.add('dash-hold');
+        if (target.tagName !== 'BUTTON') {
+            target.tabIndex = 0;
+            if (!target.getAttribute('role')) target.setAttribute('role', 'button');
+        }
+        target.title = T.hold;
+        function start() {
+            if (timer || el.classList.contains('disabled')) return false;
+            cancelHold();
+            activeHold = cancel;
+            ring = holdRing(el);
+            el.classList.add('holding');
+            target.classList.add('holding');
+            if (ring) {
+                ring.style.transition = 'none';
+                ring.style.strokeDashoffset = HOLD_C;
+                ring.getBoundingClientRect(); // start the transition from empty
+                ring.style.transition = 'stroke-dashoffset ' + ms + 'ms linear';
+                ring.style.strokeDashoffset = 0;
+            }
+            timer = setTimeout(function() {
+                timer = null;
+                var current = activeHold === cancel;
+                end();
+                if (!current || !el.isConnected || !target.isConnected) return;
+                if (navigator.vibrate) navigator.vibrate(30);
+                run();
+            }, ms);
+            return true;
+        }
+        function end() {
+            if (activeHold === cancel) activeHold = null;
+            el.classList.remove('holding');
+            target.classList.remove('holding');
+            pointer = null;
+            if (ring) {
+                ring.style.transition = 'stroke-dashoffset 0.2s ease-out';
+                ring.style.strokeDashoffset = HOLD_C;
+            }
+        }
+        function cancel(hint) {
+            if (!timer) return;
+            clearTimeout(timer);
+            timer = null;
+            end();
+            if (hint) holdHint(el);
+        }
+        target.addEventListener('pointerdown', function(e) {
+            if (e.pointerType === 'mouse' && e.button !== 0) return;
+            e.stopPropagation();
+            // a second finger or the mouse during a press is ignored
+            if (timer) return;
+            if (start()) pointer = e.pointerId;
+        });
+        target.addEventListener('pointerup', function(e) { if (e.pointerId === pointer) cancel(true); });
+        target.addEventListener('pointercancel', function() { cancel(false); });
+        target.addEventListener('pointerleave', function() { cancel(false); });
+        // a touch stays on its element until it is lifted: leaving is checked by position
+        target.addEventListener('pointermove', function(e) {
+            if (!timer || e.pointerId !== pointer) return;
+            var r = target.getBoundingClientRect();
+            if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) cancel(false);
+        });
+        target.addEventListener('contextmenu', function(e) { e.preventDefault(); });
+        target.addEventListener('click', function(e) { e.preventDefault(); e.stopPropagation(); });
+        target.addEventListener('keydown', function(e) {
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            e.preventDefault();
+            e.stopPropagation();
+            if (!e.repeat) start();
+        });
+        target.addEventListener('keyup', function(e) {
+            if (e.key === 'Enter' || e.key === ' ') cancel(true);
+        });
+        target.addEventListener('blur', function() { cancel(false); });
+    }
+
     function renderButton(el, w) {
-        el.addEventListener('click', function() {
-            if (w.confirm && !confirm(w.confirm)) return;
+        var run = function() {
             el.classList.add('flash');
             setTimeout(function() { el.classList.remove('flash'); }, 300);
             flashState(el, T.sent);
-            executeAction(w.id, 'tap');
+            executeAction(w.id, 'tap', undefined, null, !!w.hold);
+        };
+        if (w.hold) return bindHold(el, el, w.hold, run);
+        el.addEventListener('click', function() {
+            if (w.confirm && !confirm(w.confirm)) return;
+            run();
         });
     }
 
@@ -595,12 +831,19 @@
         input.setAttribute('role', 'switch');
         input.setAttribute('aria-label', el.querySelector('.dash-widget-label').textContent);
         input.checked = checked;
+        sw.appendChild(input);
+        // no onChange: the switch only shows the state (a held toggle)
+        if (!onChange) {
+            input.tabIndex = -1;
+            sw.classList.add('dash-hold-switch');
+            el.querySelector('.dash-tile-head').appendChild(sw);
+            return input;
+        }
         input.addEventListener('change', function(e) {
             e.stopPropagation();
             if (el.classList.contains('disabled')) { input.checked = !input.checked; return; }
             onChange(input.checked);
         });
-        sw.appendChild(input);
         el.querySelector('.dash-tile-head').appendChild(sw);
         (target || el).addEventListener('click', function(e) {
             if (sw.contains(e.target) || el.classList.contains('disabled')) return;
@@ -612,12 +855,57 @@
 
     function renderToggle(el, w) {
         if (w.value) el.classList.add('active');
-        var input = headSwitch(el, 'dash-toggle-switch', !!w.value, function(on) {
+        var flip = function(on) {
             el.classList.toggle('active', on);
             refreshTile(el, w, { value: on });
-            executeAction(w.id, 'toggle', on);
-        });
+            executeAction(w.id, 'toggle', on, null, !!w.hold);
+        };
+        var input = headSwitch(el, 'dash-toggle-switch', !!w.value, w.hold ? null : flip);
         input.dataset.widgetId = w.id;
+        if (w.hold) {
+            input.setAttribute('aria-hidden', 'true'); // the tile is the switch
+
+            el.setAttribute('role', 'switch');
+            el.setAttribute('aria-label', w.label || '');
+            bindHold(el, el, w.hold, function() {
+                input.checked = !el._data.value;
+                flip(input.checked);
+            });
+        }
+    }
+
+    // ---- Gate: its state; Open and Close held (opts.hold), Stop a tap ----
+
+    function renderGate(el, w) {
+        var caps = w.capabilities || {};
+        var controls = calEl('div', 'dash-cover-controls dash-gate-controls');
+        [['open', 'door-open', T.openGate, true], ['stop', 'stop-fill', T.stop, caps.stop],
+            ['close', 'door-closed', T.closeGate, caps.close]].forEach(function(b) {
+            if (!b[3]) return;
+            var btn = calEl('button', 'dash-cover-btn dash-gate-btn');
+            btn.type = 'button';
+            btn.dataset.action = b[0];
+            btn.setAttribute('aria-label', b[2]);
+            btn.appendChild(calEl('i', 'bi bi-' + b[1]));
+            btn.appendChild(calEl('span', '', b[2]));
+            var held = b[0] !== 'stop' && !!w.hold;
+            var run = function() { executeAction(w.id, b[0], undefined, null, held); };
+            if (held) {
+                bindHold(btn, el, w.hold, run);
+                btn.title = b[2] + ' · ' + T.hold;
+            } else {
+                btn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    if (el.classList.contains('disabled')) return;
+                    btn.classList.add('active');
+                    setTimeout(function() { btn.classList.remove('active'); }, 300);
+                    run();
+                });
+            }
+            controls.appendChild(btn);
+        });
+        controls.style.gridTemplateColumns = 'repeat(' + controls.children.length + ', minmax(0, 1fr))';
+        el.appendChild(controls);
     }
 
     function renderSlider(el, w) {
@@ -1325,9 +1613,59 @@
         return d.target;
     }
 
-    // The current temperature large; under it - target + (no buttons when read-only)
+    // A mode's name on its button: the module's label, else ours for the object's own modes
+    function thermoModeLabel(m) {
+        if (m.label) return m.label;
+        if (m.name && T.modeNames[m.name]) return T.modeNames[m.name];
+        return String(m.value);
+    }
+
+    // The mode on the state line; "off" is already there as the state
+    function thermoModeText(w, mode) {
+        if (mode == null) return '';
+        if (!w.modes) return typeof mode === 'number' && T.modes[mode] ? T.modes[mode] : '';
+        var m = w.modes.filter(function(x) { return x.value === mode; })[0];
+        if (!m || m.name === 'off') return '';
+        // "Harmonogram" -> "harmonogram" as the rest of the line; "CO" stays
+        if (m.label) {
+            var c0 = m.label.charAt(0), c1 = m.label.charAt(1);
+            var lower = c1 !== '' && c1.toLocaleLowerCase(lang) === c1 && c1.toLocaleUpperCase(lang) !== c1;
+            return lower ? c0.toLocaleLowerCase(lang) + m.label.slice(1) : m.label;
+        }
+        return typeof m.value === 'number' && T.modes[m.value] ? T.modes[m.value] : thermoModeLabel(m);
+    }
+
+    // The mode switch under the target: one button per mode, the current one lit
+    function thermoModes(el, w) {
+        var bar = calEl('div', 'dash-thermo-modes' + (w.modes.length > 3 ? ' dash-thermo-modes-many' : ''));
+        bar.setAttribute('role', 'group');
+        bar.setAttribute('aria-label', T.mode);
+        w.modes.forEach(function(m) {
+            var b = calEl('button', 'dash-thermo-mode');
+            b.type = 'button';
+            b._mode = m.value;
+            if (m.icon) b.appendChild(calEl('i', 'bi bi-' + m.icon));
+            b.appendChild(calEl('span', 'dash-thermo-mode-label', thermoModeLabel(m)));
+            b.addEventListener('click', function(e) {
+                e.stopPropagation();
+                var d = el._data || {};
+                if (el.classList.contains('disabled') || d.locked || d.mode === m.value) return;
+                var st = el._thermo;
+                st.mode = m.value;
+                updateThermostat(el, w, d);
+                executeAction(w.id, 'mode', m.value, function() {
+                    st.mode = null;
+                    updateThermostat(el, w, el._data || {});
+                });
+            });
+            bar.appendChild(b);
+        });
+        return bar;
+    }
+
+    // The current temperature large; under it - target + (no buttons when read-only), then the modes
     function renderThermostat(el, w) {
-        el._thermo = { pending: null, timer: null, held: null };
+        el._thermo = { pending: null, timer: null, held: null, mode: null };
         var box = calEl('div', 'dash-thermo');
         var cur = calEl('div', 'dash-thermo-current');
         cur.appendChild(calEl('span', 'dash-thermo-current-value', '--'));
@@ -1357,6 +1695,7 @@
         row.appendChild(target);
         if (settable) row.appendChild(btn(1, 'plus-lg', T.raise));
         box.appendChild(row);
+        if (w.modes && w.capabilities && w.capabilities.mode) box.appendChild(thermoModes(el, w));
         el.appendChild(box);
     }
 
@@ -1398,9 +1737,172 @@
         // outside manual mode (or before a target) the buttons go; the target still shows
         var can = d.set !== false && d.target != null;
         el.querySelectorAll('.dash-thermo-btn').forEach(function(b) {
-            b.hidden = d.set === false;
+            b.classList.toggle('dash-thermo-btn-off', d.set === false);
             b.disabled = !can || (shown != null && (b.dataset.dir > 0 ? shown >= w.max : shown <= w.min));
         });
+        // a mode chosen shows until the reply; the reported one then
+        if (st.mode != null && d.mode === st.mode) st.mode = null;
+        var mode = st.mode != null ? st.mode : d.mode;
+        var off = el.classList.contains('disabled') || !!d.locked;
+        el.querySelectorAll('.dash-thermo-mode').forEach(function(b) {
+            var on = b._mode === mode;
+            b.classList.toggle('active', on);
+            b.setAttribute('aria-pressed', on ? 'true' : 'false');
+            b.disabled = off;
+        });
+    }
+
+    // ---- Gauge: a value on a 240° arc or a bar, coloured by thresholds ----
+
+    var SVG_NS = 'http://www.w3.org/2000/svg';
+    var GAUGE_CX = 100, GAUGE_CY = 96, GAUGE_R = 80, GAUGE_SWEEP = 240;
+    var gaugeSeq = 0;
+
+    function svgEl(tag, attrs, cls) {
+        var e = document.createElementNS(SVG_NS, tag);
+        for (var k in attrs) if (attrs.hasOwnProperty(k)) e.setAttribute(k, attrs[k]);
+        if (cls) e.setAttribute('class', cls);
+        return e;
+    }
+
+    // Where v sits in min..max, 0..1 (clamped: the number shows the true value); null without one
+    function gaugeFrac(w, v) {
+        if (typeof v !== 'number' || !isFinite(v)) return null;
+        return Math.min(1, Math.max(0, (v - w.min) / (w.max - w.min)));
+    }
+
+    // A point on the arc, f 0 its left end and 1 its right end
+    function gaugePoint(f, r) {
+        var a = (f - 0.5) * GAUGE_SWEEP * Math.PI / 180;
+        return (GAUGE_CX + r * Math.sin(a)).toFixed(2) + ' ' + (GAUGE_CY - r * Math.cos(a)).toFixed(2);
+    }
+
+    function gaugeArc(f0, f1, r) {
+        var large = (f1 - f0) * GAUGE_SWEEP > 180 ? 1 : 0;
+        return 'M' + gaugePoint(f0, r) + ' A' + r + ' ' + r + ' 0 ' + large + ' 1 ' + gaugePoint(f1, r);
+    }
+
+    // The colour of the last threshold at or below v, else none (the tile's own)
+    function gaugeBand(w, v) {
+        var c = null;
+        if (typeof v !== 'number') return c;
+        (w.thresholds || []).forEach(function(t) { if (v >= t.value) c = t.color; });
+        return c;
+    }
+
+    // Threshold bands: from each value to the next one (or max); below the first in the tile's colour
+    function gaugeBands(w) {
+        var th = w.thresholds || [], out = [];
+        if (!th.length) return out;
+        var edges = [{ value: w.min, color: w.color || 'accent' }].concat(th);
+        edges.forEach(function(t, i) {
+            var f0 = gaugeFrac(w, t.value), f1 = i + 1 < edges.length ? gaugeFrac(w, edges[i + 1].value) : 1;
+            if (f1 > f0) out.push({ f0: f0, f1: f1, color: resolveColor(t.color) });
+        });
+        return out;
+    }
+
+    function renderGauge(el, w) {
+        var bar = w.style === 'bar';
+        var box = calEl('div', 'dash-gauge ' + (bar ? 'dash-gauge-bar' : 'dash-gauge-arc'));
+        box.setAttribute('role', 'meter');
+        box.setAttribute('aria-label', w.label || '');
+        box.setAttribute('aria-valuemin', w.min);
+        box.setAttribute('aria-valuemax', w.max);
+        var readout = calEl('div', 'dash-gauge-readout');
+        readout.appendChild(calEl('span', 'dash-gauge-value', '—'));
+        readout.appendChild(calEl('span', 'dash-gauge-unit', w.unit || ''));
+        var bands = gaugeBands(w), svg, fill, target;
+
+        if (bar) {
+            var clip = 'dash-gauge-clip-' + (++gaugeSeq);
+            svg = svgEl('svg', { width: '100%', height: '30', 'aria-hidden': 'true' }, 'dash-gauge-svg');
+            var defs = svgEl('defs', {});
+            var cp = svgEl('clipPath', { id: clip });
+            cp.appendChild(svgEl('rect', { x: 0, y: 4, width: '100%', height: 18, rx: 9 }));
+            defs.appendChild(cp);
+            svg.appendChild(defs);
+            svg.appendChild(svgEl('rect', { x: 0, y: 4, width: '100%', height: 18, rx: 9 }, 'dash-gauge-track'));
+            var g = svgEl('g', { 'clip-path': 'url(#' + clip + ')' });
+            fill = svgEl('rect', { x: 0, y: 4, width: '100%', height: 18 }, 'dash-gauge-fill');
+            g.appendChild(fill);
+            svg.appendChild(g);
+            bands.forEach(function(b) {
+                var r = svgEl('rect', { x: (b.f0 * 100) + '%', y: 26, width: ((b.f1 - b.f0) * 100) + '%', height: 4 }, 'dash-gauge-band');
+                r.style.fill = b.color;
+                svg.appendChild(r);
+            });
+            target = svgEl('line', { y1: 0, y2: 30 }, 'dash-gauge-target');
+            svg.appendChild(target);
+            var col = calEl('div', 'dash-gauge-col');
+            col.appendChild(svg);
+            var scale = calEl('div', 'dash-gauge-scale');
+            scale.appendChild(calEl('span', '', fmtNum(w.min)));
+            scale.appendChild(calEl('span', '', fmtNum(w.max)));
+            col.appendChild(scale);
+            var row = calEl('div', 'dash-gauge-row');
+            row.appendChild(col);
+            row.appendChild(readout);
+            box.appendChild(row);
+        } else {
+            svg = svgEl('svg', { viewBox: '0 0 200 160', 'aria-hidden': 'true' }, 'dash-gauge-svg');
+            var whole = gaugeArc(0, 1, GAUGE_R);
+            svg.appendChild(svgEl('path', { d: whole }, 'dash-gauge-track'));
+            bands.forEach(function(b) {
+                var p = svgEl('path', { d: gaugeArc(b.f0, b.f1, GAUGE_R + 14) }, 'dash-gauge-band');
+                p.style.stroke = b.color;
+                svg.appendChild(p);
+            });
+            // the whole arc with pathLength 100: the dash offset draws the value's part
+            fill = svgEl('path', { d: whole, pathLength: 100 }, 'dash-gauge-fill');
+            svg.appendChild(fill);
+            target = svgEl('line', { x1: GAUGE_CX, x2: GAUGE_CX, y1: GAUGE_CY - GAUGE_R - 13, y2: GAUGE_CY - GAUGE_R + 13 }, 'dash-gauge-target');
+            svg.appendChild(target);
+            [[0, w.min, 'start'], [1, w.max, 'end']].forEach(function(e) {
+                var p = gaugePoint(e[0], GAUGE_R).split(' ');
+                var t = svgEl('text', { x: p[0], y: 156, 'text-anchor': 'middle' }, 'dash-gauge-scale-text');
+                t.textContent = fmtNum(e[1]);
+                svg.appendChild(t);
+            });
+            var dial = calEl('div', 'dash-gauge-dial');
+            dial.appendChild(svg);
+            dial.appendChild(readout);
+            box.appendChild(dial);
+        }
+        el._gauge = { fill: fill, target: target, bar: bar };
+        el.appendChild(box);
+    }
+
+    function updateGauge(el, w, d) {
+        var st = el._gauge;
+        if (!st) return;
+        var has = typeof d.value === 'number';
+        el.querySelector('.dash-gauge-value').textContent = has ? fmtNum(d.value, w.decimals) : '—';
+        el.querySelector('.dash-gauge-unit').hidden = !has || !w.unit;
+        var box = el.querySelector('.dash-gauge');
+        // aria-valuenow within min..max; the true value is in the text
+        box.setAttribute('aria-valuenow', has ? Math.min(w.max, Math.max(w.min, d.value)) : w.min);
+        box.setAttribute('aria-valuetext', has ? withUnit(d.value, w.unit, w.decimals) : T.unknown);
+        var f = gaugeFrac(w, d.value) || 0;
+        if (st.bar) st.fill.style.transform = 'scaleX(' + f + ')';
+        else st.fill.style.strokeDashoffset = String(100 - f * 100);
+        // a round cap would draw a dot at 0
+        st.fill.classList.toggle('dash-gauge-none', !has || f === 0);
+        // the band's colour is the tile's while the value is in it (warning and danger also make it an alarm)
+        applyColor(el, gaugeBand(w, d.value) || w.color);
+
+        var tf = gaugeFrac(w, d.target);
+        st.target.classList.toggle('dash-gauge-none', tf == null);
+        if (tf != null) {
+            if (st.bar) {
+                // 1.5 px in from the ends so the 3 px line is not cut off
+                st.target.setAttribute('x1', (tf * 100) + '%');
+                st.target.setAttribute('x2', (tf * 100) + '%');
+                st.target.style.transform = 'translateX(' + (1.5 - 3 * tf) + 'px)';
+            } else {
+                st.target.style.transform = 'rotate(' + ((tf - 0.5) * GAUGE_SWEEP) + 'deg)';
+            }
+        }
     }
 
     // ---- Media player ----
@@ -1557,6 +2059,292 @@
                 vol.querySelector('.dash-slider-value').textContent = d.volume != null ? d.volume + ' %' : '--';
             }
         }
+    }
+
+    // ---- Energy flow ----
+
+    var energyIdle = 10; // W: a line below it has no dots
+    // a positive power flows from the first node to the second
+    var energyLines = [['pv', 'home'], ['pv', 'grid'], ['pv', 'battery'], ['grid', 'home'], ['grid', 'battery'], ['battery', 'home']];
+    var energyIcons = { pv: 'sun', grid: 'plug', battery: 'battery-half', home: 'house' };
+    var energyTiles = []; // tiles whose dots move
+    var energyFrame = null;
+    var reducedMotion = window.matchMedia ? matchMedia('(prefers-reduced-motion: reduce)') : null;
+
+    // Where each node sits: a cross with all four, else the first source on top
+    function energyLayout(nodes) {
+        var has = {}, out = {};
+        nodes.forEach(function(n) { has[n] = true; });
+        if (nodes.length === 4) {
+            return { pv: [1, 2, 'top'], grid: [2, 1, 'left'], battery: [2, 3, 'right'], home: [3, 2, 'bottom'] };
+        }
+        var others = ['pv', 'battery', 'grid'].filter(function(n) { return has[n]; });
+        if (others.length === 1) {
+            out[others[0]] = [1, 1, 'left'];
+            out.home = [1, 3, 'right'];
+        } else {
+            out[others[0]] = [1, 2, 'top'];
+            out[others[1]] = [2, 1, 'left'];
+            out.home = [2, 3, 'right'];
+        }
+        return out;
+    }
+
+    // 850 W, 2,4 kW; "—" without a reading
+    function energyPower(v) {
+        if (v == null) return '—';
+        v = Math.abs(v);
+        return v < 1000 ? fmtNum(Math.round(v)) + ' W' : fmtNum(v / 1000, 1) + ' kW';
+    }
+
+    function renderEnergy(el, w) {
+        el.style.cursor = 'default';
+        var box = calEl('div', 'dash-energy');
+        var nodes = Array.isArray(w.nodeList) ? w.nodeList : [];
+        var layout = energyLayout(nodes);
+        box.dataset.count = nodes.length;
+        var svg = svgEl('svg', null, 'dash-energy-lines');
+        svg.setAttribute('aria-hidden', 'true');
+        box.appendChild(svg);
+        var st = { box: box, svg: svg, nodes: {}, lines: {}, el: el };
+
+        nodes.forEach(function(name) {
+            var p = layout[name];
+            if (!p) return;
+            var node = calEl('div', 'dash-energy-node');
+            node.dataset.node = name;
+            node.dataset.pos = p[2];
+            node.style.gridRow = p[0];
+            node.style.gridColumn = p[1];
+            var label = calEl('div', 'dash-energy-label', T.energyNames[name]);
+            var circle = calEl('div', 'dash-energy-circle');
+            if (name === 'battery') {
+                // the state of charge as a ring around the node
+                var ring = svgEl('svg', null, 'dash-energy-ring');
+                ring.setAttribute('viewBox', '0 0 100 100');
+                ring.setAttribute('aria-hidden', 'true');
+                var track = svgEl('circle', null, 'dash-energy-ring-track');
+                var arc = svgEl('circle', null, 'dash-energy-ring-arc');
+                [track, arc].forEach(function(c) {
+                    c.setAttribute('cx', 50); c.setAttribute('cy', 50); c.setAttribute('r', 46);
+                    c.setAttribute('pathLength', 100);
+                    ring.appendChild(c);
+                });
+                arc.setAttribute('transform', 'rotate(-90 50 50)');
+                circle.appendChild(ring);
+                circle.classList.add('has-ring');
+            }
+            var icon = calEl('i', 'bi bi-' + energyIcons[name] + ' dash-energy-icon');
+            icon.setAttribute('aria-hidden', 'true');
+            circle.appendChild(icon);
+            circle.appendChild(calEl('div', 'dash-energy-value', '—'));
+            circle.appendChild(calEl('div', 'dash-energy-dir', ''));
+            node.appendChild(label);
+            node.appendChild(circle);
+            node.appendChild(calEl('div', 'dash-energy-today'));
+            box.appendChild(node);
+            st.nodes[name] = { node: node, label: label, circle: circle, icon: icon };
+        });
+
+        energyLines.forEach(function(pair) {
+            if (!st.nodes[pair[0]] || !st.nodes[pair[1]]) return;
+            var key = pair[0] + '_' + pair[1];
+            var g = svgEl('g', null, 'dash-energy-flow idle');
+            var path = svgEl('path', null, 'dash-energy-path');
+            var arrow = svgEl('polygon', null, 'dash-energy-arrow');
+            arrow.setAttribute('points', '-4,-4.5 5,0 -4,4.5');
+            g.appendChild(path);
+            g.appendChild(arrow);
+            var dots = [];
+            for (var i = 0; i < 3; i++) {
+                var dot = svgEl('circle', null, 'dash-energy-dot');
+                dot.setAttribute('r', 3);
+                g.appendChild(dot);
+                dots.push(dot);
+            }
+            svg.appendChild(g);
+            st.lines[key] = { g: g, path: path, arrow: arrow, dots: dots, a: pair[0], b: pair[1],
+                power: null, len: 0, phase: Math.random() };
+        });
+
+        el._energy = st;
+        el.appendChild(box);
+        var relayout = function() { energyGeometry(st); };
+        if (window.ResizeObserver) {
+            st.observer = new ResizeObserver(relayout);
+            st.observer.observe(box);
+        } else {
+            window.addEventListener('resize', relayout);
+            st.dispose = function() { window.removeEventListener('resize', relayout); };
+            setTimeout(relayout, 0);
+        }
+        energyTiles.push(st);
+    }
+
+    // Lines between the node circles, bent towards the middle of the layout
+    function energyGeometry(st) {
+        var box = st.box.getBoundingClientRect();
+        if (!box.width) return;
+        st.svg.setAttribute('viewBox', '0 0 ' + box.width + ' ' + box.height);
+        var c = {}, cx = 0, cy = 0, n = 0;
+        for (var name in st.nodes) {
+            var r = st.nodes[name].circle.getBoundingClientRect();
+            c[name] = { x: r.left - box.left + r.width / 2, y: r.top - box.top + r.height / 2, r: r.width / 2 + 4 };
+            cx += c[name].x; cy += c[name].y; n++;
+        }
+        cx /= n; cy /= n;
+        function toward(p, q, d) {
+            var dx = q.x - p.x, dy = q.y - p.y, l = Math.sqrt(dx * dx + dy * dy) || 1;
+            return { x: p.x + dx / l * d, y: p.y + dy / l * d };
+        }
+        for (var key in st.lines) {
+            var ln = st.lines[key], a = c[ln.a], b = c[ln.b];
+            var mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+            var ctrl = { x: mx + (cx - mx) * 0.45, y: my + (cy - my) * 0.45 };
+            var s = toward(a, ctrl, a.r), e = toward(b, ctrl, b.r);
+            ln.path.setAttribute('d', 'M' + s.x.toFixed(1) + ' ' + s.y.toFixed(1) + ' Q' + ctrl.x.toFixed(1) + ' ' +
+                ctrl.y.toFixed(1) + ' ' + e.x.toFixed(1) + ' ' + e.y.toFixed(1));
+            ln.len = ln.path.getTotalLength();
+            energyArrow(ln);
+        }
+        energyDots(st, 0);
+        energyAnimate();
+    }
+
+    // The arrow in the middle of a line, pointing the way the power flows
+    function energyArrow(ln) {
+        if (!ln.len || ln.power == null) return;
+        var m = ln.len / 2, p = ln.path.getPointAtLength(m);
+        var q = ln.path.getPointAtLength(Math.min(ln.len, m + 1));
+        var angle = Math.atan2(q.y - p.y, q.x - p.x) * 180 / Math.PI + (ln.power < 0 ? 180 : 0);
+        ln.arrow.setAttribute('transform', 'translate(' + p.x.toFixed(1) + ' ' + p.y.toFixed(1) + ') rotate(' + angle.toFixed(0) + ')');
+    }
+
+    // Log-ish: 10 W slow and thin, 10 kW fast and thick
+    function energyScale(p) {
+        return Math.min(3, Math.max(0, Math.log(Math.abs(p) / energyIdle) / Math.LN10));
+    }
+
+    function energyDots(st, dt) {
+        for (var key in st.lines) {
+            var ln = st.lines[key];
+            if (ln.power == null || Math.abs(ln.power) < energyIdle || !ln.len) continue;
+            ln.phase = (ln.phase + dt * (25 + 30 * energyScale(ln.power)) / ln.len) % 1;
+            for (var i = 0; i < ln.dots.length; i++) {
+                var t = (ln.phase + i / ln.dots.length) % 1;
+                if (ln.power < 0) t = 1 - t;
+                var pt = ln.path.getPointAtLength(t * ln.len);
+                ln.dots[i].setAttribute('cx', pt.x.toFixed(1));
+                ln.dots[i].setAttribute('cy', pt.y.toFixed(1));
+            }
+        }
+    }
+
+    // Tiles no longer on the page stop being watched
+    function energyPrune() {
+        energyTiles = energyTiles.filter(function(st) {
+            if (st.el.isConnected) return true;
+            if (st.observer) st.observer.disconnect();
+            if (st.dispose) st.dispose();
+            return false;
+        });
+    }
+
+    // A tile on screen with a line that has dots
+    function energyMoving() {
+        return energyTiles.some(function(st) {
+            if (!st.box.offsetParent) return false;
+            for (var key in st.lines) if (st.lines[key].power != null && st.lines[key].len) return true;
+            return false;
+        });
+    }
+
+    // One animation loop for all tiles; none with reduced motion (arrows instead) or nothing to move;
+    // updateEnergy starts it again
+    function energyAnimate() {
+        if (energyFrame || (reducedMotion && reducedMotion.matches)) return;
+        var last = null;
+        function step(ts) {
+            energyPrune();
+            if (!energyMoving() || (reducedMotion && reducedMotion.matches)) { energyFrame = null; return; }
+            var dt = last == null ? 0 : Math.min(0.1, (ts - last) / 1000);
+            last = ts;
+            energyTiles.forEach(function(st) { energyDots(st, dt); });
+            energyFrame = requestAnimationFrame(step);
+        }
+        energyFrame = requestAnimationFrame(step);
+    }
+    // the dots start again when reduced motion is switched off
+    if (reducedMotion && reducedMotion.addEventListener) reducedMotion.addEventListener('change', energyAnimate);
+
+    function energyKwh(v) {
+        return v == null ? '—' : fmtNum(v, 1) + ' kWh';
+    }
+
+    function updateEnergy(el, w, d) {
+        var st = el._energy;
+        if (!st) return;
+        var nodes = d.nodes && typeof d.nodes === 'object' ? d.nodes : {};
+        var today = d.today && typeof d.today === 'object' ? d.today : {};
+        var todayList = Array.isArray(w.todayList) ? w.todayList : [];
+        for (var name in st.nodes) {
+            var ui = st.nodes[name], n = nodes[name] || {};
+            var p = typeof n.power === 'number' ? n.power : null;
+            ui.circle.querySelector('.dash-energy-value').textContent = energyPower(p);
+            var dir = '';
+            if (p != null && Math.abs(p) >= energyIdle) {
+                if (name === 'grid') dir = p > 0 ? T.energyImport : T.energyExport;
+                if (name === 'battery') dir = p > 0 ? T.energyCharge : T.energyDischarge;
+            }
+            ui.circle.querySelector('.dash-energy-dir').textContent = dir;
+            ui.node.classList.toggle('has-error', !!n.error);
+            ui.circle.title = n.error || n.socError || '';
+            ui.node.classList.toggle('active', p != null && Math.abs(p) >= energyIdle);
+            if (name === 'battery') {
+                var soc = typeof n.soc === 'number' ? n.soc : null;
+                ui.label.textContent = T.energyNames.battery + (soc != null ? ' · ' + soc + ' %' : '');
+                ui.circle.querySelector('.dash-energy-ring-arc').style.strokeDasharray = (soc || 0) + ' 100';
+                var level = soc == null ? 'half' : soc >= 75 ? 'full' : soc >= 25 ? 'half' : '';
+                var icon = p != null && p >= energyIdle ? 'battery-charging' : 'battery' + (level ? '-' + level : '');
+                ui.icon.className = 'bi bi-' + icon + ' dash-energy-icon';
+            }
+            // today's kWh under the node
+            var tEl = ui.node.querySelector('.dash-energy-today');
+            tEl.textContent = '';
+            todayList.forEach(function(k) {
+                var node = k === 'grid_import' || k === 'grid_export' ? 'grid' : k;
+                if (node !== name) return;
+                var text = energyKwh(today[k]);
+                if (k === 'grid_import') text = T.energyImport + ' ' + text;
+                else if (k === 'grid_export') text = T.energyExport + ' ' + text;
+                else text = T.energyToday + ' ' + text;
+                tEl.appendChild(calEl('div', null, text));
+            });
+        }
+        var flows = d.flows && typeof d.flows === 'object' ? d.flows : {};
+        for (var key in st.lines) {
+            var ln = st.lines[key];
+            var f = typeof flows[key] === 'number' ? flows[key] : null;
+            var on = f != null && Math.abs(f) >= energyIdle;
+            ln.power = on ? f : null;
+            ln.g.classList.toggle('idle', !on);
+            // colour of where the power comes from
+            ln.g.setAttribute('data-src', f != null && f < 0 ? ln.b : ln.a);
+            ln.path.style.strokeWidth = on ? (1.5 + energyScale(f)).toFixed(1) : '';
+            ln.dots.forEach(function(dot) { dot.setAttribute('r', on ? (2.5 + energyScale(f) * 0.6).toFixed(1) : 0); });
+            energyArrow(ln);
+        }
+        energyAnimate();
+    }
+
+    // "oddawanie 1,2 kW" from the grid, else what the home takes, else what the PV gives
+    function energySummary(d) {
+        var nodes = d.nodes && typeof d.nodes === 'object' ? d.nodes : {};
+        var g = nodes.grid && nodes.grid.power, h = nodes.home && nodes.home.power, pv = nodes.pv && nodes.pv.power;
+        if (typeof g === 'number' && Math.abs(g) >= energyIdle) return (g > 0 ? T.energyImport : T.energyExport) + ' ' + energyPower(g);
+        if (typeof h === 'number') return T.energyNames.home + ' ' + energyPower(h);
+        if (typeof pv === 'number') return T.energyNames.pv + ' ' + energyPower(pv);
+        return null;
     }
 
     // ---- Weather forecast ----
@@ -1718,13 +2506,127 @@
         });
     }
 
+    // ---- Table ----
+
+    function own(o, k) { return o && typeof o === 'object' && Object.prototype.hasOwnProperty.call(o, k) ? o[k] : null; }
+
+    // ✓ and — for booleans, a number rounded with its unit, text as it is, nothing for nil
+    function tableCellText(v, col) {
+        if (v == null) return '';
+        if (typeof v === 'boolean') return v ? '✓' : '—';
+        if (typeof v === 'number') return withUnit(v, col.unit, col.decimals);
+        return String(v);
+    }
+
+    // numbers, text, booleans, empty last (as the server sorts); text in the viewer's language
+    function tableRank(v) {
+        return typeof v === 'number' ? 1 : typeof v === 'string' ? 2 : typeof v === 'boolean' ? 3 : 4;
+    }
+    function tableCompare(a, b) {
+        var ra = tableRank(a), rb = tableRank(b);
+        if (ra !== rb) return ra - rb;
+        if (ra === 1) return a - b;
+        if (ra === 2) return a.localeCompare(b, lang, {numeric: true, sensitivity: 'base'});
+        if (ra === 3) return (a ? 1 : 0) - (b ? 1 : 0);
+        return 0;
+    }
+
+    // Column headers sort the rows: a tap ascending, another descending
+    function renderTable(el, w) {
+        el.style.cursor = 'default';
+        var box = calEl('div', 'dash-table-wrap');
+        var table = calEl('table', 'dash-table');
+        var tr = document.createElement('tr');
+        (w.columns || []).forEach(function(col) {
+            var th = calEl('th', col.align === 'right' ? 'right' : null);
+            th.scope = 'col';
+            th.dataset.key = col.key;
+            var btn = calEl('button', 'dash-table-sort', col.label || col.key);
+            btn.type = 'button';
+            btn.appendChild(calEl('i', 'bi dash-table-arrow'));
+            btn.addEventListener('click', function(ev) {
+                ev.stopPropagation();
+                var s = el._tableSort;
+                el._tableSort = { key: col.key, dir: s && s.key === col.key ? -s.dir : 1 };
+                drawTable(el, w);
+            });
+            th.appendChild(btn);
+            tr.appendChild(th);
+        });
+        table.appendChild(document.createElement('thead')).appendChild(tr);
+        table.appendChild(document.createElement('tbody'));
+        table.hidden = true; // until rows come: a failing table shows no empty headers
+        box.appendChild(table);
+        var empty = calEl('div', 'dash-table-empty', T.noData);
+        empty.hidden = true;
+        box.appendChild(empty);
+        el.appendChild(box);
+        el._tableSort = w.sort ? { key: w.sort, dir: w.desc ? -1 : 1 } : null;
+    }
+
+    // Redrawn only when the rows changed; after an error the last rows stay
+    function updateTable(el, w, d) {
+        if (!Array.isArray(d.rows)) return;
+        var key = JSON.stringify(d.rows);
+        if (el._tableKey === key) return;
+        el._tableKey = key;
+        el._tableRows = d.rows;
+        drawTable(el, w);
+    }
+
+    // Cells with textContent only: row data never becomes markup
+    function drawTable(el, w) {
+        var cols = w.columns || [];
+        var rows = (el._tableRows || []).map(function(r, i) {
+            return { v: own(r, 'v'), c: own(r, 'c'), i: i };
+        });
+        var s = el._tableSort;
+        if (s) {
+            // empty cells stay last both ways
+            rows.sort(function(a, b) {
+                var x = own(a.v, s.key), y = own(b.v, s.key);
+                if ((x == null) !== (y == null)) return x == null ? 1 : -1;
+                return s.dir * tableCompare(x, y) || a.i - b.i;
+            });
+        }
+        el.querySelectorAll('.dash-table th').forEach(function(th) {
+            var on = !!s && th.dataset.key === s.key;
+            if (on) th.setAttribute('aria-sort', s.dir > 0 ? 'ascending' : 'descending');
+            else th.removeAttribute('aria-sort');
+            th.querySelector('.dash-table-arrow').className = 'bi dash-table-arrow' +
+                (on ? (s.dir > 0 ? ' bi-caret-up-fill' : ' bi-caret-down-fill') : '');
+        });
+        var tbody = el.querySelector('.dash-table tbody');
+        tbody.textContent = '';
+        rows.forEach(function(row) {
+            var tr = document.createElement('tr');
+            cols.forEach(function(col) {
+                var td = calEl('td', col.align === 'right' ? 'right' : null, tableCellText(own(row.v, col.key), col));
+                td.dataset.label = col.label || col.key;
+                var c = own(row.c, col.key);
+                c = typeof c === 'string' ? resolveColor(c) : null;
+                if (typeof c === 'string') {
+                    td.classList.add('dash-table-colored');
+                    td.style.setProperty('--cell-c', c);
+                }
+                tr.appendChild(td);
+            });
+            tbody.appendChild(tr);
+        });
+        el.querySelector('.dash-table').hidden = !rows.length;
+        el.querySelector('.dash-table-empty').hidden = rows.length > 0;
+    }
+
     // ---- Dimmer widget ----
 
     // A slider sends the value it was moved to: after a pause, or at once when let go, so
     // a page reload right after does not lose it. Until then a poll leaves it alone
-    // (on a phone a dragged slider has no focus).
+    // (on a phone a dragged slider has no focus). Arrow keys send after the pause too, not per step.
     function bindSlider(input, show, send, delay) {
-        var timer = null, pending = null;
+        var timer = null, pending = null, keyed = false;
+        input.addEventListener('keydown', function() { keyed = true; });
+        input.addEventListener('pointerdown', function() { keyed = false; });
+        input.addEventListener('blur', function() { flush(); });
         function flush() {
             clearTimeout(timer);
             timer = null;
@@ -1741,7 +2643,7 @@
             clearTimeout(timer);
             timer = setTimeout(flush, delay);
         });
-        input.addEventListener('change', flush);
+        input.addEventListener('change', function() { if (!keyed) flush(); });
     }
 
     // The user is moving it, or it has a value not sent yet: a poll must not overwrite it
@@ -1911,6 +2813,94 @@
         }
         if (caps.white) {
             colorSlider(el, w, 'white', 'lightbulb', 'White', w.white, 'setWhite');
+        }
+    }
+
+    // ---- Colour temperature widget ----
+
+    // Approximate RGB of white light at k kelvin (Tanner Helland, as color.kelvinToRGB in Lua)
+    function kelvinRGB(k) {
+        var t = Math.max(1000, Math.min(40000, k)) / 100;
+        function c(v) { return Math.round(Math.max(0, Math.min(255, v))); }
+        var r = t <= 66 ? 255 : 329.698727446 * Math.pow(t - 60, -0.1332047592);
+        var g = t <= 66 ? 99.4708025861 * Math.log(t) - 161.1195681661 : 288.1221695283 * Math.pow(t - 60, -0.0755148492);
+        var b = t >= 66 ? 255 : (t <= 19 ? 0 : 138.5177312231 * Math.log(t - 10) - 305.0447927307);
+        return { r: c(r), g: c(g), b: c(b) };
+    }
+
+    // The tile's tint: amber to blue, as white light reads poorly on a light tile
+    var tintStops = [[2700, [255, 159, 67]], [3800, [240, 190, 90]], [4800, [120, 180, 230]], [6500, [70, 150, 255]]];
+    function kelvinTint(k) {
+        var a = tintStops[0], b = tintStops[tintStops.length - 1];
+        for (var i = 1; i < tintStops.length; i++) {
+            if (k <= tintStops[i][0]) { a = tintStops[i - 1]; b = tintStops[i]; break; }
+        }
+        var t = Math.max(0, Math.min(1, (k - a[0]) / (b[0] - a[0])));
+        function c(j) { return Math.round(a[1][j] + (b[1][j] - a[1][j]) * t); }
+        return { r: c(0), g: c(1), b: c(2) };
+    }
+
+    // "3000 K · ciepła"
+    function kelvinText(k) {
+        var word = k < 3500 ? T.ctWarm : (k > 5000 ? T.ctCool : T.ctNeutral);
+        return Math.round(k) + ' K · ' + word;
+    }
+
+    // The track from min to max as the light looks
+    function kelvinGradient(min, max) {
+        var stops = [];
+        for (var i = 0; i <= 6; i++) {
+            var rgb = kelvinRGB(min + (max - min) * i / 6);
+            stops.push('rgb(' + rgb.r + ',' + rgb.g + ',' + rgb.b + ') ' + Math.round(i * 100 / 6) + '%');
+        }
+        return 'linear-gradient(to right, ' + stops.join(', ') + ')';
+    }
+
+    // Off, or nothing known yet: the track is dimmed
+    function ctDimmed(d) {
+        return d.on === false || (d.on == null && d.kelvin == null);
+    }
+
+    function renderColorTemp(el, w) {
+        el.style.cursor = 'default';
+        var caps = w.capabilities || {};
+        var isOn = w.on !== false;
+        if (w.kelvin != null) applyLightColor(el, kelvinTint(w.kelvin), isOn);
+        el._data = { on: w.on, kelvin: w.kelvin };
+
+        var row = document.createElement('div');
+        row.className = 'dash-slider-row';
+        var slider = document.createElement('input');
+        slider.type = 'range';
+        slider.className = 'dash-slider-input dash-ct-input';
+        slider.min = w.min;
+        slider.max = w.max;
+        slider.step = w.step;
+        slider.value = w.kelvin != null ? w.kelvin : (w.min + w.max) / 2;
+        slider.dataset.role = 'kelvin';
+        slider.setAttribute('aria-label', T.colorTemp);
+        slider.style.background = kelvinGradient(w.min, w.max);
+        slider.classList.toggle('dimmed', ctDimmed(w));
+        bindSlider(slider, function(v) {
+            refreshTile(el, w, { kelvin: v });
+            if (el._data.on !== false) applyLightColor(el, kelvinTint(v), true);
+        }, function(v) { executeAction(w.id, 'setKelvin', v); }, 500);
+        row.appendChild(slider);
+
+        if (caps.toggle) {
+            var head = el.querySelector('.dash-tile-head');
+            head.classList.add('dash-tile-tap');
+            headSwitch(el, 'dash-ct-toggle', w.on === true, function(on) {
+                refreshTile(el, w, { on: on });
+                slider.classList.toggle('dimmed', !on);
+                applyLightColor(el, on ? kelvinTint(parseFloat(slider.value)) : null, on);
+                executeAction(w.id, on ? 'switchOn' : 'switchOff');
+            }, head);
+        }
+        el.appendChild(row);
+
+        if (caps.brightness) {
+            colorSlider(el, w, 'brightness', 'brightness-high', T.brightness, w.brightness, 'set');
         }
     }
 
@@ -2168,6 +3158,209 @@
             });
     }
 
+    // ---- Bars: one bar per hour or day of the house's zone, aggregated by the server ----
+
+    var bars = {}; // widgetId -> {refresh, observer}
+
+    function barsRefreshMs(w) {
+        if (w.refresh) return w.refresh * 1000;
+        return w.bucket === '1h' ? 60000 : 300000;
+    }
+
+    // 1, 2 or 5 times a power of ten, so the grid lines fall on round numbers
+    function niceStep(span) {
+        if (!(span > 0)) return 1;
+        var p = Math.pow(10, Math.floor(Math.log(span) / Math.LN10));
+        var f = span / p;
+        return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * p;
+    }
+
+    function barsDecimals(w, maxAbs) {
+        if (w.decimals != null) return w.decimals;
+        if (maxAbs >= 100) return 0;
+        return maxAbs >= 1 ? 1 : 2;
+    }
+
+    // "cz 30.10" for a day, "14:00–15:00" for an hour (with the day beyond one day of hours)
+    function barsWhen(w, b, n) {
+        var dm = Number(b.date.slice(8)) + '.' + b.date.slice(5, 7);
+        if (w.bucket === '1d') return T.weekdays[b.wd] + ' ' + dm;
+        // the bucket's own end: 01:00–03:00 on a spring-forward night
+        var h = pad2(b.h) + ':00–' + pad2(b.eh != null ? b.eh : (b.h + 1) % 24) + ':00';
+        return n > 24 ? T.weekdays[b.wd] + ' ' + dm + ', ' + h : h;
+    }
+
+    function renderBars(el, w) {
+        el.style.cursor = 'default';
+        if (w.compare) {
+            var legend = calEl('div', 'dash-bars-legend');
+            var a = legend.appendChild(calEl('span', 'dash-bars-key'));
+            a.appendChild(calEl('i', 'dash-bars-swatch'));
+            a.appendChild(document.createTextNode(w.label || ''));
+            var b = legend.appendChild(calEl('span', 'dash-bars-key dash-bars-key-cmp'));
+            b.appendChild(calEl('i', 'dash-bars-swatch dash-bars-swatch-cmp'));
+            b.appendChild(document.createTextNode(w.compareLabel || T.compare));
+            el.appendChild(legend);
+        }
+        var wrap = el.appendChild(calEl('div', 'dash-bars-wrap'));
+        wrap.tabIndex = 0;
+        var tip = calEl('div', 'dash-bars-tip');
+        tip.setAttribute('role', 'status');
+        tip.setAttribute('aria-live', 'polite');
+        tip.hidden = true;
+        wrap.appendChild(tip);
+        setState(el, 'unknown', T.unknown);
+
+        var st = { el: el, wrap: wrap, tip: tip, w: w, data: null, sel: -1, drawn: false };
+        function load() {
+            fetchJSON('/api/dashboard/' + dashId + '/bars?widget=' + encodeURIComponent(w.id))
+                .then(function(res) {
+                    if (!res || !res.buckets) return;
+                    st.data = res;
+                    drawBars(st);
+                })
+                .catch(function() {});
+        }
+        wrap.addEventListener('keydown', function(e) {
+            if (!st.data) return;
+            var n = st.data.buckets.length;
+            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                e.preventDefault();
+                var i = st.sel < 0 ? n - 1 : st.sel + (e.key === 'ArrowLeft' ? -1 : 1);
+                selectBar(st, Math.max(0, Math.min(n - 1, i)));
+            } else if (e.key === 'Escape') {
+                selectBar(st, -1);
+            }
+        });
+        wrap.addEventListener('blur', function() { selectBar(st, -1); });
+        var observer = null;
+        if (window.ResizeObserver) {
+            var lastW = 0;
+            observer = new ResizeObserver(function() {
+                if (wrap.clientWidth !== lastW) { lastW = wrap.clientWidth; drawBars(st); }
+            });
+            observer.observe(wrap);
+        }
+        bars[w.id] = { refresh: load, observer: observer };
+        load();
+        startChartTimer('bars-' + w.id, load, barsRefreshMs(w));
+    }
+
+    function drawBars(st) {
+        if (!st.data || !st.wrap.isConnected) return;
+        var w = st.w, wrap = st.wrap;
+        var buckets = st.data.buckets;
+        var n = buckets.length;
+        var W = wrap.clientWidth || 300, H = wrap.clientHeight || 150;
+        var lo = 0, hi = 0, maxAbs = 0;
+        buckets.forEach(function(b) {
+            [b.v, w.compare ? b.c : null].forEach(function(v) {
+                if (v == null) return;
+                lo = Math.min(lo, v); hi = Math.max(hi, v); maxAbs = Math.max(maxAbs, Math.abs(v));
+            });
+        });
+        if (hi === lo) hi = lo + 1;
+        var step = niceStep((hi - lo) / 3);
+        hi = Math.ceil(hi / step - 1e-9) * step;
+        lo = Math.floor(lo / step + 1e-9) * step;
+        st.dec = barsDecimals(w, maxAbs);
+        var tickDec = Math.max(0, -Math.floor(Math.log(step) / Math.LN10 + 1e-9));
+
+        // the widest tick label sets the left margin
+        var ticks = [];
+        for (var t = lo; t <= hi + step / 2; t += step) ticks.push(Math.round(t / step) * step);
+        var labelW = 0;
+        ticks.forEach(function(t) { labelW = Math.max(labelW, fmtNum(t, tickDec).length); });
+        var padL = 8 + labelW * 6.5, padR = 2, padT = 6, padB = 18;
+        var plotW = Math.max(10, W - padL - padR), plotH = Math.max(10, H - padT - padB);
+        var y = function(v) { return padT + (hi - v) / (hi - lo) * plotH; };
+        var slot = plotW / n;
+        st.padL = padL; st.slot = slot; st.W = W;
+
+        var svg = svgEl('svg', { width: W, height: H, viewBox: '0 0 ' + W + ' ' + H, role: 'img' }, 'dash-bars-svg');
+        svg.setAttribute('aria-label', w.label || '');
+        if (!st.drawn) svg.classList.add('dash-bars-anim');
+        st.drawn = true;
+        ticks.forEach(function(t) {
+            var gy = Math.round(y(t)) + 0.5;
+            svg.appendChild(svgEl('line', { x1: padL, x2: W - padR, y1: gy, y2: gy }, t === 0 ? 'dash-bars-zero' : 'dash-bars-grid'));
+            var tx = svgEl('text', { x: padL - 6, y: gy + 3.5, 'text-anchor': 'end' }, 'dash-bars-axis');
+            tx.textContent = fmtNum(t, tickDec);
+            svg.appendChild(tx);
+        });
+
+        // x labels at least 30 px apart, counted from the newest bar; hours on round steps
+        var every = Math.max(1, Math.ceil(30 / slot));
+        if (w.bucket === '1h') {
+            var steps = [1, 2, 3, 4, 6, 12, 24];
+            for (var k = 0; k < steps.length; k++) if (steps[k] >= every) { every = steps[k]; break; }
+        }
+        var y0 = y(Math.max(lo, Math.min(0, hi)));
+        var gap = w.compare ? 0.12 : 0.18;
+        var bw = slot * (1 - 2 * gap) / (w.compare ? 2 : 1);
+        st.groups = [];
+        buckets.forEach(function(b, i) {
+            var x0 = padL + i * slot;
+            var g = svgEl('g', {}, 'dash-bars-bucket' + (b.partial ? ' partial' : ''));
+            [[b.v, 0, 'dash-bars-bar'], [w.compare ? b.c : null, 1, 'dash-bars-bar dash-bars-cmp']].forEach(function(s) {
+                if (s[0] == null) return;
+                var top = Math.min(y(s[0]), y0), h = Math.max(1, Math.abs(y(s[0]) - y0));
+                g.appendChild(svgEl('rect', { x: x0 + slot * gap + s[1] * bw, y: top,
+                    width: Math.max(1, bw - (w.compare ? 1 : 0)), height: h, rx: Math.min(3, bw / 4) }, s[2]));
+            });
+            // a bucket without samples: a mark on the baseline, not a zero bar; none before the retention
+            if (b.v == null && !(w.compare && b.c != null) && !b.old) {
+                g.appendChild(svgEl('line', { x1: x0 + slot * 0.3, x2: x0 + slot * 0.7, y1: y0, y2: y0 }, 'dash-bars-gap'));
+            }
+            // the whole column answers hover and tap
+            var hit = svgEl('rect', { x: x0, y: 0, width: slot, height: H }, 'dash-bars-hit');
+            hit.addEventListener('pointerenter', function(e) { if (e.pointerType === 'mouse') selectBar(st, i); });
+            hit.addEventListener('click', function() { selectBar(st, st.sel === i ? -1 : i); });
+            g.appendChild(hit);
+            svg.appendChild(g);
+            st.groups.push(g);
+            if ((n - 1 - i) % every === 0) {
+                var lx = svgEl('text', { x: x0 + slot / 2, y: H - 4, 'text-anchor': 'middle' }, 'dash-bars-axis');
+                lx.textContent = w.bucket === '1h' ? pad2(b.h) : n > 10 ? String(Number(b.date.slice(8))) : T.weekdays[b.wd];
+                svg.appendChild(lx);
+            }
+        });
+        svg.addEventListener('pointerleave', function(e) {
+            if (e.pointerType === 'mouse' && document.activeElement !== wrap) selectBar(st, -1);
+        });
+        var old = wrap.querySelector('svg');
+        if (old) wrap.replaceChild(svg, old); else wrap.insertBefore(svg, st.tip);
+
+        // the state line: the newest bar so far
+        var last = buckets[n - 1];
+        if (last.v != null) {
+            setState(st.el, 'value', (w.bucket === '1d' ? T.today : T.thisHour) + ' ' + withUnit(last.v, w.unit, st.dec));
+        } else {
+            setState(st.el, 'unknown', T.noData);
+        }
+        selectBar(st, st.sel < n ? st.sel : -1);
+    }
+
+    // Marks bar i and shows its time and values over it; -1 hides the tip
+    function selectBar(st, i) {
+        st.sel = i;
+        if (!st.groups) return;
+        st.groups.forEach(function(g, k) { g.classList.toggle('sel', k === i); });
+        var tip = st.tip, w = st.w;
+        if (i < 0 || !st.data) { tip.hidden = true; return; }
+        var b = st.data.buckets[i];
+        var none = b.old ? T.notKept.replace('{n}', st.data.kept) : T.noData;
+        var val = function(v) { return v == null ? none : withUnit(v, w.unit, st.dec); };
+        tip.textContent = '';
+        tip.appendChild(calEl('div', 'dash-bars-tip-when', barsWhen(w, b, st.data.buckets.length) + (b.partial ? ' · ' + T.soFar : '')));
+        tip.appendChild(calEl('div', 'dash-bars-tip-v', (w.compare ? (w.label || '') + ': ' : '') + val(b.v)));
+        if (w.compare) tip.appendChild(calEl('div', 'dash-bars-tip-v dash-bars-tip-cmp', (w.compareLabel || T.compare) + ': ' + val(b.c)));
+        tip.hidden = false;
+        var cx = st.padL + (i + 0.5) * st.slot;
+        var tw = tip.offsetWidth;
+        tip.style.left = Math.max(0, Math.min(st.W - tw, cx - tw / 2)) + 'px';
+    }
+
     function startChartTimer(id, fn, ms) {
         stopChartTimer(id);
         chartTimers[id] = setInterval(fn, ms);
@@ -2185,6 +3378,10 @@
         for (var id in chartInstances) {
             chartInstances[id].destroy();
             delete chartInstances[id];
+        }
+        for (var bid in bars) {
+            if (bars[bid].observer) bars[bid].observer.disconnect();
+            delete bars[bid];
         }
     }
 
@@ -2300,10 +3497,22 @@
         } else if (w.type === 'button') {
             tap = function() {
                 if (w.confirm && !confirm(w.confirm)) return;
-                executeAction(w.id, 'tap');
+                executeAction(w.id, 'tap', undefined, null, !!w.hold);
             };
         }
-        if (tap) {
+        if (tap && w.hold) {
+            if (w.type === 'toggle') {
+                el.setAttribute('role', 'switch');
+                tap = function() {
+                    var on = !el._data.value;
+                    refreshTile(el, w, { value: on });
+                    executeAction(w.id, 'toggle', on, null, true);
+                };
+            }
+            el.classList.add('dash-header-tap');
+            el.setAttribute('aria-label', w.label || '');
+            bindHold(el, el, w.hold, tap);
+        } else if (tap) {
             bindHeaderTap(el, w.type === 'toggle' ? 'switch' : (w.type === 'link' ? 'link' : 'button'), w.label || '', tap);
         }
         if (w.disabled) {
@@ -2555,8 +3764,22 @@
                 if (!(k in d)) d[k] = null;
             });
         }
-        if (type === 'color') delete d.value; // brightness or white: the reply does not say
+        // a poll is the whole table; after an error the last rows stay
+        if (type === 'table' && !force) {
+            ['error'].concat(d.error ? [] : ['rows', 'total']).forEach(function(k) {
+                if (!(k in d)) d[k] = null;
+            });
+        }
+        // a poll is the whole state: no value is a dash, no target drops the marker
+        if (type === 'gauge' && !force) ['value', 'target', 'error'].forEach(function(k) { if (!(k in d)) d[k] = null; });
+        // a poll is the gate's whole state: none means no reading
+        if (type === 'gate' && !force) ['state', 'error'].forEach(function(k) { if (!(k in d)) d[k] = null; });
+        if (type === 'color' || type === 'colorTemp') delete d.value; // the reply does not say which slider
+        // a poll is the whole state: an error goes away with it, a missing reading is unknown
+        if (type === 'colorTemp' && !force) ['kelvin', 'on', 'brightness', 'error'].forEach(function(k) { if (!(k in d)) d[k] = null; });
         if (type === 'thermostat') {
+            // a mode's reply says what the thermostat reports now: the chosen one is no longer pending
+            if (force && 'mode' in d && el._thermo) el._thermo.mode = null;
             delete d.value; // a set's reply: the tile holds the value itself
             // a poll is the whole state: what it leaves out was not reported (shown as --)
             if (!force) ['current', 'target', 'state', 'mode', 'error'].forEach(function(k) { if (!(k in d)) d[k] = null; });
@@ -2602,6 +3825,25 @@
             if (d.rgb !== undefined || d.on !== undefined) {
                 applyLightColor(el, d.rgb, d.on !== false);
             }
+        } else if (type === 'colorTemp') {
+            var ks = el.querySelector('.dash-slider-input[data-role="kelvin"]');
+            if (ks && userHolds(ks)) delete d.kelvin;
+            else if (ks && d.kelvin != null) ks.value = d.kelvin;
+            var bs = el.querySelector('.dash-slider-input[data-role="brightness"]');
+            var bv = el.querySelector('.dash-slider-value[data-role="brightness"]');
+            if (bs && userHolds(bs)) delete d.brightness;
+            else if (d.brightness != null) {
+                if (bs) bs.value = d.brightness;
+                if (bv) bv.textContent = d.brightness + '%';
+            }
+            toggle = el.querySelector('.dash-ct-toggle .form-check-input');
+            if (toggle && d.on !== undefined) toggle.checked = d.on === true;
+            var known = el._data || {};
+            if (ks) ks.classList.toggle('dimmed', ctDimmed({
+                on: d.on !== undefined ? d.on : known.on, kelvin: d.kelvin !== undefined ? d.kelvin : known.kelvin }));
+            var k = d.kelvin != null ? d.kelvin : known.kelvin;
+            var lit = d.on !== undefined ? d.on !== false : known.on !== false;
+            if (k != null) applyLightColor(el, kelvinTint(k), lit);
         } else if (type === 'toggle') {
             toggle = el.querySelector('.form-check-input');
             if (toggle && d.value !== undefined) toggle.checked = !!d.value;
@@ -2637,8 +3879,9 @@
                     return;
                 }
                 hideOverlay();
+                applyHidden(data._hidden, true);
                 for (var wid in data) {
-                    if (!data.hasOwnProperty(wid)) continue;
+                    if (!data.hasOwnProperty(wid) || wid === '_hidden') continue;
                     var sec = /^_section_(\d+)$/.exec(wid);
                     if (sec) updateSectionCovers(+sec[1], data[wid]);
                     else updateWidget(wid, data[wid]);
@@ -2670,10 +3913,12 @@
 
     // ---- Actions ----
 
-    // onFail: called when the action is refused or does not reach the server
-    function executeAction(widgetId, action, value, onFail) {
+    // onFail: called when the action is refused or does not reach the server;
+    // held: the press lasted the widget's hold (the server refuses it without)
+    function executeAction(widgetId, action, value, onFail, held) {
         var body = { widgetId: widgetId, action: action };
         if (value !== undefined) body.value = value;
+        if (held) body.held = true;
 
         // Protect this widget from stale poll data for 3 seconds
         actionGrace[widgetId] = Date.now() + 3000;
@@ -2732,6 +3977,7 @@
         .catch(function(err) {
             contentEl.className = '';
             contentEl.innerHTML = '<div class="text-center py-5"><p class="text-danger">Error loading dashboard.</p></div>';
+            if (window.console) console.error(err);
         });
 
     // Pause polling when page is hidden, resume when visible
@@ -2749,6 +3995,10 @@
                     if (w.type === 'calendar' && calendars[w.id]) {
                         calendars[w.id].refresh();
                         startChartTimer('cal-' + w.id, calendars[w.id].refresh, 60000);
+                    }
+                    if (w.type === 'bars' && bars[w.id]) {
+                        bars[w.id].refresh();
+                        startChartTimer('bars-' + w.id, bars[w.id].refresh, barsRefreshMs(w));
                     }
                     if (w.type === 'chart') {
                         var canvas = document.getElementById('chart-' + w.id);

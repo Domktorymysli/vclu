@@ -19,13 +19,14 @@ Only public API is listed — internal/private functions are omitted.
 - [core.Registry](#coreregistry) (10 functions)
 - [core.Metrics](#coremetrics) (1 functions)
 - [core.Calendar](#corecalendar) (36 functions)
-- [Dashboard](#dashboard) (66 functions)
+- [Dashboard](#dashboard) (78 functions)
 - [lib.panel](#libpanel) (55 functions)
 - [objects.RemotePanel](#objectsremotepanel) (6 functions)
 - [GPIO_DOUT](#gpio_dout) (1 functions)
 - [GPIO_DIN](#gpio_din) (1 functions)
 - [integrations.mqtt.MqttClient](#integrationsmqttmqttclient) (30 functions)
 - [grenton.CLU_REMOTE](#grentonclu_remote) (1 functions)
+- [lib.cct](#libcct) (1 functions)
 - [lib.tasmota](#libtasmota) (5 functions)
 
 ---
@@ -1154,7 +1155,7 @@ Add a button widget to this section.
 - `label` (string) — Display label
 - `icon` (string) — Bootstrap icon name (e.g., "power", "door-open")
 - `onTap` (function) — Callback fired on button press: function()
-- `opts` (table) — Optional: {disabled=function()->bool, confirm=string}
+- `opts` (table) — Optional: {disabled=function()->bool, visible=function()->bool, confirm=string, hold=true|ms (press and hold 800 ms or 300-5000 ms; not with confirm)}
 
 ### `SectionHandle:toggle(id, label, icon, getValue, onToggle, opts)`
 
@@ -1165,7 +1166,7 @@ Add a toggle widget to this section.
 - `icon` (string) — Bootstrap icon name (e.g., "lightbulb", "lamp")
 - `getValue` (function) — Returns current state: function() -> boolean|number (truthy=on)
 - `onToggle` (function) — Called with desired state: function(bool) — use switchOn/switchOff, NOT toggle()
-- `opts` (table) — Optional: {disabled=function()->bool}
+- `opts` (table) — Optional: {disabled=function()->bool, visible=function()->bool, hold=true|ms (press and hold 800 ms or 300-5000 ms to switch)}
 
 ### `SectionHandle:slider(id, label, min, max, getValue, onSet, opts)`
 
@@ -1177,7 +1178,7 @@ Add a slider widget to this section.
 - `max` (number) — Maximum slider value
 - `getValue` (function) — Returns current value: function() -> number
 - `onSet` (function) — Called with new value: function(number)
-- `opts` (table) — Optional: {step=number, unit=string, icon=string, disabled=function()->bool}
+- `opts` (table) — Optional: {step=number, unit=string, icon=string, disabled=function()->bool, visible=function()->bool}
 
 ### `SectionHandle:status(id, label, icon, getValue, unit, opts)`
 
@@ -1188,7 +1189,7 @@ Add a status widget to this section.
 - `icon` (string) — Bootstrap icon name (e.g., "thermometer-half", "droplet")
 - `getValue` (function) — Returns current value: function() -> number|string
 - `unit` (string) — Unit suffix displayed after value (e.g., "°C", "%", "lx")
-- `opts` (table) — Optional: {decimals=0-6 (a number is shown rounded to that many places), disabled=function()->bool, color=string|function()->string|nil}
+- `opts` (table) — Optional: {decimals=0-6 (a number is shown rounded to that many places), disabled=function()->bool, visible=function()->bool, color=string|function()->string|nil}
 
 ### `SectionHandle:link(id, label, icon, url, opts)`
 
@@ -1198,7 +1199,7 @@ Add a link widget to this section.
 - `label` (string) — Display label
 - `icon` (string) — Bootstrap icon name
 - `url` (string) — |function URL string or function() -> string
-- `opts` (table) — Optional: {disabled=function()->bool}
+- `opts` (table) — Optional: {disabled=function()->bool, visible=function()->bool}
 
 ### `SectionHandle:chart(id, label, metricPath, opts)`
 
@@ -1207,11 +1208,20 @@ Add a chart widget to this section.
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label (e.g., "Temperatura 24h")
 - `metricPath` (string) — Metric path registered via metric() (e.g., "temp:salon", "salda:outsideAir")
-- `opts` (table) — Optional: {range=string (any duration such as "30m", "2h", "24h", "7d"; default "2h"; 30m/2h/24h/7d have tuned refresh, others refresh every 60 s), unit=string, min=n, max=n (Y axis), fill=bool (default true), refresh=seconds, span=n, color=string}
+- `opts` (table) — Optional: {range=string (any duration such as "30m", "2h", "24h", "7d"; default "2h"; 30m/2h/24h/7d have tuned refresh, others refresh every 60 s), unit=string, min=n, max=n (Y axis), fill=bool (default true), refresh=seconds, span=n, color=string, visible=function()->bool}
+
+### `SectionHandle:bars(id, label, metricPath, opts)`
+
+Add a bar chart of a metric to this section: one bar per hour or day of the house's zone.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label (e.g., "Energia dziennie")
+- `metricPath` (string) — Metric path registered via metric() (e.g., "energia:licznik")
+- `opts` (table) — Optional: {range=string (a duration up to "31d"; default "7d"), bucket="1h"|"1d" (default "1d" from a 2-day range, else "1h"), agg="avg"|"sum"|"max"|"min"|"delta" (default "avg", the mean of the samples; sum depends on the sampling interval; delta: what a growing counter such as a kWh meter added in each bar, a single bad reading or a reset adds nothing), unit=string, decimals=0-6, color=string, compare=metricPath (a second bar beside each), compareLabel=string, visible=function()->bool, span=n, size=string, refresh=seconds (at least 30)}; samples are kept metrics.retentionDays (default 7) days
 
 ### `SectionHandle:calendar(id, label, cal, opts)`
 
-Add a calendar widget to this section: a month grid and the day of a tapped date. holidays=true (holiday names, on by default), namedays=false (name days in the day view), sun=true (sunrise and sunset in the day view, with :location()), span=n}; what is off is not sent to the browser
+Add a calendar widget to this section: a month grid and the day of a tapped date. holidays=true (holiday names, on by default), namedays=false (name days in the day view), sun=true (sunrise and sunset in the day view, with :location()), span=n, visible=function()->bool}; what is off is not sent to the browser
 
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label
@@ -1228,7 +1238,7 @@ Add a select widget to this section.
 - `options` (table) — Array of {value=any, label=string} or function() -> same
 - `getValue` (function) — Returns current selected value: function() -> any
 - `onSelect` (function) — Called with selected value: function(any)
-- `opts` (table) — Optional: {disabled=function()->bool}
+- `opts` (table) — Optional: {disabled=function()->bool, visible=function()->bool}
 
 ### `SectionHandle:image(id, label, url, opts)`
 
@@ -1237,14 +1247,15 @@ Add an image widget to this section.
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label
 - `url` (string) — |function Image URL string or function() -> string
-- `opts` (table) — Optional: {refreshInterval=number (seconds)}
+- `opts` (table) — Optional: {refreshInterval=number (seconds), visible=function()->bool}
 
-### `SectionHandle:group(label, icon)`
+### `SectionHandle:group(label, icon, opts)`
 
 Add a group label widget to this section.
 
 - `label` (string) — Group heading text
 - `icon` (string) — Bootstrap icon name (optional)
+- `opts` (table) — Optional: {visible=function()->bool (false or nil hides the label and the widgets after it, up to the next group)}
 
 ### `SectionHandle:cover(id, label, icon, fns, opts)`
 
@@ -1254,7 +1265,7 @@ Add a cover widget to this section. Buttons up/stop/down call open/stop/close. W
 - `label` (string) — Display label
 - `icon` (string) — Bootstrap icon name (e.g., "arrows-expand")
 - `fns` (table) — {getPosition=function()->number|nil, getState=function()->number|nil, open=function(), close=function(), stop=function(), set=function(position)}
-- `opts` (table) — Optional: {disabled=function()->bool}
+- `opts` (table) — Optional: {disabled=function()->bool, visible=function()->bool}
 
 ### `SectionHandle:covers(id, label, list, opts)`
 
@@ -1263,7 +1274,15 @@ Add a cover group: one tile moving several covers, with their counts and average
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label
 - `list` (table) — Covers (RemoteCover, VirtualCover) or their paths, _:byTag(...), or a function returning one (read each time; missing paths skipped)
-- `opts` (table) — Optional: {icon=string (default "window"), disabled=function()->bool, span=n, size=string, color=string}
+- `opts` (table) — Optional: {icon=string (default "window"), disabled=function()->bool, visible=function()->bool, span=n, size=string, color=string}
+
+### `SectionHandle:gate(id, label, opts)`
+
+Add a gate (or a door lock): its state, Open, Close and Stop. Open and Close are pressed and held (Close shown only with close), Stop is a tap.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `opts` (table) — {open=function() (required), close=function()?, stop=function()?, state=function()->"open"|"closed"|"opening"|"closing"|"moving"|nil, hold=true|false|ms (default true = 800 ms; 300-5000), icon=string (default "door-closed"), disabled=function()->bool, span=n}
 
 ### `SectionHandle:player(id, label, src, opts)`
 
@@ -1272,7 +1291,7 @@ Add a media player: artwork, title and artist, previous/play-pause/next, volume,
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label (e.g. the room)
 - `src` (table) — A MusicCast device (Plugin.getPlugin("@vclu/musiccast"):create{...}) or a table of functions
-- `opts` (table) — Optional: {icon=string (default "music-note-beamed"), disabled=function()->bool, span=n, size=string, color=string}
+- `opts` (table) — Optional: {icon=string (default "music-note-beamed"), disabled=function()->bool, visible=function()->bool, span=n, size=string, color=string}
 
 ### `SectionHandle:forecast(id, label, src, opts)`
 
@@ -1281,7 +1300,24 @@ Add a weather forecast: the next days (icon, max/min, rain) and a chart of the n
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label
 - `src` (function) — A function returning the forecast, or the Weather plugin (Plugin.getPlugin("@vclu/weather"))
-- `opts` (table) — Optional: {days=1-7 (default 5), hours=0-48 (default 24, 0 hides the chart), unit=string (default "°C"), icon=string (default "cloud-sun"), disabled=function()->bool, span=n, size=string, color=string}
+- `opts` (table) — Optional: {days=1-7 (default 5), hours=0-48 (default 24, 0 hides the chart), unit=string (default "°C"), icon=string (default "cloud-sun"), disabled=function()->bool, visible=function()->bool, span=n, size=string, color=string}
+
+### `SectionHandle:table(id, label, rows, opts)`
+
+Add a table: rows from a function, read on every poll, in the columns of opts.columns. Numbers are rounded to the column's decimals, booleans show as ✓ and —, nil as an empty cell; a header tap sorts on the page; on a phone each row is a card. rows must be a list (1..n, no holes); the first 1000 are read and sorted, at most 200 go to the page.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `rows` (function) — Returns the rows: function() -> { {key=value, ...}, ... } (nil or {} shows "brak danych")
+- `opts` (table) — {columns={{key=string, label=string?, unit=string?, decimals=0-6?, align="left"|"right"?}, ...} (required), sort=column key (ascending, before limit, empty cells last; default: the order rows gives), desc=true (sort descending), limit=1-200, color=function(row, key)->colour name|#hex|rgb()|hsl()|nil (the cell's colour), icon=string (default "table"), disabled=function()->bool, span=n, size=string}
+
+### `SectionHandle:energy(id, label, opts)`
+
+Add an energy flow: PV, grid, battery and home as nodes, with the power flowing between them. Each function returns the power now (W, or kW with unit="kW"), nil while there is no reading; pv is 0 or more, grid is + taken from the grid and - given to it, battery + charging and - discharging (invert flips one that counts the other way). A node without its function is left out (a house without a battery); home without one is pv + grid - battery, at least 0 (PV without a reading counts as 0). A function that fails shows "—" on its node, the rest of the tile stays.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `opts` (table) — {pv=fn, grid=fn, battery=fn, batterySoc=fn (%), home=fn, unit="W"|"kW" (default "W"), invert={grid=bool, battery=bool}, today={pv=fn, grid_import=fn, grid_export=fn, home=fn} (kWh today, shown under the nodes), icon=string (default "lightning-charge"), disabled=function()->bool, visible=function()->bool, span=n (default 2)}
 
 ### `SectionHandle:dimmer(id, label, icon, fns, opts)`
 
@@ -1291,7 +1327,7 @@ Add a dimmer widget to this section.
 - `label` (string) — Display label
 - `icon` (string) — Bootstrap icon name (e.g., "brightness-high")
 - `fns` (table) — {get=function()->number(0-100), set=function(number 0-100), switchOn=function()?, switchOff=function()?, isOn=function()->bool? (default: get() > 0)}
-- `opts` (table) — Optional: {disabled=function()->bool}
+- `opts` (table) — Optional: {disabled=function()->bool, visible=function()->bool}
 
 ### `SectionHandle:color(id, label, icon, fns, opts)`
 
@@ -1301,17 +1337,35 @@ Add a color picker widget to this section. switchOn?, switchOff?, isOn?, getWhit
 - `label` (string) — Display label
 - `icon` (string) — Bootstrap icon name (e.g., "palette")
 - `fns` (table) — {getColor=function()->{r,g,b}, setColor=function(r,g,b), get?/set? brightness 0-100,
-- `opts` (table) — Optional: {disabled=function()->bool}
+- `opts` (table) — Optional: {disabled=function()->bool, visible=function()->bool}
+
+### `SectionHandle:colorTemp(id, label, fns, opts)`
+
+Add a colour temperature slider (warm to cool white) to this section. getBrightness?/setBrightness? 0-100}, or an object with getColorTemp/setColorTemp in kelvin (and its switchOn/switchOff/getBrightness/setBrightness when it has them); a two-channel warm/cold white: require("lib/cct").mix(warm, cold) The slider runs warm to cool over a gradient; the value shows as "3000 K" and a word (warm, neutral, cool). A set outside min..max is clamped to it; a reading outside is shown as it is. A toggle when there are switchOn and switchOff, a brightness slider when there are getBrightness and setBrightness.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `fns` (table) — {getKelvin=function()->number|nil, setKelvin=function(kelvin), isOn?, switchOn?, switchOff?,
+- `opts` (table) — Optional: {min=2700, max=6500, step=50, unit="kelvin"|"mired" (the functions speak mireds, e.g. Zigbee color_temp), icon=string (default "lightbulb"), disabled=function()->bool, visible=function()->bool, span=n, size=string, color=string}
 
 ### `SectionHandle:thermostat(id, label, icon, fns, opts)`
 
-Add a thermostat: current temperature, target and +/- for the target. getState=function()->number|bool? (1/true active, 0/false off), getMode=function()->number? (0 manual, 1 holiday, 2 schedule, 3 heat-up)}, or a thermostat object (RemoteThermostat: getValue, getTarget, setSetpoint, getState, getMode) Shows the current temperature and the target ("--" until reported); + and - change the target by step and setTarget is called once, 1 s after the last tap; the chosen value shows until the thermostat reports a new target, at most 90 s. Without setTarget (or opts.readonly) there are no buttons; with getMode the target is set only in manual mode (0), as lib/panel does. The action endpoint refuses a set outside min..max.
+Add a thermostat: current temperature, target and +/- for the target. getState=function()->number|bool? (1/true active, 0/false off), getMode=function()->number? (0 manual, 1 holiday, 2 schedule, 3 heat-up), setMode=function(value)? (with opts.modes)}, or a thermostat object (RemoteThermostat, VirtualThermostat: getValue, getTarget, setSetpoint, getState, getMode, setMode?) Shows the current temperature and the target ("--" until reported); + and - change the target by step and setTarget is called once, 1 s after the last tap; the chosen value shows until the thermostat reports a new target, at most 90 s. Without setTarget (or opts.readonly) there are no buttons; with getMode the target is set only in manual mode (0), as lib/panel does. The action endpoint refuses a set outside min..max. Modes: a switch under the target. A VirtualThermostat gets manual (0), holiday (1) and "off" (stop; another mode starts it again) by itself; a RemoteThermostat only shows its mode. A table of functions gets one with fns.getMode, fns.setMode and opts.modes; getMode gives one of the values, setMode(value) gets the chosen one. In a mode marked readonly (holiday) there are no + and -. opts.readonly locks the switch too.
 
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label
 - `icon` (string) — |nil Bootstrap icon name (default "thermometer-half")
 - `fns` (table) — {getCurrent=function()->number|nil, getTarget=function()->number|nil, setTarget=function(number)?,
-- `opts` (table) — Optional: {min=5, max=35, step=0.5, unit="°C", readonly=bool or function()->bool (true: no buttons; a function locks them while it returns true), disabled=function()->bool, span=n, size=string, color=string}
+- `opts` (table) — Optional: {min=5, max=35, step=0.5, unit="°C", readonly=bool or function()->bool (true: no buttons and no mode switch; a function locks them while it returns true), modes={ {value=number|string, label=string, icon=string?, readonly=bool? (no + and - in this mode)}, ... } or {[value]=label} (ordered by value) or false (no switch for an object), disabled=function()->bool, visible=function()->bool, span=n, size=string, color=string}
+
+### `SectionHandle:gauge(id, label, getValue, opts)`
+
+Add a gauge: a value on an arc or a bar between min and max, coloured by thresholds. style="arc" (default) is a 240° arc with the value in the middle, "bar" a horizontal bar with the value at its right; from each threshold's value on the fill takes its colour; a value outside min..max is drawn at the end, the number shows it as it is.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `getValue` (function) — Returns the value: function() -> number|nil (nil shows a dash)
+- `opts` (table) — Optional: {min=0, max=100 (above min), unit=string, decimals=0-6, style="arc"|"bar", thresholds={{value, color}, ...} (ascending), target=number|function()->number|nil (a marker, e.g. a power limit), icon=string (default "speedometer2"), disabled=function()->bool, span=n, size=string, color=string (the fill below the first threshold)}
 
 ### `SectionHandle:chip(id, icon, fn, opts)`
 
@@ -1320,11 +1374,11 @@ Add a chip to the header: an icon and a short text from fn, hidden while fn retu
 - `id` (string) — Unique widget identifier
 - `icon` (string) — Bootstrap icon name (e.g., "alarm", "water", "shield")
 - `fn` (function) — function() -> string|nil|{text=string, icon=string, color=string}; nil hides the chip
-- `opts` (table) — Optional: {color=string|function()->string|nil, link=URL or dashboard id, disabled=function()->bool}
+- `opts` (table) — Optional: {color=string|function()->string|nil, link=URL or dashboard id, disabled=function()->bool, visible=function()->bool}
 
 ### `SectionHandle:area(area, opts)`
 
-Fill this section with a widget for every device expose() put in an area, picked by kind: a light, switch or lock a toggle, a dimmer a dimmer, an RGB light the colour widget, a cover a cover, temperature and humidity a status; lights first, then covers, then the rest by name. Filled when something is exposed or unexposed, so devices a plugin exposes later show up; widgets added by hand come after them; a read-only device's widget is disabled. Like the panel, expose(obj, type, { dashboard = false }) keeps an object off dashboards and dashboard = true puts one of those kinds on them even when kinds leaves it out (other kinds have no widget and log a warning). Widget ids are "area:" .. path, other bytes as %XX. Anyone who can open the dashboard controls what is exposed in the area later: use :auth('session') or 'pin'; access profiles of MQTT, HomeKit and MCP do not apply here.
+Fill this section with a widget for every device expose() put in an area, picked by kind: a light, switch or lock a toggle, a dimmer a dimmer, an RGB light the colour widget, a light with getColorTemp/setColorTemp the colour temperature (2700-6500 K), a cover a cover, temperature and humidity a status; lights first, then covers, then the rest by name. Filled when something is exposed or unexposed, so devices a plugin exposes later show up; widgets added by hand come after them; a read-only device's widget is disabled. Like the panel, expose(obj, type, { dashboard = false }) keeps an object off dashboards and dashboard = true puts one of those kinds on them even when kinds leaves it out (other kinds have no widget and log a warning). Widget ids are "area:" .. path, other bytes as %XX. Anyone who can open the dashboard controls what is exposed in the area later: use :auth('session') or 'pin'; access profiles of MQTT, HomeKit and MCP do not apply here.
 
 - `area` (string) — Area name, or a list of names (one room under two names)
 - `opts` (table) — Optional: {kinds={"light","dimmer","cover","temperature","humidity"} (also "switch", "lock"), skip={path, ...}}
@@ -1339,7 +1393,7 @@ Add a room tile: the area's name, how many lights and switches are on and covers
 
 - `id` (string) — Unique widget identifier
 - `area` (string) — Area name, or a list of names (one room under two names)
-- `opts` (table) — Optional: {title=string, temperature=path|function()->number, humidity=path|function()->number, kinds, skip (as section:area), icon=string, link=dashboard id|/path|http(s) URL (opens it instead of the room), disabled=function()->bool (also disables the room's widgets), span=n, size=string, color=string}
+- `opts` (table) — Optional: {title=string, temperature=path|function()->number, humidity=path|function()->number, kinds, skip (as section:area), icon=string, link=dashboard id|/path|http(s) URL (opens it instead of the room), disabled=function()->bool (also disables the room's widgets), visible=function()->bool, span=n, size=string, color=string}
 
 ### `SectionHandle:when(periods, fn)`
 
@@ -1444,7 +1498,7 @@ Start a new named section for grouping widgets.
 
 - `name` (string) — Section title
 - `icon` (string) — Bootstrap icon name
-- `opts` (table) — Optional: {columns=number, covers=true (the header counts the section's covers open, moving and closed)}
+- `opts` (table) — Optional: {columns=number, covers=true (the header counts the section's covers open, moving and closed), visible=function()->bool (false or nil hides the section; it also goes when none of its widgets is shown)}
 
 **Returns:** SectionHandle Handle for adding widgets to this section
 
@@ -1453,7 +1507,7 @@ Start a new named section for grouping widgets.
 Add one section per area on a floor (expose(..., { area = "Salon", floor = "Parter" })), each filled as section:area; areas with nothing to show are left out. Read each time the dashboard is, so new areas show up. Start a section() to add widgets by hand after it. With rooms = true: one section named after the floor with a room tile per area (section:room).
 
 - `floor` (string) — Floor name
-- `opts` (table) — Optional: {order={area, ...} (first, in this order; the rest by name), titles={[area]=title}, kinds, skip, rooms=true}
+- `opts` (table) — Optional: {order={area, ...} (first, in this order; the rest by name), titles={[area]=title}, kinds, skip, rooms=true, visible=function()->bool (each of its sections)}
 
 ### `DashboardBuilder:room(id, area, opts)`
 
@@ -1471,7 +1525,7 @@ Add a button widget to the current section.
 - `label` (string) — Display label
 - `icon` (string) — Bootstrap icon name (e.g., "power", "door-open")
 - `onTap` (function) — Callback fired on button press: function()
-- `opts` (table) — Optional: {disabled=function()->bool, confirm=string}
+- `opts` (table) — Optional: {disabled=function()->bool, visible=function()->bool, confirm=string, hold=true|ms (press and hold 800 ms or 300-5000 ms; not with confirm)}
 
 ### `DashboardBuilder:toggle(id, label, icon, getValue, onToggle, opts)`
 
@@ -1482,7 +1536,7 @@ Add a toggle widget to the current section.
 - `icon` (string) — Bootstrap icon name (e.g., "lightbulb", "lamp")
 - `getValue` (function) — Returns current state: function() -> boolean|number (truthy=on)
 - `onToggle` (function) — Called with desired state: function(bool) — use switchOn/switchOff, NOT toggle()
-- `opts` (table) — Optional: {disabled=function()->bool}
+- `opts` (table) — Optional: {disabled=function()->bool, visible=function()->bool, hold=true|ms (press and hold 800 ms or 300-5000 ms to switch)}
 
 ### `DashboardBuilder:slider(id, label, min, max, getValue, onSet, opts)`
 
@@ -1494,7 +1548,7 @@ Add a slider widget to the current section.
 - `max` (number) — Maximum slider value
 - `getValue` (function) — Returns current value: function() -> number
 - `onSet` (function) — Called with new value: function(number)
-- `opts` (table) — Optional: {step=number, unit=string, icon=string, disabled=function()->bool}
+- `opts` (table) — Optional: {step=number, unit=string, icon=string, disabled=function()->bool, visible=function()->bool}
 
 ### `DashboardBuilder:status(id, label, icon, getValue, unit, opts)`
 
@@ -1505,7 +1559,7 @@ Add a status widget to the current section.
 - `icon` (string) — Bootstrap icon name (e.g., "thermometer-half", "droplet")
 - `getValue` (function) — Returns current value: function() -> number|string
 - `unit` (string) — Unit suffix displayed after value (e.g., "°C", "%", "lx")
-- `opts` (table) — Optional: {decimals=0-6 (a number is shown rounded to that many places), disabled=function()->bool, color=string|function()->string|nil}
+- `opts` (table) — Optional: {decimals=0-6 (a number is shown rounded to that many places), disabled=function()->bool, visible=function()->bool, color=string|function()->string|nil}
 
 ### `DashboardBuilder:link(id, label, icon, url, opts)`
 
@@ -1515,7 +1569,7 @@ Add a link widget to the current section.
 - `label` (string) — Display label
 - `icon` (string) — Bootstrap icon name
 - `url` (string) — |function URL string or function() -> string
-- `opts` (table) — Optional: {disabled=function()->bool}
+- `opts` (table) — Optional: {disabled=function()->bool, visible=function()->bool}
 
 ### `DashboardBuilder:chart(id, label, metricPath, opts)`
 
@@ -1524,11 +1578,20 @@ Add a chart widget to the current section.
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label (e.g., "Temperatura 24h")
 - `metricPath` (string) — Metric path registered via metric() (e.g., "temp:salon", "salda:outsideAir")
-- `opts` (table) — Optional: {range=string (any duration such as "30m", "2h", "24h", "7d"; default "2h"; 30m/2h/24h/7d have tuned refresh, others refresh every 60 s), unit=string, min=n, max=n (Y axis), fill=bool (default true), refresh=seconds, span=n, color=string}
+- `opts` (table) — Optional: {range=string (any duration such as "30m", "2h", "24h", "7d"; default "2h"; 30m/2h/24h/7d have tuned refresh, others refresh every 60 s), unit=string, min=n, max=n (Y axis), fill=bool (default true), refresh=seconds, span=n, color=string, visible=function()->bool}
+
+### `DashboardBuilder:bars(id, label, metricPath, opts)`
+
+Add a bar chart of a metric to the current section: one bar per hour or day of the house's zone.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label (e.g., "Energia dziennie")
+- `metricPath` (string) — Metric path registered via metric() (e.g., "energia:licznik")
+- `opts` (table) — Optional: {range=string (a duration up to "31d"; default "7d"), bucket="1h"|"1d" (default "1d" from a 2-day range, else "1h"), agg="avg"|"sum"|"max"|"min"|"delta" (default "avg", the mean of the samples; sum depends on the sampling interval; delta: what a growing counter such as a kWh meter added in each bar, a single bad reading or a reset adds nothing), unit=string, decimals=0-6, color=string, compare=metricPath (a second bar beside each), compareLabel=string, visible=function()->bool, span=n, size=string, refresh=seconds (at least 30)}; samples are kept metrics.retentionDays (default 7) days
 
 ### `DashboardBuilder:calendar(id, label, cal, opts)`
 
-Add a calendar widget to the current section: a month grid and the day of a tapped date. holidays=true (holiday names, on by default), namedays=false (name days in the day view), sun=true (sunrise and sunset in the day view, with :location()), span=n}; what is off is not sent to the browser
+Add a calendar widget to the current section: a month grid and the day of a tapped date. holidays=true (holiday names, on by default), namedays=false (name days in the day view), sun=true (sunrise and sunset in the day view, with :location()), span=n, visible=function()->bool}; what is off is not sent to the browser
 
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label
@@ -1545,7 +1608,7 @@ Add a select widget to the current section.
 - `options` (table) — Array of {value=any, label=string} or function() -> same
 - `getValue` (function) — Returns current selected value: function() -> any
 - `onSelect` (function) — Called with selected value: function(any)
-- `opts` (table) — Optional: {disabled=function()->bool}
+- `opts` (table) — Optional: {disabled=function()->bool, visible=function()->bool}
 
 ### `DashboardBuilder:image(id, label, url, opts)`
 
@@ -1554,14 +1617,15 @@ Add an image widget to the current section.
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label
 - `url` (string) — |function Image URL string or function() -> string
-- `opts` (table) — Optional: {refreshInterval=number (seconds)}
+- `opts` (table) — Optional: {refreshInterval=number (seconds), visible=function()->bool}
 
-### `DashboardBuilder:group(label, icon)`
+### `DashboardBuilder:group(label, icon, opts)`
 
 Add a group label widget to the current section.
 
 - `label` (string) — Group heading text
 - `icon` (string) — Bootstrap icon name (optional)
+- `opts` (table) — Optional: {visible=function()->bool (false or nil hides the label and the widgets after it, up to the next group)}
 
 ### `DashboardBuilder:cover(id, label, icon, fns, opts)`
 
@@ -1571,7 +1635,15 @@ Add a cover widget to the current section. Buttons up/stop/down call open/stop/c
 - `label` (string) — Display label
 - `icon` (string) — Bootstrap icon name (e.g., "arrows-expand")
 - `fns` (table) — {getPosition=function()->number|nil, getState=function()->number|nil, open=function(), close=function(), stop=function(), set=function(position)}
-- `opts` (table) — Optional: {disabled=function()->bool}
+- `opts` (table) — Optional: {disabled=function()->bool, visible=function()->bool}
+
+### `DashboardBuilder:gate(id, label, opts)`
+
+Add a gate (or a door lock) to the current section: its state, Open, Close and Stop. Open and Close are pressed and held (Close shown only with close), Stop is a tap.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `opts` (table) — {open=function() (required), close=function()?, stop=function()?, state=function()->"open"|"closed"|"opening"|"closing"|"moving"|nil, hold=true|false|ms (default true = 800 ms; 300-5000), icon=string (default "door-closed"), disabled=function()->bool, span=n}
 
 ### `DashboardBuilder:covers(id, label, list, opts)`
 
@@ -1580,7 +1652,7 @@ Add a cover group to the current section: one tile moving several covers, with t
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label
 - `list` (table) — Covers (RemoteCover, VirtualCover) or their paths, _:byTag(...), or a function returning one (read each time; missing paths skipped)
-- `opts` (table) — Optional: {icon=string (default "window"), disabled=function()->bool, span=n, size=string, color=string}
+- `opts` (table) — Optional: {icon=string (default "window"), disabled=function()->bool, visible=function()->bool, span=n, size=string, color=string}
 
 ### `DashboardBuilder:player(id, label, src, opts)`
 
@@ -1589,7 +1661,7 @@ Add a media player to the current section: artwork, title and artist, previous/p
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label (e.g. the room)
 - `src` (table) — A MusicCast device or a table of functions {getState, play?, pause?, next?, previous?, setVolume?, setMute?, on?, off?}
-- `opts` (table) — Optional: {icon=string, disabled=function()->bool, span=n, size=string, color=string}
+- `opts` (table) — Optional: {icon=string, disabled=function()->bool, visible=function()->bool, span=n, size=string, color=string}
 
 ### `DashboardBuilder:forecast(id, label, src, opts)`
 
@@ -1598,7 +1670,24 @@ Add a weather forecast to the current section: the next days and a chart of the 
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label
 - `src` (function) — A function returning {days={...}, hours={...}, updated?} or nil, or the Weather plugin
-- `opts` (table) — Optional: {days=1-7, hours=0-48, unit=string, icon=string, disabled=function()->bool, span=n, size=string, color=string}
+- `opts` (table) — Optional: {days=1-7, hours=0-48, unit=string, icon=string, disabled=function()->bool, visible=function()->bool, span=n, size=string, color=string}
+
+### `DashboardBuilder:table(id, label, rows, opts)`
+
+Add a table to the current section: rows from a function, in the columns of opts.columns.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `rows` (function) — Returns the rows: function() -> { {key=value, ...}, ... }
+- `opts` (table) — {columns={{key, label?, unit?, decimals?, align?}, ...} (required), sort, desc, limit=1-200, color=function(row, key), icon, disabled, span, size}
+
+### `DashboardBuilder:energy(id, label, opts)`
+
+Add an energy flow to the current section: PV, grid, battery and home with the power between them.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `opts` (table) — {pv=fn, grid=fn, battery=fn, batterySoc=fn, home=fn, unit="W"|"kW", invert={grid, battery}, today={pv, grid_import, grid_export, home}, icon=string, disabled=function()->bool, visible=function()->bool, span=n}
 
 ### `DashboardBuilder:dimmer(id, label, icon, fns, opts)`
 
@@ -1608,7 +1697,7 @@ Add a dimmer widget to the current section.
 - `label` (string) — Display label
 - `icon` (string) — Bootstrap icon name (e.g., "brightness-high")
 - `fns` (table) — {get=function()->number(0-100), set=function(number 0-100), switchOn=function()?, switchOff=function()?, isOn=function()->bool? (default: get() > 0)}
-- `opts` (table) — Optional: {disabled=function()->bool}
+- `opts` (table) — Optional: {disabled=function()->bool, visible=function()->bool}
 
 ### `DashboardBuilder:color(id, label, icon, fns, opts)`
 
@@ -1618,17 +1707,35 @@ Add a color picker widget to the current section. switchOn?, switchOff?, isOn?, 
 - `label` (string) — Display label
 - `icon` (string) — Bootstrap icon name (e.g., "palette")
 - `fns` (table) — {getColor=function()->{r,g,b}, setColor=function(r,g,b), get?/set? brightness 0-100,
-- `opts` (table) — Optional: {disabled=function()->bool}
+- `opts` (table) — Optional: {disabled=function()->bool, visible=function()->bool}
+
+### `DashboardBuilder:gauge(id, label, getValue, opts)`
+
+Add a gauge to the current section: a value on an arc or a bar between min and max. style="arc" (default) is a 240° arc with the value in the middle, "bar" a horizontal bar with the value at its right; from each threshold's value on the fill takes its colour; a value outside min..max is drawn at the end, the number shows it as it is.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `getValue` (function) — Returns the value: function() -> number|nil (nil shows a dash)
+- `opts` (table) — Optional: {min=0, max=100 (above min), unit=string, decimals=0-6, style="arc"|"bar", thresholds={{value, color}, ...} (ascending), target=number|function()->number|nil (a marker, e.g. a power limit), icon=string (default "speedometer2"), disabled=function()->bool, span=n, size=string, color=string (the fill below the first threshold)}
+
+### `DashboardBuilder:colorTemp(id, label, fns, opts)`
+
+Add a colour temperature slider (warm to cool white) to the current section. getBrightness?/setBrightness? 0-100}, or an object with getColorTemp/setColorTemp in kelvin (and its switchOn/switchOff/getBrightness/setBrightness when it has them); a two-channel warm/cold white: require("lib/cct").mix(warm, cold) The slider runs warm to cool over a gradient; the value shows as "3000 K" and a word (warm, neutral, cool). A set outside min..max is clamped to it; a reading outside is shown as it is. A toggle when there are switchOn and switchOff, a brightness slider when there are getBrightness and setBrightness.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `fns` (table) — {getKelvin=function()->number|nil, setKelvin=function(kelvin), isOn?, switchOn?, switchOff?,
+- `opts` (table) — Optional: {min=2700, max=6500, step=50, unit="kelvin"|"mired" (the functions speak mireds, e.g. Zigbee color_temp), icon=string (default "lightbulb"), disabled=function()->bool, visible=function()->bool, span=n, size=string, color=string}
 
 ### `DashboardBuilder:thermostat(id, label, icon, fns, opts)`
 
-Add a thermostat to the current section: current temperature, target and +/- for the target. getState=function()->number|bool? (1/true active, 0/false off), getMode=function()->number? (0 manual, 1 holiday, 2 schedule, 3 heat-up)}, or a thermostat object (RemoteThermostat: getValue, getTarget, setSetpoint, getState, getMode) Shows the current temperature and the target ("--" until reported); + and - change the target by step and setTarget is called once, 1 s after the last tap; the chosen value shows until the thermostat reports a new target, at most 90 s. Without setTarget (or opts.readonly) there are no buttons; with getMode the target is set only in manual mode (0), as lib/panel does. The action endpoint refuses a set outside min..max.
+Add a thermostat to the current section: current temperature, target and +/- for the target. getState=function()->number|bool? (1/true active, 0/false off), getMode=function()->number? (0 manual, 1 holiday, 2 schedule, 3 heat-up), setMode=function(value)? (with opts.modes)}, or a thermostat object (RemoteThermostat, VirtualThermostat: getValue, getTarget, setSetpoint, getState, getMode, setMode?) Shows the current temperature and the target ("--" until reported); + and - change the target by step and setTarget is called once, 1 s after the last tap; the chosen value shows until the thermostat reports a new target, at most 90 s. Without setTarget (or opts.readonly) there are no buttons; with getMode the target is set only in manual mode (0), as lib/panel does. The action endpoint refuses a set outside min..max. Modes: a switch under the target. A VirtualThermostat gets manual (0), holiday (1) and "off" (stop; another mode starts it again) by itself; a RemoteThermostat only shows its mode. A table of functions gets one with fns.getMode, fns.setMode and opts.modes; getMode gives one of the values, setMode(value) gets the chosen one. In a mode marked readonly (holiday) there are no + and -. opts.readonly locks the switch too.
 
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label
 - `icon` (string) — |nil Bootstrap icon name (default "thermometer-half")
 - `fns` (table) — {getCurrent=function()->number|nil, getTarget=function()->number|nil, setTarget=function(number)?,
-- `opts` (table) — Optional: {min=5, max=35, step=0.5, unit="°C", readonly=bool or function()->bool (true: no buttons; a function locks them while it returns true), disabled=function()->bool, span=n, size=string, color=string}
+- `opts` (table) — Optional: {min=5, max=35, step=0.5, unit="°C", readonly=bool or function()->bool (true: no buttons and no mode switch; a function locks them while it returns true), modes={ {value=number|string, label=string, icon=string?, readonly=bool? (no + and - in this mode)}, ... } or {[value]=label} (ordered by value) or false (no switch for an object), disabled=function()->bool, visible=function()->bool, span=n, size=string, color=string}
 
 ### `DashboardBuilder:when(periods, fn)`
 
@@ -2264,6 +2371,20 @@ Publish state update for object
 The firmware the CLU reported for get(17), e.g. "04.08.05" or "05.15.12-2607". Asked when its objects are subscribed; nil until the CLU answered.
 
 **Returns:** string|nil Firmware version
+
+---
+
+## lib.cct
+
+### `M.mix(warm, cold, opts) → table {getKelvin, setKelvin, getBrightness, setBrightness (0-100), isOn, switchOn, switchOff}`
+
+A warm and a cold dimmer as the functions of section:colorTemp.
+
+- `warm` (table) — The warm white channel (getValue/setValue 0..1)
+- `cold` (table) — The cold white channel (getValue/setValue 0..1)
+- `opts` (table) — Optional: {warm=2700, cold=6500} the kelvin of each channel alone
+
+**Returns:** table {getKelvin, setKelvin, getBrightness, setBrightness (0-100), isOn, switchOn, switchOff}
 
 ---
 

@@ -29,6 +29,7 @@ type dashboardCache struct {
 	defs    map[string]*cacheEntry // dashId → cached getDefinition JSON
 	metrics map[string]*cacheEntry // dashId\x00path → usesMetric JSON (drawn metrics only)
 	cals    map[string]*cacheEntry // dashId\x00widget\x00from\x00to → calendarRange JSON
+	bars    map[string]*cacheEntry // dashId\x00widget → aggregated bars JSON
 }
 
 // calendarCacheMax bounds the calendar answers kept: a caller walking dates cannot grow it.
@@ -45,7 +46,25 @@ func newDashboardCache() *dashboardCache {
 		defs:    make(map[string]*cacheEntry),
 		metrics: make(map[string]*cacheEntry),
 		cals:    make(map[string]*cacheEntry),
+		bars:    make(map[string]*cacheEntry),
 	}
+}
+
+// getBars and setBars keep a widget's buckets for 30 s: aggregating reads up to a month of samples.
+func (dc *dashboardCache) getBars(key string) (string, bool) {
+	dc.mu.RLock()
+	defer dc.mu.RUnlock()
+	e, ok := dc.bars[key]
+	if !ok || time.Now().After(e.expiresAt) {
+		return "", false
+	}
+	return e.data, true
+}
+
+func (dc *dashboardCache) setBars(key, data string) {
+	dc.mu.Lock()
+	defer dc.mu.Unlock()
+	dc.bars[key] = &cacheEntry{data: data, expiresAt: time.Now().Add(30 * time.Second)}
 }
 
 func (dc *dashboardCache) getCalendar(key string) (string, bool) {
@@ -131,6 +150,7 @@ func (dc *dashboardCache) Invalidate() {
 	dc.defs = make(map[string]*cacheEntry)
 	dc.metrics = make(map[string]*cacheEntry)
 	dc.cals = make(map[string]*cacheEntry)
+	dc.bars = make(map[string]*cacheEntry)
 }
 
 // dashCache is the singleton cache instance, initialized lazily.
@@ -686,14 +706,16 @@ func (s *Server) handleAPIDashboardAction(c *gin.Context) {
 		WidgetID string      `json:"widgetId"`
 		Action   string      `json:"action"`
 		Value    interface{} `json:"value"`
+		// the page held the press for the widget's hold; anyone can send it, so it only stops a stray tap
+		Held bool `json:"held"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
 
-	script := fmt.Sprintf(`Dashboard.API.executeAction("%s", "%s", "%s", %s)`,
-		luaEscape(id), luaEscape(req.WidgetID), luaEscape(req.Action), actionValueLua(req.Value))
+	script := fmt.Sprintf(`Dashboard.API.executeAction("%s", "%s", "%s", %s, { held = %t })`,
+		luaEscape(id), luaEscape(req.WidgetID), luaEscape(req.Action), actionValueLua(req.Value), req.Held)
 	result, err := s.executeAs(c, "dashboard:"+id, script)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
