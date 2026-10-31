@@ -289,6 +289,8 @@ Zachowanie, na którym polegają automatyki, pluginy i integracje, jest przypię
 
 Wszystko konfiguruje się w interfejsie web. Ustawienia są w pliku `.vclu.json` w katalogu danych.
 
+Sprawdzanie nowych wersji wysyła identyfikator instalacji (losowy UUID w pliku `instance-id` w katalogu danych), wersję, system i architekturę; wyłączysz je przełącznikiem w Ustawieniach albo `VCLU_UPDATE_CHECK=off`.
+
 ## Współtworzenie
 
 Zmiany są mile widziane, także te pisane z pomocą agentów AI. Po to są testy kontraktowe. Szczegóły w [CONTRIBUTING.md](CONTRIBUTING.md).

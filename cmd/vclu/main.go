@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -20,6 +21,7 @@ import (
 	"github.com/Domktorymysli/vclu/pkg/metrics"
 	"github.com/Domktorymysli/vclu/pkg/plugins"
 	"github.com/Domktorymysli/vclu/pkg/server"
+	"github.com/Domktorymysli/vclu/pkg/updatecheck"
 	"github.com/Domktorymysli/vclu/pkg/web"
 )
 
@@ -330,9 +332,20 @@ func main() {
 		}
 	}
 
+	// New-version check; the setting is read before every check, so the switch needs no restart
+	updateChecker := updatecheck.New(updatecheck.Options{
+		Dir:     cluDir,
+		Version: version,
+		Enabled: func() bool { return config.UpdateCheckEnabled(cluDir) },
+	})
+	webSrv.SetUpdateChecker(updateChecker)
+
 	if err := webSrv.Start(); err != nil {
 		log.Fatalf("Failed to start web server: %v", err)
 	}
+
+	updateCtx, stopUpdateCheck := context.WithCancel(context.Background())
+	go updateChecker.Run(updateCtx)
 
 	// Wait for interrupt signal
 	sigChan := make(chan os.Signal, 1)
@@ -342,6 +355,7 @@ func main() {
 	<-sigChan
 
 	log.Println("Shutting down...")
+	stopUpdateCheck()
 	go historyStore.Flush() // early write in case a slow stop below runs into the systemd kill; Close bounds the wait
 	metricsCollector.Stop() // final flush before exit
 	if homekitSrv != nil {

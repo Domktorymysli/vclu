@@ -15,4 +15,6 @@ ln -sfn "$ROOT/web" "$DEMO_DIR/web"
 echo "vCLU demo: http://127.0.0.1:$PORT/d/home  (data: $DEMO_DIR)"
 echo "Note: the web server listens on all interfaces, -ip binds only the CLU protocol."
 cd "$DEMO_DIR"
+# A demo run is no installation: no new-version check
+export VCLU_UPDATE_CHECK="${VCLU_UPDATE_CHECK:-off}"
 exec ./vclu -data-dir "$DEMO_DIR/data" -web-port "$PORT" -ip 127.0.0.1
