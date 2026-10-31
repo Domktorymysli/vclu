@@ -79,7 +79,7 @@ func (ls *liveSite) dial(t *testing.T, id string, header ...http.Header) *websoc
 	if err != nil {
 		t.Fatalf("dial: %v (%v)", err, resp)
 	}
-	t.Cleanup(func() { conn.Close() })
+	t.Cleanup(func() { _ = conn.Close() })
 	return conn
 }
 
@@ -102,7 +102,7 @@ type liveMsg struct {
 
 func next(t *testing.T, conn *websocket.Conn) liveMsg {
 	t.Helper()
-	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	var m liveMsg
 	if err := conn.ReadJSON(&m); err != nil {
 		t.Fatalf("read: %v", err)
@@ -273,8 +273,8 @@ func TestDashboardLiveSharedRead(t *testing.T) {
 		t.Errorf("reads %s -> %s, want one read for two sockets", before, after)
 	}
 
-	a.Close()
-	b.Close()
+	_ = a.Close()
+	_ = b.Close()
 	waitFor(t, func() bool {
 		ls.s.live.mu.Lock()
 		defer ls.s.live.mu.Unlock()
@@ -350,7 +350,7 @@ func TestDashboardLiveShutdown(t *testing.T) {
 	ls := newLiveSite(t)
 	conn := ls.dial(t, "d")
 	next(t, conn)
-	ls.s.Stop()
+	_ = ls.s.Stop()
 	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	_, _, err := conn.ReadMessage()
 	if !websocket.IsCloseError(err, websocket.CloseGoingAway) {
@@ -364,7 +364,9 @@ func TestDashboardLiveShutdown(t *testing.T) {
 
 func plusOne(s string) string {
 	var n int
-	json.Unmarshal([]byte(s), &n)
+	if err := json.Unmarshal([]byte(s), &n); err != nil {
+		panic(err)
+	}
 	b, _ := json.Marshal(n + 1)
 	return string(b)
 }
@@ -456,7 +458,7 @@ func TestDashboardLiveAuthRecheck(t *testing.T) {
 	p := ls.dial(t, "p", http.Header{"Cookie": {cookie.String()}})
 	next(t, p)
 	ls.lua(t, `Dashboard.new('p'):auth('pin'):pin('9999'):section('S', 'i'):build()`)
-	p.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_ = p.SetReadDeadline(time.Now().Add(5 * time.Second))
 	for {
 		if _, _, err := p.ReadMessage(); err != nil {
 			if !websocket.IsCloseError(err, liveCloseDenied) {

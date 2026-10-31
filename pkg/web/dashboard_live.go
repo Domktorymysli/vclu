@@ -435,16 +435,16 @@ func (s *Server) handleAPIDashboardWS(c *gin.Context) {
 	if err != nil {
 		return // the upgrader answered
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	closeWith := func(code int, text string) {
-		conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(code, text), time.Now().Add(time.Second))
+		_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(code, text), time.Now().Add(time.Second))
 	}
 
 	// the client sends its pings, pongs and the close; a ping is answered by the loop below
 	done := make(chan struct{})
 	pings := make(chan []byte, 4)
 	conn.SetReadLimit(512)
-	conn.SetReadDeadline(time.Now().Add(livePongWait))
+	_ = conn.SetReadDeadline(time.Now().Add(livePongWait))
 	conn.SetPongHandler(func(string) error { return conn.SetReadDeadline(time.Now().Add(livePongWait)) })
 	go func() {
 		defer close(done)
@@ -461,7 +461,7 @@ func (s *Server) handleAPIDashboardWS(c *gin.Context) {
 				closeWith(websocket.ClosePolicyViolation, "rate limit exceeded")
 				return
 			}
-			conn.SetReadDeadline(time.Now().Add(livePongWait))
+			_ = conn.SetReadDeadline(time.Now().Add(livePongWait))
 			if pong := livePong(b); pong != nil {
 				select {
 				case pings <- pong:
@@ -480,12 +480,12 @@ func (s *Server) handleAPIDashboardWS(c *gin.Context) {
 		checkAuth := false
 		select {
 		case m := <-sub.send:
-			conn.SetWriteDeadline(time.Now().Add(liveWriteWait))
+			_ = conn.SetWriteDeadline(time.Now().Add(liveWriteWait))
 			if err := conn.WriteMessage(websocket.TextMessage, m); err != nil {
 				return
 			}
 		case m := <-pings:
-			conn.SetWriteDeadline(time.Now().Add(liveWriteWait))
+			_ = conn.SetWriteDeadline(time.Now().Add(liveWriteWait))
 			if err := conn.WriteMessage(websocket.TextMessage, m); err != nil {
 				return
 			}
