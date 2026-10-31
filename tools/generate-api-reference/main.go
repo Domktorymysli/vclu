@@ -286,7 +286,9 @@ func parseDocBlock(block []string, funcLine string, lineNum int) *FuncDoc {
 		return nil
 	}
 
-	// Parse doc comments
+	// Parse doc comments; a line under @param goes on with it while its brackets are open or
+	// until a line starts with a capital letter (a sentence of the description)
+	inParam := false
 	for _, line := range block {
 		if m := descPattern.FindStringSubmatch(line); m != nil {
 			text := m[1]
@@ -300,6 +302,14 @@ func parseDocBlock(block []string, funcLine string, lineNum int) *FuncDoc {
 			}
 		} else if m := contPattern.FindStringSubmatch(line); m != nil {
 			text := strings.TrimSpace(m[1])
+			if !strings.HasPrefix(text, "@") && inParam && len(fn.Params) > 0 {
+				p := &fn.Params[len(fn.Params)-1]
+				if !bracketsClosed(p.Desc) || !startsWithCapital(text) {
+					p.Desc += " " + text
+					continue
+				}
+			}
+			inParam = false
 			if strings.HasPrefix(text, "@param") {
 				if pm := paramPattern.FindStringSubmatch(text); pm != nil {
 					fn.Params = append(fn.Params, ParamDoc{
@@ -307,6 +317,7 @@ func parseDocBlock(block []string, funcLine string, lineNum int) *FuncDoc {
 						Type: pm[2],
 						Desc: strings.TrimSpace(pm[3]),
 					})
+					inParam = true
 				}
 			} else if strings.HasPrefix(text, "@return") {
 				if rm := returnPattern.FindStringSubmatch(text); rm != nil {
@@ -326,6 +337,24 @@ func parseDocBlock(block []string, funcLine string, lineNum int) *FuncDoc {
 	}
 
 	return fn
+}
+
+// bracketsClosed: every (, [ and { in s is closed
+func bracketsClosed(s string) bool {
+	depth := 0
+	for _, r := range s {
+		switch r {
+		case '(', '[', '{':
+			depth++
+		case ')', ']', '}':
+			depth--
+		}
+	}
+	return depth <= 0
+}
+
+func startsWithCapital(s string) bool {
+	return s != "" && s[0] >= 'A' && s[0] <= 'Z'
 }
 
 func inferModule(path string) string {
