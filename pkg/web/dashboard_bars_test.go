@@ -88,6 +88,8 @@ func TestDashboardBarsFollowDashboardAuth(t *testing.T) {
 			:bars('dzien', 'Energia', 'energia:licznik', { range = '3d', agg = 'delta' }):build()
 		Dashboard.new('pin'):auth('pin'):pin('1234'):section('S','i')
 			:bars('dzien', 'Energia', 'energia:licznik', { range = '3d', agg = 'delta' }):build()
+		Dashboard.new('other'):auth('public'):section('S','i')
+			:bars('sekret', 'Sekret', 'energia:secret', { range = '3d' }):build()
 	`)
 	now := time.Now()
 	start := now.Add(-80 * time.Hour).Truncate(time.Hour)
@@ -116,6 +118,9 @@ func TestDashboardBarsFollowDashboardAuth(t *testing.T) {
 		{"/api/dashboard/sess/bars?widget=dzien", 401},
 		{"/api/dashboard/pin/bars?widget=dzien", 401},
 		{"/api/dashboard/none/bars?widget=dzien", 404},
+		// another dashboard's widget, read through this one's id
+		{"/api/dashboard/pub/bars?widget=sekret", 403},
+		{"/api/dashboard/other/bars?widget=sekret", 200},
 	} {
 		if code, body := get(tc.url); code != tc.code {
 			t.Errorf("%s: %d %s, want %d", tc.url, code, body, tc.code)

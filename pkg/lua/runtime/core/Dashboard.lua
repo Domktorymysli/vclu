@@ -760,7 +760,7 @@ local COLOR_TEMP_KEYS = { min = true, max = true, step = true, unit = true, icon
 local COLOR_TEMP_MIN, COLOR_TEMP_MAX, COLOR_TEMP_STEP = 2700, 6500, 50
 
 -- A number, or a string of decimal digits ("3000", not "0x10"); nil otherwise
-local function decimalNumber(v)
+local function decimalValue(v)
     if type(v) == 'string' then
         if not v:match('^%s*%-?%d+%.?%d*%s*$') then return nil end
         v = tonumber(v)
@@ -781,7 +781,7 @@ end
 -- opts.unit = "mired": the functions speak mireds, the widget kelvin (1e6 / x, rounded)
 local function colorTempMired(f)
     local function conv(v)
-        v = decimalNumber(v)
+        v = decimalValue(v)
         if v and v > 0 then return math.floor(1e6 / v + 0.5) end
     end
     local out = {}
@@ -848,16 +848,16 @@ local function colorTempState(w)
     local ok, res = pcall(function()
         local f = w.fns
         local e = {}
-        local k = decimalNumber(f.getKelvin())
+        local k = decimalValue(f.getKelvin())
         -- a reading out of min..max is shown as it is; the slider stops at its end
         if k and k > 0 then e.kelvin = math.floor(k + 0.5) end
         if f.getBrightness then
-            local b = decimalNumber(f.getBrightness())
+            local b = decimalValue(f.getBrightness())
             if b then e.brightness = math.floor(math.max(0, math.min(100, b)) + 0.5) end
         end
         if f.isOn then
             local on = f.isOn()
-            if on ~= nil then e.on = on == true or (decimalNumber(on) or 0) > 0 end
+            if on ~= nil then e.on = on == true or (decimalValue(on) or 0) > 0 end
         elseif e.brightness then
             e.on = e.brightness > 0
         end
@@ -4080,15 +4080,14 @@ function DashboardAPI.executeAction(id, widgetId, action, value, ctx)
         return JSON.encode({ error = 'Widget not found' })
     end
 
-    -- Check disabled
-    if safeDisabled(widget.opts) then
-        return JSON.encode({ error = 'Widget is disabled' })
-    end
-
-    -- A hidden widget is not on the page to tap
+    -- A hidden widget is not on the page to tap, and its disabled() is not read
     local hidden = dashHidden(id, dash)
     if hidden[widget] then
         return JSON.encode({ error = 'Widget is hidden' })
+    end
+
+    if safeDisabled(widget.opts) then
+        return JSON.encode({ error = 'Widget is disabled' })
     end
 
     -- held is what the page says: it stops a stray tap or a naive script, not someone sending it on purpose
@@ -4306,12 +4305,12 @@ function DashboardAPI.executeAction(id, widgetId, action, value, ctx)
         local fns = widget.fns
         local name, arg
         if action == 'setKelvin' then
-            arg = decimalNumber(value)
+            arg = decimalValue(value)
             if not arg then return JSON.encode({ error = 'Value must be a number' }) end
             arg = math.floor(math.max(widget.min, math.min(widget.max, arg)) + 0.5)
             name = 'setKelvin'
         elseif action == 'set' then
-            arg = decimalNumber(value)
+            arg = decimalValue(value)
             if not arg then return JSON.encode({ error = 'Value must be a number' }) end
             if arg < 0 or arg > 100 then return JSON.encode({ error = 'Value out of range [0, 100]' }) end
             name = 'setBrightness'
