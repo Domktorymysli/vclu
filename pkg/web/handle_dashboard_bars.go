@@ -63,6 +63,10 @@ func (s *Server) handleAPIDashboardBars(c *gin.Context) {
 	}
 	key := id + "\x00" + widget
 	if data, ok := dashCache.getBars(key); ok {
+		if s.dashWidgetHidden(id, widget) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "bars widget is hidden"})
+			return
+		}
 		c.Data(http.StatusOK, "application/json", []byte(data))
 		return
 	}

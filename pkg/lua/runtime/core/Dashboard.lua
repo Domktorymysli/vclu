@@ -3376,6 +3376,20 @@ end
 
 --- What a bars widget aggregates: its metrics, buckets and the house's zone
 -- @return string JSON {path, compare, bucket, buckets, agg, zone} or {error, status}
+--- Whether visible() hides the widget now: the server asks before it answers from its cache
+-- @return boolean
+function DashboardAPI.widgetHidden(id, widgetId)
+    local dash = resolveDashboard(id)
+    if not dash then return false end
+    local hidden = dashHidden(id, dash)
+    for i, sec in ipairs(dash._sections) do
+        for j, w in ipairs(sec.widgets) do
+            if w.id == widgetId then return hidden[w] == true end
+        end
+    end
+    return false
+end
+
 function DashboardAPI.barsSpec(id, widgetId)
     local dash = resolveDashboard(id)
     if not dash then return JSON.encode({ error = 'Dashboard not found', status = 404 }) end

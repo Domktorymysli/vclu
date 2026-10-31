@@ -597,6 +597,10 @@ func (s *Server) handleAPIDashboardCalendar(c *gin.Context) {
 	// a cached answer saves the Lua loop: each request holds it while the calendar expands
 	key := id + "\x00" + widget + "\x00" + from + "\x00" + to
 	result, cached := dashCache.getCalendar(key)
+	if cached && s.dashWidgetHidden(id, widget) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "calendar widget is hidden"})
+		return
+	}
 	if !cached {
 		if s.calendarLimiter != nil && !s.calendarLimiter.allow(c.ClientIP()) {
 			c.JSON(http.StatusTooManyRequests, gin.H{"error": "too many requests"})
@@ -933,6 +937,13 @@ func actionValueLua(value interface{}) string {
 }
 
 // luaEscape escapes a string for safe embedding in Lua string literals
+// dashWidgetHidden asks Lua whether visible() hides the widget now; a cached answer must not
+// outlive it. An error counts as hidden.
+func (s *Server) dashWidgetHidden(id, widget string) bool {
+	res, err := s.luaExecutor.Execute(fmt.Sprintf(`Dashboard.API.widgetHidden("%s", "%s")`, luaEscape(id), luaEscape(widget)))
+	return err != nil || res != "false"
+}
+
 func luaEscape(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
