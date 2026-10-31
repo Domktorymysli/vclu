@@ -559,9 +559,10 @@
         syncHeaderBars();
     }
 
-    // A calendar or chart gets no data while hidden: fetch it again once shown
+    // A calendar, chart or bars get no data while hidden: fetch it again once shown
     function refreshShown(id) {
         if (calendars[id]) calendars[id].refresh();
+        if (bars[id]) bars[id].refresh();
         var canvas = document.getElementById('chart-' + id);
         if (!canvas || !definition) return;
         for (var i = 0; i < definition.widgets.length; i++) {
@@ -777,22 +778,26 @@
             end();
             if (hint) holdHint(el);
         }
-        target.addEventListener('pointerdown', function(e) {
-            if (e.pointerType === 'mouse' && e.button !== 0) return;
-            e.stopPropagation();
-            // a second finger or the mouse during a press is ignored
-            if (timer) return;
-            if (start()) pointer = e.pointerId;
-        });
-        target.addEventListener('pointerup', function(e) { if (e.pointerId === pointer) cancel(true); });
-        target.addEventListener('pointercancel', function() { cancel(false); });
-        target.addEventListener('pointerleave', function() { cancel(false); });
-        // a touch stays on its element until it is lifted: leaving is checked by position
-        target.addEventListener('pointermove', function(e) {
-            if (!timer || e.pointerId !== pointer) return;
-            var r = target.getBoundingClientRect();
-            if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) cancel(false);
-        });
+        if (window.PointerEvent) {
+            target.addEventListener('pointerdown', function(e) {
+                if (e.pointerType === 'mouse' && e.button !== 0) return;
+                e.stopPropagation();
+                // a second finger or the mouse during a press is ignored
+                if (timer) return;
+                if (start()) pointer = e.pointerId;
+            });
+            target.addEventListener('pointerup', function(e) { if (e.pointerId === pointer) cancel(true); });
+            target.addEventListener('pointercancel', function() { cancel(false); });
+            target.addEventListener('pointerleave', function() { cancel(false); });
+            // a touch stays on its element until it is lifted: leaving is checked by position
+            target.addEventListener('pointermove', function(e) {
+                if (!timer || e.pointerId !== pointer) return;
+                var r = target.getBoundingClientRect();
+                if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) cancel(false);
+            });
+        } else {
+            bindHoldTouchMouse(target, start, cancel, function() { return !!timer; });
+        }
         target.addEventListener('contextmenu', function(e) { e.preventDefault(); });
         target.addEventListener('click', function(e) { e.preventDefault(); e.stopPropagation(); });
         target.addEventListener('keydown', function(e) {
@@ -805,6 +810,37 @@
             if (e.key === 'Enter' || e.key === ' ') cancel(true);
         });
         target.addEventListener('blur', function() { cancel(false); });
+    }
+
+    // Without Pointer Events (iOS 12, old WebViews): touch and mouse; the mouse events a browser
+    // makes up after a touch are skipped. A move past 10 px (a scroll) cancels.
+    function bindHoldTouchMouse(target, start, cancel, pressing) {
+        var touchAt = 0, x0 = 0, y0 = 0;
+        target.addEventListener('touchstart', function(e) {
+            touchAt = Date.now();
+            e.stopPropagation();
+            if (pressing() || e.touches.length !== 1) return;
+            x0 = e.touches[0].clientX;
+            y0 = e.touches[0].clientY;
+            start();
+        });
+        target.addEventListener('touchend', function(e) {
+            touchAt = Date.now();
+            if (!e.touches.length) cancel(true);
+        });
+        target.addEventListener('touchcancel', function() { cancel(false); });
+        target.addEventListener('touchmove', function(e) {
+            var t = e.touches[0];
+            if (t && Math.abs(t.clientX - x0) + Math.abs(t.clientY - y0) > 10) cancel(false);
+        });
+        var fromTouch = function() { return Date.now() - touchAt < 1000; };
+        target.addEventListener('mousedown', function(e) {
+            if (e.button !== 0 || fromTouch()) return;
+            e.stopPropagation();
+            if (!pressing()) start();
+        });
+        target.addEventListener('mouseup', function() { if (!fromTouch()) cancel(true); });
+        target.addEventListener('mouseleave', function() { cancel(false); });
     }
 
     function renderButton(el, w) {
@@ -893,6 +929,7 @@
             if (held) {
                 bindHold(btn, el, w.hold, run);
                 btn.title = b[2] + ' · ' + T.hold;
+                btn.setAttribute('aria-label', btn.title);
             } else {
                 btn.addEventListener('click', function(e) {
                     e.stopPropagation();
@@ -3700,6 +3737,7 @@
 
     // Widgets read with getValue: no value in a poll means the function gave nil
     var valueTypes = { toggle: true, slider: true, status: true, select: true };
+    var pollKeys = { cover: ['position'], dimmer: ['value', 'on'], color: ['rgb', 'brightness', 'white', 'on'] };
 
     function updateWidget(wid, data, force) {
         var el = widgetEls[wid];
@@ -3774,6 +3812,8 @@
         if (type === 'gauge' && !force) ['value', 'target', 'error'].forEach(function(k) { if (!(k in d)) d[k] = null; });
         // a poll is the gate's whole state: none means no reading
         if (type === 'gate' && !force) ['state', 'error'].forEach(function(k) { if (!(k in d)) d[k] = null; });
+        // a poll leaves out a reading that is nil: it is unknown now, not the last one
+        if (!force && pollKeys[type]) pollKeys[type].forEach(function(k) { if (!(k in d)) d[k] = null; });
         if (type === 'color' || type === 'colorTemp') delete d.value; // the reply does not say which slider
         // a poll is the whole state: an error goes away with it, a missing reading is unknown
         if (type === 'colorTemp' && !force) ['kelvin', 'on', 'brightness', 'error'].forEach(function(k) { if (!(k in d)) d[k] = null; });
