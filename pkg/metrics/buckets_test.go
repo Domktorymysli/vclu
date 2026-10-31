@@ -118,31 +118,59 @@ func TestAggregate(t *testing.T) {
 	}
 }
 
-// A counter's bucket is its rises: the step from the previous bucket counts when it is at most
-// a bucket long, a fall (reset) adds nothing and the rises after it count.
+// A counter's bucket is its rises: a step across an edge is split between the buckets by time,
+// one over a gap of more than 1.5 buckets adds nothing, a fall (reset) adds nothing and the
+// rises after it count.
 func TestAggregateDelta(t *testing.T) {
 	samples := []Sample{
-		at(0, 0, 100), at(0, 50, 101.5), // hour 0: 1.5
-		at(1, 10, 102), at(1, 20, 3), at(1, 40, 4.25), // hour 1: 0.5 from 00:50, reset, 1.25
+		at(0, 0, 100), at(0, 50, 101.5), // hour 0: 1.5 + 0.25
+		at(1, 10, 102), at(1, 20, 3), at(1, 40, 4.25), // hour 1: 0.25 from 00:50, reset, 1.25
 		// hour 2: nothing
-		at(3, 30, 10), at(3, 45, 11), // hour 3: 1 (the step from 01:40 is longer than a bucket)
+		at(3, 30, 10), at(3, 45, 11), // hour 3: 1 (the step from 01:40 is longer than 1.5 buckets)
 		at(4, 0, 11), // hour 4: 0 (the meter stood still)
 	}
 	got := vals(Aggregate(samples, hourEdges(5), "delta"))
-	want := []any{1.5, 1.75, nil, 1.0, 0.0}
+	want := []any{1.75, 1.5, nil, 1.0, 0.0}
 	for i := range want {
 		if got[i] != want[i] {
 			t.Fatalf("delta = %v, want %v", got, want)
 		}
 	}
-	// a sample before the first edge gives the first bucket its first step
-	before := []Sample{{Timestamp: hourEdges(1)[0].Unix() - 60, Value: 99}, at(0, 10, 100)}
-	if got := vals(Aggregate(before, hourEdges(1), "delta")); got[0] != 1.0 {
-		t.Errorf("delta with the sample before = %v, want 1", got)
+	// a sample before the first edge: the first bucket gets the part of the step inside it
+	before := []Sample{{Timestamp: hourEdges(1)[0].Unix() - 600, Value: 99}, at(0, 10, 100)}
+	if got := vals(Aggregate(before, hourEdges(1), "delta")); got[0] != 0.5 {
+		t.Errorf("delta with the sample before = %v, want 0.5", got)
 	}
 	// only a reset: never negative
 	if got := vals(Aggregate([]Sample{at(0, 0, 50), at(0, 30, 0)}, hourEdges(1), "delta")); got[0] != 0.0 {
 		t.Errorf("reset only = %v, want 0", got)
+	}
+}
+
+// A meter read once an hour, each reading a few seconds late: every gap is a bit longer than a
+// bucket and still counts, split by time; a reading missed for two hours leaves a gap.
+func TestAggregateDeltaHourlyJitter(t *testing.T) {
+	base := hourEdges(0)[0].Unix()
+	var samples []Sample
+	for h, late := range []int64{2, 5, 9, 3, 7} {
+		samples = append(samples, Sample{Timestamp: base + int64(h)*3600 + late, Value: float64(100 + h)})
+	}
+	got := Aggregate(samples, hourEdges(4), "delta")
+	total := 0.0
+	for i, v := range got {
+		if v == nil || i < 3 && (*v < 0.99 || *v > 1.01) {
+			t.Fatalf("hourly meter with jitter = %v, want about 1 kWh an hour", vals(got))
+		}
+		total += *v
+	}
+	if total < 2.999 || total > 3.001 {
+		t.Errorf("hourly meter with jitter adds %v, want the 3 kWh it counted", total)
+	}
+	// offline 02:00..05:00: the 3-hour step is not put into one bar
+	off := []Sample{at(0, 0, 100), at(1, 0, 101), at(1, 59, 102), at(5, 0, 150), at(5, 30, 151)}
+	got = Aggregate(off, hourEdges(6), "delta")
+	if got[2] != nil || got[3] != nil || got[4] != nil || got[5] == nil || *got[5] != 1 {
+		t.Errorf("offline meter = %v, want gaps in hours 2-4 and 1 in hour 5", vals(got))
 	}
 }
 
@@ -166,6 +194,10 @@ func TestAggregateDeltaDips(t *testing.T) {
 		"meter replaced":            {series(5000, 5001, 10, 11, 12, 13), 4},
 		"reset to 0, counting up":   {series(50, 51, 0, 1, 2, 3), 4},
 		"a dip below, not to 0":     {series(1000, 1001, 999.5, 1001.5), 1.5},
+		"one spike up (bad float)":  {series(1000, 1001, 1e9, 1002, 1003), 3},
+		"a spike, then a zero":      {series(1000, 1001, 1e9, 1002, 0, 1003), 3},
+		"a real jump stays":         {series(1000, 1001, 1500, 1501), 501},
+		"replaced by a higher one":  {series(1000, 1001, 5000, 5001, 5002), 4002},
 	} {
 		got := Aggregate(tc.samples, hourEdges(1), "delta")
 		if got[0] == nil || *got[0] != tc.want {

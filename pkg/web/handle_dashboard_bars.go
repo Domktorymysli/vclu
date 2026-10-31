@@ -149,8 +149,8 @@ func (s *Server) barsSeries(spec barsSpec, now time.Time) (*barsResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	// one bucket earlier: delta's first step comes from the sample before the range
-	since := edges[0].Add(-edges[1].Sub(edges[0])).Unix()
+	// two buckets earlier: delta's first step can start up to 1.5 buckets before the range
+	since := edges[0].Add(-2 * edges[1].Sub(edges[0])).Unix()
 	vals := metrics.Aggregate(s.metricsCollector.Query(spec.Path, since), edges, spec.Agg)
 	var cmp []*float64
 	if spec.Compare != "" {

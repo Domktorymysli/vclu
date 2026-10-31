@@ -58,8 +58,21 @@ type rise struct {
 	ok   bool
 }
 
+func valid(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) }
+
+// nextValid is the index of the first valid sample after i, or -1.
+func nextValid(samples []Sample, i int) int {
+	for k := i + 1; k < len(samples); k++ {
+		if valid(samples[k].Value) {
+			return k
+		}
+	}
+	return -1
+}
+
 // counterRises gives each sample of a counter its rise over the high mark: after a dip the count
-// goes on from the value before it; after a reset, from the first low sample.
+// goes on from the value before it; after a reset, from the first low sample. A single reading
+// above the trend that the next one returns from is a spike (a garbage float) and adds nothing.
 func counterRises(samples []Sample) []rise {
 	out := make([]rise, len(samples))
 	high, at, before := -1, -1, -1 // the high mark, the first low sample, the mark before a reset
@@ -78,6 +91,10 @@ func counterRises(samples []Sample) []rise {
 			before = -1
 		}
 		if s.Value >= h.Value {
+			// a spike: the next reading is back between the mark and it, so this one adds nothing
+			if n := nextValid(samples, i); n >= 0 && samples[n].Value >= h.Value && samples[n].Value < s.Value {
+				continue
+			}
 			out[i] = rise{inc: s.Value - h.Value, from: h.Timestamp, ok: true}
 			high, at = i, -1
 			continue
@@ -114,18 +131,15 @@ func counterRises(samples []Sample) []rise {
 
 // Aggregate folds samples (sorted by time) into the buckets between edges; a bucket without
 // samples is nil, not zero. avg is the plain mean of the samples and sum their total (it grows
-// with the sampling rate). delta sums the rises of a counter (counterRises): a rise goes to the
-// bucket of its later sample, one from an earlier bucket only when it is at most a bucket long,
-// so a bucket is never negative.
+// with the sampling rate). delta is aggregateDelta.
 func Aggregate(samples []Sample, edges []time.Time, agg string) []*float64 {
 	n := len(edges) - 1
 	out := make([]*float64, max(n, 0))
 	if n < 1 {
 		return out
 	}
-	var rises []rise
 	if agg == "delta" {
-		rises = counterRises(samples)
+		return aggregateDelta(samples, edges, out)
 	}
 	b := 0
 	var acc float64
@@ -140,7 +154,7 @@ func Aggregate(samples []Sample, edges []time.Time, agg string) []*float64 {
 		}
 		out[b] = &v
 	}
-	for i, s := range samples {
+	for _, s := range samples {
 		ts := s.Timestamp
 		if math.IsNaN(s.Value) || math.IsInf(s.Value, 0) || ts < edges[0].Unix() {
 			continue
@@ -153,7 +167,6 @@ func Aggregate(samples []Sample, edges []time.Time, agg string) []*float64 {
 			b++
 			acc, count = 0, 0
 		}
-		start, end := edges[b].Unix(), edges[b+1].Unix()
 		switch agg {
 		case "sum", "avg":
 			acc += s.Value
@@ -165,13 +178,58 @@ func Aggregate(samples []Sample, edges []time.Time, agg string) []*float64 {
 			if count == 0 || s.Value < acc {
 				acc = s.Value
 			}
-		case "delta":
-			if r := rises[i]; r.ok && (r.from >= start || ts-r.from <= end-start) {
-				acc += r.inc
-			}
 		}
 		count++
 	}
 	flush()
+	return out
+}
+
+// aggregateDelta sums the rises of a counter (counterRises), so a bucket is never negative. A
+// rise across bucket edges is split between the buckets by time (hourly readings a few seconds
+// late still count); one over a gap longer than 1.5 buckets of its later sample (a missed
+// reading, the meter offline) is left out. A bucket is nil when it has no sample and no share.
+func aggregateDelta(samples []Sample, edges []time.Time, out []*float64) []*float64 {
+	n := len(edges) - 1
+	first, last := edges[0].Unix(), edges[n].Unix()
+	rises := counterRises(samples)
+	add := func(b int, v float64) {
+		if out[b] == nil {
+			out[b] = new(float64)
+		}
+		*out[b] += v
+	}
+	b := 0
+	for i, s := range samples {
+		ts := s.Timestamp
+		if !valid(s.Value) || ts < first {
+			continue
+		}
+		if ts >= last {
+			break
+		}
+		for ts >= edges[b+1].Unix() {
+			b++
+		}
+		add(b, 0)
+		r := rises[i]
+		if !r.ok || r.inc == 0 {
+			continue
+		}
+		gap := ts - r.from
+		if gap <= 0 || ts-edges[b].Unix() >= gap {
+			add(b, r.inc)
+			continue
+		}
+		if 2*gap > 3*(edges[b+1].Unix()-edges[b].Unix()) {
+			continue
+		}
+		// from the later sample's bucket back to the earlier one; time before the range is not shown
+		for k := b; k >= 0 && edges[k+1].Unix() > r.from; k-- {
+			if lo, hi := max(edges[k].Unix(), r.from), min(edges[k+1].Unix(), ts); hi > lo {
+				add(k, r.inc*float64(hi-lo)/float64(gap))
+			}
+		}
+	}
 	return out
 }

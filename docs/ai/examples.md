@@ -1161,10 +1161,11 @@ about 200 KB a day (31 days of 20 such metrics: about 125 MB). Backups include `
 longer retention also makes backups larger.
 
 Daily kWh from a meter that only counts up (SDM120, an inverter's total): `agg = 'delta'` is what
-the counter added in each day. A single bad reading (a 0 from a Modbus timeout) adds nothing; a
-value that stays lower for 3 samples (or an hour) is a reset or a replaced meter, and the count
-goes on from it. A rise across a gap (vCLU was off) goes to the bar after the gap when the gap is
-at most one bar long, otherwise it is left out.
+the counter added in each day. A single bad reading (a 0 from a Modbus timeout, a garbage value
+far above the trend) adds nothing; a value that stays lower for 3 samples (or an hour) is a reset
+or a replaced meter, and the count goes on from it. A rise between two samples in different bars
+is split between them by time, so a meter read once an hour still fills every hourly bar; a rise
+across a gap longer than one and a half bars (vCLU or the meter was off) is left out.
 
 ```lua
 -- licznik: any object whose value is the meter's total energy in kWh

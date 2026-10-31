@@ -172,8 +172,9 @@ func TestDashboardBarsHouseZoneDST(t *testing.T) {
 		now  time.Time
 		want []float64
 	}{
-		{time.Date(2026, 3, 30, 12, 0, 0, 0, loc), []float64{24, 23, 24}},
-		{time.Date(2026, 10, 26, 12, 0, 0, 0, loc), []float64{24, 25, 24}},
+		// the last day's samples end at 23:00: its last hour is not read yet
+		{time.Date(2026, 3, 30, 12, 0, 0, 0, loc), []float64{24, 23, 23}},
+		{time.Date(2026, 10, 26, 12, 0, 0, 0, loc), []float64{24, 25, 23}},
 	} {
 		res, err := s.barsSeries(barsSpec{Path: "energia:licznik", Bucket: "1d", Buckets: 3, Agg: "delta", Zone: "Europe/Warsaw"}, tc.now)
 		if err != nil {

@@ -25,9 +25,10 @@ named for the browser by `__go_calendar_zone()` (`pkg/lua/calendar.go`, #129).
 - Aggregation in Go (`pkg/metrics/buckets.go`): buckets from local midnight (a DST day is 23 or
   25 h) or on the hour (a fall-back night has 02:00 twice), `sum`, `avg` (plain mean of the
   samples), `max`, `min`, `delta`. `delta` sums a counter's rises over its high mark: a dip (one
-  bad reading, a 0 from a Modbus timeout) adds nothing; a value lower for 3 samples or an hour is
-  a reset and the count goes on from it. A rise across a gap goes to the later bucket when it is
-  at most a bucket long, else it is left out. A bucket without samples is `null`, not 0.
+  bad reading, a 0 from a Modbus timeout) adds nothing, nor does a single reading above the trend
+  that the next one returns from (a garbage float); a value lower for 3 samples or an hour is a
+  reset and the count goes on from it. A rise across bucket edges is split between the buckets by
+  time; one across a gap longer than 1.5 buckets is left out. A bucket without samples is `null`, not 0.
 - `GET /api/dashboard/:id/bars?widget=<id>`: the widget names its metrics, range and aggregation
   (`Dashboard.API.barsSpec`), so the page cannot ask for another metric or a longer range; the
   raw metric stays unreadable through `/metrics`. Dashboard auth as for charts; 30 s cache;
@@ -49,7 +50,7 @@ named for the browser by `__go_calendar_zone()` (`pkg/lua/calendar.go`, #129).
 
 ## Acceptance criteria
 - [ ] Daily buckets start at the house's midnight; on 29.03 and 25.10 (Europe/Warsaw) a day holds 23 and 25 hourly rises (`pkg/web/dashboard_bars_test.go`, `pkg/metrics/buckets_test.go`).
-- [ ] `delta` over a reset is never negative and counts the rises after it; one or two bad readings add nothing; a missing hour or day is a gap (`TestAggregateDelta`, `TestAggregateDeltaDips`, `TestAggregate`).
+- [ ] `delta` over a reset is never negative and counts the rises after it; one or two bad readings (down, or one up) add nothing; a meter read hourly with a few seconds' jitter fills every hour; a missing hour or day is a gap (`TestAggregateDelta`, `TestAggregateDeltaDips`, `TestAggregateDeltaHourlyJitter`, `TestAggregate`).
 - [ ] Concurrent misses of one widget aggregate once (`TestDashboardBarsMergesConcurrentLoads`); days before the retention are `old` (`TestDashboardBarsOldBuckets`).
 - [ ] Raw queries stop at the retention and at 2000 points (`TestQueryRangeCapsRetentionAndPoints`, `TestMetricsToolCapsRangeAndPoints`); a half-written line is skipped (`TestReadSingleFileSkipsHalfWrittenLine`).
 - [ ] A public dashboard serves its own bars without login; another widget, another dashboard's widget and the raw metric are refused; session and PIN dashboards keep their gates (`TestDashboardBarsFollowDashboardAuth`).
