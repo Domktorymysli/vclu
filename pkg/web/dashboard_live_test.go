@@ -322,7 +322,7 @@ func TestDashboardLiveAuth(t *testing.T) {
 	next(t, conn)
 	ls.lua(t, `Dashboard.new('p'):auth('pin'):pin('9999'):section('S', 'i'):build()`)
 	ls.s.DashboardsReloaded()
-	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	for {
 		if _, _, err := conn.ReadMessage(); err != nil {
 			if !websocket.IsCloseError(err, liveCloseDenied) {
@@ -351,7 +351,7 @@ func TestDashboardLiveShutdown(t *testing.T) {
 	conn := ls.dial(t, "d")
 	next(t, conn)
 	_ = ls.s.Stop()
-	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	_, _, err := conn.ReadMessage()
 	if !websocket.IsCloseError(err, websocket.CloseGoingAway) {
 		t.Fatalf("after shutdown: %v, want close 1001", err)
@@ -519,7 +519,7 @@ func TestDashboardLiveFlood(t *testing.T) {
 			break
 		}
 	}
-	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 	for {
 		_, _, err := conn.ReadMessage()
 		if err != nil {
