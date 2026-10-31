@@ -353,6 +353,14 @@ function PluginHelpers.redactSecrets(str)
         )
     end
 
+    -- A bot token in the path (Telegram: /bot<id>:<secret>/): the whole token goes
+    result = result:gsub("(%d+):([%w_%-]+)", function(id, secret)
+        if #id >= 5 and #secret >= 30 then return "***" end
+    end)
+
+    -- A password in the URL (https://user:pass@host)
+    result = result:gsub("(//[^/%s:@]+:)([^@/%s]+)@", function(prefix, _) return prefix .. "***@" end)
+
     -- Redact Authorization header values
     result = result:gsub(
         "([Aa]uthorization%s*[=:]%s*)([^%s,}]+)",
