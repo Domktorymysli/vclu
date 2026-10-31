@@ -3,7 +3,7 @@
 - **Type:** feature
 - **Area:** web
 - **Size:** M
-- **Epic:** —
+- **Epic:** #68
 - **Blocked by:** —
 - **Skill:** `.agents/skills/run-local-vclu`
 - **Needs hardware:** —

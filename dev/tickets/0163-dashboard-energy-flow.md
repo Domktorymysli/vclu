@@ -3,7 +3,7 @@
 - **Type:** feature
 - **Area:** web
 - **Size:** M
-- **Epic:** —
+- **Epic:** #68
 - **Blocked by:** —
 - **Skill:** `.agents/skills/run-local-vclu`
 - **Needs hardware:** — (a PV inverter and a bidirectional meter to check it on a real house)

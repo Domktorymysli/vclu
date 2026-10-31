@@ -3,7 +3,7 @@
 - **Type:** feature
 - **Area:** web | lua-runtime
 - **Size:** M
-- **Epic:** —
+- **Epic:** #68
 - **Blocked by:** —
 - **Skill:** `.agents/skills/write-contract-test`
 - **Needs hardware:** — (a tablet on the wall to check readability)

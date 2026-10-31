@@ -3,7 +3,7 @@
 - **Type:** feature
 - **Area:** web
 - **Size:** M
-- **Epic:** —
+- **Epic:** #68
 - **Blocked by:** —
 - **Skill:** `.agents/skills/run-local-vclu`
 - **Needs hardware:** —
@@ -23,13 +23,15 @@ a button and a status tile by hand.
 - `opts.hold = true | ms` (true = 800 ms, 300-5000) on `button` and `toggle`; `confirm` keeps
   working, `hold` with `confirm` fails the build. `confirm` exists on buttons only.
 - The page (`web/static/js/dashboard.js`) fills a ring around the tile's icon while pressed
-  (mouse, touch, Enter/Space held); an early release, the pointer leaving or a scroll cancels; a
-  tap shows "Przytrzymaj" / "Hold"; completion vibrates (`navigator.vibrate(30)`) and runs the action.
-- The action request carries `held: true`; `Dashboard.API.executeAction` refuses an action that
-  needs a hold without it. Anyone can send the flag: it stops a stray tap and a naive script, not a
-  deliberate caller; auth (`pin`, `session`) stays the protection. The only action endpoint is
+  (Pointer Events, or touch and mouse events where they are missing; Enter/Space held); an early
+  release, the pointer leaving or a scroll cancels; a tap shows "Przytrzymaj" / "Hold"; completion
+  vibrates (`navigator.vibrate(30)`) and runs the action.
+- The action request carries `held: true`; the server passes it to `Dashboard.API.executeAction`
+  as its fifth argument `{ held = true }`, which refuses an action that needs a hold without it.
+  Anyone can send the flag: it stops a stray tap and a naive script, not a deliberate caller;
+  auth (`pin`, `session`) stays the protection. The only action endpoint is
   `POST /api/dashboard/:id/action` (public, PIN and session dashboards alike).
-- `section:gate(id, label, {open, close?, stop?, state?, hold (default true), icon, disabled, span})`:
+- `section:gate(id, label, {open, close?, stop?, state?, hold (default true), icon, disabled, visible, span})`:
   state `"open"|"closed"|"opening"|"closing"|"moving"|nil`, open in warning colour, closed in
   success, moving in info; Open and Close held, Stop a tap; unknown options fail the build.
 
@@ -56,5 +58,5 @@ a button and a status tile by hand.
 
 ## Contract impact
 Lua API: new `opts.hold` and `section:gate`/`dash:gate` (additive). `Dashboard.API.executeAction`
-takes a fifth argument `held`; the HTTP action body takes `held` (a boolean). Nothing existing
-changes behaviour: a widget without `hold` ignores the flag.
+takes a fifth argument, a table `{ held = true|false }`; the HTTP action body takes `held` (a
+boolean). Nothing existing changes behaviour: a widget without `hold` ignores the flag.

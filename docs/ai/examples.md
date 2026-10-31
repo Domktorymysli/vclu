@@ -937,7 +937,7 @@ local rooms = {
 - **color:** `function(row, key)` called for every cell shown with the row as `rows` gave it;
   a colour name (`success`, `warning`, `danger`, `info`, `primary`, `accent`), `#hex`, `rgb()`,
   `hsl()`, or nil.
-- `nil` or `{}` from `rows` shows "brak danych". opts: `icon` (default `table`), `disabled`, `span`,
+- `nil` or `{}` from `rows` shows "brak danych". opts: `icon` (default `table`), `disabled`, `visible`, `span`,
   `size`. Two columns wide by default, full width on a phone.
 
 ### Gauge (arc or bar)
@@ -972,7 +972,7 @@ value in the middle, or with `style = 'bar'` on a horizontal bar with the value 
   "cel 11,0 kW".
 - opts: `min` (default 0), `max` (default 100, above `min`), `unit`, `decimals` (0-6), `style`
   (`'arc'` default or `'bar'`), `thresholds`, `target`, `icon` (default `speedometer2`),
-  `disabled`, `span`, `size`, `color`. Unknown options fail at build.
+  `disabled`, `visible`, `span`, `size`, `color`. Unknown options fail at build.
 
 ### Energy flow
 
@@ -1092,8 +1092,8 @@ A gate or a door lock: its state on the tile (open in yellow, closed in green, m
 Open and Close pressed and held (`hold`, default 800 ms; `hold = false` for a tap), Stop a tap.
 `open` is required; without `close` or `stop` their buttons are left out. `state` returns
 `"open"`, `"closed"`, `"opening"`, `"closing"`, `"moving"` or nil (no reading). Options:
-`open`, `close`, `stop`, `state`, `hold`, `icon` (default `door-closed`), `disabled`, `span`;
-any other fails the build. A callback may return a string for a toast.
+`open`, `close`, `stop`, `state`, `hold`, `icon` (default `door-closed`), `disabled`, `visible`,
+`span`; any other fails the build. A callback may return a string for a toast.
 
 ```lua
 -- a Grenton relay gives the gate's controller a 1 s pulse; a reed contact on a digital input says closed

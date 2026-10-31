@@ -1887,7 +1887,7 @@ end
 -- (Close shown only with close), Stop is a tap.
 -- @param id string Unique widget identifier
 -- @param label string Display label
--- @param opts table {open=function() (required), close=function()?, stop=function()?, state=function()->"open"|"closed"|"opening"|"closing"|"moving"|nil, hold=true|false|ms (default true = 800 ms; 300-5000), icon=string (default "door-closed"), disabled=function()->bool, span=n}
+-- @param opts table {open=function() (required), close=function()?, stop=function()?, state=function()->"open"|"closed"|"opening"|"closing"|"moving"|nil, hold=true|false|ms (default true = 800 ms; 300-5000), icon=string (default "door-closed"), disabled=function()->bool, visible=function()->bool, span=n}
 -- @api public
 function SectionHandle:gate(id, label, opts)
     if self._builder._sections[self._sectionIndex]._isHeader then
@@ -1938,7 +1938,7 @@ end
 -- @param id string Unique widget identifier
 -- @param label string Display label
 -- @param rows function Returns the rows: function() -> { {key=value, ...}, ... } (nil or {} shows "brak danych")
--- @param opts table {columns={{key=string, label=string?, unit=string?, decimals=0-6?, align="left"|"right"?}, ...} (required), sort=column key (ascending, before limit, empty cells last; default: the order rows gives), desc=true (sort descending), limit=1-200, color=function(row, key)->colour name|#hex|rgb()|hsl()|nil (the cell's colour), icon=string (default "table"), disabled=function()->bool, span=n, size=string}
+-- @param opts table {columns={{key=string, label=string?, unit=string?, decimals=0-6?, align="left"|"right"?}, ...} (required), sort=column key (ascending, before limit, empty cells last; default: the order rows gives), desc=true (sort descending), limit=1-200, color=function(row, key)->colour name|#hex|rgb()|hsl()|nil (the cell's colour), icon=string (default "table"), disabled=function()->bool, visible=function()->bool, span=n, size=string}
 -- @api public
 function SectionHandle:table(id, label, rows, opts)
     if self._builder._sections[self._sectionIndex]._isHeader then
@@ -2048,7 +2048,7 @@ end
 -- @param id string Unique widget identifier
 -- @param label string Display label
 -- @param getValue function Returns the value: function() -> number|nil (nil shows a dash)
--- @param opts table Optional: {min=0, max=100 (above min), unit=string, decimals=0-6, style="arc"|"bar", thresholds={{value, color}, ...} (ascending), target=number|function()->number|nil (a marker, e.g. a power limit), icon=string (default "speedometer2"), disabled=function()->bool, span=n, size=string, color=string (the fill below the first threshold)}
+-- @param opts table Optional: {min=0, max=100 (above min), unit=string, decimals=0-6, style="arc"|"bar", thresholds={{value, color}, ...} (ascending), target=number|function()->number|nil (a marker, e.g. a power limit), icon=string (default "speedometer2"), disabled=function()->bool, visible=function()->bool, span=n, size=string, color=string (the fill below the first threshold)}
 -- @api public
 function SectionHandle:gauge(id, label, getValue, opts)
     if self._builder._sections[self._sectionIndex]._isHeader then
@@ -2668,7 +2668,7 @@ end
 -- (Close shown only with close), Stop is a tap.
 -- @param id string Unique widget identifier
 -- @param label string Display label
--- @param opts table {open=function() (required), close=function()?, stop=function()?, state=function()->"open"|"closed"|"opening"|"closing"|"moving"|nil, hold=true|false|ms (default true = 800 ms; 300-5000), icon=string (default "door-closed"), disabled=function()->bool, span=n}
+-- @param opts table {open=function() (required), close=function()?, stop=function()?, state=function()->"open"|"closed"|"opening"|"closing"|"moving"|nil, hold=true|false|ms (default true = 800 ms; 300-5000), icon=string (default "door-closed"), disabled=function()->bool, visible=function()->bool, span=n}
 -- @api public
 function DashboardBuilder:gate(id, label, opts)
     if not self._currentSection then
@@ -2739,7 +2739,7 @@ end
 -- @param id string Unique widget identifier
 -- @param label string Display label
 -- @param rows function Returns the rows: function() -> { {key=value, ...}, ... }
--- @param opts table {columns={{key, label?, unit?, decimals?, align?}, ...} (required), sort, desc, limit=1-200, color=function(row, key), icon, disabled, span, size}
+-- @param opts table {columns={{key, label?, unit?, decimals?, align?}, ...} (required), sort, desc, limit=1-200, color=function(row, key), icon, disabled, visible, span, size}
 -- @api public
 function DashboardBuilder:table(id, label, rows, opts)
     if not self._currentSection then
@@ -2811,7 +2811,7 @@ end
 -- @param id string Unique widget identifier
 -- @param label string Display label
 -- @param getValue function Returns the value: function() -> number|nil (nil shows a dash)
--- @param opts table Optional: {min=0, max=100 (above min), unit=string, decimals=0-6, style="arc"|"bar", thresholds={{value, color}, ...} (ascending), target=number|function()->number|nil (a marker, e.g. a power limit), icon=string (default "speedometer2"), disabled=function()->bool, span=n, size=string, color=string (the fill below the first threshold)}
+-- @param opts table Optional: {min=0, max=100 (above min), unit=string, decimals=0-6, style="arc"|"bar", thresholds={{value, color}, ...} (ascending), target=number|function()->number|nil (a marker, e.g. a power limit), icon=string (default "speedometer2"), disabled=function()->bool, visible=function()->bool, span=n, size=string, color=string (the fill below the first threshold)}
 -- @api public
 function DashboardBuilder:gauge(id, label, getValue, opts)
     if not self._currentSection then
