@@ -256,6 +256,7 @@ func (s *Server) handleDashboardPage(c *gin.Context) {
 		if err != nil || !s.validateDashPinCookie(id, cookie) {
 			// Show PIN entry page
 			c.HTML(http.StatusOK, "dashboard_pin.html", gin.H{
+				"v":    s.assetVersion(),
 				"id":   id,
 				"name": def["name"],
 				"icon": def["icon"],
@@ -291,6 +292,7 @@ func (s *Server) handleDashboardPage(c *gin.Context) {
 
 	app := newDashApp(id, def)
 	c.HTML(http.StatusOK, "dashboard.html", gin.H{
+		"v":       s.assetVersion(),
 		"id":      id,
 		"name":    def["name"],
 		"icon":    def["icon"],
@@ -563,8 +565,8 @@ func (s *Server) handleAPIDashboardValues(c *gin.Context) {
 		return
 	}
 
-	script := fmt.Sprintf(`Dashboard.API.getValues("%s")`, luaEscape(id))
-	result, err := s.luaExecutor.Execute(script)
+	_, read := s.dashboardValues(id)
+	result, err := read()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -574,6 +576,13 @@ func (s *Server) handleAPIDashboardValues(c *gin.Context) {
 	dashCache.setValues(id, result, 1*time.Second)
 
 	c.Data(http.StatusOK, "application/json", []byte(result))
+}
+
+// dashboardValues is how /values and the WebSocket read dashboard id's values: key names one
+// answer (requests with the same key share a live feed), read gets it.
+func (s *Server) dashboardValues(id string) (key string, read func() (string, error)) {
+	script := fmt.Sprintf(`Dashboard.API.getValues("%s")`, luaEscape(id))
+	return id, func() (string, error) { return s.luaExecutor.Execute(script) }
 }
 
 var calendarDate = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
@@ -726,10 +735,11 @@ func (s *Server) handleAPIDashboardAction(c *gin.Context) {
 		return
 	}
 
-	// Invalidate values cache after action
+	// Invalidate values cache after action, and read the live values again now
 	dashCache.mu.Lock()
 	delete(dashCache.values, id)
 	dashCache.mu.Unlock()
+	s.live.poke(id)
 
 	c.Data(http.StatusOK, "application/json", []byte(result))
 }
@@ -796,30 +806,40 @@ func (s *Server) handleAPIDashboardAuth(c *gin.Context) {
 // Returns true if access is allowed, false if response was already written.
 // Uses lightweight getAuth() instead of getDefinition() to avoid evaluating all widget callbacks.
 func (s *Server) checkDashboardAuth(c *gin.Context, id string) bool {
+	if status, msg, _ := s.dashboardAccess(c, id); status != 0 {
+		c.JSON(status, gin.H{"error": msg})
+		return false
+	}
+	return true
+}
+
+// dashboardAccess says whether the request may see dashboard id: status 0, or the status and
+// error to answer. poll is the dashboard's poll interval (0 when it is not known).
+// Uses lightweight getAuth() instead of getDefinition() to avoid evaluating all widget callbacks.
+func (s *Server) dashboardAccess(c *gin.Context, id string) (status int, msg string, poll time.Duration) {
 	script := fmt.Sprintf(`Dashboard.API.getAuth("%s")`, luaEscape(id))
 	result, err := s.luaExecutor.Execute(script)
 	if err != nil {
 		// public endpoints reach this: the Lua error (paths, stack) goes to the log only
 		log.Printf("[DASHBOARD] %s auth: %v", id, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "dashboard unavailable"})
-		return false
+		return http.StatusInternalServerError, "dashboard unavailable", 0
 	}
 
 	var def struct {
-		Auth  string `json:"auth"`
-		Error string `json:"error"`
+		Auth  string  `json:"auth"`
+		Poll  float64 `json:"poll"`
+		Error string  `json:"error"`
 	}
 	json.Unmarshal([]byte(result), &def)
 	if def.Error != "" {
-		c.JSON(http.StatusNotFound, gin.H{"error": def.Error})
-		return false
+		return http.StatusNotFound, def.Error, 0
 	}
+	poll = time.Duration(def.Poll * float64(time.Second))
 
 	switch def.Auth {
 	case "session":
 		if !s.isAuthenticated(c) {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
-			return false
+			return http.StatusUnauthorized, "Authentication required", poll
 		}
 	case "pin":
 		cookieName := "vclu_dash_" + id
@@ -827,12 +847,11 @@ func (s *Server) checkDashboardAuth(c *gin.Context, id string) bool {
 		if err != nil || !s.validateDashPinCookie(id, cookie) {
 			// Also allow session-authenticated users
 			if !s.isAuthenticated(c) {
-				c.JSON(http.StatusUnauthorized, gin.H{"error": "PIN required"})
-				return false
+				return http.StatusUnauthorized, "PIN required", poll
 			}
 		}
 	}
-	return true
+	return 0, "", poll
 }
 
 // makeDashPinCookie returns "<expiry>.<hmac>": the HMAC binds the dashboard,

@@ -1751,6 +1751,22 @@ function SectionHandle:status(id, label, icon, getValue, unit, opts)
     return self
 end
 
+--- Add a tile with the page's round trip to vCLU, measured by the page itself (in the header,
+-- a chip): "24 ms", red over 300 ms, "offline" with no connection. Over the WebSocket it is a
+-- ping and its answer; while the page polls, the time of a poll (which includes reading the values).
+-- vCLU computes nothing for it, and it has no value in getValues.
+-- @param id string Unique widget identifier
+-- @param label string Display label
+-- @param icon string Bootstrap icon name (default "speedometer2")
+-- @param opts table Optional: {span=number, size='large'}
+-- @api public
+function SectionHandle:latency(id, label, icon, opts)
+    self._builder:_addWidget(self._sectionIndex, {
+        id = id, type = 'latency', label = label, icon = icon or 'speedometer2', opts = opts or {}
+    })
+    return self
+end
+
 --- Add a link widget to this section.
 -- @param id string Unique widget identifier
 -- @param label string Display label
@@ -2316,7 +2332,9 @@ function DashboardBuilder:pin(s)
     return self
 end
 
---- Set the poll interval in seconds.
+--- Set the poll interval in seconds. A page gets state changes at once over its WebSocket;
+-- values that no state change shows (the time, a variable) are read again every n seconds,
+-- and a page without the socket polls them that often.
 -- @param n number Poll interval in seconds (default 2)
 -- @api public
 function DashboardBuilder:poll(n)
@@ -3325,12 +3343,13 @@ end
 --- Get auth type for a dashboard (lightweight, no getValue calls)
 -- @param id string Dashboard ID
 -- @return string JSON with auth type
+-- @return string JSON {auth, poll}
 function DashboardAPI.getAuth(id)
     local dash = resolveDashboard(id, true)
     if not dash then
         return JSON.encode({ error = 'Dashboard not found' })
     end
-    return JSON.encode({ auth = dash._auth })
+    return JSON.encode({ auth = dash._auth, poll = dash._poll })
 end
 
 --- What the home-screen app of a dashboard needs: no widgets or values, any auth may read it

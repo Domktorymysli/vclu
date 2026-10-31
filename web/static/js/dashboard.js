@@ -1,5 +1,6 @@
 /**
- * Dashboard renderer - fetches definition, renders widgets, polls values, handles actions.
+ * Dashboard renderer - fetches definition, renders widgets, takes values pushed over a WebSocket
+ * (polling them while it is not open), handles actions.
  * Vanilla JS, no dependencies beyond Bootstrap CSS.
  */
 (function() {
@@ -10,7 +11,6 @@
     var overlayEl = document.getElementById('dashboardOverlay');
     var dashId = appEl.dataset.id;
     var pollInterval = 2000;
-    var pollTimer = null;
     var definition = null;
     var widgetEls = {}; // widgetId -> DOM element
     var roomLayers = {}; // room tile id -> its overlay
@@ -23,6 +23,7 @@
     var layoutEls = {}; // "_section_N" and "_section_N/_group_M" -> section and group label elements
     var hiddenNow = {}; // keys visible() hides: widget ids, sections, group labels
     var actionGrace = {}; // widgetId -> timestamp (ignore polls until this time)
+    var actionSeq = {};   // widgetId -> the latest action's number: only its answer counts
     var chartInstances = {}; // widgetId -> Chart.js instance
     var chartTimers = {};   // widgetId -> per-chart refresh timer
 
@@ -42,7 +43,7 @@
               noForecast: 'brak prognozy', rain: 'opady', temperature: 'temperatura', noData: 'brak danych', of: 'z',
               onN: ['włączone', 'włączone', 'włączonych'], allOff: 'wszystko wyłączone', back: 'Wróć',
               humidity: 'wilgotność', target: 'cel', thermoOn: 'włączony', thermoOff: 'wyłączony',
-              modes: ['ręcznie', 'urlop', 'harmonogram', 'podgrzewanie'], locked: 'zablokowany', lower: 'Obniż', raise: 'Podnieś',
+              modes: ['ręcznie', 'urlop', 'harmonogram', 'podgrzewanie'], locked: 'zablokowany', lower: 'Obniż', raise: 'Podnieś', measuring: 'mierzę…',
               hold: 'Przytrzymaj', openGate: 'Otwórz', closeGate: 'Zamknij',
               weekdays: ['nd', 'pn', 'wt', 'śr', 'cz', 'pt', 'sb'], today: 'dziś', thisHour: 'ta godzina',
               soFar: 'do teraz', compare: 'porównanie',
@@ -66,7 +67,7 @@
               noForecast: 'no forecast', rain: 'rain', temperature: 'temperature', noData: 'no data', of: 'of',
               onN: ['on', 'on', 'on'], allOff: 'all off', back: 'Back', humidity: 'humidity',
               target: 'target', thermoOn: 'on', thermoOff: 'off',
-              modes: ['manual', 'holiday', 'schedule', 'heat-up'], locked: 'locked', lower: 'Lower', raise: 'Raise',
+              modes: ['manual', 'holiday', 'schedule', 'heat-up'], locked: 'locked', lower: 'Lower', raise: 'Raise', measuring: 'measuring…',
               hold: 'Hold', openGate: 'Open', closeGate: 'Close',
               weekdays: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], today: 'today', thisHour: 'this hour',
               soFar: 'so far', compare: 'compare',
@@ -89,7 +90,8 @@
         button: 'play-fill', toggle: 'power', slider: 'sliders', status: 'info-circle', link: 'link-45deg',
         chart: 'graph-up', select: 'list-ul', image: 'image', cover: 'arrows-expand', covers: 'window', dimmer: 'lightbulb',
         color: 'palette', calendar: 'calendar3', player: 'music-note-beamed', forecast: 'cloud-sun',
-        room: 'door-open', thermostat: 'thermometer-half', table: 'table', gauge: 'speedometer2', gate: 'door-closed', bars: 'bar-chart', colorTemp: 'lightbulb', energy: 'lightning-charge'
+        room: 'door-open', thermostat: 'thermometer-half', table: 'table', gauge: 'speedometer2', gate: 'door-closed', bars: 'bar-chart', colorTemp: 'lightbulb', energy: 'lightning-charge',
+        latency: 'speedometer2'
     };
 
     // 23.9 -> "23,9" in Polish; with decimals rounded to them (21 -> "21,0"); text as it is
@@ -128,11 +130,7 @@
             if (p !== currentPeriod) {
                 // Period changed — reload definition from server (widgets may differ)
                 applyPeriod(p);
-                fetchJSON('/api/dashboard/' + dashId).then(function(def) {
-                    if (!def._notFound && !def.error) {
-                        renderDashboard(def);
-                    }
-                });
+                reloadDefinition();
             }
         }, 60000); // check every minute
     }
@@ -210,6 +208,11 @@
         case 'status':
             if (d.value == null) return ['unknown', T.unknown];
             return [isAlarm(d.color) ? 'alarm' : 'value', withUnit(d.value, w.unit, w.decimals)];
+        case 'latency':
+            // measured by the page (dashboard-live.js): undefined before the first, null offline
+            if (d.value === undefined) return ['unknown', T.measuring];
+            if (d.value === null) return ['alarm', T.offline];
+            return [d.value > 300 ? 'alarm' : 'value', Math.round(d.value) + ' ms' + (d.via === 'poll' ? ' (HTTP)' : '')];
         case 'select':
             if (d.value == null) return ['unknown', T.unknown];
             var label = String(d.value);
@@ -3515,7 +3518,9 @@
         icon.innerHTML = '<i class="bi bi-' + esc(w.icon || typeIcons[w.type] || 'circle') + '"></i>';
         el.appendChild(icon);
 
-        if (w.type === 'status') {
+        if (w.type === 'latency') {
+            el.appendChild(calEl('span', 'dash-header-value', '--'));
+        } else if (w.type === 'status') {
             el.appendChild(calEl('span', 'dash-header-value', w.value != null ? fmtNum(w.value, w.decimals) : '--'));
             if (w.unit) el.appendChild(calEl('span', 'dash-header-unit', w.unit));
         } else {
@@ -3901,54 +3906,67 @@
             var hVal = el.querySelector('.dash-header-value');
             if (hVal) hVal.textContent = d.value != null ? fmtNum(d.value, wDef.decimals) : '--';
         }
+        if (el.classList.contains('dash-header-item') && type === 'latency') {
+            var lVal = el.querySelector('.dash-header-value');
+            if (lVal) lVal.textContent = tileState('latency', wDef, d)[1];
+        }
 
         refreshTile(el, wDef, d);
     }
 
-    // ---- Polling ----
+    // ---- Values: pushed, else polled ----
 
-    function pollValues() {
-        fetchJSON('/api/dashboard/' + dashId + '/values')
-            .then(function(data) {
-                if (data._notFound) {
-                    showOverlay();
-                    return;
-                }
-                if (data.error) {
-                    showOverlay();
-                    return;
-                }
-                hideOverlay();
-                applyHidden(data._hidden, true);
-                for (var wid in data) {
-                    if (!data.hasOwnProperty(wid) || wid === '_hidden') continue;
-                    var sec = /^_section_(\d+)$/.exec(wid);
-                    if (sec) updateSectionCovers(+sec[1], data[wid]);
-                    else updateWidget(wid, data[wid]);
-                }
-                // a chip left out of the poll is hidden
-                for (var cid in widgetEls) {
-                    if (widgetEls[cid].dataset.type === 'chip' && !data.hasOwnProperty(cid)) {
-                        updateChip(widgetEls[cid], {}, null);
-                    }
-                }
-                syncHeaderBars();
-            })
-            .catch(function() {
-                showOverlay();
-            });
-    }
-
-    function startPolling() {
-        stopPolling();
-        pollTimer = setInterval(pollValues, pollInterval);
-    }
-
-    function stopPolling() {
-        if (pollTimer) {
-            clearInterval(pollTimer);
-            pollTimer = null;
+    // The whole state, from a poll or the socket: what it leaves out is gone
+    function showValues(data) {
+        if (data._notFound || data.error) {
+            showOverlay();
+            return;
         }
+        hideOverlay();
+        applyHidden(data._hidden, true);
+        for (var wid in data) {
+            if (!data.hasOwnProperty(wid) || wid === '_hidden') continue;
+            var sec = /^_section_(\d+)$/.exec(wid);
+            if (sec) updateSectionCovers(+sec[1], data[wid]);
+            else updateWidget(wid, data[wid]);
+        }
+        // a chip left out of the poll is hidden
+        for (var cid in widgetEls) {
+            if (widgetEls[cid].dataset.type === 'chip' && !data.hasOwnProperty(cid)) {
+                updateChip(widgetEls[cid], {}, null);
+            }
+        }
+        syncHeaderBars();
+    }
+
+    // The values pushed over the dashboard's WebSocket, polled while it is not open
+    var live = VCLU.dashboardLive('/api/dashboard/' + dashId, {
+        interval: function() { return pollInterval; },
+        show: showValues,
+        failed: showOverlay,
+        definition: reloadDefinition,
+        latency: showLatency
+    });
+
+    // The round trip on the latency tiles; kept for tiles drawn again (a reload)
+    var lastLatency;
+    function showLatency(l) {
+        lastLatency = l;
+        for (var id in widgetEls) {
+            if (widgetEls.hasOwnProperty(id) && widgetEls[id].dataset.type === 'latency') {
+                updateWidget(id, l ? { value: l.ms, via: l.via } : { value: null }, true);
+            }
+        }
+    }
+
+    // The definition again (a Lua reload, another time of day), then the values the socket has
+    function reloadDefinition() {
+        fetchJSON('/api/dashboard/' + dashId).then(function(def) {
+            if (def._notFound || def.error) return;
+            renderDashboard(def);
+            if (live.values()) showValues(live.values());
+            if (lastLatency !== undefined) showLatency(lastLatency);
+        }).catch(function() {});
     }
 
     // ---- Actions ----
@@ -3962,12 +3980,24 @@
 
         // Protect this widget from stale poll data for 3 seconds
         actionGrace[widgetId] = Date.now() + 3000;
+        var seq = actionSeq[widgetId] = (actionSeq[widgetId] || 0) + 1;
+        var latest = function() { return actionSeq[widgetId] === seq; };
+        // the socket sends only changes: after the grace, show what it has
+        setTimeout(function() {
+            var v = live.values();
+            if (latest() && v && v.hasOwnProperty(widgetId)) updateWidget(widgetId, v[widgetId]);
+        }, 3100);
 
         fetchJSON('/api/dashboard/' + dashId + '/action', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body)
         }).then(function(result) {
+            // tapped again meanwhile: a later answer decides, an earlier one would undo it
+            if (!latest()) {
+                if (result && result.message) VCLU.showToast(result.message, 'success');
+                return;
+            }
             if (result && result.error) {
                 revert();
                 return;
@@ -3978,12 +4008,12 @@
             if (result && result.message) {
                 VCLU.showToast(result.message, 'success');
             }
-        }).catch(revert);
+        }).catch(function() { if (latest()) revert(); });
 
         function revert() {
             if (onFail) onFail();
             delete actionGrace[widgetId];
-            pollValues();
+            live.poll();
         }
     }
 
@@ -4012,7 +4042,7 @@
                 return;
             }
             renderDashboard(def);
-            startPolling();
+            live.start();
         })
         .catch(function(err) {
             contentEl.className = '';
@@ -4020,14 +4050,14 @@
             if (window.console) console.error(err);
         });
 
-    // Pause polling when page is hidden, resume when visible
+    // Pause the values when page is hidden, resume when visible
     document.addEventListener('visibilitychange', function() {
         if (document.hidden) {
-            stopPolling();
+            live.stop();
             stopAllChartTimers();
-        } else {
-            pollValues();
-            startPolling();
+        } else if (definition) {
+            live.start();
+            live.poll();
             // Restart chart timers by re-fetching and scheduling
             if (definition) {
                 for (var i = 0; i < definition.widgets.length; i++) {

@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
     {{template "dashboard_app" .app}}
     <title>{{.name}} - vCLU</title>
-    <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="/static/vendor/bootstrap-icons/font/bootstrap-icons.css">
-    <link rel="stylesheet" href="/static/css/dashboard.css">
+    <link href="/static/vendor/bootstrap/css/bootstrap.min.css?v={{.v}}" rel="stylesheet">
+    <link rel="stylesheet" href="/static/vendor/bootstrap-icons/font/bootstrap-icons.css?v={{.v}}">
+    <link rel="stylesheet" href="/static/css/dashboard.css?v={{.v}}">
     <link rel="stylesheet" href="/d/{{.id}}/custom.css">
     {{if .theme}}<style>{{.theme}}</style>{{end}}
 </head>
@@ -28,9 +28,10 @@
             <p>Dashboard reloading...</p>
         </div>
     </div>
-    <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
-    <script src="/static/vendor/chartjs/chart.js"></script>
-    <script src="/static/js/utils.js"></script>
-    <script src="/static/js/dashboard.js"></script>
+    <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js?v={{.v}}"></script>
+    <script src="/static/vendor/chartjs/chart.js?v={{.v}}"></script>
+    <script src="/static/js/utils.js?v={{.v}}"></script>
+    <script src="/static/js/dashboard-live.js?v={{.v}}"></script>
+    <script src="/static/js/dashboard.js?v={{.v}}"></script>
 </body>
 </html>

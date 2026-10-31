@@ -19,7 +19,7 @@ Only public API is listed — internal/private functions are omitted.
 - [core.Registry](#coreregistry) (10 functions)
 - [core.Metrics](#coremetrics) (1 functions)
 - [core.Calendar](#corecalendar) (36 functions)
-- [Dashboard](#dashboard) (78 functions)
+- [Dashboard](#dashboard) (79 functions)
 - [lib.panel](#libpanel) (55 functions)
 - [objects.RemotePanel](#objectsremotepanel) (6 functions)
 - [GPIO_DOUT](#gpio_dout) (1 functions)
@@ -1191,6 +1191,15 @@ Add a status widget to this section.
 - `unit` (string) — Unit suffix displayed after value (e.g., "°C", "%", "lx")
 - `opts` (table) — Optional: {decimals=0-6 (a number is shown rounded to that many places), disabled=function()->bool, visible=function()->bool, color=string|function()->string|nil}
 
+### `SectionHandle:latency(id, label, icon, opts)`
+
+Add a tile with the page's round trip to vCLU, measured by the page itself (in the header, a chip): "24 ms", red over 300 ms, "offline" with no connection. Over the WebSocket it is a ping and its answer; while the page polls, the time of a poll (which includes reading the values). vCLU computes nothing for it, and it has no value in getValues.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `icon` (string) — Bootstrap icon name (default "speedometer2")
+- `opts` (table) — Optional: {span=number, size='large'}
+
 ### `SectionHandle:link(id, label, icon, url, opts)`
 
 Add a link widget to this section.
@@ -1472,7 +1481,7 @@ Set the PIN code for pin-authenticated dashboards.
 
 ### `DashboardBuilder:poll(n)`
 
-Set the poll interval in seconds.
+Set the poll interval in seconds. A page gets state changes at once over its WebSocket; values that no state change shows (the time, a variable) are read again every n seconds, and a page without the socket polls them that often.
 
 - `n` (number) — Poll interval in seconds (default 2)
 

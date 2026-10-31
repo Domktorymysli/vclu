@@ -387,7 +387,7 @@ CLU220000592:executeNoReply(0, "SetThermostat(19)")
 ## Dashboard (Lua-defined)
 
 Public dashboard for a tablet/wall. Defined in Lua, available at `/d/:id`.
-Widget types: button, toggle, slider, status, link, select, chart, image, group, cover, covers, dimmer, color, thermostat, gauge, colorTemp, calendar, player, forecast, table, bars, energy, gate; in the header also chip.
+Widget types: button, toggle, slider, status, link, select, chart, image, group, cover, covers, dimmer, color, thermostat, gauge, colorTemp, calendar, player, forecast, table, bars, energy, gate, latency; in the header also chip.
 `:calendar(id, label, cal, { view = 'month' | 'day', tags = {...}, schedules = { 'taryfa' } })` shows a calendar
 built with `Calendar`: a month grid and the day of a tapped date (full width); `schedules` adds a 24 h bar per schedule (`schedules = true`: all of the calendar's)
 to the day view; `holidays` (holiday names, default on), `namedays` (name days in the day view, default off) and
