@@ -200,6 +200,32 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    // New-version check: saved at once, no restart
+    var updateCheck = document.getElementById('updateCheckEnabled');
+    if (updateCheck) {
+        updateCheck.addEventListener('change', function() {
+            var on = updateCheck.checked;
+            updateCheck.disabled = true;
+            fetch('/api/update/settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled: on })
+            })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    updateCheck.disabled = false;
+                    if (data.error) { updateCheck.checked = !on; VCLU.showToast('Error: ' + data.error, 'danger'); return; }
+                    VCLU.showToast(_st('update_check_saved', 'Saved'), 'success');
+                    document.dispatchEvent(new CustomEvent('vclu:update-check', { detail: { enabled: data.enabled } }));
+                })
+                .catch(function(err) {
+                    updateCheck.disabled = false;
+                    updateCheck.checked = !on;
+                    VCLU.showToast('Error: ' + err.message, 'danger');
+                });
+        });
+    }
+
     var revokeBtn = document.getElementById('revokeAPIKeyBtn');
     if (revokeBtn) {
         revokeBtn.addEventListener('click', function() {

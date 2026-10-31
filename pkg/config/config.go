@@ -76,6 +76,9 @@ type VCLUConfig struct {
 	// State change history kept in memory (absent = defaults)
 	History *VCLUHistoryConfig `json:"history,omitempty"`
 
+	// Check for new vCLU versions (absent = on)
+	UpdateCheck *VCLUUpdateCheckConfig `json:"updateCheck,omitempty"`
+
 	// Pairing state - set after CLU is added to a system via Object Manager
 	Paired      bool   `json:"paired,omitempty"`
 	PairedAt    string `json:"pairedAt,omitempty"`

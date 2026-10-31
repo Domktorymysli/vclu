@@ -136,7 +136,12 @@
     "js_resetting_title": "Resetting CLU...",
     "js_reset_subtitle": "All data cleared. Restarting...",
     "js_confirm_generate": "Generate a new API key? Any existing key will be replaced.",
-    "js_confirm_revoke": "Revoke the current API key? Any integrations using it will stop working."
+    "js_confirm_revoke": "Revoke the current API key? Any integrations using it will stop working.",
+    "updates": "Updates",
+    "update_check": "Check for new versions",
+    "update_check_desc": "Shows a notice when a new vCLU version is out. Each check sends a random installation id, the version, os and arch.",
+    "update_check_forced_off": "Turned off by",
+    "js_update_check_saved": "Saved"
   },
   "backup": {
     "title": "Backup",
@@ -591,5 +596,20 @@
     "confirm_memory": "Clear the in-memory history?",
     "confirm_disk": "Delete all history files? This cannot be undone.",
     "admin_only": "Settings and deletion need a web session."
+  },
+  "update": {
+    "available": "vCLU {version} is available",
+    "title": "New vCLU version",
+    "running": "Running:",
+    "release_page": "Release page",
+    "before_update": "Before you update",
+    "more": "More",
+    "older": "Older releases",
+    "how_to": "How to update",
+    "cmd_service": "Installed with install.sh (systemd):",
+    "cmd_docker": "Docker: pull the new image and create the container again.",
+    "docs": "Update guide",
+    "hide": "Hide until next version",
+    "close": "Close"
   }
 }

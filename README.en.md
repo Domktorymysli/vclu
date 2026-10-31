@@ -283,6 +283,8 @@ The behaviour that automations, plugins and integrations depend on is pinned by 
 
 Everything is configured in the web UI. Settings live in `.vclu.json` in the data directory.
 
+The check for new versions sends the instance id (a random UUID in `instance-id` in the data directory), the version, os and arch; turn it off with the switch in Settings or `VCLU_UPDATE_CHECK=off`.
+
 ## Contributing
 
 Contributions are welcome, including ones written with AI agents. That is what the contract tests are for. See [CONTRIBUTING.md](CONTRIBUTING.md).

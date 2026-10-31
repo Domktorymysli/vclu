@@ -136,7 +136,12 @@
     "js_resetting_title": "Resetowanie CLU...",
     "js_reset_subtitle": "Wszystkie dane wyczyszczone. Restartowanie...",
     "js_confirm_generate": "Wygenerować nowy klucz API? Istniejący klucz zostanie zastąpiony.",
-    "js_confirm_revoke": "Unieważnić aktualny klucz API? Wszystkie integracje używające go przestaną działać."
+    "js_confirm_revoke": "Unieważnić aktualny klucz API? Wszystkie integracje używające go przestaną działać.",
+    "updates": "Aktualizacje",
+    "update_check": "Sprawdzaj nowe wersje",
+    "update_check_desc": "Pokazuje informację, gdy wyjdzie nowa wersja vCLU. Sprawdzenie wysyła losowy identyfikator instalacji, wersję, system i architekturę.",
+    "update_check_forced_off": "Wyłączone przez",
+    "js_update_check_saved": "Zapisano"
   },
   "backup": {
     "title": "Backup",
@@ -591,5 +596,20 @@
     "confirm_memory": "Wyczyścić historię w pamięci?",
     "confirm_disk": "Usunąć wszystkie pliki historii? Tego nie da się cofnąć.",
     "admin_only": "Ustawienia i usuwanie wymagają zalogowania w web."
+  },
+  "update": {
+    "available": "Dostępny vCLU {version}",
+    "title": "Nowa wersja vCLU",
+    "running": "Działa:",
+    "release_page": "Strona wydania",
+    "before_update": "Przed aktualizacją",
+    "more": "Więcej",
+    "older": "Starsze wydania",
+    "how_to": "Jak zaktualizować",
+    "cmd_service": "Instalacja przez install.sh (systemd):",
+    "cmd_docker": "Docker: pobierz nowy obraz i utwórz kontener od nowa.",
+    "docs": "Instrukcja aktualizacji",
+    "hide": "Ukryj do następnej wersji",
+    "close": "Zamknij"
   }
 }

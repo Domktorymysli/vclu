@@ -15,6 +15,8 @@ the MQTT/HA layer seen from outside, or screenshots. No Grenton CLU, no MQTT bro
 1. Start it in the background: `tools/demo/run.sh [port]` (default 18080). It builds `cmd/vclu`,
    creates a fresh data dir (printed; set `DEMO_DIR` to reuse one), copies `tools/demo/modules/`
    into `data/clu/modules/` and links `web/`. Wait for `loaded 1/1 user module(s)` in its output.
+   It sets `VCLU_UPDATE_CHECK=off`, so the run does not ask for new versions; set it yourself
+   when you start `vclu` another way.
 2. Change the demo for your case by editing `$DEMO_DIR/data/clu/modules/` and restarting the
    process. Keep `tools/demo/modules/` generic; add to it only what most checks need.
 3. Drive it like a user, through the dashboard API:

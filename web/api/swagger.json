@@ -2651,6 +2651,101 @@
                 }
             }
         },
+        "/api/update": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "The last good answer of the check for new vCLU versions: whether one is available, the latest release and every release newer than the running one, newest first. `highlights_html`, `before_update_html` and `notes_html` are the release's summary and notes rendered to safe HTML in the panel's language, else English. `checked_at` and `latest` are null before the first answer. When the check is off only `enabled: false` is returned.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "New vCLU version",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/web.updateStatus"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/update/settings": {
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Saves `updateCheck.enabled` in .vclu.json. Off stops the checks at once; on schedules a check within minutes. `VCLU_UPDATE_CHECK=off` in the environment keeps it off whatever is saved (`forced_off`).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "Turn the new-version check on or off",
+                "parameters": [
+                    {
+                        "description": "The setting",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "enabled": {
+                                    "type": "boolean"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "enabled": {
+                                    "type": "boolean"
+                                },
+                                "forced_off": {
+                                    "type": "boolean"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/metrics": {
             "get": {
                 "security": [
@@ -3569,6 +3664,58 @@
                 },
                 "zones": {
                     "type": "string"
+                }
+            }
+        },
+        "web.updateRelease": {
+            "type": "object",
+            "properties": {
+                "before_update_html": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "highlights_html": {
+                    "type": "string"
+                },
+                "notes_html": {
+                    "type": "string"
+                },
+                "published_at": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "string"
+                }
+            }
+        },
+        "web.updateStatus": {
+            "type": "object",
+            "properties": {
+                "checked_at": {
+                    "type": "string"
+                },
+                "current": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "latest": {
+                    "$ref": "#/definitions/web.updateRelease"
+                },
+                "releases": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/web.updateRelease"
+                    }
+                },
+                "update_available": {
+                    "type": "boolean"
                 }
             }
         }

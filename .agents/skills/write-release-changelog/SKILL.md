@@ -105,10 +105,13 @@ Full list / Pełna lista: https://github.com/Domktorymysli/vclu/compare/v1.6.0..
   "New", ~6 under "Fixes"; each point at most about 20 words (the "Smaller fixes" point may be
   longer), no second sentence unless it is what the user must do. The whole section is under
   ~3000 characters per language, not counting the link URLs.
-- **Highlights / Najważniejsze:** one line, the two or three things worth updating for.
+- **Highlights / Najważniejsze:** one line, the two or three things worth updating for, at most
+  ~25 words and no links. The panel's new-version notice shows this line alone, so it must answer
+  "is it worth updating?" without the rest.
 - **Before you update / Przed aktualizacją:** every `Contract change:` entry, a re-import of OM, a
   module the user must edit, a setting that moved. Leave the heading out when empty. Nothing a user
-  must do may hide under "New" or "Fixes".
+  must do may hide under "New" or "Fixes". The panel shows these points next to the highlights,
+  so each one stands alone: what to do, in one sentence, with its link.
 - **New in this release:** count only what changes for someone coming from the previous release.
   A fix, a check or a `Contract change:` inside a feature that is new in this release goes into
   that feature's point or is left out: it is not under "Before you update" or "Fixes".
@@ -124,11 +127,13 @@ Full list / Pełna lista: https://github.com/Domktorymysli/vclu/compare/v1.6.0..
 - **Thanks:** a point from an outside contributor ends with "thanks @login", as in earlier releases.
 - **Hardware:** say what was checked on real hardware and what was not, only in the GitHub release
   description (one line), not in the post.
-- **Each language part stands alone:** the `### English` and `### Po polsku` sections are cut out
-  of the GitHub release description automatically and shown without the rest. So: these exact two
-  headings; no other `#`, `##` or `###` heading inside them (bold lines like `**New**` only); the
-  update instructions and the hardware line stay above `### English`, never inside a part; no raw
-  HTML; links are full `https://` URLs.
+- **Each language part stands alone, markers stay exact:** the panel's new-version notice cuts the
+  `### English` and `### Po polsku` sections out of the GitHub release description and shows them
+  without the rest; it reads `**Highlights:**`, `**Najważniejsze:**`, `**Before you update**`,
+  `**Przed aktualizacją**` and the `-` points. A renamed marker drops the release to a bare link
+  there. No other `#`, `##` or `###` heading inside a part (bold lines like `**New**` only); the
+  update instructions and the hardware line stay above `### English`; no raw HTML; links are full
+  `https://` URLs.
 - Polish: plain words and the names of the vCLU panel and Object Manager (moduł, obiekt, cecha,
   dashboard). Read it aloud once.
 
@@ -151,7 +156,7 @@ Full list / Pełna lista: https://github.com/Domktorymysli/vclu/compare/v1.6.0..
 - Every `changelog.d/` entry is in a point, in "smaller fixes", or deliberately left out as internal
   (check against the preview of step 1: step 2 removes the files).
 - English and Polish have the same points in the same order; the post matches the section.
-- Under the length limits.
+- Under the length limits; the highlights line alone says why to update.
 - Each language part reads on its own: cut from its heading to the next one, it needs nothing from
   the rest of the description.
 - `go test ./tools/changelog/` passes; `changelog.d/` holds only its README.

@@ -141,6 +141,24 @@
 
                     <div class="card mb-3">
                         <div class="card-header">
+                            <i class="bi bi-arrow-up-circle"></i> {{index .t "settings.updates"}}
+                        </div>
+                        <div class="card-body">
+                            <div class="form-check form-switch mb-0">
+                                <input class="form-check-input" type="checkbox" role="switch" id="updateCheckEnabled"
+                                       {{if and .updateCheck.enabled (not .updateCheck.forcedOff)}}checked{{end}}
+                                       {{if .updateCheck.forcedOff}}disabled{{end}}>
+                                <label class="form-check-label" for="updateCheckEnabled">{{index .t "settings.update_check"}}</label>
+                            </div>
+                            <div class="form-text">{{index .t "settings.update_check_desc"}}</div>
+                            {{if .updateCheck.forcedOff}}
+                            <div class="form-text">{{index .t "settings.update_check_forced_off"}} <code>VCLU_UPDATE_CHECK=off</code></div>
+                            {{end}}
+                        </div>
+                    </div>
+
+                    <div class="card mb-3">
+                        <div class="card-header">
                             <i class="bi bi-arrow-clockwise"></i> {{index .t "settings.restart"}}
                         </div>
                         <div class="card-body">
@@ -200,7 +218,8 @@
             reset_subtitle: {{json (index .t "settings.js_reset_subtitle")}},
             reset_btn: {{json (index .t "settings.reset_btn")}},
             confirm_generate: {{json (index .t "settings.js_confirm_generate")}},
-            confirm_revoke: {{json (index .t "settings.js_confirm_revoke")}}
+            confirm_revoke: {{json (index .t "settings.js_confirm_revoke")}},
+            update_check_saved: {{json (index .t "settings.js_update_check_saved")}}
         };
     </script>
     <script src="/static/js/settings.js"></script>

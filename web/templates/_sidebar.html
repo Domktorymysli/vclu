@@ -100,4 +100,13 @@
         </button>
     </div>
 </aside>
+<!-- New-version badge in the top bar of every page with this sidebar -->
+<script src="/static/js/update-notice.js" defer id="updateNoticeScript"
+        data-available="{{index .t "update.available"}}" data-title="{{index .t "update.title"}}"
+        data-running="{{index .t "update.running"}}" data-release-page="{{index .t "update.release_page"}}"
+        data-before-update="{{index .t "update.before_update"}}" data-more="{{index .t "update.more"}}"
+        data-older="{{index .t "update.older"}}"
+        data-how-to="{{index .t "update.how_to"}}" data-cmd-service="{{index .t "update.cmd_service"}}"
+        data-cmd-docker="{{index .t "update.cmd_docker"}}" data-docs="{{index .t "update.docs"}}"
+        data-hide="{{index .t "update.hide"}}" data-close="{{index .t "update.close"}}"></script>
 {{end}}

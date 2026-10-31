@@ -665,6 +665,89 @@ html, body {
     font-weight: 500;
 }
 
+/* New-version badge (update-notice.js) */
+.update-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border: 1px solid var(--bs-primary);
+    border-radius: 999px;
+    background: rgba(var(--bs-primary-rgb), 0.12);
+    color: var(--bs-primary);
+    font-size: 0.8rem;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.update-badge:hover {
+    background: rgba(var(--bs-primary-rgb), 0.22);
+}
+
+.update-release + .update-release {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--bs-border-color);
+}
+
+.update-release-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.update-highlights {
+    margin: 6px 0 0;
+}
+
+.update-before {
+    margin-top: 8px;
+    padding: 8px 12px;
+    border-left: 3px solid var(--bs-warning);
+    border-radius: 4px;
+    background: rgba(var(--bs-warning-rgb), 0.1);
+    font-size: 0.9rem;
+}
+
+.update-before-title {
+    font-weight: 600;
+    color: var(--bs-warning);
+}
+
+.update-before ul {
+    margin: 4px 0 0;
+    padding-left: 18px;
+}
+
+.update-more {
+    margin-top: 6px;
+}
+
+.update-more > summary {
+    cursor: pointer;
+    font-size: 0.85rem;
+    color: var(--bs-link-color);
+}
+
+.update-notes {
+    margin-top: 6px;
+    font-size: 0.9rem;
+}
+
+.update-notes p,
+.update-notes ul {
+    margin-bottom: 6px;
+}
+
+.update-cmd {
+    padding: 6px 10px;
+    border-radius: 6px;
+    background: var(--bs-tertiary-bg);
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
 /* Page Content */
 .page-content {
     flex: 1;
