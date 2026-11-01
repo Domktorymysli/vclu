@@ -133,6 +133,25 @@ func cloudCommand(engine *lua.LuaEngine) func(proto.Cmd, time.Time) proto.CmdRes
 	}
 }
 
+// cloudStates reads what remote devices are doing for a person (Cloud._states), for the cloud's
+// states: a device Lua leaves out, or a list it cannot give, is not in the answer.
+func cloudStates(engine *lua.LuaEngine) func(paths, roles []string) []proto.State {
+	return func(paths, roles []string) []proto.State {
+		pathsJSON, _ := json.Marshal(paths)
+		rolesJSON, _ := json.Marshal(roles)
+		out, err := engine.Call("Cloud._states", string(pathsJSON), string(rolesJSON))
+		var list []proto.State
+		if err == nil {
+			err = json.Unmarshal([]byte(out), &list)
+		}
+		if err != nil {
+			log.Printf("[Cloud] states: %v", err)
+			return nil
+		}
+		return list
+	}
+}
+
 // cloudDashboards lists the dashboards marked :remote() in Lua, for the cloud's tiles.
 func cloudDashboards(engine *lua.LuaEngine) func() []proto.DashboardInfo {
 	return func() []proto.DashboardInfo {

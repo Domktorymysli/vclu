@@ -423,3 +423,57 @@ func TestNotifyActionRepeatWhileRunning(t *testing.T) {
 }
 
 func level(v float64) *float64 { return &v }
+
+func TestStatesChecksAndAnswer(t *testing.T) {
+	f := newFakeCloud(t)
+	var mu sync.Mutex
+	var asked [][]string
+	var roles [][]string
+	_, conn := connectWith(t, f, func(c *Client) {
+		c.opts.States = func(paths, r []string) []proto.State {
+			mu.Lock()
+			asked, roles = append(asked, paths), append(roles, r)
+			mu.Unlock()
+			on := true
+			return []proto.State{{Path: paths[0], On: &on}}
+		}
+	})
+	send := func(r proto.States) proto.StatesResult {
+		t.Helper()
+		r.Type = proto.TypeStates
+		if err := proto.Write(conn.ctrl, r); err != nil {
+			t.Fatal(err)
+		}
+		var res proto.StatesResult
+		if err := conn.read(t, proto.TypeStatesResult).Decode(&res); err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+	many := make([]string, proto.MaxStatePaths+1)
+	for i := range many {
+		many[i] = fmt.Sprintf("p%d", i)
+	}
+	for _, tc := range []struct {
+		r    proto.States
+		want string
+	}{
+		{proto.States{ID: "a b", Actor: proto.Actor{User: "cloud:7"}}, proto.ReasonInvalid},
+		{proto.States{ID: "s1", Actor: proto.Actor{User: "anna"}}, proto.ReasonUnknownActor},
+		{proto.States{ID: "s2", Actor: proto.Actor{User: "cloud:7"}, Paths: many}, proto.ReasonInvalid},
+	} {
+		if res := send(tc.r); res.Reason != tc.want || len(res.States) != 0 {
+			t.Errorf("%s = %+v, want %s", tc.r.ID, res, tc.want)
+		}
+	}
+	res := send(proto.States{ID: "ok", Actor: proto.Actor{User: "cloud:7"}, Paths: []string{"vclu:okno", "vclu:okno", ""}})
+	if res.ID != "ok" || res.Reason != "" || len(res.States) != 1 || res.States[0].Path != "vclu:okno" {
+		t.Errorf("answer = %+v", res)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	// repeats and empty paths dropped; no roles is an empty list, which Lua reads as none
+	if len(asked) != 1 || len(asked[0]) != 1 || roles[0] == nil || len(roles[0]) != 0 {
+		t.Errorf("States got %v, roles %v", asked, roles)
+	}
+}

@@ -283,6 +283,51 @@ func (c *Client) command(t *tunnel, cmd proto.Cmd, done <-chan struct{}) {
 	}()
 }
 
+// states answers one states request. Like a command it counts against the connection's rate and
+// the commands in flight; reading runs on its own goroutine.
+func (c *Client) states(t *tunnel, r proto.States) {
+	answer := func(res proto.StatesResult) {
+		res.Type, res.ID = proto.TypeStatesResult, r.ID
+		if err := t.send(res); err != nil {
+			log.Printf("[Cloud] states_result %.64q not sent: %v", r.ID, err)
+		}
+	}
+	switch {
+	case !cmdIDRe.MatchString(r.ID):
+		r.ID = ""
+		answer(proto.StatesResult{Reason: proto.ReasonInvalid})
+		return
+	case !cmdActorRe.MatchString(r.Actor.User) || !c.isMember(r.Actor.User):
+		answer(proto.StatesResult{Reason: proto.ReasonUnknownActor})
+		return
+	case len(r.Paths) > proto.MaxStatePaths || c.opts.States == nil:
+		answer(proto.StatesResult{Reason: proto.ReasonInvalid})
+		return
+	case !t.cmdRate.allow(c.clock()):
+		answer(proto.StatesResult{Reason: proto.ReasonRateLimited})
+		return
+	}
+	if t.cmdRunning.Add(1) > cmdInFlight {
+		t.cmdRunning.Add(-1)
+		answer(proto.StatesResult{Reason: proto.ReasonRateLimited})
+		return
+	}
+	var paths []string
+	for _, p := range r.Paths {
+		if p != "" && len(p) <= cmdPathMax && !slices.Contains(paths, p) {
+			paths = append(paths, p)
+		}
+	}
+	roles := r.Actor.Roles
+	if roles == nil {
+		roles = []string{}
+	}
+	go func() {
+		defer t.cmdRunning.Add(-1)
+		answer(proto.StatesResult{States: c.opts.States(paths, roles)})
+	}()
+}
+
 // setMembers keeps who is in the home, from the members list, for cmd's actor check.
 func (c *Client) setMembers(ms proto.Members) {
 	users := make(map[string]bool, len(ms.Members))

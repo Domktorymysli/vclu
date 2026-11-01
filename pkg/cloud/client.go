@@ -103,6 +103,10 @@ type Options struct {
 	// Command runs a cmd for one of them as the person (Cloud._command in Lua), not after
 	// deadline. Called on its own goroutine, at most once per cmd id; nil answers not_found.
 	Command func(cmd proto.Cmd, deadline time.Time) proto.CmdResult
+	// States reads what the devices at paths are doing, for a person with roles (Cloud._states
+	// in Lua): only those exposed with :remote() that the roles reach. Called on its own
+	// goroutine; nil does not offer states.
+	States func(paths, roles []string) []proto.State
 
 	HTTP            *http.Client
 	ObjectsDebounce time.Duration                   // default objectsDebounce
@@ -724,6 +728,13 @@ func (c *Client) connect(ctx context.Context, cfg config.VCLUCloudConfig) error 
 			} else {
 				c.command(t, cmd, done)
 			}
+		case proto.TypeStates:
+			var r proto.States
+			if err := m.Decode(&r); err != nil {
+				log.Printf("[Cloud] bad states: %v", err)
+			} else {
+				c.states(t, r)
+			}
 		case proto.TypeError:
 			var e proto.Error
 			if m.Decode(&e) == nil && e.ID != "" {
@@ -754,6 +765,9 @@ func (c *Client) caps() []string {
 	}
 	if c.opts.Command != nil {
 		caps = append(caps, proto.CapCmd)
+	}
+	if c.opts.States != nil {
+		caps = append(caps, proto.CapStates)
 	}
 	return caps
 }

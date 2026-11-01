@@ -363,6 +363,7 @@ func main() {
 		Members:      cloudMembers(localAccess),
 		Objects:      cloudObjects(luaEngine),
 		Command:      cloudCommand(luaEngine),
+		States:       cloudStates(luaEngine),
 	})
 	luaEngine.SetCloud(cloudBridge(cloudClient))
 

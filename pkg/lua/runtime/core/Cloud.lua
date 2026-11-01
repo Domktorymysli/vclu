@@ -440,4 +440,59 @@ function Cloud._command(path, action, rolesJSON, confirmed, pin, deadlineMs, val
     return answer(true)
 end
 
+-- What each type's state is (the protocol's states): on for these, a cover's position, a reading
+local ON_TYPES = { light = true, switch = true, dimmer = true, fan = true, binary_sensor = true,
+    motion = true, sensor = true }
+local READING_TYPES = { temperature = true, humidity = true, illuminance = true }
+
+-- A finite number, or nil
+local function finite(v)
+    v = tonumber(v)
+    if v and v == v and v ~= math.huge and v ~= -math.huge then return v end
+    return nil
+end
+
+-- One device's state for the cloud, or nil when its type has none or it cannot be read
+local function remoteState(path, h)
+    local obj = h.object
+    if h.type == 'cover' then
+        -- a Grenton roller without a position (class 11) has none to tell
+        if type(obj) ~= 'table' or obj._hasPosition == false or not hasMethod(obj, 'getPosition') then return nil end
+        local ok, p = pcall(obj.getPosition, obj)
+        p = ok and finite(p)
+        if not p then return nil end
+        return { path = path, position = math.max(0, math.min(100, p)) }
+    end
+    if not ON_TYPES[h.type] and not READING_TYPES[h.type] then return nil end
+    local ok, v = pcall(h.getValue, h)
+    if not ok or v == nil then return nil end
+    if READING_TYPES[h.type] then
+        v = finite(v)
+        return v and { path = path, value = v } or nil
+    end
+    local n = finite(v)
+    return { path = path, on = v == true or (n ~= nil and n > 0) }
+end
+
+--- What remote devices are doing, for the cloud's states (called by Go, as nobody: reading
+-- changes nothing): those exposed with :remote() whose roles reach the person's. Others, and
+-- devices that cannot be read, are left out.
+-- @param pathsJSON string JSON array of paths
+-- @param rolesJSON string JSON array of the person's roles
+-- @return string JSON array of {path, on?, position?, value?}
+function Cloud._states(pathsJSON, rolesJSON)
+    local out = {}
+    local ok, paths = pcall(JSON.decode, pathsJSON)
+    if not ok or type(paths) ~= 'table' then return JSON.encode(out) end
+    for i = 1, #paths do
+        local path = paths[i]
+        local h = type(path) == 'string' and ExposedObjects and ExposedObjects:_remoteHandle(path)
+        if h and rolesAllow(h._remote.roles, rolesJSON) then
+            local st = remoteState(path, h)
+            if st then out[#out + 1] = st end
+        end
+    end
+    return JSON.encode(out)
+end
+
 return Cloud
