@@ -64,9 +64,55 @@ func WithFlushInterval(d time.Duration) Option {
 	return func(c *Collector) { c.flushInt = d }
 }
 
-// WithRetainDays sets how many days of daily files to keep.
+// DefaultRetainDays is how many days of daily files a collector keeps unless told otherwise.
+const DefaultRetainDays = 7
+
+// MaxPoints bounds the samples one raw query answers with (Downsample).
+const MaxPoints = 2000
+
+// WithRetainDays sets how many days of daily files to keep (1-366; other values keep the default).
 func WithRetainDays(d int) Option {
-	return func(c *Collector) { c.retainDays = d }
+	return func(c *Collector) {
+		if d >= 1 && d <= 366 {
+			c.retainDays = d
+		}
+	}
+}
+
+// RetainDays is how many days of samples the collector keeps on disk.
+func (c *Collector) RetainDays() int { return c.retainDays }
+
+// Retention is the oldest moment the collector still has files for, as of now.
+func (c *Collector) Retention(now time.Time) time.Time {
+	return now.AddDate(0, 0, -c.retainDays)
+}
+
+// QueryRange returns the samples of the last d, at most the retention back and at most
+// MaxPoints of them.
+func (c *Collector) QueryRange(path string, d time.Duration) []Sample {
+	now := time.Now()
+	since := now.Add(-d)
+	if r := c.Retention(now); since.Before(r) {
+		since = r
+	}
+	return Downsample(c.Query(path, since.Unix()), MaxPoints)
+}
+
+// Downsample averages runs of samples down to at most max points, each at its run's first time.
+func Downsample(samples []Sample, max int) []Sample {
+	if max < 1 || len(samples) <= max {
+		return samples
+	}
+	out := make([]Sample, 0, max)
+	for i := 0; i < max; i++ {
+		lo, hi := i*len(samples)/max, (i+1)*len(samples)/max
+		var sum float64
+		for _, s := range samples[lo:hi] {
+			sum += s.Value
+		}
+		out = append(out, Sample{Timestamp: samples[lo].Timestamp, Value: sum / float64(hi-lo)})
+	}
+	return out
 }
 
 // WithMaxMetrics sets the maximum number of registered metrics.
@@ -81,7 +127,7 @@ func NewCollector(dataDir string, opts ...Option) *Collector {
 		dataDir:    dataDir,
 		ringSize:   720, // 2h at 10s intervals
 		flushInt:   5 * time.Minute,
-		retainDays: 7,
+		retainDays: DefaultRetainDays,
 		maxMetrics: 500,
 		stopChan:   make(chan struct{}),
 	}

@@ -29,6 +29,7 @@ type dashboardCache struct {
 	defs    map[string]*cacheEntry // dashId → cached getDefinition JSON
 	metrics map[string]*cacheEntry // dashId\x00path → usesMetric JSON (drawn metrics only)
 	cals    map[string]*cacheEntry // dashId\x00widget\x00from\x00to → calendarRange JSON
+	bars    map[string]*cacheEntry // dashId\x00widget → aggregated bars JSON
 }
 
 // calendarCacheMax bounds the calendar answers kept: a caller walking dates cannot grow it.
@@ -45,7 +46,25 @@ func newDashboardCache() *dashboardCache {
 		defs:    make(map[string]*cacheEntry),
 		metrics: make(map[string]*cacheEntry),
 		cals:    make(map[string]*cacheEntry),
+		bars:    make(map[string]*cacheEntry),
 	}
+}
+
+// getBars and setBars keep a widget's buckets for 30 s: aggregating reads up to a month of samples.
+func (dc *dashboardCache) getBars(key string) (string, bool) {
+	dc.mu.RLock()
+	defer dc.mu.RUnlock()
+	e, ok := dc.bars[key]
+	if !ok || time.Now().After(e.expiresAt) {
+		return "", false
+	}
+	return e.data, true
+}
+
+func (dc *dashboardCache) setBars(key, data string) {
+	dc.mu.Lock()
+	defer dc.mu.Unlock()
+	dc.bars[key] = &cacheEntry{data: data, expiresAt: time.Now().Add(30 * time.Second)}
 }
 
 func (dc *dashboardCache) getCalendar(key string) (string, bool) {
@@ -131,6 +150,7 @@ func (dc *dashboardCache) Invalidate() {
 	dc.defs = make(map[string]*cacheEntry)
 	dc.metrics = make(map[string]*cacheEntry)
 	dc.cals = make(map[string]*cacheEntry)
+	dc.bars = make(map[string]*cacheEntry)
 }
 
 // dashCache is the singleton cache instance, initialized lazily.
@@ -236,6 +256,7 @@ func (s *Server) handleDashboardPage(c *gin.Context) {
 		if err != nil || !s.validateDashPinCookie(id, cookie) {
 			// Show PIN entry page
 			c.HTML(http.StatusOK, "dashboard_pin.html", gin.H{
+				"v":    s.assetVersion(),
 				"id":   id,
 				"name": def["name"],
 				"icon": def["icon"],
@@ -271,6 +292,7 @@ func (s *Server) handleDashboardPage(c *gin.Context) {
 
 	app := newDashApp(id, def)
 	c.HTML(http.StatusOK, "dashboard.html", gin.H{
+		"v":       s.assetVersion(),
 		"id":      id,
 		"name":    def["name"],
 		"icon":    def["icon"],
@@ -543,8 +565,8 @@ func (s *Server) handleAPIDashboardValues(c *gin.Context) {
 		return
 	}
 
-	script := fmt.Sprintf(`Dashboard.API.getValues("%s")`, luaEscape(id))
-	result, err := s.luaExecutor.Execute(script)
+	_, read := s.dashboardValues(id)
+	result, err := read()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -554,6 +576,13 @@ func (s *Server) handleAPIDashboardValues(c *gin.Context) {
 	dashCache.setValues(id, result, 1*time.Second)
 
 	c.Data(http.StatusOK, "application/json", []byte(result))
+}
+
+// dashboardValues is how /values and the WebSocket read dashboard id's values: key names one
+// answer (requests with the same key share a live feed), read gets it.
+func (s *Server) dashboardValues(id string) (key string, read func() (string, error)) {
+	script := fmt.Sprintf(`Dashboard.API.getValues("%s")`, luaEscape(id))
+	return id, func() (string, error) { return s.luaExecutor.Execute(script) }
 }
 
 var calendarDate = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
@@ -577,6 +606,10 @@ func (s *Server) handleAPIDashboardCalendar(c *gin.Context) {
 	// a cached answer saves the Lua loop: each request holds it while the calendar expands
 	key := id + "\x00" + widget + "\x00" + from + "\x00" + to
 	result, cached := dashCache.getCalendar(key)
+	if cached && s.dashWidgetHidden(id, widget) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "calendar widget is hidden"})
+		return
+	}
 	if !cached {
 		if s.calendarLimiter != nil && !s.calendarLimiter.allow(c.ClientIP()) {
 			c.JSON(http.StatusTooManyRequests, gin.H{"error": "too many requests"})
@@ -686,24 +719,27 @@ func (s *Server) handleAPIDashboardAction(c *gin.Context) {
 		WidgetID string      `json:"widgetId"`
 		Action   string      `json:"action"`
 		Value    interface{} `json:"value"`
+		// the page held the press for the widget's hold; anyone can send it, so it only stops a stray tap
+		Held bool `json:"held"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
 
-	script := fmt.Sprintf(`Dashboard.API.executeAction("%s", "%s", "%s", %s)`,
-		luaEscape(id), luaEscape(req.WidgetID), luaEscape(req.Action), actionValueLua(req.Value))
+	script := fmt.Sprintf(`Dashboard.API.executeAction("%s", "%s", "%s", %s, { held = %t })`,
+		luaEscape(id), luaEscape(req.WidgetID), luaEscape(req.Action), actionValueLua(req.Value), req.Held)
 	result, err := s.executeAs(c, "dashboard:"+id, script)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Invalidate values cache after action
+	// Invalidate values cache after action, and read the live values again now
 	dashCache.mu.Lock()
 	delete(dashCache.values, id)
 	dashCache.mu.Unlock()
+	s.live.poke(id)
 
 	c.Data(http.StatusOK, "application/json", []byte(result))
 }
@@ -770,30 +806,40 @@ func (s *Server) handleAPIDashboardAuth(c *gin.Context) {
 // Returns true if access is allowed, false if response was already written.
 // Uses lightweight getAuth() instead of getDefinition() to avoid evaluating all widget callbacks.
 func (s *Server) checkDashboardAuth(c *gin.Context, id string) bool {
+	if status, msg, _ := s.dashboardAccess(c, id); status != 0 {
+		c.JSON(status, gin.H{"error": msg})
+		return false
+	}
+	return true
+}
+
+// dashboardAccess says whether the request may see dashboard id: status 0, or the status and
+// error to answer. poll is the dashboard's poll interval (0 when it is not known).
+// Uses lightweight getAuth() instead of getDefinition() to avoid evaluating all widget callbacks.
+func (s *Server) dashboardAccess(c *gin.Context, id string) (status int, msg string, poll time.Duration) {
 	script := fmt.Sprintf(`Dashboard.API.getAuth("%s")`, luaEscape(id))
 	result, err := s.luaExecutor.Execute(script)
 	if err != nil {
 		// public endpoints reach this: the Lua error (paths, stack) goes to the log only
 		log.Printf("[DASHBOARD] %s auth: %v", id, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "dashboard unavailable"})
-		return false
+		return http.StatusInternalServerError, "dashboard unavailable", 0
 	}
 
 	var def struct {
-		Auth  string `json:"auth"`
-		Error string `json:"error"`
+		Auth  string  `json:"auth"`
+		Poll  float64 `json:"poll"`
+		Error string  `json:"error"`
 	}
 	json.Unmarshal([]byte(result), &def)
 	if def.Error != "" {
-		c.JSON(http.StatusNotFound, gin.H{"error": def.Error})
-		return false
+		return http.StatusNotFound, def.Error, 0
 	}
+	poll = time.Duration(def.Poll * float64(time.Second))
 
 	switch def.Auth {
 	case "session":
 		if !s.isAuthenticated(c) {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
-			return false
+			return http.StatusUnauthorized, "Authentication required", poll
 		}
 	case "pin":
 		cookieName := "vclu_dash_" + id
@@ -801,12 +847,11 @@ func (s *Server) checkDashboardAuth(c *gin.Context, id string) bool {
 		if err != nil || !s.validateDashPinCookie(id, cookie) {
 			// Also allow session-authenticated users
 			if !s.isAuthenticated(c) {
-				c.JSON(http.StatusUnauthorized, gin.H{"error": "PIN required"})
-				return false
+				return http.StatusUnauthorized, "PIN required", poll
 			}
 		}
 	}
-	return true
+	return 0, "", poll
 }
 
 // makeDashPinCookie returns "<expiry>.<hmac>": the HMAC binds the dashboard,
@@ -911,6 +956,13 @@ func actionValueLua(value interface{}) string {
 }
 
 // luaEscape escapes a string for safe embedding in Lua string literals
+// dashWidgetHidden asks Lua whether visible() hides the widget now; a cached answer must not
+// outlive it. An error counts as hidden.
+func (s *Server) dashWidgetHidden(id, widget string) bool {
+	res, err := s.luaExecutor.Execute(fmt.Sprintf(`Dashboard.API.widgetHidden("%s", "%s")`, luaEscape(id), luaEscape(widget)))
+	return err != nil || res != "false"
+}
+
 func luaEscape(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))

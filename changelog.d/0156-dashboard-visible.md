@@ -1,0 +1,3 @@
+### Dashboards
+
+- **Widgets, groups and sections shown by state** - `opts.visible = function() -> bool` on any widget, a chip, a room tile, `section:group(label, icon, opts)`, `dash:section(name, icon, opts)` and `dash:floor`: read on every poll, `false` or `nil` hides it and it takes no room; a section or group with none of its widgets shown goes with its header. A hidden widget is not read and its actions are refused (a hidden room tile takes its room's widgets along); it hides from the page and is not access control. An error in the function shows the widget and is logged once. `when()` is unchanged ([#156](https://github.com/Domktorymysli/vclu/issues/156)).

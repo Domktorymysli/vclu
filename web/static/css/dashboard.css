@@ -157,6 +157,37 @@ body {
     gap: 12px;
 }
 
+/* visible(): hidden takes no room; a short fade in and out */
+.dash-section[hidden],
+.dash-widget[hidden],
+.dash-group-label[hidden] {
+    display: none;
+}
+
+.dash-vis-in {
+    animation: dashVisIn 0.2s ease-out;
+}
+
+.dash-vis-out {
+    animation: dashVisOut 0.18s ease-in forwards;
+    pointer-events: none;
+}
+
+@keyframes dashVisIn {
+    from { opacity: 0; transform: scale(0.96); }
+}
+
+@keyframes dashVisOut {
+    to { opacity: 0; transform: scale(0.96); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dash-vis-in,
+    .dash-vis-out {
+        animation: none;
+    }
+}
+
 /* Widget base: a tile with the icon in a circle, the name and the state, controls below */
 .dash-widget {
     --tile-c: var(--widget-color, var(--dash-accent));
@@ -189,13 +220,19 @@ body {
     }
     .dash-widget-status:hover,
     .dash-widget-chart-container:hover,
+    .dash-widget-bars:hover,
     .dash-widget-image:hover,
     .dash-widget-cover:hover,
     .dash-widget-covers:hover,
+    .dash-widget-gate:hover,
     .dash-widget-player:hover,
     .dash-widget-forecast:hover,
+    .dash-widget-table:hover,
+    .dash-widget-gauge:hover,
+    .dash-widget-energy:hover,
     .dash-widget-dimmer:hover,
     .dash-widget-color:hover,
+    .dash-widget-colorTemp:hover,
     .dash-widget-slider:hover {
         transform: none;
         box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 4px 14px rgba(0,0,0,0.08);
@@ -346,7 +383,8 @@ body {
 /* ---- Toggle widget ---- */
 .dash-toggle-switch,
 .dash-dimmer-toggle,
-.dash-color-toggle {
+.dash-color-toggle,
+.dash-ct-toggle {
     flex: none;
     margin: 0;
     padding: 0;
@@ -356,7 +394,8 @@ body {
 
 .dash-toggle-switch .form-check-input,
 .dash-dimmer-toggle .form-check-input,
-.dash-color-toggle .form-check-input {
+.dash-color-toggle .form-check-input,
+.dash-ct-toggle .form-check-input {
     float: none;
     margin: 0;
     width: 2.6em;
@@ -366,7 +405,8 @@ body {
 
 .dash-toggle-switch .form-check-input:checked,
 .dash-dimmer-toggle .form-check-input:checked,
-.dash-color-toggle .form-check-input:checked {
+.dash-color-toggle .form-check-input:checked,
+.dash-ct-toggle .form-check-input:checked {
     background-color: var(--tile-c);
     border-color: var(--tile-c);
 }
@@ -439,13 +479,17 @@ body {
 .dash-widget-status:active,
 .dash-widget-slider:active,
 .dash-widget-chart-container:active,
+.dash-widget-bars:active,
 .dash-widget-image:active,
 .dash-widget-cover:active,
 .dash-widget-covers:active,
 .dash-widget-player:active,
 .dash-widget-forecast:active,
+.dash-widget-table:active,
+.dash-widget-energy:active,
 .dash-widget-dimmer:active,
-.dash-widget-color:active {
+.dash-widget-color:active,
+.dash-widget-colorTemp:active {
     transform: none;
 }
 
@@ -503,6 +547,168 @@ body {
 
 .dash-widget-chart-container.size-large .dash-chart-wrap {
     height: 220px;
+}
+
+/* ---- Bars widget: SVG drawn by dashboard.js; colours follow the theme's text and accent ---- */
+.dash-widget-bars {
+    cursor: default;
+    --bars-c: var(--widget-color, var(--dash-accent));
+}
+
+.dash-bars-wrap {
+    position: relative;
+    width: 100%;
+    height: 150px;
+    outline: none;
+    touch-action: pan-y;
+}
+
+.dash-widget-bars.size-large .dash-bars-wrap {
+    height: 220px;
+}
+
+.dash-bars-wrap:focus-visible {
+    outline: 2px solid var(--bars-c);
+    outline-offset: 2px;
+    border-radius: 6px;
+}
+
+.dash-bars-svg {
+    display: block;
+    overflow: visible;
+}
+
+.dash-bars-grid,
+.dash-bars-zero {
+    stroke: var(--dash-text);
+    stroke-opacity: 0.12;
+    shape-rendering: crispEdges;
+}
+
+.dash-bars-zero {
+    stroke-opacity: 0.35;
+}
+
+.dash-bars-axis {
+    fill: var(--dash-text);
+    fill-opacity: 0.6;
+    font-size: 10px;
+}
+
+.dash-bars-bar {
+    fill: var(--bars-c);
+}
+
+/* the second series: the theme's text colour, muted, so it reads against any accent */
+.dash-bars-cmp {
+    fill: var(--dash-text);
+    fill-opacity: 0.45;
+}
+
+/* the bar still filling (today, this hour): lighter, with a dashed edge */
+.dash-bars-bucket.partial .dash-bars-bar {
+    fill-opacity: 0.5;
+    stroke: var(--bars-c);
+    stroke-dasharray: 3 2;
+    stroke-width: 1;
+}
+
+.dash-bars-bucket.partial .dash-bars-cmp {
+    fill-opacity: 0.25;
+    stroke: var(--dash-text);
+}
+
+.dash-bars-gap {
+    stroke: var(--dash-text);
+    stroke-opacity: 0.35;
+    stroke-width: 2;
+    stroke-dasharray: 2 2;
+}
+
+.dash-bars-hit {
+    fill: transparent;
+    cursor: pointer;
+}
+
+.dash-bars-bucket.sel .dash-bars-hit {
+    fill: var(--dash-text);
+    fill-opacity: 0.07;
+}
+
+.dash-bars-anim .dash-bars-bar {
+    transform-box: fill-box;
+    transform-origin: bottom;
+    animation: dash-bars-in 0.35s ease-out;
+}
+
+@keyframes dash-bars-in {
+    from { transform: scaleY(0); }
+    to { transform: scaleY(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dash-bars-anim .dash-bars-bar { animation: none; }
+}
+
+.dash-bars-tip {
+    position: absolute;
+    top: 0;
+    pointer-events: none;
+    background: var(--dash-card-bg);
+    color: var(--dash-text);
+    border: 1px solid rgba(128,128,128,0.35);
+    border-radius: 8px;
+    padding: 4px 8px;
+    font-size: 0.78rem;
+    line-height: 1.35;
+    white-space: nowrap;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+}
+
+.dash-bars-tip[hidden] {
+    display: none;
+}
+
+.dash-bars-tip-when {
+    opacity: 0.7;
+}
+
+.dash-bars-tip-v {
+    font-weight: 600;
+}
+
+.dash-bars-legend {
+    display: flex;
+    gap: 14px;
+    font-size: 0.78rem;
+    opacity: 0.8;
+    margin: -2px 0 4px;
+}
+
+.dash-bars-key {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+}
+
+.dash-bars-swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    background: var(--bars-c);
+    flex: none;
+}
+
+.dash-bars-swatch-cmp {
+    background: var(--dash-text);
+    opacity: 0.45;
+}
+
+@media (max-width: 600px) {
+    .dash-bars-wrap {
+        height: 140px;
+    }
 }
 
 /* ---- Select widget: the list lies invisibly over the tile ---- */
@@ -599,6 +805,87 @@ body {
 .dash-cover-btn.active {
     background: var(--tile-c);
     color: rgba(0,0,0,0.78);
+}
+
+/* ---- Press and hold (opts.hold): a ring fills around the icon; no menu or selection on a long touch ---- */
+.dash-hold {
+    touch-action: manipulation;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.dash-hold-ring {
+    position: absolute;
+    inset: -5px;
+    width: calc(100% + 10px);
+    height: calc(100% + 10px);
+    transform: rotate(-90deg);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.dash-hold-ring circle {
+    fill: none;
+    stroke: var(--tile-c);
+    stroke-width: 3;
+    stroke-linecap: round;
+}
+
+.holding .dash-hold-ring {
+    opacity: 1;
+}
+
+.dash-widget.dash-hold.holding,
+.dash-cover-btn.holding {
+    transform: scale(0.98);
+}
+
+.dash-cover-btn.holding {
+    background: rgba(128,128,128,0.3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dash-widget.dash-hold.holding,
+    .dash-cover-btn.holding {
+        transform: none;
+    }
+}
+
+/* the switch of a held toggle shows the state; the tile takes the press */
+.dash-hold-switch {
+    pointer-events: none;
+}
+
+/* ---- Gate: open warning, closed success, moving info ---- */
+.dash-widget-gate {
+    cursor: default;
+    container-type: inline-size;
+}
+
+.dash-widget-gate[data-gate="open"] { --tile-c: #ffc107; }
+.dash-widget-gate[data-gate="closed"] { --tile-c: #198754; }
+.dash-widget-gate[data-gate="opening"],
+.dash-widget-gate[data-gate="closing"],
+.dash-widget-gate[data-gate="moving"] { --tile-c: #0dcaf0; }
+
+.dash-gate-btn {
+    min-width: 0;
+    gap: 6px;
+    font-size: 0.95rem;
+    font-weight: 600;
+}
+
+.dash-gate-btn span {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* a narrow tile (a phone's two columns) keeps the icons only */
+@container (max-width: 240px) {
+    .dash-gate-btn span { display: none; }
 }
 
 /* ---- Cover group: a slider row shows while a cover can take it ---- */
@@ -705,12 +992,80 @@ body {
     cursor: default;
 }
 
-.dash-thermo-btn[hidden] {
-    display: none;
+/* hidden outside manual mode, in place: the tile keeps its height ([hidden] is display: none) */
+.dash-thermo-btn-off {
+    visibility: hidden;
 }
 
 .dash-widget-thermostat.size-large .dash-thermo-current-value {
     font-size: 3.2rem;
+}
+
+/* the mode switch: one row of segments, the current one in the tile's colour */
+.dash-thermo-modes {
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    border-radius: 14px;
+    background: rgba(128,128,128,0.12);
+}
+
+.dash-thermo-mode {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 44px;
+    padding: 4px 6px;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--dash-text);
+    font-size: 0.85rem;
+    line-height: 1.1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    transition: background 0.15s, color 0.15s;
+    touch-action: manipulation;
+}
+
+/* four modes or more: the icon above the label, so a long label keeps its room */
+.dash-thermo-modes-many .dash-thermo-mode {
+    flex-direction: column;
+    gap: 2px;
+    padding: 4px 2px;
+    font-size: 0.78rem;
+}
+
+.dash-thermo-mode-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dash-thermo-mode:active {
+    background: rgba(128,128,128,0.24);
+}
+
+.dash-thermo-mode.active {
+    background: var(--tile-c);
+    color: rgba(0,0,0,0.78);
+    font-weight: 600;
+}
+
+.dash-thermo-mode:focus-visible {
+    outline: 2px solid var(--tile-c);
+    outline-offset: 1px;
+}
+
+.dash-thermo-mode:disabled {
+    cursor: default;
+    opacity: 0.5;
+}
+
+.dash-thermo-mode.active:disabled {
+    opacity: 0.7;
 }
 
 /* at most a quarter of the row; browsers without aspect-ratio keep 56 px circles */
@@ -726,11 +1081,203 @@ body {
     .dash-thermo-current-value { font-size: 2rem; }
     .dash-thermo-target-value { font-size: 1.1rem; }
     .dash-thermo-btn { font-size: 1.2rem; }
+    /* the labels say it; icons only crowd a narrow tile */
+    .dash-thermo-mode i { display: none; }
+    .dash-thermo-mode { font-size: 0.8rem; padding: 4px; }
 }
 
 /* a large number overflows a tile this narrow */
 @container (max-width: 180px) {
     .dash-widget-thermostat.size-large .dash-thermo-current-value { font-size: 2.4rem; }
+}
+
+/* ---- Gauge: a 240° arc with the value in the middle, or a bar with the value at its right ---- */
+.dash-widget-gauge {
+    cursor: default;
+}
+
+.dash-gauge {
+    container-type: inline-size;
+}
+
+.dash-gauge-svg {
+    display: block;
+    overflow: visible;
+}
+
+.dash-gauge-track {
+    fill: none;
+    stroke: rgba(128,128,128,0.2);
+}
+
+.dash-gauge-fill {
+    fill: var(--tile-c);
+    stroke: var(--tile-c);
+    transition: stroke-dashoffset 0.6s ease, transform 0.6s ease, stroke 0.3s, fill 0.3s, opacity 0.3s;
+}
+
+.dash-gauge-band {
+    fill: none;
+    opacity: 0.75;
+}
+
+.dash-gauge-target {
+    stroke: var(--dash-text);
+    stroke-width: 3;
+    stroke-linecap: round;
+    transition: transform 0.6s ease, opacity 0.3s;
+}
+
+.dash-gauge-none {
+    opacity: 0;
+}
+
+.dash-gauge-readout {
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 4px;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.dash-gauge-value {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.dash-gauge-unit {
+    opacity: 0.6;
+}
+
+.dash-gauge-unit[hidden] {
+    display: none;
+}
+
+/* the arc: as wide as the tile allows, up to 280 px; the readout in its middle */
+.dash-gauge-dial {
+    position: relative;
+    width: 100%;
+    max-width: 280px;
+    margin: 0 auto;
+}
+
+.dash-gauge-arc .dash-gauge-svg {
+    width: 100%;
+    height: auto;
+}
+
+.dash-gauge-arc .dash-gauge-track,
+.dash-gauge-arc .dash-gauge-fill {
+    fill: none;
+    stroke-width: 16;
+    stroke-linecap: round;
+}
+
+.dash-gauge-arc .dash-gauge-fill {
+    stroke-dasharray: 100 100;
+    stroke-dashoffset: 100;
+}
+
+.dash-gauge-arc .dash-gauge-band {
+    stroke-width: 4;
+}
+
+.dash-gauge-arc .dash-gauge-target {
+    transform-origin: 100px 96px;
+}
+
+.dash-gauge-scale-text {
+    fill: var(--dash-text);
+    opacity: 0.55;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+}
+
+.dash-gauge-arc .dash-gauge-readout {
+    position: absolute;
+    left: 10%;
+    right: 10%;
+    top: 46%;
+    transform: translateY(-50%);
+}
+
+.dash-gauge-arc .dash-gauge-value {
+    font-size: 2.4rem;
+    font-size: clamp(1.5rem, 15cqw, 3.4rem);
+}
+
+.dash-gauge-arc .dash-gauge-unit {
+    font-size: 1rem;
+    font-size: clamp(0.8rem, 6cqw, 1.3rem);
+}
+
+/* the bar: the value at the right, min and max under the bar */
+.dash-gauge-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.dash-gauge-col {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.dash-gauge-bar .dash-gauge-fill {
+    stroke: none;
+    transform-box: fill-box;
+    transform-origin: left center;
+    transform: scaleX(0);
+}
+
+.dash-gauge-bar .dash-gauge-band {
+    stroke: none;
+}
+
+.dash-gauge-bar .dash-gauge-track {
+    fill: rgba(128,128,128,0.2);
+    stroke: none;
+}
+
+.dash-gauge-scale {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.75rem;
+    opacity: 0.55;
+    font-variant-numeric: tabular-nums;
+    margin-top: 2px;
+}
+
+.dash-gauge-bar .dash-gauge-readout {
+    flex: none;
+    min-width: 4.5em;
+    justify-content: flex-end;
+}
+
+.dash-gauge-bar .dash-gauge-value {
+    font-size: 1.9rem;
+}
+
+.dash-widget-gauge.size-large .dash-gauge-bar .dash-gauge-value {
+    font-size: 2.6rem;
+}
+
+.dash-widget-gauge.size-large .dash-gauge-dial {
+    max-width: 360px;
+}
+
+/* a narrow tile (a phone, four columns): the value above the bar */
+@container (max-width: 300px) {
+    .dash-gauge-row { flex-direction: column; align-items: stretch; gap: 6px; }
+    .dash-gauge-bar .dash-gauge-readout { order: -1; min-width: 0; justify-content: flex-start; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dash-gauge-fill,
+    .dash-gauge-target {
+        transition: none;
+    }
 }
 
 /* ---- Media player: the artwork on the left, texts, buttons and volume beside it ---- */
@@ -1046,6 +1593,309 @@ body {
     }
 }
 
+/* ---- Table: rows from Lua, headers sort; cards on a phone ---- */
+.dash-widget-table {
+    cursor: default;
+}
+
+.dash-table-wrap {
+    min-width: 0;
+    overflow-x: auto;
+}
+
+.dash-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.dash-table th,
+.dash-table td {
+    padding: 6px 8px;
+    text-align: left;
+    vertical-align: baseline;
+}
+.dash-table th.right,
+.dash-table td.right {
+    text-align: right;
+}
+
+.dash-table th {
+    font-weight: 600;
+    white-space: nowrap;
+    border-bottom: 1px solid rgba(128,128,128,0.25);
+}
+
+.dash-table-sort {
+    background: none;
+    border: 0;
+    padding: 0;
+    color: inherit;
+    font: inherit;
+    font-size: 0.78rem;
+    opacity: 0.7;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.dash-table th[aria-sort] .dash-table-sort { opacity: 1; }
+.dash-table-sort:focus-visible {
+    outline: 2px solid var(--tile-c);
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+.dash-table-arrow {
+    font-size: 0.65rem;
+    margin-left: 3px;
+}
+
+.dash-table tbody tr + tr td {
+    border-top: 1px solid rgba(128,128,128,0.12);
+}
+
+.dash-table td.dash-table-colored {
+    color: var(--cell-c);
+    font-weight: 600;
+}
+
+.dash-table-empty {
+    font-size: 0.9rem;
+    opacity: 0.55;
+    padding: 6px 0;
+}
+
+.dash-table[hidden],
+.dash-table-empty[hidden] {
+    display: none;
+}
+
+/* a row is a card: the first column its title, the others "label: value" lines */
+@media (max-width: 600px) {
+    .dash-table,
+    .dash-table tbody,
+    .dash-table tr,
+    .dash-table td {
+        display: block;
+    }
+    .dash-table thead tr {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 12px;
+        padding-bottom: 6px;
+    }
+    .dash-table th {
+        display: block;
+        padding: 0;
+        border: 0;
+    }
+    .dash-table tbody tr {
+        padding: 8px 10px;
+        border-radius: 12px;
+        background: rgba(128,128,128,0.08);
+    }
+    .dash-table tbody tr + tr {
+        margin-top: 6px;
+    }
+    .dash-table tbody tr + tr td {
+        border-top: 0;
+    }
+    .dash-table td,
+    .dash-table td.right {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 2px 0;
+        text-align: right;
+    }
+    .dash-table td::before {
+        content: attr(data-label);
+        font-weight: 400;
+        opacity: 0.6;
+        text-align: left;
+        color: var(--dash-text);
+    }
+    .dash-table td:first-child {
+        font-weight: 600;
+        text-align: left;
+    }
+    .dash-table td:first-child::before {
+        content: none;
+    }
+    /* a card leaves out what has no value */
+    .dash-table td:empty {
+        display: none;
+    }
+}
+
+
+/* ---- Energy flow: four nodes, the power on the lines between them ---- */
+.dash-widget-energy {
+    cursor: default;
+    --energy-pv: #e6a700;
+    --energy-grid: #3d8bfd;
+    --energy-battery: #20a85a;
+    --energy-home: var(--dash-accent);
+}
+
+.dash-energy {
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: start;
+    row-gap: 4px;
+    padding: 4px 0 2px;
+}
+
+.dash-energy-lines {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    pointer-events: none;
+}
+
+.dash-energy-node {
+    position: relative; /* above the lines */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    text-align: center;
+    --node-c: var(--energy-home);
+}
+.dash-energy-node[data-node="pv"] { --node-c: var(--energy-pv); }
+.dash-energy-node[data-node="grid"] { --node-c: var(--energy-grid); }
+.dash-energy-node[data-node="battery"] { --node-c: var(--energy-battery); }
+
+/* the top node has its texts above the circle, the bottom one below */
+.dash-energy-node[data-pos="top"] .dash-energy-circle { order: 3; }
+.dash-energy-node[data-pos="top"] .dash-energy-today { order: 2; }
+.dash-energy-node[data-pos="bottom"] .dash-energy-label { order: 2; }
+.dash-energy-node[data-pos="bottom"] .dash-energy-today { order: 3; }
+/* in the cross a side node's counters hang below it, so both side circles stay level */
+.dash-energy[data-count="4"] .dash-energy-node[data-pos="left"] .dash-energy-today,
+.dash-energy[data-count="4"] .dash-energy-node[data-pos="right"] .dash-energy-today {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+}
+
+.dash-energy-label {
+    font-size: 0.78rem;
+    font-weight: 600;
+    opacity: 0.75;
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dash-energy-circle {
+    position: relative;
+    width: 88px;
+    height: 88px;
+    border-radius: 50%;
+    border: 3px solid var(--node-c);
+    background: var(--dash-card-bg);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    line-height: 1.15;
+    box-sizing: border-box;
+}
+.dash-energy-circle.has-ring { border-color: transparent; }
+
+.dash-energy-ring {
+    position: absolute;
+    inset: -3px;
+    width: calc(100% + 6px);
+    height: calc(100% + 6px);
+}
+.dash-energy-ring circle { fill: none; stroke-width: 6; }
+.dash-energy-ring-track { stroke: rgba(128,128,128,0.25); }
+.dash-energy-ring-arc {
+    stroke: var(--node-c);
+    stroke-linecap: round;
+    stroke-dasharray: 0 100;
+    transition: stroke-dasharray 0.6s ease;
+}
+
+.dash-energy-icon {
+    font-size: 1.1rem;
+    color: var(--node-c);
+}
+
+.dash-energy-value {
+    font-size: 0.95rem;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.dash-energy-dir {
+    font-size: 0.62rem;
+    opacity: 0.7;
+    min-height: 0.8em;
+    white-space: nowrap;
+}
+
+.dash-energy-node.has-error .dash-energy-value { opacity: 0.5; }
+.dash-energy-node.has-error .dash-energy-circle { border-style: dashed; }
+
+.dash-energy-today {
+    font-size: 0.72rem;
+    opacity: 0.65;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+.dash-energy-today:empty { display: none; }
+
+.dash-energy-flow { color: var(--energy-home); }
+.dash-energy-flow[data-src="pv"] { color: var(--energy-pv); }
+.dash-energy-flow[data-src="grid"] { color: var(--energy-grid); }
+.dash-energy-flow[data-src="battery"] { color: var(--energy-battery); }
+
+.dash-energy-path {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    opacity: 0.55;
+    transition: stroke-width 0.6s ease;
+}
+.dash-energy-flow.idle .dash-energy-path {
+    stroke: rgba(128,128,128,0.45);
+    stroke-dasharray: 2 5;
+    opacity: 1;
+}
+
+.dash-energy-dot { fill: currentColor; }
+.dash-energy-arrow { fill: currentColor; display: none; }
+.dash-energy-flow.idle .dash-energy-dot,
+.dash-energy-flow.idle .dash-energy-arrow { display: none; }
+
+/* no moving dots: an arrow says which way the power flows */
+@media (prefers-reduced-motion: reduce) {
+    .dash-energy-dot { display: none; }
+    .dash-energy-flow:not(.idle) .dash-energy-arrow { display: inline; }
+    .dash-energy-ring-arc, .dash-energy-path { transition: none; }
+}
+
+@media (max-width: 600px) {
+    .dash-energy-circle {
+        width: 74px;
+        height: 74px;
+    }
+    .dash-energy-dir { font-size: 0.56rem; }
+    .dash-energy-value { font-size: 0.85rem; }
+    .dash-energy-icon { font-size: 0.95rem; }
+    .dash-energy-label, .dash-energy-today { font-size: 0.7rem; }
+}
+
 
 /* "2 otwarte · 1 w ruchu" after a section's name */
 .dash-section-covers {
@@ -1071,6 +1921,18 @@ body {
 /* ---- Color picker widget ---- */
 .dash-widget-color {
     cursor: default;
+}
+
+/* ---- Colour temperature widget ---- */
+.dash-widget-colorTemp {
+    cursor: default;
+}
+
+/* the track is the light itself, warm to cool (the page sets the gradient) */
+.dash-slider-input.dash-ct-input {
+    height: 12px;
+    border-radius: 6px;
+    box-shadow: inset 0 0 0 1px rgba(128,128,128,0.3);
 }
 
 .dash-color-presets {
@@ -1223,6 +2085,7 @@ body {
     border-radius: 999px;
     background: rgba(128,128,128,0.12);
     font-size: 0.85rem;
+    font-variant-numeric: tabular-nums; /* a new reading does not nudge the chips beside it */
 }
 
 .dash-header-tap {
@@ -1549,14 +2412,18 @@ body {
     }
     /* Charts, images, and compound widgets span full width, also with a span */
     .dash-grid > .dash-widget-chart-container,
+    .dash-grid > .dash-widget-bars,
     .dash-grid > .dash-widget-image,
     .dash-grid > .dash-widget-cover,
     .dash-grid > .dash-widget-covers,
     .dash-grid > .dash-widget-player,
     .dash-grid > .dash-widget-forecast,
+    .dash-grid > .dash-widget-table,
+    .dash-grid > .dash-widget-energy,
     .dash-grid > .dash-widget-thermostat,
     .dash-grid > .dash-widget-dimmer,
     .dash-grid > .dash-widget-color,
+    .dash-grid > .dash-widget-colorTemp,
     .dash-grid > .dash-widget-calendar {
         grid-column: 1 / -1 !important;
     }
@@ -2233,8 +3100,15 @@ body.dash-room-open {
     .dash-player-btn:active { background: color-mix(in srgb, var(--dash-text) 18%, transparent); }
     .dash-player-idle .dash-player-btn.dash-player-play { background: color-mix(in srgb, var(--dash-text) 9%, transparent); }
     .dash-forecast-day { background: color-mix(in srgb, var(--dash-text) 5%, transparent); }
+    .dash-table td.dash-table-colored { color: color-mix(in srgb, var(--cell-c) 80%, var(--dash-text)); }
+    .dash-energy-circle { background: color-mix(in srgb, var(--node-c) 10%, var(--dash-card-bg)); }
+    .dash-energy-icon { color: color-mix(in srgb, var(--node-c) 80%, var(--dash-text)); }
     .dash-thermo-btn { background: color-mix(in srgb, var(--dash-text) 9%, transparent); }
     .dash-thermo-btn:active { background: color-mix(in srgb, var(--dash-text) 18%, transparent); }
+    .dash-gauge-track { stroke: color-mix(in srgb, var(--dash-text) 12%, transparent); }
+    .dash-gauge-bar .dash-gauge-track { fill: color-mix(in srgb, var(--dash-text) 12%, transparent); }
+    .dash-thermo-modes { background: color-mix(in srgb, var(--dash-text) 6%, transparent); }
+    .dash-thermo-mode:active { background: color-mix(in srgb, var(--dash-text) 14%, transparent); }
     .dash-forecast-icon { color: color-mix(in srgb, var(--tile-c) 75%, var(--dash-text)); }
     .dash-room-climate i { color: color-mix(in srgb, var(--tile-c) 75%, var(--dash-text)); opacity: 1; }
     .dash-room-back { background: color-mix(in srgb, var(--dash-text) 10%, transparent); }

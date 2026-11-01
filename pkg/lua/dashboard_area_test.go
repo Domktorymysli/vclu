@@ -301,7 +301,7 @@ func TestDashboardAreaErrors(t *testing.T) {
 		{`Dashboard.new('e'):section('S'):area('Salon', { kinds = { 'fan' } })`, `section:area: kind "fan" has no widget (light, switch, dimmer, cover, temperature, humidity, lock, climate)`},
 		{`Dashboard.new('e'):section('S'):area('Salon'):area('Kuchnia')`, `section:area: this section already shows an area`},
 		{`Dashboard.new('e'):floor()`, `dash:floor: expected a floor name, got nil`},
-		{`Dashboard.new('e'):section('S'):floor('Parter', { title = 'x' })`, `dash:floor: unknown option "title" (kinds, order, rooms, skip, titles)`},
+		{`Dashboard.new('e'):section('S'):floor('Parter', { title = 'x' })`, `dash:floor: unknown option "title" (kinds, order, rooms, skip, titles, visible)`},
 		{`Dashboard.new('e'):floor('Parter', { order = 'Salon' })`, `dash:floor: order expects a list of areas`},
 		{`Dashboard.new('e'):section('S'):toggle('area:x', 'X', 'power', function() end, function() end)`, `ids starting with "area:" are kept for section:area`},
 		{`Dashboard.new('e'):section('S'); local d = Dashboard.new('e'); d:section('S'); d:status('area:y', 'Y', 'x', function() end)`, `widget id "area:y"`},

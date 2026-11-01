@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/pprof"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -184,6 +185,7 @@ type Server struct {
 	sessions         *sessionStore
 	restart          func()       // nil: scheduleRestart exits the process; tests record the call
 	calendarLimiter  *rateLimiter // calendar widget requests that miss the cache, per IP
+	live             *liveFeeds   // dashboards watched over WebSockets
 	backupState      backupSchedulerState
 	version          string
 	updateChecker    *updatecheck.Checker // nil: GET /api/update says enabled false
@@ -225,8 +227,9 @@ func NewServer(port int, webDir string, serverDir string, deviceConfig *config.C
 	tmpl = template.Must(tmpl.ParseGlob(templatesPath))
 	router.SetHTMLTemplate(tmpl)
 
-	// Setup static files
+	// Setup static files; versioned links (assetVersion) may be kept for long
 	staticPath := filepath.Join(webDir, "static")
+	router.Use(staticCache)
 	router.Static("/static", staticPath)
 
 	// Initialize unified access control manager
@@ -250,6 +253,7 @@ func NewServer(port int, webDir string, serverDir string, deviceConfig *config.C
 		supportsModules: checkSupportsModules(serverDir),
 		sessions:        newSessionStore(),
 		calendarLimiter: newCalendarLimiter(),
+		live:            newLiveFeeds(),
 	}
 
 	// Add metrics middleware (must be first to capture all requests)
@@ -650,6 +654,28 @@ func (s *Server) SetVersion(version string) {
 	s.version = version
 }
 
+// startedAt versions the dashboard's files of a development build, which keeps its version
+// number from one build to the next.
+var startedAt = strconv.FormatInt(time.Now().Unix(), 36)
+
+// assetVersion is put on the dashboard page's links to /static/ (?v=): a new vCLU changes it, so
+// a browser takes the new files instead of mixing them with cached ones, and keeps them until then.
+func (s *Server) assetVersion() string {
+	if s.version == "" || s.version == "dev" {
+		return "dev-" + startedAt
+	}
+	return s.version
+}
+
+// staticCache lets a browser keep a versioned /static/ file (?v=) for a year: the link changes
+// with the next vCLU.
+func staticCache(c *gin.Context) {
+	if strings.HasPrefix(c.Request.URL.Path, "/static/") && c.Query("v") != "" {
+		c.Header("Cache-Control", "public, max-age=31536000, immutable")
+	}
+	c.Next()
+}
+
 // SetMQTTManager sets the MQTT manager for client reconnect and test connection
 func (s *Server) SetMQTTManager(mm *lua.MQTTManager) {
 	s.mqttManager = mm
@@ -951,7 +977,9 @@ func (s *Server) setupRoutes() {
 		api.GET("/dashboards", s.handleAPIDashboards)
 		api.GET("/dashboard/:id", s.handleAPIDashboardDef)
 		api.GET("/dashboard/:id/values", s.handleAPIDashboardValues)
+		api.GET("/dashboard/:id/ws", s.handleAPIDashboardWS)
 		api.GET("/dashboard/:id/metrics", s.handleAPIDashboardMetrics)
+		api.GET("/dashboard/:id/bars", s.handleAPIDashboardBars)
 		api.GET("/dashboard/:id/calendar", s.handleAPIDashboardCalendar)
 		api.POST("/dashboard/:id/action", s.handleAPIDashboardAction)
 		api.POST("/dashboard/:id/auth", s.handleAPIDashboardAuth)
@@ -1055,6 +1083,7 @@ func (s *Server) Start() error {
 // Stop stops the web server
 func (s *Server) Stop() error {
 	s.stopBackupScheduler()
+	s.live.shutdown()
 
 	if s.httpServer == nil {
 		return nil

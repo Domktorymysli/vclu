@@ -152,7 +152,8 @@ func main() {
 
 	// Initialize metrics collector early — must be available before Lua modules load
 	cluDir := filepath.Join(serverDir, "clu")
-	metricsCollector := metrics.NewCollector(filepath.Join(cluDir, "metrics"))
+	metricsCollector := metrics.NewCollector(filepath.Join(cluDir, "metrics"),
+		metrics.WithRetainDays(config.GetMetricsConfig(cluDir).RetentionDays))
 
 	// Create CLU server
 	dir := filepath.Join(serverDir, "clu")
@@ -179,9 +180,6 @@ func main() {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 
-	// Wire up event-driven client push notifications (StateBus → client_reporter)
-	luaEngine.SetClientPushHandler(srv.NotifyClientPush)
-
 	// Get device config and keys from server
 	deviceConfig, keys := srv.GetConfig()
 
@@ -190,6 +188,13 @@ func main() {
 
 	// Create and start web server
 	webSrv := web.NewServer(*webPort, webDir, cluDir, deviceConfig, keys, luaEngine)
+
+	// Every state change (StateBus): an immediate client report, and the live dashboards read again
+	luaEngine.SetClientPushHandler(func() {
+		srv.NotifyClientPush()
+		webSrv.NotifyStateChanged()
+	})
+
 	webSrv.SetVersion(version)                          // Version shown in the sidebar
 	webSrv.SetCLUCommander(srv)                         // Wire up CLU commander for sending commands
 	webSrv.SetBrokerController(srv)                     // Wire up MQTT broker controller
@@ -307,6 +312,8 @@ func main() {
 		if _, err := luaEngine.Execute("exposeRegistry()"); err != nil {
 			log.Printf("   ⚠️  Failed to auto-expose registry: %v", err)
 		}
+		// Open dashboards fetch their definition again
+		webSrv.DashboardsReloaded()
 		// Rebuild the bridge if the exposed objects changed, then let Home app
 		// writes through again once the state has settled
 		if homekitSrv != nil {
