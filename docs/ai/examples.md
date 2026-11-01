@@ -283,7 +283,7 @@ armed), `setOverride(nil)` returns to the sensors; `setHold(sec)` (a module or t
 day and night) applies from the next hold.
 
 **Never make a light switched by the presence its own `keep` source:** the light keeps the
-presence and the presence keeps the light on forever. `new()` cannot always see it.
+presence and the presence keeps the light on forever. `new()` does not check for it.
 
 ```lua
 local bath = VirtualPresence:new("lazienka", {
