@@ -74,6 +74,14 @@ Keep PRs focused — one feature or fix per PR. If your change is large, conside
 
 If the `vulncheck` job fails, upgrade the module that brings in the vulnerability (`go get module@fixed-version`, then `go mod tidy`). If there is no fixed version and vCLU does not use the vulnerable code, add the id to `.github/govulncheck-accepted.txt` with the review date and the reason.
 
+The same checks guard a release (`.github/scan-release.sh`, before anything is published) and run weekly on `main` and the latest release (`security.yml`):
+
+- **Linux binaries** (`govulncheck -mode=binary`): also the Go toolchain they are built with; a finding in the standard library needs a release built with a fixed Go.
+- **The release image** (Trivy, `.github/imagescan.sh`): Alpine packages with a fixed HIGH or CRITICAL vulnerability; usually a newer `alpine` in `Dockerfile.release`.
+- **Vendored web libraries** (`.github/vendorcheck.sh`, OSV): every directory in `web/static/vendor/` has its line in `web/static/vendor/VERSIONS`; update the line with the files.
+
+Findings of the last two that are reviewed and accepted go to `.github/scan-accepted.txt`, in the same format. The logs are public: a finding that affects vCLU is reported as in `SECURITY.md`, not in an issue.
+
 #### PR checklist
 
 - [ ] Code builds without errors

@@ -9,7 +9,24 @@ permissions:
   packages: write
 
 jobs:
+  # What the release ships, scanned before anything is published (.github/scan-release.sh)
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Binaries and image
+        run: .github/scan-release.sh
+
+      - name: Vendored web libraries
+        run: .github/vendorcheck.sh
+
   release:
+    needs: scan
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -38,3 +55,14 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # SBOMs of the published images (system packages and the binary's Go modules), as release assets
+      - name: SBOM
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          v=${GITHUB_REF_NAME#v}
+          for arch in amd64 arm64; do
+            .github/imagescan.sh "ghcr.io/domktorymysli/vclu:$v-$arch" --format spdx-json -o "vclu-$v-image-$arch.spdx.json"
+          done
+          gh release upload "$GITHUB_REF_NAME" vclu-$v-image-*.spdx.json

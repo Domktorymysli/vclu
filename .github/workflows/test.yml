@@ -87,3 +87,19 @@ jobs:
 
       - name: govulncheck
         run: .github/govulncheck.sh
+
+      - name: Vendored web libraries
+        run: .github/vendorcheck.sh
+
+  # What a release would ship: Linux binaries and the image (.github/scan-release.sh)
+  release-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Binaries and image
+        run: .github/scan-release.sh
