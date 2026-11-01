@@ -264,12 +264,12 @@ func TestDashboardBarsMergesConcurrentLoads(t *testing.T) {
 	var mu sync.Mutex
 	loads := 0
 	release := make(chan struct{})
-	barsLoad = func(s *Server, id, widget string) (int, []byte) {
+	barsLoad = func(s *Server, id, widget, role, key string) (int, []byte) {
 		mu.Lock()
 		loads++
 		mu.Unlock()
 		<-release
-		return orig(s, id, widget)
+		return orig(s, id, widget, role, key)
 	}
 	var wg sync.WaitGroup
 	codes := make([]int, 8)
@@ -293,5 +293,26 @@ func TestDashboardBarsMergesConcurrentLoads(t *testing.T) {
 		if c != 200 {
 			t.Errorf("request %d: %d", i, c)
 		}
+	}
+}
+
+// Through the cloud a bars widget with remote = false is not on the dashboard: its buckets stay
+// in the house, and the LAN's cached answer is not handed to the remote viewer.
+func TestDashboardBarsRemote(t *testing.T) {
+	s, lan, _ := barsServer(t, `Dashboard.new('e'):remote():section('S','i')
+  :bars('pub', 'PV', 'energia:pv')
+  :bars('priv', 'Sekret', 'energia:secret', { remote = false })
+  :build()`)
+	s.live = newLiveFeeds()
+	t.Cleanup(s.live.shutdown)
+	tunnel := s.TunnelHandler()
+	if r := do(lan, "GET", "/api/dashboard/e/bars?widget=priv", "", ""); r.code != 200 {
+		t.Fatalf("LAN: %d %s", r.code, r.raw)
+	}
+	if r := do(tunnel, "GET", "/api/dashboard/e/bars?widget=priv", "member", ""); r.code != 403 {
+		t.Errorf("remote = false through the cloud: %d %s", r.code, r.raw)
+	}
+	if r := do(tunnel, "GET", "/api/dashboard/e/bars?widget=pub", "member", ""); r.code != 200 {
+		t.Errorf("a shared bars widget through the cloud: %d %s", r.code, r.raw)
 	}
 }

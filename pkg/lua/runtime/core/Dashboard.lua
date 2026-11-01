@@ -64,7 +64,8 @@ end
 -- Gate (or a lock): its state, open/close held, stop at a tap
 -- ==========================================================================
 
-local GATE_KEYS = { open = true, close = true, stop = true, state = true, hold = true, icon = true, disabled = true, visible = true, span = true }
+local GATE_KEYS = { open = true, close = true, stop = true, state = true, hold = true, icon = true, disabled = true, visible = true, span = true,
+    remote = true }
 local GATE_STATES = { open = true, closed = true, opening = true, closing = true, moving = true }
 
 local function gateWidget(id, label, opts)
@@ -271,7 +272,7 @@ end
 -- ==========================================================================
 
 local BARS_KEYS = { range = true, bucket = true, agg = true, unit = true, decimals = true, color = true,
-    compare = true, compareLabel = true, visible = true, span = true, size = true, refresh = true }
+    compare = true, compareLabel = true, visible = true, span = true, size = true, refresh = true, remote = true }
 local BARS_AGG = { sum = true, avg = true, max = true, min = true, delta = true }
 local BARS_BUCKET = { ['1h'] = 3600, ['1d'] = 86400 }
 local BARS_MAX_RANGE = 31 * 86400 -- metrics keep 31 days
@@ -633,7 +634,7 @@ end
 -- ==========================================================================
 
 local GAUGE_KEYS = { min = true, max = true, unit = true, decimals = true, style = true, thresholds = true,
-    target = true, icon = true, disabled = true, visible = true, span = true, size = true, color = true }
+    target = true, icon = true, disabled = true, visible = true, span = true, size = true, color = true, remote = true }
 local GAUGE_COLORS = { accent = true, success = true, warning = true, danger = true, info = true, primary = true }
 
 local function finite(v) return type(v) == 'number' and v - v == 0 end
@@ -655,7 +656,7 @@ local function gaugeWidget(id, label, getValue, opts)
     for k in pairs(opts) do
         if not GAUGE_KEYS[k] then
             error(where .. ': unknown option "' .. tostring(k)
-                .. '" (min, max, unit, decimals, style, thresholds, target, icon, disabled, visible, span, size, color)', 3)
+                .. '" (min, max, unit, decimals, style, thresholds, target, icon, disabled, visible, span, size, color, remote)', 3)
         end
     end
     for _, k in ipairs({ 'min', 'max' }) do
@@ -756,7 +757,7 @@ end
 local COLOR_TEMP_FNS = { getKelvin = true, setKelvin = true, isOn = true, switchOn = true, switchOff = true,
     getBrightness = true, setBrightness = true }
 local COLOR_TEMP_KEYS = { min = true, max = true, step = true, unit = true, icon = true, disabled = true,
-    visible = true, span = true, size = true, color = true }
+    visible = true, span = true, size = true, color = true, remote = true }
 local COLOR_TEMP_MIN, COLOR_TEMP_MAX, COLOR_TEMP_STEP = 2700, 6500, 50
 
 -- A number, or a string of decimal digits ("3000", not "0x10"); nil otherwise
@@ -800,7 +801,7 @@ local function colorTempWidget(id, label, fns, opts)
     opts = opts or {}
     for k in pairs(opts) do
         if not COLOR_TEMP_KEYS[k] then
-            error(where .. ': unknown option "' .. tostring(k) .. '" (min, max, step, unit, icon, disabled, visible, span, size, color)', 3)
+            error(where .. ': unknown option "' .. tostring(k) .. '" (min, max, step, unit, icon, disabled, visible, span, size, color, remote)', 3)
         end
     end
     for _, k in ipairs({ 'min', 'max', 'step' }) do
@@ -1357,7 +1358,7 @@ end
 -- ==========================================================================
 
 local TABLE_KEYS = { columns = true, sort = true, desc = true, limit = true, color = true, icon = true,
-    disabled = true, visible = true, span = true, size = true }
+    disabled = true, visible = true, span = true, size = true, remote = true }
 local TABLE_COLUMN_KEYS = { key = true, label = true, unit = true, decimals = true, align = true }
 -- rows sent to the page at most, whatever limit says
 local TABLE_MAX_ROWS = 200
@@ -1425,7 +1426,7 @@ end
 -- ==========================================================================
 
 local ENERGY_KEYS = { pv = true, grid = true, battery = true, batterySoc = true, home = true, unit = true,
-    invert = true, today = true, icon = true, disabled = true, visible = true, span = true }
+    invert = true, today = true, icon = true, disabled = true, visible = true, span = true, remote = true }
 local ENERGY_SOURCES = { 'pv', 'grid', 'battery', 'batterySoc', 'home' }
 local ENERGY_INVERT = { grid = true, battery = true }
 local ENERGY_TODAY = { pv = 'pv', grid_import = 'grid', grid_export = 'grid', home = 'home' }
@@ -1440,7 +1441,7 @@ local function energyWidget(id, label, opts)
     if type(opts) ~= 'table' then error(where .. ': opts must be a table with pv, grid, battery or home', 3) end
     for k in pairs(opts) do
         if not ENERGY_KEYS[k] then
-            error(where .. ': unknown option "' .. tostring(k) .. '" (pv, grid, battery, batterySoc, home, unit, invert, today, icon, disabled, visible, span)', 3)
+            error(where .. ': unknown option "' .. tostring(k) .. '" (pv, grid, battery, batterySoc, home, unit, invert, today, icon, disabled, visible, span, remote)', 3)
         end
     end
     for i, k in ipairs(ENERGY_SOURCES) do
@@ -3556,8 +3557,8 @@ end
 -- @return string JSON {path, compare, bucket, buckets, agg, zone} or {error, status}
 --- Whether visible() hides the widget now: the server asks before it answers from its cache
 -- @return boolean
-function DashboardAPI.widgetHidden(id, widgetId)
-    local dash = resolveDashboard(id)
+function DashboardAPI.widgetHidden(id, widgetId, role)
+    local dash = resolveFor(id, role)
     if not dash then return false end
     local hidden = dashHidden(id, dash)
     for i, sec in ipairs(dash._sections) do
@@ -3568,8 +3569,8 @@ function DashboardAPI.widgetHidden(id, widgetId)
     return false
 end
 
-function DashboardAPI.barsSpec(id, widgetId)
-    local dash = resolveDashboard(id)
+function DashboardAPI.barsSpec(id, widgetId, role)
+    local dash = resolveFor(id, role)
     if not dash then return JSON.encode({ error = 'Dashboard not found', status = 404 }) end
     for _, sec in ipairs(dash._sections) do
         for _, w in ipairs(sec.widgets) do

@@ -49,6 +49,7 @@ func (s *Server) remoteRoutes(r *gin.Engine) {
 	r.GET("/api/dashboard/:id/values", s.handleAPIDashboardValues)
 	r.GET("/api/dashboard/:id/ws", s.handleAPIDashboardWS)
 	r.GET("/api/dashboard/:id/metrics", s.handleAPIDashboardMetrics)
+	r.GET("/api/dashboard/:id/bars", s.handleAPIDashboardBars)
 	r.GET("/api/dashboard/:id/calendar", s.handleAPIDashboardCalendar)
 	r.POST("/api/dashboard/:id/action", s.handleAPIDashboardAction)
 	r.POST("/api/dashboard/:id/auth", s.handleAPIDashboardAuth)

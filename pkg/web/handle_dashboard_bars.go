@@ -61,26 +61,28 @@ func (s *Server) handleAPIDashboardBars(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "widget is required (max 128 chars)"})
 		return
 	}
-	key := id + "\x00" + widget
+	key := id + "\x00" + widget + roleKey(c) // a remote role sees its own view of the dashboard
 	if data, ok := dashCache.getBars(key); ok {
-		if s.dashWidgetHidden(id, widget) {
+		if s.dashWidgetHidden(c, id, widget) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "bars widget is hidden"})
 			return
 		}
 		c.Data(http.StatusOK, "application/json", []byte(data))
 		return
 	}
-	status, data := barsFlight.do(key, func() (int, []byte) { return barsLoad(s, id, widget) })
+	role := roleArg(c)
+	status, data := barsFlight.do(key, func() (int, []byte) { return barsLoad(s, id, widget, role, key) })
 	c.Data(status, "application/json", data)
 }
 
-// barsLoad reads the widget's spec and aggregates it; a 200 answer is cached.
-var barsLoad = func(s *Server, id, widget string) (int, []byte) {
+// barsLoad reads the widget's spec (role is roleArg's, for a remote viewer) and aggregates it; a
+// 200 answer is cached under key.
+var barsLoad = func(s *Server, id, widget, role, key string) (int, []byte) {
 	fail := func(status int, msg string) (int, []byte) {
 		b, _ := json.Marshal(gin.H{"error": msg})
 		return status, b
 	}
-	raw, err := s.luaExecutor.Execute(fmt.Sprintf(`Dashboard.API.barsSpec("%s", "%s")`, luaEscape(id), luaEscape(widget)))
+	raw, err := s.luaExecutor.Execute(fmt.Sprintf(`Dashboard.API.barsSpec("%s", "%s"%s)`, luaEscape(id), luaEscape(widget), role))
 	if err != nil {
 		log.Printf("[DASHBOARD] %s bars %s: %v", id, widget, err)
 		return fail(http.StatusInternalServerError, "bars unavailable")
@@ -98,7 +100,7 @@ var barsLoad = func(s *Server, id, widget string) (int, []byte) {
 		return fail(http.StatusInternalServerError, "bars unavailable")
 	}
 	data, _ := json.Marshal(res)
-	dashCache.setBars(id+"\x00"+widget, string(data))
+	dashCache.setBars(key, string(data))
 	return http.StatusOK, data
 }
 
