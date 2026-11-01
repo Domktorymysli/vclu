@@ -68,20 +68,6 @@
                         </div>
                     </div>
 
-                    <!-- Remote access profiles -->
-                    <div class="card mb-3">
-                        <div class="card-header">
-                            <i class="bi bi-globe"></i> {{index .t "access.remote"}}
-                        </div>
-                        <div class="card-body">
-                            <p class="text-muted small mb-2">{{index .t "access.remote_desc"}}</p>
-                            <div id="remoteProfiles" class="d-flex flex-wrap gap-3 mb-2"></div>
-                            <button class="btn btn-sm btn-outline-primary" onclick="accessControl.saveRemoteProfiles()">
-                                <i class="bi bi-check-lg"></i> {{index .t "access.remote_save"}}
-                            </button>
-                        </div>
-                    </div>
-
                     <!-- Objects Card -->
                     <div class="card mb-3">
                         <div class="card-header d-flex justify-content-between align-items-center">
@@ -174,7 +160,7 @@
                                                 <th class="text-center">
                                                     <i class="bi bi-apple"></i> HomeKit
                                                 </th>
-                                                <th class="text-center">
+                                                <th class="text-center" title="{{index .t "access.remote_desc"}}">
                                                     <i class="bi bi-globe"></i> {{index .t "access.remote"}}
                                                 </th>
                                                 <!-- Bot columns rendered dynamically by JS -->
