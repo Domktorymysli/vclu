@@ -1,5 +1,59 @@
 # Changelog
 
+## v1.9.0 (2026-11-01)
+
+### English
+
+**Highlights:** dashboards update the moment something changes; new tiles (bars, gauge, table, energy flow, gate); room presence from many sensors; Grenton RGB colour in Apple Home.
+
+**Before you update**
+- AI agents: MCP tools refuse unknown arguments, and `vclu_logs` leaves out debug lines unless asked for `level: "debug"` ([#120](https://github.com/Domktorymysli/vclu/issues/120)).
+
+**New**
+- Dashboards show a change at once instead of on the next refresh, also with many pages open; `:latency()` shows the connection time ([#166](https://github.com/Domktorymysli/vclu/pull/166)).
+- New dashboard tiles: bar chart of a meter per hour or day, gauge, table, energy flow (PV, grid, battery, home) ([#160](https://github.com/Domktorymysli/vclu/issues/160), [#158](https://github.com/Domktorymysli/vclu/issues/158), [#157](https://github.com/Domktorymysli/vclu/issues/157), [#163](https://github.com/Domktorymysli/vclu/issues/163)).
+- Press and hold on buttons and toggles, and a gate tile with held Open and Close ([#159](https://github.com/Domktorymysli/vclu/issues/159)).
+- Tiles, groups and sections can show only when a value says so (`visible`) ([#156](https://github.com/Domktorymysli/vclu/issues/156)).
+- Colour temperature tile, and two white dimmers (warm and cold) as one tunable light (`lib/cct`) ([#161](https://github.com/Domktorymysli/vclu/issues/161)).
+- The thermostat tile switches modes: manual, holiday, off, or modes of your own ([#162](https://github.com/Domktorymysli/vclu/issues/162)).
+- `VirtualPresence`: one presence per room from motion sensors, radar, TV or a closed door, shown as occupancy in Home Assistant and Apple Home ([#154](https://github.com/Domktorymysli/vclu/issues/154)).
+- A Grenton RGB light has its colour in Apple Home; the Home app reloads its accessories once, rooms and automations stay ([#60](https://github.com/Domktorymysli/vclu/issues/60)).
+- The panel says when a new vCLU version is out; it sends only a random id and the version, off in Settings ([#155](https://github.com/Domktorymysli/vclu/issues/155)).
+- How long metrics are kept is a setting (7 days by default); a 30-day bar chart needs 31 ([#160](https://github.com/Domktorymysli/vclu/issues/160)).
+
+**Fixes**
+- Object Manager 1.13 resets vCLU after sending a project with the Grenton cloud on in it ([#152](https://github.com/Domktorymysli/vclu/issues/152)).
+- The plugins' log no longer shows a bot token or a password from a URL ([#167](https://github.com/Domktorymysli/vclu/pull/167)).
+- Smaller fixes: remote access is set only in its column on the Access page ([#166](https://github.com/Domktorymysli/vclu/pull/166)).
+
+Full list: https://github.com/Domktorymysli/vclu/compare/v1.8.0...v1.9.0
+
+### Po polsku
+
+**Najważniejsze:** dashboardy pokazują zmianę od razu; nowe kafle (słupki, wskaźnik, tabela, przepływ energii, brama); obecność w pokoju z wielu czujników; kolor świateł RGB Grentona w Apple Home.
+
+**Przed aktualizacją**
+- Agenci AI: narzędzia MCP odrzucają nieznane argumenty, a `vclu_logs` pomija linie debug, chyba że poprosisz o `level: "debug"` ([#120](https://github.com/Domktorymysli/vclu/issues/120)).
+
+**Nowe**
+- Dashboard pokazuje zmianę od razu, a nie przy następnym odświeżeniu, także przy wielu otwartych stronach; `:latency()` pokazuje czas połączenia ([#166](https://github.com/Domktorymysli/vclu/pull/166)).
+- Nowe kafle dashboardu: słupki licznika na godzinę lub dzień, wskaźnik, tabela, przepływ energii (PV, sieć, magazyn, dom) ([#160](https://github.com/Domktorymysli/vclu/issues/160), [#158](https://github.com/Domktorymysli/vclu/issues/158), [#157](https://github.com/Domktorymysli/vclu/issues/157), [#163](https://github.com/Domktorymysli/vclu/issues/163)).
+- Przytrzymanie na przyciskach i przełącznikach oraz kafel bramy z przytrzymywanym Otwórz i Zamknij ([#159](https://github.com/Domktorymysli/vclu/issues/159)).
+- Kafle, grupy i sekcje mogą się pokazywać tylko wtedy, gdy pozwala na to wartość (`visible`) ([#156](https://github.com/Domktorymysli/vclu/issues/156)).
+- Kafel temperatury barwowej i dwa ściemniacze bieli (ciepła i zimna) jako jedno światło z regulacją barwy (`lib/cct`) ([#161](https://github.com/Domktorymysli/vclu/issues/161)).
+- Kafel termostatu przełącza tryby: ręczny, urlop, wyłączony albo własne tryby ([#162](https://github.com/Domktorymysli/vclu/issues/162)).
+- `VirtualPresence`: jedna obecność w pokoju z czujek ruchu, radaru, telewizora albo zamkniętych drzwi, widoczna jako obecność w Home Assistant i Apple Home ([#154](https://github.com/Domktorymysli/vclu/issues/154)).
+- Światło RGB Grentona ma kolor w Apple Home; aplikacja Dom raz przeładuje akcesoria, pokoje i automatyzacje zostają ([#60](https://github.com/Domktorymysli/vclu/issues/60)).
+- Panel mówi, kiedy wyszła nowa wersja vCLU; wysyła tylko losowy identyfikator i wersję, wyłączysz to w Ustawieniach ([#155](https://github.com/Domktorymysli/vclu/issues/155)).
+- Czas przechowywania metryk jest ustawieniem (domyślnie 7 dni); słupki z 30 dni potrzebują 31 ([#160](https://github.com/Domktorymysli/vclu/issues/160)).
+
+**Poprawki**
+- Object Manager 1.13 resetuje vCLU po wysłaniu projektu z włączoną chmurą Grentona ([#152](https://github.com/Domktorymysli/vclu/issues/152)).
+- Log pluginów nie pokazuje już tokenu bota ani hasła z adresu URL ([#167](https://github.com/Domktorymysli/vclu/pull/167)).
+- Drobne poprawki: dostęp zdalny ustawiasz tylko w jego kolumnie na stronie Dostęp ([#166](https://github.com/Domktorymysli/vclu/pull/166)).
+
+Pełna lista: https://github.com/Domktorymysli/vclu/compare/v1.8.0...v1.9.0
+
 ## v1.8.0 (2026-10-28)
 
 ### English
