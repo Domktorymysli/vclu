@@ -51,7 +51,9 @@ IMPORTANT — common pitfalls when writing Lua modules:
 
 5. Before writing a dashboard, READ an existing one with vclu_read_file to learn the patterns. Call vclu_dashboards to see what's already registered, and vclu_dashboards with an id for that dashboard's widgets.
 
-6. Read vclu://docs/examples resource for complete code cookbook with all widget types, Virtual* objects, MQTT patterns, and dashboard examples.`
+6. Read vclu://docs/examples resource for complete code cookbook with all widget types, Virtual* objects, MQTT patterns, and dashboard examples.
+
+7. A light on motion (or anything that follows someone being in a room) is a VirtualPresence (see vclu_runtime_schema objects), not a setTimeout restarted on each motion: it joins motion sensors, radar and a door into one presence with a hold, and expose(p, "occupancy") shows it in Home Assistant and Apple Home. Never make the light it switches one of its keep sources.`
 
 // MQTTCredentialProvider provides access to MQTT client credentials for discovery.
 type MQTTCredentialProvider interface {

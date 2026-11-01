@@ -396,6 +396,11 @@ browser (a public page would give away the house's location), and a viewer can h
 return (dom:value('taryfa') or '--') .. (n and (' · do ' .. datetime.format(datetime.fromTimestamp(n.at), '15:04')) or '') end, nil,
 { color = function() return dom:color('taryfa') end })`.
 
+An open page gets the values at once over a WebSocket after a state change or an action (every
+widget function is read again); `:poll(n)` re-reads, every n seconds, what no state change shows
+(the time, a plain Lua variable), so keep a value that should show at once in a `Virtual*` object.
+`section:latency(id, label)` (or in the header) shows the page's round trip to vCLU, red over 300 ms.
+
 **IMPORTANT**: After creating a dashboard file you MUST add a `require()` in `modules/init.lua`.
 Without it the dashboard will not be loaded!
 
@@ -410,7 +415,7 @@ Dashboard.new('home')
   :icon('house-door')
   :columns(3)
   :auth('public')   -- 'public' | 'session' | 'pin'
-  :poll(2)          -- polling interval in seconds
+  :poll(2)          -- seconds; re-reads what no state change shows (time, a Lua variable)
   :theme({
     accent = '#27C2A8',
     background = '#1a1a2e',
@@ -773,7 +778,7 @@ local th = _:get("CLU220000592.THE0855")
 
   `build()` refuses unknown keys in a mode, a `modes` that is neither a list nor a map, a value
   twice, `modes` without `getMode`/`setMode` and `setMode` without `modes`.
-- opts: `min`, `max`, `step`, `unit` (default `°C`), `readonly` (true or a function), `modes`, `disabled`, `span`, `size`, `color`.
+- opts: `min`, `max`, `step`, `unit` (default `°C`), `readonly` (true or a function), `modes`, `disabled`, `visible`, `span`, `size`, `color`.
   Full width on a phone.
 
 ### Colour temperature (tunable white)

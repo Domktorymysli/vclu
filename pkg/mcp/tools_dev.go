@@ -676,6 +676,7 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 		},
 		"dashboard": map[string]any{
 			"builder":  "Dashboard.new(id):name():icon():columns():auth():pin():poll():theme():width('full'|'normal')",
+			"live":     "a page gets values at once over a WebSocket after a state change or an action (every widget function is read again); poll(n) (default 2 s) re-reads what no state change shows (the time, a plain Lua variable), so keep a value that should show at once in a Virtual* object",
 			"width":    "width('full'): tiles edge to edge with an 8 px gutter (wall tablets), the home-screen app opens full screen; 'normal' (default) keeps wide screens centred at 1100 px; :columns(n) still sets the columns",
 			"app":      "every dashboard has a manifest (/d/<id>/manifest.webmanifest: name and theme background only, no auth needed) and meta tags: Safari Share → Add to Home Screen (iPad), Chrome menu → Add to Home screen / Install app (Android) opens it without browser bars",
 			"sections": "dash:header() first, then dash:section(name, icon, {columns=n, covers=true, visible=fn}) — covers=true: the header counts the section's covers open, moving and closed; section:group(label, icon, {visible=fn}) is a label inside a section",
@@ -690,6 +691,9 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 				"button":     "section:button(id, label, icon, onTapFn, opts) — opts.confirm='text' (browser dialog) or opts.hold=true (800 ms) | 300-5000 ms: runs only after a press that long (ring on the icon, early release cancels; not with confirm); the endpoint refuses the action without the page's held flag, which stops stray taps and naive scripts, not a deliberate caller (use auth pin/session)",
 				"gate":       "section:gate(id, label, {open=fn (required), close=fn?, stop=fn?, state=fn -> 'open'|'closed'|'opening'|'closing'|'moving'|nil, hold=true (default, 800 ms)|false|300-5000 ms, icon='door-closed', disabled, visible, span}) — a gate or lock: the state word and colour (open yellow, closed green, moving cyan), Open and Close held, Stop a tap; a missing close/stop hides its button; unknown options fail the build",
 				"link":       "section:link(id, label, icon, url, opts)",
+				"chart":      "section:chart(id, label, metricPath, {range='2h' (any duration: '30m', '24h', '7d'), unit, min, max (Y axis), fill=true, refresh=seconds, color, visible, span}) — a line of a metric() series, read by the page from /api/metrics/data",
+				"select":     "section:select(id, label, icon, options, getValueFn, onSelectFn, opts) — options = {'A', 'B'} or {{value, label}, ...} (a list, not a function); onSelectFn(value) may return a toast text",
+				"image":      "section:image(id, label, url|fn, {refresh=seconds, height=px, align='center'|'right', visible, span})",
 				"cover":      "section:cover(id, label, icon, fns, opts) — fns={getPosition,getState,open,close,stop,set?}",
 				"covers":     "section:covers(id, label, list, {icon, disabled, visible, span, size, color}) — one tile for several covers: list = covers or paths, _:byTag(...), or a function returning one (read each time); up/stop/down/position on each, 50 ms apart (a new movement or slat command drops the rest of the previous one of its kind, stop ends both), slats only on covers reporting getTilt; shows the counts and the average position",
 				"dimmer":     "section:dimmer(id, label, icon, fns, opts) — fns={get?,set,switchOn?,switchOff?,isOn?}",
