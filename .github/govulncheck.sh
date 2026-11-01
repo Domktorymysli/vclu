@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 # Fails on symbol-level govulncheck findings missing from .github/govulncheck-accepted.txt.
-# Run from the repository root.
+# Run from the repository root: without arguments it scans the source (./...), with
+# `-mode=binary <file>` a built binary (its Go toolchain and modules).
 set -euo pipefail
 
 accepted=.github/govulncheck-accepted.txt
 out=$(mktemp)
 trap 'rm -f "$out"' EXIT
 
+[ $# -gt 0 ] || set -- ./...
+
 # With -format json govulncheck exits 0 on findings; non-zero means the scan itself failed
-go run golang.org/x/vuln/cmd/govulncheck@latest -format json ./... >"$out"
+go run golang.org/x/vuln/cmd/govulncheck@latest -format json "$@" >"$out"
 
 # Symbol level = the trace ends in a function, i.e. our code reaches the vulnerable symbol
 found=$(jq -r 'select(.finding.trace[0].function) | .finding.osv' "$out" | sort -u)

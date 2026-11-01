@@ -1,0 +1,3 @@
+# Findings of the image scan (.github/imagescan.sh) and the vendored libraries check
+# (.github/vendorcheck.sh) reviewed and accepted. Go findings: .github/govulncheck-accepted.txt.
+# Format: <CVE, GHSA or OSV id> <review date> <reason>

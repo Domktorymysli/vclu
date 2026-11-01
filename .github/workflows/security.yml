@@ -1,0 +1,69 @@
+name: Security scan
+
+# New advisories come out after a release: once a week main and the latest release are scanned
+# again. A finding fails the run (GitHub mails a failed scheduled run). The log is public: it
+# names the public advisory ids only; how vCLU is affected goes to a draft security advisory.
+on:
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  main:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: govulncheck
+        run: .github/govulncheck.sh
+
+      - name: Vendored web libraries
+        run: .github/vendorcheck.sh
+
+  # The latest release as users have it: its binary rebuilt from the tag with the Go version
+  # it was built with (the published one is stripped, see scan-release.sh), its image as pulled
+  latest-release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Latest release
+        id: rel
+        run: |
+          tag=$(gh release view --json tagName -q .tagName)
+          gh release download "$tag" -p vclu-linux-amd64.tar.gz -D "$RUNNER_TEMP"
+          tar -xzf "$RUNNER_TEMP/vclu-linux-amd64.tar.gz" -C "$RUNNER_TEMP" vclu
+          gover=$(go version "$RUNNER_TEMP/vclu" | awk '{print $2}')
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "go=${gover#go}" >> "$GITHUB_OUTPUT"
+          echo "$tag, built with $gover"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.rel.outputs.tag }}
+          path: release
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ steps.rel.outputs.go }}
+
+      - name: Binary
+        working-directory: release
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "$RUNNER_TEMP/vclu-sym" ./cmd/vclu
+          # the scripts of main: an old tag may not have them
+          cd "$GITHUB_WORKSPACE" && .github/govulncheck.sh -mode=binary "$RUNNER_TEMP/vclu-sym"
+
+      - name: Image
+        run: .github/imagescan.sh "ghcr.io/domktorymysli/vclu:${TAG#v}"
+        env:
+          TAG: ${{ steps.rel.outputs.tag }}

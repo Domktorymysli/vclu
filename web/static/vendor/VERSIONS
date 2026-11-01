@@ -1,0 +1,9 @@
+# Libraries copied into web/static/vendor/, checked for known vulnerabilities by
+# .github/vendorcheck.sh. Update the line with the files; the file named must contain the version.
+# directory        npm package       version   file naming the version
+bootstrap          bootstrap         5.3.2     css/bootstrap.min.css
+bootstrap-icons    bootstrap-icons   1.11.2    font/bootstrap-icons.css
+chartjs            chart.js          4.5.1     chart.js
+marked             marked            15.0.12   marked.min.js
+monaco             monaco-editor     0.45.0    vs/loader.js
+redoc              redoc             2.5.3     redoc.standalone.js
