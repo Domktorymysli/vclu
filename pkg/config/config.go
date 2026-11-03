@@ -79,6 +79,9 @@ type VCLUConfig struct {
 	// Check for new vCLU versions (absent = on)
 	UpdateCheck *VCLUUpdateCheckConfig `json:"updateCheck,omitempty"`
 
+	// Lua runtime limits (absent = defaults)
+	Lua *VCLULuaConfig `json:"lua,omitempty"`
+
 	// Pairing state - set after CLU is added to a system via Object Manager
 	Paired      bool   `json:"paired,omitempty"`
 	PairedAt    string `json:"pairedAt,omitempty"`

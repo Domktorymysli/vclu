@@ -1,7 +1,6 @@
 package lua
 
 import (
-	"context"
 	"crypto/rand"
 	"fmt"
 	"log"
@@ -169,11 +168,9 @@ func (le *LuaEngine) ExecuteAs(origin, actor, correlationID, script string) (str
 
 // ExecuteAsWithTimeout is ExecuteAs with the timeout of ExecuteWithTimeout.
 func (le *LuaEngine) ExecuteAsWithTimeout(origin, actor, correlationID, script string, timeout time.Duration) (string, error) {
-	return le.executeSlow("ExecuteAsTimeout", func(L *lua.LState) (string, error) {
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		defer cancel()
-		L.SetContext(ctx)
-		defer L.RemoveContext()
+	return le.executeSlowTimed("ExecuteAsTimeout", func(L *lua.LState) (string, error) {
+		ctx, restore := withOwnTimeout(L, timeout)
+		defer restore()
 		defer withStateContext(L, origin, actor, correlationID)()
 
 		out, err := executeOnState(L, script)

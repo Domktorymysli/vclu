@@ -15,6 +15,9 @@ import (
 	glua "github.com/yuin/gopher-lua"
 )
 
+// httpServerResponseTimeout is how long a request waits for its Lua handler.
+const httpServerResponseTimeout = 30 * time.Second
+
 // HTTPServerManager manages the embedded HTTP server for Lua
 type HTTPServerManager struct {
 	mu           sync.RWMutex
@@ -277,7 +280,7 @@ func (sm *HTTPServerManager) handleRequest(w http.ResponseWriter, r *http.Reques
 		w.Write([]byte(resp.Body))
 		sm.recordRequest(false)
 
-	case <-time.After(30 * time.Second):
+	case <-time.After(httpServerResponseTimeout):
 		http.Error(w, "Gateway Timeout", http.StatusGatewayTimeout)
 		sm.recordRequest(true)
 	}

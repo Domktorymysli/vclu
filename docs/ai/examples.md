@@ -1517,6 +1517,23 @@ Test a panel module in `vclu_draft_test` with `click` steps; the frames are in `
 [{"advance": 1}, {"click": "PAN1085", "input": "btn3"}, {"advance": 1}]
 ```
 
+## A callback has a time limit
+
+Module code runs on one loop: timers, event handlers, dashboard actions, metric getters and a
+module while it loads. One that runs longer than 60 s (an HTTP endpoint handler: 30 s) is
+stopped and the rest of vCLU goes on:
+
+```
+[RUNTIME] Stopped timer 12 (/opt/vclu/clu/modules/pompa/init.lua:8): ran over the 60s callback time limit: ...
+```
+
+- The time includes blocking calls: a synchronous `HTTP:get`, a CLU's answer. Use the async
+  HTTP calls and split long work into steps with `after()`.
+- `pcall` does not catch the stop, and the rest of that work is lost: also the handlers after
+  it in the same event.
+- A stopped `every()` keeps its schedule, so a loop in it is stopped again on every tick.
+- The limit is `lua.callbackTimeoutSeconds` in `.vclu.json`, read at start (negative: none).
+
 ## Directory convention
 
 Put code in modules, not loose files in `modules/`. Read `modules/init.lua`

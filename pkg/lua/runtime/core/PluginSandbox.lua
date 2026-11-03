@@ -107,7 +107,7 @@ function PluginSandbox:buildAPI(sandbox)
             end
         end
 
-        local id = __go_setTimeout(wrappedCallback, ms)
+        local id = __go_setTimeout(wrappedCallback, ms, "plugin " .. pluginId)
         sandbox.timers[id] = true
         return id
     end
@@ -125,7 +125,7 @@ function PluginSandbox:buildAPI(sandbox)
             end
         end
 
-        local id = __go_setInterval(wrappedCallback, ms)
+        local id = __go_setInterval(wrappedCallback, ms, "plugin " .. pluginId)
         sandbox.timers[id] = true
         return id
     end

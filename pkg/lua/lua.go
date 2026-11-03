@@ -1,7 +1,6 @@
 package lua
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
@@ -86,6 +85,7 @@ type luaWorkItem struct {
 	fn         func(L *lua.LState) (string, error) // the work
 	resultCh   chan<- luaResult                    // response channel (buffered 1)
 	submitTime time.Time                           // for latency tracking
+	ownTimeout bool                                // fn sets its own deadline, not the callback limit
 }
 
 // luaResult is the response from a work item execution.
@@ -151,6 +151,8 @@ type LuaEngine struct {
 
 	// Event loop lag tracking
 	maxLagNs atomic.Int64 // max lag observed since last collection
+
+	callbackTimeoutNs atomic.Int64 // see SetCallbackTimeout
 }
 
 // NewLuaEngine creates a new Lua engine with CLU name
@@ -181,6 +183,7 @@ func NewLuaEngineWithRuntimePath(cluName string, runtimePath string) *LuaEngine 
 func (le *LuaEngine) initializeLuaState(cluName string) error {
 	L := lua.NewState()
 	RegisterErrorLevel(L)
+	registerCoroutineContext(L)
 
 	// Keep os and package libraries for CLU runtime
 	// os.time, os.date needed by CLU modules
@@ -307,20 +310,22 @@ func findRuntimePath() string {
 
 // registerTimerFunctions registers Go timer functions in Lua
 func registerTimerFunctions(L *lua.LState, tm *TimerManager) {
-	// __go_setTimeout(callback, periodMs) -> timerId
+	// __go_setTimeout(callback, periodMs[, label]) -> timerId; label (plugin, module line) is for the log
 	L.SetGlobal("__go_setTimeout", L.NewFunction(func(L *lua.LState) int {
 		callback := L.CheckFunction(1)
 		periodMs := L.CheckInt(2)
 		id := tm.SetTimeout(callback, periodMs)
+		tm.SetLabel(id, L.OptString(3, ""))
 		L.Push(lua.LNumber(id))
 		return 1
 	}))
 
-	// __go_setInterval(callback, periodMs) -> timerId
+	// __go_setInterval(callback, periodMs[, label]) -> timerId
 	L.SetGlobal("__go_setInterval", L.NewFunction(func(L *lua.LState) int {
 		callback := L.CheckFunction(1)
 		periodMs := L.CheckInt(2)
 		id := tm.SetInterval(callback, periodMs)
+		tm.SetLabel(id, L.OptString(3, ""))
 		L.Push(lua.LNumber(id))
 		return 1
 	}))
@@ -935,12 +940,9 @@ func (le *LuaEngine) NewLuaTable() *lua.LTable {
 // gopher-lua checks context at VM instruction boundaries, so infinite loops are caught.
 // Thread-safe: routed through slow workQueue in stateRunning.
 func (le *LuaEngine) ExecuteWithTimeout(script string, timeout time.Duration) (string, error) {
-	return le.executeSlow("ExecuteTimeout", func(L *lua.LState) (string, error) {
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		defer cancel()
-
-		L.SetContext(ctx)
-		defer L.RemoveContext()
+	return le.executeSlowTimed("ExecuteTimeout", func(L *lua.LState) (string, error) {
+		ctx, restore := withOwnTimeout(L, timeout)
+		defer restore()
 
 		out, err := executeOnState(L, script)
 		if err != nil && ctx.Err() != nil {
@@ -1066,23 +1068,30 @@ func (le *LuaEngine) processTimersOnLoop() int {
 		}
 
 		if fn, ok := callback.(*lua.LFunction); ok {
-			resetStateContext(le.state)
+			L := le.state
+			resetStateContext(L)
+			name := fmt.Sprintf("timer %d", timerID)
+			if label := le.timerManager.GetLabel(timerID); label != "" {
+				name += " (" + label + ")"
+			}
+			limit := le.callbackTimeout()
 			start := time.Now()
-			err := le.state.CallByParam(lua.P{
-				Fn:      fn,
-				NRet:    0,
-				Protect: true,
+			stopped, err := runLimited(L, limit, func() error {
+				return L.CallByParam(lua.P{
+					Fn:      fn,
+					NRet:    0,
+					Protect: true,
+				})
 			})
 			elapsed := time.Since(start)
 			le.addBusyTime(elapsed)
 
-			if err != nil {
+			if stopped {
+				logStopped(name, limit, err)
+			} else if err != nil {
 				log.Printf("[TIMER] Error executing timer %d callback: %v", timerID, err)
 			}
-
-			if elapsed > 10*time.Second {
-				log.Printf("[TIMER] KILLED callback (timer %d): took %v — consider debugging", timerID, elapsed)
-			} else if elapsed > 2*time.Second {
+			if !stopped && elapsed > 2*time.Second {
 				log.Printf("[TIMER] Slow callback (timer %d): took %v", timerID, elapsed)
 			}
 
@@ -1198,7 +1207,7 @@ func (le *LuaEngine) submitToLoop(queue chan luaWorkItem, item luaWorkItem, wait
 	case stateStopping, stateClosed, stateFailed:
 		return "", fmt.Errorf("Lua engine is %s", s)
 	case stateInit:
-		return le.executeDirect(item.fn)
+		return le.executeDirect(item)
 	}
 
 	// stateRunning — submit to channel
@@ -1221,14 +1230,33 @@ func (le *LuaEngine) submitToLoop(queue chan luaWorkItem, item luaWorkItem, wait
 	}
 }
 
-// executeDirect runs fn under mutex — only allowed in stateInit (before RunLoop).
-func (le *LuaEngine) executeDirect(fn func(L *lua.LState) (string, error)) (string, error) {
+// executeDirect runs the item under mutex — only allowed in stateInit (before RunLoop).
+func (le *LuaEngine) executeDirect(item luaWorkItem) (string, error) {
 	le.mu.Lock()
 	defer le.mu.Unlock()
 	if le.state == nil {
 		return "", fmt.Errorf("Lua engine is closed")
 	}
-	return fn(le.state)
+	return le.runWorkItem(le.state, item)
+}
+
+// runWorkItem runs the item's fn under the callback limit, unless it brings its own.
+func (le *LuaEngine) runWorkItem(L *lua.LState, item luaWorkItem) (string, error) {
+	limit := le.callbackTimeout()
+	if item.ownTimeout {
+		limit = 0
+	}
+	var value string
+	stopped, err := runLimited(L, limit, func() error {
+		var err error
+		value, err = item.fn(L)
+		return err
+	})
+	if stopped {
+		logStopped(fmt.Sprintf("work item %q", item.name), limit, err)
+		return value, fmt.Errorf("stopped after the %s callback time limit: %w", limitText(limit), err)
+	}
+	return value, err
 }
 
 // executeFast submits a fast work item (quick reads, dashboard, registry).
@@ -1243,11 +1271,17 @@ func (le *LuaEngine) executeFast(name string, fn func(L *lua.LState) (string, er
 
 // executeSlow submits a slow work item (arbitrary scripts, doFile).
 func (le *LuaEngine) executeSlow(name string, fn func(L *lua.LState) (string, error)) (string, error) {
+	return le.submitSlow(luaWorkItem{name: name, kind: workSlow, fn: fn})
+}
+
+// executeSlowTimed is executeSlow for an fn that sets its own deadline (withOwnTimeout).
+func (le *LuaEngine) executeSlowTimed(name string, fn func(L *lua.LState) (string, error)) (string, error) {
+	return le.submitSlow(luaWorkItem{name: name, kind: workSlow, fn: fn, ownTimeout: true})
+}
+
+func (le *LuaEngine) submitSlow(item luaWorkItem) (string, error) {
 	ch := make(chan luaResult, 1)
-	item := luaWorkItem{
-		name: name, kind: workSlow, fn: fn,
-		resultCh: ch, submitTime: time.Now(),
-	}
+	item.resultCh, item.submitTime = ch, time.Now()
 	return le.submitToLoop(le.slowQueue, item, ch)
 }
 
@@ -1272,7 +1306,7 @@ func (le *LuaEngine) processWorkItemOnLoop(item luaWorkItem) {
 			}
 		}()
 		resetStateContext(le.state)
-		value, err = item.fn(le.state)
+		value, err = le.runWorkItem(le.state, item)
 	}()
 
 	elapsed := time.Since(start)
@@ -1519,7 +1553,18 @@ func (le *LuaEngine) collectMetricsOnLoop() {
 
 	pathsJSON, _ := json.Marshal(due)
 
-	raw, err := callLuaFunctionOnState(le.state, "Metrics._collectJSON", string(pathsJSON))
+	// metric getters are module code
+	L := le.state
+	limit := le.callbackTimeout()
+	var raw string
+	stopped, err := runLimited(L, limit, func() error {
+		var err error
+		raw, err = callLuaFunctionOnState(L, "Metrics._collectJSON", string(pathsJSON))
+		return err
+	})
+	if stopped {
+		logStopped("metric collection", limit, err)
+	}
 	if err != nil {
 		return
 	}
@@ -1554,16 +1599,26 @@ func (le *LuaEngine) processHTTPServerOnLoop() int {
 		reqJSON, _ := json.Marshal(req)
 
 		start := time.Now()
+		L := le.state
 		// an HTTP request to a Lua endpoint (plugin, module) comes from outside
-		resetStateContext(le.state)
-		restore := withStateContext(le.state, "api", "service:http", "")
-		_, err := executeOnState(le.state, fmt.Sprintf(`HTTPServer:_handleRequest(%q)`, string(reqJSON)))
+		resetStateContext(L)
+		restore := withStateContext(L, "api", "service:http", "")
+		// no point running on after the client got its 504
+		limit := min(le.callbackTimeout(), httpServerResponseTimeout)
+		stopped, err := runLimited(L, limit, func() error {
+			_, err := executeOnState(L, fmt.Sprintf(`HTTPServer:_handleRequest(%q)`, string(reqJSON)))
+			return err
+		})
 		restore()
 		elapsed := time.Since(start)
 		le.addBusyTime(elapsed)
 
-		if err != nil {
+		if stopped {
+			logStopped(fmt.Sprintf("HTTP handler for %s", req.Path), limit, err)
+		} else if err != nil {
 			log.Printf("[HTTP-SERVER] Error executing handler: %v", err)
+		}
+		if err != nil {
 			le.httpServerManager.Respond(req.ID, 500, "Internal Server Error", nil)
 		}
 

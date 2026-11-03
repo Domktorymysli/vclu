@@ -167,6 +167,11 @@ func main() {
 	luaEngine := srv.GetLuaEngine()
 	luaEngine.SetMetricsCollector(metricsCollector)
 
+	// Callback time limit before any module loads
+	if mc, err := config.ReadMasterConfig(cluDir); err == nil {
+		luaEngine.SetCallbackTimeout(mc.LuaCallbackTimeout())
+	}
+
 	// History store before Start(): user modules record changes while loading
 	historyStore := history.New(historyConfig(cluDir), nil)
 	historyStore.Start()
