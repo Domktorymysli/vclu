@@ -478,3 +478,26 @@ func TestVirtualThermostat_PersistKey(t *testing.T) {
 		t.Errorf("persist keys: %s, want table/table/nil", got)
 	}
 }
+
+// A reading is any finite number, plausible or not (#147 documents it): 85 °C switches heating
+// off, -40 °C on; text and NaN are no reading. A source stuck on one value goes stale.
+func TestVirtualThermostat_ImplausibleReadings(t *testing.T) {
+	te := newVTEngine(t)
+	got := mustExec(t, te.LuaEngine, `(function()
+		SRC = VirtualText:new("src")
+		TH = VirtualThermostat:new("salon", { source = SRC, output = HEATER, setpoint = 21, staleAfter = 60 })
+		local out = {}
+		SRC:setValue("-40"); table.insert(out, seq() .. "/" .. tostring(TH:getValue()))
+		SRC:setValue("85"); table.insert(out, seq() .. "/" .. tostring(TH:getValue()))
+		SRC:setValue("abc"); SRC:setValue("nan"); table.insert(out, seq() .. "/" .. tostring(TH:getValue()))
+		SRC:setValue("-40"); table.insert(out, seq())
+		return table.concat(out, ",")
+	end)()`)
+	if got != "1/-40,0/85,/85,1" {
+		t.Errorf("implausible readings: switches/value = %s, want 1/-40,0/85,/85,1", got)
+	}
+	te.advance(t, 60*time.Second)
+	if got := mustExec(t, te.LuaEngine, `return seq() .. "/" .. tostring(TH:getFault())`); got != "0/stale" {
+		t.Errorf("stuck on -40: %s, want 0/stale", got)
+	}
+}
