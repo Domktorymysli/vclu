@@ -81,8 +81,8 @@ func (s *Server) createExposedThermostat(info accessory.Info, obj ExposedObject,
 			svc.TargetTemperature.SetValue(*st.Target)
 		}
 		if st.Mode != "" {
-			svc.TargetHeatingCoolingState.SetValue(heatingCooling(st.Mode))
-			svc.CurrentHeatingCoolingState.SetValue(heatingCooling(st.Mode))
+			_ = svc.TargetHeatingCoolingState.SetValue(heatingCooling(st.Mode))
+			_ = svc.CurrentHeatingCoolingState.SetValue(heatingCooling(st.Mode))
 		}
 	}
 	if c.Mode == "" {
