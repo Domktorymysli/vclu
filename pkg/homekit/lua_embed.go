@@ -13,3 +13,6 @@ var currentStateLua string
 
 //go:embed lua/current_color.lua
 var currentColorLua string
+
+//go:embed lua/current_climate.lua
+var currentClimateLua string

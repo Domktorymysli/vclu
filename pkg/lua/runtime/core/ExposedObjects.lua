@@ -11,6 +11,7 @@
 -- @type ExposedHandle
 local ExposedHandle = {}
 local checkOptions -- defined after capabilities
+local climateRange -- defined after capabilities
 
 -- Counts changes of what is exposed and how; dashboards reuse their rooms until it moves
 local function changed()
@@ -291,8 +292,8 @@ function ExposedHandle:_setTarget(value)
     if not v or v - v ~= 0 or type(obj) ~= "table" or type(obj.setSetpoint) ~= "function" then
         return false
     end
-    local range = ExposedObjects:getCapabilities("climate").range
-    v = math.max(tonumber(self.options.min) or range[1], math.min(tonumber(self.options.max) or range[2], v))
+    local min, max = climateRange(self)
+    v = math.max(min, math.min(max, v))
     local ok = pcall(obj.setSetpoint, obj, v)
     if ok then self._lastChanged = os.time() end
     return ok
@@ -325,6 +326,12 @@ local capabilities = {
     climate = { read = true, write = true, temperature = true, range = {5, 35}, explicitOnly = true },
     garage_door = { read = true, write = true, binary = true },
 }
+
+-- The target range of a climate: the expose options min/max, else the type's
+climateRange = function(handle)
+    local range = capabilities.climate.range
+    return tonumber(handle.options.min) or range[1], tonumber(handle.options.max) or range[2]
+end
 
 -- filter is only for read-only numeric sensors: on a control it would
 -- swallow commands, on a binary sensor or a scene it makes no sense
@@ -751,6 +758,42 @@ function ExposedObjects.hasColor(handle)
         and type(o.getColor) == "function" and type(o.setColor) == "function"
 end
 
+local function callOpt(obj, name)
+    if type(obj) ~= "table" or type(obj[name]) ~= "function" then return nil end
+    local ok, v = pcall(obj[name], obj)
+    if ok then return v end
+    return nil
+end
+
+--- The mode of a thermostat as Home Assistant and HomeKit show it: off when stopped
+-- (getState() 0), otherwise heat, or cool when getDirection() says so; without getState always on.
+-- @param obj table The thermostat
+-- @return string|nil off, heat or cool, nil before its state is reported
+-- @return string heat or cool, its mode when on
+function ExposedObjects.climateMode(obj)
+    local active = callOpt(obj, "getDirection") == "cool" and "cool" or "heat"
+    if type(obj) ~= "table" or type(obj.getState) ~= "function" then return active, active end
+    local state = tonumber(callOpt(obj, "getState"))
+    if state == nil then return nil, active end
+    return state == 0 and "off" or active, active
+end
+
+-- A thermostat for HomeKit (JSON): the target's range and step, the mode, the current
+-- temperature and the target, null while unknown. In set point mode (getMode() 0) the target
+-- is the set point, known right after a write; in holiday or auto mode it is getTarget().
+function ExposedObjects._climateJSON(handle)
+    local o = handle.object
+    local min, max = climateRange(handle)
+    local mode, active = ExposedObjects.climateMode(o)
+    local target = callOpt(o, "getTarget")
+    if tonumber(callOpt(o, "getMode")) == 0 and tonumber(callOpt(o, "getSetpoint")) then
+        target = callOpt(o, "getSetpoint")
+    end
+    return string.format('{"min":%s,"max":%s,"step":%s,"active":"%s","mode":%s,"current":%s,"target":%s}',
+        JSON.encode(min), JSON.encode(max), JSON.encode(tonumber(handle.options.step) or 0.5), active,
+        JSON.encode(mode), JSON.encode(tonumber(handle:getValue())), JSON.encode(tonumber(target)))
+end
+
 --- Capabilities of one exposed object (the type's, with brightness from the object)
 -- @param handle ExposedHandle
 -- @return table Capabilities (a copy)
@@ -829,6 +872,11 @@ function ExposedObjects:toJSON(filter)
                 if ok and type(pos) == "number" then
                     table.insert(fields, '"position":' .. JSON.encode(pos))
                 end
+            end
+            if handle.type == "climate" and type(o) == "table" and type(o.getTarget) == "function"
+                and type(o.setSetpoint) == "function" then
+                -- HomeKit: a Thermostat; another object exposed as climate has no accessory
+                table.insert(fields, '"climate":' .. ExposedObjects._climateJSON(handle))
             end
             for _, k in ipairs({ "area", "group", "description" }) do
                 if handle.options[k] then

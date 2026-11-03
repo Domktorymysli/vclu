@@ -54,6 +54,12 @@ function hk.setPosition(h, target)
 	end
 end
 
+-- A target from the Home app: setSetpoint through the handle, clamped to the expose min/max
+function hk.setTarget(h, v)
+	if h.options.readonly then error("read-only") end
+	if not h:setValue(v) then error("target not set") end
+end
+
 local function command(h, call)
 	if not h then return "missing" end
 	call(h)

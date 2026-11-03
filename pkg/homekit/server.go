@@ -41,19 +41,20 @@ func (s *Server) executeCommand(script string) (string, error) {
 
 // ExposedObject represents an object from ExposedObjects API
 type ExposedObject struct {
-	Path     string        `json:"path"`
-	Type     string        `json:"type"`
-	Name     string        `json:"name"`
-	Area     string        `json:"area"`
-	Value    any           `json:"value"`
-	Readonly bool          `json:"readonly"`
-	Satel    bool          `json:"satel,omitempty"`       // alarm objects: read-only in HomeKit
-	Dimmable bool          `json:"dimmable,omitempty"`    // has brightness (value 0..1)
-	Position *float64      `json:"position,omitempty"`    // covers: 0 = closed, 100 = open
-	HasPos   bool          `json:"hasPosition,omitempty"` // cover with getPosition (value is not a position)
-	HasColor bool          `json:"hasColor,omitempty"`    // colour light: Hue and Saturation
-	Color    *ExposedColor `json:"color,omitempty"`       // its colour, once reported
-	Caps     ExposedCaps   `json:"caps"`
+	Path     string          `json:"path"`
+	Type     string          `json:"type"`
+	Name     string          `json:"name"`
+	Area     string          `json:"area"`
+	Value    any             `json:"value"`
+	Readonly bool            `json:"readonly"`
+	Satel    bool            `json:"satel,omitempty"`       // alarm objects: read-only in HomeKit
+	Dimmable bool            `json:"dimmable,omitempty"`    // has brightness (value 0..1)
+	Position *float64        `json:"position,omitempty"`    // covers: 0 = closed, 100 = open
+	HasPos   bool            `json:"hasPosition,omitempty"` // cover with getPosition (value is not a position)
+	HasColor bool            `json:"hasColor,omitempty"`    // colour light: Hue and Saturation
+	Color    *ExposedColor   `json:"color,omitempty"`       // its colour, once reported
+	Climate  *ExposedClimate `json:"climate,omitempty"`     // a thermostat exposed as climate
+	Caps     ExposedCaps     `json:"caps"`
 }
 
 // displayName prefixes the accessory name with its room, so that during Apple Home
@@ -127,10 +128,11 @@ type AccessoryWrapper struct {
 	Path           string
 	Type           string
 	Readonly       bool
-	UpdateFunc     func(value float64) // Function to update accessory state
-	ColorFunc      func(r, g, b int)   // colour lights: shows the colour
-	Refetch        bool                // state events do not carry the shown value (covers): read it
-	LastKnownState float64             // Last known state for comparison
+	UpdateFunc     func(value float64)  // Function to update accessory state
+	ColorFunc      func(r, g, b int)    // colour lights: shows the colour
+	ClimateFunc    func(ExposedClimate) // thermostats: shows target, mode and temperature
+	Refetch        bool                 // state events do not carry the shown value (covers): read it
+	LastKnownState float64              // Last known state for comparison
 }
 
 // NewServer creates a new HomeKit server
@@ -657,6 +659,10 @@ func (s *Server) signatureOf(objs []ExposedObject) string {
 		if o.HasColor {
 			line += "\x00color" // Hue and Saturation are characteristics of their own
 		}
+		if c := o.Climate; c != nil {
+			lo, hi, step := c.targetRange() // the target's range is in the accessory
+			line += fmt.Sprintf("\x00climate %g %g %g %s", lo, hi, step, c.Active)
+		}
 		lines = append(lines, line)
 	}
 	sort.Strings(lines)
@@ -747,6 +753,13 @@ func (s *Server) deliver(path string, value float64) {
 	wrapper, ok := s.accessories[path]
 	metrics := s.metrics
 	s.mu.RUnlock()
+	if ok && wrapper.ClimateFunc != nil {
+		s.showClimate(path, wrapper) // the target or mode can change alone
+		if metrics != nil {
+			metrics.RecordHomeKitEvent()
+		}
+		return
+	}
 	if !ok || wrapper.UpdateFunc == nil {
 		return // hidden, not a HomeKit object, or not loaded
 	}
@@ -821,6 +834,11 @@ func (s *Server) refreshAllStates(ctx context.Context) {
 	for path, wrapper := range accessories {
 		if ctx != nil && ctx.Err() != nil {
 			return // stopping: do not keep the Lua loop busy
+		}
+		if wrapper.ClimateFunc != nil {
+			s.showClimate(path, wrapper)
+			refreshed++
+			continue
 		}
 		value, ok := s.GetCurrentState(path)
 		if !ok {
