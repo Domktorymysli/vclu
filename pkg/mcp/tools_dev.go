@@ -624,9 +624,9 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 				"note":        "Text value. Display with :status() dashboard widget.",
 			},
 			"VirtualThermostat (THERMOSTAT)": map[string]any{
-				"constructor": "VirtualThermostat:new(name, {source=obj|path, output=obj|path, hysteresis=0.5, direction='heat'|'cool', setpoint=21, holiday=16, min=5, max=35, staleAfter=900, maxOn=s, persist=true|'key'})",
+				"constructor": "VirtualThermostat:new(name, {source=obj|path, output=obj|path, hysteresis=0.5, direction='heat'|'cool', setpoint=21, holiday=16, min=5, max=35, staleAfter=900, maxOn=s, lease=s, persist=true|'key'})",
 				"methods":     []string{"getValue()", "getTarget()", "getSetpoint()", "setSetpoint(v)", "getState()", "start()", "stop()", "getMode()", "setMode(0|1)", "getFault()", "getDirection()", "onChange(cb)"},
-				"note":        "Switches output (switchOn/switchOff) by source temperature at target ± hysteresis; no source change for staleAfter s or on longer than maxOn: output off (getFault 'stale'/'maxOn'). Mode 0 set point, 1 holiday. Output switched off before a reload or stop, and starts off. Same interface as RemoteThermostat: expose(th, \"climate\", {...}), lib/panel menu:add",
+				"note":        "Switches output (switchOn/switchOff) by source temperature at target ± hysteresis; no source change for staleAfter s or on longer than maxOn: output off (getFault 'stale'/'maxOn'). Mode 0 set point, 1 holiday. Output switched off before a reload or stop, and starts off. lease (>= 30 s, Grenton DOUT/dimmer only): switchOn(lease ms) renewed every quarter, so the CLU switches it off when vCLU stops. Comfort control, not a safety device: see ai/examples.md 'What happens when'. Same interface as RemoteThermostat: expose(th, \"climate\", {...}), lib/panel menu:add",
 			},
 			"VirtualPresence (DIN)": map[string]any{
 				"constructor": "VirtualPresence:new(name, {trigger={obj|path,...}, keep={obj|path,...}, door=obj|path, hold=300, doorGrace=10})",

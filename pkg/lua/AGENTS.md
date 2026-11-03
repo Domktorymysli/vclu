@@ -158,6 +158,9 @@ Before a Lua state goes away (reload, `RunLoop` stop, `Close` before the loop ra
 the internal `__vclu_release_thermostats()` (`releaseOutputs` in `history.go`), before MQTT and the other
 managers close; a Grenton command opens its own UDP socket, so `Server.Stop` closing
 `commandConn` first does not stop it. Contract: `virtual_thermostat_release_test.go`.
+A timed `RemoteSwitch:switchOn(ms)` leaves an expected switch-off (`StateChange.expectLater`);
+`VirtualThermostat`'s `lease` renews with it and forgets that right after, or a change from Grenton
+near the lease's end would be recorded as vCLU's. Contract: `virtual_thermostat_lease_test.go`.
 
 ### Smart Panel (SMART_PANEL_FM_4)
 Indices from the Object Manager definition, fv05 and fv07. PANEL (class 29) execute: 0 SwitchOnDisplay,

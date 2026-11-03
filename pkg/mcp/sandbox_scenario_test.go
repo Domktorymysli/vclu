@@ -890,3 +890,32 @@ func TestScenario_FirstSetFiresWatch(t *testing.T) {
 	]`)
 	requireSuccess(t, res)
 }
+
+// VirtualThermostat with lease on a Grenton relay (#144): heating sends the time to the CLU
+// and renews it every quarter, one history entry for it all; the off is a plain one and the
+// renewals end with it.
+func TestScenario_VirtualThermostatLease(t *testing.T) {
+	se, ws, serverDir := newTestSandbox(t)
+	writeProxy(t, serverDir)
+	writeDraft(t, ws, "modules/heating.lua", `
+		local temp = VirtualNumber:new("t")
+		registerObject("virt.temp", temp)
+		VirtualThermostat:new("salon", { source = temp, output = "CLU220000592.DOU4992", setpoint = 21, lease = 60 })
+	`)
+	res, err := se.RunScenario([]string{"modules/heating.lua"}, SandboxScenario{
+		Steps: mustSteps(t, `[
+			{"set": "virt.temp", "value": 20},
+			{"expect_clu_calls": [{"script": "DOU4992:execute(1, 60000)"}]},
+			{"advance": 31},
+			{"expect_clu_calls": [{"script": "DOU4992:execute(1, 60000)"}, {"script": "DOU4992:execute(1, 60000)"}]},
+			{"expect_history": {"path": "CLU220000592.DOU4992", "changes": [{"value": 1}]}},
+			{"set": "virt.temp", "value": 21.5},
+			{"advance": 120},
+			{"expect_clu_calls": [{"script": "DOU4992:execute(2, 0)"}]}
+		]`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireSuccess(t, res)
+}
