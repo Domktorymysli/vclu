@@ -26,6 +26,9 @@ local OPTIONS = { source = true, output = true, hysteresis = true, direction = t
     holiday = true, min = true, max = true, staleAfter = true, maxOn = true, persist = true, lease = true }
 -- lease: below this a late renewal could switch the relay off and on
 local MIN_LEASE = 30
+-- renewals of thermostats made together start this far apart: a CLU drops a burst
+local RENEW_SPACING_MS = 50
+local leased = { n = 0 } -- in a table: a local counter detaches after a pcall
 -- Field names in OnSettingsChange as RemoteThermostat's (_state there is the state)
 local EVENT_FIELD = { _st = "_state" }
 
@@ -315,8 +318,14 @@ function VirtualThermostat:new(name, opts)
         obj._source:onChange(function(v) onReading(obj, v) end)
     end
     TIMERS:setInterval(TICK_MS, function() tick(obj) end)
-    -- every quarter of the lease: two renewals lost in a row still leave a quarter
-    if obj._leaseMs then TIMERS:setInterval(math.floor(obj._leaseMs / 4), function() renew(obj) end) end
+    if obj._leaseMs then
+        -- every quarter of the lease: two renewals lost in a row still leave a quarter
+        local period = math.floor(obj._leaseMs / 4)
+        local function renewals() TIMERS:setInterval(period, function() renew(obj) end) end
+        local offset = (leased.n * RENEW_SPACING_MS) % period
+        leased.n = leased.n + 1
+        if offset == 0 then renewals() else TIMERS:setTimeout(offset, renewals) end
+    end
     return obj
 end
 

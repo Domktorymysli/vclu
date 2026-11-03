@@ -390,3 +390,27 @@ func TestVirtualThermostatLease_Reload(t *testing.T) {
 		t.Errorf("sent on reload: %q, want %q", got, relayOff)
 	}
 }
+
+// A CLU drops a burst of commands (pkg/lua/AGENTS.md): renewals of thermostats made together
+// on one CLU are spaced, not sent at the same moment.
+func TestVirtualThermostatLease_RenewalsSpaced(t *testing.T) {
+	le := newLeaseEngine(t)
+	le.exec(t, `for i = 1, 6 do
+		local out = RemoteSwitch:new(CLU, "DOU" .. (10 + i))
+		VirtualThermostat:new("room" .. i, { source = TEMP, output = out, setpoint = 21, lease = 60 })
+	end
+	TEMP:setValue(20); sent()`)
+	for i := 0; i < 4000; i++ { // 40 s in 10 ms steps
+		le.clk.t = le.clk.t.Add(10 * time.Millisecond)
+		le.exec(t, `fire()`)
+	}
+	got := le.exec(t, `local out = {}
+		for i = SEEN.n + 1, #CLU.sent do table.insert(out, CLU.sent[i].at) end
+		table.sort(out)
+		local close = 0
+		for i = 2, #out do if out[i] - out[i - 1] < 30 then close = close + 1 end end
+		return #out .. "/" .. close`)
+	if got != "12/0" {
+		t.Errorf("renewals sent/less than 30 ms after another = %s, want 12/0", got)
+	}
+}
