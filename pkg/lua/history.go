@@ -166,9 +166,17 @@ func (le *LuaEngine) ExecuteAs(origin, actor, correlationID, script string) (str
 	})
 }
 
+// executeAsNoLimit is ExecuteAs without the callback limit, for system code.
+func (le *LuaEngine) executeAsNoLimit(origin, actor, script string) (string, error) {
+	return le.executeSlowNoLimit("ExecuteAs", func(L *lua.LState) (string, error) {
+		defer withStateContext(L, origin, actor, "")()
+		return executeOnState(L, script)
+	})
+}
+
 // ExecuteAsWithTimeout is ExecuteAs with the timeout of ExecuteWithTimeout.
 func (le *LuaEngine) ExecuteAsWithTimeout(origin, actor, correlationID, script string, timeout time.Duration) (string, error) {
-	return le.executeSlowTimed("ExecuteAsTimeout", func(L *lua.LState) (string, error) {
+	return le.executeSlowNoLimit("ExecuteAsTimeout", func(L *lua.LState) (string, error) {
 		ctx, restore := withOwnTimeout(L, timeout)
 		defer restore()
 		defer withStateContext(L, origin, actor, correlationID)()

@@ -9,6 +9,8 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -534,4 +536,96 @@ func BenchmarkCallbackLimit(b *testing.B) {
 			}
 		})
 	}
+}
+
+// autoSubscribe runs without the limit: cut half-way it left the CLUs after the cut
+// unsubscribed and the old sessions undestroyed.
+func TestContract_CallbackLimit_AutoSubscribeNotCut(t *testing.T) {
+	engine, countSubs := setupSubscriptionEngine(t, 16)
+	defer engine.Close()
+	mustExec(t, engine, `RemoteSubscription.autoSubscribe()`)
+	want := countSubs()
+	if want < 2 {
+		t.Fatalf("fixture: %d sessions", want)
+	}
+	engine.SetCallbackTimeout(100 * time.Millisecond)
+	// every CLU answer takes 50 ms: the whole run is far over the limit
+	mustExec(t, engine, `
+		local send = __go_send_command
+		__go_send_command = function(...)
+			local t = os.clock() + 0.05 while os.clock() < t do end
+			return send(...)
+		end
+		_destroyCalls = {}
+	`)
+	check := func(how string) {
+		t.Helper()
+		if got := countSubs(); got != want {
+			t.Errorf("%s: %d sessions, want %d", how, got, want)
+		}
+		if got := mustExec(t, engine, `return #_destroyCalls .. "," .. tostring(RemoteSubscription._lastSync ~= nil)`); got != fmt.Sprintf("%d,true", want) {
+			t.Errorf("%s: destroyed old sessions, lastSync = %s, want %d,true", how, got, want)
+		}
+		mustExec(t, engine, `_destroyCalls = {} RemoteSubscription._lastSync = nil`)
+	}
+
+	if _, err := engine.Execute(`RemoteSubscription.autoSubscribe() return 1 + 1`); err != nil {
+		t.Fatalf("Sync now (work item): %v", err)
+	}
+	check("work item")
+
+	engine.StartTimers()
+	defer engine.StopTimers()
+	mustExec(t, engine, `setTimeout(function() RemoteSubscription.autoSubscribe() end, 1)`)
+	waitFor(t, "the timer", func() bool {
+		engine.ProcessTimers()
+		return mustExec(t, engine, `return tostring(RemoteSubscription._lastSync ~= nil)`) == "true"
+	})
+	check("timer")
+}
+
+// OM's code (user.lua, om.lua, SYSTEM.Init) runs without the limit: a cut skipped the user modules.
+func TestContract_CallbackLimit_LoadCLUDataNotCut(t *testing.T) {
+	dir := t.TempDir()
+	spin := `local t = os.clock() + 0.3 while os.clock() < t do end `
+	for name, body := range map[string]string{
+		"user.lua": spin + `_userDone = true`,
+		"om.lua":   spin + `_omDone = true local init = SYSTEM.Init SYSTEM.Init = function(...) ` + spin + ` _initDone = true return init(...) end`,
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	engine := NewLuaEngine()
+	defer engine.Close()
+	engine.SetCallbackTimeout(100 * time.Millisecond)
+	if err := engine.LoadCLUData(dir); err != nil {
+		t.Fatalf("LoadCLUData: %v", err)
+	}
+	if got := mustExec(t, engine, `return tostring(_omDone) .. tostring(_initDone)`); got != "truetrue" {
+		t.Errorf("om.lua, SYSTEM.Init done: %s", got)
+	}
+	// the limit still holds for the next item
+	if _, err := engine.Execute(`while true do end`); err == nil || !strings.Contains(err.Error(), "callback time limit") {
+		t.Errorf("after LoadCLUData: %v", err)
+	}
+}
+
+// A listener stopped inside VirtualPresence's evaluate must not leave the presence stuck.
+func TestContract_CallbackLimit_PresenceNotStuck(t *testing.T) {
+	te := newVPEngine(t)
+	te.SetCallbackTimeout(testLimit)
+	mustExec(t, te.LuaEngine, `
+		C = {}
+		P = watchP(VirtualPresence:new("lazienka", { trigger = { "virt.pir" }, hold = 60 }))
+		P:onSwitchOn(function() if not C.looped then C.looped = true while true do end end end)
+	`)
+	if _, err := te.Execute(`PIR:updateState(1)`); err == nil || !strings.Contains(err.Error(), "callback time limit") {
+		t.Fatalf("looping listener: %v", err)
+	}
+	mustExec(t, te.LuaEngine, `PIR:updateState(0)`)
+	te.advance(t, 61)
+	te.expect(t, "hold ran out after the stop", `return tostring(P:getValue())`, "0")
+	mustExec(t, te.LuaEngine, `PIR:updateState(1)`)
+	te.expect(t, "a new trigger", `return tostring(P:getValue())`, "1")
 }

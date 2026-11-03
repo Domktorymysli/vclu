@@ -40,11 +40,15 @@ metric collection a context with the limit (`lua.callbackTimeoutSeconds`, defaul
 the synchronous waits in runtime code, autoSubscribe's 30 s budgets among them). Once it is done,
 every next VM instruction raises, also inside `pcall`, so:
 - one deadline per item: a looping event handler also stops the handlers after it, and runtime
-  code it was called from does not finish (a guard such as `VirtualPresence`'s `_busy` stays set);
+  code it was called from does not finish;
 - Lua that Go runs after the item (`StateContext.truncate`) must run after the context is removed,
   as `withStateContext`'s restore does;
-- an item with its own timeout uses `executeSlowTimed` + `withOwnTimeout`, which puts the previous
-  context back (never `RemoveContext`);
+- an item with its own timeout uses `executeSlowNoLimit` + `withOwnTimeout`, which puts the previous
+  context back (never `RemoveContext`); system work that blocks by design runs without the limit:
+  `LoadCLUData` (`executeAsNoLimit`) and `RemoteSubscription.autoSubscribe` (`__vclu_without_limit`),
+  cut half-way it would leave the CLUs unsubscribed or skip the user modules;
+- a guard over one callback (`VirtualPresence`'s `_busy`) holds `__go_callback_seq()`, so one left
+  by a stopped callback is stale in the next; `RemotePanel`'s `_busy` spans timers and is not guarded;
 - a Go function is not interrupted: a new blocking one takes `L.Context()` (sync HTTP does);
   `__go_send_command` (5 s) and `os.execute` run to their end;
 - gopher-lua binds a coroutine to the context it was created under; `registerCoroutineContext`

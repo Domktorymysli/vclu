@@ -4,14 +4,19 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sync/atomic"
 	"time"
 
 	lua "github.com/yuin/gopher-lua"
 )
 
 // DefaultCallbackTimeout is how long one callback on the run loop may run: above the
-// synchronous waits it may contain (HTTP 30 s, a CLU answer 5 s, autoSubscribe's budgets).
+// synchronous waits it may contain (HTTP 30 s, a CLU answer 5 s). System work that
+// blocks longer by design (autoSubscribe, LoadCLUData) runs without the limit.
 const DefaultCallbackTimeout = 60 * time.Second
+
+// callbackSeq counts top-level callbacks; Lua tells a guard left by a stopped one by it.
+var callbackSeq atomic.Uint64
 
 // SetCallbackTimeout sets the callback time limit: 0 the default, negative no limit.
 func (le *LuaEngine) SetCallbackTimeout(d time.Duration) {
@@ -37,7 +42,11 @@ func (le *LuaEngine) callbackTimeout() time.Duration {
 // between VM instructions). stopped is true when fn failed after the limit.
 // Under an outer context (nested call) fn runs under that one.
 func runLimited(L *lua.LState, limit time.Duration, fn func() error) (stopped bool, err error) {
-	if limit <= 0 || L.Context() != nil {
+	if L.Context() != nil {
+		return false, fn()
+	}
+	callbackSeq.Add(1)
+	if limit <= 0 {
 		return false, fn()
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), limit)
@@ -101,6 +110,38 @@ func registerCoroutineContext(L *lua.LState) {
 			shareContext(L, th)
 			return aux.GFunction(L)
 		}, th))
+		return 1
+	}))
+}
+
+// registerLimitFunctions: __vclu_without_limit(fn, ...) runs fn with no callback limit
+// (system work with budgets of its own); __go_callback_seq() numbers the running callback.
+func (le *LuaEngine) registerLimitFunctions(L *lua.LState) {
+	L.SetGlobal("__vclu_without_limit", L.NewFunction(func(L *lua.LState) int {
+		fn := L.CheckFunction(1)
+		prev := L.RemoveContext()
+		defer func() {
+			if prev == nil {
+				return
+			}
+			// the caller gets its limit anew: the time without one is not its own
+			if limit := le.callbackTimeout(); prev.Err() != nil && limit > 0 {
+				var cancel context.CancelFunc
+				prev, cancel = context.WithTimeout(context.Background(), limit)
+				time.AfterFunc(limit, cancel)
+			}
+			L.SetContext(prev)
+		}()
+		base := L.GetTop()
+		L.Push(fn)
+		for i := 2; i <= base; i++ {
+			L.Push(L.Get(i))
+		}
+		L.Call(base-1, lua.MultRet)
+		return L.GetTop() - base
+	}))
+	L.SetGlobal("__go_callback_seq", L.NewFunction(func(L *lua.LState) int {
+		L.Push(lua.LNumber(callbackSeq.Load()))
 		return 1
 	}))
 }

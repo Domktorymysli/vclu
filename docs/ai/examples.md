@@ -1532,6 +1532,7 @@ stopped and the rest of vCLU goes on:
 - `pcall` does not catch the stop, and the rest of that work is lost: also the handlers after
   it in the same event.
 - A stopped `every()` keeps its schedule, so a loop in it is stopped again on every tick.
+- The Grenton subscription and Object Manager's code (`om.lua`, `user.lua`) have no limit.
 - The limit is `lua.callbackTimeoutSeconds` in `.vclu.json`, read at start (negative: none).
 
 ## Directory convention

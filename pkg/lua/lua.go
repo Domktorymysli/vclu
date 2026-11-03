@@ -85,7 +85,7 @@ type luaWorkItem struct {
 	fn         func(L *lua.LState) (string, error) // the work
 	resultCh   chan<- luaResult                    // response channel (buffered 1)
 	submitTime time.Time                           // for latency tracking
-	ownTimeout bool                                // fn sets its own deadline, not the callback limit
+	noLimit    bool                                // not under the callback limit: own deadline or system work
 }
 
 // luaResult is the response from a work item execution.
@@ -184,6 +184,7 @@ func (le *LuaEngine) initializeLuaState(cluName string) error {
 	L := lua.NewState()
 	RegisterErrorLevel(L)
 	registerCoroutineContext(L)
+	le.registerLimitFunctions(L)
 
 	// Keep os and package libraries for CLU runtime
 	// os.time, os.date needed by CLU modules
@@ -364,7 +365,11 @@ func (le *LuaEngine) doFile(path string) error {
 // that triggered a reload, and timers the file creates keep this context.
 // The context lives only inside this work item.
 func (le *LuaEngine) doFileAs(origin, actor, path string) error {
-	_, err := le.executeSlow("doFile:"+filepath.Base(path), func(L *lua.LState) (string, error) {
+	return le.doFileItem(le.executeSlow, origin, actor, path)
+}
+
+func (le *LuaEngine) doFileItem(submit func(string, func(*lua.LState) (string, error)) (string, error), origin, actor, path string) error {
+	_, err := submit("doFile:"+filepath.Base(path), func(L *lua.LState) (string, error) {
 		defer withStateContext(L, origin, actor, "")()
 		return "", L.DoFile(path)
 	})
@@ -465,13 +470,14 @@ func (le *LuaEngine) LoadCLUData(dataPath string) error {
 	log.Printf("[LUA] loading CLU data from: %s", absPath)
 
 	// 1. Load user.lua (defines user functions/variables referenced by om.lua events)
-	_, _ = le.ExecuteAs("system", "system:vclu", "", loadUserLua)
+	// OM's code runs without the callback limit: a cut here would skip the user modules
+	_, _ = le.executeAsNoLimit("system", "system:vclu", loadUserLua)
 
 	// 2. Load om.lua (creates CLU objects, modules, IO, event bindings) - optional
 	// Must use doFile() — holds mutex to prevent race with ProcessTimers/RunLoop
 	omPath := filepath.Join(absPath, "om.lua")
 	if _, statErr := os.Stat(omPath); statErr == nil {
-		if err := le.doFileAs("system", "system:vclu", omPath); err != nil {
+		if err := le.doFileItem(le.executeSlowNoLimit, "system", "system:vclu", omPath); err != nil {
 			return fmt.Errorf("om.lua failed: %w", err)
 		}
 	} else {
@@ -482,7 +488,7 @@ func (le *LuaEngine) LoadCLUData(dataPath string) error {
 	le.loadCheckAliveFromMainLua(absPath)
 
 	// 4. Initialize SYSTEM (fires EVENT_ON_INIT)
-	if _, err := le.ExecuteAs("system", "system:vclu", "", "SYSTEM.Init()"); err != nil {
+	if _, err := le.executeAsNoLimit("system", "system:vclu", "SYSTEM.Init()"); err != nil {
 		return fmt.Errorf("SYSTEM.Init failed: %w", err)
 	}
 
@@ -940,7 +946,7 @@ func (le *LuaEngine) NewLuaTable() *lua.LTable {
 // gopher-lua checks context at VM instruction boundaries, so infinite loops are caught.
 // Thread-safe: routed through slow workQueue in stateRunning.
 func (le *LuaEngine) ExecuteWithTimeout(script string, timeout time.Duration) (string, error) {
-	return le.executeSlowTimed("ExecuteTimeout", func(L *lua.LState) (string, error) {
+	return le.executeSlowNoLimit("ExecuteTimeout", func(L *lua.LState) (string, error) {
 		ctx, restore := withOwnTimeout(L, timeout)
 		defer restore()
 
@@ -1243,7 +1249,7 @@ func (le *LuaEngine) executeDirect(item luaWorkItem) (string, error) {
 // runWorkItem runs the item's fn under the callback limit, unless it brings its own.
 func (le *LuaEngine) runWorkItem(L *lua.LState, item luaWorkItem) (string, error) {
 	limit := le.callbackTimeout()
-	if item.ownTimeout {
+	if item.noLimit {
 		limit = 0
 	}
 	var value string
@@ -1274,9 +1280,10 @@ func (le *LuaEngine) executeSlow(name string, fn func(L *lua.LState) (string, er
 	return le.submitSlow(luaWorkItem{name: name, kind: workSlow, fn: fn})
 }
 
-// executeSlowTimed is executeSlow for an fn that sets its own deadline (withOwnTimeout).
-func (le *LuaEngine) executeSlowTimed(name string, fn func(L *lua.LState) (string, error)) (string, error) {
-	return le.submitSlow(luaWorkItem{name: name, kind: workSlow, fn: fn, ownTimeout: true})
+// executeSlowNoLimit is executeSlow without the callback limit: for an fn that sets its
+// own deadline (withOwnTimeout) or system work that must not be cut (LoadCLUData).
+func (le *LuaEngine) executeSlowNoLimit(name string, fn func(L *lua.LState) (string, error)) (string, error) {
+	return le.submitSlow(luaWorkItem{name: name, kind: workSlow, fn: fn, noLimit: true})
 }
 
 func (le *LuaEngine) submitSlow(item luaWorkItem) (string, error) {

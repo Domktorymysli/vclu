@@ -162,8 +162,10 @@ end
 -- Recomputes presence from the sources; a listener that changes a source runs it again
 evaluate = function(self)
     if self._override ~= nil then return end
-    if self._busy then self._again = true return end
-    self._busy = true
+    -- the callback's number: a guard left by a stopped callback (#114) is stale in the next
+    local seq = __go_callback_seq and __go_callback_seq() or true
+    if self._busy == seq then self._again = true return end
+    self._busy = seq
     repeat
         self._again = false
         local prev = self._by
