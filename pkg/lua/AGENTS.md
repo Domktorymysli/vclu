@@ -40,7 +40,8 @@ metric collection a context with the limit (`lua.callbackTimeoutSeconds`, defaul
 the synchronous waits in runtime code, autoSubscribe's 30 s budgets among them). Once it is done,
 every next VM instruction raises, also inside `pcall`, so:
 - one deadline per item: a looping event handler also stops the handlers after it, and runtime
-  code it was called from does not finish;
+  code it was called from does not finish; runtime code that plans its next run after user code
+  plans a fallback first (`Cal:_tick`'s guard, the poller's tick timeout);
 - Lua that Go runs after the item (`StateContext.truncate`) must run after the context is removed,
   as `withStateContext`'s restore does;
 - an item with its own timeout uses `executeSlowNoLimit` + `withOwnTimeout`, which puts the previous

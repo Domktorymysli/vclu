@@ -56,7 +56,9 @@ func runLimited(L *lua.LState, limit time.Duration, fn func() error) (stopped bo
 		cancel()
 	}()
 	err = fn()
-	return err != nil && ctx.Err() != nil, err
+	// the context in effect at the end: __vclu_without_limit may have renewed an expired one
+	cur := L.Context()
+	return err != nil && cur != nil && cur.Err() != nil, err
 }
 
 // withOwnTimeout gives L a deadline of its own, not bound by the callback limit;

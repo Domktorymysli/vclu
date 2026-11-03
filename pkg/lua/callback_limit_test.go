@@ -629,3 +629,66 @@ func TestContract_CallbackLimit_PresenceNotStuck(t *testing.T) {
 	mustExec(t, te.LuaEngine, `PIR:updateState(1)`)
 	te.expect(t, "a new trigger", `return tostring(P:getValue())`, "1")
 }
+
+// offsetClock runs in real time from a chosen start.
+type offsetClock struct{ base, start time.Time }
+
+func (c offsetClock) Now() time.Time { return c.base.Add(time.Since(c.start)) }
+
+// A calendar handler stopped at the limit must not stop the calendar: _tick plans its
+// next check after the pcall, which a stopped check never reaches.
+func TestContract_CallbackLimit_CalendarKeepsTicking(t *testing.T) {
+	engine, started := startLimited(t, testLimit)
+	mustExec(t, engine, `
+		Calendar.CHECK_S = 0.2
+		cal = Calendar.new("t114"):clock({ wait = false }):build()
+		cal:on("ready", function() __test_started() while true do end end)
+	`)
+	waitStarted(t, started)
+	waitLua(t, engine, `cal._s.ready and not cal._s.inCheck and cal._s.timer ~= nil`, "true")
+}
+
+// The moment whose handler was stopped does not fire again on the next check.
+func TestCallbackLimit_CalendarStoppedMomentNotRefired(t *testing.T) {
+	engine, started := startLimited(t, testLimit)
+	base := time.Date(2026, 11, 3, 5, 59, 59, 800_000_000, time.Local)
+	if _, err := engine.executeFast("clock", func(L *lua.LState) (string, error) {
+		SetClock(L, offsetClock{base, time.Now()})
+		return "", nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	mustExec(t, engine, `
+		Calendar.CHECK_S = 0.2
+		C = { n = 0 }
+		cal = Calendar.new("t114m"):clock({ wait = false }):event("e", { every = "day", time = "06:00" }):build()
+		cal:on("start", "e", function() C.n = C.n + 1 __test_started() while true do end end)
+	`)
+	waitStarted(t, started)
+	waitLua(t, engine, `not cal._s.inCheck and cal._s.timer ~= nil`, "true")
+	time.Sleep(4 * testLimit)
+	if got := mustExec(t, engine, `return tostring(C.n)`); got != "1" {
+		t.Errorf("stopped moment fired %s times, want 1", got)
+	}
+}
+
+// After __vclu_without_limit renewed an expired limit, a plain error is not reported as a stop.
+func TestCallbackLimit_PlainErrorAfterWithoutLimit(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+	engine.SetCallbackTimeout(100 * time.Millisecond)
+	_, err := engine.Execute(`
+		__vclu_without_limit(function() local t = os.clock() + 0.2 while os.clock() < t do end end)
+		error("plain")
+	`)
+	if err == nil || !strings.Contains(err.Error(), "plain") || strings.Contains(err.Error(), "callback time limit") {
+		t.Errorf("err = %v, want the plain error", err)
+	}
+	// the renewed limit still stops a loop
+	if _, err := engine.Execute(`
+		__vclu_without_limit(function() local t = os.clock() + 0.2 while os.clock() < t do end end)
+		while true do end
+	`); err == nil || !strings.Contains(err.Error(), "callback time limit") {
+		t.Errorf("loop after the renewal: %v", err)
+	}
+}

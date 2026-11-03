@@ -953,7 +953,10 @@ end
 function Cal:_tick()
     local s = self._s
     s.inCheck = true
+    -- a check stopped at the callback time limit (#114) skips the rest of _tick: this timer stays
+    local guard = EventBus:getShared():setTimeout(function() self:_stopped() end, Calendar.CHECK_S * 1000)
     local ok, err = pcall(self._check, self)
+    EventBus:getShared():clearInterval(guard)
     s.inCheck = false
     if not ok then
         log():error('[CALENDAR] %s: %s', self.id, tostring(err))
@@ -961,6 +964,18 @@ function Cal:_tick()
             s.timer = EventBus:getShared():setTimeout(function() self:_tick() end, Calendar.CHECK_S * 1000)
         end
     end
+end
+
+-- After a stopped check: its moments do not fire again (the same handler would loop again).
+function Cal:_stopped()
+    local s = self._s
+    if s.timer then EventBus:getShared():clearInterval(s.timer) end
+    s.timer = nil
+    if s.ready and s.checkAt and s.checkAt > s.last then
+        log():warn('[CALENDAR] %s: a check was stopped; moments up to %s do not fire', self.id, os.date('%H:%M:%S', math.floor(s.checkAt)))
+        s.last = s.checkAt
+    end
+    self:_tick()
 end
 
 function Cal:_next(t)
@@ -982,6 +997,7 @@ function Cal:_check()
     if s.stopped then return end
     s.timer = nil
     local t = now()
+    s.checkAt = t
     if not s.ready then
         local trusted, reason = __go_calendar_clock()
         if not self._clock.wait and os.date('*t', t).year >= 2025 then trusted = true end
