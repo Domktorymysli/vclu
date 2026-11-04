@@ -1,0 +1,13 @@
+[Unit]
+Description=Install vCLU on first boot
+# Raspberry Pi Imager settings arrive through cloud-init; let them land first
+After=cloud-final.service
+ConditionPathExists=/opt/vclu-firstboot/vclu-linux-arm64.tar.gz
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/vclu-firstboot
+TimeoutStartSec=10min
+
+[Install]
+WantedBy=multi-user.target
