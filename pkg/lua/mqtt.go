@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -18,8 +19,9 @@ import (
 type MQTTManager struct {
 	mu              sync.RWMutex
 	clients         map[string]*mqttClientWrapper
-	incoming        chan *mqttMessage // channel for incoming messages
-	events          chan *mqttEvent   // channel for async lifecycle events (connect/subscribe results)
+	topics          map[string]map[string]byte // instance -> topic -> QoS, kept without a client and across reconnects
+	incoming        chan *mqttMessage          // channel for incoming messages
+	events          chan *mqttEvent            // channel for async lifecycle events (connect/subscribe results)
 	maxBuffer       int
 	droppedMessages int64 // counter for dropped messages when buffer full
 	debug           bool  // enable verbose logging
@@ -28,18 +30,17 @@ type MQTTManager struct {
 
 // mqttClientWrapper wraps an MQTT client with its configuration
 type mqttClientWrapper struct {
-	client        mqtt.Client
-	instanceID    string
-	url           string
-	port          int
-	clientID      string
-	username      string
-	password      string
-	connected     bool
-	connectedAt   time.Time
-	lastError     string
-	messageCount  int64
-	subscriptions []string
+	client       mqtt.Client
+	instanceID   string
+	url          string
+	port         int
+	clientID     string
+	username     string
+	password     string
+	connected    bool
+	connectedAt  time.Time
+	lastError    string
+	messageCount int64
 }
 
 // MQTTClientCredentials holds connection credentials for an MQTT client instance.
@@ -95,6 +96,7 @@ type MQTTStats struct {
 func NewMQTTManager() *MQTTManager {
 	return &MQTTManager{
 		clients:   make(map[string]*mqttClientWrapper),
+		topics:    make(map[string]map[string]byte),
 		incoming:  make(chan *mqttMessage, 1000),
 		events:    make(chan *mqttEvent, 256),
 		maxBuffer: 1000,
@@ -149,30 +151,20 @@ func (mm *MQTTManager) Connect(instanceID, url string, port int, clientID, usern
 
 	// Create wrapper
 	wrapper := &mqttClientWrapper{
-		instanceID:    instanceID,
-		url:           url,
-		port:          port,
-		clientID:      clientID,
-		username:      username,
-		password:      password,
-		subscriptions: make([]string, 0),
+		instanceID: instanceID,
+		url:        url,
+		port:       port,
+		clientID:   clientID,
+		username:   username,
+		password:   password,
 	}
 
 	// Set connection handlers
 	opts.SetOnConnectHandler(func(c mqtt.Client) {
-		mm.mu.Lock()
-		if mm.clients[instanceID] != wrapper {
-			mm.mu.Unlock() // destroyed or replaced: its events belong to no instance
-			return
+		if !mm.onConnected(wrapper, c) {
+			return // destroyed or replaced: its events belong to no instance
 		}
-		wrapper.connected = true
-		wrapper.connectedAt = time.Now()
-		wrapper.lastError = ""
-		mm.mu.Unlock()
-		if mm.metrics != nil {
-			mm.metrics.SetMQTTConnected(true)
-		}
-		// Notify Lua about (re)connection — enables subscription recovery
+		// Notify Lua about (re)connection
 		select {
 		case mm.events <- &mqttEvent{Type: "connect_result", InstanceID: instanceID, Error: ""}:
 		default:
@@ -300,13 +292,14 @@ func (mm *MQTTManager) Disconnect(instanceID string) {
 // then unsubscribes its topics on the broker and disconnects in the background.
 func (mm *MQTTManager) Destroy(instanceID string) {
 	mm.mu.Lock()
+	subs := mm.topicList(instanceID)
+	delete(mm.topics, instanceID)
 	wrapper, ok := mm.clients[instanceID]
 	if !ok || wrapper.client == nil {
 		mm.mu.Unlock()
 		return
 	}
 	delete(mm.clients, instanceID)
-	subs := append([]string(nil), wrapper.subscriptions...)
 	mm.mu.Unlock()
 	if mm.metrics != nil {
 		mm.metrics.SetMQTTConnected(false)
@@ -361,23 +354,26 @@ func (mm *MQTTManager) Publish(instanceID, topic, payload string, qos int, retai
 	return nil
 }
 
-// Subscribe subscribes to a topic
+// Subscribe subscribes to a topic. The topic is kept for the instance first, so a client that
+// does not exist or is not connected yet subscribes it on its next connect.
 func (mm *MQTTManager) Subscribe(instanceID, topic string, qos int) error {
 	// Validate QoS
 	if qos < 0 || qos > 2 {
 		return fmt.Errorf("invalid QoS level %d (must be 0, 1, or 2)", qos)
 	}
 
-	mm.mu.RLock()
-	wrapper, ok := mm.clients[instanceID]
-	mm.mu.RUnlock()
-
-	if !ok || wrapper.client == nil {
-		return fmt.Errorf("client %s not found", instanceID)
+	mm.mu.Lock()
+	if mm.topics[instanceID] == nil {
+		mm.topics[instanceID] = make(map[string]byte)
 	}
+	mm.topics[instanceID][topic] = byte(qos)
+	wrapper, ok := mm.clients[instanceID]
+	connected := ok && wrapper.client != nil && wrapper.connected
+	mm.mu.Unlock()
 
-	if !wrapper.client.IsConnected() {
-		return fmt.Errorf("client %s not connected", instanceID)
+	if !connected {
+		log.Printf("[MQTT] %s subscribe %s waits for the connection", instanceID, topic)
+		return nil
 	}
 
 	// Subscribe without holding lock (blocking operation)
@@ -386,24 +382,54 @@ func (mm *MQTTManager) Subscribe(instanceID, topic string, qos int) error {
 		return fmt.Errorf("subscribe timeout")
 	}
 	if err := token.Error(); err != nil {
+		if !wrapper.client.IsConnectionOpen() {
+			return nil // connection dropped meanwhile: the reconnect subscribes it
+		}
 		return fmt.Errorf("subscribe failed: %w", err)
 	}
+	return nil
+}
 
-	// Add to subscriptions list (avoid duplicates)
+// onConnected marks wrapper connected and subscribes its instance's topics; false when the
+// wrapper was destroyed or replaced. Runs on every connect and auto-reconnect.
+func (mm *MQTTManager) onConnected(wrapper *mqttClientWrapper, c mqtt.Client) bool {
 	mm.mu.Lock()
-	found := false
-	for _, s := range wrapper.subscriptions {
-		if s == topic {
-			found = true
-			break
-		}
+	if mm.clients[wrapper.instanceID] != wrapper {
+		mm.mu.Unlock()
+		return false
 	}
-	if !found {
-		wrapper.subscriptions = append(wrapper.subscriptions, topic)
+	wrapper.connected = true
+	wrapper.connectedAt = time.Now()
+	wrapper.lastError = ""
+	filters := make(map[string]byte, len(mm.topics[wrapper.instanceID]))
+	for topic, qos := range mm.topics[wrapper.instanceID] {
+		filters[topic] = qos
 	}
 	mm.mu.Unlock()
+	if mm.metrics != nil {
+		mm.metrics.SetMQTTConnected(true)
+	}
+	if len(filters) > 0 {
+		token := c.SubscribeMultiple(filters, nil)
+		go func() {
+			if !token.WaitTimeout(10 * time.Second) {
+				log.Printf("[MQTT] %s restoring %d subscriptions timed out", wrapper.instanceID, len(filters))
+			} else if err := token.Error(); err != nil {
+				log.Printf("[MQTT] %s restoring %d subscriptions failed: %v", wrapper.instanceID, len(filters), err)
+			}
+		}()
+	}
+	return true
+}
 
-	return nil
+// topicList returns the instance's topics, sorted. Caller holds mm.mu.
+func (mm *MQTTManager) topicList(instanceID string) []string {
+	list := make([]string, 0, len(mm.topics[instanceID]))
+	for topic := range mm.topics[instanceID] {
+		list = append(list, topic)
+	}
+	slices.Sort(list)
+	return list
 }
 
 // SubscribeAsync starts a subscription in a background goroutine.
@@ -422,9 +448,10 @@ func (mm *MQTTManager) SubscribeAsync(instanceID, topic string, qos int) {
 
 // Unsubscribe unsubscribes from a topic
 func (mm *MQTTManager) Unsubscribe(instanceID, topic string) error {
-	mm.mu.RLock()
+	mm.mu.Lock()
+	delete(mm.topics[instanceID], topic)
 	wrapper, ok := mm.clients[instanceID]
-	mm.mu.RUnlock()
+	mm.mu.Unlock()
 
 	if !ok || wrapper.client == nil {
 		return fmt.Errorf("client %s not found", instanceID)
@@ -437,18 +464,6 @@ func (mm *MQTTManager) Unsubscribe(instanceID, topic string) error {
 	if err := token.Error(); err != nil {
 		return fmt.Errorf("unsubscribe failed: %w", err)
 	}
-
-	// Remove from subscriptions list
-	mm.mu.Lock()
-	newSubs := make([]string, 0)
-	for _, s := range wrapper.subscriptions {
-		if s != topic {
-			newSubs = append(newSubs, s)
-		}
-	}
-	wrapper.subscriptions = newSubs
-	mm.mu.Unlock()
-
 	return nil
 }
 
@@ -521,7 +536,7 @@ func (mm *MQTTManager) Stats() MQTTStats {
 			ConnectedAt:   wrapper.connectedAt,
 			LastError:     wrapper.lastError,
 			MessageCount:  wrapper.messageCount,
-			Subscriptions: wrapper.subscriptions,
+			Subscriptions: mm.topicList(wrapper.instanceID),
 		}
 		stats.Clients = append(stats.Clients, status)
 	}
@@ -544,11 +559,7 @@ func (mm *MQTTManager) GetClientCredentials(instanceID string) *MQTTClientCreden
 // preserving and re-subscribing all tracked subscriptions.
 func (mm *MQTTManager) Reconnect(instanceID, host string, port int, clientID, username, password string) error {
 	mm.mu.Lock()
-	// Collect existing subscriptions before disconnect
-	var savedSubs []string
 	if existing, ok := mm.clients[instanceID]; ok {
-		savedSubs = make([]string, len(existing.subscriptions))
-		copy(savedSubs, existing.subscriptions)
 		if existing.client != nil {
 			existing.client.Disconnect(1000)
 		}
@@ -589,32 +600,20 @@ func (mm *MQTTManager) Reconnect(instanceID, host string, port int, clientID, us
 	}
 
 	wrapper := &mqttClientWrapper{
-		instanceID:    instanceID,
-		url:           url,
-		port:          port,
-		clientID:      clientID,
-		username:      username,
-		password:      password,
-		subscriptions: savedSubs,
+		instanceID: instanceID,
+		url:        url,
+		port:       port,
+		clientID:   clientID,
+		username:   username,
+		password:   password,
 	}
 
-	// Re-subscribe tracked topics on every connect/reconnect
+	// Subscribe the instance's topics on every connect/reconnect
 	opts.SetOnConnectHandler(func(c mqtt.Client) {
-		mm.mu.Lock()
-		if w, ok := mm.clients[instanceID]; ok {
-			w.connected = true
-			w.connectedAt = time.Now()
-			w.lastError = ""
-			// Re-subscribe saved topics
-			for _, topic := range w.subscriptions {
-				c.Subscribe(topic, 0, nil)
-			}
+		if !mm.onConnected(wrapper, c) {
+			return
 		}
-		mm.mu.Unlock()
-		if mm.metrics != nil {
-			mm.metrics.SetMQTTConnected(true)
-		}
-		// Notify Lua about (re)connection — enables subscription recovery
+		// Notify Lua about (re)connection
 		select {
 		case mm.events <- &mqttEvent{Type: "connect_result", InstanceID: instanceID, Error: ""}:
 		default:
@@ -685,20 +684,27 @@ func (mm *MQTTManager) Reconnect(instanceID, host string, port int, clientID, us
 
 	token := client.Connect()
 	if !token.WaitTimeout(10 * time.Second) {
+		mm.mu.Lock()
 		wrapper.lastError = "connection timeout (auto-reconnect active)"
+		mm.mu.Unlock()
 		log.Printf("[MQTT] %s initial connect timeout, auto-reconnect will retry", instanceID)
 		return fmt.Errorf("connection timeout (auto-reconnect active)")
 	}
 	if err := token.Error(); err != nil {
+		mm.mu.Lock()
 		wrapper.lastError = err.Error()
+		mm.mu.Unlock()
 		log.Printf("[MQTT] %s initial connect failed: %v, auto-reconnect will retry", instanceID, err)
 		return fmt.Errorf("connection failed: %w (auto-reconnect active)", err)
 	}
 
+	mm.mu.Lock()
 	wrapper.connected = true
 	wrapper.connectedAt = time.Now()
+	restored := len(mm.topics[instanceID])
+	mm.mu.Unlock()
 
-	log.Printf("[MQTT] %s reconnected (%d subscriptions restored)", instanceID, len(savedSubs))
+	log.Printf("[MQTT] %s reconnected (%d subscriptions restored)", instanceID, restored)
 	return nil
 }
 
@@ -751,6 +757,7 @@ func (mm *MQTTManager) Close() {
 		}
 	}
 	mm.clients = make(map[string]*mqttClientWrapper)
+	mm.topics = make(map[string]map[string]byte)
 }
 
 // registerMQTTFunctions registers Go MQTT functions in Lua
