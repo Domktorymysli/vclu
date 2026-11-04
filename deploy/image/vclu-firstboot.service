@@ -1,13 +1,17 @@
 [Unit]
 Description=Install vCLU on first boot
-# Raspberry Pi Imager settings arrive through cloud-init; let them land first
-After=cloud-final.service
-ConditionPathExists=/opt/vclu-firstboot/vclu-linux-arm64.tar.gz
+# Raspberry Pi Imager settings (user, hostname, SSH, Wi-Fi) are applied by cloud-init's
+# init and config stages. Not cloud-final: it runs after multi-user.target, and ordering
+# after it from a multi-user.target unit is a cycle systemd breaks by dropping this unit.
+After=cloud-config.service
+ConditionPathIsDirectory=/opt/vclu-firstboot
 
 [Service]
 Type=oneshot
 ExecStart=/usr/local/sbin/vclu-firstboot
 TimeoutStartSec=10min
+Restart=on-failure
+RestartSec=30
 
 [Install]
 WantedBy=multi-user.target
