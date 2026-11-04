@@ -2,7 +2,7 @@
 
 Every release attaches `vclu_<version>_{amd64,arm64,armhf}.deb` (GoReleaser `nfpms`, maintainer
 scripts in `deploy/deb/`). The repository that serves them is static files signed by the
-maintainer: the key stays on the maintainer's machine, CI never signs.
+maintainer; CI never signs.
 
 ## Users
 
@@ -22,25 +22,8 @@ overrides the packaged one and keeps its directories and port. Before every upgr
 configuration is backed up to `/opt/vclu/backup-<old version>-<date>.tar.gz` (three kept), as
 update.sh does. Removing or purging the package never deletes data.
 
-## Maintainer
+## Publishing
 
-Once: a signing key (with a passphrase) and a web server serving a directory as
-`https://apt.vclu.pl/`.
-
-```bash
-gpg --quick-generate-key "vCLU packages" ed25519 sign 5y
-gpg --list-keys --keyid-format long "vCLU packages"    # the id for APT_KEY
-```
-
-Keep a backup of the key (`gpg --export-secret-keys --armor <id>`) offline: losing it means every
-user has to install a new key.
-
-After each release:
-
-```bash
-APT_KEY=<id> APT_DEST=user@host:/srv/apt.vclu.pl deploy/apt/publish.sh v1.10.0
-```
-
-It downloads the release's packages, keeps the last five per architecture, builds the indexes
-(apt-ftparchive in a container), signs them and uploads packages before indexes. `SUITE=beta`
-publishes to a separate `beta` suite; `--no-upload` only builds the local copy in `~/vclu-apt`.
+The maintainer publishes each release to `https://apt.vclu.pl` after it is out: the packages from
+the GitHub release, indexes signed with the repository key (kept offline, never in CI), the last
+five versions per architecture. `stable` is the only suite for now.
