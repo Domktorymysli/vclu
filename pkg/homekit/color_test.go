@@ -207,8 +207,9 @@ func TestColorForLightThatIsOff(t *testing.T) {
 		t.Errorf("the picked colour was not kept: hue %v", v)
 	}
 
+	// on: the picked colour, then at the last brightness (0.5) rather than Grenton's SwitchOn
 	findChar(w.Accessory, characteristic.TypeOn).SetValueRequest(true, homeAppRequest())
-	if got, want := exec(t, engine, `table.concat(_sent, ";")`), `LED1:execute(6, "#00ff00");LED1:execute(9, 0)`; got != want {
+	if got, want := exec(t, engine, `table.concat(_sent, ";")`), `LED1:execute(6, "#00ff00");LED1:execute(6, "#008000")`; got != want {
 		t.Errorf("switching on sent %q, want %q", got, want)
 	}
 }

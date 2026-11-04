@@ -39,14 +39,14 @@ func TestGrentonLightMethods(t *testing.T) {
 		{`_dim:setValue(0.5)`, "DIM1:set(0, 0.5)"},
 		{`_dim:setValue(0.5, 300)`, "DIM1:set(1, 300);DIM1:set(0, 0.5)"},
 		{`_dim:setBrightness(30)`, "DIM1:set(0, 0.3)"},
-		{`_dim:switchOn()`, "DIM1:execute(2, 0)"},
+		{`_dim._lastOn = nil; _dim:switchOn()`, "DIM1:execute(2, 0)"}, // no brightness to come back to
 		{`_dim:switchOff()`, "DIM1:execute(3, 0)"},
 		{`_dim:toggle()`, "DIM1:execute(1, 0)"},
 		{`_dim:dim(500)`, "DIM1:execute(0, 500)"},
 
 		{`_led:setValue(0.5)`, "LED1:execute(0, 0.5)"},
 		{`_led:setBrightness(30, 200)`, "LED1:execute(0, 0.3, 200)"},
-		{`_led:switchOn()`, "LED1:execute(9, 0)"},
+		{`_led._lastOn = nil; _led:switchOn()`, "LED1:execute(9, 0)"},
 		{`_led:switchOff(0, 400)`, "LED1:execute(10, 0, 400)"},
 		{`_led:toggle()`, "LED1:execute(11, 0)"},
 		{`_led:dim(500)`, "LED1:execute(7, 500)"},
@@ -120,7 +120,7 @@ func TestHALightJSONCommands(t *testing.T) {
 		{"led1/set", `{"state":"ON","color":{"r":255,"g":0,"b":10}}`, `LED1:execute(6, "#ff000a")`},
 		{"led1/set", `{"state":"ON","color":{"h":120,"s":50},"brightness":20}`,
 			"LED1:execute(1, 120);LED1:execute(2, 0.5);LED1:execute(0, 0.2)"},
-		{"led1/set", "ON", "LED1:execute(9, 0)"},
+		{"led1/set", "ON", `LED1:execute(6, "#330002")`}, // the last colour at the last brightness
 		{"led1/set", "OFF", "LED1:execute(10, 0)"},
 		{"dim1/set", "ON", "DIM1:execute(2, 0)"},
 		{"dim1/set", "OFF", "DIM1:execute(3, 0)"},
@@ -160,7 +160,7 @@ func TestGrentonLedChannel(t *testing.T) {
 		{`_ch:setBrightness(50)`, "LED2:execute(0, 128)"},
 		{`_ch:setValue(1, 300)`, "LED2:execute(0, 255, 300)"},
 		{`_ch:setValue(2)`, "LED2:execute(0, 255)"},
-		{`_ch:switchOn()`, "LED2:execute(1, 0)"},
+		{`_ch:switchOn()`, "LED2:execute(0, 255)"}, // back to the last brightness, 1
 		{`_ch:switchOff()`, "LED2:execute(2, 0)"},
 		{`_ch:toggle()`, "LED2:execute(3, 0)"},
 		{`_ch:dim(500)`, "LED2:execute(4, 500)"},
@@ -192,7 +192,7 @@ func TestGrentonLedChannel(t *testing.T) {
 	for _, c := range []struct{ topic, payload, want string }{
 		{"led2/brightness/set", "40", "LED2:execute(0, 102)"},
 		{"led2/set", "OFF", "LED2:execute(2, 0)"},
-		{"led2/set", "ON", "LED2:execute(1, 0)"},
+		{"led2/set", "ON", "LED2:execute(0, 102)"}, // the last brightness, 40
 	} {
 		got := mustExec(t, engine, `_run(function()
 			HACommands.handleExposedMessage("vclu/exposed/vclu/light/clu1_`+c.topic+`", [[`+c.payload+`]])
@@ -224,5 +224,49 @@ func TestHALightJSONWhite(t *testing.T) {
 	// no value known yet: ON with a colour also switches on
 	if want := `LED1:execute(6, "#ff000a");LED1:execute(12, 128);LED1:execute(9, 0)`; got != want {
 		t.Errorf("rgbw command sent %s, want %s", got, want)
+	}
+}
+
+// Grenton's own SwitchOn goes to the module's default (a dimmer at 60 %, an LED in its default
+// colour), so switchOn() comes back to the last brightness above 0, and an LED to its last
+// colour at that brightness; before any is known it is Grenton's SwitchOn. With a time or a
+// ramp it stays Grenton's.
+func TestGrentonLightSwitchOnRestores(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+	if _, err := engine.Execute(grentonLightSetup + `
+		_ch = RemoteLedChannel:new({ executeNoReply = function(s, i, cmd) table.insert(_sent, cmd) end }, "LED2", "pasek_w")
+	`); err != nil {
+		t.Fatalf("setup failed: %v", err)
+	}
+
+	for _, c := range []struct{ code, want string }{
+		{`_dim:switchOn()`, "DIM1:execute(2, 0)"},
+		{`_dim:setBrightness(34); _dim:switchOff()`, "DIM1:set(0, 0.34);DIM1:execute(3, 0)"},
+		{`_dim:switchOn()`, "DIM1:set(0, 0.34)"},
+		{`_dim:setBrightness(0); _dim:on()`, "DIM1:set(0, 0);DIM1:set(0, 0.34)"},
+		{`_dim:updateState(0.8); _dim:updateState(0); _dim:switchOn()`, "DIM1:set(0, 0.8)"},
+		{`_dim:switchOn(60000)`, "DIM1:execute(2, 60000)"},
+		{`_dim:switchOn(0, 500)`, "DIM1:execute(2, 0, 500)"},
+
+		{`_led:switchOn()`, "LED1:execute(9, 0)"},
+		{`_led:setBrightness(50); _led:switchOff(); _led:switchOn()`,
+			"LED1:execute(0, 0.5);LED1:execute(10, 0);LED1:execute(0, 0.5)"},
+		{`_led:setColor(255, 0, 10); _led:switchOff(); _led:switchOn()`,
+			`LED1:execute(6, "#800005");LED1:execute(10, 0);LED1:execute(6, "#800005")`},
+		// a report while off (black) keeps the colour
+		{`_led:fromFeature(6, "#000000"); _led:updateState(0); _led:switchOn()`, `LED1:execute(6, "#800005")`},
+
+		{`_ch:switchOn()`, "LED2:execute(1, 0)"},
+		{`_ch:setBrightness(40); _ch:switchOff(); _ch:switchOn()`, "LED2:execute(0, 102);LED2:execute(2, 0);LED2:execute(0, 102)"},
+	} {
+		got := mustExec(t, engine, `_run(function() `+c.code+` end)`)
+		if got != c.want {
+			t.Errorf("%s sent %s, want %s", c.code, got, c.want)
+		}
+	}
+
+	if got := mustExec(t, engine, `(function() _dim:switchOff(); _dim:switchOn(); return tostring(_dim:getBrightness()) end)()`); got != "80" {
+		t.Errorf("brightness after switchOn = %s, want 80", got)
 	}
 }
