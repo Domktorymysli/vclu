@@ -867,12 +867,7 @@ function MQTT.pollEvents()
             if errMsg == "" then
                 instance._props.connected = true
                 instance:_emit("connect")
-                -- Re-subscribe all stored subscriptions (handles race with async connect + auto-reconnect)
-                if __go_mqtt_subscribe then
-                    for subTopic, _ in pairs(instance._subscriptions) do
-                        __go_mqtt_subscribe(instance._instanceId, subTopic)
-                    end
-                end
+                -- Go keeps the subscriptions and restores them on every connect
                 -- Auto-publish discovery after async connect
                 if instance._discovery.autoPublish and #instance._discovery.messages > 0 then
                     instance:publishAllDiscovery()
