@@ -1,0 +1,11 @@
+#!/bin/sh
+set -e
+
+# Data (configuration, keys, Lua, history) is never removed by the package, not even on purge
+if [ "$1" = purge ]; then
+  echo "vclu: data and backups stay in /opt/vclu; remove them by hand if you no longer need them"
+fi
+if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+  systemctl daemon-reload || true
+fi
+exit 0

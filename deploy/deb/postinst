@@ -1,0 +1,33 @@
+#!/bin/sh
+set -e
+
+# configure, or abort-upgrade after preinst stopped the service: start it again either way
+case "$1" in
+  configure|abort-upgrade) ;;
+  *) exit 0 ;;
+esac
+
+# An install.sh setup keeps its own unit in /etc (directories, web port): it overrides the
+# packaged one in /lib and stays as it is.
+DATA_DIR=/opt/vclu/data
+UNIT=/etc/systemd/system/vclu.service
+if [ -f "$UNIT" ]; then
+  d=$(sed -n 's/^WorkingDirectory=//p' "$UNIT" | head -1)
+  [ -n "$d" ] && DATA_DIR=$d
+  bin=$(sed -n 's/^ExecStart=//p' "$UNIT" | head -1 | awk '{print $1}')
+  if [ "$bin" != /opt/vclu/vclu ]; then
+    echo "vclu: $UNIT runs $bin, not the packaged /opt/vclu/vclu; this update does not reach it" >&2
+  fi
+fi
+
+mkdir -p "$DATA_DIR/clu/docs/ai"
+cp /opt/vclu/docs/ai/*.md "$DATA_DIR/clu/docs/ai/" 2>/dev/null || true
+
+if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+  systemctl daemon-reload
+  systemctl enable vclu >/dev/null 2>&1 || true
+  systemctl restart vclu
+else
+  echo "vclu: systemd not running; start by hand: cd $DATA_DIR && /opt/vclu/vclu --auto --data-dir . --web-port 8080"
+fi
+exit 0
