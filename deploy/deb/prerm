@@ -1,0 +1,10 @@
+#!/bin/sh
+set -e
+
+# Upgrades restart in postinst; only a removal stops and disables the service
+[ "$1" = remove ] || exit 0
+if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+  systemctl stop vclu 2>/dev/null || true
+  systemctl disable vclu >/dev/null 2>&1 || true
+fi
+exit 0

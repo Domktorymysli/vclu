@@ -1,0 +1,18 @@
+#!/bin/sh
+set -e
+
+# A first package install over an install.sh setup failed after preinst stopped vCLU:
+# start it again (an upgrade between package versions is handled by the old postinst)
+if [ "$1" = abort-install ] && [ -e /run/vclu-was-active ]; then
+  rm -f /run/vclu-was-active
+  systemctl start vclu || true
+fi
+
+# Data (configuration, keys, Lua, history) is never removed by the package, not even on purge
+if [ "$1" = purge ]; then
+  echo "vclu: data and backups stay in /opt/vclu; remove them by hand if you no longer need them"
+fi
+if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+  systemctl daemon-reload || true
+fi
+exit 0

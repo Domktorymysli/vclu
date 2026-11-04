@@ -13,13 +13,17 @@ before:
     - cp -r pkg/lua/runtime/. .release/runtime/
     - mkdir -p .release/docs/ai
     - sh -c 'cp docs/ai/*.md .release/docs/ai/ 2>/dev/null || true'
+    # Unit for the .deb, from the install.sh template with its defaults
+    - sh -c 'sed "s|@INSTALL_DIR@|/opt/vclu|g; s|@DATA_DIR@|/opt/vclu/data|g; s|@WEB_PORT@|8080|g" deploy/vclu.service > .release/vclu.service'
 
 builds:
-  - main: ./cmd/vclu
+  # ARMv7 is a build of its own so the .deb takes one armhf binary (ARMv6, runs on both)
+  - id: vclu
+    main: ./cmd/vclu
     binary: vclu
     env:
       - CGO_ENABLED=0
-    ldflags:
+    ldflags: &ldflags
       - -s -w
       - -X main.version={{ .Version }}
       - -X main.commit={{ .ShortCommit }}
@@ -32,12 +36,23 @@ builds:
       - arm
     goarm:
       - "6"
-      - "7"
     ignore:
       - goos: darwin
         goarch: arm
       - goos: darwin
         goarch: amd64
+  - id: vclu-armv7
+    main: ./cmd/vclu
+    binary: vclu
+    env:
+      - CGO_ENABLED=0
+    ldflags: *ldflags
+    goos:
+      - linux
+    goarch:
+      - arm
+    goarm:
+      - "7"
 
 archives:
   - format: tar.gz
@@ -59,6 +74,40 @@ archives:
       - src: LICENSE
         dst: .
         strip_parent: true
+
+# Debian packages (amd64, arm64, armhf from the ARMv6 build: Raspberry Pi OS 32-bit runs on ARMv6).
+# Same layout as install.sh; data stays outside the package (deploy/deb/).
+nfpms:
+  - id: deb
+    ids: [vclu]
+    package_name: vclu
+    file_name_template: "{{ .ConventionalFileName }}"
+    formats: [deb]
+    vendor: Domktorymysli
+    homepage: https://vclu.pl
+    maintainer: Domktorymysli <https://github.com/Domktorymysli/vclu/issues>
+    description: Virtual CLU - smart home controller for Grenton, Satel and more
+    license: BUSL-1.1
+    section: misc
+    bindir: /opt/vclu
+    recommends:
+      - avahi-daemon
+    contents:
+      - src: web/
+        dst: /opt/vclu/web
+      - src: .release/runtime/
+        dst: /opt/vclu/runtime
+      - src: .release/docs/ai/
+        dst: /opt/vclu/docs/ai
+      - src: .release/vclu.service
+        dst: /usr/lib/systemd/system/vclu.service
+      - src: LICENSE
+        dst: /usr/share/doc/vclu/copyright
+    scripts:
+      preinstall: deploy/deb/preinst
+      postinstall: deploy/deb/postinst
+      preremove: deploy/deb/prerm
+      postremove: deploy/deb/postrm
 
 checksum:
   name_template: "checksums.txt"
