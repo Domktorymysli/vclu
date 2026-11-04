@@ -21,7 +21,5 @@ This is the first step. Still open:
 - the image is stock Raspberry Pi OS plus vCLU: no read-only root, no A/B updates (RAUC), SSH as
   Imager sets it;
 - vCLU runs as root (`deploy/vclu.service`); the image should get the hardened unit first;
-- until the wizard sets a password, anyone on the LAN can open vCLU (Lua with os/io, as root);
-  the image makes that window predictable, so it needs a one-time setup token;
 - the base image is "latest" at build time and its checksum is checked, but not pinned per release;
 - an entry in a Raspberry Pi Imager repository list, so vCLU shows up in its menu.
