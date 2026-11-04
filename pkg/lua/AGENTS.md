@@ -79,6 +79,9 @@ memory; when the English and Polish hints disagree, the feature's own descriptio
 1 MoveDown, 3 Stop, 9 SetLamelPosition, 10 SetPosition; feature 13 ReversePosition flips the
 scale in the installation. The first firmware (fv01) has no Position, and om.lua does not say
 which firmware a module runs, so the OM import only marks class 24 with `_hasPosition = true`.
+Slats: feature 8 LamelPosition is degrees, 0 = open .. 90 = closed (HA tilt the other way,
+converted in `HAStatePublisher.coverTiltToHA`/`FromHA`); feature 10 LamelMoveTimeout is 0 without
+slats, and om.lua writes it (`ROL…:set(10, ms)`), so the import marks `_hasTilt` when it is above 0.
 `ROLLER_SH` (class 11) has no position.
 `DIMMER` (class 5): feature 0 Value (0..1, settable), 1 RampTime; execute 0 Hold, 1 Switch,
 2 SwitchOn, 3 SwitchOff. It has no SetValue with a ramp.

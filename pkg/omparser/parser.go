@@ -47,6 +47,9 @@ var (
 	// Peripheral name comment: -- NAME_PERIPHERY aSalon=THE0855
 	rePeripheryName = regexp.MustCompile(`^-- NAME_PERIPHERY\s+(\S+)=(\w+)`)
 
+	// Roller setting LamelMoveTimeout (feature 10, ms; 0 = no slats): ROL1234:set(10, 1500)
+	reLamelTimeout = regexp.MustCompile(`^(\w+):set\s*\(\s*10\s*,\s*([0-9.]+)\s*\)`)
+
 	// Event handler: DIN1473:add_event(2, EventsFor_DIN1473_2)
 	reEventAdd = regexp.MustCompile(`^(\w+):add_event\s*\(\s*(\d+)\s*,\s*(\w+)\s*\)`)
 )
@@ -58,6 +61,7 @@ func Parse(content string) (*ParsedOM, error) {
 
 	// Temporary map for IO names (collected from comments)
 	ioNames := make(map[string]string)
+	lamelTimeouts := make(map[string]float64)
 
 	for i, line := range lines {
 		line = strings.TrimSpace(line)
@@ -183,6 +187,13 @@ func Parse(content string) (*ParsedOM, error) {
 			continue
 		}
 
+		if matches := reLamelTimeout.FindStringSubmatch(line); matches != nil {
+			if v, err := strconv.ParseFloat(matches[2], 64); err == nil {
+				lamelTimeouts[matches[1]] = v
+			}
+			continue
+		}
+
 		// Parse event handler
 		if matches := reEventAdd.FindStringSubmatch(line); matches != nil {
 			eventIndex, _ := strconv.Atoi(matches[2])
@@ -201,6 +212,11 @@ func Parse(content string) (*ParsedOM, error) {
 			result.Objects[i].Name = name
 			// Update map too
 			obj.Name = name
+			result.ObjectMap[obj.ID] = obj
+		}
+		if obj.Class == ClassROLLER && lamelTimeouts[obj.ID] > 0 {
+			result.Objects[i].HasTilt = true
+			obj.HasTilt = true
 			result.ObjectMap[obj.ID] = obj
 		}
 	}

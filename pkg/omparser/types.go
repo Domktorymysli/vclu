@@ -130,6 +130,7 @@ type GrentonObject struct {
 	Class    ObjectClass // Object type (3=DIN, 4=DOUT, etc.)
 	ModuleID string      // Parent module ID (e.g., "mm_330000027")
 	Index    int         // Index on the module (0-7 typically)
+	HasTilt  bool        // ROLLER_SHUTTER with slats: om.lua sets LamelMoveTimeout above 0
 }
 
 // CLUReference represents a reference to another CLU
