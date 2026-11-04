@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-# configure, or abort-upgrade after preinst stopped the service: start it again either way
+# configure, or abort-upgrade after preinst stopped the service
 case "$1" in
   configure|abort-upgrade) ;;
   *) exit 0 ;;
@@ -10,24 +10,42 @@ esac
 # An install.sh setup keeps its own unit in /etc (directories, web port): it overrides the
 # packaged one in /lib and stays as it is.
 DATA_DIR=/opt/vclu/data
+WEB_PORT=8080
 UNIT=/etc/systemd/system/vclu.service
 if [ -f "$UNIT" ]; then
   d=$(sed -n 's/^WorkingDirectory=//p' "$UNIT" | head -1)
   [ -n "$d" ] && DATA_DIR=$d
-  bin=$(sed -n 's/^ExecStart=//p' "$UNIT" | head -1 | awk '{print $1}')
-  if [ "$bin" != /opt/vclu/vclu ]; then
+  exec_start=$(sed -n 's/^ExecStart=//p' "$UNIT" | head -1)
+  p=$(echo "$exec_start" | sed -n 's/.*--web-port[ =]\([0-9]*\).*/\1/p')
+  [ -n "$p" ] && WEB_PORT=$p
+  bin=$(echo "$exec_start" | awk '{print $1}')
+  if [ "$1" = configure ] && [ "$bin" != /opt/vclu/vclu ]; then
     echo "vclu: $UNIT runs $bin, not the packaged /opt/vclu/vclu; this update does not reach it" >&2
   fi
 fi
 
-mkdir -p "$DATA_DIR/clu/docs/ai"
-cp /opt/vclu/docs/ai/*.md "$DATA_DIR/clu/docs/ai/" 2>/dev/null || true
+if [ "$1" = configure ]; then
+  mkdir -p "$DATA_DIR/clu/docs/ai"
+  cp /opt/vclu/docs/ai/*.md "$DATA_DIR/clu/docs/ai/" 2>/dev/null || true
+  # Three newest backups; only after a good install, so retries never prune the last good one
+  # (names are ours: no odd characters)
+  # shellcheck disable=SC2012
+  ls -1t /opt/vclu/backup-*.tar.gz 2>/dev/null | tail -n +4 | while read -r old; do rm -f "$old"; done
+fi
 
-if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
-  systemctl daemon-reload
+if ! command -v systemctl >/dev/null 2>&1 || [ ! -d /run/systemd/system ]; then
+  [ "$1" = configure ] && echo "vclu: systemd not running; start by hand: cd $DATA_DIR && /opt/vclu/vclu --auto --data-dir . --web-port $WEB_PORT"
+  exit 0
+fi
+
+systemctl daemon-reload || true
+if [ "$1" = configure ] && [ -z "$2" ] && [ ! -e "$UNIT" ]; then
+  # First install of the package on a machine without vCLU: enable and start
   systemctl enable vclu >/dev/null 2>&1 || true
-  systemctl restart vclu
-else
-  echo "vclu: systemd not running; start by hand: cd $DATA_DIR && /opt/vclu/vclu --auto --data-dir . --web-port 8080"
+  systemctl start vclu || true
+elif [ -e /run/vclu-was-active ]; then
+  # Running before the upgrade: start it again. Disabled or stopped ones stay as they were.
+  rm -f /run/vclu-was-active
+  systemctl start vclu || true
 fi
 exit 0

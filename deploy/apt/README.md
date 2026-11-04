@@ -17,10 +17,13 @@ sudo apt update && sudo apt install vclu
 Then `sudo apt upgrade` updates vCLU with the rest of the system.
 
 The package uses the install.sh layout (`/opt/vclu`, data in `/opt/vclu/data`, port 8080), so it
-also updates an install.sh setup in place: the unit install.sh wrote in `/etc/systemd/system`
-overrides the packaged one and keeps its directories and port. Before every upgrade the
+also updates an install.sh setup in `/opt/vclu` (the default) in place: the unit install.sh wrote
+in `/etc/systemd/system` overrides the packaged one and keeps its data directory and port. An
+install.sh setup in another directory is not reached (the package warns). Before every upgrade the
 configuration is backed up to `/opt/vclu/backup-<old version>-<date>.tar.gz` (three kept), as
-update.sh does. Removing or purging the package never deletes data.
+update.sh does. A first install enables and starts vCLU; an upgrade starts it again only if it was
+running, so a stopped, disabled or masked service stays that way. Removing or purging the package
+never deletes data.
 
 ## Publishing
 

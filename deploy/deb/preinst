@@ -3,6 +3,8 @@ set -e
 
 # Before an upgrade (or a first package install over an install.sh setup): back up the
 # configuration, as update.sh does. History, metrics and vCLU's own backups are left out.
+# A service that was running is stopped here and started again by postinst (or by
+# postrm/postinst when dpkg aborts); a stopped one stays stopped.
 
 case "$1" in
   install|upgrade) ;;
@@ -23,20 +25,24 @@ CURRENT=$(/opt/vclu/vclu -version 2>/dev/null | sed -n 's/.*version \([^ ]*\).*/
 BACKUP="/opt/vclu/backup-${CURRENT:-unknown}-$(date +%Y%m%d-%H%M%S).tar.gz"
 NAME=$(basename "$DATA_DIR")
 
-if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
-  systemctl stop vclu 2>/dev/null || true
+SYSTEMD=0
+if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then SYSTEMD=1; fi
+if [ "$SYSTEMD" = 1 ] && systemctl is-active --quiet vclu; then
+  touch /run/vclu-was-active
+  systemctl stop vclu || true
 fi
+
 if ! (umask 077 && tar -czf "$BACKUP" \
       --exclude="$NAME/clu/history" --exclude="$NAME/clu/metrics" --exclude="$NAME/clu/backups*" \
       --exclude="$NAME/clu/workspace/backups" --exclude="$NAME/backup" --exclude="$NAME/backup-*" \
       -C "$(dirname "$DATA_DIR")" "$NAME"); then
-  rm -f "$BACKUP"
+  rm -f "$BACKUP" || true
+  if [ -e /run/vclu-was-active ]; then
+    rm -f /run/vclu-was-active
+    systemctl start vclu || true
+  fi
   echo "vclu: backup of $DATA_DIR failed (disk full?); nothing was changed" >&2
   exit 1
 fi
 echo "vclu: configuration backed up to $BACKUP"
-
-# Keep the three newest (names are ours: no odd characters)
-# shellcheck disable=SC2012
-ls -1t /opt/vclu/backup-*.tar.gz 2>/dev/null | tail -n +4 | while read -r old; do rm -f "$old"; done
 exit 0
