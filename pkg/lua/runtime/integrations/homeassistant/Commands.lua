@@ -152,6 +152,16 @@ HACommands.handlers = {
             return false, "invalid position value"
         end
 
+        if subpath == "tilt" then
+            if not HAStatePublisher.coverHasTilt({ object = obj }) then
+                return false, "cover has no tilt"
+            end
+            local degrees = HAStatePublisher.coverTiltFromHA(payload)
+            if not degrees then return false, "invalid tilt value" end
+            obj:setTilt(degrees)
+            return true
+        end
+
         -- OPEN/CLOSE/STOP command
         if payload == "OPEN" then
             if obj.open then
@@ -262,6 +272,10 @@ function HACommands.handleMessage(topic, payload)
     local parsed = HACommands.parseTopic(topic)
     if not parsed then
         return false, "not a command topic"
+    end
+
+    if parsed.subpath == "tilt" and parsed.component ~= "cover" then
+        return false, "only a cover takes tilt"
     end
 
     -- Find handler for component type
@@ -426,7 +440,7 @@ end
 --- Carries out a command on an exposed object, after its access was checked.
 -- Remote access reuses it (RemoteAccess.lua).
 -- @param handle ExposedHandle
--- @param subpath string|nil "brightness", "position", "target_temp" or nil
+-- @param subpath string|nil "brightness", "position", "tilt", "target_temp" or nil
 -- @param payload string HA payload ("ON", "OPEN", "42", JSON for a colour light)
 -- @return boolean, string|nil
 function HACommands.applyExposed(handle, subpath, payload)
@@ -439,6 +453,9 @@ function HACommands.applyExposed(handle, subpath, payload)
     -- target_temp/set is subscribed for a climate only; no other type takes it
     if parsed.subpath == "target_temp" and exposedType ~= "climate" then
         return false, "only a climate takes target_temp"
+    end
+    if parsed.subpath == "tilt" and exposedType ~= "cover" then
+        return false, "only a cover takes tilt"
     end
 
     if exposedType == "switch" then
@@ -500,6 +517,16 @@ function HACommands.applyExposed(handle, subpath, payload)
             end
             if obj.setPosition then obj:setPosition(position) else handle:setValue(position) end
             return true
+        elseif parsed.subpath == "tilt" then
+            if not HAStatePublisher.coverHasTilt(handle) then
+                return false, "cover has no tilt"
+            end
+            local degrees = HAStatePublisher.coverTiltFromHA(payload)
+            if not degrees then
+                return false, "invalid tilt value"
+            end
+            obj:setTilt(degrees)
+            return true
         elseif payload == "OPEN" then
             if obj.open then obj:open() else handle:setValue(100) end
             return true
@@ -555,6 +582,7 @@ function HACommands.setup(mqttInstance)
     local pattern = HACommands.topicPrefix .. "/+/+/+/set"
     local patternBrightness = HACommands.topicPrefix .. "/+/+/+/brightness/set"
     local patternPosition = HACommands.topicPrefix .. "/+/+/+/position/set"
+    local patternTilt = HACommands.topicPrefix .. "/+/+/+/tilt/set"
 
     if Logger then
         Logger:getShared():info("[HA] Subscribing to command topics: %s", pattern)
@@ -573,10 +601,15 @@ function HACommands.setup(mqttInstance)
         HACommands.handleMessage(topic, payload)
     end)
 
+    mqttInstance:subscribe(patternTilt, function(topic, payload)
+        HACommands.handleMessage(topic, payload)
+    end)
+
     -- Subscribe to exposed object command topics
     local expPattern = HACommands.topicPrefix .. "/exposed/+/+/+/set"
     local expBrightness = HACommands.topicPrefix .. "/exposed/+/+/+/brightness/set"
     local expPosition = HACommands.topicPrefix .. "/exposed/+/+/+/position/set"
+    local expTilt = HACommands.topicPrefix .. "/exposed/+/+/+/tilt/set"
     local expTarget = HACommands.topicPrefix .. "/exposed/+/+/+/target_temp/set"
 
     if Logger then
@@ -592,6 +625,10 @@ function HACommands.setup(mqttInstance)
     end)
 
     mqttInstance:subscribe(expPosition, function(topic, payload)
+        HACommands.handleExposedMessage(topic, payload)
+    end)
+
+    mqttInstance:subscribe(expTilt, function(topic, payload)
         HACommands.handleExposedMessage(topic, payload)
     end)
 

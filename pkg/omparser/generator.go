@@ -155,6 +155,10 @@ func generateObjectsForClass(sb *strings.Builder, parsed *ParsedOM, namespace st
 			// Feature 7 Position (not on fv01 firmware, which om.lua does not tell apart)
 			fmt.Fprintf(sb, "%s.%s._hasPosition = true\n", namespace, objName)
 		}
+		if class == ClassROLLER && obj.HasTilt {
+			// Feature 8 LamelPosition, execute 9 SetLamelPosition
+			fmt.Fprintf(sb, "%s.%s._hasTilt = true\n", namespace, objName)
+		}
 		if class == ClassLEDRGB && parsed.HasWhite(obj) {
 			// an LED RGBW module: feature 15 WhiteValue, SetWhiteValue
 			fmt.Fprintf(sb, "%s.%s._hasWhite = true\n", namespace, objName)

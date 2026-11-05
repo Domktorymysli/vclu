@@ -5,6 +5,8 @@
 -- Home Assistant and HomeKit. The OM import sets _hasPosition = true for
 -- class 24; without it (ROLLER_SH, class 11, or a proxy generated before) the value
 -- stays feature 0. First firmware of the 2.0 roller modules (fv01) has no Position either.
+-- A roller with slats (om.lua sets LamelMoveTimeout above 0) gets _hasTilt = true from the
+-- OM import: feature 8 LamelPosition is its tilt, 0 = open .. 90 = closed (degrees).
 -- @module objects.RemoteCover
 -- @inherits RemoteObject
 
@@ -14,9 +16,10 @@ RemoteCover.__index = RemoteCover
 -- Feature indexes of ROLLER_SHUTTER (class 24)
 RemoteCover.FEATURE_STATE = 0
 RemoteCover.FEATURE_POSITION = 7
+RemoteCover.FEATURE_TILT = 8
 
 -- Events besides OnChange that change what the object shows (a panel redraws on them)
-RemoteCover.CHANGE_EVENTS = {"OnMovementChange"}
+RemoteCover.CHANGE_EVENTS = {"OnMovementChange", "OnTiltChange"}
 
 --- Creates a new RemoteCover instance.
 -- @param clu CLU_REMOTE The CLU instance this cover belongs to
@@ -27,6 +30,7 @@ function RemoteCover:new(clu, objId, name)
     local obj = RemoteObject.new(self, clu, objId, name)
     obj._type = "ROLLER"
     obj._hasPosition = false
+    obj._hasTilt = false
     obj._movement = nil
     obj._lastTilt = nil
     obj._allowedMethods = {"getState", "getPosition", "setPosition", "getTilt", "setTilt", "open", "close", "stop", "up", "down"}
@@ -59,7 +63,9 @@ end
 -- carries both publishes the new position with the movement already stored.
 -- @return table Feature indexes
 function RemoteCover:subscribeFeatures()
-    if self._hasPosition then
+    if self._hasPosition and self._hasTilt then
+        return {RemoteCover.FEATURE_STATE, RemoteCover.FEATURE_POSITION, RemoteCover.FEATURE_TILT}
+    elseif self._hasPosition then
         return {RemoteCover.FEATURE_STATE, RemoteCover.FEATURE_POSITION}
     end
     return {RemoteCover.FEATURE_STATE}
@@ -68,14 +74,25 @@ end
 --- Turns a reported feature value into the object's value.
 -- @param index number Feature index
 -- @param value any Reported value
--- @return any The value to store, or nil when the feature is kept aside (movement)
+-- @return any The value to store, or nil when the feature is kept aside (movement, tilt)
 function RemoteCover:fromFeature(index, value)
     if not self._hasPosition then return value end
     if index == RemoteCover.FEATURE_POSITION then
         return tonumber(value)
     end
+    if index == RemoteCover.FEATURE_TILT then
+        if self._hasTilt then self:_setTilt(tonumber(value)) end
+        return nil
+    end
     self:_setMovement(value)
     return nil
+end
+
+-- Slat angle aside from the value, like the movement
+function RemoteCover:_setTilt(angle)
+    local old = self._lastTilt
+    self._lastTilt = angle
+    if angle ~= old then self:emit("OnTiltChange", angle, old) end
 end
 
 -- Movement aside from the value; integrations (Home Assistant) listen for its changes
@@ -86,14 +103,17 @@ function RemoteCover:_setMovement(movement)
 end
 
 --- Gets the current tilt angle of the cover slats (from local cache).
--- @return number Current tilt angle
+-- @return number|nil Angle in degrees (0 = open, 90 = closed), nil until reported or without slats
 function RemoteCover:getTilt()
     return self._lastTilt
 end
 
---- Sets the tilt angle of the cover slats.
--- @param angle number Target tilt angle
+--- Sets the tilt angle of the cover slats (SetLamelPosition).
+-- @param angle number Target angle in degrees (0 = open, 90 = closed), clamped and rounded
 function RemoteCover:setTilt(angle)
+    angle = tonumber(angle)
+    if not angle or angle - angle ~= 0 then error("setTilt: the angle must be a number", 2) end
+    angle = math.floor(math.max(0, math.min(90, angle)) + 0.5)
     self:execute(9, angle)
 end
 

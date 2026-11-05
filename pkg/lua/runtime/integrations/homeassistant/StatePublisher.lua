@@ -389,6 +389,39 @@ function HAStatePublisher.exposedCoverState(handle, position)
     return nil
 end
 
+--- Whether an exposed cover has slats: a Grenton roller with a position the OM import
+-- marked _hasTilt (LamelMoveTimeout above 0 in om.lua).
+-- @param handle ExposedHandle
+-- @return boolean
+function HAStatePublisher.coverHasTilt(handle)
+    local obj = handle.object
+    return type(obj) == "table" and obj._hasTilt == true and obj._hasPosition == true
+        and type(obj.setTilt) == "function"
+end
+
+-- Slat scales: Grenton counts degrees 0 = open .. 90 = closed, HA tilt 0 = closed .. 100 = open
+-- (tilt_closed_value 0, tilt_opened_value 100 in discovery). Both directions convert here.
+
+--- A slat angle in degrees as a Home Assistant tilt.
+-- @param degrees number|nil Grenton LamelPosition (0 = open, 90 = closed)
+-- @return number|nil Tilt 0..100 (0 = closed), nil when not a number
+function HAStatePublisher.coverTiltToHA(degrees)
+    local d = tonumber(degrees)
+    if not d or d - d ~= 0 then return nil end
+    d = math.max(0, math.min(90, d))
+    return math.floor((90 - d) * 100 / 90 + 0.5)
+end
+
+--- A tilt from Home Assistant as a slat angle in degrees, clamped and rounded.
+-- @param payload string|number Tilt from HA (0 = closed, 100 = open)
+-- @return number|nil Degrees 0..90 (90 = closed), nil when not a number
+function HAStatePublisher.coverTiltFromHA(payload)
+    local n = tonumber(payload)
+    if not n or n - n ~= 0 then return nil end
+    n = math.max(0, math.min(100, n))
+    return math.floor((100 - n) * 90 / 100 + 0.5)
+end
+
 --- A position from Home Assistant (0 = closed .. 100 = open), clamped and rounded.
 -- @param payload string|number Position from HA
 -- @return number|nil Position 0..100, nil when not a number
@@ -474,6 +507,13 @@ local function publishExposedState(handle)
     if handle.type == "cover" then
         value = HAStatePublisher.exposedCoverPosition(handle)
         coverState = HAStatePublisher.exposedCoverState(handle, value)
+        -- the slats, once reported, also before the position
+        local tilt = HAStatePublisher.coverHasTilt(handle)
+            and HAStatePublisher.coverTiltToHA(callOpt(handle.object, "getTilt"))
+        if tilt then
+            local tiltTopic = buildExposedPositionTopic(handle.path, handle.type):gsub("/position$", "/tilt")
+            HAStatePublisher.mqttInstance:publish(tiltTopic, tostring(tilt), 0, true)
+        end
     end
     -- Never publish a nil reading. HA rejects "nil" for numeric sensors
     -- (temperature/humidity/number) and there is nothing meaningful to report -
@@ -514,6 +554,18 @@ local function publishExposedState(handle)
         if positionTopic then
             HAStatePublisher.mqttInstance:publish(positionTopic, tostring(value), 0, true)
         end
+    end
+end
+
+-- Tilt of a registry roller on vclu/{clu}/cover/{obj}/tilt
+local function publishRegistryTilt(path, obj)
+    if not HAStatePublisher.enabled or not HAStatePublisher.mqttInstance then return end
+    if ExposedObjects and ExposedObjects:get(path) then return end
+    if MqttAccess and MqttAccess.isHidden and MqttAccess.isHidden(path) then return end
+    local tilt = HAStatePublisher.coverTiltToHA(callOpt(obj, "getTilt"))
+    local topic = buildPositionTopic(path, "ROLLER")
+    if tilt and topic then
+        HAStatePublisher.mqttInstance:publish(topic:gsub("/position$", "/tilt"), tostring(tilt), 0, true)
     end
 end
 
@@ -596,6 +648,16 @@ local function onStateChanged(data)
         local positionTopic = buildPositionTopic(path, objType)
         if positionTopic then
             HAStatePublisher.mqttInstance:publish(positionTopic, tostring(position), 0, true)
+        end
+    end
+
+    -- Slats change apart from the value: publish now and on OnTiltChange (hooked once)
+    local obj = position and _registry and _registry[path]
+    if type(obj) == "table" and obj._hasTilt == true then
+        publishRegistryTilt(path, obj)
+        if obj.onEvent and not obj._haRegistryTiltHook then
+            obj._haRegistryTiltHook = true
+            obj:onEvent("OnTiltChange", function() publishRegistryTilt(path, obj) end)
         end
     end
 end
@@ -738,10 +800,12 @@ local function onObjectExposed(data)
         local obj = handle and handle.object
         if type(obj) == "table" and obj.onEvent and not obj._haMovementHook then
             obj._haMovementHook = true
-            obj:onEvent("OnMovementChange", function()
-                local h = ExposedObjects:get(StateChange.pathOf(obj))
-                if h and h.type == "cover" then publishExposedState(h) end
-            end)
+            for _, event in ipairs({ "OnMovementChange", "OnTiltChange" }) do
+                obj:onEvent(event, function()
+                    local h = ExposedObjects:get(StateChange.pathOf(obj))
+                    if h and h.type == "cover" then publishExposedState(h) end
+                end)
+            end
         end
         local positionTopic = buildExposedPositionTopic(path, exposedType)
         if handle and not HAStatePublisher.coverHasPosition(handle) then
@@ -752,6 +816,17 @@ local function onObjectExposed(data)
             discoveryPayload.set_position_topic = positionTopic .. "/set"
             discoveryPayload.position_open = 100
             discoveryPayload.position_closed = 0
+        end
+        if handle and HAStatePublisher.coverHasTilt(handle) then
+            local tiltTopic = positionTopic:gsub("/position$", "/tilt")
+            discoveryPayload.tilt_status_topic = tiltTopic
+            if not isReadonly(path, options) then
+                discoveryPayload.tilt_command_topic = tiltTopic .. "/set"
+            end
+            discoveryPayload.tilt_min = 0
+            discoveryPayload.tilt_max = 100
+            discoveryPayload.tilt_closed_value = 0
+            discoveryPayload.tilt_opened_value = 100
         end
     end
 

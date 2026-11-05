@@ -266,6 +266,16 @@ func generateCover(obj GrentonObject, cluID string, device HADevice, config HADi
 		delete(payload, "position_closed")
 	}
 
+	// Slats: HA tilt 0 = closed .. 100 = open, converted to degrees in Lua (HAStatePublisher)
+	if obj.Class == ClassROLLER && obj.HasTilt {
+		payload["tilt_status_topic"] = baseTopic + "/tilt"
+		payload["tilt_command_topic"] = baseTopic + "/tilt/set"
+		payload["tilt_min"] = 0
+		payload["tilt_max"] = 100
+		payload["tilt_closed_value"] = 0
+		payload["tilt_opened_value"] = 100
+	}
+
 	return &HADiscoveryMessage{
 		Topic:   fmt.Sprintf("%s/cover/%s/config", config.DiscoveryPrefix, uniqueID),
 		Payload: payload,
