@@ -18,7 +18,7 @@ Only public API is listed — internal/private functions are omitted.
 - [ExposedObjects](#exposedobjects) (21 functions)
 - [core.Registry](#coreregistry) (10 functions)
 - [core.Metrics](#coremetrics) (1 functions)
-- [core.Calendar](#corecalendar) (36 functions)
+- [core.Calendar](#corecalendar) (39 functions)
 - [Dashboard](#dashboard) (79 functions)
 - [lib.panel](#libpanel) (55 functions)
 - [objects.RemotePanel](#objectsremotepanel) (6 functions)
@@ -1023,6 +1023,10 @@ Default channel for reminders: function(e) or an object with :send(e). @api publ
 
 Clock guard: { wait = false } plans without waiting for NTP. @api public
 
+### `Builder:daylight(opts)`
+
+When the day starts and ends for isDay(): { from = 'sunrise', to = 'sunset', fallback = { from = '06:00', to = '20:00' } }. Times as in events ('sunrise+30m', 'dusk', '07:00'); the fallback hours are used without :location(). @api public
+
 ### `Builder:event(id, opts)`
 
 Add an event (start, end and reminder events). @api public
@@ -1096,6 +1100,14 @@ Sunrise, sunset, civil dawn and dusk, and solar noon of a day (date, timestamp o
 ### `Cal:sunPosition(at)`
 
 Where the sun is now (or at a timestamp): { azimuth (degrees from north, 180 south), elevation (degrees above the horizon) }, or nil without :location(). @api public
+
+### `Cal:isDay(at)`
+
+Whether it is day now (or at a timestamp): between :daylight()'s from and to, by the sun with :location(), else by the fallback hours. Nil until the clock is trusted. @api public
+
+### `Cal:isNight(at)`
+
+The opposite of isDay(at); nil until the clock is trusted. @api public
 
 ### `Cal:isWorkday(date)`
 

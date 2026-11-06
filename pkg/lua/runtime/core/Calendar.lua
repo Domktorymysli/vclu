@@ -227,6 +227,39 @@ function Builder:clock(opts)
     return self
 end
 
+-- Bounds of the day for isDay(), compiled in Go; raises naming the calendar.
+local function daylightOf(id, what, from, to, fixedOnly)
+    local dl, err = __go_calendar_daylight(from, to, fixedOnly)
+    if not dl then error('Calendar ' .. id .. ': ' .. what .. ': ' .. tostring(err), 3) end
+    return dl
+end
+
+local DAYLIGHT_KEYS = { from = true, to = true, fallback = true }
+local FALLBACK_KEYS = { from = true, to = true }
+
+local function checkKeys(where, t, allowed)
+    for k in pairs(t) do
+        if not allowed[k] then error(where .. ': unknown option "' .. tostring(k) .. '" (' .. quoted(allowed) .. ')', 3) end
+    end
+end
+
+--- When the day starts and ends for isDay(): { from = 'sunrise', to = 'sunset', fallback =
+-- { from = '06:00', to = '20:00' } }. Times as in events ('sunrise+30m', 'dusk', '07:00');
+-- the fallback hours are used without :location(). @api public
+function Builder:daylight(opts)
+    local where = 'Calendar ' .. self._id .. ': daylight'
+    if type(opts) ~= 'table' then error(where .. ' expects a table', 2) end
+    checkKeys(where, opts, DAYLIGHT_KEYS)
+    local fb = opts.fallback or {}
+    if type(fb) ~= 'table' then error(where .. ": fallback expects { from = '06:00', to = '20:00' }", 2) end
+    checkKeys(where .. ' fallback', fb, FALLBACK_KEYS)
+    self._daylight = {
+        sun = daylightOf(self._id, 'daylight', opts.from or 'sunrise', opts.to or 'sunset', false),
+        fixed = daylightOf(self._id, 'daylight fallback', fb.from or '06:00', fb.to or '20:00', true),
+    }
+    return self
+end
+
 local function checkId(b, id, what)
     if type(id) ~= 'string' or id == '' then error('Calendar ' .. b._id .. ': ' .. what .. ' needs a string id', 3) end
     if b._byId[id] then error('Calendar ' .. b._id .. ': duplicate id "' .. id .. '"', 3) end
@@ -366,6 +399,9 @@ function Builder:build()
         cal._schedules[#cal._schedules + 1] = sc
         cal._byId[it.id] = sc
     end
+
+    if not self._daylight then self:daylight({}) end
+    cal._daylight = self._daylight
 
     cal._st = persist('calendar.' .. cal.id, { events = {}, skips = {}, pauses = {}, seq = 0 })
     cal:_checkSaved()
@@ -686,6 +722,25 @@ function Cal:sunPosition(at)
     if not self._ctx.lat then return nil end
     local az, el = __go_calendar_sun_position(at, self._ctx.lat, self._ctx.lon)
     return { azimuth = az, elevation = el }
+end
+
+local function isDayAt(cal, at, what)
+    if at ~= nil and type(at) ~= 'number' then error('Calendar ' .. cal.id .. ':' .. what .. ': expected a timestamp', 3) end
+    if not cal._s.ready then return nil end
+    local dl = cal._daylight
+    if cal._ctx.lat then return __go_calendar_is_day(dl.sun, at or now(), cal._ctx.lat, cal._ctx.lon) end
+    return __go_calendar_is_day(dl.fixed, at or now())
+end
+
+--- Whether it is day now (or at a timestamp): between :daylight()'s from and to, by the sun with
+-- :location(), else by the fallback hours. Nil until the clock is trusted. @api public
+function Cal:isDay(at) return isDayAt(self, at, 'isDay') end
+
+--- The opposite of isDay(at); nil until the clock is trusted. @api public
+function Cal:isNight(at)
+    local day = isDayAt(self, at, 'isNight')
+    if day == nil then return nil end
+    return not day
 end
 
 --- Whether a date ('YYYY-MM-DD', a timestamp or today) is a workday. @api public

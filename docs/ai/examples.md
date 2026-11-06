@@ -66,6 +66,26 @@ means all day. With `:location(lat, lon)` a time can be the sun: `time = 'sunset
 (degrees from north, 180 south; the lowest elevation or `{ low, high }`). `dom:sun(date)` gives sunrise, sunset, dawn,
 dusk; `dom:sunPosition()` the azimuth and elevation now. Use these instead of the sun-position plugin's events.
 
+"Is it dark now" is `dom:isNight()` (and `dom:isDay()`), not a day/night schedule or a
+`datetime.between('21:00', '06:00')`. The day lasts from sunrise to sunset; `:daylight()` moves its
+bounds with the same times as events. Without `:location()` the fallback hours decide (default
+06:00-20:00). A polar day or night is day or night all day; offsets that leave no day make it night.
+
+```lua
+-- File: modules/kalendarz/init.lua
+local dom = Calendar.new('dom'):location(52.14, 20.72)
+    :daylight({ from = 'sunrise+30m', to = 'dusk', fallback = { from = '06:30', to = '21:00' } })
+    :build()
+
+-- File: modules/korytarz/init.lua: the hall light on motion, only in the dark
+local czujnik = _registry:get("custom:hall_pir")
+czujnik:onChange(function(v)
+    if v == 1 and Calendar.get('dom'):isNight() then
+        _registry:get("custom:hall_light"):set(0, 1)
+    end
+end)
+```
+
 ```lua
 -- shade the south rooms while the sun is on that side and high enough to heat them
 :schedule('rolety-poludnie', { values = { 'otwarte', 'zaslon' }, default = 'otwarte',
@@ -98,6 +118,7 @@ dom:on('reminder', function(e) end)          -- e.offset = '-12h', e.text
 dom:on('change', 'taryfa', function(v, old) end)   -- old == nil: the first value after start
 
 dom:value('taryfa'); dom:isActive('szkola'); dom:next('bio'); dom:today(); dom:upcoming(7)
+dom:isNight()              -- true from sunset to sunrise (:daylight() moves them); isDay(ts) at a moment
 dom:nextChange('taryfa')   -- { value = 'droga', at = ts } within 8 days; same-value windows are not a change
 dom:color('taryfa')        -- colour of the value now
 dom:segments('taryfa', '2026-10-20')       -- one day: { {from, to, value, color}, ... }; or (id, from, to)
@@ -111,7 +132,7 @@ dom:skip('bio', '2026-11-10'); dom:pause('2026-12-24..2027-01-02', { tags = { 'd
 - `skip`, `pause` or `remove` of an occurrence going on fires its `end` at once (`e.cancelled`), so what its start switched on goes off. At one moment `end` fires before `start`: a light handed from one event to the next stays on.
 - `build()` refuses what would otherwise pass silently: a schedule without `default`, a schedule of text without `values` (the error lists the values to copy) or a window value or `default` not in it, `colors` for a value the schedule does not have, `remind` without a sign (`'-12h'` before, `'+1h'` after), `every = 'workday'`/`'holiday'` without `:holidays('pl')`, `except`/`moves` on a day that is not one of the series, `duration` without `time`, `on('change', <event>)`. The widget refuses unknown options and schedules or tags its calendar does not have.
 - `day = 31` skips months without a 31st; the last day of every month is `day = -1`.
-- Until the clock is trusted `value()`/`isActive()` return nil; `:clock({ wait = false })` skips the wait.
+- Until the clock is trusted `value()`/`isActive()`/`isDay()`/`isNight()` return nil; `:clock({ wait = false })` skips the wait.
 - Test with `vclu_draft_test` and `advance`: the virtual clock drives the calendar.
 - `vclu_calendar` reads the house's calendars as they run: a day (`date = 'tomorrow'`) or up to 62 days, with holidays, events in local time and each schedule's value now and next change. Read it before changing a calendar module.
 

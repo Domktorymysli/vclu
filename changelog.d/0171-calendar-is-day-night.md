@@ -1,0 +1,3 @@
+### Lua runtime
+
+- **`cal:isDay()` and `cal:isNight()`** - a calendar says whether it is day now or at a timestamp, from sunrise to sunset of its `:location()`, so a light automation asks `if dom:isNight() then` instead of keeping a day/night schedule or fixed hours. `:daylight({ from, to, fallback })` moves the bounds with the same times as events (`'sunrise+30m'`, `'dusk'`, `'07:00'`); without a location the fallback hours decide (default 06:00-20:00). A polar day or night is day or night all day, offsets that leave no day make it night, and both return nil until the clock is trusted, as `value()` does ([#171](https://github.com/Domktorymysli/vclu/issues/171)).
