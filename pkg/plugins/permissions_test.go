@@ -42,22 +42,23 @@ func TestEffectivePermissions(t *testing.T) {
 		id       string
 		declared *Permissions
 		want     Permissions
+		official bool
 	}{
-		{"@vclu/solax", nil, all},
-		{"@vclu/by-hand", nil, all},
-		{"@vclu/hijack", nil, Permissions{}},
-		{"@vclu/fake-default", nil, Permissions{}},
-		{"@jan/by-hand", nil, Permissions{}},
-		{"@vclu/gone-repo", nil, Permissions{}},
-		{"@vclu/not-installed", nil, Permissions{}},
+		{"@vclu/solax", nil, all, true},
+		{"@vclu/by-hand", nil, all, true},
+		{"@vclu/hijack", nil, Permissions{}, false},
+		{"@vclu/fake-default", nil, Permissions{}, false},
+		{"@jan/by-hand", nil, Permissions{}, false},
+		{"@vclu/gone-repo", nil, Permissions{}, false},
+		{"@vclu/not-installed", nil, Permissions{}, false},
 		// a declaration is followed as written, also for official plugins
-		{"@vclu/solax", &Permissions{LAN: true}, Permissions{LAN: true}},
-		{"@jan/by-hand", &Permissions{MQTT: true}, Permissions{MQTT: true}},
+		{"@vclu/solax", &Permissions{LAN: true}, Permissions{LAN: true}, true},
+		{"@jan/by-hand", &Permissions{MQTT: true}, Permissions{MQTT: true}, false},
 	}
 	for _, c := range cases {
-		got := l.effectivePermissions(c.id, PluginManifest{Permissions: c.declared})
-		if got != c.want {
-			t.Errorf("%s (declared %v): got %+v, want %+v", c.id, c.declared, got, c.want)
+		got, official := l.effectivePermissions(c.id, PluginManifest{Permissions: c.declared})
+		if got != c.want || official != c.official {
+			t.Errorf("%s (declared %v): got %+v official=%v, want %+v official=%v", c.id, c.declared, got, official, c.want, c.official)
 		}
 	}
 }
