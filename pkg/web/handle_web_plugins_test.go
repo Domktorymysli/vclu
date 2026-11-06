@@ -50,6 +50,37 @@ func TestPluginsAPIInstallUpdateKeepsConfig(t *testing.T) {
 	}
 }
 
+// An update from another repository records that repository: the plugin's permissions
+// depend on where its files come from, not where it was first installed from.
+func TestPluginsAPIInstallUpdateRecordsRepository(t *testing.T) {
+	repo := pluginRepo(t, "salda-recuperator", "1.2.0", true)
+
+	dir := t.TempDir()
+	err := writeTestConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
+		Repositories: []config.PluginRepository{
+			{Name: "vCLU Official", URL: config.OfficialPluginsRepoURL, Enabled: true, Default: true},
+			{Name: "test", URL: repo.URL, Enabled: true},
+		},
+		Installed: []config.InstalledPlugin{{
+			ID: "@vclu/salda-recuperator", Version: "1.1.0", Enabled: true, Repository: "vCLU Official",
+		}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{serverDir: dir}
+	if resp := postInstall(t, s, "salda-recuperator"); resp.Action != "updated" {
+		t.Fatalf("answer %+v", resp)
+	}
+	cfg, err := config.ReadMasterConfig(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Plugins.Installed[0].Repository; got != "test" {
+		t.Errorf("repository after an update from test: %q", got)
+	}
+}
+
 // The update's download removes the version it replaces, not one newer than it.
 func TestPluginsAPIInstallUpdateCleansOlderOnly(t *testing.T) {
 	repo := pluginRepo(t, "salda-recuperator", "1.2.0", true)
