@@ -21,7 +21,10 @@ the core or a module calls them on the real instance. Arguments of those read me
 strings and booleans only. Event payloads reach a plugin read-only. Timers, pollers, events, MQTT
 subscriptions, exposed objects and the registry entry go through the plugin API and are cleaned up
 on disable or reload; after cleanup the API refuses every call, so code still reachable (a sensor a
-module kept) starts nothing. A plugin clears only its own timers and exposes only under its id. `pkg/lua/plugin_sandbox_escape_test.go` holds the attempts to get out; a
+module kept) starts nothing. A plugin clears only its own timers and exposes only under its id. Methods of
+facades (handles, pollers) and proxies refuse a self other than their own; `init`, `cleanup`,
+`timers` are the core's. Events a plugin emits start with its prefix: an official plugin's short
+id or the id's first word (`sun-position` → `sun:`), any other plugin's full id (`@jan/foo:`). `pkg/lua/plugin_sandbox_escape_test.go` holds the attempts to get out; a
 change to the sandbox keeps them failing.
 
 ## Permissions

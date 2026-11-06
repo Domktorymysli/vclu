@@ -3,6 +3,7 @@ package lua
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 // Attempts to leave the plugin sandbox. Each must fail; a change to the sandbox
@@ -272,7 +273,7 @@ func TestPluginEscapeOwnMethodsSeeProxy(t *testing.T) {
 	if _, e := runPlugin(t, engine, "@t/a", `
 		L = {}
 		p = Plugin:new("a", {name = "A"})
-		p.init = function(self, cfg) L.init = self end
+		p.onInit(p, function(cfg) L.cfg = cfg end)
 		p.get = function(self, id) L.get = self; return nil end
 		function p:create(opts)
 			L.create = self
@@ -289,7 +290,12 @@ func TestPluginEscapeOwnMethodsSeeProxy(t *testing.T) {
 	`); err != nil {
 		t.Fatal(err)
 	}
-	for _, k := range []string{"init", "create", "get"} {
+	// init and cleanup are the core's: the plugin can neither replace nor call them
+	for _, code := range []string{`p.init = function() end`, `p.cleanup = function() end`, `p.timers = {1, 2, 3}`, `p:cleanup()`} {
+		r, e := runPlugin(t, engine, "@t/a", code)
+		wantRefused(t, code, r, e)
+	}
+	for _, k := range []string{"create", "get"} {
 		r, _ := runPlugin(t, engine, "@t/a", `local s = L.`+k+`; return tostring(s == p) .. tostring(s._sandbox) .. tostring(s.instances) .. tostring(s.httpRequest == p.httpRequest)`)
 		if r != "truenilniltrue" {
 			t.Errorf("%s got the real instance: %s", k, r)
@@ -416,4 +422,138 @@ func TestPluginEscapeExposePath(t *testing.T) {
 	}
 	mustLua(t, engine, `tostring(_registry["CLU220000592.DOU9999"])`, "nil")
 	mustLua(t, engine, `tostring(_registry["@t/a:CLU220000592.DOU9999"] ~= nil)`, "true")
+}
+
+// Methods of a handle or a poller called with a forged self: refused, not run on it.
+func TestPluginEscapeForgedSelf(t *testing.T) {
+	engine := sandboxEngine(t, "@t/a", "")
+	if _, err := engine.Execute(`
+		__lock = { get = function() return 0 end, set = function() end }
+		expose(__lock, "lock", { path = "vclu:front_door" })
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if _, e := runPlugin(t, engine, "@t/a", `
+		p = Plugin:new("a", {name = "A"})
+		local c = p:control("x", function() return 0 end, function(v) end)
+		h = p:expose(c, "switch", { id = "x" })
+		poll = p:poller("x", { interval = 100000 })
+	`); e != "nil" {
+		t.Fatal(e)
+	}
+	fake := `{ _exposed = true, options = {}, type = "lock", path = "vclu:front_door", object = { set = function() end } }`
+	for what, code := range map[string]string{
+		"unexpose":      `h.unexpose(` + fake + `)`,
+		"setValue":      `h.setValue(` + fake + `, 1)`,
+		"poller stop":   `poll.stop({})`,
+		"poller field":  `poll._timerId = nil`,
+		"poller method": `poll.stop = function() end`,
+	} {
+		r, e := runPlugin(t, engine, "@t/a", code)
+		wantRefused(t, what, r, e)
+	}
+	mustLua(t, engine, `tostring(ExposedObjects:get("vclu:front_door") ~= nil)`, "true")
+	// its own handle and poller work as methods
+	if _, e := runPlugin(t, engine, "@t/a", `h:getPath(); poll:stats()`); e != "nil" {
+		t.Errorf("own handle/poller: %s", e)
+	}
+}
+
+// Code a module still holds (a sensor) runs after cleanup but changes nothing.
+func TestPluginEscapeExposeAfterCleanup(t *testing.T) {
+	engine := sandboxEngine(t, "@t/a", "")
+	if _, e := runPlugin(t, engine, "@t/a", `
+		p = Plugin:new("a", {name = "A"})
+		p:sensor("s", function()
+			p:expose({ get = function() return 1 end }, "switch", { id = "zombie" })
+			p:kvSet("k", "v")
+			return 1
+		end)
+	`); e != "nil" {
+		t.Fatal(e)
+	}
+	if _, err := engine.Execute(`__kept = Plugin.getPlugin("@t/a"):get("s")`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.Execute(`Plugin.instances["@t/a"] = nil; PluginSandbox:cleanup("@t/a")`); err != nil {
+		t.Fatal(err)
+	}
+	engine.Execute(`pcall(function() __kept:get() end)`)
+	mustLua(t, engine, `tostring(ExposedObjects:get("@t/a:zombie") ~= nil)`, "false")
+}
+
+// HTTP retries run while the plugin is enabled and stop with it.
+func TestPluginEscapeHTTPRetryAfterCleanup(t *testing.T) {
+	engine := sandboxEngine(t, "@t/a", "")
+	engine.StartTimers()
+	defer engine.StopTimers()
+	if _, e := runPlugin(t, engine, "@t/a", `
+		p = Plugin:new("a", {name = "A"})
+		__n = { v = 0 }
+		p:httpRequest({ url = "http://203.0.113.1:9/", timeout = 50,
+			retry = { attempts = 100000, backoff = 1, maxBackoff = 1,
+				shouldRetry = function() __n.v = __n.v + 1; return true end } },
+			function() end)
+	`); e != "nil" {
+		t.Fatal(e)
+	}
+	if _, err := engine.Execute(`__probe_n = PluginSandbox.sandboxes["@t/a"].environment.__n`); err != nil {
+		t.Fatal(err)
+	}
+	pump := func(d time.Duration) {
+		for deadline := time.Now().Add(d); time.Now().Before(deadline); {
+			engine.ProcessTimers()
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	pump(1500 * time.Millisecond)
+	before, _ := engine.Execute(`__probe_n.v`)
+	if before == "0" {
+		t.Fatal("no retry while enabled")
+	}
+	if _, err := engine.Execute(`Plugin.instances["@t/a"] = nil; PluginSandbox:cleanup("@t/a")`); err != nil {
+		t.Fatal(err)
+	}
+	at, _ := engine.Execute(`__probe_n.v`)
+	pump(1500 * time.Millisecond)
+	after, _ := engine.Execute(`__probe_n.v`)
+	if after != at {
+		t.Errorf("retries after cleanup: %s -> %s", at, after)
+	}
+}
+
+// A plugin's events carry its prefix: it cannot pass for another integration.
+func TestPluginEscapeForgedEvent(t *testing.T) {
+	engine := sandboxEngine(t, "@t/a", "")
+	if _, err := engine.Execute(`
+		PluginSandbox:create("@vclu/sun-position", {official = true})
+		local bus = EventBus:getShared()
+		for _, ev in ipairs({ "satel.OnZoneChange", "gpio.pin.4.OnChange", "telegram:command" }) do
+			bus:on(ev, function() __forged = ev end)
+		end
+	`); err != nil {
+		t.Fatal(err)
+	}
+	for what, code := range map[string]string{
+		"satel":     `EventBus.emit("satel.OnZoneChange", { zone = 7 })`,
+		"gpio":      `EventBus.emit("gpio.pin.4.OnChange", 1)`,
+		"telegram":  `p = Plugin:new("a", {}); p:emit("telegram:command", { text = "/open" })`,
+		"throttled": `p:emit("telegram:command", {}, { throttle = 100 })`,
+	} {
+		r, e := runPlugin(t, engine, "@t/a", code)
+		wantRefused(t, what, r, e)
+	}
+	mustLua(t, engine, `tostring(__forged)`, "nil")
+	if _, e := runPlugin(t, engine, "@t/a", `p:emit("@t/a:changed", 1)`); e != "nil" {
+		t.Errorf("own prefix: %s", e)
+	}
+	// an official plugin: its short id or its first word
+	if _, e := runPlugin(t, engine, "@vclu/sun-position", `
+		local s = Plugin:new("sun-position", {})
+		s:emit("sun:rise", {}); s:emit("sun-position:x", {})
+	`); e != "nil" {
+		t.Errorf("official prefixes: %s", e)
+	}
+	r, e := runPlugin(t, engine, "@vclu/sun-position", `Plugin.getPlugin("sun-position"):emit("weather:changed", {})`)
+	wantRefused(t, "official, other prefix", r, e)
 }

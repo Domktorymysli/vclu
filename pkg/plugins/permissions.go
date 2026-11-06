@@ -15,19 +15,21 @@ type Permissions struct {
 	Modbus bool `json:"modbus,omitempty"` // Modbus requests, reads and writes
 }
 
-// effectivePermissions: what the manifest declares. A plugin without the field keeps
-// everything only when it is official (installed from the official repository, or by
-// hand in the @vclu namespace), until the official manifests declare it.
-func (l *Loader) effectivePermissions(pluginID string, manifest PluginManifest) Permissions {
+// effectivePermissions: what the manifest declares, and whether the plugin is
+// official (that also names its events). A plugin without the field keeps everything
+// only when it is official (installed from the official repository, or by hand in the
+// @vclu namespace), until the official manifests declare it.
+func (l *Loader) effectivePermissions(pluginID string, manifest PluginManifest) (Permissions, bool) {
+	official := l.isOfficial(pluginID)
 	if manifest.Permissions != nil {
-		return *manifest.Permissions
+		return *manifest.Permissions, official
 	}
-	if l.isOfficial(pluginID) {
+	if official {
 		log.Printf("[PLUGINS] WARNING: %s declares no permissions in plugin.json; as an official plugin it keeps lan, mqtt and modbus", pluginID)
-		return Permissions{LAN: true, MQTT: true, Modbus: true}
+		return Permissions{LAN: true, MQTT: true, Modbus: true}, true
 	}
 	log.Printf("[PLUGINS] %s declares no permissions in plugin.json: HTTP to the internet only", pluginID)
-	return Permissions{}
+	return Permissions{}, false
 }
 
 // isOfficial: the configuration says where the plugin came from; its id alone does
