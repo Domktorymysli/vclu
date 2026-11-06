@@ -1244,7 +1244,7 @@ Add a select widget to this section.
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label
 - `icon` (string) — Bootstrap icon name
-- `options` (table) — Array of {value=any, label=string} or function() -> same
+- `options` (table) — Array of strings or {value=any, label=string} (a list, not a function)
 - `getValue` (function) — Returns current selected value: function() -> any
 - `onSelect` (function) — Called with selected value: function(any)
 - `opts` (table) — Optional: {disabled=function()->bool, visible=function()->bool}
@@ -1256,7 +1256,7 @@ Add an image widget to this section.
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label
 - `url` (string) — |function Image URL string or function() -> string
-- `opts` (table) — Optional: {refreshInterval=number (seconds), visible=function()->bool}
+- `opts` (table) — Optional: {refresh=seconds (reloads the image), height=px, align="center"|"right" (the label), visible=function()->bool}
 
 ### `SectionHandle:group(label, icon, opts)`
 
@@ -1614,7 +1614,7 @@ Add a select widget to the current section.
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label
 - `icon` (string) — Bootstrap icon name
-- `options` (table) — Array of {value=any, label=string} or function() -> same
+- `options` (table) — Array of strings or {value=any, label=string} (a list, not a function)
 - `getValue` (function) — Returns current selected value: function() -> any
 - `onSelect` (function) — Called with selected value: function(any)
 - `opts` (table) — Optional: {disabled=function()->bool, visible=function()->bool}
@@ -1626,7 +1626,7 @@ Add an image widget to the current section.
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label
 - `url` (string) — |function Image URL string or function() -> string
-- `opts` (table) — Optional: {refreshInterval=number (seconds), visible=function()->bool}
+- `opts` (table) — Optional: {refresh=seconds (reloads the image), height=px, align="center"|"right" (the label), visible=function()->bool}
 
 ### `DashboardBuilder:group(label, icon, opts)`
 

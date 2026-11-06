@@ -1824,7 +1824,7 @@ end
 -- @param id string Unique widget identifier
 -- @param label string Display label
 -- @param icon string Bootstrap icon name
--- @param options table Array of {value=any, label=string} or function() -> same
+-- @param options table Array of strings or {value=any, label=string} (a list, not a function)
 -- @param getValue function Returns current selected value: function() -> any
 -- @param onSelect function Called with selected value: function(any)
 -- @param opts table Optional: {disabled=function()->bool, visible=function()->bool}
@@ -1841,7 +1841,7 @@ end
 -- @param id string Unique widget identifier
 -- @param label string Display label
 -- @param url string|function Image URL string or function() -> string
--- @param opts table Optional: {refreshInterval=number (seconds), visible=function()->bool}
+-- @param opts table Optional: {refresh=seconds (reloads the image), height=px, align="center"|"right" (the label), visible=function()->bool}
 -- @api public
 function SectionHandle:image(id, label, url, opts)
     self._builder:_addWidget(self._sectionIndex, {
@@ -2612,7 +2612,7 @@ end
 -- @param id string Unique widget identifier
 -- @param label string Display label
 -- @param icon string Bootstrap icon name
--- @param options table Array of {value=any, label=string} or function() -> same
+-- @param options table Array of strings or {value=any, label=string} (a list, not a function)
 -- @param getValue function Returns current selected value: function() -> any
 -- @param onSelect function Called with selected value: function(any)
 -- @param opts table Optional: {disabled=function()->bool, visible=function()->bool}
@@ -2632,7 +2632,7 @@ end
 -- @param id string Unique widget identifier
 -- @param label string Display label
 -- @param url string|function Image URL string or function() -> string
--- @param opts table Optional: {refreshInterval=number (seconds), visible=function()->bool}
+-- @param opts table Optional: {refresh=seconds (reloads the image), height=px, align="center"|"right" (the label), visible=function()->bool}
 -- @api public
 function DashboardBuilder:image(id, label, url, opts)
     if not self._currentSection then
