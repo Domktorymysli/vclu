@@ -16,8 +16,12 @@ can reach is a shared mutable table: `string`, `table` and `math` are its own co
 `JSON` and expose handles are facades bound to the real object, its own instance is a proxy
 (identity fields read-only, sandbox hidden), and other plugins and registry objects are read-only
 proxies whose only callable methods are reads (`get`, `getX`, `isX`, `hasX`), `pairs` included.
-Timers, events, MQTT subscriptions and registered objects go through the plugin API and are cleaned
-up on disable or reload. `pkg/lua/plugin_sandbox_escape_test.go` holds the attempts to get out; a
+Functions a plugin puts on its instance (`create`, `init`, `get`) get its proxy as `self` also when
+the core or a module calls them on the real instance. Arguments of those read methods are numbers,
+strings and booleans only. Event payloads reach a plugin read-only. Timers, pollers, events, MQTT
+subscriptions, exposed objects and the registry entry go through the plugin API and are cleaned up
+on disable or reload; after cleanup the API refuses every call, so code still reachable (a sensor a
+module kept) starts nothing. A plugin clears only its own timers and exposes only under its id. `pkg/lua/plugin_sandbox_escape_test.go` holds the attempts to get out; a
 change to the sandbox keeps them failing.
 
 ## Permissions

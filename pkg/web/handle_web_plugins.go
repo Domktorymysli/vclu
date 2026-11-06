@@ -350,8 +350,10 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 		// Check if already installed
 		for i, inst := range masterConfig.Plugins.Installed {
 			if inst.ID == fullId {
-				// Update version
+				// Update version; the repository is the one the files now come from
+				// (the plugin's permissions depend on it)
 				masterConfig.Plugins.Installed[i].Version = pluginMeta.Version
+				masterConfig.Plugins.Installed[i].Repository = targetRepo.Name
 				masterConfig.Plugins.Installed[i].InstalledAt = time.Now().Format(time.RFC3339)
 				action = "updated"
 				return nil
