@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html data-bs-theme="dark">
+<html lang="{{.lang}}" data-bs-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
@@ -18,16 +18,17 @@
         </div>
         <div id="dashboardContent" class="dash-loading">
             <div class="spinner-border text-light" role="status">
-                <span class="visually-hidden">Loading...</span>
+                <span class="visually-hidden">{{t .lang "dashboard.loading"}}</span>
             </div>
         </div>
     </div>
     <div id="dashboardOverlay" class="dash-overlay" style="display:none;">
         <div class="dash-overlay-content">
             <i class="bi bi-arrow-repeat dash-spin"></i>
-            <p>Dashboard reloading...</p>
+            <p>{{t .lang "dashboard.reloading"}}</p>
         </div>
     </div>
+    <script type="application/json" id="dashTexts">{{json .texts}}</script>
     <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js?v={{.v}}"></script>
     <script src="/static/vendor/chartjs/chart.js?v={{.v}}"></script>
     <script src="/static/js/utils.js?v={{.v}}"></script>

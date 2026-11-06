@@ -184,3 +184,25 @@ func IsLoaded() bool {
 	defer mu.RUnlock()
 	return loaded
 }
+
+// Resolve returns lang when it has translations, else the default language.
+func Resolve(lang string) string {
+	mu.RLock()
+	defer mu.RUnlock()
+	if _, ok := translations[lang]; ok {
+		return lang
+	}
+	return DefaultLang
+}
+
+// Raw returns a section as it is in the file, lists and nested objects included (read-only).
+func Raw(lang, section string) map[string]interface{} {
+	mu.RLock()
+	defer mu.RUnlock()
+	trans, ok := translations[lang]
+	if !ok {
+		trans = translations[DefaultLang]
+	}
+	m, _ := trans[section].(map[string]interface{})
+	return m
+}
