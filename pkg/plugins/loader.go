@@ -132,12 +132,21 @@ func validPathName(name string) bool {
 	return pathNameRe.MatchString(name) && !strings.Contains(name, "..")
 }
 
+// idPartRe: a namespace or short id. Lower case and no "--" or edge "-", so the
+// directory and KV file names ("ns--id") of two ids never meet, also on a
+// case-insensitive file system.
+var idPartRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$`)
+
+func validIDPart(part string) bool {
+	return idPartRe.MatchString(part) && !strings.Contains(part, "--") && !strings.Contains(part, "..")
+}
+
 func validPluginID(pluginID string) bool {
 	namespace, shortId := parseFullId(pluginID)
 	if strings.HasPrefix(pluginID, "@") && namespace == "" {
 		return false
 	}
-	return (namespace == "" || validPathName(namespace)) && validPathName(shortId)
+	return (namespace == "" || validIDPart(namespace)) && validIDPart(shortId)
 }
 
 // insidePluginsDir: dir is under the plugins directory, not the directory itself

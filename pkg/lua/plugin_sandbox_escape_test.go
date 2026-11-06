@@ -557,3 +557,47 @@ func TestPluginEscapeForgedEvent(t *testing.T) {
 	r, e := runPlugin(t, engine, "@vclu/sun-position", `Plugin.getPlugin("sun-position"):emit("weather:changed", {})`)
 	wantRefused(t, "official, other prefix", r, e)
 }
+
+// A plugin cannot take over an expose a module made of its own object.
+func TestPluginEscapeReexposeModuleHandle(t *testing.T) {
+	engine := sandboxEngine(t, "@t/a", "")
+	if _, e := runPlugin(t, engine, "@t/a", `
+		p = Plugin:new("a", {name = "A"})
+		p:control("door", function() return 0 end, function(v) end)
+	`); e != "nil" {
+		t.Fatal(e)
+	}
+	if _, err := engine.Execute(`expose(Plugin.getPlugin("@t/a"):get("door"), "switch", { path = "vclu:door", name = "Door", readonly = true, mqtt = false, homekit = false })`); err != nil {
+		t.Fatal(err)
+	}
+	r, e := runPlugin(t, engine, "@t/a", `p:expose(p:get("door"), "switch", { name = "pwned", readonly = false, mqtt = true })`)
+	wantRefused(t, "re-expose", r, e)
+	r, e = runPlugin(t, engine, "@t/a", `return tostring(p:unexpose("vclu:door"))`)
+	if r != "false" {
+		t.Errorf("unexpose of the module's path: r=%s e=%s", r, e)
+	}
+	mustLua(t, engine, `local h = ExposedObjects:get("vclu:door"); return tostring(h.options.readonly) .. tostring(h.options.mqtt) .. h.options.name`, "truefalseDoor")
+}
+
+// Paths alike after the MQTT/HA normalization would share one entity.
+func TestPluginEscapeHATopicCollision(t *testing.T) {
+	engine := sandboxEngine(t, "@vclu/sun-position", "{official = true}")
+	if _, err := engine.Execute(`PluginSandbox:create("@vclu/sun_position", {})`); err != nil {
+		t.Fatal(err)
+	}
+	if _, e := runPlugin(t, engine, "@vclu/sun-position", `
+		local p = Plugin:new("sun-position", {})
+		p:expose(p:control("x", function() return 0 end, function() end), "switch", { id = "x" })
+	`); e != "nil" {
+		t.Fatal(e)
+	}
+	for id, code := range map[string]string{
+		"@vclu/sun_position": `local p = Plugin:new("sun_position", {}); p:expose(p:control("x", function() return 1 end, function() end), "switch", { id = "x" })`,
+	} {
+		r, e := runPlugin(t, engine, id, code)
+		wantRefused(t, id, r, e)
+	}
+	if _, err := engine.Execute(`expose({ get = function() return 0 end, set = function() end }, "switch", { path = "@VCLU/sun-position:x" })`); err == nil {
+		t.Error("a module path sharing the topic was exposed")
+	}
+}

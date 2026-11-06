@@ -27,10 +27,16 @@ facades (handles, pollers) and proxies refuse a self other than their own; `init
 id or the id's first word (`sun-position` → `sun:`), any other plugin's full id (`@jan/foo:`). `pkg/lua/plugin_sandbox_escape_test.go` holds the attempts to get out; a
 change to the sandbox keeps them failing.
 
+## Plugin ids
+A namespace and a short id are lower case, without `--` or a `-` at either end
+(`validPluginID`): the directory and KV file name `ns--id` then belong to one id, also on a
+case-insensitive file system. Exposed paths of plugins that would share an MQTT topic or HA
+unique_id after its normalization are refused (`ExposedObjects:expose`).
+
 ## Permissions
 `plugin.json` declares what a plugin reaches beyond HTTP to the internet:
 `"permissions": {"lan": true, "mqtt": true, "modbus": true}`. `lan` is HTTP to local addresses,
-checked in Go after DNS resolution (`pkg/lua/http_lan.go`); `mqtt` and `modbus` give the plugin API
+checked in Go after DNS resolution, including this machine's own networks (`pkg/lua/http_lan.go`); `mqtt` and `modbus` give the plugin API
 and the `Modbus` table. A plugin without the field gets none of them, except an official one
 (installed from the official repository, or by hand in `@vclu`), which keeps all three with a
 warning in the log until its manifest declares them (`permissions.go`).

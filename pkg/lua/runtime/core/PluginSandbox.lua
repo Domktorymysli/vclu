@@ -197,7 +197,7 @@ end
 -- Plugin class functions that are not instance methods
 local PLUGIN_STATIC = { new = true, getPlugin = true, list = true, allStats = true, initFromConfig = true }
 -- Fields of its own instance a plugin may not see (the sandbox, raw handles) or replace
-local INSTANCE_HIDDEN = { _sandbox = true, _exposedHandles = true }
+local INSTANCE_HIDDEN = { _sandbox = true, _exposedHandles = true, timers = true, subscriptions = true }
 local INSTANCE_PROTECTED = {
     id = true, shortId = true, namespace = true, _sandbox = true, _isPlugin = true, _exposedHandles = true,
     timers = true, subscriptions = true, init = true, cleanup = true, stats = true,
@@ -226,9 +226,13 @@ local function instanceProxy(inner)
         end,
         -- a path only under the plugin's id, not a CLU's or another plugin's
         expose = function(obj, objType, options)
+            local prefix = inner.id .. ":"
+            local existing = ExposedObjects and ExposedObjects._objectToPath[obj]
+            if existing and existing:sub(1, #prefix) ~= prefix then
+                error("Read-only: " .. existing .. " was exposed by a module; a plugin cannot change it", 2)
+            end
             local opts = {}
             for k, v in originalPairs(options or {}) do opts[k] = v end
-            local prefix = inner.id .. ":"
             if opts.path ~= nil and (type(opts.path) ~= "string" or opts.path:sub(1, #prefix) ~= prefix) then
                 opts.path = prefix .. tostring(opts.path)
             end

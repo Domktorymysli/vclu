@@ -43,6 +43,22 @@ func isLocalAddr(ip netip.Addr) bool {
 		ietfProtocol.Contains(ip) || ip == broadcastIP4
 }
 
+// onHostNetwork: an address of this machine or in a network it is on, also a global
+// one (the house's IPv6 prefix, the router at prefix::1).
+func onHostNetwork(ip netip.Addr) bool {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return true
+	}
+	std := net.IP(ip.Unmap().AsSlice())
+	for _, a := range addrs {
+		if n, ok := a.(*net.IPNet); ok && n.Contains(std) {
+			return true
+		}
+	}
+	return false
+}
+
 // noLANDialer refuses local addresses after DNS resolution, so a name that
 // resolves to the LAN and a redirect to one are refused as well.
 func noLANDialer() *net.Dialer {
@@ -58,7 +74,7 @@ func noLANDialer() *net.Dialer {
 			if err != nil {
 				return fmt.Errorf("refused %s: not an IP address", address)
 			}
-			if isLocalAddr(ip) {
+			if isLocalAddr(ip) || onHostNetwork(ip) {
 				return fmt.Errorf("refused %s: a local address needs \"lan\" in the plugin's permissions", host)
 			}
 			return nil
