@@ -8,55 +8,236 @@ local PluginHelpers = require("PluginHelpers")
 PluginSandbox = {}
 PluginSandbox.sandboxes = {}  -- pluginId -> sandbox data
 
--- Read-only proxy for external registry objects (prevents plugin mutation)
-local readOnlyProxies = setmetatable({}, {__mode = "k"})  -- weak-key: proxy -> source
+-- Nothing a plugin can reach may be a shared mutable table: it gets copies, read-only
+-- proxies of objects it did not create, and facades whose methods are bound to the
+-- real object. A proxy keeps its source in the metatable, which a plugin cannot read.
+local unpackArgs = unpack or table.unpack
 
-local function readOnlyProxy(obj)
-    if type(obj) ~= "table" then return obj end
-    local proxy = setmetatable({}, {
+local function sourceOf(t)
+    local mt = type(t) == "table" and getmetatable(t)
+    return type(mt) == "table" and rawget(mt, "__sandboxSource") or nil
+end
+
+-- Applies f to every result of a call, keeping trailing nils.
+local function mapResults(f, ...)
+    local n = select("#", ...)
+    if n == 0 then return end
+    local out = { ... }
+    for i = 1, n do out[i] = f(out[i]) end
+    return unpackArgs(out, 1, n)
+end
+
+local function shallowCopy(t)
+    local c = {}
+    for k, v in pairs(t) do c[k] = v end
+    return c
+end
+
+-- Methods a plugin may call on an object it did not create: reads only.
+local READ_DENY = {
+    getShared = true, getInstance = true, getInstanceIds = true, getConfig = true,
+    getKey = true, getOutbox = true, getRequestLog = true,
+}
+local function isReadMethod(name)
+    if type(name) ~= "string" or READ_DENY[name] then return false end
+    return name == "get" or name:match("^get%u") ~= nil or name:match("^is%u") ~= nil
+        or name:match("^has%u") ~= nil
+end
+
+local function isPluginInstance(obj)
+    return type(obj) == "table" and rawget(obj, "_isPlugin") == true and getmetatable(obj) == Plugin
+end
+
+local readOnlyProxy
+
+-- Another plugin as a plugin sees it: its sensors and controls, read-only. Not its
+-- config, KV store or sandbox.
+local function pluginFacade(obj)
+    return {
+        id = obj.id, shortId = obj.shortId, namespace = obj.namespace,
+        name = obj.name, version = obj.version,
+        get = function(_, id) return readOnlyProxy(obj:get(id)) end,
+        listSensorsAndControls = function() return obj:listSensorsAndControls() end,
+    }
+end
+
+-- Read-only proxy for external registry objects: fields read, tables proxied in turn,
+-- read methods called on the real object, every other method refused.
+readOnlyProxy = function(obj)
+    if type(obj) ~= "table" or sourceOf(obj) then return obj end
+    if isPluginInstance(obj) then return pluginFacade(obj) end
+    local proxy
+    local methods = {}
+    proxy = setmetatable({}, {
+        __sandboxSource = obj,
         __index = function(_, key)
             local val = obj[key]
-            if type(val) == "table" then
-                return readOnlyProxy(val)
+            if type(val) == "function" then
+                local m = methods[key]
+                if m then return m end
+                if isReadMethod(key) then
+                    m = function(self, ...)
+                        if self == proxy then self = obj end
+                        return mapResults(readOnlyProxy, val(self, ...))
+                    end
+                else
+                    m = function()
+                        error("Read-only: a plugin cannot call " .. tostring(key)
+                            .. " on an object it did not create (only get, getX, isX, hasX)", 2)
+                    end
+                end
+                methods[key] = m
+                return m
             end
-            return val
+            return readOnlyProxy(val)
         end,
         __newindex = function()
-            error("Read-only: plugins cannot modify external registry objects")
+            error("Read-only: plugins cannot modify external registry objects", 2)
         end,
         __len = function() return #obj end,
     })
-    readOnlyProxies[proxy] = obj
     return proxy
 end
 
--- Overrides for pairs/ipairs/next to support read-only proxies in Lua 5.1
+-- A shared runtime object (Logger, JSON, an expose handle) whose methods a plugin may
+-- call but whose fields it may not replace.
+local function boundFacade(obj)
+    local facade
+    local methods = {}
+    local function out(r)
+        if r == obj then return facade end
+        return r
+    end
+    facade = setmetatable({}, {
+        __sandboxSource = obj,
+        __index = function(_, key)
+            local val = obj[key]
+            if type(val) == "function" then
+                local m = methods[key]
+                if not m then
+                    m = function(self, ...)
+                        if self == facade then self = obj end
+                        return mapResults(out, val(self, ...))
+                    end
+                    methods[key] = m
+                end
+                return m
+            end
+            return readOnlyProxy(val)
+        end,
+        __newindex = function()
+            error("Read-only: plugins cannot modify a shared object", 2)
+        end,
+    })
+    return facade
+end
+
+-- pairs/ipairs/next over a proxy go through the proxy, never hand out raw values
 local originalPairs = pairs
 local originalIpairs = ipairs
 local originalNext = next
 
+local function sandboxNext(t, key)
+    local source = sourceOf(t)
+    if not source then return originalNext(t, key) end
+    local k = originalNext(source, key)
+    if k == nil then return nil end
+    return k, t[k]
+end
+
 local function sandboxPairs(t)
-    local source = readOnlyProxies[t]
-    if source then return originalPairs(source) end
+    if sourceOf(t) then return sandboxNext, t, nil end
     return originalPairs(t)
 end
 
+local function proxyIpairsStep(t, i)
+    i = i + 1
+    if sourceOf(t)[i] == nil then return nil end
+    return i, t[i]
+end
+
 local function sandboxIpairs(t)
-    local source = readOnlyProxies[t]
-    if source then return originalIpairs(source) end
+    if sourceOf(t) then return proxyIpairsStep, t, 0 end
     return originalIpairs(t)
 end
 
-local function sandboxNext(t, key)
-    local source = readOnlyProxies[t]
-    if source then return originalNext(source, key) end
-    return originalNext(t, key)
+-- Plugin class functions that are not instance methods
+local PLUGIN_STATIC = { new = true, getPlugin = true, list = true, allStats = true, initFromConfig = true }
+-- Fields of its own instance a plugin may not see (the sandbox, raw handles) or replace
+local INSTANCE_HIDDEN = { _sandbox = true, _exposedHandles = true }
+local INSTANCE_PROTECTED = {
+    id = true, shortId = true, namespace = true, _sandbox = true, _isPlugin = true, _exposedHandles = true,
+}
+
+-- The plugin's own instance as the plugin holds it. The real instance (in
+-- Plugin.instances, for modules) stays out of its reach: methods are called on it,
+-- and its identity cannot be changed to act as another plugin.
+local function instanceProxy(inner)
+    local proxy = {}
+    local methods = {}
+    local function out(r)
+        if r == inner then return proxy end
+        if type(r) == "table" and getmetatable(r) ~= nil and not sourceOf(r) then
+            return boundFacade(r)
+        end
+        return r
+    end
+    local overrides = {
+        getExposed = function()
+            local result = {}
+            for i, h in ipairs(Plugin.getExposed(inner)) do result[i] = boundFacade(h) end
+            return result
+        end,
+        -- only its own handles, never another module's expose path
+        unexpose = function(handleOrPath)
+            local wanted = sourceOf(handleOrPath) or handleOrPath
+            for _, h in ipairs(inner._exposedHandles or {}) do
+                if h == wanted or (type(wanted) == "string" and h:getPath() == wanted) then
+                    return Plugin.unexpose(inner, h)
+                end
+            end
+            return false
+        end,
+    }
+    setmetatable(proxy, {
+        __index = function(_, key)
+            if INSTANCE_HIDDEN[key] then return nil end
+            local val = rawget(inner, key)
+            if val ~= nil then return val end
+            local m = methods[key]
+            if m then return m end
+            local f = Plugin[key]
+            if type(f) ~= "function" then
+                if type(f) == "table" then return nil end
+                return f
+            end
+            if PLUGIN_STATIC[key] then return nil end
+            local override = overrides[key]
+            m = function(self, ...)
+                if self ~= proxy then
+                    error("Plugin method " .. key .. " called on another object", 2)
+                end
+                if override then return override(...) end
+                return mapResults(out, f(inner, ...))
+            end
+            methods[key] = m
+            return m
+        end,
+        __newindex = function(_, key, value)
+            if INSTANCE_PROTECTED[key] then
+                error("Plugin field " .. tostring(key) .. " is read-only", 2)
+            end
+            inner[key] = value
+        end,
+    })
+    return proxy
 end
 
 --- Create a new sandbox for a plugin
 -- @param pluginId string The full plugin ID (e.g., "@vclu/weather")
+-- @param permissions table|nil {lan, mqtt, modbus} from plugin.json; nil grants none
 -- @return table The created sandbox
-function PluginSandbox:create(pluginId)
+function PluginSandbox:create(pluginId, permissions)
     -- Pre-compute plugin namespace prefix (e.g., "plugins.vclu.weather")
     local namespace, shortId = pluginId:match("^@([^/]+)/(.+)$")
     local pluginKey = shortId or pluginId
@@ -73,7 +254,19 @@ function PluginSandbox:create(pluginId)
         registryObjects = {},     -- path -> true (for cleanup)
         dataObjects = {},         -- shortPath -> data (plugin-local state, not in global _registry)
         environment = nil,        -- will be set by buildEnvironment
+        instance = nil,           -- the real Plugin instance, set by Plugin:new
+        instanceProxy = nil,      -- the instance as the plugin holds it
     }
+    permissions = type(permissions) == "table" and permissions or {}
+    sandbox.permissions = {
+        lan = permissions.lan == true,
+        mqtt = permissions.mqtt == true,
+        modbus = permissions.modbus == true,
+    }
+    -- requests of a plugin carry its id as the HTTP instance (PluginHelpers.httpRequest)
+    if type(__go_http_set_lan) == "function" then
+        __go_http_set_lan(pluginId, sandbox.permissions.lan)
+    end
 
     -- Build wrapped API with automatic tracking
     sandbox.api = self:buildAPI(sandbox)
@@ -167,8 +360,15 @@ function PluginSandbox:buildAPI(sandbox)
         end
     end
 
+    local function requireMqtt()
+        if not sandbox.permissions.mqtt then
+            error("MQTT needs \"mqtt\" in the permissions of " .. pluginId .. "'s plugin.json", 2)
+        end
+    end
+
     -- Wrapped MQTT subscribe with tracking
     api.mqttSubscribe = function(topic, callback)
+        requireMqtt()
         local wrappedCallback = function(t, payload)
             local ok, err = pcall(callback, t, payload)
             if not ok then
@@ -189,12 +389,13 @@ function PluginSandbox:buildAPI(sandbox)
 
     -- Wrapped MQTT publish (no tracking needed)
     api.mqttPublish = function(topic, payload, retain, qos)
+        requireMqtt()
         if MQTT and MQTT.publish then
             local payloadStr = payload
             if type(payload) == "table" then
                 payloadStr = JSON:encode(payload)
             end
-            MQTT:publish(topic, payloadStr, retain or false, qos or 0)
+            MQTT:publish(topic, payloadStr, qos or 0, retain or false)
         end
     end
 
@@ -214,99 +415,34 @@ function PluginSandbox:buildAPI(sandbox)
         -- Try global _registry (external objects — read-only proxy). rawget and the table
         -- check: a name such as "list" is a registry method, not an object.
         local obj = _registry and rawget(_registry, path)
-        if type(obj) == "table" then
-            return readOnlyProxy(obj)
-        end
-        -- Try Registry:get (always external scope)
-        if _ and _.get then
+        if type(obj) ~= "table" and _ and _.get then
+            -- Try Registry:get (always external scope)
             obj = _:get(path)
-            if type(obj) == "table" then return readOnlyProxy(obj) end
         end
-        return nil
+        if type(obj) ~= "table" then return nil end
+        if obj == sandbox.instance then return sandbox.instanceProxy end
+        return readOnlyProxy(obj)
     end
 
-    -- HTTP GET with pcall protection
+    -- GET/POST go through httpRequest like every other plugin request: the plugin's own
+    -- HTTP instance, with its LAN permission
+    local function simpleRequest(opts, callback)
+        PluginHelpers.httpRequest(pluginId, opts, function(response, err)
+            local ok, callErr = pcall(callback, response, err)
+            if not ok then
+                Logger:error("[" .. pluginId .. "] HTTP " .. opts.method .. " callback error: " .. tostring(callErr))
+            end
+        end)
+    end
+
     api.httpGet = function(url, callback)
-        if HTTP then
-            HTTP:asyncGet(url, function(response, err)
-                local ok, callErr = pcall(callback, response, err)
-                if not ok then
-                    Logger:error("[" .. pluginId .. "] HTTP GET callback error: " .. tostring(callErr))
-                end
-            end)
-        else
-            callback(nil, "HTTP not available")
-        end
+        simpleRequest({ method = "GET", url = url }, callback)
     end
 
-    -- HTTP POST with pcall protection
     api.httpPost = function(url, data, callback)
-        if HTTP then
-            HTTP:asyncPost(url, data, function(response, err)
-                local ok, callErr = pcall(callback, response, err)
-                if not ok then
-                    Logger:error("[" .. pluginId .. "] HTTP POST callback error: " .. tostring(callErr))
-                end
-            end)
-        else
-            callback(nil, "HTTP not available")
-        end
-    end
-
-    -- HTTP Request with full options (method, headers, body, timeout)
-    api.httpRequest = function(options, callback)
-        if not HTTP then
-            callback(nil, "HTTP not available")
-            return
-        end
-
-        local method = (options.method or "GET"):upper()
-        local url = options.url
-        local headers = options.headers or {}
-        local body = options.body
-        local timeout = options.timeout or 30000
-
-        -- Create a new HTTP client instance for this request
-        local client = HTTP:new(pluginId .. "-request")
-        client:setTimeout(timeout)
-
-        -- Set SSL verification (default true, can be disabled for self-signed certs)
-        if options.verifySSL == false then
-            client:setVerifySSL(false)
-        end
-
-        -- Set Content-Type via dedicated method (required for proper header handling)
-        if headers["Content-Type"] then
-            client:setContentType(headers["Content-Type"])
-            headers["Content-Type"] = nil  -- Remove from headers to avoid duplicate
-        end
-
-        -- Set other custom headers
-        for name, value in pairs(headers) do
-            client:setHeader(name, value)
-        end
-
-        -- Make async request
-        local requestMethod = method == "POST" and client.asyncPost or client.asyncGet
-        local requestArgs = method == "POST" and {client, url, body} or {client, url}
-
-        local asyncFunc = method == "POST"
-            and function() client:asyncPost(url, body, function(response, err)
-                    local ok, callErr = pcall(callback, response, err)
-                    if not ok then
-                        Logger:error("[" .. pluginId .. "] HTTP request callback error: " .. tostring(callErr))
-                    end
-                end)
-            end
-            or function() client:asyncGet(url, function(response, err)
-                    local ok, callErr = pcall(callback, response, err)
-                    if not ok then
-                        Logger:error("[" .. pluginId .. "] HTTP request callback error: " .. tostring(callErr))
-                    end
-                end)
-            end
-
-        asyncFunc()
+        local opts = { method = "POST", url = url }
+        if type(data) == "table" then opts.json = data else opts.body = data end
+        simpleRequest(opts, callback)
     end
 
     -- Logging helper
@@ -428,6 +564,7 @@ end
 -- @return table The environment table
 function PluginSandbox:buildEnvironment(sandbox)
     local api = sandbox.api
+    local pluginId = sandbox.id
 
     -- Safe subset of os library
     local safeOs = {
@@ -445,6 +582,86 @@ function PluginSandbox:buildEnvironment(sandbox)
         end
     end
 
+    -- Modbus only with the permission; without it a clear error instead of nil
+    local modbus
+    if sandbox.permissions.modbus and Modbus then
+        modbus = shallowCopy(Modbus)
+    else
+        modbus = setmetatable({}, {
+            __index = function()
+                error("Modbus needs \"modbus\" in the permissions of " .. pluginId .. "'s plugin.json", 2)
+            end,
+        })
+    end
+
+    -- The plugin's view of the Plugin class: its own instance, other plugins read-only
+    local function external(obj)
+        if obj == nil then return nil end
+        if obj == sandbox.instance then return sandbox.instanceProxy end
+        return readOnlyProxy(obj)
+    end
+    local classFields = {
+        apiVersion = Plugin.apiVersion,
+        new = function(_, shortId, metadata)
+            if sandbox.instanceProxy then
+                Logger:warn("[PLUGIN] " .. pluginId .. " called Plugin:new again; returning its instance")
+                return sandbox.instanceProxy
+            end
+            metadata = metadata or {}
+            local instance = setmetatable({}, Plugin)
+            instance.id = pluginId  -- Force fullId from sandbox
+            instance.shortId = shortId
+
+            -- Parse namespace from fullId
+            if pluginId:sub(1, 1) == "@" then
+                local slashPos = pluginId:find("/")
+                if slashPos then
+                    instance.namespace = pluginId:sub(2, slashPos - 1)
+                    instance.shortId = pluginId:sub(slashPos + 1)
+                end
+            end
+
+            instance.name = metadata.name or shortId
+            instance.version = metadata.version or "0.0.0"
+            instance.description = metadata.description or ""
+            instance.config = {}
+            instance.timers = {}
+            instance.subscriptions = {}
+            instance._initCallback = nil
+            instance._cleanupCallback = nil
+            instance._exposedHandles = {}
+            instance._sandbox = sandbox
+            instance._isPlugin = true
+
+            sandbox.instance = instance
+            sandbox.instanceProxy = instanceProxy(instance)
+
+            -- Store in global Plugin.instances
+            Plugin.instances[pluginId] = instance
+
+            -- Register in global _registry so _:get("@vclu/weather") works
+            if _registry then
+                _registry[pluginId] = instance
+            end
+
+            Logger:info("[PLUGIN] Registered: " .. instance.name .. " v" .. instance.version .. " (" .. pluginId .. ")")
+            return sandbox.instanceProxy
+        end,
+        getPlugin = function(id)
+            return external(Plugin.getPlugin(id))
+        end,
+    }
+    local pluginClass = setmetatable({}, {
+        __index = function(_, key)
+            local v = classFields[key]
+            if v ~= nil then return v end
+            error("Plugin." .. tostring(key) .. " is not available in a plugin", 2)
+        end,
+        __newindex = function()
+            error("Read-only: plugins cannot modify Plugin", 2)
+        end,
+    })
+
     local env = {
         -- Standard Lua functions (safe)
         print = print,
@@ -455,16 +672,16 @@ function PluginSandbox:buildEnvironment(sandbox)
         tostring = tostring,
         tonumber = tonumber,
         select = select,
-        unpack = unpack or table.unpack,
+        unpack = unpackArgs,
         pcall = pcall,
         xpcall = xpcall,
         error = error,
         assert = assert,
 
-        -- Standard libraries (safe, immutable copies)
-        string = string,
-        table = table,
-        math = math,
+        -- Standard libraries: the plugin's own copies, so a change stays in the plugin
+        string = shallowCopy(string),
+        table = shallowCopy(table),
+        math = shallowCopy(math),
         os = safeOs,
         datetime = safeDatetime,
 
@@ -474,75 +691,32 @@ function PluginSandbox:buildEnvironment(sandbox)
         clearTimeout = api.clearTimer,
         clearInterval = api.clearTimer,
 
-        -- Global references (read-only)
-        Logger = Logger,
-        JSON = JSON,
-        HttpClient = HTTP,  -- HTTP is the global from require("HttpClient")
-        HTTP = HTTP,
-        MQTT = MQTT,
-        Modbus = Modbus,
+        -- Shared objects: methods callable, fields not replaceable. HTTP and MQTT go
+        -- through the plugin API (plugin:httpRequest, plugin:mqttSubscribe).
+        Logger = boundFacade(Logger),
+        JSON = boundFacade(JSON),
+        Modbus = modbus,
 
-        -- Wrapped Plugin that injects sandbox's fullId
-        Plugin = setmetatable({}, {
-            __index = function(_, key)
-                if key == "new" then
-                    return function(_, shortId, metadata)
-                        -- Create instance with forced fullId from sandbox
-                        local instance = setmetatable({}, Plugin)
-                        instance.id = sandbox.id  -- Force fullId from sandbox
-                        instance.shortId = shortId
-
-                        -- Parse namespace from fullId
-                        if sandbox.id:sub(1, 1) == "@" then
-                            local slashPos = sandbox.id:find("/")
-                            if slashPos then
-                                instance.namespace = sandbox.id:sub(2, slashPos - 1)
-                                instance.shortId = sandbox.id:sub(slashPos + 1)
-                            end
-                        end
-
-                        instance.name = metadata.name or shortId
-                        instance.version = metadata.version or "0.0.0"
-                        instance.description = metadata.description or ""
-                        instance.config = {}
-                        instance.timers = {}
-                        instance.subscriptions = {}
-                        instance._initCallback = nil
-                        instance._cleanupCallback = nil
-                        instance._sandbox = sandbox
-                        instance._isPlugin = true
-
-                        -- Store in global Plugin.instances
-                        Plugin.instances[sandbox.id] = instance
-
-                        -- Register in global _registry so _:get("@vclu/weather") works
-                        if _registry then
-                            _registry[sandbox.id] = instance
-                        end
-
-                        Logger:info("[PLUGIN] Registered: " .. instance.name .. " v" .. instance.version .. " (" .. sandbox.id .. ")")
-                        return instance
-                    end
-                end
-                -- Delegate other calls to global Plugin
-                return Plugin[key]
-            end
-        }),
+        Plugin = pluginClass,
         EventBus = setmetatable({}, {
             __index = function(_, key)
                 if key == "on" then return api.on end
                 if key == "emit" then return api.emit end
                 return nil
-            end
+            end,
+            __newindex = function()
+                error("Read-only: plugins cannot modify EventBus", 2)
+            end,
         }),
 
         -- Plugin-specific variables (set by loader)
-        __plugin_id = sandbox.id,
+        __plugin_id = pluginId,
         __plugin_config = {},
         __plugin_path = "",
 
         -- BLOCKED - dangerous functions
-        -- os.execute, io.*, loadfile, dofile, load, rawset, rawget, debug, getfenv, setfenv
+        -- os.execute, io.*, loadfile, dofile, load, rawset, rawget, debug, getfenv, setfenv,
+        -- setmetatable, getmetatable, require, HTTP, MQTT
     }
 
     -- Registry access with write protection
@@ -569,17 +743,20 @@ function PluginSandbox:buildEnvironment(sandbox)
                 end
             end
             return nil
-        end
+        end,
+        __newindex = function()
+            error("Read-only: plugins cannot modify _", 2)
+        end,
     })
 
-    -- Read-only access to global _registry (all objects wrapped in read-only proxy)
+    -- Read-only access to global _registry (objects proxied, registry functions withheld)
     env._registry = setmetatable({}, {
         __index = function(_, key)
             if not _registry then return nil end
-            local obj = _registry[key]
-            if obj == nil then return nil end
-            if type(obj) ~= "table" then return obj end
-            return readOnlyProxy(obj)
+            local obj = rawget(_registry, key)
+            if type(obj) == "table" then return external(obj) end
+            if type(obj) == "function" then return nil end
+            return obj
         end,
         __newindex = function(_, key, value)
             error("Read-only: plugins cannot modify _registry directly. Use createObject/upsertObject instead.")

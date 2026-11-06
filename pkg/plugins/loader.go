@@ -49,6 +49,7 @@ type PluginManifest struct {
 	ConfigSchema []ConfigFieldSchema `json:"configSchema,omitempty"`
 	Docs         []PluginDoc         `json:"docs,omitempty"`
 	Files        []string            `json:"files,omitempty"` // Additional files to download (default: ["init.lua"])
+	Permissions  *Permissions        `json:"permissions,omitempty"`
 }
 
 // PluginDoc represents a documentation file in plugin.json
@@ -645,7 +646,9 @@ func (l *Loader) LoadPlugin(pluginID string, pluginConfig map[string]interface{}
 	}
 
 	// 1. Create sandbox for the plugin
-	createSandboxScript := fmt.Sprintf(`PluginSandbox:create(%s)`, luastr.Quote(pluginID))
+	perms := l.effectivePermissions(pluginID, manifest)
+	createSandboxScript := fmt.Sprintf(`PluginSandbox:create(%s, {lan = %t, mqtt = %t, modbus = %t})`,
+		luastr.Quote(pluginID), perms.LAN, perms.MQTT, perms.Modbus)
 	if _, err := l.luaExecutor.Execute(createSandboxScript); err != nil {
 		return fmt.Errorf("failed to create sandbox: %w", err)
 	}
