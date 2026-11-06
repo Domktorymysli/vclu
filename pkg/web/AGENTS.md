@@ -13,3 +13,9 @@
   `testdata/dashboard_live_client.js` can run it in node on a virtual clock with a fake socket
   (`TestDashboardLiveClient`; skipped without node). Put transport logic there, not in
   `dashboard.js`.
+
+## Dashboard texts
+- What `dashboard.js` writes comes from `T`, the `dashboard` section of `web/locales/*.json`
+  that the page carries as `#dashTexts`; dates and numbers use `locale` from it. A literal or
+  `navigator.language` fails `TestDashboardJSHasNoTexts`; a key in one language only fails
+  `TestDashboardLocalesSameKeys`.

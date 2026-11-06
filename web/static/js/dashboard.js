@@ -27,63 +27,13 @@
     var chartInstances = {}; // widgetId -> Chart.js instance
     var chartTimers = {};   // widgetId -> per-chart refresh timer
 
-    // Texts of the page, Polish or English; #85 moves them to web/locales.
-    var TEXTS = {
-        pl: { on: 'włączone', off: 'wyłączone', open: 'otwarta', closed: 'zamknięta', opening: 'otwiera się',
-              closing: 'zamyka się', unknown: 'brak odczytu', run: 'uruchom', sent: 'wysłano', updated: 'odświeżono',
-              nothingToday: 'nic więcej dziś', holidays: 'Święta', namedays: 'Imieniny', sun: 'Słońce', show: 'Pokaż',
-              polarDay: 'dzień polarny', polarNight: 'noc polarna', noConnection: 'Brak połączenia',
-              openN: ['otwarta', 'otwarte', 'otwartych'], closedN: ['zamknięta', 'zamknięte', 'zamkniętych'],
-              moving: 'w ruchu', allOpen: 'wszystkie otwarte', allClosed: 'wszystkie zamknięte', noCovers: 'brak rolet',
-              up: 'W górę', stop: 'Stop', down: 'W dół', position: 'Pozycja', tilt: 'Lamele',
-              fullscreen: 'Pełny ekran', exitFullscreen: 'Zamknij pełny ekran',
-              playing: 'odtwarza', paused: 'pauza', playerOff: 'wyłączony', offline: 'offline',
-              play: 'Odtwarzaj', pause: 'Pauza', previous: 'Poprzedni', next: 'Następny',
-              mute: 'Wycisz', unmute: 'Włącz dźwięk', power: 'Włącz / wyłącz', volume: 'Głośność',
-              noForecast: 'brak prognozy', rain: 'opady', temperature: 'temperatura', noData: 'brak danych', of: 'z',
-              onN: ['włączone', 'włączone', 'włączonych'], allOff: 'wszystko wyłączone', back: 'Wróć',
-              humidity: 'wilgotność', target: 'cel', thermoOn: 'włączony', thermoOff: 'wyłączony',
-              modes: ['ręcznie', 'urlop', 'harmonogram', 'podgrzewanie'], locked: 'zablokowany', lower: 'Obniż', raise: 'Podnieś', measuring: 'mierzę…',
-              hold: 'Przytrzymaj', openGate: 'Otwórz', closeGate: 'Zamknij',
-              weekdays: ['nd', 'pn', 'wt', 'śr', 'cz', 'pt', 'sb'], today: 'dziś', thisHour: 'ta godzina',
-              soFar: 'do teraz', compare: 'porównanie',
-              notKept: 'brak danych: vCLU trzyma metryki {n} dni',
-              ctWarm: 'ciepła', ctNeutral: 'neutralna', ctCool: 'zimna', colorTemp: 'Temperatura barwy', brightness: 'Jasność',
-              mode: 'Tryb', modeNames: { manual: 'Ręczny', holiday: 'Urlop', off: 'Wył.' },
-              energyNames: { pv: 'Fotowoltaika', grid: 'Sieć', battery: 'Bateria', home: 'Dom' },
-              energyImport: 'pobór', energyExport: 'oddawanie', energyCharge: 'ładowanie', energyDischarge: 'rozładowanie',
-              energyToday: 'dziś' },
-        en: { on: 'on', off: 'off', open: 'open', closed: 'closed', opening: 'opening',
-              closing: 'closing', unknown: 'no reading', run: 'run', sent: 'sent', updated: 'updated',
-              nothingToday: 'nothing more today', holidays: 'Holidays', namedays: 'Name days', sun: 'Sun', show: 'Show',
-              polarDay: 'polar day', polarNight: 'polar night', noConnection: 'No connection',
-              openN: ['open', 'open', 'open'], closedN: ['closed', 'closed', 'closed'],
-              moving: 'moving', allOpen: 'all open', allClosed: 'all closed', noCovers: 'no covers',
-              up: 'Up', stop: 'Stop', down: 'Down', position: 'Position', tilt: 'Slats',
-              fullscreen: 'Full screen', exitFullscreen: 'Exit full screen',
-              playing: 'playing', paused: 'paused', playerOff: 'off', offline: 'offline',
-              play: 'Play', pause: 'Pause', previous: 'Previous', next: 'Next',
-              mute: 'Mute', unmute: 'Unmute', power: 'Power', volume: 'Volume',
-              noForecast: 'no forecast', rain: 'rain', temperature: 'temperature', noData: 'no data', of: 'of',
-              onN: ['on', 'on', 'on'], allOff: 'all off', back: 'Back', humidity: 'humidity',
-              target: 'target', thermoOn: 'on', thermoOff: 'off',
-              modes: ['manual', 'holiday', 'schedule', 'heat-up'], locked: 'locked', lower: 'Lower', raise: 'Raise', measuring: 'measuring…',
-              hold: 'Hold', openGate: 'Open', closeGate: 'Close',
-              weekdays: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], today: 'today', thisHour: 'this hour',
-              soFar: 'so far', compare: 'compare',
-              notKept: 'no data: vCLU keeps metrics {n} days',
-              ctWarm: 'warm', ctNeutral: 'neutral', ctCool: 'cool', colorTemp: 'Colour temperature', brightness: 'Brightness',
-              mode: 'Mode', modeNames: { manual: 'Manual', holiday: 'Holiday', off: 'Off' },
-              energyNames: { pv: 'Solar', grid: 'Grid', battery: 'Battery', home: 'Home' },
-              energyImport: 'import', energyExport: 'export', energyCharge: 'charging', energyDischarge: 'discharging',
-              energyToday: 'today' }
-    };
-    // ?lang= as on the other pages, else the browser's language
-    var lang = (function() {
-        var m = /[?&]lang=([a-z]{2})/i.exec(location.search);
-        return /^pl/i.test((m && m[1]) || document.documentElement.lang || navigator.language || '') ? 'pl' : 'en';
+    // Texts in the viewer's language: the "dashboard" section of web/locales, put in by the server
+    var T = (function() {
+        try { return JSON.parse(document.getElementById('dashTexts').textContent); } catch (e) { return {}; }
     })();
-    var T = TEXTS[lang];
+    var lang = document.documentElement.lang;
+    var locale = T.locale || lang; // dates, times and numbers (Intl)
+    var decimalSep = (1.5).toLocaleString(locale).charAt(1);
 
     // A tile without its own icon gets one by type
     var typeIcons = {
@@ -99,7 +49,7 @@
         if (typeof v !== 'number') return String(v);
         var s = decimals != null ? v.toFixed(decimals) : String(v);
         if (Number(s) === 0) s = s.replace('-', ''); // -0.04 -> "0,0", not "-0,0"
-        return lang === 'pl' ? s.replace('.', ',') : s;
+        return s.replace('.', decimalSep);
     }
     function withUnit(v, unit, decimals) {
         return fmtNum(v, decimals) + (unit ? ' ' + unit : '');
@@ -1036,7 +986,7 @@
         // the state line: when the picture came, or that it did not
         img.onload = function() {
             img.style.opacity = '';
-            setState(el, 'value', T.updated + ' ' + new Date().toLocaleTimeString(lang, {hour: '2-digit', minute: '2-digit'}));
+            setState(el, 'value', T.updated + ' ' + new Date().toLocaleTimeString(locale, {hour: '2-digit', minute: '2-digit'}));
         };
         img.onerror = function() { img.style.opacity = '0.2'; setState(el, 'unknown', T.unknown); };
         el.appendChild(img);
@@ -1068,8 +1018,8 @@
     function hhmm(ts, zone) {
         var o = {hour: '2-digit', minute: '2-digit'};
         if (zone) o.timeZone = zone;
-        try { return new Date(ts * 1000).toLocaleTimeString([], o); }
-        catch (e) { return new Date(ts * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}); }
+        try { return new Date(ts * 1000).toLocaleTimeString(locale, o); }
+        catch (e) { return new Date(ts * 1000).toLocaleTimeString(locale, {hour: '2-digit', minute: '2-digit'}); }
     }
     function zoneHour(ts, zone) {
         try { return +new Date(ts * 1000).toLocaleString('en-GB', {hour: '2-digit', hour12: false, timeZone: zone || undefined}) % 24; }
@@ -1135,22 +1085,22 @@
                 });
             }
         } catch (e) { /* no storage: defaults */ }
-        var rel = (window.Intl && Intl.RelativeTimeFormat) ? new Intl.RelativeTimeFormat([], {numeric: 'auto'}) : null;
+        var rel = (window.Intl && Intl.RelativeTimeFormat) ? new Intl.RelativeTimeFormat(locale, {numeric: 'auto'}) : null;
         var cap = function(t) { return t.charAt(0).toUpperCase() + t.slice(1); };
 
         var bar = calEl('div', 'dash-cal-bar');
         var nav = calEl('div', 'dash-cal-nav');
         var title = calEl('div', 'dash-cal-title');
-        nav.appendChild(calIconBtn('chevron-left', '-', function() { step(-1); }));
+        nav.appendChild(calIconBtn('chevron-left', T.earlier, function() { step(-1); }));
         nav.appendChild(title);
-        nav.appendChild(calIconBtn('chevron-right', '+', function() { step(1); }));
+        nav.appendChild(calIconBtn('chevron-right', T.later, function() { step(1); }));
         var tools = calEl('div', 'dash-cal-tools');
-        var todayBtn = calEl('button', 'dash-cal-today', rel ? cap(rel.format(0, 'day')) : 'Today');
+        var todayBtn = calEl('button', 'dash-cal-today', T.goToday);
         todayBtn.type = 'button';
         todayBtn.addEventListener('click', function() { st.day = st.today; st.month = st.day.slice(0, 7) + '-01'; load(); });
         var seg = calEl('div', 'dash-cal-seg');
-        var segMonth = calIconBtn('calendar3', 'Month', function() { st.view = 'month'; st.month = st.day.slice(0, 7) + '-01'; load(); });
-        var segDay = calIconBtn('calendar-day', 'Day', function() { st.view = 'day'; load(); });
+        var segMonth = calIconBtn('calendar3', T.month, function() { st.view = 'month'; st.month = st.day.slice(0, 7) + '-01'; load(); });
+        var segDay = calIconBtn('calendar-day', T.day, function() { st.view = 'day'; load(); });
         seg.appendChild(segMonth);
         seg.appendChild(segDay);
         var menuWrap = calEl('div', 'dash-cal-menu-wrap');
@@ -1296,12 +1246,12 @@
 
         function drawMonth() {
             var m = parseYmd(st.month);
-            title.textContent = cap(m.toLocaleDateString([], {month: 'long', year: 'numeric'}));
+            title.textContent = cap(m.toLocaleDateString(locale, {month: 'long', year: 'numeric'}));
             var now = st.today;
             var grid = calEl('div', 'dash-cal-month');
             var start = parseYmd(range()[0]);
             for (var i = 0; i < 7; i++) {
-                grid.appendChild(calEl('div', 'dash-cal-wd', addDays(start, i).toLocaleDateString([], {weekday: 'short'})));
+                grid.appendChild(calEl('div', 'dash-cal-wd', addDays(start, i).toLocaleDateString(locale, {weekday: 'short'})));
             }
             for (var c = 0; c < 42; c++) {
                 var d = addDays(start, c);
@@ -1328,7 +1278,7 @@
                 var shown = Math.min(its.length, 3);
                 if (total > shown) list.appendChild(calEl('div', 'dash-cal-more', '+' + (total - shown)));
                 cell.appendChild(list);
-                if (its.length) cell.setAttribute('aria-label', d.toLocaleDateString() + ': ' + its.map(function(x) { return x.title; }).join(', '));
+                if (its.length) cell.setAttribute('aria-label', d.toLocaleDateString(locale) + ': ' + its.map(function(x) { return x.title; }).join(', '));
                 cell.addEventListener('click', (function(dt) {
                     return function() { st.day = dt; st.view = 'day'; load(); };
                 })(date));
@@ -1340,10 +1290,10 @@
         function drawDay() {
             var d = parseYmd(st.day);
             var info = dayInfo(st.day) || {};
-            title.textContent = cap(d.toLocaleDateString([], {weekday: 'long', day: 'numeric', month: 'long'}));
+            title.textContent = cap(d.toLocaleDateString(locale, {weekday: 'long', day: 'numeric', month: 'long'}));
             if (rel && st.data.today) {
                 var diff = Math.round((d - parseYmd(st.data.today)) / 86400000);
-                if (Math.abs(diff) <= 1) title.textContent = cap(rel.format(diff, 'day')) + ', ' + d.toLocaleDateString([], {day: 'numeric', month: 'long'});
+                if (Math.abs(diff) <= 1) title.textContent = cap(rel.format(diff, 'day')) + ', ' + d.toLocaleDateString(locale, {day: 'numeric', month: 'long'});
             }
             var wrap = calEl('div', 'dash-cal-day');
             var notes = calEl('div', 'dash-cal-notes');
@@ -1637,7 +1587,7 @@
     function thermoText(v, step) {
         if (v == null) return '--';
         var t = (+v).toFixed(step && step < 0.1 ? 2 : 1);
-        return lang === 'pl' ? t.replace('.', ',') : t;
+        return t.replace('.', decimalSep);
     }
 
     // What the target shows: a value being chosen, one sent and not reported yet, else the report
@@ -2417,7 +2367,7 @@
     }
 
     function forecastWeekday(date) {
-        try { return parseYmd(date).toLocaleDateString(lang === 'pl' ? 'pl-PL' : 'en-GB', {weekday: 'short'}); }
+        try { return parseYmd(date).toLocaleDateString(locale, {weekday: 'short'}); }
         catch (e) { return date.slice(5); }
     }
 
@@ -2830,7 +2780,7 @@
         // Any other colour: the last dot opens the system colour picker.
         var custom = document.createElement('label');
         custom.className = 'dash-color-preset dash-color-custom';
-        custom.title = 'Colour';
+        custom.title = T.colour;
         var picker = document.createElement('input');
         picker.type = 'color';
         picker.value = w.rgb ? toHex(w.rgb) : '#ffffff';
@@ -2849,10 +2799,10 @@
         markPreset(el, w.rgb);
 
         if (caps.brightness) {
-            colorSlider(el, w, 'brightness', 'brightness-high', 'Brightness', w.brightness, 'set');
+            colorSlider(el, w, 'brightness', 'brightness-high', T.brightness, w.brightness, 'set');
         }
         if (caps.white) {
-            colorSlider(el, w, 'white', 'lightbulb', 'White', w.white, 'setWhite');
+            colorSlider(el, w, 'white', 'lightbulb', T.white, w.white, 'setWhite');
         }
     }
 
@@ -3055,9 +3005,9 @@
                 var labels = data.map(function(d) {
                     var dt = new Date(d[0] * 1000);
                     if (range === '7d') {
-                        return dt.toLocaleDateString([], {weekday:'short', day:'numeric'});
+                        return dt.toLocaleDateString(locale, {weekday:'short', day:'numeric'});
                     }
-                    return dt.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+                    return dt.toLocaleTimeString(locale, {hour:'2-digit', minute:'2-digit'});
                 });
                 var rawValues = data.map(function(d) { return d[1]; });
                 var tile = canvas.closest('.dash-widget');
@@ -3122,13 +3072,13 @@
                                             var ts = data[idx][0] * 1000;
                                             var d = new Date(ts);
                                             if (range === '7d') {
-                                                return d.toLocaleDateString([], {weekday:'short', month:'short', day:'numeric'})
-                                                    + ' ' + d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+                                                return d.toLocaleDateString(locale, {weekday:'short', month:'short', day:'numeric'})
+                                                    + ' ' + d.toLocaleTimeString(locale, {hour:'2-digit', minute:'2-digit'});
                                             } else if (range === '24h') {
-                                                return d.toLocaleDateString([], {weekday:'short'})
-                                                    + ' ' + d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+                                                return d.toLocaleDateString(locale, {weekday:'short'})
+                                                    + ' ' + d.toLocaleTimeString(locale, {hour:'2-digit', minute:'2-digit'});
                                             }
-                                            return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+                                            return d.toLocaleTimeString(locale, {hour:'2-digit', minute:'2-digit', second:'2-digit'});
                                         },
                                         label: function(item) {
                                             var v = parseFloat(item.raw);
@@ -4038,7 +3988,7 @@
         .then(function(def) {
             if (def._notFound || def.error) {
                 contentEl.className = '';
-                contentEl.innerHTML = '<div class="text-center py-5"><p class="text-muted">Dashboard not found.</p></div>';
+                contentEl.innerHTML = '<div class="text-center py-5"><p class="text-muted">' + esc(T.notFound) + '</p></div>';
                 return;
             }
             renderDashboard(def);
@@ -4046,7 +3996,7 @@
         })
         .catch(function(err) {
             contentEl.className = '';
-            contentEl.innerHTML = '<div class="text-center py-5"><p class="text-danger">Error loading dashboard.</p></div>';
+            contentEl.innerHTML = '<div class="text-center py-5"><p class="text-danger">' + esc(T.loadError) + '</p></div>';
             if (window.console) console.error(err);
         });
 

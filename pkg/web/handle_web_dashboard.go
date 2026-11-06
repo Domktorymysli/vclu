@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Domktorymysli/vclu/pkg/i18n"
 	"github.com/gin-gonic/gin"
 )
 
@@ -242,6 +243,8 @@ func (s *Server) handleDashboardPage(c *gin.Context) {
 		return
 	}
 
+	lang := i18n.Resolve(s.getLang(c))
+
 	// Auth check
 	auth, _ := def["auth"].(string)
 	switch auth {
@@ -261,6 +264,7 @@ func (s *Server) handleDashboardPage(c *gin.Context) {
 				"name": def["name"],
 				"icon": def["icon"],
 				"app":  newDashApp(id, gin.H{"name": def["name"]}), // the PIN page is never themed
+				"lang": lang,
 			})
 			return
 		}
@@ -300,6 +304,8 @@ func (s *Server) handleDashboardPage(c *gin.Context) {
 		"columns": def["columns"],
 		"full":    app.Full,
 		"app":     app,
+		"lang":    lang,
+		"texts":   i18n.Raw(lang, "dashboard"),
 	})
 }
 
