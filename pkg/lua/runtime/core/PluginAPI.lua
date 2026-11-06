@@ -388,7 +388,7 @@ function Plugin:mqttPublish(topic, payload, options)
     end
 
     if MQTT and MQTT.publish then
-        MQTT:publish(topic, payloadStr, options.retain or false, options.qos or 0)
+        MQTT:publish(topic, payloadStr, options.qos or 0, options.retain or false)
     end
 end
 
