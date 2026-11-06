@@ -253,14 +253,38 @@ Use them instead of hand-building tables.
 | `VirtualThermostat` | THERMOSTAT | `getValue` (temperature), `getTarget`, `getSetpoint`, `setSetpoint`, `getState`, `start`, `stop`, `getMode`, `setMode(0 set point / 1 holiday)`, `getFault`, `getDirection` — see below |
 | `VirtualPresence` | DIN | `getValue`, `isActive`, `onSwitchOn`, `onSwitchOff`, `getReason`, `getRemaining`, `getDuration`, `trigger(sec)`, `setOverride(1/0/nil)`, `setHold`, `getHold` — see below |
 
-`VirtualThermostat:new(name, {source, output, hysteresis = 0.5, direction = "heat"|"cool", setpoint = 21, holiday = 16, min = 5, max = 35, staleAfter = 900, maxOn, persist})`
-switches `output` (anything with `switchOn`/`switchOff`) by `source` (anything with `getValue`/`onChange`): on at target − hysteresis, off at target + hysteresis (cooling the other way), only on a crossing. No change from the source for `staleAfter` s switches the output off (`getFault() == "stale"`, logged once); `maxOn` s on in one go stops it until a setting changes. Before a reload or a stop vCLU switches every thermostat's output off, and a new one (also after a restart) starts with it off and waits for a reading that arrives after it. `persist` keeps the set point, mode and state. It is a thermostat for `expose()` (Home Assistant climate), `lib/panel` (`menu:add`, `menu:thermostat`) and `section:thermostat`; which sensors to average or a schedule belong in a module:
+`VirtualThermostat:new(name, {source, output, hysteresis = 0.5, direction = "heat"|"cool", setpoint = 21, holiday = 16, min = 5, max = 35, staleAfter = 900, maxOn, lease, persist})`
+switches `output` (anything with `switchOn`/`switchOff`) by `source` (anything with `getValue`/`onChange`): on at target − hysteresis, off at target + hysteresis (cooling the other way), only on a crossing. No change from the source for `staleAfter` s switches the output off (`getFault() == "stale"`, logged once); `maxOn` s on in one go stops it until a setting changes. Before a reload or a stop vCLU switches every thermostat's output off, and a new one (also after a restart) starts with it off and waits for a reading that arrives after it. `lease` (s, at least 30; a Grenton DOUT or dimmer only, anything else is an error) switches the output on for that long and renews it every quarter while it should be on, so the CLU switches it off by itself when vCLU stops answering; a renewal of an output that is on is not a change (no history entry, no event), while one switched off in Grenton (a button) goes on again with the next renewal. `persist` keeps the set point, mode and state. It is a thermostat for `expose()` (Home Assistant climate), `lib/panel` (`menu:add`, `menu:thermostat`) and `section:thermostat`; which sensors to average or a schedule belong in a module:
 
 ```lua
+-- an electric heater on a Grenton relay
 local th = VirtualThermostat:new("salon", { source = _:get("z2m.salon_temp"), output = _:get("CLU1.DOU0123"),
-    setpoint = 21, holiday = 16, persist = true })
+    setpoint = 21, holiday = 16, persist = true,
+    maxOn = 3 * 3600, -- at most 3 h on in one go
+    lease = 90 })     -- the CLU switches the relay off 90 s after vCLU stops
 expose(th, "climate", { name = "Salon", area = "Salon", min = 18, max = 24 })
 ```
+
+`maxOn` has no default. Set it where hours on without a break mean something is wrong: an
+electric heater, a boost, a towel rail. Leave it out for a whole house or floor heating in winter:
+in a long frost the heating may rightly run for hours, and a `maxOn` stop holds it off until
+someone changes a setting.
+
+**`VirtualThermostat` is comfort control, not a safety device.** Every guard switches the output
+off, so a long failure in winter means a cold house, not an overheated one. Keep the heating's own
+safety in place: the boiler's or heat pump's limits, a floor heating safety thermostat, frost
+protection.
+
+What happens when:
+
+| Event | What the thermostat does |
+|---|---|
+| The source stops reporting | No change of its value for `staleAfter` (900 s) switches the output off, `getFault()` is `"stale"`; a sensor stuck on one value counts as no change. The next change takes it back. |
+| The source reports nonsense (85 °C, -40 °C) | Not handled: any finite number is a reading. 85 °C switches heating off, -40 °C on, and it stays on while the readings keep changing; only `maxOn`, if set, stops it. Text that is not a number and NaN are ignored (no reading, so stale in the end); numeric text such as `"85"` is a reading. Filter a sensor you do not trust in a module. |
+| The output's command is lost | Without `lease` not handled: a command goes once, on a crossing, and the output is not read back, so a lost on leaves it off and a lost off leaves it on until the thermostat switches the other way; `stop()`, `maxOn`, stale and a reload take it as off and do not send the off again. With `lease`: a lost on is sent again by the next renewal (at most a quarter of `lease` later), a lost off ends when the last renewal's time runs out (at most `lease`). |
+| vCLU reloads | The output is switched off before the reload; the new thermostat starts off and waits for a fresh reading. |
+| vCLU is killed, crashes or the server loses power | Without `lease` (and on any output other than a Grenton DOUT or dimmer) the output stays as it was until vCLU starts again, then it is switched off and waits for a reading. With `lease` the CLU switches it off by itself at most `lease` s after the last renewal it got. |
+| The CLU restarts | The thermostat does not see it. Without `lease` the output stays as the CLU starts it until the next crossing; with `lease` the next renewal switches it on again if it should be on. |
 
 `VirtualPresence:new(name, {trigger, keep, door, hold = 300, doorGrace = 10})` makes one presence per room from
 many sensors (objects or registry paths; active is `1` or `true`). A source needs `getValue()` (Grenton,

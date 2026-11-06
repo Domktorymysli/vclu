@@ -23,7 +23,12 @@ local TICK_MS = 10000 -- staleness and maxOn checked, a first reading picked up
 local PERSIST_NS = "virtual-objects" -- shared with VirtualObject
 local live = setmetatable({}, {__mode = "k"}) -- thermostats of this Lua state
 local OPTIONS = { source = true, output = true, hysteresis = true, direction = true, setpoint = true,
-    holiday = true, min = true, max = true, staleAfter = true, maxOn = true, persist = true }
+    holiday = true, min = true, max = true, staleAfter = true, maxOn = true, persist = true, lease = true }
+-- lease: below this a late renewal could switch the relay off and on
+local MIN_LEASE = 30
+-- renewals of thermostats made together start this far apart: a CLU drops a burst
+local RENEW_SPACING_MS = 50
+local leased = { n = 0 } -- in a table: a local counter detaches after a pcall
 -- Field names in OnSettingsChange as RemoteThermostat's (_state there is the state)
 local EVENT_FIELD = { _st = "_state" }
 
@@ -37,6 +42,13 @@ local function finite(v)
 end
 
 local function log() return Logger:getShared() end
+
+-- Only Grenton outputs switch off by themselves after a time; subclasses (RGB, LED
+-- channel) are left out: their methods differ
+local function timedOutput(out)
+    local class = getmetatable(out)
+    return out._clu ~= nil and (class == RemoteSwitch or class == RemoteLight)
+end
 
 -- A listener's error is logged: it must not keep the output from switching
 local function notify(self, fn, ...)
@@ -129,6 +141,14 @@ local function wanted(self)
     return self._on == true -- between the thresholds: as it is
 end
 
+local function switchOn(self)
+    local out = self._output
+    if not self._leaseMs then return out:switchOn() end
+    out:switchOn(self._leaseMs)
+    -- no expected switch-off: renewals move the end, so a change at the end is Grenton's
+    StateChange.forgetExpected(out)
+end
+
 -- Switches the output only when what it should be changes (force: whatever it shows)
 local function apply(self, on, force)
     if not force and on == self._on then return end
@@ -136,11 +156,23 @@ local function apply(self, on, force)
     self._onSince = on and now() or nil
     local out = self._output
     local ok, err = pcall(function()
-        if on then out:switchOn() else out:switchOff() end
+        if on then switchOn(self) else out:switchOff() end
     end)
     if not ok then
         self._on = nil -- unknown: the next decision switches again
         log():warn("[Thermostat] %s: output not switched: %s", tostring(self._name), tostring(err))
+    end
+end
+
+-- Same command again while on: the CLU starts the time over, nothing changes here
+local function renew(self)
+    if self._on ~= true then return end
+    local ok, err = pcall(switchOn, self)
+    if ok then
+        self._renewFailed = nil
+    elseif not self._renewFailed then
+        self._renewFailed = true
+        log():warn("[Thermostat] %s: lease not renewed: %s", tostring(self._name), tostring(err))
     end
 end
 
@@ -219,7 +251,11 @@ end
 -- switchOff, or its path), hysteresis (0.5 °C), direction ("heat" or "cool"), setpoint (21),
 -- holiday (16 heating, 28 cooling), min (5), max (35), staleAfter (900 s without a change of
 -- the source's value: output off), maxOn (s on in one go, then off until a setting changes;
--- default no limit), persist (true or a key: set point, mode and state survive restarts).
+-- default no limit), lease (s >= 30, a Grenton DOUT or dimmer only: switched on for that long and
+-- renewed, so the CLU switches it off when vCLU stops), persist (true or a key: set point, mode
+-- and state survive restarts).
+-- Comfort control, not a safety device: what each failure does is in docs/ai/examples.md,
+-- "What happens when".
 -- @api public
 -- @param name string Name (also the persist key with persist = true)
 -- @param opts table Options, see above
@@ -251,6 +287,14 @@ function VirtualThermostat:new(name, opts)
         obj._maxOn = finite(opts.maxOn)
         if not obj._maxOn or obj._maxOn <= 0 then error("VirtualThermostat: maxOn must be seconds > 0", 2) end
     end
+    if opts.lease ~= nil then
+        local lease = finite(opts.lease)
+        if not lease or lease < MIN_LEASE then error("VirtualThermostat: lease must be seconds >= " .. MIN_LEASE, 2) end
+        if not timedOutput(obj._output) then
+            error("VirtualThermostat: lease needs a Grenton output: a DOUT or a dimmer (RemoteSwitch, RemoteLight)", 2)
+        end
+        obj._leaseMs = math.floor(lease * 1000)
+    end
     local holiday = opts.holiday == nil and (obj._cool and 28 or 16) or opts.holiday
     obj._holiday = finite(holiday)
     if not obj._holiday then error("VirtualThermostat: holiday must be a number", 2) end
@@ -274,6 +318,14 @@ function VirtualThermostat:new(name, opts)
         obj._source:onChange(function(v) onReading(obj, v) end)
     end
     TIMERS:setInterval(TICK_MS, function() tick(obj) end)
+    if obj._leaseMs then
+        -- every quarter of the lease: two renewals lost in a row still leave a quarter
+        local period = math.floor(obj._leaseMs / 4)
+        local function renewals() TIMERS:setInterval(period, function() renew(obj) end) end
+        local offset = (leased.n * RENEW_SPACING_MS) % period
+        leased.n = leased.n + 1
+        if offset == 0 then renewals() else TIMERS:setTimeout(offset, renewals) end
+    end
     return obj
 end
 
