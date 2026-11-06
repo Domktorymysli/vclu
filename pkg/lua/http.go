@@ -23,6 +23,8 @@ type HTTPManager struct {
 	asyncInFlight  map[string]bool
 	asyncMu        sync.Mutex
 	onRequest      func(hasError bool) // callback for metrics
+	// instances (plugin ids) that may not connect to local addresses
+	noLAN map[string]bool
 }
 
 // asyncResponseTTL bounds how long a response nobody collected (the waiter timed out or was
@@ -44,6 +46,18 @@ func NewHTTPManager() *HTTPManager {
 		clients:        make(map[string]*http.Client),
 		asyncResponses: make(map[string]*asyncHTTPResponse),
 		asyncInFlight:  make(map[string]bool),
+		noLAN:          make(map[string]bool),
+	}
+}
+
+// SetLANAllowed sets whether an instance may connect to local addresses.
+func (hm *HTTPManager) SetLANAllowed(instanceID string, allowed bool) {
+	hm.mu.Lock()
+	defer hm.mu.Unlock()
+	if allowed {
+		delete(hm.noLAN, instanceID)
+	} else {
+		hm.noLAN[instanceID] = true
 	}
 }
 
@@ -60,7 +74,8 @@ func (hm *HTTPManager) getOrCreateClient(instanceID string, timeout int, verifyS
 	defer hm.mu.Unlock()
 
 	// Generate cache key based on settings
-	cacheKey := fmt.Sprintf("%s_%d_%v_%v", instanceID, timeout, verifySSL, followRedirects)
+	noLAN := hm.noLAN[instanceID]
+	cacheKey := fmt.Sprintf("%s_%d_%v_%v_%v", instanceID, timeout, verifySSL, followRedirects, noLAN)
 
 	// Return existing client if available
 	if client, ok := hm.clients[cacheKey]; ok {
@@ -75,6 +90,9 @@ func (hm *HTTPManager) getOrCreateClient(instanceID string, timeout int, verifyS
 		MaxIdleConns:        10,
 		MaxIdleConnsPerHost: 5,
 		IdleConnTimeout:     30 * time.Second,
+	}
+	if noLAN {
+		transport.DialContext = noLANDialer().DialContext
 	}
 
 	client := &http.Client{
@@ -259,6 +277,12 @@ func registerHTTPFunctions(L *lua.LState, hm *HTTPManager) {
 
 		hm.AsyncRequest(instanceID, requestID, method, url, headers, body, timeout, verifySSL, followRedirects)
 
+		return 0
+	}))
+
+	// __go_http_set_lan(instanceId, allowed): PluginSandbox sets it for each plugin
+	L.SetGlobal("__go_http_set_lan", L.NewFunction(func(L *lua.LState) int {
+		hm.SetLANAllowed(L.CheckString(1), L.ToBool(2))
 		return 0
 	}))
 
