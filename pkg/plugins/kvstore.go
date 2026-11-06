@@ -1,6 +1,7 @@
 package plugins
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -100,6 +101,10 @@ func (m *KVStoreManager) createStore(pluginID string) *PluginKVStore {
 // sanitizePluginID converts plugin ID to safe filename
 // @vclu/weather -> vclu--weather
 func sanitizePluginID(pluginID string) string {
+	// an id the loader refuses gets a name no valid id has (".x-" and hex)
+	if !validPluginID(pluginID) {
+		return ".x-" + hex.EncodeToString([]byte(pluginID))
+	}
 	s := strings.TrimPrefix(pluginID, "@")
 	s = strings.ReplaceAll(s, "/", "--")
 	s = strings.ReplaceAll(s, "\\", "--")
