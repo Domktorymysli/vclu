@@ -32,7 +32,8 @@ type Timer struct {
 	Callback glua.LValue // Lua function to call
 	NextFire time.Time
 	Active   bool
-	Pending  bool // True if timer is queued but not yet executed (prevents re-queuing)
+	Pending  bool   // True if timer is queued but not yet executed (prevents re-queuing)
+	Label    string // where it was created, for the log (a plugin, a module line)
 }
 
 // TimerStats holds timer statistics
@@ -255,6 +256,28 @@ func (tm *TimerManager) GetCallback(id int) glua.LValue {
 		return timer.Callback
 	}
 	return glua.LNil
+}
+
+// SetLabel records where the timer was created; empty is ignored.
+func (tm *TimerManager) SetLabel(id int, label string) {
+	if label == "" {
+		return
+	}
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+	if timer, ok := tm.timers[id]; ok {
+		timer.Label = label
+	}
+}
+
+// GetLabel returns the label recorded with SetLabel.
+func (tm *TimerManager) GetLabel(id int) string {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+	if timer, ok := tm.timers[id]; ok {
+		return timer.Label
+	}
+	return ""
 }
 
 // MarkFired increments the fired counter and clears pending flag

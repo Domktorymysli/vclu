@@ -34,6 +34,29 @@ User scripts and agents depend on every public function in `runtime/`. Build a f
 existing functions first. Mechanisms belong in the core (watch, persist, history); ready-made
 policies belong in libraries. Changing a signature needs a migration and a `Contract change:` note.
 
+## Every callback runs under a deadline (#114)
+`runLimited` (`callback_limit.go`) gives each timer callback, work item, HTTP endpoint handler and
+metric collection a context with the limit (`lua.callbackTimeoutSeconds`, default 60 s: above
+the synchronous waits in runtime code, autoSubscribe's 30 s budgets among them). Once it is done,
+every next VM instruction raises, also inside `pcall`, so:
+- one deadline per item: a looping event handler also stops the handlers after it, and runtime
+  code it was called from does not finish; runtime code that plans its next run after user code
+  plans a fallback first (`Cal:_tick`'s guard, the poller's tick timeout);
+- Lua that Go runs after the item (`StateContext.truncate`) must run after the context is removed,
+  as `withStateContext`'s restore does;
+- an item with its own timeout uses `executeSlowNoLimit` + `withOwnTimeout`, which puts the previous
+  context back (never `RemoveContext`); system work that blocks by design runs without the limit:
+  `LoadCLUData` (`executeAsNoLimit`) and `RemoteSubscription.autoSubscribe` (`__vclu_without_limit`),
+  cut half-way it would leave the CLUs unsubscribed or skip the user modules;
+- a guard over one callback (`VirtualPresence`'s `_busy`) holds `__go_callback_seq()`, so one left
+  by a stopped callback is stale in the next; `RemotePanel`'s `_busy` spans timers and is not guarded;
+- a Go function is not interrupted: a new blocking one takes `L.Context()` (sync HTTP does);
+  `__go_send_command` (5 s) and `os.execute` run to their end;
+- gopher-lua binds a coroutine to the context it was created under; `registerCoroutineContext`
+  rebinds it on every resume, so it lives across callbacks and is stopped with the resumer.
+Cost: a `select` per VM instruction, about 12% on a compute loop (`BenchmarkCallbackLimit`).
+Contract: `callback_limit_test.go`.
+
 ## Test harnesses
 `newPersistEngine` (`persist_test.go`), `newHistoryEngine` with a step clock (`history_test.go`),
 an `httptest` stand-in for httpbin (`fake_httpbin_test.go`). Reuse them.

@@ -507,7 +507,16 @@ end
 --- Auto-subscribe to whitelisted remote objects
 -- Uses whitelist from config to determine which objects to subscribe to.
 -- If no whitelist is configured, nothing syncs.
+local autoSubscribe
+
+--- Runs without the callback limit (#114): it blocks on CLU answers within budgets of its
+-- own, and cut half-way it would leave the CLUs after the cut unsubscribed.
 function RemoteSubscription.autoSubscribe()
+    if __vclu_without_limit then return __vclu_without_limit(autoSubscribe) end
+    return autoSubscribe()
+end
+
+autoSubscribe = function()
     if not RemoteSubscription.config.enabled then
         Logger:getShared():debug("[RemoteSub] Sync disabled, skipping")
         return

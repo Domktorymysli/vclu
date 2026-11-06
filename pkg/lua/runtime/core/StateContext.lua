@@ -92,7 +92,7 @@ end
 for _, name in ipairs({ "__go_setTimeout", "__go_setInterval" }) do
     local raw = _G[name]
     if type(raw) == "function" then
-        _G[name] = function(fn, ms) return raw(StateContext.bind(fn), ms) end
+        _G[name] = function(fn, ms, ...) return raw(StateContext.bind(fn), ms, ...) end
     end
 end
 

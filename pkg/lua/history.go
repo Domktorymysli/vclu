@@ -1,7 +1,6 @@
 package lua
 
 import (
-	"context"
 	"crypto/rand"
 	"fmt"
 	"log"
@@ -167,13 +166,19 @@ func (le *LuaEngine) ExecuteAs(origin, actor, correlationID, script string) (str
 	})
 }
 
+// executeAsNoLimit is ExecuteAs without the callback limit, for system code.
+func (le *LuaEngine) executeAsNoLimit(origin, actor, script string) (string, error) {
+	return le.executeSlowNoLimit("ExecuteAs", func(L *lua.LState) (string, error) {
+		defer withStateContext(L, origin, actor, "")()
+		return executeOnState(L, script)
+	})
+}
+
 // ExecuteAsWithTimeout is ExecuteAs with the timeout of ExecuteWithTimeout.
 func (le *LuaEngine) ExecuteAsWithTimeout(origin, actor, correlationID, script string, timeout time.Duration) (string, error) {
-	return le.executeSlow("ExecuteAsTimeout", func(L *lua.LState) (string, error) {
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		defer cancel()
-		L.SetContext(ctx)
-		defer L.RemoveContext()
+	return le.executeSlowNoLimit("ExecuteAsTimeout", func(L *lua.LState) (string, error) {
+		ctx, restore := withOwnTimeout(L, timeout)
+		defer restore()
 		defer withStateContext(L, origin, actor, correlationID)()
 
 		out, err := executeOnState(L, script)

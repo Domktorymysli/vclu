@@ -10,10 +10,11 @@ TIMERS = {}
 --- Set a one-shot timeout
 -- @param ms number Delay in milliseconds
 -- @param callback function Function to execute
+-- @param label string|nil Where it was created, named in the log if it is stopped
 -- @return number Timer ID
-function TIMERS:setTimeout(ms, callback)
+function TIMERS:setTimeout(ms, callback, label)
     if type(__go_setTimeout) == "function" then
-        return __go_setTimeout(callback, ms)
+        return __go_setTimeout(callback, ms, label)
     else
         error("Timer support not available - Go runtime required")
     end
@@ -22,10 +23,11 @@ end
 --- Set a repeating interval
 -- @param ms number Interval in milliseconds
 -- @param callback function Function to execute
+-- @param label string|nil Where it was created, named in the log if it is stopped
 -- @return number Timer ID
-function TIMERS:setInterval(ms, callback)
+function TIMERS:setInterval(ms, callback, label)
     if type(__go_setInterval) == "function" then
-        return __go_setInterval(callback, ms)
+        return __go_setInterval(callback, ms, label)
     else
         error("Timer support not available - Go runtime required")
     end
@@ -125,7 +127,7 @@ end
 -- @return number Timer ID
 function after(ms, callback)
     local info = debug and debug.getinfo and debug.getinfo(callback, "Sl")
-    local src = info and ((info.short_src or "?") .. ":" .. (info.linedefined or "?")) or "unknown"
+    local src = info and ((info.short_src or info.source or "?") .. ":" .. (info.linedefined or "?")) or "unknown"
 
     return TIMERS:setTimeout(ms, function()
         local t0 = os.clock()
@@ -136,7 +138,7 @@ function after(ms, callback)
         elseif elapsed > 0.5 then
             Logger:getShared():warn("Slow after(%d) callback took %.1fs at %s", ms, elapsed, src)
         end
-    end)
+    end, src)
 end
 
 --- Execute function repeatedly (with overlap warning)
@@ -146,7 +148,7 @@ end
 -- @return number Timer ID
 function every(ms, callback)
     local info = debug and debug.getinfo and debug.getinfo(callback, "Sl")
-    local src = info and ((info.short_src or "?") .. ":" .. (info.linedefined or "?")) or "unknown"
+    local src = info and ((info.short_src or info.source or "?") .. ":" .. (info.linedefined or "?")) or "unknown"
 
     return TIMERS:setInterval(ms, function()
         local t0 = os.clock()
@@ -159,7 +161,7 @@ function every(ms, callback)
         elseif elapsedMs > 500 then
             Logger:getShared():warn("Slow every(%d) callback took %.0fms at %s", ms, elapsedMs, src)
         end
-    end)
+    end, src)
 end
 
 --- Cancel timer

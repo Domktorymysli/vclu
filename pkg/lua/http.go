@@ -2,6 +2,7 @@ package lua
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -93,6 +94,11 @@ func (hm *HTTPManager) getOrCreateClient(instanceID string, timeout int, verifyS
 
 // Request performs a synchronous HTTP request
 func (hm *HTTPManager) Request(instanceID, method, url string, headers map[string]string, body string, timeout int, verifySSL, followRedirects bool) (int, string, map[string]string, error) {
+	return hm.RequestContext(context.Background(), instanceID, method, url, headers, body, timeout, verifySSL, followRedirects)
+}
+
+// RequestContext is Request that also ends when ctx does (a callback's time limit).
+func (hm *HTTPManager) RequestContext(ctx context.Context, instanceID, method, url string, headers map[string]string, body string, timeout int, verifySSL, followRedirects bool) (int, string, map[string]string, error) {
 	client := hm.getOrCreateClient(instanceID, timeout, verifySSL, followRedirects)
 
 	var bodyReader io.Reader
@@ -100,7 +106,7 @@ func (hm *HTTPManager) Request(instanceID, method, url string, headers map[strin
 		bodyReader = bytes.NewBufferString(body)
 	}
 
-	req, err := http.NewRequest(method, url, bodyReader)
+	req, err := http.NewRequestWithContext(ctx, method, url, bodyReader)
 	if err != nil {
 		hm.recordRequest(true)
 		return 0, "", nil, fmt.Errorf("failed to create request: %w", err)
@@ -210,7 +216,11 @@ func registerHTTPFunctions(L *lua.LState, hm *HTTPManager) {
 			headers = make(map[string]string)
 		}
 
-		status, respBody, respHeaders, err := hm.Request(instanceID, method, url, headers, body, timeout, verifySSL, followRedirects)
+		ctx := L.Context()
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		status, respBody, respHeaders, err := hm.RequestContext(ctx, instanceID, method, url, headers, body, timeout, verifySSL, followRedirects)
 
 		L.Push(lua.LNumber(status))
 		L.Push(lua.LString(respBody))
