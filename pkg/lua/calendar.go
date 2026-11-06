@@ -24,6 +24,8 @@ func registerCalendarFunctions(L *lua.LState) {
 	L.SetGlobal("__go_calendar_clock", L.NewFunction(calendarClock))
 	L.SetGlobal("__go_calendar_sun", L.NewFunction(calendarSun))
 	L.SetGlobal("__go_calendar_sun_position", L.NewFunction(calendarSunPosition))
+	L.SetGlobal("__go_calendar_daylight", L.NewFunction(calendarDaylight))
+	L.SetGlobal("__go_calendar_is_day", L.NewFunction(calendarIsDay))
 	L.SetGlobal("__go_calendar_add_days", L.NewFunction(calendarAddDays))
 	L.SetGlobal("__go_calendar_zone", L.NewFunction(calendarZoneName))
 }
@@ -508,4 +510,38 @@ func calendarSunPosition(L *lua.LState) int {
 	L.Push(lua.LNumber(math.Round(az*10) / 10))
 	L.Push(lua.LNumber(math.Round(el*10) / 10))
 	return 2
+}
+
+// __go_calendar_daylight(from, to, fixedOnly) -> daylight userdata, or nil and the error
+// (returned, not raised, as __go_calendar_rule).
+func calendarDaylight(L *lua.LState) int {
+	fail := func(msg string) int {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(msg))
+		return 2
+	}
+	from, okFrom := L.Get(1).(lua.LString)
+	to, okTo := L.Get(2).(lua.LString)
+	if !okFrom || !okTo {
+		return fail("from and to expect times like '07:00' or 'sunrise+30m'")
+	}
+	dl, err := calendar.ParseDaylight(string(from), string(to), lua.LVAsBool(L.Get(3)))
+	if err != nil {
+		return fail(err.Error())
+	}
+	ud := L.NewUserData()
+	ud.Value = dl
+	L.Push(ud)
+	return 1
+}
+
+// __go_calendar_is_day(daylight, timestamp, lat, lon) -> whether it is day then.
+func calendarIsDay(L *lua.LState) int {
+	dl, ok := L.CheckUserData(1).Value.(*calendar.Daylight)
+	if !ok {
+		L.ArgError(1, "daylight expected")
+	}
+	t := unixSec(float64(L.CheckNumber(2)))
+	L.Push(lua.LBool(dl.IsDay(t, calendarZone(L), float64(L.OptNumber(3, 0)), float64(L.OptNumber(4, 0)))))
+	return 1
 }
