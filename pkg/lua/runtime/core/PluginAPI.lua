@@ -418,6 +418,9 @@ end
 -- @param opts table Request options (see PluginHelpers.httpRequest)
 -- @param callback function Callback(response, err)
 function Plugin:httpRequest(opts, callback)
+    if self._sandbox and self._sandbox.api then
+        return self._sandbox.api.httpRequest(opts, callback)
+    end
     PluginHelpers.httpRequest(self.id, opts, callback)
 end
 
@@ -497,6 +500,9 @@ end
 -- @param opts table Poller options
 -- @return table Poller object
 function Plugin:poller(name, opts)
+    if self._sandbox and self._sandbox.api then
+        return self._sandbox.api.createPoller(name, opts)
+    end
     return PluginHelpers.createPoller(self.id, name, opts)
 end
 

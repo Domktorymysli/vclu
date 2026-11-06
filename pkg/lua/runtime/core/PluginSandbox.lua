@@ -78,6 +78,12 @@ readOnlyProxy = function(obj)
                 if isReadMethod(key) then
                     m = function(self, ...)
                         if self == proxy then self = obj end
+                        for i = 1, select("#", ...) do
+                            local t = type((select(i, ...)))
+                            if t ~= "number" and t ~= "string" and t ~= "boolean" and t ~= "nil" then
+                                error("Read-only: " .. tostring(key) .. " takes numbers, strings and booleans from a plugin", 2)
+                            end
+                        end
                         return mapResults(readOnlyProxy, val(self, ...))
                     end
                 else
@@ -106,6 +112,7 @@ local function boundFacade(obj)
     local methods = {}
     local function out(r)
         if r == obj then return facade end
+        if type(r) == "table" and getmetatable(r) ~= nil then return readOnlyProxy(r) end
         return r
     end
     facade = setmetatable({}, {
@@ -130,6 +137,27 @@ local function boundFacade(obj)
         end,
     })
     return facade
+end
+
+-- Only the named functions of a shared object, bound to it: no fields, no constructors
+local function boundFunctions(obj, names)
+    local t = {}
+    local fns = {}
+    for _, name in ipairs(names) do
+        local f = obj[name]
+        if type(f) == "function" then
+            fns[name] = function(self, ...)
+                if self == t then self = obj end
+                return f(self, ...)
+            end
+        end
+    end
+    return setmetatable(t, {
+        __index = fns,
+        __newindex = function()
+            error("Read-only: plugins cannot modify a shared object", 2)
+        end,
+    })
 end
 
 -- pairs/ipairs/next over a proxy go through the proxy, never hand out raw values
@@ -188,6 +216,18 @@ local function instanceProxy(inner)
             for i, h in ipairs(Plugin.getExposed(inner)) do result[i] = boundFacade(h) end
             return result
         end,
+        -- a path only under the plugin's id, not a CLU's or another plugin's
+        expose = function(obj, objType, options)
+            local opts = {}
+            for k, v in originalPairs(options or {}) do opts[k] = v end
+            local prefix = inner.id .. ":"
+            if opts.path ~= nil and (type(opts.path) ~= "string" or opts.path:sub(1, #prefix) ~= prefix) then
+                opts.path = prefix .. tostring(opts.path)
+            end
+            local handle = Plugin.expose(inner, obj, objType, opts)
+            if type(handle) == "table" then return boundFacade(handle) end
+            return handle
+        end,
         -- only its own handles, never another module's expose path
         unexpose = function(handleOrPath)
             local wanted = sourceOf(handleOrPath) or handleOrPath
@@ -227,6 +267,15 @@ local function instanceProxy(inner)
             if INSTANCE_PROTECTED[key] then
                 error("Plugin field " .. tostring(key) .. " is read-only", 2)
             end
+            -- modules and the core call these on the real instance (create, init, get):
+            -- the plugin's code gets its proxy as self
+            if type(value) == "function" then
+                local f = value
+                value = function(s, ...)
+                    if s == inner then s = proxy end
+                    return f(s, ...)
+                end
+            end
             inner[key] = value
         end,
     })
@@ -256,6 +305,8 @@ function PluginSandbox:create(pluginId, permissions)
         environment = nil,        -- will be set by buildEnvironment
         instance = nil,           -- the real Plugin instance, set by Plugin:new
         instanceProxy = nil,      -- the instance as the plugin holds it
+        pollers = {},             -- created through the API, stopped on cleanup
+        dead = false,             -- set by cleanup
     }
     permissions = type(permissions) == "table" and permissions or {}
     sandbox.permissions = {
@@ -323,8 +374,9 @@ function PluginSandbox:buildAPI(sandbox)
         return id
     end
 
-    -- Wrapped clearTimer
+    -- Wrapped clearTimer: only the plugin's own timers
     api.clearTimer = function(id)
+        if not sandbox.timers[id] then return end
         if type(__go_clearTimer) == "function" then
             __go_clearTimer(id)
         end
@@ -333,8 +385,9 @@ function PluginSandbox:buildAPI(sandbox)
 
     -- Wrapped EventBus:on with tracking
     api.on = function(eventName, callback)
+        -- modules' listeners get the same payload: the plugin may not change it
         local wrappedCallback = function(...)
-            local ok, err = pcall(callback, ...)
+            local ok, err = pcall(callback, mapResults(readOnlyProxy, ...))
             if not ok then
                 Logger:error("[" .. pluginId .. "] Event '" .. eventName .. "' error: " .. tostring(err))
             end
@@ -506,9 +559,16 @@ function PluginSandbox:buildAPI(sandbox)
         return PluginHelpers.coerceBool(val, default)
     end
 
-    -- Poller
+    -- Poller: its timers are its own, so the sandbox stops it on cleanup
     api.createPoller = function(name, opts)
-        return PluginHelpers.createPoller(pluginId, name, opts)
+        local poller = PluginHelpers.createPoller(pluginId, name, opts)
+        table.insert(sandbox.pollers, poller)
+        local start = poller.start
+        poller.start = function(self, ...)
+            if sandbox.dead then return self end
+            return start(self, ...)
+        end
+        return poller
     end
 
     -- Update a plugin-local data object (stored in sandbox, not in global _registry)
@@ -554,6 +614,17 @@ function PluginSandbox:buildAPI(sandbox)
     api.logSafe = function(level, msg, fields, redact)
         local namespace, shortId = pluginId:match("^@([^/]+)/(.+)$")
         PluginHelpers.logSafe(Logger, shortId or pluginId, level, msg, fields, redact)
+    end
+
+    -- A disabled plugin's code may still be called (a sensor getter, a pending
+    -- callback); it starts nothing new
+    for name, f in originalPairs(api) do
+        api[name] = function(...)
+            if sandbox.dead then
+                error("plugin " .. pluginId .. " is disabled", 2)
+            end
+            return f(...)
+        end
     end
 
     return api
@@ -693,8 +764,8 @@ function PluginSandbox:buildEnvironment(sandbox)
 
         -- Shared objects: methods callable, fields not replaceable. HTTP and MQTT go
         -- through the plugin API (plugin:httpRequest, plugin:mqttSubscribe).
-        Logger = boundFacade(Logger),
-        JSON = boundFacade(JSON),
+        Logger = boundFunctions(Logger, { "debug", "info", "warn", "error" }),
+        JSON = boundFunctions(JSON, { "encode", "decode" }),
         Modbus = modbus,
 
         Plugin = pluginClass,
@@ -833,6 +904,29 @@ function PluginSandbox:cleanup(pluginId)
     end
 
     Logger:info("[SANDBOX] Cleaning up plugin: " .. pluginId)
+    sandbox.dead = true
+
+    -- 0. Pollers, exposed objects and the registry entry of its instance
+    for _, poller in ipairs(sandbox.pollers) do
+        pcall(poller.stop, poller)
+    end
+    sandbox.pollers = {}
+    local instance = sandbox.instance
+    if instance then
+        for _, handle in ipairs(instance._exposedHandles or {}) do
+            pcall(handle.unexpose, handle)
+        end
+        instance._exposedHandles = {}
+        if ExposedObjects and ExposedObjects.unexposeByPlugin then
+            pcall(ExposedObjects.unexposeByPlugin, ExposedObjects, pluginId)
+        end
+        if _registry and rawget(_registry, pluginId) == instance then
+            _registry[pluginId] = nil
+        end
+        if Plugin.instances[pluginId] == instance then
+            Plugin.instances[pluginId] = nil
+        end
+    end
 
     -- 1. Clear all timers
     local timerCount = 0

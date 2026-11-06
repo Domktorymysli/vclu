@@ -262,3 +262,158 @@ func TestPluginEscapeLANPolicySet(t *testing.T) {
 		t.Error("@t/b with lan is refused local addresses")
 	}
 }
+
+func activeTimers(e *LuaEngine) int { return e.timerManager.Stats().ActiveTimers }
+
+// Functions a plugin puts on its instance are called by the core and modules on the
+// real instance (init, create, get): the plugin's code still gets only its proxy.
+func TestPluginEscapeOwnMethodsSeeProxy(t *testing.T) {
+	engine := sandboxEngine(t, "@t/a", "")
+	if _, e := runPlugin(t, engine, "@t/a", `
+		L = {}
+		p = Plugin:new("a", {name = "A"})
+		p.init = function(self, cfg) L.init = self end
+		p.get = function(self, id) L.get = self; return nil end
+		function p:create(opts)
+			L.create = self
+			self:sensor(opts.id, function() return 7 end)
+			return { id = opts.id }
+		end
+	`); e != "nil" {
+		t.Fatal(e)
+	}
+	if _, err := engine.Execute(`
+		Plugin.initFromConfig("@t/a", {})
+		__made = Plugin.getPlugin("@t/a"):create({ id = "s1" })
+		local _ = Plugin.getPlugin("@t/a"):get("x")
+	`); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"init", "create", "get"} {
+		r, _ := runPlugin(t, engine, "@t/a", `local s = L.`+k+`; return tostring(s == p) .. tostring(s._sandbox) .. tostring(s.instances) .. tostring(s.httpRequest == p.httpRequest)`)
+		if r != "truenilniltrue" {
+			t.Errorf("%s got the real instance: %s", k, r)
+		}
+	}
+	mustLua(t, engine, `__made.id`, "s1")
+	mustLua(t, engine, `Plugin.instances["@t/a"]._sensors.s1:get()`, "7")
+}
+
+// A read method's arguments: a CLU object builds Lua run on the CLU from them.
+func TestPluginEscapeCLUCodeInjection(t *testing.T) {
+	engine := sandboxEngine(t, "@t/a", "")
+	if _, err := engine.Execute(`
+		__cmds = {}
+		local clu = {
+			execute = function(self, n, cmd) __cmds[#__cmds + 1] = cmd; return 0 end,
+			executeNoReply = function(self, n, cmd) __cmds[#__cmds + 1] = cmd end,
+		}
+		_registry["CLU1.DOU1"] = setmetatable({ _clu = clu, _objId = "DOU1" }, RemoteObject)
+	`); err != nil {
+		t.Fatal(err)
+	}
+	for what, code := range map[string]string{
+		"code in index":  `_:get("CLU1.DOU1"):get("0) DOU2:switchOn() --")`,
+		"table argument": `_:get("CLU1.DOU1"):get({})`,
+	} {
+		r, e := runPlugin(t, engine, "@t/a", code)
+		wantRefused(t, what, r, e)
+	}
+	mustLua(t, engine, `tostring(__cmds[1])`, "nil")
+	if _, e := runPlugin(t, engine, "@t/a", `_:get("CLU1.DOU1"):get(0)`); e != "nil" {
+		t.Errorf("a read with an index: %s", e)
+	}
+	mustLua(t, engine, `__cmds[1]`, "DOU1:get(0)")
+	// modules: an index from a string still works, code in it does not
+	mustLua(t, engine, `_registry["CLU1.DOU1"]:get("3"); return __cmds[2]`, "DOU1:get(3)")
+	if _, err := engine.Execute(`_registry["CLU1.DOU1"]:set("0, 1) DOU2:switchOn(", 1)`); err == nil {
+		t.Error("set with code in the index was sent")
+	}
+}
+
+func TestPluginEscapeLoggerShared(t *testing.T) {
+	engine := sandboxEngine(t, "@t/a", "")
+	r, e := runPlugin(t, engine, "@t/a", `Logger:info("x"); return tostring(Logger.getShared) .. tostring(Logger.new) .. tostring(JSON._encodeTable)`)
+	if r != "nilnilnil" || e != "nil" {
+		t.Errorf("Logger/JSON beyond their functions: r=%s e=%s", r, e)
+	}
+}
+
+func TestPluginEscapeForeignTimer(t *testing.T) {
+	engine := sandboxEngine(t, "@t/a", "")
+	if _, err := engine.Execute(`__mt = __go_setInterval(function() end, 100000, "module")`); err != nil {
+		t.Fatal(err)
+	}
+	before := activeTimers(engine)
+	if _, e := runPlugin(t, engine, "@t/a", `for i = 1, 500 do clearTimeout(i) end`); e != "nil" {
+		t.Fatal(e)
+	}
+	if after := activeTimers(engine); after != before {
+		t.Errorf("a plugin cleared a module's timer: %d -> %d", before, after)
+	}
+}
+
+// After cleanup: no poller, no registry entry, and code still reachable (a sensor a
+// module kept) starts nothing.
+func TestPluginEscapeAfterCleanup(t *testing.T) {
+	engine := sandboxEngine(t, "@t/a", "")
+	baseline := activeTimers(engine)
+	if _, e := runPlugin(t, engine, "@t/a", `
+		p = Plugin:new("a", {name = "A"})
+		setInterval(100000, function() end)
+		local poll = p:poller("x", { interval = 100000 })
+		poll:onTick(function(done) done() end)
+		poll:start()
+		__poll = poll
+		local si = setInterval
+		p:sensor("s", function() si(100000, function() end); return 1 end)
+	`); e != "nil" {
+		t.Fatal(e)
+	}
+	if _, err := engine.Execute(`__kept = Plugin.getPlugin("@t/a"):get("s")`); err != nil {
+		t.Fatal(err)
+	}
+	// what UnloadPlugin does: unload.lua, then PluginSandbox:cleanup
+	if _, err := engine.Execute(`Plugin.instances["@t/a"] = nil; PluginSandbox:cleanup("@t/a")`); err != nil {
+		t.Fatal(err)
+	}
+	if n := activeTimers(engine); n != baseline {
+		t.Errorf("timers after cleanup: %d, baseline %d", n, baseline)
+	}
+	mustLua(t, engine, `tostring(_registry["@t/a"])`, "nil")
+	engine.Execute(`pcall(function() __kept:get() end)`)
+	if n := activeTimers(engine); n != baseline {
+		t.Errorf("a disabled plugin started a timer: %d, baseline %d", n, baseline)
+	}
+}
+
+func TestPluginEscapeEventPayload(t *testing.T) {
+	engine := sandboxEngine(t, "@t/a", "")
+	if _, e := runPlugin(t, engine, "@t/a", `EventBus.on("satel.OnZoneChange", function(z) __got = z.alarm; z.alarm = false end)`); e != "nil" {
+		t.Fatal(e)
+	}
+	if _, err := engine.Execute(`
+		local bus = EventBus:getShared()
+		bus:on("satel.OnZoneChange", function(z) __seen = z.alarm end)
+		bus:emit("satel.OnZoneChange", { alarm = true })
+	`); err != nil {
+		t.Fatal(err)
+	}
+	mustLua(t, engine, `tostring(__seen)`, "true")
+	mustLua(t, engine, `tostring(PluginSandbox.sandboxes["@t/a"].environment.__got)`, "true")
+}
+
+func TestPluginEscapeExposePath(t *testing.T) {
+	engine := sandboxEngine(t, "@t/a", "")
+	_, e := runPlugin(t, engine, "@t/a", `
+		p = Plugin:new("a", {name = "A"})
+		local c = p:control("x", function() return 0 end, function(v) end)
+		local h = p:expose(c, "switch", { path = "CLU220000592.DOU9999" })
+		return h:getPath()
+	`)
+	if e != "nil" {
+		t.Fatalf("expose: %s", e)
+	}
+	mustLua(t, engine, `tostring(_registry["CLU220000592.DOU9999"])`, "nil")
+	mustLua(t, engine, `tostring(_registry["@t/a:CLU220000592.DOU9999"] ~= nil)`, "true")
+}
