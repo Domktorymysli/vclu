@@ -77,7 +77,10 @@ readOnlyProxy = function(obj)
                 if m then return m end
                 if isReadMethod(key) then
                     m = function(self, ...)
-                        if self == proxy then self = obj end
+                        if self ~= proxy then
+                            error("Read-only: call " .. tostring(key) .. " as a method of its object", 2)
+                        end
+                        self = obj
                         for i = 1, select("#", ...) do
                             local t = type((select(i, ...)))
                             if t ~= "number" and t ~= "string" and t ~= "boolean" and t ~= "nil" then
@@ -123,8 +126,10 @@ local function boundFacade(obj)
                 local m = methods[key]
                 if not m then
                     m = function(self, ...)
-                        if self == facade then self = obj end
-                        return mapResults(out, val(self, ...))
+                        if self ~= facade then
+                            error("call " .. tostring(key) .. " as a method of its object", 2)
+                        end
+                        return mapResults(out, val(obj, ...))
                     end
                     methods[key] = m
                 end
@@ -147,8 +152,8 @@ local function boundFunctions(obj, names)
         local f = obj[name]
         if type(f) == "function" then
             fns[name] = function(self, ...)
-                if self == t then self = obj end
-                return f(self, ...)
+                if self == t then return f(obj, ...) end
+                return f(obj, self, ...)
             end
         end
     end
@@ -195,7 +200,10 @@ local PLUGIN_STATIC = { new = true, getPlugin = true, list = true, allStats = tr
 local INSTANCE_HIDDEN = { _sandbox = true, _exposedHandles = true }
 local INSTANCE_PROTECTED = {
     id = true, shortId = true, namespace = true, _sandbox = true, _isPlugin = true, _exposedHandles = true,
+    timers = true, subscriptions = true, init = true, cleanup = true, stats = true,
 }
+-- Called by the loader and the sandbox on the real instance, not by the plugin
+local INSTANCE_CORE_ONLY = { init = true, cleanup = true }
 
 -- The plugin's own instance as the plugin holds it. The real instance (in
 -- Plugin.instances, for modules) stays out of its reach: methods are called on it,
@@ -251,11 +259,14 @@ local function instanceProxy(inner)
                 if type(f) == "table" then return nil end
                 return f
             end
-            if PLUGIN_STATIC[key] then return nil end
+            if PLUGIN_STATIC[key] or INSTANCE_CORE_ONLY[key] then return nil end
             local override = overrides[key]
             m = function(self, ...)
                 if self ~= proxy then
                     error("Plugin method " .. key .. " called on another object", 2)
+                end
+                if inner._sandbox and inner._sandbox.dead then
+                    error("plugin " .. tostring(inner.id) .. " is disabled", 2)
                 end
                 if override then return override(...) end
                 return mapResults(out, f(inner, ...))
@@ -314,6 +325,14 @@ function PluginSandbox:create(pluginId, permissions)
         mqtt = permissions.mqtt == true,
         modbus = permissions.modbus == true,
     }
+    -- Events a plugin emits are "<prefix>:<name>". An official plugin's prefix is its
+    -- short id or the id's first word (sun-position: "sun"), any other's its full id,
+    -- so it cannot pass for another integration (telegram:command, gpio.*).
+    if permissions.official == true and shortId then
+        sandbox.eventPrefixes = { shortId .. ":", (shortId:match("^([^-]+)-") or shortId) .. ":" }
+    else
+        sandbox.eventPrefixes = { pluginId .. ":" }
+    end
     -- requests of a plugin carry its id as the HTTP instance (PluginHelpers.httpRequest)
     if type(__go_http_set_lan) == "function" then
         __go_http_set_lan(pluginId, sandbox.permissions.lan)
@@ -405,8 +424,21 @@ function PluginSandbox:buildAPI(sandbox)
         return wrappedCallback
     end
 
+    local function checkEventName(eventName)
+        if type(eventName) == "string" then
+            for _, prefix in ipairs(sandbox.eventPrefixes) do
+                if eventName:sub(1, #prefix) == prefix then return end
+            end
+        end
+        error("plugin " .. pluginId .. " may emit only events starting with "
+            .. sandbox.eventPrefixes[1] .. ", not " .. tostring(eventName), 3)
+    end
+
+    api.checkEvent = function(eventName) checkEventName(eventName) end
+
     -- Wrapped EventBus:emit (no tracking needed, just pcall protection)
     api.emit = function(eventName, ...)
+        checkEventName(eventName)
         local bus = EventBus and EventBus:getShared() or nil
         if bus then
             bus:emit(eventName, ...)
@@ -479,13 +511,15 @@ function PluginSandbox:buildAPI(sandbox)
 
     -- GET/POST go through httpRequest like every other plugin request: the plugin's own
     -- HTTP instance, with its LAN permission
+    local function alive() return not sandbox.dead end
+
     local function simpleRequest(opts, callback)
         PluginHelpers.httpRequest(pluginId, opts, function(response, err)
             local ok, callErr = pcall(callback, response, err)
             if not ok then
                 Logger:error("[" .. pluginId .. "] HTTP " .. opts.method .. " callback error: " .. tostring(callErr))
             end
-        end)
+        end, alive)
     end
 
     api.httpGet = function(url, callback)
@@ -520,7 +554,7 @@ function PluginSandbox:buildAPI(sandbox)
 
     -- HTTP request with full options
     api.httpRequest = function(opts, callback)
-        PluginHelpers.httpRequest(pluginId, opts, callback)
+        PluginHelpers.httpRequest(pluginId, opts, callback, alive)
     end
 
     -- URL builder
@@ -568,7 +602,7 @@ function PluginSandbox:buildAPI(sandbox)
             if sandbox.dead then return self end
             return start(self, ...)
         end
-        return poller
+        return boundFacade(poller)
     end
 
     -- Update a plugin-local data object (stored in sandbox, not in global _registry)
@@ -602,10 +636,12 @@ function PluginSandbox:buildAPI(sandbox)
 
     -- Event emit with throttling
     api.emitThrottled = function(event, data, opts)
+        checkEventName(event)
         local emitFn = function(ev, payload)
-            if EventBus and EventBus.emit then
-                EventBus:emit(ev, payload)
-            end
+            if sandbox.dead then return end
+            checkEventName(ev)
+            local bus = EventBus and EventBus:getShared() or nil
+            if bus then bus:emit(ev, payload) end
         end
         return PluginHelpers.emitThrottled(pluginId, emitFn, event, data, opts)
     end

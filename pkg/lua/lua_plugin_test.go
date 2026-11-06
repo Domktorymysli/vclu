@@ -770,7 +770,7 @@ func TestPluginSandboxEventBusShared(t *testing.T) {
 	// Register a listener using the pattern from modules/*.lua
 	_, err := engine.Execute(`
 		_test_received = nil
-		EventBus:getShared():on("weather:changed", function(data)
+		EventBus:getShared():on("event-plugin:changed", function(data)
 			_test_received = data
 		end)
 	`)
@@ -779,7 +779,7 @@ func TestPluginSandboxEventBusShared(t *testing.T) {
 	}
 
 	// Create sandbox and plugin
-	_, err = engine.Execute(`PluginSandbox:create("@test/event-plugin")`)
+	_, err = engine.Execute(`PluginSandbox:create("@test/event-plugin", {official = true})`)
 	if err != nil {
 		t.Fatalf("Sandbox create failed: %v", err)
 	}
@@ -788,7 +788,7 @@ func TestPluginSandboxEventBusShared(t *testing.T) {
 	_, err = engine.Execute(`
 		local r, e = PluginSandbox:execute("@test/event-plugin", [[
 			local p = Plugin:new("event-plugin", {name="Event Test", version="1.0.0"})
-			p:emit("weather:changed", { temp = 12.5, humidity = 43 })
+			p:emit("event-plugin:changed", { temp = 12.5, humidity = 43 })
 		]])
 		if e then error(e) end
 	`)
@@ -879,7 +879,7 @@ func TestPluginSandboxEventBusBidirectional(t *testing.T) {
 
 	// Create two sandboxed plugins
 	_, err := engine.Execute(`
-		PluginSandbox:create("@test/producer")
+		PluginSandbox:create("@test/producer", {official = true})
 		PluginSandbox:create("@test/consumer")
 	`)
 	if err != nil {
@@ -891,7 +891,7 @@ func TestPluginSandboxEventBusBidirectional(t *testing.T) {
 		local r, e = PluginSandbox:execute("@test/consumer", [[
 			_consumed = nil
 			local p = Plugin:new("consumer", {name="Consumer", version="1.0.0"})
-			p:on("data:ready", function(data)
+			p:on("producer:ready", function(data)
 				_consumed = data
 			end)
 		]])
@@ -905,7 +905,7 @@ func TestPluginSandboxEventBusBidirectional(t *testing.T) {
 	_, err = engine.Execute(`
 		local r, e = PluginSandbox:execute("@test/producer", [[
 			local p = Plugin:new("producer", {name="Producer", version="1.0.0"})
-			p:emit("data:ready", { value = 42 })
+			p:emit("producer:ready", { value = 42 })
 		]])
 		if e then error(e) end
 	`)
@@ -981,14 +981,14 @@ func TestEventBusOnEmitHelpers(t *testing.T) {
 	}
 
 	// Test 3: Plugin emit → on() helper listener
-	_, err = engine.Execute(`PluginSandbox:create("@test/helper-emitter")`)
+	_, err = engine.Execute(`PluginSandbox:create("@test/helper-emitter", {official = true})`)
 	if err != nil {
 		t.Fatalf("Sandbox create failed: %v", err)
 	}
 
 	_, err = engine.Execute(`
 		_from_plugin = nil
-		on("plugin:data", function(data)
+		on("helper-emitter:data", function(data)
 			_from_plugin = data
 		end)
 	`)
@@ -999,7 +999,7 @@ func TestEventBusOnEmitHelpers(t *testing.T) {
 	_, err = engine.Execute(`
 		local r, e = PluginSandbox:execute("@test/helper-emitter", [[
 			local p = Plugin:new("helper-emitter", {name="Emitter", version="1.0.0"})
-			p:emit("plugin:data", { value = 99 })
+			p:emit("helper-emitter:data", { value = 99 })
 		]])
 		if e then error(e) end
 	`)

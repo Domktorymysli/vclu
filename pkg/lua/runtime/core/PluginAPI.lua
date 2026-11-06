@@ -566,6 +566,9 @@ end
 -- @return boolean|string true=emitted, false=dropped, "pending"=queued
 function Plugin:emit(eventName, data, opts)
     if opts and (opts.throttle or opts.coalesce or opts.leading ~= nil or opts.trailing) then
+        if self._sandbox and self._sandbox.api then
+            self._sandbox.api.checkEvent(eventName)
+        end
         -- Use throttled emit
         local emitFn = function(event, payload)
             if self._sandbox and self._sandbox.api then
@@ -1039,13 +1042,16 @@ function Plugin.getPlugin(pluginId)
     if Plugin.instances[pluginId] then
         return Plugin.instances[pluginId]
     end
-    -- Try to find by shortId
+    -- By shortId: the official one, else the only one; two others are ambiguous
+    local found
     for id, instance in pairs(Plugin.instances) do
         if instance.shortId == pluginId then
-            return instance
+            if instance.namespace == "vclu" then return instance end
+            if found then return nil end
+            found = instance
         end
     end
-    return nil
+    return found
 end
 
 -- List all registered plugins

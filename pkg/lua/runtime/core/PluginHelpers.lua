@@ -569,7 +569,8 @@ end
 -- @param pluginId string Plugin identifier
 -- @param opts table Request options
 -- @param callback function Callback(response, err)
-function PluginHelpers.httpRequest(pluginId, opts, callback)
+-- @param alive function|nil false once the plugin is disabled: no more attempts or callbacks
+function PluginHelpers.httpRequest(pluginId, opts, callback, alive)
     -- Validate required fields
     if not opts then
         error("httpRequest: opts is required")
@@ -749,6 +750,7 @@ function PluginHelpers.httpRequest(pluginId, opts, callback)
 
     -- Perform single request attempt
     local function doRequest(attempt)
+        if alive and not alive() then return end
         local attemptStart = os.clock() * 1000
 
         logRequest("HTTP " .. method .. " " .. url .. " (attempt " .. attempt .. ")", nil)
@@ -784,6 +786,7 @@ function PluginHelpers.httpRequest(pluginId, opts, callback)
         local maxPolls = math.ceil(timeout / 50) + 20
 
         local function pollResponse()
+            if alive and not alive() then return end
             pollCount = pollCount + 1
 
             -- Ask for this request's own response: nil until it is ready.
