@@ -138,7 +138,8 @@ TypeMap makes `THERMOSTAT` a `climate`, and `ExposedHandle:setValue` on a climat
 
 ### A thermostat in Home Assistant (`climate`, #61)
 An object is a thermostat when it has `getValue` (temperature), `getTarget` and `setSetpoint`;
-`getState` and `CHANGE_EVENTS` are optional. Decisions, keep HomeKit (#62) in agreement:
+`getState` and `CHANGE_EVENTS` are optional. Decisions, kept by HomeKit (#62) too: both take the
+mode from `ExposedObjects.climateMode`, the range from the expose options:
 - `exposeRegistry()` and `group:expose()` without a type leave climates out (`explicitOnly` in
   the capabilities): only `expose(th)` shows one, writable unless `readonly`. Exposing subscribes nothing new and sends nothing to the
   CLU (`TestHAClimateExposeSubscribesNothingNew`); subscribing a thermostat can reset an old CLU (#67).

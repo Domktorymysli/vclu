@@ -20,5 +20,12 @@ The Home app sends Hue and Saturation separately; `addColor` in `color.go` waits
 `afterColorWrite` instead of sleeping (`color_test.go`). A new characteristic on an existing
 accessory changes the configuration number: keep it to the objects that need it.
 
+## A thermostat changes without a state change
+Its target and mode change alone (holiday, schedule), with no `state_changed`: the
+`object_exposed` hook in `bootstrap_go.lua` notifies on its `CHANGE_EVENTS`, and the bridge reads
+target, mode and temperature with `current_climate.lua` (`climate.go`). In set point mode the
+target shown is the set point, so a write from the Home app does not jump back while a polled
+CLU has not reported TargetTemp yet (`TestThermostatTargetFromHomeApp`).
+
 ## Satel is read-only here on purpose
 A write from the Home app would change vCLU's state without sending anything to the alarm panel.

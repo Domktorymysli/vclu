@@ -18,7 +18,7 @@ import (
 var readonlyPerms = []string{characteristic.PermissionRead, characteristic.PermissionEvents}
 
 // command runs a write from the Home app on the exposed object at path:
-// luaCall is fixed Lua (only Go ints in it) run with the handle h and hk, the operations of lua/command.lua.
+// luaCall is fixed Lua (only Go numbers in it) run with the handle h and hk, the operations of lua/command.lua.
 // The HomeKit access level is read again here (the profile may have changed since the bridge was built); a
 // refused or failed write puts the tile back to the real state.
 func (s *Server) command(path, luaCall string, update func(float64)) bool {
@@ -79,6 +79,7 @@ func (s *Server) createExposedAccessory(obj ExposedObject, readonly bool) *Acces
 	var acc *accessory.A
 	var updateFunc func(float64)
 	var colorFunc func(r, g, b int)
+	var climateFunc func(ExposedClimate)
 
 	switch obj.Type {
 	case "switch":
@@ -103,8 +104,14 @@ func (s *Server) createExposedAccessory(obj ExposedObject, readonly bool) *Acces
 		acc, updateFunc = s.createExposedLightSensor(info, obj)
 	case "binary_sensor":
 		acc, updateFunc = s.createExposedContactSensor(info, obj)
+	case "climate":
+		if obj.Climate == nil {
+			log.Printf("[HomeKit] %s is a climate without getTarget/setSetpoint, left out", obj.Path)
+			return nil
+		}
+		acc, updateFunc, climateFunc = s.createExposedThermostat(info, obj, readonly)
 	default:
-		// number, button, lock, garage_door, climate...: a plain switch would
+		// number, button, lock, garage_door...: a plain switch would
 		// let the Home app (and "turn everything off") write 0/1 into them, and
 		// a lock or gate as a switch skips the unlock HomeKit requires.
 		log.Printf("[HomeKit] %s (%s) has no HomeKit accessory, left out", obj.Path, obj.Type)
@@ -114,13 +121,14 @@ func (s *Server) createExposedAccessory(obj ExposedObject, readonly bool) *Acces
 	var wrapper *AccessoryWrapper
 	if acc != nil {
 		wrapper = &AccessoryWrapper{
-			Accessory:  acc,
-			Path:       obj.Path,
-			Type:       obj.Type,
-			Readonly:   readonly,
-			UpdateFunc: updateFunc,
-			ColorFunc:  colorFunc,
-			Refetch:    obj.Type == "cover",
+			Accessory:   acc,
+			Path:        obj.Path,
+			Type:        obj.Type,
+			Readonly:    readonly,
+			UpdateFunc:  updateFunc,
+			ColorFunc:   colorFunc,
+			ClimateFunc: climateFunc,
+			Refetch:     obj.Type == "cover",
 		}
 	}
 

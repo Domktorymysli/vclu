@@ -176,6 +176,25 @@ StateBus:getShared():on("object_exposed", function(data)
     end)
 end)
 
+-- A thermostat's target or mode alone (schedule, holiday) reaches HomeKit too
+StateBus:getShared():on("object_exposed", function(data)
+    local h = ExposedObjects:get(data.path)
+    local o = h and h.object
+    if not h or h.type ~= "climate" or type(o) ~= "table" or o._hkClimateHook or type(o.onEvent) ~= "function" then
+        return
+    end
+    o._hkClimateHook = true
+    for _, event in ipairs(o.CHANGE_EVENTS or {}) do
+        o:onEvent(event, function()
+            local path = StateChange.pathOf(o)
+            local cur = path and ExposedObjects:get(path)
+            if __go_homekit_notify and cur and cur.type == "climate" and cur.options.homekit ~= false then
+                __go_homekit_notify(path, tonumber(cur:getValue()) or 0, cur.type)
+            end
+        end)
+    end
+end)
+
 -- ============================================
 -- Client Push Notification Hook
 -- ============================================
