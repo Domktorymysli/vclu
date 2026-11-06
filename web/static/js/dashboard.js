@@ -29,10 +29,10 @@
 
     // Texts in the viewer's language: the "dashboard" section of web/locales, put in by the server
     var T = (function() {
-        try { return JSON.parse(document.getElementById('dashTexts').textContent); } catch (e) { return {}; }
+        try { return JSON.parse(document.getElementById('dashTexts').textContent) || {}; } catch (e) { return {}; }
     })();
     var lang = document.documentElement.lang;
-    var locale = T.locale || lang; // dates, times and numbers (Intl)
+    var locale = T.locale || lang || undefined; // dates, times and numbers (Intl); '' would throw
     var decimalSep = (1.5).toLocaleString(locale).charAt(1);
 
     // A tile without its own icon gets one by type
