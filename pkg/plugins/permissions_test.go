@@ -79,3 +79,24 @@ func TestManifestPermissionsParse(t *testing.T) {
 		t.Errorf("an empty declaration grants nothing and is not a missing one: %+v", empty.Permissions)
 	}
 }
+
+// Directory and KV names of two ids never meet, also on a case-insensitive file system.
+func TestPluginIDsKeepTheirNames(t *testing.T) {
+	for _, id := range []string{"@VCLU/weather", "@vclu/Weather", "@a--b/c", "@a/b--c", "@a-/b", "@a/-b", "@a/b-", "@-a/b"} {
+		if validPluginID(id) {
+			t.Errorf("%s accepted", id)
+		}
+	}
+	for _, id := range []string{"@vclu/weather", "@vclu/sun-position", "@jan/foo.bar", "weather", "@vclu/pse-rce"} {
+		if !validPluginID(id) {
+			t.Errorf("%s refused", id)
+		}
+	}
+	dir := t.TempDir()
+	NewKVStoreManager(dir).GetStore("@vclu/weather").Set("token", "secret", false, 0)
+	for _, other := range []string{"@VCLU/weather", "@vclu--weather", "vclu--weather"} {
+		if _, ok := NewKVStoreManager(dir).GetStore(other).Get("token"); ok {
+			t.Errorf("%s reads @vclu/weather's KV", other)
+		}
+	}
+}

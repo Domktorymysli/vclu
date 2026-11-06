@@ -1,6 +1,7 @@
 package lua
 
 import (
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -56,5 +57,30 @@ func TestHTTPManagerNoLAN(t *testing.T) {
 	status, _, _, err = hm.Request("@t/a", "GET", srv.URL, nil, "", 5000, true, true)
 	if err != nil || status != 200 {
 		t.Errorf("after allowing lan: %d %v", status, err)
+	}
+}
+
+// Addresses of this machine's interfaces and their networks count as the LAN, also
+// a global IPv6 one.
+func TestOnHostNetwork(t *testing.T) {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		t.Skip(err)
+	}
+	for _, a := range addrs {
+		n, ok := a.(*net.IPNet)
+		if !ok {
+			continue
+		}
+		ip, ok := netip.AddrFromSlice(n.IP)
+		if !ok {
+			continue
+		}
+		if !onHostNetwork(ip) {
+			t.Errorf("%s (own interface) not on the host's network", ip)
+		}
+	}
+	if onHostNetwork(netip.MustParseAddr("1.1.1.1")) {
+		t.Error("1.1.1.1 on the host's network")
 	}
 }
