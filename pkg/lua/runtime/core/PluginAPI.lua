@@ -460,6 +460,9 @@ end
 -- @return string|nil JSON string
 -- @return string|nil Error message
 function Plugin:encodeJson(data)
+    if self._sandbox and self._sandbox.api then
+        return self._sandbox.api.encodeJson(data)
+    end
     return PluginHelpers.encodeJson(data)
 end
 
