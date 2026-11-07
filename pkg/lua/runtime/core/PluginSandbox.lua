@@ -194,6 +194,51 @@ local function sandboxIpairs(t)
     return originalIpairs(t)
 end
 
+-- What leaves the sandbox for Go (JSON) or a module (an event) must not carry proxies,
+-- which look empty there: the sources go instead, copied into the plugin's own tables.
+local function plain(v, seen)
+    if type(v) ~= "table" then return v end
+    local src = sourceOf(v)
+    if src then return src end
+    seen = seen or {}
+    if seen[v] then return seen[v] end
+    seen[v] = v
+    local copy
+    for k, val in originalPairs(v) do
+        local pv = plain(val, seen)
+        if pv ~= val and not copy then
+            copy = shallowCopy(v)
+            seen[v] = copy
+        end
+        if copy then copy[k] = pv end
+    end
+    return copy or v
+end
+
+-- The plugin's table library: raw functions read through a proxy, and do not write one
+local function sandboxTable()
+    local t = shallowCopy(table)
+    t.concat = function(list, ...)
+        return table.concat(sourceOf(list) or list, ...)
+    end
+    for _, name in ipairs({ "insert", "remove", "sort" }) do
+        local f = table[name]
+        t[name] = function(list, ...)
+            if sourceOf(list) then
+                error("Read-only: table." .. name .. " on an object the plugin did not create", 2)
+            end
+            return f(list, ...)
+        end
+    end
+    return t
+end
+
+local function sandboxUnpack(list, ...)
+    local src = sourceOf(list)
+    if not src then return unpackArgs(list, ...) end
+    return mapResults(readOnlyProxy, unpackArgs(src, ...))
+end
+
 -- Plugin class functions that are not instance methods
 local PLUGIN_STATIC = { new = true, getPlugin = true, list = true, allStats = true, initFromConfig = true }
 -- Fields of its own instance a plugin may not see (the sandbox, raw handles) or replace
@@ -445,7 +490,7 @@ function PluginSandbox:buildAPI(sandbox)
         checkEventName(eventName)
         local bus = EventBus and EventBus:getShared() or nil
         if bus then
-            bus:emit(eventName, ...)
+            bus:emit(eventName, mapResults(plain, ...))
         end
     end
 
@@ -482,7 +527,7 @@ function PluginSandbox:buildAPI(sandbox)
         if MQTT and MQTT.publish then
             local payloadStr = payload
             if type(payload) == "table" then
-                payloadStr = JSON:encode(payload)
+                payloadStr = JSON:encode(plain(payload))
             end
             MQTT:publish(topic, payloadStr, qos or 0, retain or false)
         end
@@ -581,7 +626,7 @@ function PluginSandbox:buildAPI(sandbox)
     end
 
     api.encodeJson = function(data)
-        return PluginHelpers.encodeJson(data)
+        return PluginHelpers.encodeJson(plain(data))
     end
 
     -- Coercion helpers
@@ -645,7 +690,7 @@ function PluginSandbox:buildAPI(sandbox)
             if sandbox.dead then return end
             checkEventName(ev)
             local bus = EventBus and EventBus:getShared() or nil
-            if bus then bus:emit(ev, payload) end
+            if bus then bus:emit(ev, plain(payload)) end
         end
         return PluginHelpers.emitThrottled(pluginId, emitFn, event, data, opts)
     end
@@ -783,7 +828,7 @@ function PluginSandbox:buildEnvironment(sandbox)
         tostring = tostring,
         tonumber = tonumber,
         select = select,
-        unpack = unpackArgs,
+        unpack = sandboxUnpack,
         pcall = pcall,
         xpcall = xpcall,
         error = error,
@@ -791,7 +836,7 @@ function PluginSandbox:buildEnvironment(sandbox)
 
         -- Standard libraries: the plugin's own copies, so a change stays in the plugin
         string = shallowCopy(string),
-        table = shallowCopy(table),
+        table = sandboxTable(),
         math = shallowCopy(math),
         os = safeOs,
         datetime = safeDatetime,
@@ -805,7 +850,10 @@ function PluginSandbox:buildEnvironment(sandbox)
         -- Shared objects: methods callable, fields not replaceable. HTTP and MQTT go
         -- through the plugin API (plugin:httpRequest, plugin:mqttSubscribe).
         Logger = boundFunctions(Logger, { "debug", "info", "warn", "error" }),
-        JSON = boundFunctions(JSON, { "encode", "decode" }),
+        JSON = boundFunctions({
+            encode = function(_, data, ...) return JSON:encode(plain(data), ...) end,
+            decode = function(_, ...) return JSON:decode(...) end,
+        }, { "encode", "decode" }),
         Modbus = modbus,
 
         Plugin = pluginClass,
