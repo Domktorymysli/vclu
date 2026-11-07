@@ -60,37 +60,3 @@ func TestGenerateProxyRollerTilt(t *testing.T) {
 		}
 	}
 }
-
-func TestHADiscoveryRollerTilt(t *testing.T) {
-	parsed, err := Parse(tiltOM)
-	if err != nil {
-		t.Fatalf("Parse failed: %v", err)
-	}
-	payloads := map[string]map[string]interface{}{}
-	for _, m := range GenerateHADiscovery(parsed, DefaultHAConfig()) {
-		payloads[m.ObjectPath] = m.Payload
-	}
-
-	blind := payloads["CLU212345678.ROL1001"]
-	for k, v := range map[string]interface{}{
-		"tilt_status_topic":  "vclu/clu212345678/cover/rol1001/tilt",
-		"tilt_command_topic": "vclu/clu212345678/cover/rol1001/tilt/set",
-		"tilt_min":           0, "tilt_max": 100, "tilt_closed_value": 0, "tilt_opened_value": 100,
-		"unique_id": "vclu_clu212345678_rol1001",
-	} {
-		if blind[k] != v {
-			t.Errorf("blind %s = %v, want %v", k, blind[k], v)
-		}
-	}
-	for _, path := range []string{"CLU212345678.ROL1002", "CLU212345678.ROL1003", "CLU212345678.ROL2001"} {
-		p, ok := payloads[path]
-		if !ok {
-			t.Fatalf("no discovery for %s", path)
-		}
-		for k := range p {
-			if strings.HasPrefix(k, "tilt") {
-				t.Errorf("%s has %s", path, k)
-			}
-		}
-	}
-}

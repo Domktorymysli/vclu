@@ -70,7 +70,6 @@ var (
 		"HACommands":         true,
 		"HAIntegration":      true,
 		"HAStatePublisher":   true,
-		"MqttHandler":        true,
 		"MqttAccess":         true,
 		"GATE":               true,
 		"OBJECT":             true,

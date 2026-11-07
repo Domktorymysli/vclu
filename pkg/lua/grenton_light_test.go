@@ -22,6 +22,12 @@ const grentonLightSetup = `
 	end
 `
 
+// exposeGrentonLights shares the dimmer and the LED with Home Assistant at their registry paths.
+const exposeGrentonLights = `
+	expose(_dim, "light", {})
+	expose(_led, "light", {})
+`
+
 func TestGrentonLightMethods(t *testing.T) {
 	engine := NewLuaEngine()
 	defer engine.Close()
@@ -85,21 +91,24 @@ func TestGrentonLightBrightnessRounds(t *testing.T) {
 	pub := mustExec(t, engine, `(function()
 		local p = {}
 		HAStatePublisher.setup({ publish = function(self, topic, payload) p[topic] = payload; return true end })
+		expose(_dim, "light", {})
+		expose(_led, "light", {})
 		_dim:updateState(0.29)
 		_led:updateState(0.29)
-		return tostring(p["vclu/clu1/light/dim1/brightness"]) .. "|" .. tostring(p["vclu/clu1/light/led1/state"])
+		return tostring(p["vclu/exposed/vclu/light/clu1_dim1/brightness"]) .. "|" ..
+			tostring(p["vclu/exposed/vclu/light/clu1_led1/state"])
 	end)()`)
 	if pub != `29|{"state":"ON","brightness":29}` {
 		t.Errorf("published = %s", pub)
 	}
 }
 
-// An RGB light from the OM import is announced with schema json, so Home Assistant sends
-// one JSON command; plain ON/OFF reach the LED's own SwitchOn/SwitchOff.
+// An exposed RGB light is announced with schema json, so Home Assistant sends one JSON
+// command; plain ON/OFF reach the LED's own SwitchOn/SwitchOff, a dimmer's its own.
 func TestHALightJSONCommands(t *testing.T) {
 	engine := NewLuaEngine()
 	defer engine.Close()
-	if _, err := engine.Execute(grentonLightSetup); err != nil {
+	if _, err := engine.Execute(grentonLightSetup + exposeGrentonLights); err != nil {
 		t.Fatalf("setup failed: %v", err)
 	}
 
@@ -117,7 +126,7 @@ func TestHALightJSONCommands(t *testing.T) {
 		{"dim1/set", "OFF", "DIM1:execute(3, 0)"},
 	} {
 		got := mustExec(t, engine, `_run(function()
-			HACommands.handleMessage("vclu/clu1/light/`+c.topic+`", [[`+c.payload+`]])
+			HACommands.handleExposedMessage("vclu/exposed/vclu/light/clu1_`+c.topic+`", [[`+c.payload+`]])
 		end)`)
 		if got != c.want {
 			t.Errorf("%s %s sent %s, want %s", c.topic, c.payload, got, c.want)
@@ -126,7 +135,7 @@ func TestHALightJSONCommands(t *testing.T) {
 
 	bad := mustExec(t, engine, `(function()
 		_sent = {}
-		local ok, err = HACommands.handleMessage("vclu/clu1/light/led1/set", "{bad")
+		local ok, err = HACommands.handleExposedMessage("vclu/exposed/vclu/light/clu1_led1/set", "{bad")
 		return tostring(ok) .. "|" .. tostring(err) .. "|" .. #_sent
 	end)()`)
 	if bad != "false|invalid JSON command|0" {
@@ -166,24 +175,27 @@ func TestGrentonLedChannel(t *testing.T) {
 	got := mustExec(t, engine, `(function()
 		local p = {}
 		HAStatePublisher.setup({ publish = function(self, topic, payload) p[topic] = payload; return true end })
+		expose(_ch, require("TypeMap").getExposeType(_ch._type), {})
 		_ch:updateState(_ch:fromFeature(0, 255))
 		local full = tostring(_ch:getBrightness())
 		_ch:updateState(_ch:fromFeature(0, 64))
 		return full .. "|" .. tostring(_ch:getBrightness()) .. "|" ..
-			tostring(p["vclu/clu1/light/led2/state"]) .. "|" .. tostring(p["vclu/clu1/light/led2/brightness"])
+			tostring(p["vclu/exposed/vclu/light/clu1_led2/state"]) .. "|" ..
+			tostring(p["vclu/exposed/vclu/light/clu1_led2/brightness"])
 	end)()`)
 	if got != "100|25|ON|25" {
 		t.Errorf("reported value = %s, want 100|25|ON|25", got)
 	}
 
-	// A brightness from Home Assistant reaches SetValue on 0..255.
+	// A brightness from Home Assistant reaches SetValue on 0..255 (the ON that HA sends
+	// right after it keeps that brightness, so OFF comes first).
 	for _, c := range []struct{ topic, payload, want string }{
 		{"led2/brightness/set", "40", "LED2:execute(0, 102)"},
-		{"led2/set", "ON", "LED2:execute(1, 0)"},
 		{"led2/set", "OFF", "LED2:execute(2, 0)"},
+		{"led2/set", "ON", "LED2:execute(1, 0)"},
 	} {
 		got := mustExec(t, engine, `_run(function()
-			HACommands.handleMessage("vclu/clu1/light/`+c.topic+`", [[`+c.payload+`]])
+			HACommands.handleExposedMessage("vclu/exposed/vclu/light/clu1_`+c.topic+`", [[`+c.payload+`]])
 		end)`)
 		if got != c.want {
 			t.Errorf("%s %s sent %s, want %s", c.topic, c.payload, got, c.want)
@@ -203,11 +215,11 @@ func TestGrentonLedChannel(t *testing.T) {
 func TestHALightJSONWhite(t *testing.T) {
 	engine := NewLuaEngine()
 	defer engine.Close()
-	if _, err := engine.Execute(grentonLightSetup); err != nil {
+	if _, err := engine.Execute(grentonLightSetup + exposeGrentonLights); err != nil {
 		t.Fatalf("setup failed: %v", err)
 	}
 	got := mustExec(t, engine, `_run(function()
-		HACommands.handleMessage("vclu/clu1/light/led1/set", [[{"state":"ON","color":{"r":255,"g":0,"b":10,"w":128}}]])
+		HACommands.handleExposedMessage("vclu/exposed/vclu/light/clu1_led1/set", [[{"state":"ON","color":{"r":255,"g":0,"b":10,"w":128}}]])
 	end)`)
 	// no value known yet: ON with a colour also switches on
 	if want := `LED1:execute(6, "#ff000a");LED1:execute(12, 128);LED1:execute(9, 0)`; got != want {

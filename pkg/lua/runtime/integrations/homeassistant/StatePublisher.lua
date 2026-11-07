@@ -1,11 +1,11 @@
 --- Home Assistant State Publisher for vCLU.
 -- Listens to StateBus and publishes state changes to MQTT.
--- Supports both legacy registry objects and ExposedObjects API.
+-- Publishes objects shared with expose() (ExposedObjects API).
 -- @module HAStatePublisher
 
 local HAStatePublisher = {}
 
--- Topic prefix (must match generator_ha.go)
+-- Topic prefix of every vCLU MQTT topic
 HAStatePublisher.topicPrefix = "vclu"
 HAStatePublisher.mqttInstance = nil
 HAStatePublisher.enabled = false
@@ -77,11 +77,6 @@ local function clearDiscovery(path)
     end
 end
 
--- A Grenton type that is a dimmer for HA (DIMMER, LED_CHANNEL): value 0..1, brightness
-local function isDimmer(objType)
-    return TypeMap.getExposeType(objType) == "dimmer"
-end
-
 -- The colour mode of an exposed light whose object has a colour (RemoteRGBLight): rgbw on
 -- an RGBW module, rgb otherwise; nil for a plain light and for a read-only one, which
 -- is a binary_sensor to HA (exposedComponent) and gets ON/OFF
@@ -108,111 +103,6 @@ local function formatColorState(handle, value, mode)
         end
     end
     return "{" .. table.concat(parts, ",") .. "}"
-end
-
--- Format state value for MQTT based on type
-local function formatState(value, objType)
-    if objType == "DOUT" or objType == "DIN" then
-        -- Binary: 0/1 -> OFF/ON
-        if value == 1 or value == true or value == "1" then
-            return "ON"
-        else
-            return "OFF"
-        end
-
-    elseif isDimmer(objType) then
-        -- Dimmer: 0-1 float -> OFF/ON
-        local numVal = tonumber(value) or 0
-        if numVal > 0 then
-            return "ON"
-        else
-            return "OFF"
-        end
-
-    elseif objType == "LEDRGB" then
-        -- RGB Light: JSON format
-        local numVal = tonumber(value) or 0
-        local state = numVal > 0 and "ON" or "OFF"
-        -- the colour is not reported (only Value is subscribed): HA keeps the last one
-        return string.format(
-            '{"state":"%s","brightness":%d}',
-            state,
-            math.floor(numVal * 100 + 0.5)
-        )
-
-    elseif objType == "ROLLER" or objType == "ROLLER_SH" then
-        -- Cover: position to state
-        local numVal = tonumber(value) or 0
-        if numVal >= 100 then
-            return "open"
-        elseif numVal <= 0 then
-            return "closed"
-        else
-            return "open"  -- partially open
-        end
-
-    else
-        -- Default: return as string
-        return tostring(value)
-    end
-end
-
--- Build MQTT topic from registry path
-local function buildTopic(path, objType)
-    -- path format: "CLU212345678.DOU1234"
-    local cluId, objId = path:match("^([^.]+)%.(.+)$")
-    if not cluId or not objId then
-        return nil
-    end
-
-    local component = TypeMap.getHAComponentFromGreton(objType, "sensor")
-
-    -- Topic: vclu/{clu_id}/{component}/{obj_id}/state
-    return string.format(
-        "%s/%s/%s/%s/state",
-        HAStatePublisher.topicPrefix,
-        string.lower(cluId),
-        component,
-        string.lower(objId)
-    )
-end
-
--- Build brightness topic for dimmers
-local function buildBrightnessTopic(path, objType)
-    if not isDimmer(objType) then
-        return nil
-    end
-
-    local cluId, objId = path:match("^([^.]+)%.(.+)$")
-    if not cluId or not objId then
-        return nil
-    end
-
-    return string.format(
-        "%s/%s/light/%s/brightness",
-        HAStatePublisher.topicPrefix,
-        string.lower(cluId),
-        string.lower(objId)
-    )
-end
-
--- Build position topic for covers
-local function buildPositionTopic(path, objType)
-    if objType ~= "ROLLER" then  -- ROLLER_SH doesn't have position
-        return nil
-    end
-
-    local cluId, objId = path:match("^([^.]+)%.(.+)$")
-    if not cluId or not objId then
-        return nil
-    end
-
-    return string.format(
-        "%s/%s/cover/%s/position",
-        HAStatePublisher.topicPrefix,
-        string.lower(cluId),
-        string.lower(objId)
-    )
 end
 
 -- ==========================================================================
@@ -548,109 +438,15 @@ local function publishExposedState(handle)
     end
 end
 
--- Tilt of a registry roller on vclu/{clu}/cover/{obj}/tilt
-local function publishRegistryTilt(path, obj)
-    if not HAStatePublisher.enabled or not HAStatePublisher.mqttInstance then return end
-    if ExposedObjects and ExposedObjects:get(path) then return end
-    if MqttAccess and MqttAccess.isHidden and MqttAccess.isHidden(path) then return end
-    local tilt = HAStatePublisher.coverTiltToHA(callOpt(obj, "getTilt"))
-    local topic = buildPositionTopic(path, "ROLLER")
-    if tilt and topic then
-        HAStatePublisher.mqttInstance:publish(topic:gsub("/position$", "/tilt"), tostring(tilt), 0, true)
-    end
-end
-
 -- Handle state change event
 local function onStateChanged(data)
     if not HAStatePublisher.enabled or not HAStatePublisher.mqttInstance then
         return
     end
 
-    local path = data.path
-    local value = data.value
-    local objType = data.type
-
-    -- Check if this is an ExposedObject
-    if ExposedObjects then
-        local handle = ExposedObjects:get(path)
-        if handle then
-            publishExposedState(handle)
-            return  -- Handled by ExposedObjects
-        end
-    end
-
-    -- Legacy registry path handling below
-
-    -- Check MQTT access - skip if hidden
-    if MqttAccess and MqttAccess.isHidden and MqttAccess.isHidden(path) then
-        if Logger then
-            Logger:getShared():debug("[HA Publisher] Skipping hidden object: %s", path)
-        end
-        return
-    end
-
-    -- Build main state topic
-    local topic = buildTopic(path, objType)
-    if not topic then
-        if Logger then
-            Logger:getShared():debug("[HA Publisher] Could not build topic for: " .. tostring(path))
-        end
-        return
-    end
-
-    -- A cover's value is its position (0 = closed). ROLLER_SH has no position: its value is not one.
-    local position
-    if objType == "ROLLER" then
-        local obj = _registry and _registry[path]
-        if not (obj and obj._hasPosition == false) then
-            position = tonumber(value)
-        end
-    end
-
-    -- Format and publish state
-    local payload = formatState(value, objType)
-    if position then
-        payload = position > 0 and "open" or "closed"
-    end
-
-    local ok, err = HAStatePublisher.mqttInstance:publish(topic, payload, 0, true)  -- qos=0, retain=true
-    if ok then
-        if Logger then
-            Logger:getShared():debug("[HA Publisher] Published: %s -> %s", topic, payload)
-        end
-    else
-        if Logger then
-            Logger:getShared():error("[HA Publisher] Publish failed: %s", tostring(err))
-        end
-    end
-
-    -- Publish brightness for dimmers
-    if isDimmer(objType) then
-        local brightnessTopic = buildBrightnessTopic(path, objType)
-        if brightnessTopic then
-            local numVal = tonumber(value) or 0
-            local brightness = tostring(math.floor(numVal * 100 + 0.5))
-            HAStatePublisher.mqttInstance:publish(brightnessTopic, brightness, 0, true)
-        end
-    end
-
-    -- Publish position for covers
-    if position then
-        local positionTopic = buildPositionTopic(path, objType)
-        if positionTopic then
-            HAStatePublisher.mqttInstance:publish(positionTopic, tostring(position), 0, true)
-        end
-    end
-
-    -- Slats change apart from the value: publish now and on OnTiltChange (hooked once)
-    local obj = position and _registry and _registry[path]
-    if type(obj) == "table" and obj._hasTilt == true then
-        publishRegistryTilt(path, obj)
-        if obj.onEvent and not obj._haRegistryTiltHook then
-            obj._haRegistryTiltHook = true
-            obj:onEvent("OnTiltChange", function() publishRegistryTilt(path, obj) end)
-        end
-    end
+    -- an object not shared with expose() has nothing on MQTT
+    local handle = ExposedObjects and ExposedObjects:get(data.path)
+    if handle then publishExposedState(handle) end
 end
 
 -- Handle new ExposedObject (publish discovery)
@@ -1142,7 +938,6 @@ end
 -- Setup state publisher
 -- @param mqttInstance MQTT instance to use
 -- @param options table Optional settings:
---   - autoExposeRegistry: boolean (default true) - auto-expose _registry objects
 -- @return boolean Success
 function HAStatePublisher.setup(mqttInstance, options)
     if not mqttInstance then
@@ -1160,7 +955,7 @@ function HAStatePublisher.setup(mqttInstance, options)
     if StateBus and StateBus:getShared() then
         local bus = StateBus:getShared()
 
-        -- State changes (both legacy and ExposedObjects)
+        -- State changes of exposed objects
         bus:on("state_changed", onStateChanged)
 
         -- ExposedObjects events

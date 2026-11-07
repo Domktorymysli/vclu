@@ -67,25 +67,6 @@ TypeMap.exposeToHA = {
     garage_door = "cover",  -- HA uses cover with device_class: garage
 }
 
--- Grenton type to HA component direct mapping (legacy)
-TypeMap.grentonToHA = {
-    DOUT = "switch",
-    DIN = "binary_sensor",
-    GPIO_DOUT = "switch",
-    GPIO_DIN = "binary_sensor",
-    DIMMER = "light",
-    LEDRGB = "light",
-    LED_CHANNEL = "light",
-    ROLLER = "cover",
-    ROLLER_SH = "cover",
-    AnalogIN = "sensor",
-    AnalogOUT = "number",
-    ONE_WIRE = "sensor",
-    PANELSENSTEMP = "sensor",
-    PANELSENSLIGHT = "sensor",
-    HUMIDITY_SENSOR = "sensor",
-}
-
 --- Get expose type from Grenton type
 -- @param grentonType string The Grenton hardware type (e.g., "DOUT", "DIMMER")
 -- @param default string Optional default value (default: "switch")
@@ -100,14 +81,6 @@ end
 -- @return string The HA component type
 function TypeMap.getHAComponent(exposeType, default)
     return TypeMap.exposeToHA[exposeType] or default or "sensor"
-end
-
---- Get HA component directly from Grenton type (legacy registry objects)
--- @param grentonType string The Grenton hardware type
--- @param default string Optional default value (default: "sensor")
--- @return string The HA component type
-function TypeMap.getHAComponentFromGreton(grentonType, default)
-    return TypeMap.grentonToHA[grentonType] or default or "sensor"
 end
 
 --- Check if an expose type exists

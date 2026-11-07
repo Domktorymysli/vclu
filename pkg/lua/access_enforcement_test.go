@@ -19,32 +19,27 @@ import (
 // command.
 
 // accessTestSetup registers a switch in the registry, exposes it, and gives the
-// test a write counter so "was it actually written" is observable.
-const accessTestSetup = `
+// test a write counter so "was it actually written" is observable. Commands go in
+// through the subscriptions HACommands.setup makes (mqttBroker).
+const accessTestSetup = mqttBroker + `
 	_writes = 0
 	_dev = {
 		_type = "DOUT", _lastState = 0,
 		get = function(s) return s._lastState end,
 		set = function(s, _, v) _writes = _writes + 1; s._lastState = v end,
+		execute = function(s, m) _writes = _writes + 1; s._lastState = (m == 1) and 1 or 0 end,
 		onChange = function(s, cb) return function() end end,
 	}
 	registerObject("CLU.DOU0001", _dev)
 
-	_pub = {}
-	_fake = {
-		publish = function(self, topic, payload) table.insert(_pub, {topic=topic, payload=payload}) end,
-		subscribe = function() end, unsubscribe = function() end,
-	}
-	HAStatePublisher.setup(_fake)
-
 	expose(_dev, "switch", { name = "Test", path = "CLU.DOU0001" })
 
-	-- Both command entry points for the same object.
 	function _sendExposed()
 		return HACommands.handleExposedMessage("vclu/exposed/vclu/switch/clu_dou0001/set", "ON")
 	end
+	-- the removed registry topic of the same object: no handler takes it
 	function _sendRegistry()
-		return HACommands.handleMessage("vclu/clu/switch/dou0001/set", "ON")
+		return deliver("vclu/clu/switch/dou0001/set", "ON")
 	end
 `
 
@@ -71,14 +66,18 @@ func TestAccess_ReadonlyForMqttOnly_BlocksMqttCommand(t *testing.T) {
 		AccessControl.set("mqtt", "CLU.DOU0001", "readonly")
 		-- homekit deliberately left at full: the integrations are independent
 		_okExposed = _sendExposed()
+		_okDelivered = deliver("vclu/exposed/vclu/switch/clu_dou0001/set", "ON")
 		_okRegistry = _sendRegistry()
 	`)
 
 	if got := mustExec(t, e, `tostring(_okExposed)`); got != "false" {
 		t.Errorf("exposed command path allowed a write on an MQTT-readonly object (ok=%s)", got)
 	}
-	if got := mustExec(t, e, `tostring(_okRegistry)`); got != "false" {
-		t.Errorf("registry command path allowed a write on an MQTT-readonly object (ok=%s)", got)
+	if got := mustExec(t, e, `tostring(_okRegistry)`); got != "0" {
+		t.Errorf("a registry topic reached %s handler(s); only exposed topics are taken", got)
+	}
+	if got := mustExec(t, e, `tostring(_okDelivered)`); got != "1" {
+		t.Errorf("the exposed topic reached %s handler(s), want 1 (which refuses it)", got)
 	}
 	if got := writes(t, e); got != "0" {
 		t.Errorf("object was written %s time(s) despite MQTT readonly", got)
@@ -141,8 +140,8 @@ func TestAccess_HiddenBlocksCommand(t *testing.T) {
 	if got := mustExec(t, e, `tostring(_okExposed)`); got != "false" {
 		t.Errorf("exposed command path allowed a write on a hidden object (ok=%s)", got)
 	}
-	if got := mustExec(t, e, `tostring(_okRegistry)`); got != "false" {
-		t.Errorf("registry command path allowed a write on a hidden object (ok=%s)", got)
+	if got := mustExec(t, e, `tostring(_okRegistry)`); got != "0" {
+		t.Errorf("a registry topic reached %s handler(s); only exposed topics are taken", got)
 	}
 	if got := writes(t, e); got != "0" {
 		t.Errorf("hidden object was written %s time(s)", got)

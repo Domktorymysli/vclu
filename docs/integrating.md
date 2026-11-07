@@ -45,6 +45,11 @@ the discovery topics is fixed.
 
 ### Topics
 
+Only exposed objects are on MQTT. Objects from the Object Manager import are exposed at start
+(`exposeRegistry()`, a CLU thermostat left out); any other object, such as a `VirtualThermostat`
+or a plugin's, only through `expose()` in a module. An object that is not exposed has no state
+topic and takes no command.
+
 | What | Topic | Payload | Retained |
 |---|---|---|---|
 | Availability | `vclu/status` | `online` / `offline` | yes |
@@ -188,7 +193,8 @@ install, and an access file without a `remote` assignment, give it the built-in 
 are checked in vCLU and recorded with origin `remote` and the sender as `user:<login>`.
 
 In a module, `expose(obj, type, { readonly = true })` makes an object read-only over MQTT and MCP
-whatever the profile says, and `{ mqtt = false }` keeps it out of discovery and state publishing.
+whatever the profile says, and `{ mqtt = false }` keeps it off MQTT: no discovery, no states, and
+commands are refused.
 
 ### Over MQTT
 

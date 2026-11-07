@@ -5,190 +5,163 @@ import "testing"
 // Authorization must be decided on the identity of the object that was actually
 // found, never on a string rebuilt from attacker-controlled input.
 //
-// HACommands.findObject resolves an object through several fallbacks — including
-// bare objectId and the Lua global table — none of which involve the cluId segment
-// of the topic. The access check, however, used to rebuild the path as
-// UPPER(cluId).."."..UPPER(objectId). Since the MQTT subscription is vclu/+/+/+/set,
-// cluId is whatever the publisher puts there: sending to a made-up CLU id found the
-// same device but looked up access for a path that does not exist, which falls
-// through to the profile default (normally full). One mosquitto_pub then operated a
-// device marked hidden.
+// The removed registry handler resolved vclu/{clu}/{component}/{obj}/set by objectId
+// alone in most of its lookups while checking access for a path rebuilt from the
+// topic: a made-up CLU id operated a hidden device. Those topics are no longer
+// taken at all (each test below checks the honest and the forged one). An exposed
+// object is found by its exposed topic and its access is checked on the path it was
+// exposed under; the {base} segment and the id must name it exactly.
 
-const spoofSetup = `
+const spoofSetup = mqttBroker + `
 	_writes = 0
-	_gate = {
-		_type = "DOUT", _lastState = 0,
-		get = function(s) return s._lastState end,
-		set = function(s, _, v) _writes = _writes + 1; s._lastState = v end,
-		execute = function(s, m) _writes = _writes + 1; s._lastState = (m == 1) and 1 or 0 end,
-		onChange = function(s, cb) return function() end end,
-	}
+	function _mk()
+		return {
+			_type = "DOUT", _lastState = 0,
+			get = function(s) return s._lastState end,
+			set = function(s, _, v) _writes = _writes + 1; s._lastState = v end,
+			execute = function(s, m) _writes = _writes + 1; s._lastState = (m == 1) and 1 or 0 end,
+			onChange = function(s, cb) return function() end end,
+		}
+	end
 	-- Registered the way om.lua registers real objects.
+	_gate = _mk()
 	registerObject("CLU221.GARAGE", _gate)
+	expose(_gate, "switch", { name = "Brama" })
 	AccessControl.set("mqtt", "CLU221.GARAGE", "hidden")
+	-- ok:err of a direct call, for the report
+	function _send(topic)
+		local ok, err = HACommands.handleExposedMessage(topic, "ON")
+		return tostring(ok) .. ":" .. tostring(err)
+	end
 `
 
-// The honest topic must be refused — this is the baseline the spoof is compared to.
-func TestAccessSpoof_HonestTopicIsBlocked(t *testing.T) {
+func spoofEngine(t *testing.T, extra string) *LuaEngine {
+	t.Helper()
 	engine := NewLuaEngine()
-	defer engine.Close()
-
-	if _, err := engine.Execute(spoofSetup + `
-		_ok = HACommands.handleMessage("vclu/clu221/switch/garage/set", "ON")
-	`); err != nil {
+	t.Cleanup(engine.Close)
+	if _, err := engine.Execute(spoofSetup + extra); err != nil {
 		t.Fatalf("setup failed: %v", err)
 	}
+	return engine
+}
 
-	if got := mustExec(t, engine, `tostring(_ok)`); got != "false" {
-		t.Errorf("hidden object accepted a command on its own topic (ok=%s)", got)
-	}
+func expectNoWrites(t *testing.T, engine *LuaEngine) {
+	t.Helper()
 	if got := mustExec(t, engine, `tostring(_writes)`); got != "0" {
-		t.Errorf("hidden object was written %s time(s)", got)
+		t.Errorf("SECURITY: device written %s time(s)", got)
 	}
 }
 
-// The attack: same object, arbitrary CLU id in the topic.
+// The honest exposed topic of a hidden object is refused; its old registry topic is
+// taken by nothing.
+func TestAccessSpoof_HonestTopicIsBlocked(t *testing.T) {
+	engine := spoofEngine(t, "")
+
+	if got := mustExec(t, engine, `_send("vclu/exposed/vclu/switch/clu221_garage/set")`); got != "false:access denied: CLU221.GARAGE" {
+		t.Errorf("hidden object on its exposed topic = %s, want access denied", got)
+	}
+	if got := mustExec(t, engine, `deliver("vclu/exposed/vclu/switch/clu221_garage/set", "ON") .. "|" ..
+		deliver("vclu/clu221/switch/garage/set", "ON")`); got != "1|0" {
+		t.Errorf("handlers for the exposed|registry topic = %s, want 1|0", got)
+	}
+	expectNoWrites(t, engine)
+}
+
+// The old attack (any CLU id) and its exposed analogues (another base, the id in
+// another case) reach nothing.
 func TestAccessSpoof_ForgedCluIdMustNotBypassAccess(t *testing.T) {
-	engine := NewLuaEngine()
-	defer engine.Close()
+	engine := spoofEngine(t, "")
 
-	if _, err := engine.Execute(spoofSetup + `
-		-- "zzz" is not a real CLU; findObject still resolves the device by objectId.
-		_ok = HACommands.handleMessage("vclu/zzz/switch/garage/set", "ON")
-	`); err != nil {
-		t.Fatalf("setup failed: %v", err)
+	for _, topic := range []string{
+		"vclu/exposed/zzz/switch/clu221_garage/set",
+		"vclu/exposed/vclu/switch/CLU221_GARAGE/set",
+		"vclu/exposed/vclu/switch/garage/set",
+	} {
+		if got := mustExec(t, engine, `_send("`+topic+`")`); got != "false:exposed object not found" {
+			t.Errorf("SECURITY: %s = %s, want exposed object not found", topic, got)
+		}
 	}
-
-	if got := mustExec(t, engine, `tostring(_ok)`); got != "false" {
-		t.Errorf("SECURITY: a forged CLU id in the topic bypassed access control (ok=%s)", got)
+	if got := mustExec(t, engine, `deliver("vclu/zzz/switch/garage/set", "ON")`); got != "0" {
+		t.Errorf("SECURITY: a forged registry topic reached %s handler(s)", got)
 	}
-	if got := mustExec(t, engine, `tostring(_writes)`); got != "0" {
-		t.Errorf("SECURITY: hidden device was operated %s time(s) via a forged topic", got)
-	}
+	expectNoWrites(t, engine)
 	if got := mustExec(t, engine, `tostring(_gate._lastState)`); got != "0" {
 		t.Errorf("SECURITY: device state changed to %s via a forged topic", got)
 	}
 }
 
-// Readonly must resist the same trick, not just hidden.
+// Readonly resists the same tricks, not just hidden.
 func TestAccessSpoof_ForgedCluIdAgainstReadonly(t *testing.T) {
-	engine := NewLuaEngine()
-	defer engine.Close()
-
-	if _, err := engine.Execute(`
-		_writes = 0
-		_boiler = {
-			_type = "DOUT", _lastState = 0,
-			get = function(s) return s._lastState end,
-			set = function(s, _, v) _writes = _writes + 1; s._lastState = v end,
-			execute = function(s, m) _writes = _writes + 1; s._lastState = (m == 1) and 1 or 0 end,
-			onChange = function(s, cb) return function() end end,
-		}
+	engine := spoofEngine(t, `
+		_boiler = _mk()
 		registerObject("CLU221.BOILER", _boiler)
+		expose(_boiler, "switch", { name = "Piec" })
 		AccessControl.set("mqtt", "CLU221.BOILER", "readonly")
-		_ok = HACommands.handleMessage("vclu/whatever/switch/boiler/set", "ON")
-	`); err != nil {
-		t.Fatalf("setup failed: %v", err)
-	}
+	`)
 
-	if got := mustExec(t, engine, `tostring(_ok)`); got != "false" {
-		t.Errorf("SECURITY: forged CLU id bypassed readonly (ok=%s)", got)
+	if got := mustExec(t, engine, `_send("vclu/exposed/vclu/switch/clu221_boiler/set")`); got != "false:access denied: CLU221.BOILER" {
+		t.Errorf("readonly object on its exposed topic = %s, want access denied", got)
 	}
-	if got := mustExec(t, engine, `tostring(_writes)`); got != "0" {
-		t.Errorf("SECURITY: readonly device operated %s time(s) via a forged topic", got)
+	if got := mustExec(t, engine, `_send("vclu/exposed/whatever/switch/clu221_boiler/set")`); got != "false:exposed object not found" {
+		t.Errorf("SECURITY: forged base = %s, want exposed object not found", got)
 	}
+	if got := mustExec(t, engine, `deliver("vclu/whatever/switch/boiler/set", "ON")`); got != "0" {
+		t.Errorf("SECURITY: a forged registry topic reached %s handler(s)", got)
+	}
+	expectNoWrites(t, engine)
 }
 
-// An object reachable only through the Lua global table has no registry path, so
-// there is nothing to authorize against. That must deny, not fall through to a
-// default — an unidentifiable object cannot be granted access.
+// An object reachable only through the Lua global table is not exposed, so no topic
+// reaches it.
 func TestAccessSpoof_GlobalOnlyObjectIsDenied(t *testing.T) {
-	engine := NewLuaEngine()
-	defer engine.Close()
+	engine := spoofEngine(t, `ORPHAN = _mk()`)
 
-	if _, err := engine.Execute(`
-		_writes = 0
-		ORPHAN = {
-			_type = "DOUT", _lastState = 0,
-			get = function(s) return s._lastState end,
-			set = function(s, _, v) _writes = _writes + 1; s._lastState = v end,
-			execute = function(s, m) _writes = _writes + 1; s._lastState = (m == 1) and 1 or 0 end,
-			onChange = function(s, cb) return function() end end,
-		}
-		_ok = HACommands.handleMessage("vclu/any/switch/orphan/set", "ON")
-	`); err != nil {
-		t.Fatalf("setup failed: %v", err)
+	if got := mustExec(t, engine, `_send("vclu/exposed/vclu/switch/orphan/set")`); got != "false:exposed object not found" {
+		t.Errorf("SECURITY: global-only object = %s, want exposed object not found", got)
 	}
-
-	if got := mustExec(t, engine, `tostring(_ok)`); got != "false" {
-		t.Errorf("SECURITY: object resolved only via _G was operated without any access identity (ok=%s)", got)
+	if got := mustExec(t, engine, `deliver("vclu/any/switch/orphan/set", "ON")`); got != "0" {
+		t.Errorf("SECURITY: a registry topic reached %s handler(s)", got)
 	}
-	if got := mustExec(t, engine, `tostring(_writes)`); got != "0" {
-		t.Errorf("SECURITY: global-only object written %s time(s)", got)
-	}
+	expectNoWrites(t, engine)
 }
 
-// Control through the correct topic on a full-access object must keep working.
+// Control through the exposed topic of a full-access object keeps working; its old
+// registry topic does not.
 func TestAccessSpoof_LegitimateCommandStillWorks(t *testing.T) {
-	engine := NewLuaEngine()
-	defer engine.Close()
-
-	if _, err := engine.Execute(`
-		_writes = 0
-		_lamp = {
-			_type = "DOUT", _lastState = 0,
-			get = function(s) return s._lastState end,
-			set = function(s, _, v) _writes = _writes + 1; s._lastState = v end,
-			execute = function(s, m) _writes = _writes + 1; s._lastState = (m == 1) and 1 or 0 end,
-			onChange = function(s, cb) return function() end end,
-		}
+	engine := spoofEngine(t, `
+		_lamp = _mk()
 		registerObject("CLU221.LAMP", _lamp)
+		expose(_lamp, "switch", { name = "Lampa" })
 		AccessControl.set("mqtt", "CLU221.LAMP", "full")
-		_ok = HACommands.handleMessage("vclu/clu221/switch/lamp/set", "ON")
-	`); err != nil {
-		t.Fatalf("setup failed: %v", err)
-	}
+	`)
 
-	if got := mustExec(t, engine, `tostring(_ok)`); got != "true" {
-		t.Errorf("legitimate command refused (ok=%s)", got)
+	if got := mustExec(t, engine, `deliver("vclu/clu221/switch/lamp/set", "ON") .. "|" .. _writes`); got != "0|0" {
+		t.Errorf("registry topic: handlers|writes = %s, want 0|0", got)
 	}
-	if got := mustExec(t, engine, `tostring(_writes)`); got != "1" {
-		t.Errorf("expected 1 write, got %s", got)
+	if got := mustExec(t, engine, `deliver("vclu/exposed/vclu/switch/clu221_lamp/set", "ON") .. "|" .. _writes .. "|" .. _lamp._lastState`); got != "1|1|1" {
+		t.Errorf("exposed topic: handlers|writes|state = %s, want 1|1|1", got)
 	}
 }
 
 // Production shape: om.lua registers each object under CLU.ID *and* leaves it as a
-// Lua global. Hiding it by its registry path must not be defeatable by naming it
-// through any other topic.
+// Lua global. Hiding it by its registry path cannot be defeated through any topic.
 func TestAccessSpoof_ProductionShape_RegistryPlusGlobal(t *testing.T) {
-	engine := NewLuaEngine()
-	defer engine.Close()
-
-	if _, err := engine.Execute(`
-		_writes = 0
-		DOU6550 = {
-			_type = "DOUT", _lastState = 0,
-			get = function(s) return s._lastState end,
-			set = function(s, _, v) _writes = _writes + 1; s._lastState = v end,
-			execute = function(s, m) _writes = _writes + 1; s._lastState = (m == 1) and 1 or 0 end,
-			onChange = function(s, cb) return function() end end,
-		}
+	engine := spoofEngine(t, `
+		DOU6550 = _mk()
 		registerObject("CLU212345678.DOU6550", DOU6550)
+		exposeRegistry()
 		AccessControl.set("mqtt", "CLU212345678.DOU6550", "hidden")
+	`)
 
-		_okHonest = HACommands.handleMessage("vclu/clu212345678/switch/dou6550/set", "ON")
-		_okForged = HACommands.handleMessage("vclu/anything/switch/dou6550/set", "ON")
-	`); err != nil {
-		t.Fatalf("setup failed: %v", err)
+	if got := mustExec(t, engine, `_send("vclu/exposed/vclu/switch/clu212345678_dou6550/set")`); got != "false:access denied: CLU212345678.DOU6550" {
+		t.Errorf("hidden object on its exposed topic = %s, want access denied", got)
 	}
-
-	if got := mustExec(t, engine, `tostring(_okHonest)`); got != "false" {
-		t.Errorf("hidden object accepted its own topic (ok=%s)", got)
+	if got := mustExec(t, engine, `_send("vclu/exposed/anything/switch/clu212345678_dou6550/set")`); got != "false:exposed object not found" {
+		t.Errorf("SECURITY: forged base = %s, want exposed object not found", got)
 	}
-	if got := mustExec(t, engine, `tostring(_okForged)`); got != "false" {
-		t.Errorf("SECURITY: forged topic reached a hidden object via the Lua global (ok=%s)", got)
+	if got := mustExec(t, engine, `deliver("vclu/clu212345678/switch/dou6550/set", "ON") .. "|" ..
+		deliver("vclu/anything/switch/dou6550/set", "ON")`); got != "0|0" {
+		t.Errorf("SECURITY: registry topics reached handlers: %s, want 0|0", got)
 	}
-	if got := mustExec(t, engine, `tostring(_writes)`); got != "0" {
-		t.Errorf("SECURITY: hidden gate operated %s time(s)", got)
-	}
+	expectNoWrites(t, engine)
 }
