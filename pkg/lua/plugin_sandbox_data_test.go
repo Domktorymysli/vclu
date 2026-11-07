@@ -57,6 +57,45 @@ func TestPluginSandboxReadOnlyDataInStdlib(t *testing.T) {
 	}
 	mustLua(t, engine, `#ModObj.list .. ModObj.rows[1].x`, "31")
 
+	// keys of an external table: a table key arrives read-only, a function key not at all
+	if _, err := engine.Execute(`
+		KeyObj = {}
+		SharedKey = { secret = 1 }
+		KeyObj[SharedKey] = "shared"
+		KeyObj[function() end] = "fn"
+		KeyObj.plain = "p"
+		_registry["keyobj"] = KeyObj
+	`); err != nil {
+		t.Fatal(err)
+	}
+	r, e = runPlugin(t, engine, "@t/a", `
+		local o = _:get("keyobj")
+		local out = { n = 0 }
+		for k, v in pairs(o) do
+			out.n = out.n + 1
+			if type(k) == "function" then out.fn = true end
+			if type(k) == "table" then
+				out.tableWritable = pcall(function() k.secret = 2 end)
+				out.viaKey = o[k]
+				out.nextAfter = select("#", next(o, k))
+			end
+		end
+		out.rawNext = type((next(o)))
+		return JSON:encode(out)
+	`)
+	if e != "nil" {
+		t.Fatalf("plugin: %s", e)
+	}
+	for _, want := range []string{`"n":2`, `"tableWritable":false`, `"viaKey":"shared"`} {
+		if !strings.Contains(r, want) {
+			t.Errorf("missing %s in %s", want, r)
+		}
+	}
+	if strings.Contains(r, `"fn":true`) {
+		t.Errorf("function key handed out: %s", r)
+	}
+	mustLua(t, engine, `SharedKey.secret`, "1")
+
 	// an event payload: encoded whole, and passed on to a module as plain data
 	if _, err := engine.Execute(`
 		EventBus:getShared():on("a:relay", function(payload)
