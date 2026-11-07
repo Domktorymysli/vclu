@@ -71,7 +71,7 @@ readOnlyProxy = function(obj)
     proxy = setmetatable({}, {
         __sandboxSource = obj,
         __index = function(_, key)
-            local val = obj[key]
+            local val = obj[sourceOf(key) or key]
             if type(val) == "function" then
                 local m = methods[key]
                 if m then return m end
@@ -170,12 +170,14 @@ local originalPairs = pairs
 local originalIpairs = ipairs
 local originalNext = next
 
+-- A key leaves like a value: a table as a read-only proxy, a function not at all
 local function sandboxNext(t, key)
     local source = sourceOf(t)
     if not source then return originalNext(t, key) end
-    local k = originalNext(source, key)
+    local k = originalNext(source, sourceOf(key) or key)
+    while type(k) == "function" do k = originalNext(source, k) end
     if k == nil then return nil end
-    return k, t[k]
+    return readOnlyProxy(k), t[k]
 end
 
 local function sandboxPairs(t)
