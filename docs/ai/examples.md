@@ -286,6 +286,16 @@ local th = VirtualThermostat:new("salon", { source = _:get("z2m.salon_temp"), ou
 expose(th, "climate", { name = "Salon", area = "Salon", min = 18, max = 24 })
 ```
 
+`OnSettingsChange` comes once per changed field, with `(field, value, old)`: a set point change in
+set point mode gives `_point` and then `_target`, a switch to holiday `_mode` and `_target`. React to
+the field you need, or a notification goes out twice; `RemoteThermostat` reports the same way.
+
+```lua
+th:onEvent("OnSettingsChange", function(field, value)
+    if field == "_target" then print("target " .. value) end
+end)
+```
+
 `maxOn` has no default. Set it where hours on without a break mean something is wrong: an
 electric heater, a boost, a towel rail. Leave it out for a whole house or floor heating in winter:
 in a long frost the heating may rightly run for hours, and a `maxOn` stop holds it off until
