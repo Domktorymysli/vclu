@@ -447,7 +447,7 @@ func TestStateChange_HAPublishesOncePerChange(t *testing.T) {
 	runStateChange(t, `
 		_pub = {}
 		local mqtt = { publish = function(_, topic, payload) table.insert(_pub, { topic, payload }) end }
-		HAStatePublisher.setup(mqtt, { autoExposeRegistry = false })
+		HAStatePublisher.setup(mqtt)
 
 		local sw = RemoteSwitch:new(_clu, "DOU20")
 		_registry["CLU1.DOU20"] = sw

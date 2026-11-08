@@ -2,69 +2,10 @@ package lua
 
 import "testing"
 
-// A roller from the OM import (the registry path, not expose()) is announced to
-// Home Assistant with position_open 100, position_closed 0. vCLU, HA and Grenton all
-// count 0 = closed, so a position from HA reaches the roller unchanged, clamped and rounded.
-func TestRegistryCoverPosition(t *testing.T) {
-	engine := NewLuaEngine()
-	defer engine.Close()
-
-	setup := `
-		_sent = {}
-		local clu = { executeNoReply = function(s, i, cmd) table.insert(_sent, cmd) end }
-		_roller = RemoteCover:new(clu, "ROL1", "roller")
-		_roller._hasPosition = true -- the OM import marks class 24
-		registerObject("CLU1.ROL1", _roller)
-	`
-	if _, err := engine.Execute(setup); err != nil {
-		t.Fatalf("setup failed: %v", err)
-	}
-
-	got := mustExec(t, engine, `(function()
-		local t = "vclu/clu1/cover/rol1/position/set"
-		for _, p in ipairs({ "30", "0", "100", "150", "-5", "69.6" }) do
-			local ok, err = HACommands.handleMessage(t, p)
-			if not ok then table.insert(_sent, "refused " .. tostring(err)) end
-		end
-		return table.concat(_sent, ";")
-	end)()`)
-	want := "ROL1:execute(10, 30, 91);ROL1:execute(10, 0, 91);ROL1:execute(10, 100, 91);" +
-		"ROL1:execute(10, 100, 91);ROL1:execute(10, 0, 91);ROL1:execute(10, 70, 91)"
-	if got != want {
-		t.Errorf("position commands sent\n got: %s\nwant: %s", got, want)
-	}
-
-	// OPEN/CLOSE go to SetPosition 100 % / 0 %, STOP to Stop; the movement is kept
-	// aside, the value (the position) stays as it was.
-	moves := mustExec(t, engine, `(function()
-		local out, t = {}, "vclu/clu1/cover/rol1/set"
-		for _, p in ipairs({ "OPEN", "CLOSE", "STOP" }) do
-			_sent = {}
-			HACommands.handleMessage(t, p)
-			table.insert(out, table.concat(_sent, ";") .. "=" .. tostring(_roller:getState()) ..
-				"/" .. tostring(_roller._lastState))
-		end
-		return table.concat(out, ",")
-	end)()`)
-	if moves != "ROL1:execute(10, 100, 91)=1/nil,ROL1:execute(10, 0, 91)=2/nil,ROL1:execute(3)=0/nil" {
-		t.Errorf("OPEN/CLOSE/STOP = %s", moves)
-	}
-
-	// A non-number position is refused and sends nothing.
-	refused := mustExec(t, engine, `(function()
-		_sent = {}
-		local ok, err = HACommands.handleMessage("vclu/clu1/cover/rol1/position/set", "abc")
-		return tostring(ok) .. "|" .. tostring(err) .. "|" .. #_sent
-	end)()`)
-	if refused != "false|invalid position value|0" {
-		t.Errorf("non-number position = %s, want false|invalid position value|0", refused)
-	}
-}
-
 // A ROLLER_SHUTTER is subscribed to feature 0 (State) and feature 7 (Position). The
 // position becomes the value, the movement is kept aside, and Home Assistant gets the
-// position with open/closed derived from it.
-func TestRegistryCoverReportsPosition(t *testing.T) {
+// position of the exposed roller with its state derived from both.
+func TestGrentonCoverReportsPosition(t *testing.T) {
 	engine := NewLuaEngine()
 	defer engine.Close()
 
@@ -90,6 +31,7 @@ func TestRegistryCoverReportsPosition(t *testing.T) {
 				return true
 			end,
 		})
+		expose(_roller, "cover", {})
 
 		RemoteSubscription.config.enabled = true
 		RemoteSubscription.config.whitelist = { ["CLU1.ROL1"] = true, ["CLU1.ROL2"] = true }
@@ -132,8 +74,8 @@ func TestRegistryCoverReportsPosition(t *testing.T) {
 			RemoteSubscription.updateRegistry("192.168.0.3", 5, values)
 			table.insert(out, string.format("%s/%s %s/%s old=%s",
 				tostring(_roller:getPosition()), tostring(_roller:getState()),
-				tostring(_published["vclu/clu1/cover/rol1/state"]),
-				tostring(_published["vclu/clu1/cover/rol1/position"]),
+				tostring(_published["vclu/exposed/vclu/cover/clu1_rol1/state"]),
+				tostring(_published["vclu/exposed/vclu/cover/clu1_rol1/position"]),
 				tostring(_old:getState())))
 		end
 		report({ 2, 40, 1 })
@@ -141,7 +83,8 @@ func TestRegistryCoverReportsPosition(t *testing.T) {
 		report({ 0, 100, 0 })
 		return table.concat(out, ";")
 	end)()`)
-	want := "40/2 open/40 old=1;0/0 closed/0 old=0;100/0 open/100 old=0"
+	// moving down is closing, as TestHAExposedCoverMovement
+	want := "40/2 closing/40 old=1;0/0 closed/0 old=0;100/0 open/100 old=0"
 	if got != want {
 		t.Errorf("reports\n got: %s\nwant: %s", got, want)
 	}

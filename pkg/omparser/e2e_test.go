@@ -1,7 +1,6 @@
 package omparser
 
 import (
-	"encoding/json"
 	"os"
 	"testing"
 )
@@ -30,23 +29,4 @@ func TestGenerateFiles(t *testing.T) {
 		t.Fatalf("Failed to write proxy.lua: %v", err)
 	}
 	t.Logf("Generated testoutput/proxy.lua (%d bytes)", len(lua))
-
-	// Generate HA Discovery JSON
-	haConfig := HADiscoveryConfig{
-		TopicPrefix:     "grenton",
-		DiscoveryPrefix: "homeassistant",
-		DeviceName:      "DOM20",
-	}
-	messages := GenerateHADiscovery(parsed, haConfig)
-
-	jsonBytes, err := json.MarshalIndent(messages, "", "  ")
-	if err != nil {
-		t.Fatalf("Failed to marshal JSON: %v", err)
-	}
-
-	err = os.WriteFile("testoutput/discovery.json", jsonBytes, 0644)
-	if err != nil {
-		t.Fatalf("Failed to write discovery.json: %v", err)
-	}
-	t.Logf("Generated testoutput/discovery.json (%d bytes, %d messages)", len(jsonBytes), len(messages))
 }

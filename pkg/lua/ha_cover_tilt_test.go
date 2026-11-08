@@ -220,10 +220,10 @@ func TestRemoteCoverSetTilt(t *testing.T) {
 	}
 }
 
-// From the OM import (registry path): a blind is subscribed to feature 8 next to 0 and 7, a
-// reported angle reaches getTilt, the registry tilt topic and the dashboard slat slider, and a
-// tilt from HA on vclu/<clu>/cover/<obj>/tilt/set moves the slats.
-func TestRegistryCoverTilt(t *testing.T) {
+// From the OM import: a blind is subscribed to feature 8 next to 0 and 7, and a reported
+// angle reaches getTilt, the tilt topic of the exposed blind and the dashboard slat slider.
+// Tilt commands from HA: TestHACoverTiltCommands.
+func TestGrentonCoverTiltFromReports(t *testing.T) {
 	engine := NewLuaEngine()
 	defer engine.Close()
 
@@ -252,6 +252,7 @@ func TestRegistryCoverTilt(t *testing.T) {
 				return true
 			end,
 		})
+		expose(_blind, "cover", {})
 
 		RemoteSubscription.config.enabled = true
 		RemoteSubscription.config.whitelist = { ["CLU1.ROL1"] = true, ["CLU1.ROL2"] = true }
@@ -289,27 +290,14 @@ func TestRegistryCoverTilt(t *testing.T) {
 			RemoteSubscription.updateRegistry("192.168.0.3", 5, values)
 			table.insert(out, string.format("%s/%s/%s %s",
 				tostring(_blind:getPosition()), tostring(_blind:getState()), tostring(_blind:getTilt()),
-				tostring(_published["vclu/clu1/cover/rol1/tilt"])))
+				tostring(_published["vclu/exposed/vclu/cover/clu1_rol1/tilt"])))
 		end
 		report({ 0, 40, 90 })
 		report({ 0, 40, 30 }) -- only the slats moved
 		return table.concat(out, ";")
 	end)()`)
 	if got != "40/0/90 0;40/0/30 67" {
-		t.Errorf("registry tilt reports = %s, want 40/0/90 0;40/0/30 67", got)
-	}
-
-	cmds := mustExec(t, engine, `(function()
-		_sent = {}
-		local out = {}
-		for _, c in ipairs({ { "rol1", "100" }, { "rol1", "abc" }, { "rol2", "50" } }) do
-			local ok, err = HACommands.handleMessage("vclu/clu1/cover/" .. c[1] .. "/tilt/set", c[2])
-			table.insert(out, tostring(ok) .. ":" .. tostring(err))
-		end
-		return table.concat(out, ",") .. "|" .. table.concat(_sent, ";")
-	end)()`)
-	if cmds != "true:nil,false:invalid tilt value,false:cover has no tilt|ROL1:execute(9, 0)" {
-		t.Errorf("registry tilt commands = %s", cmds)
+		t.Errorf("tilt reports = %s, want 40/0/90 0;40/0/30 67", got)
 	}
 
 	// The dashboard slat slider shows for the blind only

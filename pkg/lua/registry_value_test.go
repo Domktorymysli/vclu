@@ -324,16 +324,17 @@ func TestRegistryMethodNameAsPath(t *testing.T) {
 
 func TestIntegrationLookupSkipsRegistryMethods(t *testing.T) {
 	engine := newRegistryValueEngine(t)
-	// MQTT and Home Assistant look objects up by id; a method's name is not an object
+	// Home Assistant looks exposed objects up by id; a registry method's name is not one
 	got := registryValue(t, engine, `
-		local h = MqttHandler:new(nil, _registry)
+		expose(_registry["CLU123.DOU0001"], "switch", {})
 		local out = {}
-		for i, id in ipairs({ "list", "value", "sync" }) do
-			out[#out + 1] = type(h:_findObject(id)) .. "/" .. type((HACommands.findObject("CLU123", id)))
+		for _, id in ipairs({ "list", "value", "sync", "clu123_dou0001" }) do
+			local ok, err = HACommands.handleExposedMessage("vclu/exposed/vclu/switch/" .. id .. "/set", "OFF")
+			out[#out + 1] = tostring(ok) .. "/" .. tostring(err)
 		end
-		out[#out + 1] = type(h:_findObject("CLU123.DOU0001")) .. "/" .. type((HACommands.findObject("CLU123", "DOU0001")))
 		return table.concat(out, ",")`)
-	if got != "nil/nil,nil/nil,nil/nil,table/table" {
-		t.Errorf("lookups of list, value, sync, a real object = %q, want nil/nil x3, table/table", got)
+	want := "false/exposed object not found,false/exposed object not found,false/exposed object not found,true/nil"
+	if got != want {
+		t.Errorf("exposed lookups of list, value, sync, a real object = %q, want %q", got, want)
 	}
 }

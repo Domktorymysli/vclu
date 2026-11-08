@@ -6,7 +6,6 @@ Parser i generator proxy dla plików Grenton `om.lua`.
 
 1. **Parsuje** pliki `om.lua` generowane przez Object Manager
 2. **Generuje** czysty kod Lua z klasami proxy zamiast `execute(index)`
-3. **Generuje** JSON dla Home Assistant MQTT Discovery
 
 ## Użycie w Go
 
@@ -299,88 +298,9 @@ config2 := omparser.GeneratorConfig{
 lua2 := omparser.GenerateProxy(parsed2, config2)
 ```
 
-## Home Assistant MQTT Discovery
+## Home Assistant
 
-Generator JSON dla automatycznego wykrywania urządzeń w Home Assistant.
-
-### Użycie
-
-```go
-config := omparser.HADiscoveryConfig{
-    TopicPrefix:     "grenton",      // prefix dla topiców MQTT
-    DiscoveryPrefix: "homeassistant", // prefix HA Discovery
-    DeviceName:      "DOM20",         // nazwa urządzenia w HA
-}
-
-// Lista wiadomości do wysłania
-messages := omparser.GenerateHADiscovery(parsed, config)
-
-for _, msg := range messages {
-    mqtt.Publish(msg.Topic, msg.Payload, msg.Retain)
-}
-
-// Lub jako JSON (do debugowania)
-jsonStr, _ := omparser.GenerateHADiscoveryJSON(parsed, config)
-```
-
-### Struktura wiadomości
-
-```go
-type HADiscoveryMessage struct {
-    Topic   string                 // np. "homeassistant/switch/grenton_clu_dou5048/config"
-    Payload map[string]interface{} // JSON payload dla HA
-    Retain  bool                   // zawsze true dla discovery
-}
-```
-
-### Przykład wygenerowanego JSON (switch)
-
-```json
-{
-  "topic": "homeassistant/switch/grenton_clu212345678_dou5048/config",
-  "payload": {
-    "name": "P1_DACHOWE_BOK",
-    "unique_id": "grenton_clu212345678_dou5048",
-    "command_topic": "grenton/clu212345678/switch/dou5048/set",
-    "state_topic": "grenton/clu212345678/switch/dou5048/state",
-    "payload_on": "ON",
-    "payload_off": "OFF",
-    "device": {
-      "identifiers": ["clu212345678"],
-      "name": "DOM20",
-      "manufacturer": "Grenton",
-      "model": "CLU"
-    }
-  },
-  "retain": true
-}
-```
-
-### Mapowanie typów Grenton → HA
-
-| Typ Grenton       | Komponent HA    | Topiki                                      |
-|-------------------|-----------------|---------------------------------------------|
-| DOUT              | `switch`        | `set`, `state`                              |
-| DIN               | `binary_sensor` | `state`                                     |
-| DIMMER            | `light`         | `set`, `state`, `brightness/set`, `brightness` |
-| LEDRGB            | `light` (JSON)  | `set`, `state` (JSON z rgb/brightness)      |
-| ROLLER, ROLLER_SH | `cover`         | `set`, `state`, `position/set`, `position`  |
-| AnalogIN          | `sensor`        | `state`                                     |
-| AnalogOUT         | `number`        | `set`, `state`                              |
-
-### Struktura topiców
-
-```
-grenton/{clu_id}/{component}/{object_id}/set      # komendy z HA
-grenton/{clu_id}/{component}/{object_id}/state    # stan do HA
-grenton/{clu_id}/{component}/{object_id}/brightness/set  # dla dimmerów
-```
-
-Przykłady:
-- `grenton/clu212345678/switch/dou5048/set` → "ON" / "OFF"
-- `grenton/clu212345678/switch/dou5048/state` → "ON" / "OFF"
-- `grenton/clu212345678/cover/rol1234/set` → "OPEN" / "CLOSE" / "STOP"
-- `grenton/clu212345678/cover/rol1234/position/set` → 0-100
+omparser nie generuje discovery: Home Assistant widzi tylko obiekty udostępnione przez `expose()`, opis tematów w `docs/integrating.md`.
 
 ## Struktura sparsowanych danych
 
@@ -636,22 +556,6 @@ mqtt:onMessage(function(topic, payload)
 end)
 ```
 
-#### HA Discovery
-
-Discovery messages są generowane w Go (`generator_ha.go`) i przekazywane do Lua:
-
-```lua
--- Ładowanie wiadomości discovery z Go
-mqtt:loadDiscoveryMessages(messagesFromGo)
-
--- Publikowanie wszystkich discovery (retained)
-mqtt:publishAllDiscovery()
-
--- Sprawdzenie statusu
-local count = mqtt:getDiscoveryCount()
-print("Discovery messages:", count)
-```
-
 #### Właściwości instancji
 
 | Właściwość | Getter | Setter | Opis |
@@ -666,51 +570,6 @@ print("Discovery messages:", count)
 | QoS | `getQoS()` | `setQoS(0\|1\|2)` | Domyślny QoS |
 | TopicPrefix | `getTopicPrefix()` | `setTopicPrefix(prefix)` | Prefix topiców |
 | Connected | `isConnected()` | - | Status połączenia |
-
----
-
-### MqttHandler
-
-Automatyczne tłumaczenie komend z Home Assistant na wywołania metod Lua:
-
-```lua
--- Inicjalizacja
-handler = MqttHandler:new(mqtt_ha, _registry)
-handler:start()
-
--- Handler automatycznie subskrybuje:
--- - {prefix}/+/+/set           (komendy ON/OFF/OPEN/CLOSE/STOP)
--- - {prefix}/+/+/brightness/set (jasność dimmerów)
--- - {prefix}/+/+/position/set   (pozycja rolet)
--- - {prefix}/+/+/rgb/set        (kolor RGB)
-```
-
-#### Mapowanie komend
-
-| Komponent | Payload | Metoda Lua |
-|-----------|---------|------------|
-| switch | `ON` | `obj:switchOn()` |
-| switch | `OFF` | `obj:switchOff()` |
-| light | `ON` | `obj:on()` |
-| light | `OFF` | `obj:off()` |
-| light brightness | `0-255` | `obj:setBrightness(value * 100 / 255)` |
-| cover | `OPEN` | `obj:open()` |
-| cover | `CLOSE` | `obj:close()` |
-| cover | `STOP` | `obj:stop()` |
-| cover position | `0-100` | `obj:setPosition(value)` |
-| number | `float` | `obj:setValue(value)` |
-
-#### Publikowanie stanu
-
-```lua
--- Publikuj stan pojedynczego obiektu
-handler:publishState(obj, "switch")
-
--- Automatyczna publikacja przy zmianie
-obj:onChange(function(newValue)
-    handler:publishState(obj, "switch")
-end)
-```
 
 ---
 
@@ -1336,43 +1195,3 @@ stats := engine.GetTimerStats()
 - `__go_clearTimer(id)`
 
 ---
-
-## Przykład: Kompletna integracja z Home Assistant
-
-```lua
--- 1. Parsowanie om.lua i generowanie proxy (w Go)
--- parsed := omparser.Parse(omContent)
--- proxyLua := omparser.GenerateProxy(parsed, config)
--- discoveryMsgs := omparser.GenerateHADiscovery(parsed, haConfig)
-
--- 2. Inicjalizacja MQTT
-mqtt_ha = MQTT:new("home_assistant")
-mqtt_ha:setUrl("tcp://192.168.1.100:1883")
-       :setClientId("vclu_dom")
-       :setTopicPrefix("grenton")
-
--- 3. Ładowanie discovery z Go
-mqtt_ha:loadDiscoveryMessages(discoveryMsgs)
-
--- 4. Po połączeniu - publikuj discovery
-mqtt_ha:onConnect(function()
-    log.info("Connected to HA MQTT broker")
-    mqtt_ha:publishAllDiscovery()
-end)
-
--- 5. Inicjalizacja handlera
-handler = MqttHandler:new(mqtt_ha, _registry)
-
--- 6. Połączenie i start
-mqtt_ha:connect()
-handler:start()
-
--- 7. Automatyczna synchronizacja stanów
-for _, obj in pairs(_registry) do
-    if obj.onChange then
-        obj:onChange(function(newValue)
-            handler:publishState(obj)
-        end)
-    end
-end
-```

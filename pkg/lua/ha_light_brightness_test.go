@@ -156,10 +156,9 @@ func TestHADimmerScale(t *testing.T) {
 	}
 }
 
-// A DIMMER from the OM import (the registry path, not expose()) is announced to
-// Home Assistant with brightness_scale 100, so a brightness command must reach
-// the object on its 0..1 value, the same scale the expose() path already uses.
-func TestRegistryDimmerBrightnessScale(t *testing.T) {
+// A DIMMER from the OM import, exposed: HA's brightness on 0..100 reaches the object on
+// its 0..1 value, clamped; a non-number changes nothing.
+func TestExposedDimmerBrightnessClamped(t *testing.T) {
 	engine := NewLuaEngine()
 	defer engine.Close()
 
@@ -185,6 +184,8 @@ func TestRegistryDimmerBrightnessScale(t *testing.T) {
 		_plain = mk(false)
 		registerObject("CLU1.DIM1", _dim)
 		registerObject("CLU1.PLAIN1", _plain)
+		expose(_dim, "dimmer", {})
+		expose(_plain, "dimmer", {})
 	`
 	if _, err := engine.Execute(setup); err != nil {
 		t.Fatalf("setup failed: %v", err)
@@ -192,38 +193,34 @@ func TestRegistryDimmerBrightnessScale(t *testing.T) {
 
 	// 0..100 in, 0..1 out; values outside the range are clamped.
 	got := mustExec(t, engine, `(function()
-		local t = "vclu/clu1/light/dim1/brightness/set"
-		HACommands.handleMessage(t, "37")
-		local a = _dim._lastState
-		HACommands.handleMessage(t, "0")
-		local b = _dim._lastState
-		HACommands.handleMessage(t, "100")
-		local c = _dim._lastState
-		HACommands.handleMessage(t, "150")
-		local d = _dim._lastState
-		HACommands.handleMessage(t, "-5")
-		local e = _dim._lastState
-		return tostring(a) .. "," .. tostring(b) .. "," .. tostring(c) .. "," .. tostring(d) .. "," .. tostring(e)
+		local t = "vclu/exposed/vclu/light/clu1_dim1/brightness/set"
+		local out = {}
+		for _, p in ipairs({ "37", "0", "100", "150", "-5" }) do
+			HACommands.handleExposedMessage(t, p)
+			table.insert(out, tostring(_dim._lastState))
+		end
+		return table.concat(out, ",")
 	end)()`)
 	if got != "0.37,0,1,1,0" {
-		t.Errorf("registry dimmer brightness = %s, want 0.37,0,1,1,0", got)
+		t.Errorf("exposed dimmer brightness = %s, want 0.37,0,1,1,0", got)
 	}
 
 	// An object without setBrightness gets the value set directly, in 0..1.
 	plain := mustExec(t, engine, `(function()
-		HACommands.handleMessage("vclu/clu1/light/plain1/brightness/set", "37")
+		HACommands.handleExposedMessage("vclu/exposed/vclu/light/clu1_plain1/brightness/set", "37")
 		return tostring(_plain._lastState)
 	end)()`)
 	if plain != "0.37" {
 		t.Errorf("plain dimmer value = %s, want 0.37", plain)
 	}
 
-	// A non-number is refused and changes nothing.
+	// A non-number changes nothing.
 	refused := mustExec(t, engine, `(function()
-		local ok, err = HACommands.handleMessage("vclu/clu1/light/dim1/brightness/set", "abc")
-		return tostring(ok) .. "|" .. tostring(err) .. "|" .. tostring(_dim._lastState)
+		_calls = {}
+		HACommands.handleExposedMessage("vclu/exposed/vclu/light/clu1_dim1/brightness/set", "abc")
+		return #_calls .. "|" .. tostring(_dim._lastState)
 	end)()`)
-	if refused != "false|invalid brightness value|0" {
-		t.Errorf("non-number brightness = %s, want false|invalid brightness value|0", refused)
+	if refused != "0|0" {
+		t.Errorf("non-number brightness = %s, want 0|0", refused)
 	}
 }
