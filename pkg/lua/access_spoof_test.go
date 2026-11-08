@@ -5,12 +5,8 @@ import "testing"
 // Authorization must be decided on the identity of the object that was actually
 // found, never on a string rebuilt from attacker-controlled input.
 //
-// The removed registry handler resolved vclu/{clu}/{component}/{obj}/set by objectId
-// alone in most of its lookups while checking access for a path rebuilt from the
-// topic: a made-up CLU id operated a hidden device. Those topics are no longer
-// taken at all (each test below checks the honest and the forged one). An exposed
-// object is found by its exposed topic and its access is checked on the path it was
-// exposed under; the {base} segment and the id must name it exactly.
+// An exposed object is found by its exposed topic and its access is checked on the path
+// it was exposed under; the {base} segment and the id must name it exactly.
 
 const spoofSetup = mqttBroker + `
 	_writes = 0

@@ -1,9 +1,11 @@
 package lua
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
-// Only exposed objects are on MQTT: the registry topics (vclu/{clu}/{component}/{obj}/set
-// and .../state) are gone, whatever object or component a topic names.
+// Only exposed objects are on MQTT, under vclu/exposed/.
 
 // mqttBroker stands in for the broker: publishes land in _pub, and deliver() hands a
 // message to every subscription whose pattern matches, returning how many took it.
@@ -59,45 +61,36 @@ const thermostatsSetup = mqttBroker + `
 	end
 `
 
-// legacyTopics are the shapes the registry handler took, for each object.
-var legacyTopics = []struct{ topic, payload string }{
-	{"vclu/clu1/switch/dou1/set", "ON"},
-	{"vclu/clu1/switch/the1/set", "OFF"},
-	{"vclu/clu1/number/the1/set", "85"},
-	{"vclu/x/cover/vt1/set", "STOP"},
-	{"vclu/clu1/cover/vt1/set", "STOP"},
-	{"vclu/clu1/switch/vt1/set", "OFF"},
-	{"vclu/x/number/vt1/set", "85"},
-	{"vclu/clu1/light/dou1/brightness/set", "40"},
-	{"vclu/clu1/cover/vt1/position/set", "0"},
-	{"vclu/clu1/cover/vt1/tilt/set", "0"},
-}
-
-func TestMqttRegistryTopics_CommandChangesNothing(t *testing.T) {
+// HACommands subscribes only under vclu/exposed/: a command on vclu/{clu}/... reaches no
+// handler and changes nothing.
+func TestMqttRegistryTopics_OnlyExposedSubscribed(t *testing.T) {
 	engine := NewLuaEngine()
 	defer engine.Close()
 	if _, err := engine.Execute(thermostatsSetup); err != nil {
 		t.Fatalf("setup failed: %v", err)
 	}
-	before := mustExec(t, engine, `vtState()`)
-	if before != "1/21/1" {
-		t.Fatalf("VirtualThermostat before = %s, want 1/21/1 (on, 21, heating)", before)
+	got := mustExec(t, engine, `(function()
+		local other = {}
+		for _, s in ipairs(_subs) do
+			if s.cb and s.pattern:sub(1, 13) ~= "vclu/exposed/" then other[#other + 1] = s.pattern end
+		end
+		return #_subs .. "|" .. table.concat(other, ";")
+	end)()`)
+	if got == "0|" || !strings.HasSuffix(got, "|") {
+		t.Errorf("subscriptions|outside vclu/exposed/ = %s, want some and none outside", got)
 	}
-	for _, c := range legacyTopics {
-		got := mustExec(t, engine, `(function()
-			_calls = {}
-			local n = deliver("`+c.topic+`", "`+c.payload+`")
-			return n .. "|" .. #_calls .. "|" .. tostring(DOU:getValue()) .. "|" .. vtState()
-		end)()`)
-		if got != "0|0|nil|"+before {
-			t.Errorf("%s %s: handlers|CLU calls|DOUT|VT = %s, want 0|0|nil|%s", c.topic, c.payload, got, before)
-		}
+	got = mustExec(t, engine, `(function()
+		_calls = {}
+		local n = deliver("vclu/clu1/switch/dou1/set", "ON")
+		return n .. "|" .. #_calls .. "|" .. tostring(DOU:getValue())
+	end)()`)
+	if got != "0|0|nil" {
+		t.Errorf("vclu/clu1/switch/dou1/set: handlers|CLU calls|DOUT = %s, want 0|0|nil", got)
 	}
 	mustExec(t, engine, `VT:stop()`)
 }
 
-// A thermostat shared read-only: neither its exposed command topic nor a registry topic
-// changes its set point or state.
+// A thermostat exposed read-only: its command topics change neither its set point nor its state.
 func TestMqttRegistryTopics_ReadonlyVirtualThermostat(t *testing.T) {
 	engine := NewLuaEngine()
 	defer engine.Close()
@@ -116,12 +109,6 @@ func TestMqttRegistryTopics_ReadonlyVirtualThermostat(t *testing.T) {
 	end)()`)
 	if want := "climate,1/21/1,false:object is readonly,1:1/21/1,1:1/21/1"; got != want {
 		t.Errorf("readonly climate: %s, want %s", got, want)
-	}
-	for _, c := range legacyTopics {
-		got := mustExec(t, engine, `deliver("`+c.topic+`", "`+c.payload+`") .. "|" .. vtState()`)
-		if got != "0|1/21/1" {
-			t.Errorf("%s %s on a readonly climate = %s, want 0|1/21/1", c.topic, c.payload, got)
-		}
 	}
 	mustExec(t, engine, `VT:stop()`)
 }
@@ -173,4 +160,51 @@ func TestMqttRegistryTopics_NotExposedPublishesNothing(t *testing.T) {
 		t.Errorf("objects did not change (%s): the test proves nothing", got)
 	}
 	mustExec(t, engine, `VT:stop()`)
+}
+
+// A blind from the OM import reaches Home Assistant as at start: exposeRegistry() exposes
+// it, discovery carries the tilt topics under vclu/exposed/ and a tilt command moves the
+// slats (HA 100 = open = 0°).
+func TestMqttRegistryTopics_ImportedBlindTilt(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+	if _, err := engine.Execute(mqttBroker + `
+		_calls = {}
+		local clu = {
+			address = "192.168.0.3",
+			execute = function(s, i, cmd) table.insert(_calls, cmd) end,
+			executeNoReply = function(s, i, cmd) table.insert(_calls, cmd) end,
+		}
+		ROL = RemoteCover:new(clu, "ROL1", "salon")
+		ROL._hasPosition = true
+		ROL._hasTilt = true
+		registerObject("CLU1.ROL1", ROL)
+		exposeRegistry()
+	`); err != nil {
+		t.Fatalf("setup failed: %v", err)
+	}
+	disc := mustExec(t, engine, `(function()
+		for _, p in ipairs(_pub) do
+			if p.topic:find("/config", 1, true) and tostring(p.payload):find("clu1_rol1", 1, true) then
+				return tostring(p.payload)
+			end
+		end
+		return ""
+	end)()`)
+	for _, want := range []string{
+		`"tilt_status_topic":"vclu/exposed/vclu/cover/clu1_rol1/tilt"`,
+		`"tilt_command_topic":"vclu/exposed/vclu/cover/clu1_rol1/tilt/set"`,
+	} {
+		if !strings.Contains(disc, want) {
+			t.Errorf("discovery lacks %s: %s", want, disc)
+		}
+	}
+	got := mustExec(t, engine, `(function()
+		_calls = {}
+		local n = deliver("vclu/exposed/vclu/cover/clu1_rol1/tilt/set", "100")
+		return n .. "|" .. table.concat(_calls, ";")
+	end)()`)
+	if got != "1|ROL1:execute(9, 0)" {
+		t.Errorf("tilt 100: handlers|CLU calls = %s, want 1|ROL1:execute(9, 0)", got)
+	}
 }
