@@ -1,3 +1,0 @@
-### Home Assistant
-
-- **Tilt for Grenton blinds** - a ROLLER_SHUTTER with slats (Object Manager's LamelMoveTimeout above 0 in om.lua) shows a tilt slider in Home Assistant: the slat angle is reported (feature 8, converted from 0..90° to HA's 0 = closed .. 100 = open) and set through SetLamelPosition. Rollers without slats and ROLLER_SH get no tilt; a readonly or hidden cover refuses a tilt command. `getTilt()` now returns the reported angle, so the dashboard slat slider shows for these blinds too. A blind imported before needs its om.lua imported again (or `POST /api/om/regenerate`) to be marked ([#175](https://github.com/Domktorymysli/vclu/issues/175)).

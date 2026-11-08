@@ -1,5 +1,53 @@
 # Changelog
 
+## v1.10.0 (2026-11-08)
+
+### English
+
+**Highlights:** thermostats in Apple Home; slat tilt for Grenton blinds in Home Assistant; dashboards in the viewer's language; Debian packages and an APT repository.
+
+**Before you update**
+- MQTT carries only exposed objects, under `vclu/exposed/...`; the old `vclu/<clu>/...` topics are gone. Home Assistant entities keep working. A Node-RED flow or YAML on the old topics must move; a Grenton thermostat from the import needs `expose(th, "climate", ...)` ([#189](https://github.com/Domktorymysli/vclu/pull/189)).
+- A Lua callback running over 60 s is stopped instead of freezing vCLU; split a deliberately long wait into steps ([#114](https://github.com/Domktorymysli/vclu/issues/114)).
+- Blinds with slats: import om.lua again to get the tilt ([#175](https://github.com/Domktorymysli/vclu/issues/175)).
+
+**New**
+- An exposed thermostat is a Thermostat in Apple Home: temperature, target, heat or cool; it appears as a new accessory, rooms of the others stay ([#62](https://github.com/Domktorymysli/vclu/issues/62)).
+- Tilt slider for Grenton blinds with slats in Home Assistant and on dashboards ([#175](https://github.com/Domktorymysli/vclu/issues/175)).
+- Dashboards in the viewer's language: states, buttons, calendar, dates and numbers; `?lang=en` or `?lang=pl` picks it ([#85](https://github.com/Domktorymysli/vclu/issues/85)).
+- `VirtualThermostat` with `lease`: the CLU switches the heating off by itself when vCLU dies ([#144](https://github.com/Domktorymysli/vclu/issues/144)).
+- `cal:isDay()` and `cal:isNight()` from sunrise and sunset, with offsets ([#171](https://github.com/Domktorymysli/vclu/issues/171)).
+- Debian packages for amd64, arm64 and armhf; with the APT repository vCLU updates with `apt upgrade` ([#183](https://github.com/Domktorymysli/vclu/pull/183)).
+- `expose(..., { mqtt = false })` takes an object off MQTT entirely ([#189](https://github.com/Domktorymysli/vclu/pull/189)).
+
+**Fixes**
+- Smaller fixes: releases are scanned for known vulnerabilities before publishing ([#168](https://github.com/Domktorymysli/vclu/issues/168)); AI docs on what `VirtualThermostat` guards against ([#147](https://github.com/Domktorymysli/vclu/issues/147)); agents pointed to `VirtualPresence` for motion lights.
+
+Full list: https://github.com/Domktorymysli/vclu/compare/v1.9.0...v1.10.0
+
+### Po polsku
+
+**Najważniejsze:** termostaty w Apple Home; lamele rolet Grentona w Home Assistant; dashboardy w języku oglądającego; paczki Debiana i repozytorium APT.
+
+**Przed aktualizacją**
+- MQTT przenosi tylko wystawione obiekty, pod `vclu/exposed/...`; stare tematy `vclu/<clu>/...` zniknęły. Encje w Home Assistant działają dalej. Przepływ Node-RED albo YAML na starych tematach trzeba przenieść; termostat Grentona z importu wymaga `expose(th, "climate", ...)` ([#189](https://github.com/Domktorymysli/vclu/pull/189)).
+- Callback Lua działający dłużej niż 60 s jest zatrzymywany, zamiast zawieszać vCLU; celowo długie czekanie podziel na kroki ([#114](https://github.com/Domktorymysli/vclu/issues/114)).
+- Rolety z lamelami: zaimportuj ponownie om.lua, żeby dostać lamele ([#175](https://github.com/Domktorymysli/vclu/issues/175)).
+
+**Nowe**
+- Wystawiony termostat jest termostatem w Apple Home: temperatura, nastawa, grzanie albo chłodzenie; pojawia się jako nowe akcesorium, pokoje pozostałych zostają ([#62](https://github.com/Domktorymysli/vclu/issues/62)).
+- Suwak lamel dla rolet Grentona z lamelami w Home Assistant i na dashboardzie ([#175](https://github.com/Domktorymysli/vclu/issues/175)).
+- Dashboardy w języku oglądającego: stany, przyciski, kalendarz, daty i liczby; `?lang=en` albo `?lang=pl` wybiera język ([#85](https://github.com/Domktorymysli/vclu/issues/85)).
+- `VirtualThermostat` z `lease`: CLU sam wyłączy grzanie, gdy vCLU przestanie działać ([#144](https://github.com/Domktorymysli/vclu/issues/144)).
+- `cal:isDay()` i `cal:isNight()` ze wschodu i zachodu słońca, z przesunięciami ([#171](https://github.com/Domktorymysli/vclu/issues/171)).
+- Paczki Debiana dla amd64, arm64 i armhf; z repozytorium APT vCLU aktualizuje się przez `apt upgrade` ([#183](https://github.com/Domktorymysli/vclu/pull/183)).
+- `expose(..., { mqtt = false })` zdejmuje obiekt z MQTT całkowicie ([#189](https://github.com/Domktorymysli/vclu/pull/189)).
+
+**Poprawki**
+- Drobne poprawki: wydania są sprawdzane pod kątem znanych podatności przed publikacją ([#168](https://github.com/Domktorymysli/vclu/issues/168)); dokumentacja AI o tym, przed czym chroni `VirtualThermostat` ([#147](https://github.com/Domktorymysli/vclu/issues/147)); agenci kierowani do `VirtualPresence` przy świetle na ruch.
+
+Pełna lista: https://github.com/Domktorymysli/vclu/compare/v1.9.0...v1.10.0
+
 ## v1.9.0 (2026-11-01)
 
 ### English
