@@ -2440,21 +2440,44 @@ function DashboardBuilder:remote(spec)
     return self
 end
 
---- Who sees the remote dashboard in vclu cloud: people given one of these roles there (e.g. 'domownicy', 'gosia'). The cloud decides; vCLU only passes the names on. Without it every member of the home sees it.
--- @param ... string Role names: a-z, 0-9, - and _, as in the cloud
+-- The first role name that the cloud would not take, nil when all are fine
+local function badRole(list)
+    for _, r in ipairs(list) do
+        if type(r) ~= 'string' or #r > 32 or not r:match('^[a-z0-9][a-z0-9_%-]*$') then return tostring(r) end
+    end
+end
+
+--- Who sees the remote dashboard in vclu cloud: people given one of these roles there (e.g. 'domownicy', 'gosia'). The cloud decides; vCLU only passes the names on. Without it every member of the home sees it. A function instead of names decides again and again (e.g. the cleaner only on Tuesdays 9-13): it returns the roles as a table, and the cloud gets each change within about 15 s; nil, an empty table or an error hide the dashboard from everyone in the cloud.
+-- @param ... string|function Role names: a-z, 0-9, - and _, as in the cloud; or one function returning them
 -- @api public
 function DashboardBuilder:roles(...)
     local where = 'dash:roles'
     if not self._remote then error(where .. ': call :remote() first', 2) end
     local list = { ... }
     if #list == 0 then error(where .. ': expects at least one role', 2) end
-    for _, r in ipairs(list) do
-        if type(r) ~= 'string' or #r > 32 or not r:match('^[a-z0-9][a-z0-9_%-]*$') then
-            error(where .. ': invalid role "' .. tostring(r) .. '" (a-z, 0-9, - and _, as in the cloud)', 2)
-        end
+    if type(list[1]) == 'function' then
+        if #list > 1 then error(where .. ': expects role names or one function', 2) end
+        self._remote.roles = list[1]
+        return self
     end
+    local bad = badRole(list)
+    if bad then error(where .. ': invalid role "' .. bad .. '" (a-z, 0-9, - and _, as in the cloud)', 2) end
     self._remote.roles = list
     return self
+end
+
+-- The roles in effect now: the list, or what the function returns; nil hides the dashboard
+local function remoteRoles(id, roles)
+    if type(roles) ~= 'function' then return roles end
+    local ok, list = pcall(roles)
+    local bad = ok and type(list) == 'table' and badRole(list)
+    if not ok or bad then
+        Logger:getShared():warn("[DASHBOARD] roles of '" .. id .. "': "
+            .. (ok and ('invalid role "' .. bad .. '"') or tostring(list)))
+        return nil
+    end
+    if type(list) ~= 'table' or #list == 0 then return nil end
+    return list
 end
 
 --- Start a header section (must be called before any section).
@@ -3510,9 +3533,10 @@ function DashboardAPI.remoteList()
     for _, id in ipairs(_dashboardOrder) do
         local dash = _dashboards[id] and resolveDashboard(id, true)
         local r = dash and dash._remote
-        if r and not (r.pin and not dash._pin) then
+        local roles = r and not (r.pin and not dash._pin) and remoteRoles(id, r.roles)
+        if roles then
             out[#out + 1] = { id = id, name = tostring(dash._name), icon = dash._icon,
-                roles = r.roles, pin = r.pin }
+                roles = roles, pin = r.pin }
         end
     end
     return JSON.encode(out)

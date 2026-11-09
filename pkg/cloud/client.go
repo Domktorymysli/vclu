@@ -115,6 +115,7 @@ type Options struct {
 	ObjectsDebounce time.Duration                   // default objectsDebounce
 	HealthEvery     time.Duration                   // default proto.HealthIntervalSeconds
 	PingEvery       time.Duration                   // round trips for the cloud page, default a minute
+	DashboardsEvery time.Duration                   // how often roles given by functions are checked, default dashboardsEvery
 	MetricsFirst    time.Duration                   // statistics after welcome, default metricsFirst
 	MetricsEvery    time.Duration                   // and then, default metricsEvery
 	Backoff         func(attempt int) time.Duration // default 1, 2, 4, 8, 16, then 30 s, with jitter
@@ -193,6 +194,9 @@ func New(opts Options) *Client {
 	}
 	if opts.PingEvery == 0 {
 		opts.PingEvery = time.Minute
+	}
+	if opts.DashboardsEvery == 0 {
+		opts.DashboardsEvery = dashboardsEvery
 	}
 	if opts.MetricsFirst == 0 {
 		opts.MetricsFirst = metricsFirst
@@ -575,7 +579,9 @@ type tunnel struct {
 	ctrl    *yamux.Stream
 	notify  bool // the cloud enabled notify in welcome
 	dashes  bool // ... and dashboards
-	objects bool // ... and objects (snapshot)
+	dashMu  sync.Mutex
+	dashOld []byte // the dashboards message last sent
+	objects bool   // ... and objects (snapshot)
 
 	metricsAck    chan proto.MetricsAck    // answers to metrics, for sendMetrics
 	metricsPoints chan proto.MetricsPoints // answers to metrics_query, for MetricsHistory
@@ -711,6 +717,9 @@ func (c *Client) connect(ctx context.Context, cfg config.VCLUCloudConfig) error 
 	if t.objects {
 		go c.sendObjects(t, done)
 	}
+	if t.dashes {
+		go c.watchDashboards(t, done)
+	}
 	if t.metrics {
 		go c.sendMetrics(t, w.HomeID, *w.Metrics, done)
 	}
@@ -843,8 +852,40 @@ func (c *Client) dashboardsMessage() proto.Dashboards {
 }
 
 func (c *Client) sendDashboards(t *tunnel) {
-	if err := t.send(c.dashboardsMessage()); err != nil {
+	c.sendDashboardsIf(t, false)
+}
+
+// dashboardsEvery is how often the list is computed again for changes without a Lua reload.
+const dashboardsEvery = 15 * time.Second
+
+// sendDashboardsIf sends the list, when changed is true only if it differs from the one last sent.
+func (c *Client) sendDashboardsIf(t *tunnel, changed bool) {
+	m := c.dashboardsMessage()
+	b, _ := json.Marshal(m)
+	t.dashMu.Lock()
+	defer t.dashMu.Unlock()
+	if changed && bytes.Equal(b, t.dashOld) {
+		return
+	}
+	if err := t.send(m); err != nil {
 		log.Printf("[Cloud] remote dashboards not sent: %v", err)
+		return
+	}
+	t.dashOld = b
+}
+
+// watchDashboards sends the list again when it changed without a Lua reload: roles given by a
+// function (dash:roles(fn)) or a dashboard rebuilt from a script.
+func (c *Client) watchDashboards(t *tunnel, done <-chan struct{}) {
+	tick := time.NewTicker(c.opts.DashboardsEvery)
+	defer tick.Stop()
+	for {
+		select {
+		case <-done:
+			return
+		case <-tick.C:
+			c.sendDashboardsIf(t, true)
+		}
 	}
 }
 

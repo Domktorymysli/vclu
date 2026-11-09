@@ -365,11 +365,14 @@ func (s *Server) localViewer(c *gin.Context) {
 	}
 	c.Set(ctxRemoteActor, actor)
 	c.Set(ctxRemoteRole, role)
-	// a dashboard naming roles (:roles()) only for who has one: through the cloud the cloud
-	// checks this, on the LAN it is not in the way
-	if id := dashboardOfPath(c.Request.URL.Path); id != "" && !rolesAllow(s.remoteDashboardRoles(id), roles) {
-		c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Dashboard not found"})
-		return
+	// a dashboard naming roles (:roles()) only for who has one, and one the cloud does not list
+	// (its roles function hides it) for nobody: through the cloud the cloud checks this, on the
+	// LAN it is not in the way
+	if id := dashboardOfPath(c.Request.URL.Path); id != "" {
+		if dr, ok := s.remoteDashboardRoles(id); !ok || !rolesAllow(dr, roles) {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Dashboard not found"})
+			return
+		}
 	}
 	c.Next()
 }
@@ -407,12 +410,13 @@ func rolesAllow(dashboard, person []string) bool {
 }
 
 // remoteDashboardRoles are the roles a remote dashboard names in Lua (:roles()), from the list
-// the cloud gets; cached until Lua reloads (DashboardsReloaded).
-func (s *Server) remoteDashboardRoles(id string) []string {
+// the cloud gets, and whether it is on that list (not when its roles function hides it); cached
+// until Lua reloads (DashboardsReloaded) or for remoteRolesFor.
+func (s *Server) remoteDashboardRoles(id string) ([]string, bool) {
 	s.remoteRolesMu.Lock()
 	defer s.remoteRolesMu.Unlock()
-	if s.remoteRolesCache == nil {
-		s.remoteRolesCache = map[string][]string{}
+	if s.remoteRolesCache == nil || time.Since(s.remoteRolesAt) > remoteRolesFor {
+		s.remoteRolesCache, s.remoteRolesAt = map[string][]string{}, time.Now()
 		if s.luaExecutor != nil {
 			out, err := s.luaExecutor.Execute("Dashboard.API.remoteList()")
 			var list []struct {
@@ -426,5 +430,9 @@ func (s *Server) remoteDashboardRoles(id string) []string {
 			}
 		}
 	}
-	return s.remoteRolesCache[id]
+	r, ok := s.remoteRolesCache[id]
+	return r, ok
 }
+
+// remoteRolesFor is how long the roles stay cached, as long as the cloud waits for a change.
+const remoteRolesFor = 15 * time.Second

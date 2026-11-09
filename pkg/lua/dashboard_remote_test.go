@@ -72,6 +72,7 @@ func TestDashboardRemoteErrors(t *testing.T) {
 		`Dashboard.new('a'):roles('owner')`:                                                               "call :remote() first",
 		`Dashboard.new('a'):remote():roles()`:                                                             "at least one role",
 		`Dashboard.new('a'):remote():roles('Biuro')`:                                                      `invalid role "Biuro"`,
+		`Dashboard.new('a'):remote():roles(function() end, 'x')`:                                          "role names or one function",
 		`Dashboard.new('a'):remote({ poll = 'fast' })`:                                                    "poll must be a number",
 		`Dashboard.new('a'):section('S','i'):status('x','X','i',nil,nil,{ remote = 'hidden' })`:           "opts.remote is false",
 		`Dashboard.new('a'):section('S','i'):toggle('x','X','i',nil,nil,{ remote = { confirm = true } })`: "is for buttons",
@@ -104,5 +105,39 @@ func TestDashboardRemoteErrors(t *testing.T) {
 	local, _ := engine.Execute(`Dashboard.API.getDefinition('a')`)
 	if !strings.Contains(local, `"id":"b"`) {
 		t.Errorf("the house's tabs lost b: %s", local)
+	}
+}
+
+// Roles from a function are asked each time the list is made; nil, none, a bad name or an
+// error leave the dashboard out of the cloud.
+func TestDashboardRemoteRolesFunction(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+	if _, err := engine.Execute(`
+		sprzatanie = true
+		Dashboard.new('dom'):remote():roles(function()
+			if sprzatanie then return { 'domownicy', 'sprzatanie' } end
+			return { 'domownicy' }
+		end):section('S', 'i'):build()
+		Dashboard.new('pusty'):remote():roles(function() return {} end):section('S', 'i'):build()
+		Dashboard.new('nil'):remote():roles(function() end):section('S', 'i'):build()
+		Dashboard.new('zly'):remote():roles(function() return { 'Biuro' } end):section('S', 'i'):build()
+		Dashboard.new('blad'):remote():roles(function() error('boom') end):section('S', 'i'):build()
+	`); err != nil {
+		t.Fatal(err)
+	}
+	list := func() string {
+		out, err := engine.Execute(`Dashboard.API.remoteList()`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	if out := list(); !strings.Contains(out, `"roles":["domownicy","sprzatanie"]`) || strings.Count(out, `"id"`) != 1 {
+		t.Errorf("with the cleaner: %s", out)
+	}
+	engine.Execute(`sprzatanie = false`)
+	if out := list(); !strings.Contains(out, `"roles":["domownicy"]`) {
+		t.Errorf("without the cleaner: %s", out)
 	}
 }

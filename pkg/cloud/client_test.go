@@ -629,3 +629,37 @@ func TestTunnelAndDashboards(t *testing.T) {
 		t.Fatalf("dashboards after a change: %+v %v", d, err)
 	}
 }
+
+// Roles given by a function change without a Lua reload: the list goes again when it differs
+// from the one last sent, and not while it stays the same.
+func TestDashboardsWatched(t *testing.T) {
+	f := newFakeCloud(t)
+	c, _ := newTestClient(t, f)
+	var mu sync.Mutex
+	roles := []string{"domownicy"}
+	c.opts.Dashboards = func() []proto.DashboardInfo {
+		mu.Lock()
+		defer mu.Unlock()
+		return []proto.DashboardInfo{{ID: "home", Name: "Dom", Roles: slices.Clone(roles)}}
+	}
+	c.opts.Tunnel = http.NotFoundHandler()
+	c.opts.DashboardsEvery = 20 * time.Millisecond
+	if _, err := c.Pair(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	f.decide("approve")
+	conn := f.nextConn(t)
+	var d proto.Dashboards
+	if err := conn.read(t, proto.TypeDashboards).Decode(&d); err != nil || d.Dashboards[0].Roles[0] != "domownicy" {
+		t.Fatalf("dashboards after welcome: %+v %v", d, err)
+	}
+	for _, want := range []string{"sprzatanie", "goscie"} {
+		time.Sleep(100 * time.Millisecond) // several checks with nothing changed
+		mu.Lock()
+		roles = []string{want}
+		mu.Unlock()
+		if err := conn.read(t, proto.TypeDashboards).Decode(&d); err != nil || d.Dashboards[0].Roles[0] != want {
+			t.Fatalf("dashboards after roles %s: %+v %v", want, d, err)
+		}
+	}
+}

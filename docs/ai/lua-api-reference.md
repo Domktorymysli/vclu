@@ -1548,7 +1548,7 @@ Make the dashboard reachable through vclu cloud: :remote() (or true), :remote(fa
 
 ### `DashboardBuilder:roles(...)`
 
-Who sees the remote dashboard in vclu cloud: people given one of these roles there (e.g. 'domownicy', 'gosia'). The cloud decides; vCLU only passes the names on. Without it every member of the home sees it.
+Who sees the remote dashboard in vclu cloud: people given one of these roles there (e.g. 'domownicy', 'gosia'). The cloud decides; vCLU only passes the names on. Without it every member of the home sees it. A function instead of names decides again and again (e.g. the cleaner only on Tuesdays 9-13): it returns the roles as a table, and the cloud gets each change within about 15 s; nil, an empty table or an error hide the dashboard from everyone in the cloud.
 
 ### `DashboardBuilder:header()`
 

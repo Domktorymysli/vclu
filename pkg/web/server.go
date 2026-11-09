@@ -194,6 +194,7 @@ type Server struct {
 	// the roles each remote dashboard names, for the app on the LAN (local.go)
 	remoteRolesMu    sync.Mutex
 	remoteRolesCache map[string][]string
+	remoteRolesAt    time.Time // when the cache was made: roles from a function change on their own
 	backupState      backupSchedulerState
 	version          string
 	updateChecker    *updatecheck.Checker // nil: GET /api/update says enabled false

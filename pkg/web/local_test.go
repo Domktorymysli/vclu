@@ -277,4 +277,26 @@ func TestLocalHandlerRoles(t *testing.T) {
 	if code := get("/api/dashboard/gosia"); code != http.StatusOK {
 		t.Errorf("gosia with the role = %d", code)
 	}
+
+	// roles from a function: hidden from everyone when it gives none, and back without a reload
+	// once the cache is older than remoteRolesFor
+	if _, err := engine.Execute(`
+		sprzatanie = false
+		Dashboard.new('sprzatanie'):remote():roles(function()
+			if sprzatanie then return { 'gosia' } end
+		end):section('S', 'i'):build()
+	`); err != nil {
+		t.Fatal(err)
+	}
+	s.DashboardsReloaded()
+	if code := get("/api/dashboard/sprzatanie"); code != http.StatusNotFound {
+		t.Errorf("hidden by its roles function = %d", code)
+	}
+	engine.Execute(`sprzatanie = true`)
+	s.remoteRolesMu.Lock()
+	s.remoteRolesAt = time.Now().Add(-remoteRolesFor)
+	s.remoteRolesMu.Unlock()
+	if code := get("/api/dashboard/sprzatanie"); code != http.StatusOK {
+		t.Errorf("shown again by its roles function = %d", code)
+	}
 }
