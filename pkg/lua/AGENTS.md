@@ -241,6 +241,12 @@ object is registered, and add a test that sends the command. Contract: `pkg/lua/
 action is a method (a dimmer's `setBrightness`, a cover's `setPosition`, Satel arming) need that
 method called. Map the command to the method when the object has one.
 
+### MQTT subscriptions are kept in Go, not per connection
+Modules subscribe before the MQTT client exists (start) or while it connects. `MQTTManager.topics`
+holds every instance's topics and `onConnected` subscribes them on each connect; Lua does not
+subscribe again. paho's `IsConnected()` is true while it is still connecting with ConnectRetry,
+so check `wrapper.connected`. Contract: `TestContract_MQTT_Subscribe*`, `pkg/server/mqtt_start_subscribe_test.go`.
+
 ### Scales
 Home Assistant sends brightness 0..100 (`brightness_scale`); a dimmer's value is 0..1; an on/off
 light has no brightness at all. See `runtime/integrations/homeassistant/Commands.lua`.
