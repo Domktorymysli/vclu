@@ -12,6 +12,7 @@ import (
 	"github.com/Domktorymysli/vclu/pkg/cloud"
 	"github.com/Domktorymysli/vclu/pkg/config"
 	"github.com/Domktorymysli/vclu/pkg/lua"
+	"github.com/Domktorymysli/vclu/pkg/metrics"
 )
 
 // Whoever enters the pairing code attaches the house to their account, so
@@ -197,5 +198,55 @@ func TestCloudLinkView(t *testing.T) {
 	}
 	if v := newCloudLinkView(cloud.LinkReport{Since: t0, Availability: -1}, now); v.Availability != "" || v.Last != "" {
 		t.Errorf("nothing measured = %+v", v)
+	}
+}
+
+// The statistics tab: each metric's state, the backlog, and the hours as bars.
+func TestCloudMetricsView(t *testing.T) {
+	now := time.Date(2026, 11, 9, 12, 30, 0, 0, time.UTC)
+	v := newCloudMetricsView(cloud.MetricsStatus{
+		On: true, Limit: 100, Series: 5,
+		List: []metrics.CloudSeries{{Path: "a", Kind: "gauge"}, {Path: "b", Kind: "counter"}, {Path: "c"}, {Path: "d"}, {Path: "e"}},
+		Sent: map[string]int64{
+			"a": now.Add(-3 * time.Minute).Unix(),
+			"b": now.Add(-26 * time.Hour).Unix(),
+		},
+		OverLimit: []string{"d"}, Invalid: []string{"e"},
+		Points: map[string]int64{"a": 120},
+		Hours:  []cloud.MetricsHour{{At: now.Add(-30 * time.Hour).Truncate(time.Hour).Unix(), Points: 9}, {At: now.Add(-time.Hour).Truncate(time.Hour).Unix(), Points: 1000}, {At: now.Truncate(time.Hour).Unix(), Points: 250}},
+	}, now)
+	states := []string{}
+	for _, r := range v.Rows {
+		states = append(states, r.State)
+	}
+	if !slices.Equal(states, []string{"ok", "behind", "waiting", "limit", "invalid"}) || v.Rows[1].Behind != "1 d 2 h" || v.Rows[0].Points != 120 {
+		t.Errorf("rows = %+v", v.Rows)
+	}
+	if v.Day != 1250 || v.Behind != 1 {
+		t.Errorf("day = %d, behind = %d", v.Day, v.Behind)
+	}
+	if n := strings.Count(string(v.Chart), `<rect class="bar"`); n != 2 {
+		t.Errorf("%d bars, want 2: %s", n, v.Chart)
+	}
+}
+
+// A paired vCLU's cloud page has the statistics tab, with how to start when no metric has cloud=true.
+func TestCloudPageMetricsTab(t *testing.T) {
+	e := newHistoryEnv(t)
+	if err := config.UpdateMasterConfig(e.dir, func(c *config.VCLUConfig) error {
+		c.Cloud = &config.VCLUCloudConfig{URL: "http://127.0.0.1:1", Token: "t", ConnectURL: "ws://127.0.0.1:1/ws", HomeID: 42, HomeName: "Dom", Disabled: true}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cc := cloud.New(cloud.Options{Dir: e.dir})
+	cc.Start()
+	t.Cleanup(func() { cc.Shutdown("test", 0) })
+	e.s.SetCloudClient(cc)
+	body := e.do(t, "GET", "/cloud?lang=pl", "", "session").Body.String()
+	for _, want := range []string{`id="tab-metrics"`, `id="pane-metrics"`, "Statystyki w chmurze", "cloud = true"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("cloud page lacks %q", want)
+		}
 	}
 }

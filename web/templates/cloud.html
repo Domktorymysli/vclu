@@ -20,6 +20,7 @@
         .cloud-link-chart { width: 100%; height: 60px; display: block; background: rgba(127,127,127,.06); border-radius: 6px; }
         .cloud-link-chart .rtt { fill: none; stroke: #27C2A8; stroke-width: 2; vector-effect: non-scaling-stroke; }
         .cloud-link-chart .down { fill: rgba(220,53,69,.35); }
+        .cloud-link-chart .bar { fill: #27C2A8; opacity: .8; }
         .cloud-link-chart .fail { stroke: #dc3545; stroke-width: 1; vector-effect: non-scaling-stroke; }
     </style>
 </head>
@@ -96,6 +97,11 @@
                         <button class="nav-link" id="tab-activity" data-bs-toggle="tab" data-bs-target="#pane-activity" type="button" role="tab">
                             <i class="bi bi-clock-history"></i> {{index .t "cloud.tab_activity"}}
                         </button>
+                        {{if .cloudMetrics}}
+                        <button class="nav-link" id="tab-metrics" data-bs-toggle="tab" data-bs-target="#pane-metrics" type="button" role="tab">
+                            <i class="bi bi-graph-up"></i> {{index .t "cloud.tab_metrics"}}
+                        </button>
+                        {{end}}
                         <button class="nav-link" id="tab-shared" data-bs-toggle="tab" data-bs-target="#pane-shared" type="button" role="tab">
                             <i class="bi bi-share"></i> {{index .t "cloud.tab_shared"}}
                         </button>
@@ -207,40 +213,6 @@
                                 </div>
                             </div>
                             {{end}}
-                            {{with .cloudMetrics}}
-                            <div class="card mb-3" id="cloudMetrics">
-                                <div class="card-header d-flex justify-content-between align-items-center">
-                                    <span><i class="bi bi-graph-up"></i> {{index $.t "cloud.metrics_title"}}</span>
-                                    {{if .On}}<span class="badge bg-success">{{index $.t "cloud.metrics_on"}}</span>{{else}}<span class="badge bg-secondary">{{index $.t "cloud.metrics_off"}}</span>{{end}}
-                                </div>
-                                <div class="card-body">
-                                    {{if .On}}
-                                    <div class="row text-center mb-2">
-                                        <div class="col-4">
-                                            <div class="fs-5 fw-bold">{{.Series}} / {{.Limit}}</div>
-                                            <small class="text-muted">{{index $.t "cloud.metrics_series"}}</small>
-                                        </div>
-                                        <div class="col-4">
-                                            <div class="fs-5 fw-bold">{{.Stored}}</div>
-                                            <small class="text-muted">{{index $.t "cloud.metrics_stored"}}</small>
-                                        </div>
-                                        <div class="col-4">
-                                            <div class="fs-5 fw-bold">{{if .LastSent.IsZero}}—{{else}}<time data-local data-time-only datetime="{{.LastSent.Format "2006-01-02T15:04:05Z07:00"}}"></time>{{end}}</div>
-                                            <small class="text-muted">{{index $.t "cloud.metrics_last"}}</small>
-                                        </div>
-                                    </div>
-                                    {{range .OverLimit}}<div class="small text-warning"><i class="bi bi-exclamation-triangle"></i> {{printf (index $.t "cloud.metrics_over_limit") .}}</div>{{end}}
-                                    {{range .Invalid}}<div class="small text-warning"><i class="bi bi-exclamation-triangle"></i> {{printf (index $.t "cloud.metrics_invalid") .}}</div>{{end}}
-                                    {{if .Error}}<div class="small text-muted">{{index $.t "cloud.metrics_wait"}} ({{.Error}})</div>{{end}}
-                                    {{else if eq .Error "off"}}
-                                    <p class="text-muted small mb-0">{{index $.t "cloud.metrics_plan_off"}}</p>
-                                    {{else}}
-                                    <p class="text-muted small mb-0">{{index $.t "cloud.metrics_not_offered"}}</p>
-                                    {{end}}
-                                    {{if not .Series}}<p class="text-muted small mb-0 mt-2">{{index $.t "cloud.metrics_howto"}} <code>metric("energia:dom", fn, { unit = "kWh", kind = "counter", cloud = true })</code></p>{{end}}
-                                </div>
-                            </div>
-                            {{end}}
                         </div>
 
                         <!-- ==================== ACTIVITY TAB ==================== -->
@@ -276,6 +248,82 @@
                                 {{end}}
                             </div>
                         </div>
+
+                        <!-- ==================== METRICS TAB ==================== -->
+                        {{with .cloudMetrics}}
+                        <div class="tab-pane fade" id="pane-metrics" role="tabpanel">
+                            <div class="card mb-3">
+                                <div class="card-header d-flex justify-content-between align-items-center">
+                                    <span><i class="bi bi-graph-up"></i> {{index $.t "cloud.metrics_title"}}</span>
+                                    {{if .On}}<span class="badge bg-success">{{index $.t "cloud.metrics_on"}}</span>{{else}}<span class="badge bg-secondary">{{index $.t "cloud.metrics_off"}}</span>{{end}}
+                                </div>
+                                <div class="card-body">
+                                    {{if .On}}
+                                    <p class="text-muted small">{{index $.t "cloud.metrics_intro"}}</p>
+                                    <div class="row text-center mb-3">
+                                        <div class="col-6 col-md-3">
+                                            <div class="fs-5 fw-bold">{{.Series}} / {{.Limit}}</div>
+                                            <small class="text-muted">{{index $.t "cloud.metrics_series"}}</small>
+                                        </div>
+                                        <div class="col-6 col-md-3">
+                                            <div class="fs-5 fw-bold">{{.Day}}</div>
+                                            <small class="text-muted">{{index $.t "cloud.metrics_day"}}</small>
+                                        </div>
+                                        <div class="col-6 col-md-3">
+                                            <div class="fs-5 fw-bold">{{if .LastSent.IsZero}}—{{else}}<time data-local data-time-only datetime="{{.LastSent.Format "2006-01-02T15:04:05Z07:00"}}"></time>{{end}}</div>
+                                            <small class="text-muted">{{index $.t "cloud.metrics_last"}}</small>
+                                        </div>
+                                        <div class="col-6 col-md-3">
+                                            <div class="fs-5 fw-bold">{{if .Behind}}<span class="text-info">{{.Behind}}</span>{{else}}<i class="bi bi-check-circle text-success"></i>{{end}}</div>
+                                            <small class="text-muted">{{if .Behind}}{{index $.t "cloud.metrics_catching_up"}}{{else}}{{index $.t "cloud.metrics_up_to_date"}}{{end}}</small>
+                                        </div>
+                                    </div>
+                                    <div class="small text-muted mb-1">{{index $.t "cloud.metrics_chart"}}</div>
+                                    {{.Chart}}
+                                    <div class="d-flex justify-content-between text-muted small mt-1 mb-3">
+                                        <time data-local data-time-only datetime="{{.ChartSince.Format "2006-01-02T15:04:05Z07:00"}}"></time>
+                                        <span>{{index $.t "cloud.link_now"}}</span>
+                                    </div>
+                                    {{if .Error}}<div class="small text-muted mb-2"><i class="bi bi-hourglass-split"></i> {{index $.t "cloud.metrics_wait"}}</div>{{end}}
+                                    {{else if eq .Error "off"}}
+                                    <p class="text-muted small mb-0">{{index $.t "cloud.metrics_plan_off"}}</p>
+                                    {{else}}
+                                    <p class="text-muted small mb-0">{{index $.t "cloud.metrics_not_offered"}}</p>
+                                    {{end}}
+                                    {{if .Rows}}
+                                    <div class="table-responsive">
+                                    <table class="table table-sm mb-0 align-middle">
+                                        <thead><tr>
+                                            <th>{{index $.t "cloud.metrics_col_metric"}}</th>
+                                            <th>{{index $.t "cloud.metrics_col_kind"}}</th>
+                                            <th>{{index $.t "cloud.metrics_col_until"}}</th>
+                                            <th class="text-end">{{index $.t "cloud.metrics_col_points"}}</th>
+                                        </tr></thead>
+                                        <tbody>
+                                        {{range .Rows}}
+                                            <tr>
+                                                <td><code>{{.Path}}</code>{{with .Unit}} <span class="text-muted small">{{.}}</span>{{end}}</td>
+                                                <td class="small">{{index $.t (printf "cloud.metrics_kind_%s" .Kind)}}</td>
+                                                <td class="small">
+                                                    {{if eq .State "ok"}}<i class="bi bi-check-circle text-success"></i> <time data-local data-time-only datetime="{{.Until.Format "2006-01-02T15:04:05Z07:00"}}"></time>
+                                                    {{else if eq .State "behind"}}<i class="bi bi-arrow-repeat text-info"></i> {{printf (index $.t "cloud.metrics_state_behind") .Behind}}
+                                                    {{else if eq .State "waiting"}}<i class="bi bi-hourglass text-muted"></i> {{index $.t "cloud.metrics_state_waiting"}}
+                                                    {{else if eq .State "limit"}}<i class="bi bi-exclamation-triangle text-warning"></i> {{index $.t "cloud.metrics_state_limit"}}
+                                                    {{else}}<i class="bi bi-exclamation-triangle text-warning"></i> {{index $.t "cloud.metrics_state_invalid"}}{{end}}
+                                                </td>
+                                                <td class="text-end small">{{.Points}}</td>
+                                            </tr>
+                                        {{end}}
+                                        </tbody>
+                                    </table>
+                                    </div>
+                                    {{else}}
+                                    <p class="text-muted small mb-0 mt-2">{{index $.t "cloud.metrics_howto"}} <code>metric("energia:dom", fn, { unit = "kWh", kind = "counter", cloud = true })</code></p>
+                                    {{end}}
+                                </div>
+                            </div>
+                        </div>
+                        {{end}}
 
                         <!-- ==================== SHARED TAB ==================== -->
                         <div class="tab-pane fade" id="pane-shared" role="tabpanel">

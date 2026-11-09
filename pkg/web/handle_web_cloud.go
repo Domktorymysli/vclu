@@ -8,6 +8,7 @@ import (
 	"github.com/Domktorymysli/vclu-cloud/proto"
 	"html/template"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -57,11 +58,10 @@ func (s *Server) handleCloud(c *gin.Context) {
 	}
 	shared, devices := sharedDashboards(remote, members), sharedDevices(devs, members)
 	var link *cloudLinkView
-	var mst *cloud.MetricsStatus
+	var mst *cloudMetricsView
 	if s.cloudClient != nil && st.HomeID != 0 {
 		link = newCloudLinkView(s.cloudClient.Link(), time.Now())
-		m := s.cloudClient.Metrics()
-		mst = &m
+		mst = newCloudMetricsView(s.cloudClient.Metrics(), time.Now())
 	}
 	s.renderHTML(c, http.StatusOK, "cloud.html", gin.H{
 		"cloudShared":  shared,
@@ -452,6 +452,21 @@ func newCloudLinkView(r cloud.LinkReport, now time.Time) *cloudLinkView {
 	return v
 }
 
+// fmtFor writes a span as the page shows it: "<1 min", "12 min", "3 h 5 min", "2 d 4 h".
+func fmtFor(d time.Duration) string {
+	d = d.Round(time.Minute)
+	switch {
+	case d < time.Minute:
+		return "<1 min"
+	case d < time.Hour:
+		return fmt.Sprintf("%d min", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%d h %d min", int(d.Hours()), int(d.Minutes())%60)
+	default:
+		return fmt.Sprintf("%d d %d h", int(d.Hours())/24, int(d.Hours())%24)
+	}
+}
+
 // linkOutage is an outage as the page lists it: the reason as a known kind (Kind, translated)
 // or as vCLU logged it (Raw).
 type linkOutage struct {
@@ -467,15 +482,7 @@ func newLinkOutage(o cloud.Outage, now time.Time) linkOutage {
 	if l.StillGoing {
 		to = now
 	}
-	d := to.Sub(o.From).Round(time.Minute)
-	switch {
-	case d < time.Minute:
-		l.For = "<1 min"
-	case d < time.Hour:
-		l.For = fmt.Sprintf("%d min", int(d.Minutes()))
-	default:
-		l.For = fmt.Sprintf("%d h %d min", int(d.Hours()), int(d.Minutes())%60)
-	}
+	l.For = fmtFor(to.Sub(o.From))
 	switch {
 	case strings.HasPrefix(o.Reason, "connection lost"):
 		l.Kind = "lost"
@@ -486,4 +493,81 @@ func newLinkOutage(o cloud.Outage, now time.Time) linkOutage {
 		l.Kind = "network"
 	}
 	return l
+}
+
+// cloudMetricsView is the statistics tab: what goes to the cloud, how far each series is, and the
+// points stored per hour as bars.
+type cloudMetricsView struct {
+	cloud.MetricsStatus
+	Rows       []metricRow
+	Day        int64 // points stored in the last 24 h
+	Behind     int   // series still sending their backlog
+	Chart      template.HTML
+	ChartSince time.Time
+}
+
+// metricRow is one metric with cloud=true. State: "ok" (up to date), "behind" (sending the
+// backlog), "waiting" (nothing in the cloud yet), "limit" or "invalid".
+type metricRow struct {
+	Path, Unit, Kind string
+	State            string
+	Until            time.Time // the newest minute in the cloud
+	Behind           string    // how far back, while behind
+	Points           int64     // stored since vCLU started
+}
+
+// metricBehind: a series whose newest minute in the cloud is older than this is still catching
+// up. Some metrics sample every 10 minutes and batches go every 5.
+const metricBehind = 20 * time.Minute
+
+func newCloudMetricsView(st cloud.MetricsStatus, now time.Time) *cloudMetricsView {
+	v := &cloudMetricsView{MetricsStatus: st}
+	for _, m := range st.List {
+		r := metricRow{Path: m.Path, Unit: m.Unit, Kind: m.Kind, Points: st.Points[m.Path]}
+		if at, ok := st.Sent[m.Path]; ok {
+			r.Until = time.Unix(at, 0)
+		}
+		switch {
+		case slices.Contains(st.Invalid, m.Path):
+			r.State = "invalid"
+		case slices.Contains(st.OverLimit, m.Path):
+			r.State = "limit"
+		case r.Until.IsZero():
+			r.State = "waiting"
+		case now.Sub(r.Until) > metricBehind:
+			r.State, r.Behind = "behind", fmtFor(now.Sub(r.Until))
+			v.Behind++
+		default:
+			r.State = "ok"
+		}
+		v.Rows = append(v.Rows, r)
+	}
+
+	// 24 bars, one per hour, the last the hour now is in.
+	first := now.Truncate(time.Hour).Add(-23 * time.Hour)
+	v.ChartSince = first
+	var bars [24]int64
+	var top int64
+	for _, h := range st.Hours {
+		i := int((h.At - first.Unix()) / 3600)
+		if i < 0 || i >= len(bars) {
+			continue
+		}
+		bars[i] += h.Points
+		v.Day += h.Points
+		top = max(top, bars[i])
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, `<svg class="cloud-link-chart" viewBox="0 0 %.0f %.0f" preserveAspectRatio="none" role="img">`, linkChartW, linkChartH)
+	w := linkChartW / float64(len(bars))
+	for i, n := range bars {
+		if n == 0 {
+			continue
+		}
+		h := max(float64(n)/float64(top)*(linkChartH-4), 2)
+		fmt.Fprintf(&b, `<rect class="bar" x="%.1f" y="%.1f" width="%.1f" height="%.1f"><title>%d</title></rect>`, float64(i)*w+2, linkChartH-h, w-4, h, n)
+	}
+	b.WriteString(`</svg>`)
+	v.Chart = template.HTML(b.String()) // numbers only, built here
+	return v
 }

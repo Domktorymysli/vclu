@@ -3,6 +3,7 @@ package cloud
 import (
 	"encoding/json"
 	"log"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -24,6 +25,7 @@ const (
 	metricsEvery   = 5 * time.Minute
 	metricsAckWait = 30 * time.Second
 	metricsMaxAge  = 7 * 24 * time.Hour // when welcome names none
+	metricsHours   = 24                 // hours of MetricsStatus.Hours
 )
 
 // MetricsSource is what vCLU measures: metrics.Collector.
@@ -42,6 +44,17 @@ type MetricsStatus struct {
 	Stored    int64     `json:"stored"`            // points the cloud stored since vCLU started
 	LastSent  time.Time `json:"lastSent,omitzero"`
 	Error     string    `json:"error,omitempty"` // the cloud's last refusal: rate_limited, busy, off
+
+	List   []metrics.CloudSeries `json:"list"`             // the metrics with cloud=true
+	Sent   map[string]int64      `json:"sent,omitempty"`   // per path, the start of the newest minute in the cloud
+	Points map[string]int64      `json:"points,omitempty"` // per path, points stored since vCLU started
+	Hours  []MetricsHour         `json:"hours,omitempty"`  // points stored per hour, oldest first, kept over restarts
+}
+
+// MetricsHour is how many points the cloud stored in the hour starting At (unix seconds).
+type MetricsHour struct {
+	At     int64 `json:"at"`
+	Points int64 `json:"points"`
 }
 
 // Metrics is how sending statistics goes.
@@ -50,8 +63,10 @@ func (c *Client) Metrics() MetricsStatus {
 	defer c.mu.Unlock()
 	st := c.metricsSt
 	st.OverLimit, st.Invalid = slices.Clone(st.OverLimit), slices.Clone(st.Invalid)
+	st.Sent, st.Points, st.Hours = maps.Clone(st.Sent), maps.Clone(st.Points), slices.Clone(st.Hours)
 	if c.opts.Metrics != nil {
-		st.Series = len(c.opts.Metrics.CloudSeries())
+		st.List = c.opts.Metrics.CloudSeries()
+		st.Series = len(st.List)
 	}
 	return st
 }
@@ -65,8 +80,9 @@ func (c *Client) setMetricsStatus(f func(*MetricsStatus)) {
 // metricsCursor is metricsFile: the start of the last bucket the cloud acknowledged, per path,
 // for one home (pairing again starts over).
 type metricsCursor struct {
-	Home int64            `json:"home"`
-	Sent map[string]int64 `json:"sent"`
+	Home  int64            `json:"home"`
+	Sent  map[string]int64 `json:"sent"`
+	Hours []MetricsHour    `json:"hours,omitempty"` // for the cloud page's chart
 }
 
 func (c *Client) loadMetricsCursor(homeID int64) metricsCursor {
@@ -77,7 +93,7 @@ func (c *Client) loadMetricsCursor(homeID int64) metricsCursor {
 	}
 	var on metricsCursor
 	if json.Unmarshal(b, &on) == nil && on.Home == homeID && on.Sent != nil {
-		cur.Sent = on.Sent
+		cur.Sent, cur.Hours = on.Sent, on.Hours
 	}
 	return cur
 }
@@ -104,6 +120,7 @@ func (c *Client) sendMetrics(t *tunnel, homeID int64, lim proto.MetricsLimits, d
 	skip := map[string]string{} // path → why, for this connection: the limit or an invalid path
 	c.setMetricsStatus(func(s *MetricsStatus) {
 		s.On, s.Limit, s.OverLimit, s.Invalid, s.Error = true, lim.Series, nil, nil, ""
+		s.Sent, s.Hours = maps.Clone(cur.Sent), slices.Clone(cur.Hours)
 	})
 	defer c.setMetricsStatus(func(s *MetricsStatus) { s.On = false })
 
@@ -147,10 +164,18 @@ func (c *Client) sendMetrics(t *tunnel, homeID int64, lim proto.MetricsLimits, d
 				}
 				break
 			}
-			applyMetricsAck(ack, last, cur.Sent, skip)
+			stored := applyMetricsAck(ack, m, last, cur.Sent, skip)
+			cur.Hours = addMetricsHour(cur.Hours, now, int64(ack.Stored))
 			c.saveMetricsCursor(cur)
 			c.setMetricsStatus(func(s *MetricsStatus) {
 				s.Stored += int64(ack.Stored)
+				s.Sent, s.Hours = maps.Clone(cur.Sent), slices.Clone(cur.Hours)
+				if s.Points == nil {
+					s.Points = map[string]int64{}
+				}
+				for p, n := range stored {
+					s.Points[p] += n
+				}
 				s.LastSent, s.Error = now, ""
 				s.OverLimit, s.Invalid = nil, nil
 				for p, why := range skip {
@@ -224,20 +249,46 @@ func metricsBatch(src MetricsSource, sent map[string]int64, skip map[string]stri
 }
 
 // applyMetricsAck moves the cursors over what the cloud took or will never take; a series over
-// the limit stays where it was, to follow once there is room (on a later connection).
-func applyMetricsAck(ack proto.MetricsAck, last, sent map[string]int64, skip map[string]string) {
+// the limit stays where it was, to follow once there is room (on a later connection). It returns
+// the points stored per path.
+func applyMetricsAck(ack proto.MetricsAck, m proto.Metrics, last, sent map[string]int64, skip map[string]string) map[string]int64 {
+	stored := map[string]int64{}
+	for _, s := range m.Series {
+		stored[s.Path] = int64(len(s.Points))
+	}
 	for _, r := range ack.Rejected {
 		switch r.Reason {
 		case proto.MetricOverLimit:
 			skip[r.Path] = r.Reason
 			delete(last, r.Path)
+			delete(stored, r.Path)
 		case proto.MetricInvalid:
 			skip[r.Path] = r.Reason
+			delete(stored, r.Path)
+		case proto.MetricBadPoints:
+			stored[r.Path] = max(stored[r.Path]-int64(r.Points), 0)
 		}
 	}
 	for p, b := range last {
 		sent[p] = b
 	}
+	return stored
+}
+
+// addMetricsHour counts n points in the hour now is in and keeps the last metricsHours hours.
+func addMetricsHour(hours []MetricsHour, now time.Time, n int64) []MetricsHour {
+	at := now.Truncate(time.Hour).Unix()
+	if k := len(hours); k > 0 && hours[k-1].At == at {
+		hours[k-1].Points += n
+	} else {
+		hours = append(hours, MetricsHour{At: at, Points: n})
+	}
+	oldest := at - (metricsHours-1)*3600
+	i := 0
+	for i < len(hours) && hours[i].At < oldest {
+		i++
+	}
+	return slices.Clone(hours[i:])
 }
 
 func validMetricPath(p string) bool {
