@@ -149,7 +149,7 @@ func TestMetricsBatchLimits(t *testing.T) {
 // draw without the cloud for retry_after_s.
 func TestMetricsHistoryCached(t *testing.T) {
 	f := newFakeCloud(t)
-	f.metrics = &proto.MetricsLimits{Series: 10, BucketS: 60, MaxAgeS: 7 * 86400}
+	f.metrics = &proto.MetricsLimits{Series: 10, BucketS: 60, MaxAgeS: 7 * 86400, Query: true}
 	c, conn := connectWith(t, f, func(c *Client) {
 		c.opts.Metrics = &fakeMetrics{buckets: map[string][][5]float64{}}
 		c.opts.MetricsFirst = time.Hour
@@ -198,5 +198,20 @@ func TestMetricsHistoryCached(t *testing.T) {
 	}
 	if r := <-ask(0, 90000, 7200); !errors.Is(r.err, ErrNoHistory) {
 		t.Errorf("within retry_after_s = %+v", r)
+	}
+}
+
+// A cloud that does not say it answers metrics_query gets none: charts draw at once from vCLU.
+func TestMetricsHistoryNotAsked(t *testing.T) {
+	f := newFakeCloud(t)
+	f.metrics = &proto.MetricsLimits{Series: 10, BucketS: 60, MaxAgeS: 7 * 86400}
+	c, _ := connectWith(t, f, func(c *Client) {
+		c.opts.Metrics = &fakeMetrics{buckets: map[string][][5]float64{}}
+		c.opts.MetricsFirst = time.Hour
+	})
+	eventually(t, "statistics on", func() bool { return c.Metrics().On })
+	start := time.Now()
+	if _, _, err := c.MetricsHistory(context.Background(), "energia:dom", 0, 90000, 3600); !errors.Is(err, ErrNoHistory) || time.Since(start) > time.Second {
+		t.Errorf("err = %v after %v", err, time.Since(start))
 	}
 }

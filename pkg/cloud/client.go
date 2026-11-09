@@ -579,7 +579,8 @@ type tunnel struct {
 
 	metricsAck    chan proto.MetricsAck    // answers to metrics, for sendMetrics
 	metricsPoints chan proto.MetricsPoints // answers to metrics_query, for MetricsHistory
-	metrics       bool                     // the cloud takes statistics and answers metrics_query
+	metrics       bool                     // the cloud takes statistics
+	metricsQuery  bool                     // ... and answers metrics_query
 	home          int64                    // the home of this connection
 
 	cmdRate    cmdLimiter   // used by the read loop only
@@ -664,6 +665,7 @@ func (c *Client) connect(ctx context.Context, cfg config.VCLUCloudConfig) error 
 	t.dashes = slices.Contains(w.Enable, proto.CapDashboards) && c.opts.Dashboards != nil
 	t.objects = slices.Contains(w.Enable, proto.CapObjects) && c.opts.Objects != nil
 	t.metrics = c.opts.Metrics != nil && slices.Contains(w.Enable, proto.CapMetrics) && w.Metrics != nil
+	t.metricsQuery = t.metrics && w.Metrics.Query
 	t.home = w.HomeID
 	if c.opts.Tunnel != nil && slices.Contains(w.Enable, proto.CapHTTP) {
 		// The cloud opens a stream per request; the session is their listener.

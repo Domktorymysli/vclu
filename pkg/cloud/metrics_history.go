@@ -49,7 +49,7 @@ func (c *Client) MetricsHistory(ctx context.Context, path string, since, until i
 	c.mu.Lock()
 	t := c.tun
 	c.mu.Unlock()
-	if t == nil || !t.metrics {
+	if t == nil || !t.metricsQuery {
 		return nil, 0, ErrNoHistory
 	}
 	h := &c.history
