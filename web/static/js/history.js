@@ -164,6 +164,11 @@
     }
 
     document.addEventListener('DOMContentLoaded', function() {
+        // filters from the address (/history?origin=remote, a link from the cloud page)
+        var q = new URLSearchParams(location.search);
+        [['path', 'fPath'], ['origin', 'fOrigin'], ['actor', 'fActor'], ['q', 'fText']].forEach(function(f) {
+            if (q.get(f[0])) $(f[1]).value = q.get(f[0]);
+        });
         $('historyFilters').addEventListener('submit', function() { load(false); });
         $('historyMore').addEventListener('click', function() { load(true); });
         $('historyBody').addEventListener('click', function(ev) {

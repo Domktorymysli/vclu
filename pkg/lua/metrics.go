@@ -17,6 +17,7 @@ func registerMetricsFunctions(L *lua.LState, mc *metrics.Collector) {
 		unit := L.OptString(2, "")
 		interval := L.OptInt(3, 60)
 		mc.Register(path, unit, interval)
+		mc.SetCloud(path, L.OptBool(4, false), L.OptString(5, ""))
 		return 0
 	}))
 }

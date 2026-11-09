@@ -241,7 +241,8 @@ AccessControl.prototype._createRow = function(obj) {
         '</td>' +
         '<td class="text-center">' +
             this._createSelect(obj.path, 'homekit', obj.access.homekit) +
-        '</td>';
+        '</td>' +
+        '<td class="text-center">' + this._createCloudCell(obj.cloud) + '</td>';
 
     // Single "Bots" column with popover
     if (this.bots.length > 0) {
@@ -398,6 +399,31 @@ AccessControl.prototype.setAccess = function(path, integration, access, selectEl
     .finally(function() {
         selectElement.disabled = false;
     });
+};
+
+/**
+ * Read-only cell for vclu cloud: who reaches the object through the cloud, as Lua's
+ * expose(...):remote():roles(...) says; "—" when it is not shared
+ * @param {Object|undefined} cloud - {access, roles} from /api/access
+ * @returns {string} HTML
+ */
+AccessControl.prototype._createCloudCell = function(cloud) {
+    if (!cloud) {
+        return '<span class="text-muted">—</span>';
+    }
+    var head = document.getElementById('cloudHeader');
+    var t = function(key) { return (head && head.dataset[key]) || key; };
+    var html = (cloud.roles && cloud.roles.length)
+        ? cloud.roles.map(function(r) { return '<span class="badge text-bg-secondary me-1">' + VCLU.esc(r) + '</span>'; }).join('')
+        : '<span class="badge bg-success">' + VCLU.esc(t('everyone')) + '</span>';
+    if (cloud.access === 'pin') {
+        html += ' <i class="bi bi-lock" title="PIN"></i>';
+    } else if (cloud.access === 'confirm') {
+        html += ' <i class="bi bi-question-circle" title="' + VCLU.esc(t('confirm')) + '"></i>';
+    } else if (cloud.access === 'readonly') {
+        html += ' <i class="bi bi-eye" title="' + VCLU.esc(t('readonly')) + '"></i>';
+    }
+    return html;
 };
 
 /**

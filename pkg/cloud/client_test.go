@@ -35,6 +35,7 @@ type fakeCloud struct {
 	conns    chan *fakeConn
 	hold     chan struct{}           // when set, connections wait for it to close
 	enable   func([]string) []string // what welcome enables of hello's caps; nil: all
+	metrics  *proto.MetricsLimits    // welcome's
 }
 
 type fakeConn struct {
@@ -125,8 +126,9 @@ func newFakeCloud(t *testing.T) *fakeCloud {
 		if f.enable != nil {
 			enable = f.enable(enable)
 		}
+		limits := f.metrics
 		f.mu.Unlock()
-		proto.Write(ctrl, proto.Welcome{Type: proto.TypeWelcome, Proto: proto.Version, HomeID: 42, HomeName: "Dom testowy", Enable: enable})
+		proto.Write(ctrl, proto.Welcome{Type: proto.TypeWelcome, Proto: proto.Version, HomeID: 42, HomeName: "Dom testowy", Enable: enable, Metrics: limits})
 		f.conns <- fc
 	})
 	f.ts = httptest.NewServer(mux)

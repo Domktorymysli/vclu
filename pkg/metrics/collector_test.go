@@ -144,3 +144,33 @@ func TestIntervalMinimum(t *testing.T) {
 		t.Errorf("expected interval 60 for input 0, got %d", def.Interval)
 	}
 }
+
+func TestCloudSeriesAndBuckets(t *testing.T) {
+	c := NewCollector(t.TempDir())
+	c.Register("b", "kWh", 10)
+	c.Register("a", "°C", 10)
+	c.Register("local", "", 10)
+	c.SetCloud("b", true, KindCounter)
+	c.SetCloud("a", true, "anything")
+	c.SetCloud("nope", true, KindGauge) // not registered: nothing
+	got := c.CloudSeries()
+	if len(got) != 2 || got[0] != (CloudSeries{"a", "°C", KindGauge}) || got[1] != (CloudSeries{"b", "kWh", KindCounter}) {
+		t.Fatalf("cloud series = %+v", got)
+	}
+	c.SetCloud("b", false, "")
+	if len(c.CloudSeries()) != 1 {
+		t.Error("unmarking kept the series")
+	}
+
+	def := c.metrics["a"]
+	for _, s := range []Sample{{120, 1}, {130, 3}, {150, 2}, {185, 10}, {240, 7}} {
+		def.ring.Push(s)
+	}
+	b := c.Buckets("a", 0, 240)
+	if len(b) != 2 || b[0] != [5]float64{120, 2, 1, 3, 3} || b[1] != [5]float64{180, 10, 10, 10, 1} {
+		t.Errorf("buckets = %v", b)
+	}
+	if b := c.Buckets("a", 180, 300); len(b) != 2 || b[0][0] != 180 || b[1][0] != 240 {
+		t.Errorf("buckets since 180 = %v", b)
+	}
+}

@@ -39,3 +39,11 @@
   `__go_time_ms`, which tests replace. `cmd` and `notify_action` are at most once per id through
   `replays` (`replay.go`): a repeat waits for the first answer. Tests: `objects_test.go`,
   `pkg/lua/cloud_command_test.go`, `pkg/lua/expose_remote_contract_test.go`.
+- Statistics (`metrics.go`): `metric(path, fn, {cloud=true, kind=...})` marks a series in
+  `metrics.Collector` (`SetCloud`); `Options.Metrics` is the collector. Only when welcome enables
+  `metrics` (the home's flag in the cloud) a goroutine per connection sends complete one-minute
+  `Buckets` every `MetricsEvery`, from the cursor in `cloud-metrics.json` (per home id), so the
+  backlog follows an outage. The cursor moves only on the matching `metrics_ack`; a series over
+  the limit stays put and is skipped for the connection; `rate_limited`/`busy` wait
+  `retry_after_s`, `off` stops. Nothing is sent before the clock looks set. The cloud page shows
+  `Client.Metrics()`. Tests: `metrics_test.go`, `pkg/metrics/collector_test.go`.

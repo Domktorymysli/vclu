@@ -155,6 +155,11 @@
                                                 <th class="text-center">
                                                     <i class="bi bi-apple"></i> HomeKit
                                                 </th>
+                                                <th class="text-center" id="cloudHeader" title="{{index .t "access.cloud_hint"}}"
+                                                    data-everyone="{{index .t "access.cloud_everyone"}}" data-confirm="{{index .t "access.cloud_confirm"}}"
+                                                    data-readonly="{{index .t "access.cloud_readonly"}}">
+                                                    <i class="bi bi-cloud"></i> {{index .t "access.cloud"}} <i class="bi bi-info-circle text-muted"></i>
+                                                </th>
                                                 <!-- Bot columns rendered dynamically by JS -->
                                             </tr>
                                         </thead>

@@ -107,10 +107,16 @@ type Options struct {
 	// in Lua): only those exposed with :remote() that the roles reach. Called on its own
 	// goroutine; nil does not offer states.
 	States func(paths, roles []string) []proto.State
+	// Metrics are the metrics Lua registers with cloud=true, sent as statistics when the cloud
+	// enables them for the home (metrics.go). nil offers none.
+	Metrics MetricsSource
 
 	HTTP            *http.Client
 	ObjectsDebounce time.Duration                   // default objectsDebounce
 	HealthEvery     time.Duration                   // default proto.HealthIntervalSeconds
+	PingEvery       time.Duration                   // round trips for the cloud page, default a minute
+	MetricsFirst    time.Duration                   // statistics after welcome, default metricsFirst
+	MetricsEvery    time.Duration                   // and then, default metricsEvery
 	Backoff         func(attempt int) time.Duration // default 1, 2, 4, 8, 16, then 30 s, with jitter
 }
 
@@ -142,6 +148,10 @@ type Client struct {
 	objSeq       int64         // Seq of the last snapshot, under mu
 
 	clock func() time.Time // for commands' deadlines and rate; tests replace it
+
+	link *linkLog // pings and outages for the cloud page
+
+	metricsSt MetricsStatus // under mu
 }
 
 // queued is a notification sent while the connection was down.
@@ -179,7 +189,17 @@ func New(opts Options) *Client {
 	if opts.ObjectsDebounce == 0 {
 		opts.ObjectsDebounce = objectsDebounce
 	}
+	if opts.PingEvery == 0 {
+		opts.PingEvery = time.Minute
+	}
+	if opts.MetricsFirst == 0 {
+		opts.MetricsFirst = metricsFirst
+	}
+	if opts.MetricsEvery == 0 {
+		opts.MetricsEvery = metricsEvery
+	}
 	return &Client{
+		link: newLinkLog(time.Now()),
 		opts: opts, bootID: randomID(),
 		actions: newReplays[proto.NotifyActionResult](replaysFor, replaysMax),
 		cmds:    newReplays[proto.CmdResult](replaysFor, replaysMax),
@@ -268,6 +288,7 @@ func (c *Client) applyEnabled() {
 			t.send(proto.Bye{Type: proto.TypeBye, Reason: proto.ByeDisabled})
 		}
 		c.stop()
+		c.link.up(time.Now()) // switched off on purpose: not an outage
 		log.Printf("[Cloud] switched off")
 		c.setStatus(func(s *Status) { s.State, s.Since, s.Error = StateDisabled, time.Now(), "" })
 	case !cfg.Disabled && off:
@@ -518,6 +539,7 @@ func (c *Client) run(ctx context.Context) {
 		case errors.Is(err, errReplaced), errors.Is(err, errUnsupported):
 			log.Printf("[Cloud] stopped: %v", err)
 			c.setStatus(func(s *Status) { s.State, s.Since, s.Error = StateStopped, time.Now(), err.Error() })
+			c.link.down(time.Now(), err.Error())
 			return
 		}
 		if time.Since(began) >= time.Minute {
@@ -535,6 +557,7 @@ func (c *Client) run(ctx context.Context) {
 			}
 			s.State, s.Error = StateOffline, err.Error()
 		})
+		c.link.down(time.Now(), err.Error())
 		log.Printf("[Cloud] %v; retrying in %s", err, delay.Round(100*time.Millisecond))
 		if !sleep(ctx, delay) {
 			return
@@ -551,6 +574,8 @@ type tunnel struct {
 	notify  bool // the cloud enabled notify in welcome
 	dashes  bool // ... and dashboards
 	objects bool // ... and objects (snapshot)
+
+	metricsAck chan proto.MetricsAck // answers to metrics, for sendMetrics
 
 	cmdRate    cmdLimiter   // used by the read loop only
 	cmdRunning atomic.Int32 // commands running now
@@ -601,7 +626,7 @@ func (c *Client) connect(ctx context.Context, cfg config.VCLUCloudConfig) error 
 	if err != nil {
 		return err
 	}
-	t := &tunnel{nc: nc, sess: sess, ctrl: ctrl}
+	t := &tunnel{nc: nc, sess: sess, ctrl: ctrl, metricsAck: make(chan proto.MetricsAck, 1)}
 	r := proto.NewReader(ctrl)
 
 	if err := t.send(proto.Hello{
@@ -652,6 +677,7 @@ func (c *Client) connect(ctx context.Context, cfg config.VCLUCloudConfig) error 
 		c.tun = nil
 		c.mu.Unlock()
 	}()
+	c.link.up(time.Now())
 	log.Printf("[Cloud] connected (home %q)", w.HomeName)
 	for _, q := range pending {
 		if time.Since(q.at) > queueFor {
@@ -672,8 +698,12 @@ func (c *Client) connect(ctx context.Context, cfg config.VCLUCloudConfig) error 
 	done := make(chan struct{})
 	defer close(done)
 	go c.sendHealth(t, done)
+	go c.pingLoop(t, done)
 	if t.objects {
 		go c.sendObjects(t, done)
+	}
+	if c.opts.Metrics != nil && slices.Contains(w.Enable, proto.CapMetrics) && w.Metrics != nil {
+		go c.sendMetrics(t, w.HomeID, *w.Metrics, done)
 	}
 
 	var after time.Duration
@@ -735,6 +765,14 @@ func (c *Client) connect(ctx context.Context, cfg config.VCLUCloudConfig) error 
 			} else {
 				c.states(t, r)
 			}
+		case proto.TypeMetricsAck:
+			var a proto.MetricsAck
+			if m.Decode(&a) == nil {
+				select {
+				case t.metricsAck <- a:
+				default: // nobody waits for it: a late answer
+				}
+			}
 		case proto.TypeError:
 			var e proto.Error
 			if m.Decode(&e) == nil && e.ID != "" {
@@ -765,6 +803,9 @@ func (c *Client) caps() []string {
 	}
 	if c.opts.Command != nil {
 		caps = append(caps, proto.CapCmd)
+	}
+	if c.opts.Metrics != nil {
+		caps = append(caps, proto.CapMetrics)
 	}
 	if c.opts.States != nil {
 		caps = append(caps, proto.CapStates)
@@ -943,6 +984,7 @@ func (c *Client) forget(reason string) error {
 	c.setStatus(func(s *Status) {
 		*s = Status{State: StateOff, URL: s.URL, Since: time.Now(), Error: reason}
 	})
+	c.link.up(time.Now())
 	return nil
 }
 
@@ -1016,3 +1058,26 @@ func randomID() string {
 	crand.Read(b)
 	return hex.EncodeToString(b)
 }
+
+// pingLoop times a round trip through the tunnel each PingEvery, for the cloud page.
+func (c *Client) pingLoop(t *tunnel, done <-chan struct{}) {
+	tick := time.NewTicker(c.opts.PingEvery)
+	defer tick.Stop()
+	for {
+		rtt, err := t.sess.Ping()
+		select {
+		case <-done:
+			return // the connection ended: its outage says so, not a failed ping
+		default:
+		}
+		c.link.ping(time.Now(), rtt, err == nil)
+		select {
+		case <-done:
+			return
+		case <-tick.C:
+		}
+	}
+}
+
+// Link reports the pings and outages of the last day, for the cloud page.
+func (c *Client) Link() LinkReport { return c.link.report(time.Now()) }

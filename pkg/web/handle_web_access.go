@@ -102,6 +102,24 @@ func (s *Server) handleAPIAccessList(c *gin.Context) {
 		bots = masterConfig.MCP.Bots
 	}
 
+	// What Lua shares with vclu cloud (:remote()), shown read-only: Lua decides, not this page
+	type cloudShare struct {
+		Access string   `json:"access"`
+		Roles  []string `json:"roles,omitempty"`
+	}
+	remote := map[string]cloudShare{}
+	if out, err := s.luaExecutor.Execute("JSON.encode(ExposedObjects:remoteList())"); err == nil {
+		var list []struct {
+			Path string `json:"path"`
+			cloudShare
+		}
+		if json.Unmarshal([]byte(out), &list) == nil {
+			for _, o := range list {
+				remote[o.Path] = o.cloudShare
+			}
+		}
+	}
+
 	// Build response with access levels from manager
 	var response []map[string]interface{}
 	for _, obj := range objects {
@@ -142,6 +160,9 @@ func (s *Server) handleAPIAccessList(c *gin.Context) {
 		}
 		if len(botAccessMap) > 0 {
 			entry["botAccess"] = botAccessMap
+		}
+		if share, ok := remote[obj.Path]; ok {
+			entry["cloud"] = share
 		}
 
 		response = append(response, entry)

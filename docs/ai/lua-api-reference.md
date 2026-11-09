@@ -1008,7 +1008,7 @@ Register a metric for periodic collection.
 
 - `path` (Unique) — metric identifier (e.g., "salda:outsideAir")
 - `getter` (Function) — that returns the current value
-- `opts` (Optional) — table: {unit="°C", interval=60, decimals=1}
+- `opts` (Optional) — table: {unit="°C", interval=60, decimals=1, cloud=true (also kept in the cloud, as one-minute buckets, when its plan allows), kind="gauge"|"counter" (counter: a reading that only grows, such as energy)}
 
 **Returns:** path
 

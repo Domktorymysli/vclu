@@ -33,8 +33,37 @@ CloudManager.prototype.init = function() {
             self.call('/api/cloud/unpair', this);
         }
     });
+    this.initTabs();
+    this.localTimes();
     this.render();
     this.schedule();
+};
+
+// localTimes writes the server's UTC times in the viewer's time zone and language.
+CloudManager.prototype.localTimes = function() {
+    var lang = document.documentElement.lang || undefined;
+    document.querySelectorAll('time[data-local]').forEach(function(el) {
+        var d = new Date(el.getAttribute('datetime'));
+        if (isNaN(d)) return;
+        el.textContent = el.hasAttribute('data-time-only')
+            ? d.toLocaleTimeString(lang, { hour: '2-digit', minute: '2-digit' })
+            : d.toLocaleString(lang, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+        el.title = d.toLocaleString(lang);
+    });
+};
+
+// initTabs opens the tab named in the address (#shared, #members) and keeps it there,
+// so a reload or a link lands on the same tab.
+CloudManager.prototype.initTabs = function() {
+    var tab = document.getElementById('tab-' + location.hash.slice(1));
+    if (tab && window.bootstrap) {
+        bootstrap.Tab.getOrCreateInstance(tab).show();
+    }
+    document.querySelectorAll('[data-bs-toggle="tab"]').forEach(function(btn) {
+        btn.addEventListener('shown.bs.tab', function() {
+            history.replaceState(null, '', '#' + btn.id.slice(4));
+        });
+    });
 };
 
 // call POSTs to the API; answers carry the new status (directly or in .status).
@@ -111,6 +140,14 @@ CloudManager.prototype.render = function() {
     var paired = st.state !== 'off' && st.state !== 'pairing';
     el.cloudPaired.classList.toggle('d-none', !paired);
     el.cloudDanger.classList.toggle('d-none', !paired);
+    // the settings tab holds only what a paired vCLU has; after unpairing it closes
+    var settings = document.getElementById('tab-settings');
+    if (settings) {
+        if (!paired && settings.classList.contains('active') && window.bootstrap) {
+            bootstrap.Tab.getOrCreateInstance(document.getElementById('tab-connection')).show();
+        }
+        settings.classList.toggle('d-none', !paired);
+    }
     el.cloudEnabled.checked = st.state !== 'disabled';
 
     if (st.error && el.cloudAlert.classList.contains('d-none')) {

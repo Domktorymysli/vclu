@@ -364,6 +364,7 @@ func main() {
 		Objects:      cloudObjects(luaEngine),
 		Command:      cloudCommand(luaEngine),
 		States:       cloudStates(luaEngine),
+		Metrics:      metricsCollector,
 	})
 	luaEngine.SetCloud(cloudBridge(cloudClient))
 

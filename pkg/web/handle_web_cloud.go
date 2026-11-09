@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/Domktorymysli/vclu-cloud/proto"
 	"html/template"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/Domktorymysli/vclu/pkg/cloud"
 	"github.com/Domktorymysli/vclu/pkg/config"
+	"github.com/Domktorymysli/vclu/pkg/history"
 	"github.com/Domktorymysli/vclu/pkg/i18n"
 )
 
@@ -38,18 +41,39 @@ func (s *Server) handleCloud(c *gin.Context) {
 	if s.local != nil && st.HomeID != 0 {
 		members = s.local.Members()
 	}
-	manage := ""
-	if st.HomeID != 0 && st.URL != "" {
-		manage = strings.TrimSuffix(st.URL, "/") + "/app/homes/" + strconv.FormatInt(st.HomeID, 10) + "/members"
+	phones := 0 // app installations with a LAN token, for the status card
+	for _, m := range members {
+		phones += len(m.Apps)
 	}
-	var remote string
+	homeURL, manage := "", ""
+	if st.HomeID != 0 && st.URL != "" {
+		homeURL = strings.TrimSuffix(st.URL, "/") + "/app/homes/" + strconv.FormatInt(st.HomeID, 10)
+		manage = homeURL + "/members"
+	}
+	var remote, devs string
 	if s.luaExecutor != nil {
 		remote, _ = s.luaExecutor.Execute("Dashboard.API.remoteList()")
+		devs, _ = s.luaExecutor.Execute("JSON.encode(ExposedObjects:remoteList())")
+	}
+	shared, devices := sharedDashboards(remote, members), sharedDevices(devs, members)
+	var link *cloudLinkView
+	var mst *cloud.MetricsStatus
+	if s.cloudClient != nil && st.HomeID != 0 {
+		link = newCloudLinkView(s.cloudClient.Link(), time.Now())
+		m := s.cloudClient.Metrics()
+		mst = &m
 	}
 	s.renderHTML(c, http.StatusOK, "cloud.html", gin.H{
-		"cloudShared":  sharedDashboards(remote, members),
+		"cloudShared":  shared,
+		"cloudDevices": devices,
+		"cloudRoles":   homeRoles(members, shared, devices),
+		"cloudActs":    s.cloudActivity(c, devices),
+		"cloudLink":    link,
+		"cloudMetrics": mst,
 		"cloudMembers": members,
 		"cloudManage":  manage,
+		"cloudHomeURL": homeURL,
+		"cloudPhones":  phones,
 		"title":        "Cloud",
 		"currentPage":  "cloud",
 		"configured":   s.isConfigured,
@@ -176,26 +200,290 @@ func sharedDashboards(remoteJSON string, members []proto.Member) []sharedDashboa
 	if remoteJSON == "" || json.Unmarshal([]byte(remoteJSON), &list) != nil {
 		return nil
 	}
-	held := map[string]bool{}
-	for _, m := range members {
-		for _, r := range m.Roles {
-			held[r] = true
-		}
-	}
 	out := make([]sharedDashboard, 0, len(list))
 	for _, d := range list {
 		sd := sharedDashboard{ID: d.ID, Name: d.Name, Icon: d.Icon, Roles: d.Roles, Pin: d.Pin}
 		if sd.Name == "" {
 			sd.Name = d.ID
 		}
-		if members != nil {
-			for _, r := range d.Roles {
-				if !held[r] {
-					sd.Nobody = append(sd.Nobody, r)
-				}
-			}
-		}
+		sd.Nobody = rolesNobodyHas(d.Roles, members)
 		out = append(out, sd)
 	}
 	return out
+}
+
+// sharedDevice is a device Lua exposes with :remote(), as the cloud page lists it: who
+// commands it and how (proto.Object.Access: full, confirm, pin or readonly).
+type sharedDevice struct {
+	Path, Name, Area, Type, Access string
+	Roles                          []string // empty: every member
+	Nobody                         []string // roles that no member has
+}
+
+// sharedDevices reads ExposedObjects:remoteList()'s JSON, the list the cloud's snapshot gets,
+// sorted by area and name.
+func sharedDevices(listJSON string, members []proto.Member) []sharedDevice {
+	var list []proto.Object
+	if listJSON == "" || json.Unmarshal([]byte(listJSON), &list) != nil {
+		return nil
+	}
+	out := make([]sharedDevice, 0, len(list))
+	for _, o := range list {
+		name := o.Name
+		if name == "" {
+			name = o.Path
+		}
+		out = append(out, sharedDevice{Path: o.Path, Name: name, Area: o.Area, Type: o.Type, Access: string(o.Access),
+			Roles: o.Roles, Nobody: rolesNobodyHas(o.Roles, members)})
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Area != out[j].Area {
+			return out[i].Area < out[j].Area
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out
+}
+
+// rolesNobodyHas lists the roles no member holds (most likely a typo in Lua); nothing before the
+// cloud sent its first list of members.
+func rolesNobodyHas(roles []string, members []proto.Member) []string {
+	if members == nil {
+		return nil
+	}
+	held := map[string]bool{}
+	for _, m := range members {
+		for _, r := range m.Roles {
+			held[r] = true
+		}
+	}
+	var out []string
+	for _, r := range roles {
+		if !held[r] {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// homeRole is one of the home's own roles as the cloud page explains it: who has it and what
+// Lua opens with it.
+type homeRole struct {
+	Name       string
+	People     []string // members with the role, by name
+	Dashboards []string // shared dashboards limited to it
+	Devices    int      // shared devices limited to it
+}
+
+// homeRoles lists the roles the members have and the roles Lua names, sorted by name; a role
+// Lua names that nobody has comes with no People.
+func homeRoles(members []proto.Member, shared []sharedDashboard, devices []sharedDevice) []homeRole {
+	byName := map[string]*homeRole{}
+	get := func(name string) *homeRole {
+		if r, ok := byName[name]; ok {
+			return r
+		}
+		r := &homeRole{Name: name}
+		byName[name] = r
+		return r
+	}
+	for _, m := range members {
+		who := m.Name
+		if who == "" {
+			who = m.User
+		}
+		for _, r := range m.Roles {
+			get(r).People = append(get(r).People, who)
+		}
+	}
+	for _, d := range shared {
+		for _, r := range d.Roles {
+			get(r).Dashboards = append(get(r).Dashboards, d.Name)
+		}
+	}
+	for _, d := range devices {
+		for _, r := range d.Roles {
+			get(r).Devices++
+		}
+	}
+	out := make([]homeRole, 0, len(byName))
+	for _, r := range byName {
+		out = append(out, *r)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// cloudActivityLimit is how many of the latest changes through the cloud the page lists.
+const cloudActivityLimit = 30
+
+// cloudAct is one change made through vclu cloud (origin "remote": the app, voice, a
+// notification's button or a dashboard opened through the cloud) as the page lists it.
+type cloudAct struct {
+	At       time.Time
+	Who      string
+	What     string // the device's name and area, or its path
+	Old, New string
+}
+
+// cloudActivity reads the latest changes with origin "remote" from the history.
+func (s *Server) cloudActivity(c *gin.Context, devices []sharedDevice) []cloudAct {
+	if s.historyStore == nil {
+		return nil
+	}
+	res, err := s.historyStore.Search(history.SearchQuery{Origin: "remote", Limit: cloudActivityLimit, Ctx: c.Request.Context()})
+	if err != nil {
+		return nil
+	}
+	names := map[string]string{}
+	for _, d := range devices {
+		names[d.Path] = d.Name
+		if d.Area != "" {
+			names[d.Path] = d.Area + " → " + d.Name
+		}
+	}
+	people := s.actorNames(res.Entries)
+	out := make([]cloudAct, 0, len(res.Entries))
+	for _, e := range res.Entries {
+		a := cloudAct{At: time.UnixMilli(e.AtMs), Who: e.Actor, What: e.Path, Old: actValue(e.Old), New: actValue(e.Value)}
+		if n := people[e.Actor]; n != "" {
+			a.Who = n
+		}
+		if n := names[e.Path]; n != "" {
+			a.What = n
+		}
+		out = append(out, a)
+	}
+	return out
+}
+
+func actValue(v any) string {
+	switch v := v.(type) {
+	case nil:
+		return "—"
+	case string:
+		return v
+	case bool, float64, int, int64:
+		return fmt.Sprint(v)
+	}
+	b, _ := json.Marshal(v)
+	return string(b)
+}
+
+// cloudLinkView is the connection card: the day's pings as an SVG line, how long the cloud was
+// reachable, and the outages.
+type cloudLinkView struct {
+	Chart        template.HTML
+	Availability string // "99.8" or "" with nothing to tell
+	Last, Avg    string // ms of the last and the average ping, "" without one
+	Max          string
+	Outages      []linkOutage
+	Since        time.Time
+}
+
+const linkChartW, linkChartH = 1440.0, 60.0
+
+// linkGap breaks the line where pings are missing; they come once a minute.
+const linkGap = 3 * time.Minute
+
+func newCloudLinkView(r cloud.LinkReport, now time.Time) *cloudLinkView {
+	v := &cloudLinkView{Since: r.Since}
+	for _, o := range r.Outages {
+		v.Outages = append(v.Outages, newLinkOutage(o, now))
+	}
+	if r.Availability >= 0 {
+		v.Availability = strconv.FormatFloat(r.Availability*100, 'f', 1, 64)
+	}
+	span := now.Sub(r.Since).Seconds()
+	if span <= 0 {
+		span = 1
+	}
+	x := func(t time.Time) float64 { return t.Sub(r.Since).Seconds() / span * linkChartW }
+	var top, sum float64
+	var ok []cloud.LinkSample
+	for _, p := range r.Samples {
+		if p.OK {
+			ok = append(ok, p)
+			sum += p.RTT
+			top = max(top, p.RTT)
+		}
+	}
+	if len(ok) > 0 {
+		ms := func(f float64) string { return strconv.FormatFloat(f, 'f', 0, 64) }
+		v.Last, v.Avg, v.Max = ms(ok[len(ok)-1].RTT), ms(sum/float64(len(ok))), ms(top)
+	}
+	scale := max(top*1.5, 50) // the highest ping two thirds up; at least 50 ms, so a quiet line stays low
+	var b strings.Builder
+	fmt.Fprintf(&b, `<svg class="cloud-link-chart" viewBox="0 0 %.0f %.0f" preserveAspectRatio="none" role="img">`, linkChartW, linkChartH)
+	for _, o := range r.Outages {
+		to := o.To
+		if to.IsZero() {
+			to = now
+		}
+		from := o.From
+		if from.Before(r.Since) {
+			from = r.Since
+		}
+		fmt.Fprintf(&b, `<rect class="down" x="%.1f" y="0" width="%.1f" height="%.0f"/>`, x(from), max(x(to)-x(from), 2), linkChartH)
+	}
+	var pts []string
+	flush := func() {
+		if len(pts) > 0 {
+			fmt.Fprintf(&b, `<polyline class="rtt" points="%s"/>`, strings.Join(pts, " "))
+			pts = nil
+		}
+	}
+	var prev time.Time
+	for _, p := range r.Samples {
+		if p.At.Sub(prev) > linkGap {
+			flush() // no pings in between (vCLU or the connection was down): no line across
+		}
+		prev = p.At
+		if !p.OK {
+			flush()
+			fmt.Fprintf(&b, `<line class="fail" x1="%.1f" x2="%.1f" y1="0" y2="%.0f"/>`, x(p.At), x(p.At), linkChartH)
+			continue
+		}
+		pts = append(pts, fmt.Sprintf("%.1f,%.1f", x(p.At), linkChartH-p.RTT/scale*linkChartH))
+	}
+	flush()
+	b.WriteString(`</svg>`)
+	v.Chart = template.HTML(b.String()) // numbers only, built here
+	return v
+}
+
+// linkOutage is an outage as the page lists it: the reason as a known kind (Kind, translated)
+// or as vCLU logged it (Raw).
+type linkOutage struct {
+	From, To   time.Time
+	For        string // "12 min", "3 h 5 min"
+	Kind, Raw  string
+	StillGoing bool
+}
+
+func newLinkOutage(o cloud.Outage, now time.Time) linkOutage {
+	l := linkOutage{From: o.From, To: o.To, Raw: o.Reason, StillGoing: o.To.IsZero()}
+	to := o.To
+	if l.StillGoing {
+		to = now
+	}
+	d := to.Sub(o.From).Round(time.Minute)
+	switch {
+	case d < time.Minute:
+		l.For = "<1 min"
+	case d < time.Hour:
+		l.For = fmt.Sprintf("%d min", int(d.Minutes()))
+	default:
+		l.For = fmt.Sprintf("%d h %d min", int(d.Hours()), int(d.Minutes())%60)
+	}
+	switch {
+	case strings.HasPrefix(o.Reason, "connection lost"):
+		l.Kind = "lost"
+	case strings.HasPrefix(o.Reason, "cloud closed the connection"):
+		l.Kind = "closed"
+	case strings.Contains(o.Reason, "no such host"), strings.Contains(o.Reason, "network is unreachable"),
+		strings.Contains(o.Reason, "i/o timeout"), strings.Contains(o.Reason, "connection refused"):
+		l.Kind = "network"
+	}
+	return l
 }
