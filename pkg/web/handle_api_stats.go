@@ -10,13 +10,17 @@ import (
 
 // handleStatsPage renders the statistics page
 func (s *Server) handleStatsPage(c *gin.Context) {
-	s.renderHTML(c, http.StatusOK, "stats.html", gin.H{
+	data := gin.H{
 		"currentPage":     "stats",
 		"configured":      s.isConfigured,
 		"supportsModules": s.supportsModules,
 		"t":               s.getTranslations(c)["t"],
 		"lang":            s.getLang(c),
-	})
+	}
+	if s.storage != nil {
+		data["storage"] = newStorageView(s.storage.Snapshot(), s.getLang(c))
+	}
+	s.renderHTML(c, http.StatusOK, "stats.html", data)
 }
 
 // handleAPIStats returns current metrics snapshot
@@ -123,5 +127,5 @@ func (s *Server) handleMetrics(c *gin.Context) {
 	}
 
 	c.Header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-	c.String(http.StatusOK, s.metrics.PrometheusFormat())
+	c.String(http.StatusOK, s.metrics.PrometheusFormat()+s.storagePrometheus())
 }

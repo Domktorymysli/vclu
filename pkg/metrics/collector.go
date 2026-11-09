@@ -21,6 +21,7 @@ type MetricDef struct {
 	ring     *stats.RingBuffer[Sample]
 	lastPoll time.Time
 	writeBuf []Sample // pending samples for disk flush
+	pushed   bool     // ingested by Go, never asked from Lua
 }
 
 // MetricInfo is returned by List() for API consumers.
@@ -165,6 +166,16 @@ func (c *Collector) Register(path, unit string, interval int) {
 	}
 }
 
+// RegisterGo registers a metric whose samples Go ingests itself: DueMetrics leaves it out.
+func (c *Collector) RegisterGo(path, unit string, interval int) {
+	c.Register(path, unit, interval)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if def, ok := c.metrics[path]; ok {
+		def.pushed = true
+	}
+}
+
 // DueMetrics returns the paths of metrics that are due for polling.
 func (c *Collector) DueMetrics() []string {
 	now := time.Now()
@@ -173,7 +184,7 @@ func (c *Collector) DueMetrics() []string {
 
 	var due []string
 	for path, def := range c.metrics {
-		if now.Sub(def.lastPoll) >= time.Duration(def.Interval)*time.Second {
+		if !def.pushed && now.Sub(def.lastPoll) >= time.Duration(def.Interval)*time.Second {
 			due = append(due, path)
 		}
 	}

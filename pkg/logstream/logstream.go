@@ -36,6 +36,8 @@ type LogStream struct {
 
 	sources   map[string]struct{}
 	sourcesMu sync.RWMutex
+
+	written *countingWriter // wraps original: counts only what reaches it
 }
 
 // Levels for SetLevel; the ring buffer keeps every line.
@@ -101,13 +103,15 @@ var timestampRegex = regexp.MustCompile(`^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}\s*
 
 // NewLogStream creates a new log stream
 func NewLogStream(original io.Writer, bufferSize int) *LogStream {
+	written := &countingWriter{w: original, now: time.Now}
 	ls := &LogStream{
 		buffer:    make([]LogEntry, bufferSize),
 		bufferMax: bufferSize,
 		bufferIdx: 0,
 		count:     0,
 		nextID:    1,
-		original:  original,
+		original:  written,
+		written:   written,
 		clients:   make(map[chan LogEntry]struct{}),
 		sources:   make(map[string]struct{}),
 	}

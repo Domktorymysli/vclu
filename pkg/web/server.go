@@ -31,6 +31,7 @@ import (
 	"github.com/Domktorymysli/vclu/pkg/metrics"
 	"github.com/Domktorymysli/vclu/pkg/server"
 	"github.com/Domktorymysli/vclu/pkg/stats"
+	"github.com/Domktorymysli/vclu/pkg/storage"
 	"github.com/Domktorymysli/vclu/pkg/updatecheck"
 	"github.com/gin-gonic/gin"
 )
@@ -189,6 +190,7 @@ type Server struct {
 	backupState      backupSchedulerState
 	version          string
 	updateChecker    *updatecheck.Checker // nil: GET /api/update says enabled false
+	storage          *storage.Monitor     // nil: GET /api/storage answers 503
 }
 
 // NewServer creates a new web server
@@ -1009,6 +1011,7 @@ func (s *Server) setupRoutes() {
 
 		// New-version check (top bar badge, Settings)
 		api.GET("/update", s.handleAPIUpdate)
+		api.GET("/storage", s.handleAPIStorage)
 		api.PUT("/update/settings", s.handleAPIUpdateSettings)
 
 		// OM Files endpoints
