@@ -152,7 +152,7 @@ func (s *Server) barsSeries(spec barsSpec, now time.Time) (*barsResult, error) {
 		}
 		loc = l
 	}
-	edges, err := metrics.BucketEdges(now, loc, spec.Buckets, spec.Bucket == "1d")
+	edges, err := metrics.BucketEdges(now, loc, spec.Buckets, spec.Bucket)
 	if err != nil {
 		return nil, err
 	}
@@ -160,13 +160,15 @@ func (s *Server) barsSeries(spec barsSpec, now time.Time) (*barsResult, error) {
 	since := edges[0].Add(-2 * edges[1].Sub(edges[0])).Unix()
 	kept := s.metricsCollector.Retention(now)
 	samples := func(path string) []metrics.Sample {
-		old, upTo, ok := s.cloudSamples(context.Background(), path, time.Unix(since, 0), now, 3600, barsValue(spec.Agg))
+		// hours, or as many as keep a year within the cloud's 2000 points
+		step := int(max(1, (now.Unix()-since+3600*2000-1)/(3600*2000))) * 3600
+		old, upTo, ok := s.cloudSamples(context.Background(), path, time.Unix(since, 0), now, step, barsValue(spec.Agg))
 		if !ok {
 			return s.metricsCollector.Query(path, since)
 		}
 		if spec.Agg == "delta" {
 			for i := range old {
-				old[i].Timestamp += 3600 - 60 // the reading at the hour's end
+				old[i].Timestamp += int64(step) - 60 // the reading at the step's end
 			}
 		}
 		if t := time.Unix(old[0].Timestamp, 0); t.Before(kept) {

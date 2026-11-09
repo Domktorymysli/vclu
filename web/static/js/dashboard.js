@@ -90,7 +90,31 @@
     };
     function chartRefreshMs(w) {
         if (w.refresh) return w.refresh * 1000;
-        return defaultRefreshByRange[w.range || '2h'] || 60000;
+        var r = chartRange(w);
+        return defaultRefreshByRange[r] || (rangeSecs(r) >= 30 * 86400 ? 900000 : 60000);
+    }
+
+    // The range a chart draws: the viewer's pick of w.ranges (kept per device), else w.range
+    function chartRange(w) { return w._range || w.range || '2h'; }
+
+    // "7d", "24h", "1h30m" -> seconds, as Dashboard.lua reads them
+    function rangeSecs(r) {
+        var d = /^(\d+)d$/.exec(r || '');
+        if (d) return Number(d[1]) * 86400;
+        var t = 0, re = /(\d+)([hms])/g, m;
+        while ((m = re.exec(r || ''))) t += Number(m[1]) * ({ h: 3600, m: 60, s: 1 })[m[2]];
+        return t || 7200;
+    }
+
+    // "rok" for 365d, "kwartał" for 90d...; other ranges as written
+    function rangeName(r) {
+        var d = rangeSecs(r) / 86400;
+        if (d === 1) return T.rangeDay;
+        if (d === 7) return T.rangeWeek;
+        if (d >= 28 && d <= 31) return T.rangeMonth;
+        if (d >= 89 && d <= 92) return T.rangeQuarter;
+        if (d >= 365 && d <= 366) return T.rangeYear;
+        return r;
     }
 
     // Color mapping for named colors
@@ -2987,28 +3011,62 @@
         el.appendChild(wrap);
         setState(el, 'unknown', T.unknown);
 
-        fetchChartData(w, canvas);
-        startChartTimer(w.id, function() {
+        var refresh = function() {
             var c = document.getElementById('chart-' + w.id);
             if (c) fetchChartData(w, c);
-        }, chartRefreshMs(w));
+        };
+        if (w.ranges && w.ranges.length > 1) {
+            var key = 'vclu.range.' + dashId + '.' + w.id;
+            try {
+                var saved = localStorage.getItem(key);
+                if (saved && w.ranges.indexOf(saved) >= 0) w._range = saved;
+            } catch (e) { /* the default range */ }
+            var bar = calEl('div', 'dash-chart-ranges');
+            bar.setAttribute('role', 'group');
+            w.ranges.forEach(function(r) {
+                var b = bar.appendChild(calEl('button', 'dash-chart-range', rangeName(r)));
+                b.type = 'button';
+                b.dataset.range = r;
+                b.setAttribute('aria-pressed', String(r === chartRange(w)));
+                b.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    if (r === chartRange(w)) return;
+                    w._range = r;
+                    try { localStorage.setItem(key, r); } catch (e2) { /* per page only */ }
+                    bar.querySelectorAll('.dash-chart-range').forEach(function(x) {
+                        x.setAttribute('aria-pressed', String(x.dataset.range === r));
+                    });
+                    refresh();
+                    startChartTimer(w.id, refresh, chartRefreshMs(w));
+                });
+            });
+            el.insertBefore(bar, wrap);
+        }
+
+        fetchChartData(w, canvas);
+        startChartTimer(w.id, refresh, chartRefreshMs(w));
+    }
+
+    // An x label: the time within a day or two, then the day, then the month
+    function chartLabel(ts, secs) {
+        var dt = new Date(ts * 1000);
+        if (secs <= 36 * 3600) return dt.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
+        if (secs <= 8 * 86400) return dt.toLocaleDateString(locale, { weekday: 'short', day: 'numeric' });
+        if (secs <= 100 * 86400) return dt.toLocaleDateString(locale, { day: 'numeric', month: 'numeric' });
+        return dt.toLocaleDateString(locale, { month: 'short', year: '2-digit' });
     }
 
     function fetchChartData(w, canvas) {
-        var range = w.range || '2h';
+        var range = chartRange(w);
         fetch('/api/dashboard/' + dashId + '/metrics?path=' + encodeURIComponent(w.metricPath) + '&range=' + range)
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 // Downsample long ranges
                 data = downsample(data, 300);
 
-                var labels = data.map(function(d) {
-                    var dt = new Date(d[0] * 1000);
-                    if (range === '7d') {
-                        return dt.toLocaleDateString(locale, {weekday:'short', day:'numeric'});
-                    }
-                    return dt.toLocaleTimeString(locale, {hour:'2-digit', minute:'2-digit'});
-                });
+                if (range !== chartRange(w)) return; // the viewer switched while this loaded
+                var secs = rangeSecs(range);
+                var labels = data.map(function(d) { return chartLabel(d[0], secs); });
                 var rawValues = data.map(function(d) { return d[1]; });
                 var tile = canvas.closest('.dash-widget');
                 if (tile && rawValues.length) {
@@ -3154,7 +3212,7 @@
 
     function barsRefreshMs(w) {
         if (w.refresh) return w.refresh * 1000;
-        return w.bucket === '1h' ? 60000 : 300000;
+        return w.bucket === '1h' ? 60000 : w.bucket === '1d' ? 300000 : 900000;
     }
 
     // 1, 2 or 5 times a power of ten, so the grid lines fall on round numbers
@@ -3171,10 +3229,19 @@
         return maxAbs >= 1 ? 1 : 2;
     }
 
-    // "cz 30.10" for a day, "14:00–15:00" for an hour (with the day beyond one day of hours)
+    // a bucket's month by name: "lis" or "listopad 2026"
+    function barsMonth(b, long) {
+        var dt = new Date(Number(b.date.slice(0, 4)), Number(b.date.slice(5, 7)) - 1, 15);
+        return dt.toLocaleDateString(locale, long ? { month: 'long', year: 'numeric' } : { month: 'short' });
+    }
+
+    // "cz 30.10" for a day, "14:00–15:00" for an hour (with the day beyond one day of hours),
+    // "od 3.11" for a week, "listopad 2026" for a month
     function barsWhen(w, b, n) {
         var dm = Number(b.date.slice(8)) + '.' + b.date.slice(5, 7);
         if (w.bucket === '1d') return T.weekdays[b.wd] + ' ' + dm;
+        if (w.bucket === '1w') return T.weekFrom.replace('{d}', dm);
+        if (w.bucket === '1mo') return barsMonth(b, true);
         // the bucket's own end: 01:00–03:00 on a spring-forward night
         var h = pad2(b.h) + ':00–' + pad2(b.eh != null ? b.eh : (b.h + 1) % 24) + ':00';
         return n > 24 ? T.weekdays[b.wd] + ' ' + dm + ', ' + h : h;
@@ -3311,7 +3378,10 @@
             st.groups.push(g);
             if ((n - 1 - i) % every === 0) {
                 var lx = svgEl('text', { x: x0 + slot / 2, y: H - 4, 'text-anchor': 'middle' }, 'dash-bars-axis');
-                lx.textContent = w.bucket === '1h' ? pad2(b.h) : n > 10 ? String(Number(b.date.slice(8))) : T.weekdays[b.wd];
+                lx.textContent = w.bucket === '1h' ? pad2(b.h)
+                    : w.bucket === '1mo' ? barsMonth(b, false)
+                    : w.bucket === '1w' ? Number(b.date.slice(8)) + '.' + b.date.slice(5, 7)
+                    : n > 10 ? String(Number(b.date.slice(8))) : T.weekdays[b.wd];
                 svg.appendChild(lx);
             }
         });
@@ -3324,7 +3394,8 @@
         // the state line: the newest bar so far
         var last = buckets[n - 1];
         if (last.v != null) {
-            setState(st.el, 'value', (w.bucket === '1d' ? T.today : T.thisHour) + ' ' + withUnit(last.v, w.unit, st.dec));
+            var now = { '1h': T.thisHour, '1d': T.today, '1w': T.thisWeek, '1mo': T.thisMonth }[w.bucket] || T.today;
+            setState(st.el, 'value', now + ' ' + withUnit(last.v, w.unit, st.dec));
         } else {
             setState(st.el, 'unknown', T.noData);
         }

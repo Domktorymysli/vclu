@@ -19,6 +19,8 @@ func TestDashboardBarsDefinition(t *testing.T) {
 			:bars('def', 'Temperatura', 'temp:salon')
 			:bars('doba', 'Moc', 'moc:dom', { range = '24h', agg = 'max' })
 			:bars('m', 'Miesiac', 'moc:dom', { range = '30d', bucket = '1d', agg = 'sum' })
+			:bars('kw', 'Kwartal', 'energia:licznik', { range = '90d', agg = 'delta' })
+			:bars('rok', 'Rok', 'energia:licznik', { range = '365d', agg = 'delta' })
 			:build()
 		local b = Dashboard.new('builder')
 		b:section('S', 'grid')
@@ -42,6 +44,9 @@ func TestDashboardBarsDefinition(t *testing.T) {
 	if d := def.widget("doba"); d["bucket"] != "1h" {
 		t.Errorf("a 24h range defaults to hours: %v", d)
 	}
+	if def.widget("kw")["bucket"] != "1w" || def.widget("rok")["bucket"] != "1mo" {
+		t.Errorf("a quarter defaults to weeks, a year to months: %v %v", def.widget("kw"), def.widget("rok"))
+	}
 
 	var spec struct {
 		Path, Compare, Bucket, Agg, Zone string
@@ -56,6 +61,8 @@ func TestDashboardBarsDefinition(t *testing.T) {
 		`Dashboard.API.barsSpec("bars", "doba")`: 24,
 		`Dashboard.API.barsSpec("bars", "m")`:    30,
 		`Dashboard.API.barsSpec("builder", "h")`: 36,
+		`Dashboard.API.barsSpec("bars", "kw")`:   13,
+		`Dashboard.API.barsSpec("bars", "rok")`:  12,
 	} {
 		spec.Buckets = 0
 		dashJSON(t, engine, call, &spec)
@@ -85,18 +92,19 @@ func TestDashboardBarsDefinition(t *testing.T) {
 
 func TestDashboardBarsRefused(t *testing.T) {
 	for call, msg := range map[string]string{
-		`:bars('a', 'L', nil)`:                        "expected a metric path",
-		`:bars('a', 'L', 'm', { agg = 'median' })`:    "agg must be one of",
-		`:bars('a', 'L', 'm', { bucket = '15m' })`:    `bucket must be "1h" or "1d"`,
-		`:bars('a', 'L', 'm', { range = '60d' })`:     "range must be a duration up to 31d",
-		`:bars('a', 'L', 'm', { range = 'week' })`:    "range must be a duration",
-		`:bars('a', 'L', 'm', { range = '0d' })`:      "range must be a duration",
-		`:bars('a', 'L', 'm', { range = '0h' })`:      "range must be a duration",
-		`:bars('a', 'L', 'm', { refresh = 5 })`:       "refresh must be a number of seconds, at least 30",
-		`:bars('a', 'L', 'm', { refresh = '60' })`:    "refresh must be a number of seconds, at least 30",
-		`:bars('a', 'L', 'm', { compare = 5 })`:       "compare expects a second metric path",
-		`:bars('a', 'L', 'm', { decimals = 9 })`:      "opts.decimals must be a whole number 0-6",
-		`:bars('a', 'L', 'm', { aggregate = 'sum' })`: `unknown option "aggregate"`,
+		`:bars('a', 'L', nil)`:                                   "expected a metric path",
+		`:bars('a', 'L', 'm', { agg = 'median' })`:               "agg must be one of",
+		`:bars('a', 'L', 'm', { bucket = '15m' })`:               `bucket must be "1h", "1d", "1w" or "1mo"`,
+		`:bars('a', 'L', 'm', { range = '400d' })`:               "range must be a duration up to 366d",
+		`:bars('a', 'L', 'm', { range = '60d', bucket = '1h' })`: "1440 bars, at most 744",
+		`:bars('a', 'L', 'm', { range = 'week' })`:               "range must be a duration",
+		`:bars('a', 'L', 'm', { range = '0d' })`:                 "range must be a duration",
+		`:bars('a', 'L', 'm', { range = '0h' })`:                 "range must be a duration",
+		`:bars('a', 'L', 'm', { refresh = 5 })`:                  "refresh must be a number of seconds, at least 30",
+		`:bars('a', 'L', 'm', { refresh = '60' })`:               "refresh must be a number of seconds, at least 30",
+		`:bars('a', 'L', 'm', { compare = 5 })`:                  "compare expects a second metric path",
+		`:bars('a', 'L', 'm', { decimals = 9 })`:                 "opts.decimals must be a whole number 0-6",
+		`:bars('a', 'L', 'm', { aggregate = 'sum' })`:            `unknown option "aggregate"`,
 	} {
 		engine := NewLuaEngine()
 		res := mustExec(t, engine, "_dashboards = {}\nlocal ok, err = pcall(function()\n  Dashboard.new('e'):section('S', 'grid')\n    "+call+"\nend) return tostring(err)")
@@ -111,5 +119,46 @@ func TestDashboardBarsRefused(t *testing.T) {
 	res := mustExec(t, engine, "_dashboards = {}\nlocal ok, err = pcall(function()\n  local b = Dashboard.new('e')\n  b:section('S', 'grid')\n  b:bars('a', 'L', 'm', { agg = 'x' })\nend) return tostring(err)")
 	if !strings.Contains(res, "<string>:5: ") {
 		t.Errorf("builder form: %s", res)
+	}
+}
+
+// A chart with ranges sends them to the page, starts on the first (or range), and lets the
+// server serve each of them.
+func TestDashboardChartRanges(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+	mustExec(t, engine, `
+		_dashboards = {}
+		Dashboard.new('ch'):auth('public'):section('S', 'grid')
+			:chart('moc', 'Moc', 'moc:dom', { ranges = {'24h', '7d', '30d', '365d'} })
+			:chart('t', 'Temp', 'temp:salon', { ranges = {'24h', '90d'}, range = '90d' })
+			:chart('p', 'Plain', 'temp:pokoj', { range = '7d' })
+			:build()`)
+	var def dashDef
+	dashJSON(t, engine, `Dashboard.API.getDefinition("ch")`, &def)
+	if w := def.widget("moc"); w["range"] != "24h" || len(w["ranges"].([]any)) != 4 {
+		t.Errorf("moc = %v", w)
+	}
+	if w := def.widget("t"); w["range"] != "90d" {
+		t.Errorf("t = %v", w)
+	}
+	if w := def.widget("p"); w["range"] != "7d" || w["ranges"] != nil {
+		t.Errorf("p = %v", w)
+	}
+	if res := mustExec(t, engine, `return Dashboard.API.usesMetric("ch", "moc:dom")`); !strings.Contains(res, `"365d"`) {
+		t.Errorf("usesMetric = %s", res)
+	}
+	for call, msg := range map[string]string{
+		`:chart('a', 'L', 'm', { ranges = {} })`:                           "ranges must be a list of 1 to 6",
+		`:chart('a', 'L', 'm', { ranges = {'24h', 'rok'} })`:               "range rok is not a duration up to 366d",
+		`:chart('a', 'L', 'm', { ranges = {'400d'} })`:                     "range 400d is not a duration up to 366d",
+		`:chart('a', 'L', 'm', { ranges = {'24h', '7d'}, range = '30d' })`: `range "30d" is not one of ranges`,
+	} {
+		e := NewLuaEngine()
+		res := mustExec(t, e, "_dashboards = {}\nlocal ok, err = pcall(function()\n  Dashboard.new('e'):section('S', 'grid')\n    "+call+"\nend) return tostring(err)")
+		e.Close()
+		if !strings.Contains(res, msg) || !strings.Contains(res, "<string>:") {
+			t.Errorf("%s: %s", call, res)
+		}
 	}
 }

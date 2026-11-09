@@ -274,8 +274,9 @@ end
 local BARS_KEYS = { range = true, bucket = true, agg = true, unit = true, decimals = true, color = true,
     compare = true, compareLabel = true, visible = true, span = true, size = true, refresh = true, remote = true }
 local BARS_AGG = { sum = true, avg = true, max = true, min = true, delta = true }
-local BARS_BUCKET = { ['1h'] = 3600, ['1d'] = 86400 }
-local BARS_MAX_RANGE = 31 * 86400 -- metrics keep 31 days
+local BARS_BUCKET = { ['1h'] = 3600, ['1d'] = 86400, ['1w'] = 7 * 86400, ['1mo'] = 30.4375 * 86400 }
+local BARS_MAX_RANGE = 366 * 86400 -- beyond what vCLU keeps, from the cloud (cloud = true on the metric)
+local BARS_MAX_BUCKETS = 31 * 24 -- metrics.MaxBuckets
 
 -- "7d", "24h", "90m", "1h30m" -> seconds, nil when it is not a duration
 local function rangeSeconds(r)
@@ -310,10 +311,16 @@ local function barsWidget(id, label, metricPath, opts)
     local range = opts.range or '7d'
     local secs = rangeSeconds(range)
     if not secs or secs > BARS_MAX_RANGE then
-        error(where .. ': range must be a duration up to 31d such as "24h", "7d", "30d"', 3)
+        error(where .. ': range must be a duration up to 366d such as "24h", "7d", "30d", "365d"', 3)
     end
-    local bucket = opts.bucket or (secs >= 2 * 86400 and '1d' or '1h')
-    if not BARS_BUCKET[bucket] then error(where .. ': bucket must be "1h" or "1d"', 3) end
+    local bucket = opts.bucket or (secs < 2 * 86400 and '1h' or secs <= 62 * 86400 and '1d'
+        or secs <= 182 * 86400 and '1w' or '1mo')
+    if not BARS_BUCKET[bucket] then error(where .. ': bucket must be "1h", "1d", "1w" or "1mo"', 3) end
+    local buckets = bucket == '1mo' and math.max(1, math.floor(secs / BARS_BUCKET[bucket] + 0.5))
+        or math.max(1, math.ceil(secs / BARS_BUCKET[bucket]))
+    if buckets > BARS_MAX_BUCKETS then
+        error(where .. ': ' .. buckets .. ' bars, at most ' .. BARS_MAX_BUCKETS .. ': use a longer bucket', 3)
+    end
     local agg = opts.agg or 'avg'
     if not BARS_AGG[agg] then error(where .. ': agg must be one of ' .. quoted(BARS_AGG), 3) end
     if opts.compare ~= nil and (type(opts.compare) ~= 'string' or opts.compare == '') then
@@ -329,8 +336,39 @@ local function barsWidget(id, label, metricPath, opts)
     return {
         id = id, type = 'bars', label = label, metricPath = metricPath, opts = opts,
         range = range, bucket = bucket, agg = agg,
-        buckets = math.max(1, math.ceil(secs / BARS_BUCKET[bucket])),
+        buckets = buckets,
     }
+end
+
+-- ==========================================================================
+-- Chart: a metric over a range, or over ranges the viewer switches between
+-- ==========================================================================
+
+local CHART_MAX_RANGE = 366 * 86400
+local CHART_MAX_RANGES = 6
+
+local function chartWidget(id, label, metricPath, opts)
+    local where = 'chart widget "' .. tostring(id) .. '"'
+    opts = opts or {}
+    local ranges = opts.ranges
+    if ranges ~= nil then
+        if type(ranges) ~= 'table' or #ranges < 1 or #ranges > CHART_MAX_RANGES then
+            error(where .. ': ranges must be a list of 1 to ' .. CHART_MAX_RANGES .. ' durations such as {"24h", "7d", "30d", "365d"}', 3)
+        end
+        for _, r in ipairs(ranges) do
+            local secs = rangeSeconds(r)
+            if not secs or secs > CHART_MAX_RANGE then
+                error(where .. ': range ' .. tostring(r) .. ' is not a duration up to 366d', 3)
+            end
+        end
+    end
+    local range = opts.range or (ranges and ranges[1]) or '2h'
+    if ranges then
+        local found = false
+        for _, r in ipairs(ranges) do found = found or r == range end
+        if not found then error(where .. ': range "' .. tostring(range) .. '" is not one of ranges', 3) end
+    end
+    return { id = id, type = 'chart', label = label, metricPath = metricPath, opts = opts, range = range }
 end
 
 -- ==========================================================================
@@ -1787,21 +1825,18 @@ end
 -- @param id string Unique widget identifier
 -- @param label string Display label (e.g., "Temperatura 24h")
 -- @param metricPath string Metric path registered via metric() (e.g., "temp:salon", "salda:outsideAir")
--- @param opts table Optional: {range=string (any duration such as "30m", "2h", "24h", "7d"; default "2h"; 30m/2h/24h/7d have tuned refresh, others refresh every 60 s), unit=string, min=n, max=n (Y axis), fill=bool (default true), refresh=seconds, span=n, color=string, visible=function()->bool}
+-- @param opts table Optional: {range=string (any duration such as "30m", "2h", "24h", "7d"; default "2h", or the first of ranges; 30m/2h/24h/7d have tuned refresh, others refresh every 60 s), ranges={durations up to "366d"} (the viewer switches between them on the chart, e.g. {"24h", "7d", "30d", "90d", "365d"}; beyond what vCLU keeps the chart comes from the cloud for metrics with cloud = true), unit=string, min=n, max=n (Y axis), fill=bool (default true), refresh=seconds, span=n, color=string, visible=function()->bool}
 -- @api public
 function SectionHandle:chart(id, label, metricPath, opts)
-    self._builder:_addWidget(self._sectionIndex, {
-        id = id, type = 'chart', label = label,
-        metricPath = metricPath, opts = opts or {}
-    })
+    self._builder:_addWidget(self._sectionIndex, chartWidget(id, label, metricPath, opts))
     return self
 end
 
---- Add a bar chart of a metric to this section: one bar per hour or day of the house's zone.
+--- Add a bar chart of a metric to this section: one bar per hour, day, week or month of the house's zone.
 -- @param id string Unique widget identifier
 -- @param label string Display label (e.g., "Energia dziennie")
 -- @param metricPath string Metric path registered via metric() (e.g., "energia:licznik")
--- @param opts table Optional: {range=string (a duration up to "31d"; default "7d"), bucket="1h"|"1d" (default "1d" from a 2-day range, else "1h"), agg="avg"|"sum"|"max"|"min"|"delta" (default "avg", the mean of the samples; sum depends on the sampling interval; delta: what a growing counter such as a kWh meter added in each bar, a single bad reading or a reset adds nothing), unit=string, decimals=0-6, color=string, compare=metricPath (a second bar beside each), compareLabel=string, visible=function()->bool, span=n, size=string, refresh=seconds (at least 30)}; samples are kept metrics.retentionDays (default 7) days
+-- @param opts table Optional: {range=string (a duration up to "366d"; default "7d"), bucket="1h"|"1d"|"1w"|"1mo" (weeks from Monday, calendar months; default "1h" below 2 days, "1d" up to 62, "1w" up to 182, else "1mo"; at most 744 bars), agg="avg"|"sum"|"max"|"min"|"delta" (default "avg", the mean of the samples; sum depends on the sampling interval; delta: what a growing counter such as a kWh meter added in each bar, a single bad reading or a reset adds nothing), unit=string, decimals=0-6, color=string, compare=metricPath (a second bar beside each), compareLabel=string, visible=function()->bool, span=n, size=string, refresh=seconds (at least 30)}; samples are kept metrics.retentionDays (default 7) days, older ones come from the cloud for metrics with cloud = true
 -- @api public
 function SectionHandle:bars(id, label, metricPath, opts)
     self._builder:_addWidget(self._sectionIndex, barsWidget(id, label, metricPath, opts))
@@ -2634,24 +2669,21 @@ end
 -- @param id string Unique widget identifier
 -- @param label string Display label (e.g., "Temperatura 24h")
 -- @param metricPath string Metric path registered via metric() (e.g., "temp:salon", "salda:outsideAir")
--- @param opts table Optional: {range=string (any duration such as "30m", "2h", "24h", "7d"; default "2h"; 30m/2h/24h/7d have tuned refresh, others refresh every 60 s), unit=string, min=n, max=n (Y axis), fill=bool (default true), refresh=seconds, span=n, color=string, visible=function()->bool}
+-- @param opts table Optional: {range=string (any duration such as "30m", "2h", "24h", "7d"; default "2h", or the first of ranges; 30m/2h/24h/7d have tuned refresh, others refresh every 60 s), ranges={durations up to "366d"} (the viewer switches between them on the chart, e.g. {"24h", "7d", "30d", "90d", "365d"}; beyond what vCLU keeps the chart comes from the cloud for metrics with cloud = true), unit=string, min=n, max=n (Y axis), fill=bool (default true), refresh=seconds, span=n, color=string, visible=function()->bool}
 -- @api public
 function DashboardBuilder:chart(id, label, metricPath, opts)
     if not self._currentSection then
         error('Call :section() before adding widgets (dash:floor() ends the current section)', 2)
     end
-    self:_addWidget(self._currentSection, {
-        id = id, type = 'chart', label = label,
-        metricPath = metricPath, opts = opts or {}
-    })
+    self:_addWidget(self._currentSection, chartWidget(id, label, metricPath, opts))
     return self
 end
 
---- Add a bar chart of a metric to the current section: one bar per hour or day of the house's zone.
+--- Add a bar chart of a metric to the current section: one bar per hour, day, week or month of the house's zone.
 -- @param id string Unique widget identifier
 -- @param label string Display label (e.g., "Energia dziennie")
 -- @param metricPath string Metric path registered via metric() (e.g., "energia:licznik")
--- @param opts table Optional: {range=string (a duration up to "31d"; default "7d"), bucket="1h"|"1d" (default "1d" from a 2-day range, else "1h"), agg="avg"|"sum"|"max"|"min"|"delta" (default "avg", the mean of the samples; sum depends on the sampling interval; delta: what a growing counter such as a kWh meter added in each bar, a single bad reading or a reset adds nothing), unit=string, decimals=0-6, color=string, compare=metricPath (a second bar beside each), compareLabel=string, visible=function()->bool, span=n, size=string, refresh=seconds (at least 30)}; samples are kept metrics.retentionDays (default 7) days
+-- @param opts table Optional: {range=string (a duration up to "366d"; default "7d"), bucket="1h"|"1d"|"1w"|"1mo" (weeks from Monday, calendar months; default "1h" below 2 days, "1d" up to 62, "1w" up to 182, else "1mo"; at most 744 bars), agg="avg"|"sum"|"max"|"min"|"delta" (default "avg", the mean of the samples; sum depends on the sampling interval; delta: what a growing counter such as a kWh meter added in each bar, a single bad reading or a reset adds nothing), unit=string, decimals=0-6, color=string, compare=metricPath (a second bar beside each), compareLabel=string, visible=function()->bool, span=n, size=string, refresh=seconds (at least 30)}; samples are kept metrics.retentionDays (default 7) days, older ones come from the cloud for metrics with cloud = true
 -- @api public
 function DashboardBuilder:bars(id, label, metricPath, opts)
     if not self._currentSection then
@@ -3543,7 +3575,8 @@ function DashboardAPI.usesMetric(id, path, role)
             if hidden[w] then
                 -- a hidden chart or sparkline gets no data
             elseif w.type == 'chart' and w.metricPath == path then
-                table.insert(ranges, w.opts.range or '2h')
+                table.insert(ranges, w.range or w.opts.range or '2h')
+                for _, r in ipairs(w.opts.ranges or {}) do table.insert(ranges, r) end
             elseif w.type == 'status' and w.opts and w.opts.spark == path then
                 table.insert(ranges, w.opts.sparkRange or '2h')
             end
@@ -3798,7 +3831,8 @@ function DashboardAPI.getDefinition(id, role)
             -- Chart fields (no getValue — frontend fetches directly)
             if w.type == 'chart' then
                 widget.metricPath = w.metricPath
-                widget.range = w.opts.range or '2h'
+                widget.range = w.range or w.opts.range or '2h'
+                widget.ranges = w.opts.ranges
                 widget.refresh = w.opts.refresh
                 widget.unit = w.opts.unit or ''
                 widget.min = w.opts.min

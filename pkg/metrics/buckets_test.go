@@ -24,7 +24,7 @@ func TestBucketEdgesDailyDST(t *testing.T) {
 		{time.Date(2026, 3, 30, 12, 0, 0, 0, loc), []float64{24, 23, 24}},
 		{time.Date(2026, 10, 26, 0, 0, 0, 0, loc), []float64{24, 25, 24}},
 	} {
-		edges, err := BucketEdges(tc.now, loc, 3, true)
+		edges, err := BucketEdges(tc.now, loc, 3, "1d")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -48,7 +48,7 @@ func TestBucketEdgesHourlyFallBack(t *testing.T) {
 	loc := warsaw(t)
 	// 2026-10-25 01:00 UTC = the second 02:30 in Warsaw (CET)
 	now := time.Date(2026, 10, 25, 1, 30, 0, 0, time.UTC)
-	edges, err := BucketEdges(now, loc, 4, false)
+	edges, err := BucketEdges(now, loc, 4, "1h")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestBucketEdgesHourlyFallBack(t *testing.T) {
 		}
 	}
 	// the spring-forward day has no 02:00: 23 buckets from midnight to midnight
-	spring, _ := BucketEdges(time.Date(2026, 3, 29, 23, 10, 0, 0, loc), loc, 23, false)
+	spring, _ := BucketEdges(time.Date(2026, 3, 29, 23, 10, 0, 0, loc), loc, 23, "1h")
 	if s := spring[0].In(loc).Format("2006-01-02 15:04"); s != "2026-03-29 00:00" {
 		t.Errorf("23 hourly buckets on 29.03 start at %s, want midnight", s)
 	}
@@ -71,7 +71,7 @@ func TestBucketEdgesHourlyFallBack(t *testing.T) {
 
 func TestBucketEdgesBounds(t *testing.T) {
 	for _, n := range []int{0, MaxBuckets + 1} {
-		if _, err := BucketEdges(time.Now(), time.UTC, n, false); err == nil {
+		if _, err := BucketEdges(time.Now(), time.UTC, n, "1h"); err == nil {
 			t.Errorf("n=%d accepted", n)
 		}
 	}
@@ -213,5 +213,22 @@ func TestAggregateEmpty(t *testing.T) {
 	// samples after the last edge are not counted
 	if got := vals(Aggregate([]Sample{at(5, 0, 1)}, hourEdges(2), "sum")); got[0] != nil || got[1] != nil {
 		t.Errorf("late sample counted: %v", got)
+	}
+}
+
+// Weeks start on Monday and months on the 1st, at the zone's midnight, the last holding now.
+func TestBucketEdgesWeeksAndMonths(t *testing.T) {
+	loc, _ := time.LoadLocation("Europe/Warsaw")
+	now := time.Date(2026, 11, 9, 16, 0, 0, 0, loc) // a Monday
+	w, err := BucketEdges(now.AddDate(0, 0, 2), loc, 3, "1w")
+	if err != nil || !w[2].Equal(time.Date(2026, 11, 9, 0, 0, 0, 0, loc)) || !w[0].Equal(time.Date(2026, 10, 26, 0, 0, 0, 0, loc)) || !w[3].Equal(time.Date(2026, 11, 16, 0, 0, 0, 0, loc)) {
+		t.Errorf("weeks = %v %v", w, err)
+	}
+	m, err := BucketEdges(now, loc, 12, "1mo")
+	if err != nil || !m[0].Equal(time.Date(2025, 12, 1, 0, 0, 0, 0, loc)) || !m[11].Equal(time.Date(2026, 11, 1, 0, 0, 0, 0, loc)) || !m[12].Equal(time.Date(2026, 12, 1, 0, 0, 0, 0, loc)) {
+		t.Errorf("months = %v %v", m, err)
+	}
+	if _, err := BucketEdges(now, loc, 1, "1y"); err == nil {
+		t.Error("an unknown bucket gave edges")
 	}
 }

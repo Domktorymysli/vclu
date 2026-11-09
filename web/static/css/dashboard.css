@@ -549,6 +549,33 @@ body {
     height: 220px;
 }
 
+/* the ranges a viewer switches between (opts.ranges) */
+.dash-chart-ranges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin: -2px 0 6px;
+}
+
+.dash-chart-range {
+    font: inherit;
+    font-size: 0.75rem;
+    line-height: 1.2;
+    padding: 3px 9px;
+    border-radius: 999px;
+    border: 1px solid rgba(128, 128, 128, 0.3);
+    background: transparent;
+    color: inherit;
+    opacity: 0.75;
+    cursor: pointer;
+}
+
+.dash-chart-range[aria-pressed="true"] {
+    opacity: 1;
+    border-color: var(--widget-color, var(--dash-accent));
+    background: color-mix(in srgb, var(--widget-color, var(--dash-accent)) 18%, transparent);
+}
+
 /* ---- Bars widget: SVG drawn by dashboard.js; colours follow the theme's text and accent ---- */
 .dash-widget-bars {
     cursor: default;
