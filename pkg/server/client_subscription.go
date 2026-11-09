@@ -189,7 +189,7 @@ func (s *Server) handleClientReportMessage(senderIP string, message string) {
 		return
 	}
 
-	log.Printf("[CLIENT-REPORT] from %s session=%d values=%s", cluIP, sessionID, valuesStr)
+	log.Printf("[DEBUG] [CLIENT-REPORT] from %s session=%d values=%s", cluIP, sessionID, valuesStr)
 
 	// Call Lua to update registry
 	s.updateRegistryFromClientReport(cluIP, sessionID, valuesStr)

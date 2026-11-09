@@ -1,10 +1,12 @@
 package logstream
 
 import (
+	"fmt"
 	"io"
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -27,6 +29,7 @@ type LogStream struct {
 	mu        sync.RWMutex
 
 	original io.Writer
+	minLevel atomic.Int32 // lines below it are not written to original
 
 	clients   map[chan LogEntry]struct{}
 	clientsMu sync.RWMutex
@@ -35,13 +38,69 @@ type LogStream struct {
 	sourcesMu sync.RWMutex
 }
 
+// Levels for SetLevel; the ring buffer keeps every line.
+const (
+	LevelDebug int32 = iota
+	LevelInfo
+	LevelWarn
+	LevelError
+)
+
+// ParseLevel turns debug, info, warn (warning) or error into a level; "" is info.
+func ParseLevel(s string) (int32, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "debug":
+		return LevelDebug, nil
+	case "", "info":
+		return LevelInfo, nil
+	case "warn", "warning":
+		return LevelWarn, nil
+	case "error":
+		return LevelError, nil
+	}
+	return LevelInfo, fmt.Errorf("unknown log level %q, use debug, info, warn or error", s)
+}
+
+// SetLevel sets the lowest level written to the original writer; an unknown one sets info.
+func (ls *LogStream) SetLevel(s string) error {
+	lvl, err := ParseLevel(s)
+	ls.minLevel.Store(lvl)
+	return err
+}
+
+// levelTagRegex finds the first [TAG] after the timestamp and the optional file:line of log.Lshortfile.
+var levelTagRegex = regexp.MustCompile(`^(?:\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}\s+)?(?:\S+\.go:\d+:\s+)?\[([^\]]+)\]`)
+
+// lineLevel is the level of a line for stdout: its level tag, else what parseLine found.
+func lineLevel(line string, entry LogEntry) int32 {
+	if m := levelTagRegex.FindStringSubmatch(line); m != nil {
+		switch strings.ToUpper(m[1]) {
+		case "DEBUG":
+			return LevelDebug
+		case "INFO":
+			return LevelInfo
+		case "WARN", "WARNING":
+			return LevelWarn
+		case "ERROR":
+			return LevelError
+		}
+	}
+	switch entry.Level {
+	case "error":
+		return LevelError
+	case "warning":
+		return LevelWarn
+	}
+	return LevelInfo
+}
+
 // Regex to parse log lines and extract source
 var sourceRegex = regexp.MustCompile(`^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} \[([^\]]+)\]`)
 var timestampRegex = regexp.MustCompile(`^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}\s*`)
 
 // NewLogStream creates a new log stream
 func NewLogStream(original io.Writer, bufferSize int) *LogStream {
-	return &LogStream{
+	ls := &LogStream{
 		buffer:    make([]LogEntry, bufferSize),
 		bufferMax: bufferSize,
 		bufferIdx: 0,
@@ -51,20 +110,22 @@ func NewLogStream(original io.Writer, bufferSize int) *LogStream {
 		clients:   make(map[chan LogEntry]struct{}),
 		sources:   make(map[string]struct{}),
 	}
+	ls.minLevel.Store(LevelInfo)
+	return ls
 }
 
 // Write implements io.Writer - captures log output
 func (ls *LogStream) Write(p []byte) (n int, err error) {
-	// Write to original output first
-	n, err = ls.original.Write(p)
-
-	// Parse and broadcast
 	line := strings.TrimSpace(string(p))
 	if line == "" {
-		return n, err
+		return ls.original.Write(p)
 	}
 
 	entry := ls.parseLine(line)
+	n, err = len(p), nil
+	if lineLevel(line, entry) >= ls.minLevel.Load() {
+		n, err = ls.original.Write(p)
+	}
 
 	// Add to ring buffer
 	ls.mu.Lock()
