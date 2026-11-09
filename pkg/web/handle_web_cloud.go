@@ -23,7 +23,17 @@ import (
 )
 
 // SetCloudClient wires the vclu cloud connection (nil hides the page).
-func (s *Server) SetCloudClient(c *cloud.Client) { s.cloudClient = c }
+func (s *Server) SetCloudClient(c *cloud.Client) {
+	s.cloudClient = c
+	if c != nil {
+		s.metricsHistory = c
+	}
+}
+
+// metricsHistorySource is cloud.Client.MetricsHistory; tests replace it.
+type metricsHistorySource interface {
+	MetricsHistory(ctx context.Context, path string, since, until int64, step int) ([][5]float64, int64, error)
+}
 
 func (s *Server) handleCloud(c *gin.Context) {
 	trans := s.getTranslations(c)

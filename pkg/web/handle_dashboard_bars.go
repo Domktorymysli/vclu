@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -157,14 +158,29 @@ func (s *Server) barsSeries(spec barsSpec, now time.Time) (*barsResult, error) {
 	}
 	// two buckets earlier: delta's first step can start up to 1.5 buckets before the range
 	since := edges[0].Add(-2 * edges[1].Sub(edges[0])).Unix()
-	vals := metrics.Aggregate(s.metricsCollector.Query(spec.Path, since), edges, spec.Agg)
+	kept := s.metricsCollector.Retention(now)
+	samples := func(path string) []metrics.Sample {
+		old, upTo, ok := s.cloudSamples(context.Background(), path, time.Unix(since, 0), now, 3600, barsValue(spec.Agg))
+		if !ok {
+			return s.metricsCollector.Query(path, since)
+		}
+		if spec.Agg == "delta" {
+			for i := range old {
+				old[i].Timestamp += 3600 - 60 // the reading at the hour's end
+			}
+		}
+		if t := time.Unix(old[0].Timestamp, 0); t.Before(kept) {
+			kept = t // drawn from the cloud, not "not kept"
+		}
+		return append(old, s.metricsCollector.Query(path, upTo)...)
+	}
+	vals := metrics.Aggregate(samples(spec.Path), edges, spec.Agg)
 	var cmp []*float64
 	if spec.Compare != "" {
-		cmp = metrics.Aggregate(s.metricsCollector.Query(spec.Compare, since), edges, spec.Agg)
+		cmp = metrics.Aggregate(samples(spec.Compare), edges, spec.Agg)
 	}
 	out := &barsResult{Bucket: spec.Bucket, Agg: spec.Agg, Zone: spec.Zone, Kept: s.metricsCollector.RetainDays(),
 		Buckets: make([]barsBucket, len(vals))}
-	kept := s.metricsCollector.Retention(now)
 	for i, v := range vals {
 		t := edges[i].In(loc)
 		b := barsBucket{T: t.Unix(), Date: t.Format("2006-01-02"), Weekday: int(t.Weekday()), Hour: t.Hour(),
@@ -176,6 +192,22 @@ func (s *Server) barsSeries(spec barsSpec, now time.Time) (*barsResult, error) {
 	}
 	out.Buckets[len(vals)-1].Partial = true
 	return out, nil
+}
+
+// barsValue picks from a step the cloud stored the one sample Aggregate gets for it: a counter's
+// highest reading at the step's end for delta, the sum of its samples for sum.
+func barsValue(agg string) func(p [5]float64, step int) float64 {
+	return func(p [5]float64, step int) float64 {
+		switch agg {
+		case "min":
+			return p[2]
+		case "max", "delta":
+			return p[3]
+		case "sum":
+			return p[1] * p[4]
+		}
+		return p[1]
+	}
 }
 
 // round6 drops the float noise of summed steps (10.40099999999984 -> 10.401).

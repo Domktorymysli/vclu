@@ -1,6 +1,8 @@
 package cloud
 
 import (
+	"context"
+	"errors"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -140,5 +142,61 @@ func TestMetricsBatchLimits(t *testing.T) {
 	}
 	if n != proto.MaxMetricsPoints || !more || len(last) != len(m.Series) || len(m.Series) > proto.MaxMetricsSeries {
 		t.Errorf("%d series, %d points, more %v", len(m.Series), n, more)
+	}
+}
+
+// Statistics read back: one query to the cloud, then the cache; a refusal makes the next charts
+// draw without the cloud for retry_after_s.
+func TestMetricsHistoryCached(t *testing.T) {
+	f := newFakeCloud(t)
+	f.metrics = &proto.MetricsLimits{Series: 10, BucketS: 60, MaxAgeS: 7 * 86400}
+	c, conn := connectWith(t, f, func(c *Client) {
+		c.opts.Metrics = &fakeMetrics{buckets: map[string][][5]float64{}}
+		c.opts.MetricsFirst = time.Hour
+	})
+	eventually(t, "statistics on", func() bool { return c.Metrics().On })
+
+	type result struct {
+		pts   [][5]float64
+		until int64
+		err   error
+	}
+	ask := func(since, until int64, step int) chan result {
+		ch := make(chan result, 1)
+		go func() {
+			pts, u, err := c.MetricsHistory(context.Background(), "energia:dom", since, until, step)
+			ch <- result{pts, u, err}
+		}()
+		return ch
+	}
+	ch := ask(3700, 90000, 1800)
+	var q proto.MetricsQuery
+	if err := conn.read(t, proto.TypeMetricsQuery).Decode(&q); err != nil {
+		t.Fatal(err)
+	}
+	if q.Path != "energia:dom" || q.Since != 3600 || q.Until != 90000 || q.StepS != 1800 {
+		t.Fatalf("query = %+v", q)
+	}
+	proto.Write(conn.ctrl, proto.MetricsPoints{Type: proto.TypeMetricsPoints, ID: q.ID, StepS: 3600,
+		Points: [][5]float64{{3600, 1, 1, 1, 60}, {7200, 2, 2, 2, 60}}})
+	if r := <-ch; r.err != nil || r.until != 90000 || len(r.pts) != 1 || r.pts[0][0] != 7200 {
+		t.Fatalf("first = %+v", r)
+	}
+
+	// Later and narrower: from the cache, up to where it reaches.
+	if r := <-ask(7200, 95000, 1800); r.err != nil || r.until != 90000 || len(r.pts) != 1 {
+		t.Errorf("cached = %+v", r)
+	}
+
+	ch = ask(0, 90000, 3600)
+	if err := conn.read(t, proto.TypeMetricsQuery).Decode(&q); err != nil {
+		t.Fatal(err)
+	}
+	proto.Write(conn.ctrl, proto.MetricsPoints{Type: proto.TypeMetricsPoints, ID: q.ID, Points: [][5]float64{}, Error: proto.MetricsRateLimited, RetryAfterS: 60})
+	if r := <-ch; !errors.Is(r.err, ErrNoHistory) {
+		t.Errorf("rate limited = %+v", r)
+	}
+	if r := <-ask(0, 90000, 7200); !errors.Is(r.err, ErrNoHistory) {
+		t.Errorf("within retry_after_s = %+v", r)
 	}
 }

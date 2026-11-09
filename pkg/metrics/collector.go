@@ -207,6 +207,14 @@ func (c *Collector) CloudSeries() []CloudSeries {
 	return out
 }
 
+// IsCloud says whether the metric is marked for the cloud.
+func (c *Collector) IsCloud(path string) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	def, ok := c.metrics[path]
+	return ok && def.Cloud
+}
+
 // BucketSeconds is the length of a bucket in Buckets.
 const BucketSeconds = 60
 

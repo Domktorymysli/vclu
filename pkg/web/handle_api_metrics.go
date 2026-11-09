@@ -1,12 +1,15 @@
 package web
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/Domktorymysli/vclu/pkg/metrics"
 )
 
 // GET /api/metrics/data?path=salda:outsideAir&range=2h
@@ -40,7 +43,16 @@ func (s *Server) handleAPIMetricsData(c *gin.Context) {
 // writeMetricSamples answers with the path's samples over ?range= (default 2h), at most the
 // retention back and at most metrics.MaxPoints of them.
 func (s *Server) writeMetricSamples(c *gin.Context, path string) {
-	samples := s.metricsCollector.QueryRange(path, parseRange(c.DefaultQuery("range", "2h")))
+	d := parseRange(c.DefaultQuery("range", "2h"))
+	var samples []metrics.Sample
+	now := time.Now()
+	step := chartStep(d)
+	if old, upTo, ok := s.cloudSamples(c.Request.Context(), path, now.Add(-d), now, step, func(p [5]float64, _ int) float64 { return p[1] }); ok {
+		// the older part from the cloud, the rest from the files in the same steps
+		samples = append(old, stepAverages(s.metricsCollector.Query(path, upTo), step)...)
+	} else {
+		samples = s.metricsCollector.QueryRange(path, d)
+	}
 
 	// Output: [[timestamp, value], ...]
 	out := make([][2]float64, len(samples))
@@ -48,6 +60,62 @@ func (s *Server) writeMetricSamples(c *gin.Context, path string) {
 		out[i] = [2]float64{float64(sample.Timestamp), sample.Value}
 	}
 	c.JSON(http.StatusOK, out)
+}
+
+// chartSteps are the steps a chart longer than vCLU keeps is drawn in.
+var chartSteps = []int{60, 300, 600, 900, 1800, 3600, 7200, 10800, 21600, 43200, 86400}
+
+// chartStep is the smallest step that keeps a chart over d within metrics.MaxPoints.
+func chartStep(d time.Duration) int {
+	for _, st := range chartSteps {
+		if int64(d/time.Second)/int64(st) <= metrics.MaxPoints {
+			return st
+		}
+	}
+	return chartSteps[len(chartSteps)-1]
+}
+
+// cloudSamples is the part of path from since that vCLU no longer keeps, from what it sent the
+// cloud (cloud.Client.MetricsHistory), one sample a step with the value value picks, and where
+// that part ends. False when the cloud has nothing to add: the metric is not sent there, the range
+// fits in what vCLU keeps, or the cloud cannot answer now.
+func (s *Server) cloudSamples(ctx context.Context, path string, since, now time.Time, step int, value func(p [5]float64, step int) float64) ([]metrics.Sample, int64, bool) {
+	kept := s.metricsCollector.Retention(now)
+	if s.metricsHistory == nil || !since.Before(kept) || !s.metricsCollector.IsCloud(path) {
+		return nil, 0, false
+	}
+	pts, upTo, err := s.metricsHistory.MetricsHistory(ctx, path, since.Unix(), kept.Unix(), step)
+	if err != nil || len(pts) == 0 {
+		return nil, 0, false
+	}
+	out := make([]metrics.Sample, len(pts))
+	for i, p := range pts {
+		out[i] = metrics.Sample{Timestamp: int64(p[0]), Value: value(p, step)}
+	}
+	return out, upTo, true
+}
+
+// stepAverages averages samples into steps of step seconds, each at its step's start.
+func stepAverages(samples []metrics.Sample, step int) []metrics.Sample {
+	var out []metrics.Sample
+	var sum float64
+	var n int
+	for _, x := range samples {
+		at := x.Timestamp / int64(step) * int64(step)
+		if n > 0 && at != out[len(out)-1].Timestamp {
+			out[len(out)-1].Value = sum / float64(n)
+			sum, n = 0, 0
+		}
+		if n == 0 {
+			out = append(out, metrics.Sample{Timestamp: at})
+		}
+		sum += x.Value
+		n++
+	}
+	if n > 0 {
+		out[len(out)-1].Value = sum / float64(n)
+	}
+	return out
 }
 
 // GET /api/metrics/list

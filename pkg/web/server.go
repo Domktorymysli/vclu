@@ -182,7 +182,8 @@ type Server struct {
 	mqttManager      *lua.MQTTManager
 	satelManager     *lua.SatelManager
 	cloudClient      *cloud.Client
-	local            *LocalAccess // the app's tokens on the LAN (local.go), nil when off
+	metricsHistory   metricsHistorySource // cloudClient's statistics read back, for charts longer than vCLU keeps
+	local            *LocalAccess         // the app's tokens on the LAN (local.go), nil when off
 	isConfigured     bool
 	supportsModules  bool
 	sessions         *sessionStore

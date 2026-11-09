@@ -152,6 +152,8 @@ type Client struct {
 	link *linkLog // pings and outages for the cloud page
 
 	metricsSt MetricsStatus // under mu
+
+	history metricsHistory // statistics read back from the cloud (metrics_history.go)
 }
 
 // queued is a notification sent while the connection was down.
@@ -575,7 +577,10 @@ type tunnel struct {
 	dashes  bool // ... and dashboards
 	objects bool // ... and objects (snapshot)
 
-	metricsAck chan proto.MetricsAck // answers to metrics, for sendMetrics
+	metricsAck    chan proto.MetricsAck    // answers to metrics, for sendMetrics
+	metricsPoints chan proto.MetricsPoints // answers to metrics_query, for MetricsHistory
+	metrics       bool                     // the cloud takes statistics and answers metrics_query
+	home          int64                    // the home of this connection
 
 	cmdRate    cmdLimiter   // used by the read loop only
 	cmdRunning atomic.Int32 // commands running now
@@ -626,7 +631,7 @@ func (c *Client) connect(ctx context.Context, cfg config.VCLUCloudConfig) error 
 	if err != nil {
 		return err
 	}
-	t := &tunnel{nc: nc, sess: sess, ctrl: ctrl, metricsAck: make(chan proto.MetricsAck, 1)}
+	t := &tunnel{nc: nc, sess: sess, ctrl: ctrl, metricsAck: make(chan proto.MetricsAck, 1), metricsPoints: make(chan proto.MetricsPoints, 1)}
 	r := proto.NewReader(ctrl)
 
 	if err := t.send(proto.Hello{
@@ -658,6 +663,8 @@ func (c *Client) connect(ctx context.Context, cfg config.VCLUCloudConfig) error 
 	t.notify = slices.Contains(w.Enable, proto.CapNotify)
 	t.dashes = slices.Contains(w.Enable, proto.CapDashboards) && c.opts.Dashboards != nil
 	t.objects = slices.Contains(w.Enable, proto.CapObjects) && c.opts.Objects != nil
+	t.metrics = c.opts.Metrics != nil && slices.Contains(w.Enable, proto.CapMetrics) && w.Metrics != nil
+	t.home = w.HomeID
 	if c.opts.Tunnel != nil && slices.Contains(w.Enable, proto.CapHTTP) {
 		// The cloud opens a stream per request; the session is their listener.
 		hs := &http.Server{Handler: c.opts.Tunnel, ReadHeaderTimeout: 10 * time.Second, ErrorLog: log.New(io.Discard, "", 0)}
@@ -702,7 +709,7 @@ func (c *Client) connect(ctx context.Context, cfg config.VCLUCloudConfig) error 
 	if t.objects {
 		go c.sendObjects(t, done)
 	}
-	if c.opts.Metrics != nil && slices.Contains(w.Enable, proto.CapMetrics) && w.Metrics != nil {
+	if t.metrics {
 		go c.sendMetrics(t, w.HomeID, *w.Metrics, done)
 	}
 
@@ -771,6 +778,14 @@ func (c *Client) connect(ctx context.Context, cfg config.VCLUCloudConfig) error 
 				select {
 				case t.metricsAck <- a:
 				default: // nobody waits for it: a late answer
+				}
+			}
+		case proto.TypeMetricsPoints:
+			var p proto.MetricsPoints
+			if m.Decode(&p) == nil {
+				select {
+				case t.metricsPoints <- p:
+				default:
 				}
 			}
 		case proto.TypeError:
