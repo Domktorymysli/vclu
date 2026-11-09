@@ -18,6 +18,10 @@
                 <button class="hamburger" id="hamburgerBtn"><i class="bi bi-list"></i></button>
                 <h1 class="page-title">Dashboards</h1>
                 <div class="topbar-actions">
+                    <button class="theme-toggle" id="themeToggle" title="Toggle theme">
+                        <i class="bi bi-moon-fill"></i>
+                        <i class="bi bi-sun-fill"></i>
+                    </button>
                     <div class="dropdown">
                         <button class="btn-icon dropdown-toggle" type="button" data-bs-toggle="dropdown">
                             <i class="bi bi-globe"></i>
@@ -33,7 +37,7 @@
 
             <div class="page-content">
                 <div class="container-fluid">
-                    <div class="card bg-dark border-secondary">
+                    <div class="card">
                         <div class="card-header d-flex justify-content-between align-items-center">
                             <span><i class="bi bi-grid me-2"></i>Dashboards</span>
                             <a href="/editor" class="btn btn-sm btn-outline-success">
@@ -43,7 +47,7 @@
                         <div class="card-body">
                             {{if .dashboards}}
                             <div class="table-responsive">
-                                <table class="table table-dark table-hover mb-0">
+                                <table class="table table-hover mb-0">
                                     <thead>
                                         <tr>
                                             <th>Name</th>
@@ -74,7 +78,7 @@
                                                 {{end}}
                                             </td>
                                             <td>
-                                                <a href="/d/{{index . "id"}}" target="_blank" class="btn btn-sm btn-outline-light">
+                                                <a href="/d/{{index . "id"}}" target="_blank" class="btn btn-sm btn-outline-secondary">
                                                     <i class="bi bi-box-arrow-up-right me-1"></i>Open
                                                 </a>
                                             </td>
@@ -96,13 +100,13 @@
                         </div>
                     </div>
 
-                    <div class="card bg-dark border-secondary mt-3">
+                    <div class="card mt-3">
                         <div class="card-header">
                             <i class="bi bi-code-slash me-2"></i>Quick Start
                         </div>
                         <div class="card-body">
                             <p class="text-muted mb-2">Create <code>modules/dashboards/home.lua</code> with:</p>
-                            <pre class="bg-black p-3 rounded"><code>Dashboard.new('home')
+                            <pre class="code-block p-3 rounded"><code>Dashboard.new('home')
   :name('Home')
   :icon('house')
   :columns(3)
@@ -126,6 +130,7 @@
     <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
     <script src="/static/js/utils.js"></script>
     <script src="/static/js/csrf.js"></script>
+    <script src="/static/js/theme.js"></script>
     <script src="/static/js/sidebar.js"></script>
 </body>
 </html>
