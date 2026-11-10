@@ -123,7 +123,13 @@
                                     <!-- not paired -->
                                     <div id="cloudOff" class="d-none">
                                         <p>{{index .t "cloud.intro"}}</p>
-                                        <button type="button" class="btn btn-primary" id="cloudPairBtn">
+                                        {{if not .cloudAuth}}
+                                        <div class="alert alert-warning small" id="cloudAuthRequired">
+                                            <i class="bi bi-exclamation-triangle"></i> {{index .t "cloud.auth_required"}}
+                                            <a href="/settings#securityForm">{{index .t "cloud.set_password"}}</a>
+                                        </div>
+                                        {{end}}
+                                        <button type="button" class="btn btn-primary" id="cloudPairBtn"{{if not .cloudAuth}} disabled{{end}}>
                                             <i class="bi bi-link-45deg"></i> {{index .t "cloud.connect"}}
                                         </button>
                                     </div>

@@ -736,6 +736,8 @@
     "title": "Chmura",
     "unavailable": "Połączenie z chmurą nie jest dostępne w tej wersji.",
     "connect": "Połącz z chmurą",
+    "auth_required": "Panel nie ma hasła. Połączyć z chmurą może tylko administrator po zalogowaniu, inaczej każdy w sieci domowej mógłby podpiąć dom do swojego konta.",
+    "set_password": "Ustaw hasło",
     "pairing_open": "Otwórz w przeglądarce, na telefonie lub komputerze:",
     "pairing_enter": "i wpisz kod:",
     "pairing_expires": "Kod wygasa za",

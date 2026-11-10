@@ -84,6 +84,7 @@ func (s *Server) handleCloud(c *gin.Context) {
 		"cloudManage":  manage,
 		"cloudHomeURL": homeURL,
 		"cloudPhones":  phones,
+		"cloudAuth":    config.IsAuthEnabled(s.serverDir), // pairing needs the panel password
 		"title":        "Cloud",
 		"currentPage":  "cloud",
 		"configured":   s.isConfigured,
@@ -118,6 +119,23 @@ func (s *Server) cloudAdmin(c *gin.Context) bool {
 	return false
 }
 
+// cloudPairing allows pairing only to a session of a panel that has a password: without one,
+// anyone on the home network could attach this house to their own cloud account.
+func (s *Server) cloudPairing(c *gin.Context) bool {
+	if !s.cloudReady(c) {
+		return false
+	}
+	if !config.IsAuthEnabled(s.serverDir) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Set a panel password first", "code": "auth_required"})
+		return false
+	}
+	if c.GetString("auth_method") != "session" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Cloud pairing needs a web session"})
+		return false
+	}
+	return true
+}
+
 func (s *Server) handleAPICloudStatus(c *gin.Context) {
 	if !s.cloudReady(c) {
 		return
@@ -137,7 +155,7 @@ func statusFor(st cloud.Status, apiKey bool) cloud.Status {
 }
 
 func (s *Server) handleAPICloudPair(c *gin.Context) {
-	if !s.cloudAdmin(c) {
+	if !s.cloudPairing(c) {
 		return
 	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)

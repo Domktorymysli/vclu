@@ -3,6 +3,7 @@ package web
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
@@ -262,5 +263,38 @@ func TestCloudStatusHidesPairingCodeFromAPIKey(t *testing.T) {
 	}
 	if st.Pairing.UserCode != "KXQF-7MPA" {
 		t.Error("the client's own status was changed")
+	}
+}
+
+// Without a panel password nobody may pair: anyone on the home network could attach the house to
+// their own cloud account. The page says so and its button is off.
+func TestCloudPairingNeedsPanelPassword(t *testing.T) {
+	dir := t.TempDir()
+	if err := writeTestConfig(dir, &config.VCLUConfig{Cloud: &config.VCLUCloudConfig{URL: "http://127.0.0.1:1"}}); err != nil {
+		t.Fatal(err)
+	}
+	s := NewServer(0, "../../web", dir, nil, nil, nil)
+	cc := cloud.New(cloud.Options{Dir: dir})
+	cc.Start()
+	t.Cleanup(func() { cc.Shutdown("test", 0) })
+	s.SetCloudClient(cc)
+	do := func(method, url string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		s.router.ServeHTTP(w, httptest.NewRequest(method, url, nil))
+		return w
+	}
+	if w := do("POST", "/api/cloud/pair"); w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), `"auth_required"`) {
+		t.Errorf("pair without a password: %d %s", w.Code, w.Body)
+	}
+	if st := cc.Status(); st.State != cloud.StateOff {
+		t.Errorf("pairing started: %s", st.State)
+	}
+	w := do("GET", "/cloud?lang=pl")
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "cloudAuthRequired") || !strings.Contains(w.Body.String(), `id="cloudPairBtn" disabled`) {
+		t.Errorf("cloud page without a password: %d", w.Code)
+	}
+	// Unpairing and cancelling stay open: they only take the house off the cloud.
+	if w := do("POST", "/api/cloud/pair/cancel"); w.Code != http.StatusOK {
+		t.Errorf("cancel without a password: %d", w.Code)
 	}
 }

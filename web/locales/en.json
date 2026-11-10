@@ -736,6 +736,8 @@
     "title": "Cloud",
     "unavailable": "The cloud connection is not available in this build.",
     "connect": "Connect to the cloud",
+    "auth_required": "The panel has no password. Only a signed-in admin may connect to the cloud; otherwise anyone on the home network could attach the house to their own account.",
+    "set_password": "Set a password",
     "pairing_open": "Open in a browser, on a phone or a computer:",
     "pairing_enter": "and enter the code:",
     "pairing_expires": "The code expires in",
