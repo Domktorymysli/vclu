@@ -106,6 +106,8 @@ func (s *Server) clientAuth(c *gin.Context) {
 // CmdResult) over HTTP, as the client, with its access profiles instead of :remote()'s roles.
 func (s *Server) clientRoutes(r gin.IRouter) {
 	g := r.Group("/api/v1", s.clientAuth)
+	g.GET("/me", s.handleClientMe)
+	g.GET("/dashboards", s.handleClientDashboards)
 	g.GET("/devices", s.handleClientDevices)
 	g.POST("/states", s.handleClientStates)
 	g.POST("/cmd", s.handleClientCmd)
@@ -243,6 +245,82 @@ type ClientCmd struct {
 type ClientAPIError struct {
 	Error   string `json:"error" example:"unauthorized"`
 	Message string `json:"message" example:"client token not valid"`
+}
+
+// ClientMe is who the token is for (GET /api/v1/me).
+type ClientMe struct {
+	ID        string   `json:"id" example:"36192837"`
+	Name      string   `json:"name" example:"Zegarek Ani"`
+	Actor     string   `json:"actor" example:"client:36192837"` // as history records it
+	Roles     []string `json:"roles"`
+	ExpiresAt int64    `json:"expiresAt,omitempty"` // unix seconds; none: never
+}
+
+// ClientDashboard is a remote dashboard the client may open on the LAN listener, at /d/<id>
+// (the page) and /api/dashboard/<id>/... (its data), with its token.
+type ClientDashboard struct {
+	ID   string `json:"id" example:"brama"`
+	Name string `json:"name" example:"Brama"`
+	Icon string `json:"icon,omitempty" example:"door-open"`
+	Pin  bool   `json:"pin,omitempty"` // the dashboard also asks for its PIN
+}
+
+// ClientDashboards is the answer of GET /api/v1/dashboards.
+type ClientDashboards struct {
+	Dashboards []ClientDashboard `json:"dashboards"`
+}
+
+// handleClientMe tells the client who it is.
+//
+//	@Summary		Who am I
+//	@Description	The client the token is for: its name, its actor in vCLU's history, its roles and when it expires.
+//	@Tags			client
+//	@Produce		json
+//	@Success		200	{object}	web.ClientMe
+//	@Failure		401	{object}	web.ClientAPIError
+//	@Security		ClientToken
+//	@Router			/api/v1/me [get]
+func (s *Server) handleClientMe(c *gin.Context) {
+	cl := c.MustGet(ctxClient).(config.APIClient)
+	c.JSON(http.StatusOK, ClientMe{ID: cl.ID, Name: cl.Name, Actor: clientActor(cl), Roles: nonNil(cl.Roles), ExpiresAt: cl.ExpiresAt})
+}
+
+// handleClientDashboards lists the remote dashboards the client's roles reach, now (a roles
+// function is asked again): those naming one of its roles, never those for every member.
+//
+//	@Summary		Dashboards
+//	@Description	The remote dashboards (:remote():roles(...) in Lua) naming one of the client's roles, in the panel's order. They open only on the LAN listener (https://<vclu>:9443), at /d/<id> and /api/dashboard/<id>/..., with the same token; a dashboard naming no roles is not for clients.
+//	@Tags			client
+//	@Produce		json
+//	@Success		200	{object}	web.ClientDashboards
+//	@Failure		401	{object}	web.ClientAPIError
+//	@Security		ClientToken
+//	@Router			/api/v1/dashboards [get]
+func (s *Server) handleClientDashboards(c *gin.Context) {
+	cl := c.MustGet(ctxClient).(config.APIClient)
+	out := ClientDashboards{Dashboards: []ClientDashboard{}}
+	if s.luaExecutor == nil || len(cl.Roles) == 0 {
+		c.JSON(http.StatusOK, out)
+		return
+	}
+	res, err := s.luaExecutor.Execute("Dashboard.API.remoteList()")
+	var list []struct {
+		ClientDashboard
+		Roles []string `json:"roles"`
+	}
+	if err == nil {
+		err = json.Unmarshal([]byte(res), &list)
+	}
+	if err != nil {
+		clientError(c, http.StatusInternalServerError, proto.ReasonError, "dashboards not listed")
+		return
+	}
+	for _, d := range list {
+		if len(d.Roles) > 0 && rolesAllow(d.Roles, cl.Roles) {
+			out.Dashboards = append(out.Dashboards, d.ClientDashboard)
+		}
+	}
+	c.JSON(http.StatusOK, out)
 }
 
 // clientCmdWait is how long a client's command may wait in the Lua queue before it is not run.

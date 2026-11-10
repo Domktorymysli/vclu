@@ -738,6 +738,215 @@
                 }
             }
         },
+        "/api/clients": {
+            "get": {
+                "description": "The API clients, the roles to choose from and where the LAN listener is. Only the panel's session: the API key gets 403.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "clients"
+                ],
+                "summary": "API clients",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/web.ClientList"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Makes a client and answers its token, shown this once, with its connection as JSON and as a QR code. Needs a panel password (403 auth_required) and the panel's session (the API key gets 403).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "clients"
+                ],
+                "summary": "Add an API client",
+                "parameters": [
+                    {
+                        "description": "The client",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/web.ClientRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/web.ClientToken"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/clients/{id}": {
+            "put": {
+                "description": "Sets the client's name, profiles, roles and expiry, all of them; its token stays. Needs a panel password and the panel's session.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "clients"
+                ],
+                "summary": "Change an API client",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Client id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The client",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/web.ClientRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIOK"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "Deletes the client; its token stops at once, also on open connections. Works without a panel password too, but never with the API key.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "clients"
+                ],
+                "summary": "Delete an API client",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Client id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIOK"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/clients/{id}/regenerate": {
+            "post": {
+                "description": "Gives the client a new token, shown this once with its connection and QR code; the old token stops at once, also on open connections. Needs a panel password and the panel's session.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "clients"
+                ],
+                "summary": "New token for an API client",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Client id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/web.ClientToken"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/clu/execute": {
             "post": {
                 "security": [
@@ -2821,6 +3030,37 @@
                 }
             }
         },
+        "/api/v1/dashboards": {
+            "get": {
+                "security": [
+                    {
+                        "ClientToken": []
+                    }
+                ],
+                "description": "The remote dashboards (:remote():roles(...) in Lua) naming one of the client's roles, in the panel's order. They open only on the LAN listener (https://\u003cvclu\u003e:9443), at /d/\u003cid\u003e and /api/dashboard/\u003cid\u003e/..., with the same token; a dashboard naming no roles is not for clients.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "client"
+                ],
+                "summary": "Dashboards",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/web.ClientDashboards"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/web.ClientAPIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/devices": {
             "get": {
                 "security": [
@@ -2851,6 +3091,37 @@
                     },
                     "429": {
                         "description": "too many invalid tokens from this address",
+                        "schema": {
+                            "$ref": "#/definitions/web.ClientAPIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/me": {
+            "get": {
+                "security": [
+                    {
+                        "ClientToken": []
+                    }
+                ],
+                "description": "The client the token is for: its name, its actor in vCLU's history, its roles and when it expires.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "client"
+                ],
+                "summary": "Who am I",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/web.ClientMe"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
                         "schema": {
                             "$ref": "#/definitions/web.ClientAPIError"
                         }
@@ -3714,8 +3985,6 @@
                 1000000000,
                 60000000000,
                 3600000000000,
-                -9223372036854775808,
-                9223372036854775807,
                 1,
                 1000,
                 1000000,
@@ -3740,8 +4009,6 @@
                 "Second",
                 "Minute",
                 "Hour",
-                "minDuration",
-                "maxDuration",
                 "Nanosecond",
                 "Microsecond",
                 "Millisecond",
@@ -3834,6 +4101,38 @@
                 }
             }
         },
+        "web.ClientDashboard": {
+            "type": "object",
+            "properties": {
+                "icon": {
+                    "type": "string",
+                    "example": "door-open"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "brama"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Brama"
+                },
+                "pin": {
+                    "description": "the dashboard also asks for its PIN",
+                    "type": "boolean"
+                }
+            }
+        },
+        "web.ClientDashboards": {
+            "type": "object",
+            "properties": {
+                "dashboards": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/web.ClientDashboard"
+                    }
+                }
+            }
+        },
         "web.ClientDevices": {
             "type": "object",
             "properties": {
@@ -3841,6 +4140,100 @@
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/proto.Object"
+                    }
+                }
+            }
+        },
+        "web.ClientLAN": {
+            "type": "object",
+            "properties": {
+                "addresses": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "192.168.0.50:9443"
+                    ]
+                },
+                "pin": {
+                    "type": "string",
+                    "example": "sha256/4kTPH21ZodCHTvQdZWC4kbIQqq+DzebfNmx5OYMXxTI="
+                }
+            }
+        },
+        "web.ClientList": {
+            "type": "object",
+            "properties": {
+                "authEnabled": {
+                    "description": "false: clients cannot be given (no panel password)",
+                    "type": "boolean"
+                },
+                "clients": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/web.ClientView"
+                    }
+                },
+                "lan": {
+                    "$ref": "#/definitions/web.ClientLAN"
+                },
+                "roles": {
+                    "description": "the roles to choose from: named in Lua and held by the cloud's members",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "web.ClientMe": {
+            "type": "object",
+            "properties": {
+                "actor": {
+                    "description": "as history records it",
+                    "type": "string",
+                    "example": "client:36192837"
+                },
+                "expiresAt": {
+                    "description": "unix seconds; none: never",
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "36192837"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Zegarek Ani"
+                },
+                "roles": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "web.ClientRequest": {
+            "type": "object",
+            "properties": {
+                "expiresAt": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "profiles": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "roles": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
                     }
                 }
             }
@@ -3867,6 +4260,63 @@
                     "example": [
                         "salon.lampa"
                     ]
+                }
+            }
+        },
+        "web.ClientToken": {
+            "type": "object",
+            "properties": {
+                "client": {
+                    "description": "on create",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/web.ClientView"
+                        }
+                    ]
+                },
+                "connection": {
+                    "description": "JSON v1: {v, type \"vclu-client\", name, token, addresses, pin}",
+                    "type": "string"
+                },
+                "qr": {
+                    "type": "string",
+                    "example": "data:image/png;base64,…"
+                },
+                "token": {
+                    "type": "string",
+                    "example": "vclu_client_…"
+                }
+            }
+        },
+        "web.ClientView": {
+            "type": "object",
+            "properties": {
+                "createdAt": {
+                    "type": "string"
+                },
+                "expired": {
+                    "type": "boolean"
+                },
+                "expiresAt": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "profiles": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "roles": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
@@ -4056,5 +4506,89 @@
             "name": "Authorization",
             "in": "header"
         }
-    }
+    },
+    "tags": [
+        {
+            "description": "Health, restart, factory reset",
+            "name": "system"
+        },
+        {
+            "description": "Satel Integra alarm integration",
+            "name": "satel"
+        },
+        {
+            "description": "Grenton integration and remote CLU sync",
+            "name": "grenton"
+        },
+        {
+            "description": "MQTT broker and client",
+            "name": "mqtt"
+        },
+        {
+            "description": "Apple HomeKit bridge",
+            "name": "homekit"
+        },
+        {
+            "description": "Object registry (devices exposed by the Lua runtime)",
+            "name": "registry"
+        },
+        {
+            "description": "Access control profiles and assignments",
+            "name": "access"
+        },
+        {
+            "description": "Configuration backup and restore",
+            "name": "backup"
+        },
+        {
+            "description": "What changed and who did it: the panel, MQTT, MCP bots, API clients, the cloud",
+            "name": "history"
+        },
+        {
+            "description": "Runtime statistics and metrics",
+            "name": "stats"
+        },
+        {
+            "description": "Device settings",
+            "name": "settings"
+        },
+        {
+            "description": "The API clients: made, changed and deleted from the panel's session only (never with the API key), and only while the panel has a password.",
+            "name": "clients"
+        },
+        {
+            "description": "For API clients (v0): who the token is for, and the remote dashboards its roles open on the LAN listener.",
+            "name": "client"
+        },
+        {
+            "description": "The device API for API clients (v0, may still change): the devices a client's access profiles let it read, their states and commands. The same contract as vclu cloud's devices (snapshot, states, cmd), on the panel's port and on the LAN listener (HTTPS, certificate pinned by the \"pin\" of the client's connection). A device's PIN and confirmation hold here too.",
+            "name": "devices"
+        }
+    ],
+    "x-tagGroups": [
+        {
+            "name": "Client API (v1)",
+            "tags": [
+                "client",
+                "devices"
+            ]
+        },
+        {
+            "name": "Panel API (administration)",
+            "tags": [
+                "system",
+                "settings",
+                "access",
+                "clients",
+                "registry",
+                "history",
+                "stats",
+                "backup",
+                "grenton",
+                "mqtt",
+                "homekit",
+                "satel"
+            ]
+        }
+    ]
 }

@@ -54,7 +54,8 @@ func (s *Server) clientsGranting(c *gin.Context) bool {
 	return true
 }
 
-type clientView struct {
+// ClientView is a client as the panel lists it: never its token or the token's hash.
+type ClientView struct {
 	ID        string   `json:"id"`
 	Name      string   `json:"name"`
 	Profiles  []string `json:"profiles"`
@@ -64,17 +65,48 @@ type clientView struct {
 	CreatedAt string   `json:"createdAt"`
 }
 
+// ClientList is the answer of GET /api/clients (documentation only: the handler answers gin.H).
+type ClientList struct {
+	Clients     []ClientView `json:"clients"`
+	Roles       []string     `json:"roles"`       // the roles to choose from: named in Lua and held by the cloud's members
+	AuthEnabled bool         `json:"authEnabled"` // false: clients cannot be given (no panel password)
+	LAN         *ClientLAN   `json:"lan,omitempty"`
+}
+
+// ClientLAN is where the LAN listener is (documentation only).
+type ClientLAN struct {
+	Addresses []string `json:"addresses" example:"192.168.0.50:9443"`
+	Pin       string   `json:"pin" example:"sha256/4kTPH21ZodCHTvQdZWC4kbIQqq+DzebfNmx5OYMXxTI="`
+}
+
+// ClientToken is a client's token, shown once, with the connection behind its QR code
+// (documentation only).
+type ClientToken struct {
+	Client     *ClientView `json:"client,omitempty"` // on create
+	Token      string      `json:"token" example:"vclu_client_…"`
+	Connection string      `json:"connection"` // JSON v1: {v, type "vclu-client", name, token, addresses, pin}
+	QR         string      `json:"qr,omitempty" example:"data:image/png;base64,…"`
+}
+
 // handleAPIClients lists the clients, the roles to choose from and where the LAN listener is.
+//
+//	@Summary		API clients
+//	@Description	The API clients, the roles to choose from and where the LAN listener is. Only the panel's session: the API key gets 403.
+//	@Tags			clients
+//	@Produce		json
+//	@Success		200	{object}	web.ClientList
+//	@Failure		403	{object}	web.APIError
+//	@Router			/api/clients [get]
 func (s *Server) handleAPIClients(c *gin.Context) {
 	if !clientsAdmin(c) {
 		return
 	}
 	mc, _ := config.ReadMasterConfig(s.serverDir)
 	now := time.Now().Unix()
-	list := []clientView{}
+	list := []ClientView{}
 	if mc != nil {
 		for _, cl := range mc.Clients {
-			list = append(list, clientView{ID: cl.ID, Name: cl.Name, Profiles: nonNil(cl.Profiles), Roles: nonNil(cl.Roles),
+			list = append(list, ClientView{ID: cl.ID, Name: cl.Name, Profiles: nonNil(cl.Profiles), Roles: nonNil(cl.Roles),
 				ExpiresAt: cl.ExpiresAt, Expired: cl.ExpiresAt != 0 && cl.ExpiresAt <= now, CreatedAt: cl.CreatedAt})
 		}
 	}
@@ -109,7 +141,8 @@ func (s *Server) knownRoles() []string {
 	return nonNil(slices.Compact(roles))
 }
 
-type clientRequest struct {
+// ClientRequest makes or changes a client: all fields at once.
+type ClientRequest struct {
 	Name      string   `json:"name"`
 	Profiles  []string `json:"profiles"`
 	Roles     []string `json:"roles"`
@@ -117,7 +150,7 @@ type clientRequest struct {
 }
 
 // check validates the request; "" when it is fine.
-func (r *clientRequest) check() string {
+func (r *ClientRequest) check() string {
 	r.Name = strings.TrimSpace(r.Name)
 	switch {
 	case r.Name == "" || len(r.Name) > 60:
@@ -131,11 +164,22 @@ func (r *clientRequest) check() string {
 }
 
 // handleAPIClientCreate makes a client and answers its token, shown this once.
+//
+//	@Summary		Add an API client
+//	@Description	Makes a client and answers its token, shown this once, with its connection as JSON and as a QR code. Needs a panel password (403 auth_required) and the panel's session (the API key gets 403).
+//	@Tags			clients
+//	@Accept			json
+//	@Produce		json
+//	@Param			request	body		web.ClientRequest	true	"The client"
+//	@Success		200		{object}	web.ClientToken
+//	@Failure		400		{object}	web.APIError
+//	@Failure		403		{object}	web.APIError
+//	@Router			/api/clients [post]
 func (s *Server) handleAPIClientCreate(c *gin.Context) {
 	if !s.clientsGranting(c) {
 		return
 	}
-	var req clientRequest
+	var req ClientRequest
 	if c.ShouldBindJSON(&req) != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
 		return
@@ -169,7 +213,7 @@ func (s *Server) handleAPIClientCreate(c *gin.Context) {
 		s.local.OnIssue() // the LAN listener, if it has not started
 	}
 	resp := s.clientConnection(cl.Name, token)
-	resp["client"] = clientView{ID: cl.ID, Name: cl.Name, Profiles: cl.Profiles,
+	resp["client"] = ClientView{ID: cl.ID, Name: cl.Name, Profiles: cl.Profiles,
 		Roles: nonNil(cl.Roles), ExpiresAt: cl.ExpiresAt, CreatedAt: cl.CreatedAt}
 	c.JSON(http.StatusOK, resp)
 }
@@ -195,11 +239,24 @@ func (s *Server) clientConnection(name, token string) gin.H {
 }
 
 // handleAPIClientUpdate changes a client's name, profiles, roles and expiry (all of them).
+//
+//	@Summary		Change an API client
+//	@Description	Sets the client's name, profiles, roles and expiry, all of them; its token stays. Needs a panel password and the panel's session.
+//	@Tags			clients
+//	@Accept			json
+//	@Produce		json
+//	@Param			id		path		string				true	"Client id"
+//	@Param			request	body		web.ClientRequest	true	"The client"
+//	@Success		200		{object}	web.APIOK
+//	@Failure		400		{object}	web.APIError
+//	@Failure		403		{object}	web.APIError
+//	@Failure		404		{object}	web.APIError
+//	@Router			/api/clients/{id} [put]
 func (s *Server) handleAPIClientUpdate(c *gin.Context) {
 	if !s.clientsGranting(c) {
 		return
 	}
-	var req clientRequest
+	var req ClientRequest
 	if c.ShouldBindJSON(&req) != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
 		return
@@ -214,6 +271,16 @@ func (s *Server) handleAPIClientUpdate(c *gin.Context) {
 }
 
 // handleAPIClientRegenerate gives a client a new token; the old one stops at once.
+//
+//	@Summary		New token for an API client
+//	@Description	Gives the client a new token, shown this once with its connection and QR code; the old token stops at once, also on open connections. Needs a panel password and the panel's session.
+//	@Tags			clients
+//	@Produce		json
+//	@Param			id	path		string	true	"Client id"
+//	@Success		200	{object}	web.ClientToken
+//	@Failure		403	{object}	web.APIError
+//	@Failure		404	{object}	web.APIError
+//	@Router			/api/clients/{id}/regenerate [post]
 func (s *Server) handleAPIClientRegenerate(c *gin.Context) {
 	if !s.clientsGranting(c) {
 		return
@@ -255,6 +322,16 @@ func (s *Server) updateClient(c *gin.Context, change func(*config.APIClient), ok
 }
 
 // handleAPIClientDelete deletes a client; its token stops at once.
+//
+//	@Summary		Delete an API client
+//	@Description	Deletes the client; its token stops at once, also on open connections. Works without a panel password too, but never with the API key.
+//	@Tags			clients
+//	@Produce		json
+//	@Param			id	path		string	true	"Client id"
+//	@Success		200	{object}	web.APIOK
+//	@Failure		403	{object}	web.APIError
+//	@Failure		404	{object}	web.APIError
+//	@Router			/api/clients/{id} [delete]
 func (s *Server) handleAPIClientDelete(c *gin.Context) {
 	if !clientsAdmin(c) {
 		return

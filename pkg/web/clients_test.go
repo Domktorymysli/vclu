@@ -364,3 +364,34 @@ func TestClientConnection(t *testing.T) {
 	}
 	check(again)
 }
+
+// A client learns who it is and which dashboards its roles open: those naming one of its
+// roles, never those for every member or for roles it lacks.
+func TestClientMeAndDashboards(t *testing.T) {
+	_, r := clientsSite(t)
+	id, token := newClient(t, r, `{"name":"Zegarek","profiles":["brama"],"roles":["gosia"]}`)
+	_, bare := newClient(t, r, `{"name":"Bez ról","profiles":["brama"]}`)
+
+	me := call(r, "GET", "/api/v1/me", token, "")
+	if me.code != 200 || me.body["id"] != id || me.body["name"] != "Zegarek" || me.body["actor"] != "client:"+id ||
+		mustJSON(me.body["roles"]) != `["gosia"]` {
+		t.Errorf("me: %d %v", me.code, me.body)
+	}
+	ids := func(res clientResp) []string {
+		var out []string
+		list, _ := res.body["dashboards"].([]any)
+		for _, d := range list {
+			out = append(out, d.(map[string]any)["id"].(string))
+		}
+		return out
+	}
+	if got := ids(call(r, "GET", "/api/v1/dashboards", token, "")); mustJSON(got) != `["gosia"]` {
+		t.Errorf("dashboards with the role gosia: %v", got)
+	}
+	if res := call(r, "GET", "/api/v1/dashboards", bare, ""); res.code != 200 || len(ids(res)) != 0 {
+		t.Errorf("dashboards without roles: %d %v", res.code, res.body)
+	}
+	if res := call(r, "GET", "/api/v1/me", "", ""); res.code != 401 {
+		t.Errorf("me without a token: %d", res.code)
+	}
+}
