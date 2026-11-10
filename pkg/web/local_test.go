@@ -408,3 +408,28 @@ func TestLocalSocketEndsWithToken(t *testing.T) {
 	s.local.SetMembers(members(3, "member"))
 	closedWith(home, liveCloseDenied)
 }
+
+// Unpairing ends the app's local tokens at once, and the next pairing's first members list is
+// taken whatever its version (another home counts from 1 again).
+func TestLocalAccessRevoke(t *testing.T) {
+	la := newLocal(t, t.TempDir())
+	la.SetMembers(members(40, "owner", install12))
+	g, err := la.Issue("cloud:12", install12)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, ok := la.Viewer(g.Token); !ok {
+		t.Fatal("token not working before")
+	}
+	la.Revoke()
+	if _, _, _, ok := la.Viewer(g.Token); ok {
+		t.Error("token works after Revoke")
+	}
+	if _, _, known := la.MemberRoles("cloud:12"); known {
+		t.Error("members still known after Revoke")
+	}
+	la.SetMembers(members(1, "member", install12))
+	if _, member, known := la.MemberRoles("cloud:12"); !known || !member {
+		t.Error("the new pairing's first list (version 1) was not taken")
+	}
+}

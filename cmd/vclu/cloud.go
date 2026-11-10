@@ -256,3 +256,11 @@ func cloudMembers(la *web.LocalAccess) func(proto.Members) {
 	}
 	return la.SetMembers
 }
+
+// cloudForgotten ends the app's local tokens with the pairing they came from.
+func cloudForgotten(la *web.LocalAccess) func() {
+	if la == nil {
+		return nil
+	}
+	return la.Revoke
+}

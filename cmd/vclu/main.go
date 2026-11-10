@@ -361,6 +361,7 @@ func main() {
 		Tunnel:       webSrv.TunnelHandler(),
 		Dashboards:   cloudDashboards(luaEngine),
 		Members:      cloudMembers(localAccess),
+		Forgotten:    cloudForgotten(localAccess),
 		Objects:      cloudObjects(luaEngine),
 		Command:      cloudCommand(luaEngine),
 		States:       cloudStates(luaEngine),

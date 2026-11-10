@@ -306,8 +306,11 @@ local ACTIONS = {
     cover = { open = true, close = true, stop = true, set = true },
     scene = { execute = true },
 }
-local PIN_TRIES, PIN_WAIT_MS = 5, 30000
-local pinFails = {} -- path -> { n = wrong PINs in a row, untilMs = locked until }
+-- Five wrong PINs in a row lock the device, for 30 s, then twice as long each time, up to an
+-- hour: a 4-digit PIN would otherwise fall to a few hundred guesses an hour. The right PIN
+-- clears it all.
+local PIN_TRIES, PIN_WAIT_MS, PIN_WAIT_MAX_MS = 5, 30000, 3600000
+local pinFails = {} -- path -> { n = wrong PINs in a row, locks = locks so far, untilMs = locked until }
 
 -- The clock the cloud client computed the deadline with (Go's wall clock)
 local function wallMs()
@@ -401,9 +404,13 @@ local function command(h, path, access, action, confirmed, pin, deadlineMs, valu
             return answer(false, 'pin_required', 'Podaj PIN.')
         end
         if tostring(pin) ~= h._pin then
-            f = f or { n = 0 }
+            f = f or { n = 0, locks = 0 }
             f.n, f.untilMs = f.n + 1, nil
-            if f.n >= PIN_TRIES then f.n, f.untilMs = 0, wallMs() + PIN_WAIT_MS end
+            if f.n >= PIN_TRIES then
+                local wait = math.min(PIN_WAIT_MS * 2 ^ f.locks, PIN_WAIT_MAX_MS)
+                f.n, f.locks, f.untilMs = 0, f.locks + 1, wallMs() + wait
+                log():warn('[CLOUD] %s: %d wrong PINs in a row, locked for %d s', tostring(path), PIN_TRIES, math.floor(wait / 1000))
+            end
             pinFails[path] = f
             return answer(false, 'pin_wrong', 'Zły PIN.')
         end

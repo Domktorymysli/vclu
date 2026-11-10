@@ -250,3 +250,17 @@ func TestCloudPageMetricsTab(t *testing.T) {
 		}
 	}
 }
+
+// The pairing code is for the person pairing: the API key gets the status without it.
+func TestCloudStatusHidesPairingCodeFromAPIKey(t *testing.T) {
+	st := cloud.Status{State: cloud.StatePairing, Pairing: &cloud.Pairing{UserCode: "KXQF-7MPA", VerifyURL: "https://cloud/pair", VerifyURLFull: "https://cloud/pair?code=KXQF-7MPA"}}
+	if got := statusFor(st, true); got.Pairing.UserCode != "" || got.Pairing.VerifyURLFull != "" || got.Pairing.VerifyURL == "" {
+		t.Errorf("API key sees %+v", got.Pairing)
+	}
+	if got := statusFor(st, false); got.Pairing.UserCode != "KXQF-7MPA" {
+		t.Errorf("a session sees %+v", got.Pairing)
+	}
+	if st.Pairing.UserCode != "KXQF-7MPA" {
+		t.Error("the client's own status was changed")
+	}
+}

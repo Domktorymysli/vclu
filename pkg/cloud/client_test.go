@@ -663,3 +663,34 @@ func TestDashboardsWatched(t *testing.T) {
 		}
 	}
 }
+
+// Pairing and unpairing end what rested on the old pairing (Forgotten: the app's local
+// tokens) and keep the LAN listener's port, also when it is off (-1).
+func TestPairingKeepsLocalPortAndForgets(t *testing.T) {
+	f := newFakeCloud(t)
+	c, dir := newTestClient(t, f)
+	var forgotten atomic.Int32
+	c.opts.Forgotten = func() { forgotten.Add(1) }
+	if err := config.UpdateMasterConfig(dir, func(cfg *config.VCLUConfig) error { cfg.Cloud.LocalPort = -1; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	port := func() int {
+		cfg, _ := config.ReadMasterConfig(dir)
+		return cfg.Cloud.LocalPort
+	}
+	if _, err := c.Pair(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	f.decide("approve")
+	f.nextConn(t)
+	waitState(t, c, StateOnline)
+	if forgotten.Load() != 1 || port() != -1 {
+		t.Errorf("after pairing: forgotten %d, localPort %d", forgotten.Load(), port())
+	}
+	if err := c.Unpair(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if forgotten.Load() != 2 || port() != -1 {
+		t.Errorf("after unpairing: forgotten %d, localPort %d", forgotten.Load(), port())
+	}
+}

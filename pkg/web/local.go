@@ -138,6 +138,17 @@ func (a *LocalAccess) SetMembers(m proto.Members) {
 	a.save()
 }
 
+// Revoke ends local access with the pairing it rested on (cloud.Options.Forgotten): every
+// token and the members list go, and the next pairing's first list is taken whatever its
+// version.
+func (a *LocalAccess) Revoke() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.tokens = map[string]localTokenRec{}
+	a.members = proto.Members{}
+	a.save()
+}
+
 // CloudSeen notes that the cloud connection works (vCLU just sent it a health report). Saved at
 // most hourly: it only has to be right to within a fraction of cloudSilence.
 func (a *LocalAccess) CloudSeen() {

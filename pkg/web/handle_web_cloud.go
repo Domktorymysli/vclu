@@ -122,7 +122,18 @@ func (s *Server) handleAPICloudStatus(c *gin.Context) {
 	if !s.cloudReady(c) {
 		return
 	}
-	c.JSON(http.StatusOK, s.cloudClient.Status())
+	c.JSON(http.StatusOK, statusFor(s.cloudClient.Status(), c.GetString("auth_method") == "apikey"))
+}
+
+// statusFor is the cloud's status as the requester may see it: the pairing code attaches this
+// house to whoever enters it first, so only a person (cloudAdmin) sees it, never the API key.
+func statusFor(st cloud.Status, apiKey bool) cloud.Status {
+	if st.Pairing != nil && apiKey {
+		p := *st.Pairing
+		p.UserCode, p.VerifyURLFull = "", ""
+		st.Pairing = &p
+	}
+	return st
 }
 
 func (s *Server) handleAPICloudPair(c *gin.Context) {

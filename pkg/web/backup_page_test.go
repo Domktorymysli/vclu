@@ -1,6 +1,7 @@
 package web
 
 import (
+	"archive/zip"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -84,5 +85,35 @@ func TestBackupPageOneRequestPerClick(t *testing.T) {
 		if n := count(c.scenario, c.request); n != 1 {
 			t.Errorf("%s: %d x %s, want 1 (requests %v)", c.scenario, n, c.request, got[c.scenario])
 		}
+	}
+}
+
+// A backup leaves out the LAN listener's certificate and key: with them it could stand in for
+// this vCLU on the LAN. Everything else is in it.
+func TestBackupLeavesOutLANCertificate(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "clu")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{localKeyFile, localCertFile, localStateFile, "init.lua"} {
+		if err := os.WriteFile(filepath.Join(dir, f), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	zipPath := filepath.Join(t.TempDir(), "b.zip")
+	if err := createBackupZip(zipPath, dir); err != nil {
+		t.Fatal(err)
+	}
+	zr, err := zip.OpenReader(zipPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer zr.Close()
+	got := map[string]bool{}
+	for _, f := range zr.File {
+		got[filepath.Base(f.Name)] = true
+	}
+	if got[localKeyFile] || got[localCertFile] || !got[localStateFile] || !got["init.lua"] {
+		t.Errorf("backup has %v", got)
 	}
 }

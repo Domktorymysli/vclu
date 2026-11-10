@@ -43,6 +43,7 @@ func newTunnel(t *testing.T) (tunnel, lan http.Handler, engine *lua.LuaEngine) {
 	dashCache.Invalidate()
 	actionLimiter = &rateLimiter{buckets: make(map[string]*bucket), rate: 100, burst: 100}
 	pinLimiter = &rateLimiter{buckets: make(map[string]*bucket), rate: 1, burst: 5}
+	dashPinLocks = newPinLocks()
 	engine = lua.NewLuaEngine()
 	t.Cleanup(engine.Close)
 	if _, err := engine.Execute(tunnelDashboards); err != nil {

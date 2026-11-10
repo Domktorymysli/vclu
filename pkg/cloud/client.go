@@ -97,6 +97,10 @@ type Options struct {
 	// 6a). With Tunnel serving proto.PathLocalToken it offers local tokens
 	// for the app on the LAN, which the lists keep valid.
 	Members func(proto.Members)
+	// Forgotten is called once vCLU drops a pairing: unpaired here, revoked by the cloud, or
+	// replaced by a new one. What rests on the cloud's members (local tokens for the app) must
+	// end with it, not with the next list or a week of silence.
+	Forgotten func()
 	// Objects lists the devices exposed with :remote() in Lua, for the snapshot message after
 	// welcome and after ObjectsChanged (protocol section 5). Called on its own goroutine.
 	Objects func() ([]proto.Object, error)
@@ -344,7 +348,7 @@ func (c *Client) Pair(ctx context.Context) (Status, error) {
 			ExpiresAt: time.Now().Add(time.Duration(start.ExpiresIn) * time.Second),
 		}}
 	})
-	log.Printf("[Cloud] pairing started, code %s at %s", start.UserCode, start.VerifyURL)
+	log.Printf("[Cloud] pairing started at %s", start.VerifyURL) // never the code: the log is readable with the API key
 	c.launch(func(ctx context.Context) {
 		if c.waitForApproval(ctx, base, start) {
 			c.run(ctx)
@@ -491,16 +495,20 @@ func (c *Client) waitForApproval(ctx context.Context, base string, start proto.P
 
 func (c *Client) paired(base string, res proto.PairPollResponse) error {
 	err := config.UpdateMasterConfig(c.opts.Dir, func(cfg *config.VCLUConfig) error {
-		url := ""
+		url, port := "", 0
 		if cfg.Cloud != nil {
-			url = cfg.Cloud.URL
+			url, port = cfg.Cloud.URL, cfg.Cloud.LocalPort
 		}
 		cfg.Cloud = &config.VCLUCloudConfig{
 			URL: url, DeviceID: res.DeviceID, Token: res.DeviceToken, ConnectURL: res.ConnectURL,
 			HomeID: res.HomeID, HomeName: res.HomeName, PairedAt: time.Now().UTC().Format(time.RFC3339),
+			LocalPort: port,
 		}
 		return nil
 	})
+	if err == nil && c.opts.Forgotten != nil {
+		c.opts.Forgotten() // the old pairing's members are not the new home's
+	}
 	if err != nil {
 		c.setStatus(func(s *Status) { s.State, s.Pairing, s.Error = StateOff, nil, "could not save the token: "+err.Error() })
 		return err
@@ -1028,16 +1036,20 @@ func (c *Client) config() config.VCLUCloudConfig {
 	return *cfg.Cloud
 }
 
-// forget deletes the token, keeping the cloud address.
+// forget deletes the token, keeping the cloud address and the LAN listener's port, and ends
+// what rested on the pairing (Options.Forgotten).
 func (c *Client) forget(reason string) error {
 	err := config.UpdateMasterConfig(c.opts.Dir, func(cfg *config.VCLUConfig) error {
 		if cfg.Cloud != nil {
-			cfg.Cloud = &config.VCLUCloudConfig{URL: cfg.Cloud.URL}
+			cfg.Cloud = &config.VCLUCloudConfig{URL: cfg.Cloud.URL, LocalPort: cfg.Cloud.LocalPort}
 		}
 		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("cloud: deleting the token: %w", err)
+	}
+	if c.opts.Forgotten != nil {
+		c.opts.Forgotten()
 	}
 	c.setStatus(func(s *Status) {
 		*s = Status{State: StateOff, URL: s.URL, Since: time.Now(), Error: reason}

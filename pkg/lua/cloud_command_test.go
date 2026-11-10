@@ -351,3 +351,53 @@ func mustJSONOut(t *testing.T, engine *LuaEngine, script string, v any) {
 		t.Fatal(err)
 	}
 }
+
+// Contract: each lock after five wrong PINs lasts twice the last, up to an hour, so guessing a
+// 4-digit PIN takes weeks, not hours; the right PIN clears it all.
+func TestPinLockGrows(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+	c := commander{t, engine}
+	mustExec(t, engine, commandDevices+`
+	NOW = 1800000000000
+	__go_cloud_now_ms = function() return NOW end`)
+	wrong5 := func() {
+		t.Helper()
+		for i := 0; i < 5; i++ {
+			if a := c.runBy("vclu:safe", "on", "[]", false, "1111", 9e15); a.Reason != "pin_wrong" {
+				t.Fatalf("wrong PIN %d = %+v", i+1, a)
+			}
+		}
+	}
+	try := func() cmdAnswer { t.Helper(); return c.runBy("vclu:safe", "on", "[]", false, "0420", 9e15) }
+	at := func(ms int64) { t.Helper(); mustExec(t, engine, fmt.Sprintf("NOW = NOW + %d", ms)) }
+
+	wrong5()
+	if a := try(); a.Reason != "rate_limited" {
+		t.Fatalf("first lock = %+v", a)
+	}
+	at(31_000)
+	wrong5() // the lock is over: five more
+	at(31_000)
+	if a := try(); a.Reason != "rate_limited" {
+		t.Errorf("second lock after 31 s = %+v, want still locked (60 s)", a)
+	}
+	at(30_000)
+	if a := try(); !a.OK {
+		t.Errorf("after 61 s, the right PIN = %+v", a)
+	}
+	// cleared: the next lock is 30 s again
+	wrong5()
+	at(31_000)
+	if a := try(); !a.OK {
+		t.Errorf("after the right PIN the lock starts at 30 s again = %+v", a)
+	}
+	// it stops growing at an hour
+	for i := 0; i < 10; i++ {
+		wrong5()
+		at(3_600_001)
+	}
+	if a := try(); !a.OK {
+		t.Errorf("an hour after the tenth lock = %+v", a)
+	}
+}
