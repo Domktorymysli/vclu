@@ -30,6 +30,9 @@
             clients = data.clients || [];
             roles = data.roles || [];
             lan = data.lan || null;
+            // no panel password: anyone on the network could give themselves a client
+            document.getElementById('clientsAuthRequired').style.display = data.authEnabled ? 'none' : '';
+            document.getElementById('btnAddClient').disabled = !data.authEnabled;
             render();
         });
         api('GET', '/api/access/profiles').then(function(data) {

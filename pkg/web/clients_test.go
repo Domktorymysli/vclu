@@ -54,6 +54,10 @@ func clientsSite(t *testing.T) (*Server, *gin.Engine) {
 	}
 	s := &Server{serverDir: t.TempDir(), sessions: newSessionStore(), luaExecutor: engine, accessManager: am,
 		calendarLimiter: newCalendarLimiter(), live: newLiveFeeds()}
+	// clients are given only by a panel with a password (clientsGranting)
+	if err := config.SaveAuth(s.serverDir, "admin", "password1"); err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(s.live.shutdown)
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -308,8 +312,8 @@ func TestClientsPage(t *testing.T) {
 	r.GET("/clients", s.handleClientsPage)
 	// a missing key renders as nothing (index .t), so look for texts from each part of the page
 	texts := map[string][]string{
-		"pl": {"<title>Klienci API", "Dodaj klienta", "Profile dostępu", "Skopiuj teraz"},
-		"en": {"<title>API clients", "Add client", "Access profiles", "Copy it now"},
+		"pl": {"<title>Klienci API", "Dodaj klienta", "Profile dostępu", "Skopiuj teraz", "Zarządzaj profilami", "Ustaw hasło panelu"},
+		"en": {"<title>API clients", "Add client", "Access profiles", "Copy it now", "Manage profiles", "Set the panel password"},
 	}
 	for lang, want := range texts {
 		w := httptest.NewRecorder()

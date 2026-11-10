@@ -41,6 +41,19 @@ func clientsAdmin(c *gin.Context) bool {
 	return true
 }
 
+// clientsGranting answers 403 while the panel has no password: anyone on the network could open
+// it and give themselves a client with any profiles and roles. Listing and deleting stay open.
+func (s *Server) clientsGranting(c *gin.Context) bool {
+	if !clientsAdmin(c) {
+		return false
+	}
+	if !config.IsAuthEnabled(s.serverDir) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Set a panel password first", "code": "auth_required"})
+		return false
+	}
+	return true
+}
+
 type clientView struct {
 	ID        string   `json:"id"`
 	Name      string   `json:"name"`
@@ -65,7 +78,7 @@ func (s *Server) handleAPIClients(c *gin.Context) {
 				ExpiresAt: cl.ExpiresAt, Expired: cl.ExpiresAt != 0 && cl.ExpiresAt <= now, CreatedAt: cl.CreatedAt})
 		}
 	}
-	resp := gin.H{"clients": list, "roles": s.knownRoles()}
+	resp := gin.H{"clients": list, "roles": s.knownRoles(), "authEnabled": config.IsAuthEnabled(s.serverDir)}
 	if s.local != nil {
 		resp["lan"] = gin.H{"addresses": s.local.addresses(s.local.port), "pin": s.local.Pin()}
 	}
@@ -119,7 +132,7 @@ func (r *clientRequest) check() string {
 
 // handleAPIClientCreate makes a client and answers its token, shown this once.
 func (s *Server) handleAPIClientCreate(c *gin.Context) {
-	if !clientsAdmin(c) {
+	if !s.clientsGranting(c) {
 		return
 	}
 	var req clientRequest
@@ -183,7 +196,7 @@ func (s *Server) clientConnection(name, token string) gin.H {
 
 // handleAPIClientUpdate changes a client's name, profiles, roles and expiry (all of them).
 func (s *Server) handleAPIClientUpdate(c *gin.Context) {
-	if !clientsAdmin(c) {
+	if !s.clientsGranting(c) {
 		return
 	}
 	var req clientRequest
@@ -202,7 +215,7 @@ func (s *Server) handleAPIClientUpdate(c *gin.Context) {
 
 // handleAPIClientRegenerate gives a client a new token; the old one stops at once.
 func (s *Server) handleAPIClientRegenerate(c *gin.Context) {
-	if !clientsAdmin(c) {
+	if !s.clientsGranting(c) {
 		return
 	}
 	token, err := newClientToken()

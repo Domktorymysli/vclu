@@ -340,3 +340,31 @@ func TestClientBadTokenFlood(t *testing.T) {
 		t.Errorf("a client from another address: %d", res.code)
 	}
 }
+
+// Without a panel password nobody gives clients: anyone on the network could open the panel.
+// The list says so, and an existing client can still be deleted.
+func TestClientsNeedAPanelPassword(t *testing.T) {
+	s, r := clientsSite(t)
+	id, _ := newClient(t, r, `{"name":"CLI","profiles":["podglad"]}`)
+	if err := config.UpdateMasterConfig(s.serverDir, func(mc *config.VCLUConfig) error { mc.Auth = nil; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if config.IsAuthEnabled(s.serverDir) {
+		t.Fatal("auth still on")
+	}
+	for _, p := range []struct{ method, path, body string }{
+		{"POST", "/api/clients", `{"name":"Intruz","profiles":["wszystko"],"roles":["owner"]}`},
+		{"PUT", "/api/clients/" + id, `{"name":"CLI","profiles":["wszystko"]}`},
+		{"POST", "/api/clients/" + id + "/regenerate", ""},
+	} {
+		if res := call(r, p.method, p.path, "", p.body, "X-Test-Auth", "session"); res.code != http.StatusForbidden || res.body["code"] != "auth_required" {
+			t.Errorf("%s %s without a panel password: %d %v", p.method, p.path, res.code, res.body)
+		}
+	}
+	if res := call(r, "GET", "/api/clients", "", "", "X-Test-Auth", "session"); res.code != 200 || res.body["authEnabled"] != false {
+		t.Errorf("the list without a password: %d %v", res.code, res.body["authEnabled"])
+	}
+	if res := call(r, "DELETE", "/api/clients/"+id, "", "", "X-Test-Auth", "session"); res.code != 200 {
+		t.Errorf("delete without a password: %d", res.code)
+	}
+}
