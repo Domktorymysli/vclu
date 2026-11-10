@@ -33,7 +33,7 @@ func (s *Server) TunnelHandler() http.Handler {
 		r.HTMLRender = s.router.HTMLRender // the dashboard and PIN pages
 	}
 	r.UseRawPath, r.UnescapePathValues = true, true
-	r.Use(gin.Recovery(), tunnelViewer, staticCache)
+	r.Use(gin.Recovery(), s.tunnelViewer, staticCache)
 	r.POST(proto.PathLocalToken, s.handleLocalToken)
 	s.remoteRoutes(r)
 	return r
@@ -58,12 +58,25 @@ func (s *Server) remoteRoutes(r *gin.Engine) {
 }
 
 // tunnelViewer takes the person from the cloud's headers; a request without a valid one is
-// not the cloud's and gets nothing.
-func tunnelViewer(c *gin.Context) {
+// not the cloud's and gets nothing. A dashboard's :roles() are checked here too, with the
+// person's roles from the members list, as on the LAN: the cloud checked them already, but the
+// house does not take its word for it. Without a members list (no LAN access) the cloud's
+// check is the only one.
+func (s *Server) tunnelViewer(c *gin.Context) {
 	actor, role := c.GetHeader(proto.HeaderActor), c.GetHeader(proto.HeaderRole)
 	if !remoteActorRe.MatchString(actor) || !remoteRoles[role] {
 		c.AbortWithStatus(http.StatusNotFound)
 		return
+	}
+	if id := dashboardOfPath(c.Request.URL.Path); id != "" && s.local != nil {
+		roles, member, known := s.local.MemberRoles(actor)
+		if known {
+			dr, listed := s.remoteDashboardRoles(id)
+			if !member || !listed || !rolesAllow(dr, roles) {
+				c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Dashboard not found"})
+				return
+			}
+		}
 	}
 	c.Set(ctxRemoteActor, actor)
 	c.Set(ctxRemoteRole, role)

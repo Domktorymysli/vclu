@@ -280,3 +280,45 @@ func TestTunnelSocket(t *testing.T) {
 		t.Errorf("another person through the same address: %v", err)
 	}
 }
+
+// With a members list the house checks a dashboard's roles through the tunnel too: the cloud's
+// word that someone may open it is not enough.
+func TestTunnelDashboardRoles(t *testing.T) {
+	dashCache.Invalidate()
+	engine := lua.NewLuaEngine()
+	t.Cleanup(engine.Close)
+	if _, err := engine.Execute(tunnelDashboards); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{serverDir: t.TempDir(), sessions: newSessionStore(), luaExecutor: engine, calendarLimiter: newCalendarLimiter(), live: newLiveFeeds()}
+	t.Cleanup(s.live.shutdown)
+	gin.SetMode(gin.TestMode)
+	tunnel := s.TunnelHandler()
+
+	// no members list (no LAN access): the cloud's check is the only one
+	if r := do(tunnel, "GET", "/api/dashboard/gosia", "member", ""); r.code != http.StatusOK {
+		t.Errorf("without a members list = %d", r.code)
+	}
+	s.SetLocalAccess(newLocal(t, t.TempDir()))
+	s.local.SetMembers(members(1, "member"))
+	if r := do(tunnel, "GET", "/api/dashboard/gosia", "member", ""); r.code != http.StatusNotFound {
+		t.Errorf("without the role = %d", r.code)
+	}
+	if r := do(tunnel, "GET", "/api/dashboard/home", "member", ""); r.code != http.StatusOK {
+		t.Errorf("a dashboard naming no roles = %d", r.code)
+	}
+	withRole := members(2, "member")
+	withRole.Members[0].Roles = []string{"gosia"}
+	s.local.SetMembers(withRole)
+	if r := do(tunnel, "GET", "/api/dashboard/gosia", "member", ""); r.code != http.StatusOK {
+		t.Errorf("with the role = %d", r.code)
+	}
+	// someone the list does not name
+	s.local.SetMembers(proto.Members{Type: proto.TypeMembers, Version: 3})
+	if r := do(tunnel, "GET", "/api/dashboard/home", "member", ""); r.code != http.StatusNotFound {
+		t.Errorf("not in the members list = %d", r.code)
+	}
+	if r := do(tunnel, "GET", "/static/css/dashboard.css", "member", ""); r.code == http.StatusNotFound && strings.Contains(r.raw, "Dashboard not found") {
+		t.Error("a path that is no dashboard's was checked")
+	}
+}

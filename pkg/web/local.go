@@ -170,6 +170,22 @@ func (a *LocalAccess) MemberName(actor string) string {
 	return ""
 }
 
+// MemberRoles are the home's own roles of actor in the cloud's members list; known is false
+// while no list came, and then nothing is known about anyone.
+func (a *LocalAccess) MemberRoles(actor string) (roles []string, member, known bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.members.Version == 0 {
+		return nil, false, false
+	}
+	for _, m := range a.members.Members {
+		if m.User == actor {
+			return slices.Clone(m.Roles), true, true
+		}
+	}
+	return nil, false, true
+}
+
 // listed returns the role and the home's own roles of t's person while the members list names
 // them and t's app. mu held.
 func (a *LocalAccess) listed(t localTokenRec) (string, []string, bool) {
