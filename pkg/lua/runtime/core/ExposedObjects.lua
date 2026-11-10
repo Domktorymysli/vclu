@@ -136,7 +136,9 @@ function ExposedHandle:description(d)
     return self
 end
 
--- vclu cloud: devices a member may see and command from the app (:remote(), :roles(), :pin()).
+-- vclu cloud: devices a member may see and command from the app (:remote(), :roles()), and the
+-- guards a device holds on every way its commands come in (:pin(), :confirm(): the cloud, voice and
+-- API clients, Cloud.lua's command).
 -- Kept on the handle, not in options: options are merged by a re-expose and by update(),
 -- which would skip the checks below. The PIN never leaves the handle.
 local REMOTE_KEYS = { confirm = true, pin = true, readonly = true }
@@ -203,7 +205,7 @@ function ExposedHandle:roles(...)
     return self
 end
 
---- The PIN a remote command needs with :remote({pin = true}): 4 to 8 digits, as a string ("0420") or a number. It stays in vCLU: the cloud and the app never see it. A device with remote{pin = true} and no PIN is not offered at all.
+--- The PIN each command needs, from the cloud's app, by voice or from an API client: 4 to 8 digits, as a string ("0420") or a number. It stays in vCLU: the cloud, the app and the clients never see it. :remote({pin = true}) says the same and needs it: a device with remote{pin = true} and no PIN is not offered at all. Five wrong PINs in a row lock the device for 30 s.
 -- @param p string The PIN
 -- @return ExposedHandle self for chaining
 -- @api public
@@ -219,6 +221,18 @@ function ExposedHandle:pin(p)
         error('expose:pin: the PIN is 4 to 8 digits', 2)
     end
     self._pin = s
+    changed()
+    return self
+end
+
+--- Each command needs a confirmation, from the cloud's app, by voice or from an API client (confirmed: true): the person or the program says yes first. :confirm(false) takes it back; :remote({confirm = true}) says the same for the cloud's way in.
+-- @param on boolean Optional: false takes it back
+-- @return ExposedHandle self for chaining
+-- @api public
+function ExposedHandle:confirm(on)
+    if self._hidden then return self end
+    if on ~= nil and type(on) ~= 'boolean' then error('expose:confirm: expects nothing, true or false', 2) end
+    self._confirm = on ~= false
     changed()
     return self
 end
@@ -832,14 +846,25 @@ function ExposedObjects:_remoteHandle(path)
     return h
 end
 
--- The access a remote viewer gets: readonly, pin, confirm or full (proto.Object.Access)
-function ExposedObjects._remoteAccess(h)
-    local r = h._remote
+-- What each command on h needs, whichever way it comes in: the PIN (:pin(), or remote{pin = true},
+-- which needs one) and a confirmation (:confirm() or remote{confirm = true})
+function ExposedObjects._guards(h)
+    local r = h._remote or {}
+    return h._pin ~= nil or r.pin == true, h._confirm == true or r.confirm == true
+end
+
+-- The access a remote viewer or an API client gets: readonly, pin, confirm or full
+-- (proto.Object.Access)
+function ExposedObjects._deviceAccess(h)
+    local r = h._remote or {}
     if r.readonly or h.options.readonly then return 'readonly' end
-    if r.pin then return 'pin' end
-    if r.confirm then return 'confirm' end
+    local pin, confirm = ExposedObjects._guards(h)
+    if pin then return 'pin' end
+    if confirm then return 'confirm' end
     return 'full'
 end
+
+ExposedObjects._remoteAccess = ExposedObjects._deviceAccess
 
 -- What a client of the device API reaches (Cloud._clientCommand): any exposed device; one with
 -- remote{pin = true} only once it has a PIN, as for the cloud
@@ -850,12 +875,6 @@ function ExposedObjects:_deviceHandle(path)
     return h
 end
 
--- The access of a device for a client: :remote()'s, with its PIN and confirmation, when it has
--- one, else readonly or full
-function ExposedObjects._deviceAccess(h)
-    if h._remote then return ExposedObjects._remoteAccess(h) end
-    return h.options.readonly and 'readonly' or 'full'
-end
 
 local function plainString(v)
     if type(v) == 'string' then return v end

@@ -15,7 +15,7 @@ Only public API is listed — internal/private functions are omitted.
 - [objects.VirtualObject](#objectsvirtualobject) (12 functions)
 - [objects.VirtualThermostat](#objectsvirtualthermostat) (12 functions)
 - [objects.VirtualPresence](#objectsvirtualpresence) (8 functions)
-- [ExposedObjects](#exposedobjects) (24 functions)
+- [ExposedObjects](#exposedobjects) (25 functions)
 - [core.Registry](#coreregistry) (10 functions)
 - [core.Metrics](#coremetrics) (1 functions)
 - [core.Calendar](#corecalendar) (39 functions)
@@ -828,9 +828,17 @@ Who reaches the remote device in vclu cloud: people given one of these roles the
 
 ### `ExposedHandle:pin(p) → ExposedHandle self for chaining`
 
-The PIN a remote command needs with :remote({pin = true}): 4 to 8 digits, as a string ("0420") or a number. It stays in vCLU: the cloud and the app never see it. A device with remote{pin = true} and no PIN is not offered at all.
+The PIN each command needs, from the cloud's app, by voice or from an API client: 4 to 8 digits, as a string ("0420") or a number. It stays in vCLU: the cloud, the app and the clients never see it. :remote({pin = true}) says the same and needs it: a device with remote{pin = true} and no PIN is not offered at all. Five wrong PINs in a row lock the device for 30 s.
 
 - `p` (string) — The PIN
+
+**Returns:** ExposedHandle self for chaining
+
+### `ExposedHandle:confirm(on) → ExposedHandle self for chaining`
+
+Each command needs a confirmation, from the cloud's app, by voice or from an API client (confirmed: true): the person or the program says yes first. :confirm(false) takes it back; :remote({confirm = true}) says the same for the cloud's way in.
+
+- `on` (boolean) — Optional: false takes it back
 
 **Returns:** ExposedHandle self for chaining
 

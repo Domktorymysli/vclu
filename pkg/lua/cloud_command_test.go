@@ -278,3 +278,76 @@ func TestCloudCommandSetsLevels(t *testing.T) {
 		t.Errorf("a refused level moved the cover to %s", v)
 	}
 }
+
+// Contract: a device's PIN (:pin()) and confirmation (:confirm()) guard every way its commands
+// come in, the cloud's and an API client's (Cloud._clientCommand), without remote{pin} or
+// remote{confirm}; the lists say so in access.
+func TestDeviceGuardsEveryWayIn(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+	c := commander{t, engine}
+	mustExec(t, engine, commandDevices+`
+	expose(base(), "switch", { id = "brama" }):pin("0420"):remote()
+	expose(base(), "switch", { id = "piec" }):confirm():remote()
+	expose(base(), "switch", { id = "lan" }):pin("1357")
+	expose(base(), "switch", { id = "lan2" }):confirm()
+	expose(base(), "switch", { id = "off" }):confirm():confirm(false):remote()
+	`)
+	client := func(path, action, level string, confirmed bool, pin string) cmdAnswer {
+		t.Helper()
+		out, err := engine.CallAs("client", "client:1", "", "Cloud._clientCommand", path, action, level, confirmed, pin,
+			float64(time.Now().Add(time.Minute).UnixMilli()), -1.0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var a cmdAnswer
+		if err := json.Unmarshal([]byte(out), &a); err != nil {
+			t.Fatal(err)
+		}
+		return a
+	}
+
+	if a := c.run("vclu:brama", "on", "[]", false, ""); a.Reason != "pin_required" {
+		t.Errorf("cloud, :pin() alone = %+v", a)
+	}
+	if a := c.run("vclu:brama", "on", "[]", false, "0420"); !a.OK {
+		t.Errorf("cloud, the PIN = %+v", a)
+	}
+	if a := c.run("vclu:piec", "on", "[]", false, ""); a.Reason != "confirm" {
+		t.Errorf("cloud, :confirm() alone = %+v", a)
+	}
+	if a := c.run("vclu:off", "on", "[]", false, ""); !a.OK {
+		t.Errorf(":confirm(false) = %+v", a)
+	}
+	if a := client("vclu:lan", "on", "full", false, ""); a.Reason != "pin_required" {
+		t.Errorf("API client, :pin() without :remote() = %+v", a)
+	}
+	if a := client("vclu:lan", "on", "full", false, "1357"); !a.OK {
+		t.Errorf("API client, the PIN = %+v", a)
+	}
+	if a := client("vclu:lan2", "on", "full", false, ""); a.Reason != "confirm" {
+		t.Errorf("API client, :confirm() = %+v", a)
+	}
+	if a := client("vclu:lan2", "on", "full", true, ""); !a.OK {
+		t.Errorf("API client, confirmed = %+v", a)
+	}
+
+	var remote, all []struct{ Path, Access string }
+	mustJSONOut(t, engine, `JSON.encode(ExposedObjects:remoteList())`, &remote)
+	mustJSONOut(t, engine, `JSON.encode(ExposedObjects:deviceList())`, &all)
+	want := map[string]string{"vclu:brama": "pin", "vclu:piec": "confirm", "vclu:lan": "pin", "vclu:lan2": "confirm", "vclu:off": "full"}
+	for _, list := range [][]struct{ Path, Access string }{remote, all} {
+		for _, d := range list {
+			if w, ok := want[d.Path]; ok && d.Access != w {
+				t.Errorf("%s access %q, want %q", d.Path, d.Access, w)
+			}
+		}
+	}
+}
+
+func mustJSONOut(t *testing.T, engine *LuaEngine, script string, v any) {
+	t.Helper()
+	if err := json.Unmarshal([]byte(mustExec(t, engine, script)), v); err != nil {
+		t.Fatal(err)
+	}
+}

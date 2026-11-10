@@ -38,6 +38,9 @@ func clientsSite(t *testing.T) (*Server, *gin.Engine) {
 			_:sync("CLU1." .. o[1], 0)
 		end
 		h["sejf"]:pin("0420"):remote({ pin = true })
+		local g = RemoteSwitch:new({ executeNoReply = function() end }, "DOU4", "DOU4")
+		registerObject("CLU1.DOU4", g)
+		expose(g, "switch", { path = "furtka" }):pin("2468") -- no :remote(): the PIN still holds
 	`); err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +141,7 @@ func TestClientDeviceAPI(t *testing.T) {
 	if got := devicePaths(call(r, "GET", "/api/v1/devices", gate, "")); len(got) != 2 || got["brama.glowna"] != "full" || got["sejf"] != "pin" {
 		t.Errorf("gate client's devices: %v", got)
 	}
-	if got := devicePaths(call(r, "GET", "/api/v1/devices", viewer, "")); len(got) != 3 || got["salon.lampa"] != "readonly" || got["sejf"] != "readonly" {
+	if got := devicePaths(call(r, "GET", "/api/v1/devices", viewer, "")); len(got) != 4 || got["salon.lampa"] != "readonly" || got["sejf"] != "readonly" {
 		t.Errorf("viewer's devices: %v", got)
 	}
 	if res := call(r, "GET", "/api/v1/devices", nothing, ""); res.code != 200 || len(devicePaths(res)) != 0 {
@@ -393,5 +396,20 @@ func TestClientMeAndDashboards(t *testing.T) {
 	}
 	if res := call(r, "GET", "/api/v1/me", "", ""); res.code != 401 {
 		t.Errorf("me without a token: %d", res.code)
+	}
+}
+
+// A device's PIN holds for API clients without :remote(): :pin() guards every way in.
+func TestClientPinWithoutRemote(t *testing.T) {
+	_, r := clientsSite(t)
+	_, token := newClient(t, r, `{"name":"CLI","profiles":["wszystko"]}`)
+	if got := devicePaths(call(r, "GET", "/api/v1/devices", token, "")); got["furtka"] != "pin" {
+		t.Errorf("furtka's access: %v", got)
+	}
+	if res := call(r, "POST", "/api/v1/cmd", token, `{"path":"furtka","action":"on"}`); res.code != 409 || res.body["reason"] != "pin_required" {
+		t.Errorf("without the PIN: %d %v", res.code, res.body)
+	}
+	if res := call(r, "POST", "/api/v1/cmd", token, `{"path":"furtka","action":"on","pin":"2468"}`); res.code != 200 {
+		t.Errorf("with the PIN: %d %v", res.code, res.body)
 	}
 }

@@ -385,14 +385,14 @@ local function command(h, path, access, action, confirmed, pin, deadlineMs, valu
     local function answer(ok, reason, message)
         return JSON.encode({ ok = ok, reason = reason, message = message })
     end
-    local r = h._remote or {}
+    local needPin, needConfirm = ExposedObjects._guards(h)
     if access == 'readonly' then
         return answer(false, 'forbidden', 'To urządzenie jest tylko do podglądu.')
     end
-    if r.confirm and confirmed ~= true then
+    if needConfirm and confirmed ~= true then
         return answer(false, 'confirm', 'Potwierdź polecenie.')
     end
-    if r.pin then
+    if needPin then
         local f = pinFails[path]
         if f and f.untilMs and wallMs() < f.untilMs then
             return answer(false, 'rate_limited', 'Za dużo błędnych PIN-ów. Spróbuj za chwilę.')
@@ -452,7 +452,7 @@ end
 
 --- The same command for a client of the device API (pkg/web/clients.go, as the client): any
 -- exposed device, level the client's access profiles give it ("full" or "readonly"; Go
--- answers not_found for hidden ones). A device's :remote() PIN and confirmation hold here too.
+-- answers not_found for hidden ones). The device's PIN and confirmation hold here too.
 function Cloud._clientCommand(path, action, level, confirmed, pin, deadlineMs, value)
     local h = ExposedObjects and ExposedObjects:_deviceHandle(path)
     if not h or (level ~= 'full' and level ~= 'readonly') then return notFound() end
