@@ -374,22 +374,29 @@ func (s *Server) localViewer(c *gin.Context) {
 		c.AbortWithStatus(http.StatusUnauthorized)
 		return
 	}
-	actor, role, roles, ok := s.local.Viewer(strings.TrimSpace(h[7:]))
+	token := strings.TrimSpace(h[7:])
+	actor, role, roles, ok := s.local.Viewer(token)
 	if !ok {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "local token not valid"})
 		return
 	}
-	c.Set(ctxRemoteActor, actor)
-	c.Set(ctxRemoteRole, role)
 	// a dashboard naming roles (:roles()) only for who has one, and one the cloud does not list
 	// (its roles function hides it) for nobody: through the cloud the cloud checks this, on the
 	// LAN it is not in the way
-	if id := dashboardOfPath(c.Request.URL.Path); id != "" {
-		if dr, ok := s.remoteDashboardRoles(id); !ok || !rolesAllow(dr, roles) {
-			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Dashboard not found"})
-			return
-		}
+	if st := s.mayView(c.Request.URL.Path, roles, true); st != 0 {
+		c.AbortWithStatusJSON(st, gin.H{"error": "Dashboard not found"})
+		return
 	}
+	c.Set(ctxRemoteActor, actor)
+	c.Set(ctxRemoteRole, role)
+	c.Set(ctxViewerRoles, roles)
+	c.Set(ctxRecheck, func(path string) int {
+		_, _, roles, ok := s.local.Viewer(token)
+		if !ok {
+			return http.StatusUnauthorized
+		}
+		return s.mayView(path, roles, true)
+	})
 	c.Next()
 }
 
@@ -431,6 +438,28 @@ func rolesAllow(dashboard, person []string) bool {
 func (s *Server) remoteDashboardRoles(id string) ([]string, bool) {
 	s.remoteRolesMu.Lock()
 	defer s.remoteRolesMu.Unlock()
+	r, ok := s.remoteDashboardsLocked()[id]
+	return r, ok
+}
+
+// remoteDashboardsFor are the ids of the remote dashboards roles reach; with known false (only
+// the cloud knows the person's roles) every one on the cloud's list.
+func (s *Server) remoteDashboardsFor(roles []string, known bool) []string {
+	s.remoteRolesMu.Lock()
+	defer s.remoteRolesMu.Unlock()
+	ids := []string{}
+	for id, dr := range s.remoteDashboardsLocked() {
+		if !known || rolesAllow(dr, roles) {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+// remoteDashboardsLocked is the cached list, read again when it is older than remoteRolesFor;
+// remoteRolesMu held.
+func (s *Server) remoteDashboardsLocked() map[string][]string {
 	if s.remoteRolesCache == nil || time.Since(s.remoteRolesAt) > remoteRolesFor {
 		s.remoteRolesCache, s.remoteRolesAt = map[string][]string{}, time.Now()
 		if s.luaExecutor != nil {
@@ -446,8 +475,7 @@ func (s *Server) remoteDashboardRoles(id string) ([]string, bool) {
 			}
 		}
 	}
-	r, ok := s.remoteRolesCache[id]
-	return r, ok
+	return s.remoteRolesCache
 }
 
 // remoteRolesFor is how long the roles stay cached, as long as the cloud waits for a change.

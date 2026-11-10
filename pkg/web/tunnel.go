@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"regexp"
+	"strings"
 
 	"github.com/Domktorymysli/vclu-cloud/proto"
 	"github.com/gin-gonic/gin"
@@ -68,19 +69,63 @@ func (s *Server) tunnelViewer(c *gin.Context) {
 		c.AbortWithStatus(http.StatusNotFound)
 		return
 	}
-	if id := dashboardOfPath(c.Request.URL.Path); id != "" && s.local != nil {
+	check := func(path string) int {
+		if s.local == nil {
+			return 0
+		}
 		roles, member, known := s.local.MemberRoles(actor)
-		if known {
-			dr, listed := s.remoteDashboardRoles(id)
-			if !member || !listed || !rolesAllow(dr, roles) {
-				c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Dashboard not found"})
-				return
-			}
+		if known && !member && viewerPath(path) {
+			return http.StatusNotFound
+		}
+		return s.mayView(path, roles, known)
+	}
+	if st := check(c.Request.URL.Path); st != 0 {
+		c.AbortWithStatusJSON(st, gin.H{"error": "Dashboard not found"})
+		return
+	}
+	if s.local != nil {
+		if roles, _, known := s.local.MemberRoles(actor); known {
+			c.Set(ctxViewerRoles, roles) // a non-member never gets here for a viewerPath
 		}
 	}
 	c.Set(ctxRemoteActor, actor)
 	c.Set(ctxRemoteRole, role)
+	c.Set(ctxRecheck, check)
 	c.Next()
+}
+
+// ctxViewerRoles holds a remote viewer's home roles ([]string) when the house knows them;
+// ctxRecheck a func(path string) int telling whether the viewer may still have path now (0, or
+// the status a new request would get), for a live socket that outlives a request.
+const (
+	ctxViewerRoles = "viewer_roles"
+	ctxRecheck     = "viewer_recheck"
+)
+
+// viewerPath is a path whose answer depends on the dashboards the viewer sees.
+func viewerPath(p string) bool {
+	return dashboardOfPath(p) != "" || strings.HasPrefix(p, "/api/camera/")
+}
+
+// mayView is the status a remote viewer with roles gets for path: 0 to pass, 404 for a
+// dashboard their roles do not reach or that the cloud's list leaves out. known false (the
+// cloud alone knows the roles) lets every path pass.
+func (s *Server) mayView(path string, roles []string, known bool) int {
+	if id := dashboardOfPath(path); id != "" && known {
+		if dr, listed := s.remoteDashboardRoles(id); !listed || !rolesAllow(dr, roles) {
+			return http.StatusNotFound
+		}
+	}
+	return 0
+}
+
+// viewerRecheck is whether the viewer of c may still have path (see ctxRecheck): 0 for the
+// house, which its own auth checks.
+func viewerRecheck(c *gin.Context, path string) int {
+	if f, ok := c.Get(ctxRecheck); ok {
+		return f.(func(string) int)(path)
+	}
+	return 0
 }
 
 // remoteRole is the cloud role of a request through the tunnel, "" for the house.
@@ -95,7 +140,9 @@ func roleArg(c *gin.Context) string {
 	return ""
 }
 
-// roleKey separates cached answers per remote role.
+// roleKey separates cached answers per remote role. Every remote viewer shares one answer: Lua
+// tells only the house (role nil) from a remote viewer, and which dashboards a person sees is
+// checked before the cache. An argument per person in Dashboard.API would have to be in the key.
 func roleKey(c *gin.Context) string {
 	if r := remoteRole(c); r != "" {
 		return "\x00remote:" + r
@@ -119,7 +166,15 @@ func (s *Server) handleTunnelCameraSnapshot(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Lua engine not ready"})
 		return
 	}
-	out, err := s.luaExecutor.Execute(fmt.Sprintf(`Dashboard.API.remoteCamera("%s"%s)`, luaEscape(c.Param("id")), roleArg(c)))
+	// only on a dashboard the viewer's roles reach, when the house knows them
+	var roles []string
+	v, known := c.Get(ctxViewerRoles)
+	if known {
+		roles = v.([]string)
+	}
+	only, _ := json.Marshal(s.remoteDashboardsFor(roles, known))
+	out, err := s.luaExecutor.Execute(fmt.Sprintf(`Dashboard.API.remoteCamera("%s"%s, "%s")`,
+		luaEscape(c.Param("id")), roleArg(c), luaEscape(string(only))))
 	var r struct {
 		Used bool `json:"used"`
 	}

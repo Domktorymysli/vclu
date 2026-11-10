@@ -3543,11 +3543,20 @@ function DashboardAPI.remoteList()
 end
 
 --- Whether a camera's snapshot is on a dashboard this remote viewer sees (an image widget)
+-- @param onlyJSON string|nil JSON array of the dashboard ids the viewer's roles reach (Go checks
+--   :roles() against the person), nil for any remote one
 -- @return string JSON {used=bool}
-function DashboardAPI.remoteCamera(cam, role)
+function DashboardAPI.remoteCamera(cam, role, onlyJSON)
     local want = Camera and Camera.snapshotUrl(cam) or ('/api/camera/' .. cam .. '/snapshot')
+    local only
+    if onlyJSON ~= nil then
+        local ok, list = pcall(JSON.decode, onlyJSON)
+        if not ok or type(list) ~= 'table' then return JSON.encode({ used = false }) end
+        only = {}
+        for _, id in ipairs(list) do only[id] = true end
+    end
     for _, id in ipairs(_dashboardOrder) do
-        local dash = _dashboards[id] and resolveFor(id, role)
+        local dash = _dashboards[id] and (not only or only[id]) and resolveFor(id, role)
         if dash then
             for _, sec in ipairs(dash._sections) do
                 for _, w in ipairs(sec.widgets) do

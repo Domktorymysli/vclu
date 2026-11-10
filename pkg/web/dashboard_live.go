@@ -510,7 +510,12 @@ func (s *Server) handleAPIDashboardWS(c *gin.Context) {
 		// a session ended, the PIN cookie expired, or a reload changed the PIN or the auth: a Lua
 		// error (500) is not a refusal and keeps the socket
 		if checkAuth {
-			switch status, msg, _ := s.dashboardAccess(c, id); status {
+			// a remote viewer's token, members list or roles may have changed too
+			status, msg, _ := s.dashboardAccess(c, id)
+			if st := viewerRecheck(c, c.Request.URL.Path); st != 0 {
+				status, msg = st, "access ended"
+			}
+			switch status {
 			case http.StatusUnauthorized, http.StatusForbidden:
 				closeWith(liveCloseDenied, msg)
 				return

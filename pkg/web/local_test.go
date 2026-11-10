@@ -12,6 +12,7 @@ import (
 	"github.com/Domktorymysli/vclu/pkg/history"
 	"github.com/Domktorymysli/vclu/pkg/lua"
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 )
 
 const install12 = "0123456789abcdef0123456789abcdef"
@@ -299,4 +300,111 @@ func TestLocalHandlerRoles(t *testing.T) {
 	if code := get("/api/dashboard/sprzatanie"); code != http.StatusOK {
 		t.Errorf("shown again by its roles function = %d", code)
 	}
+}
+
+// A camera on the LAN only for who sees a dashboard showing it: the alarm's camera needs the
+// alarm's role (TestTunnelCamera lets every member through, the cloud checking there).
+func TestLocalCameraRoles(t *testing.T) {
+	dashCache.Invalidate()
+	engine := lua.NewLuaEngine()
+	t.Cleanup(engine.Close)
+	if _, err := engine.Execute(tunnelDashboards); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{serverDir: t.TempDir(), sessions: newSessionStore(), luaExecutor: engine, calendarLimiter: newCalendarLimiter()}
+	gin.SetMode(gin.TestMode)
+	s.SetLocalAccess(newLocal(t, t.TempDir()))
+	g, err := s.local.Issue("cloud:12", install12)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lanApp := s.LocalHandler()
+	get := func(path string) int {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("Authorization", "Bearer "+g.Token)
+		w := httptest.NewRecorder()
+		lanApp.ServeHTTP(w, req)
+		return w.Code
+	}
+	s.local.SetMembers(members(1, "member", install12))
+	if code := get("/api/camera/front/snapshot"); code != http.StatusNotFound {
+		t.Errorf("the alarm's camera without the alarm's role = %d", code)
+	}
+	withRole := members(2, "member", install12)
+	withRole.Members[0].Roles = []string{"owner"}
+	s.local.SetMembers(withRole)
+	// no camera manager in the test: past the check it answers 503
+	if code := get("/api/camera/front/snapshot"); code != http.StatusServiceUnavailable {
+		t.Errorf("the alarm's camera with the role = %d", code)
+	}
+
+	// through the tunnel, with the members list known, the same
+	tunnel := s.TunnelHandler()
+	req := httptest.NewRequest(http.MethodGet, "/api/camera/front/snapshot", nil)
+	req.Header.Set(proto.HeaderActor, "cloud:12")
+	req.Header.Set(proto.HeaderRole, "member")
+	s.local.SetMembers(members(3, "member", install12))
+	w := httptest.NewRecorder()
+	tunnel.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("through the tunnel without the role = %d", w.Code)
+	}
+}
+
+// An open live socket on the LAN ends when its token does: the member signed the phone out.
+func TestLocalSocketEndsWithToken(t *testing.T) {
+	saved := liveAuthEvery
+	liveAuthEvery = 50 * time.Millisecond
+	t.Cleanup(func() { liveAuthEvery = saved })
+	dashCache.Invalidate()
+	engine := lua.NewLuaEngine()
+	t.Cleanup(engine.Close)
+	if _, err := engine.Execute(tunnelDashboards); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{serverDir: t.TempDir(), sessions: newSessionStore(), luaExecutor: engine, calendarLimiter: newCalendarLimiter(), live: newLiveFeeds()}
+	t.Cleanup(s.live.shutdown)
+	gin.SetMode(gin.TestMode)
+	s.SetLocalAccess(newLocal(t, t.TempDir()))
+	g, err := s.local.Issue("cloud:12", install12)
+	if err != nil {
+		t.Fatal(err)
+	}
+	withRole := members(1, "member", install12)
+	withRole.Members[0].Roles = []string{"gosia"}
+	s.local.SetMembers(withRole)
+	ts := httptest.NewServer(s.LocalHandler())
+	t.Cleanup(ts.Close)
+	dial := func(dash string) *websocket.Conn {
+		t.Helper()
+		h := http.Header{"Authorization": {"Bearer " + g.Token}}
+		c, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(ts.URL, "http")+"/api/dashboard/"+dash+"/ws", h)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { c.Close() })
+		return c
+	}
+	closedWith := func(c *websocket.Conn, code int) {
+		t.Helper()
+		_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
+		for {
+			if _, _, err := c.ReadMessage(); err != nil {
+				if !websocket.IsCloseError(err, code) {
+					t.Fatalf("closed with %v, want %d", err, code)
+				}
+				return
+			}
+		}
+	}
+
+	// the role taken away: gosia's dashboard goes
+	gosia := dial("gosia")
+	s.local.SetMembers(members(2, "member", install12))
+	closedWith(gosia, liveCloseGone)
+
+	// signed out: the phone is no longer in the list
+	home := dial("home")
+	s.local.SetMembers(members(3, "member"))
+	closedWith(home, liveCloseDenied)
 }
