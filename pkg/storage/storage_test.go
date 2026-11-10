@@ -180,6 +180,21 @@ func TestMonitor_PartsMatchDu(t *testing.T) {
 	}
 }
 
+func TestMonitor_DataDirSymlink(t *testing.T) {
+	data, _ := dataDir(t)
+	link := filepath.Join(t.TempDir(), "data")
+	if err := os.Symlink(data, link); err != nil {
+		t.Skip(err)
+	}
+	fs := &fakeFS{}
+	fs.set(100*GiB, 50*GiB)
+	m := New(Options{DataDir: link, StatFS: fs.stat})
+	m.Refresh()
+	if got := sizes(m.Snapshot())[PartHistory]; got < 1200<<10 {
+		t.Fatalf("history through a symlinked data dir: %d", got)
+	}
+}
+
 func TestMonitor_SizesCachedUntilNextWalk(t *testing.T) {
 	data, _ := dataDir(t)
 	fs := &fakeFS{}
@@ -291,6 +306,27 @@ func TestMonitor_StatFSError(t *testing.T) {
 	s := m.Snapshot()
 	if s.Level != LevelOK || s.FileSystem.Error == "" || s.Growth.DaysToFull != nil {
 		t.Errorf("unreadable free space: %+v", s)
+	}
+}
+
+// free space that cannot be read never says critical: history would be cut for nothing
+func TestMonitor_UnknownFreeSpaceIsNotCritical(t *testing.T) {
+	var total, free int64 = 100 * GiB, GiB
+	var fail error
+	var last Level
+	m := New(Options{DataDir: t.TempDir(), OnLevel: func(l Level) { last = l },
+		StatFS: func(string) (int64, int64, error) { return total, free, fail }})
+	m.Refresh()
+	if last != LevelCritical {
+		t.Fatalf("1 %%: %s", last)
+	}
+	fail = os.ErrPermission
+	if m.RefreshFree(); last != LevelOK {
+		t.Errorf("statfs error after critical: %s", last)
+	}
+	fail, total, free = nil, 0, 0
+	if s := m.RefreshFree(); last != LevelOK || s.Level != LevelOK {
+		t.Errorf("zero-sized file system: %s", last)
 	}
 }
 

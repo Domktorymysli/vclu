@@ -273,6 +273,9 @@ func (m *Monitor) walk() []Part {
 		}
 	}
 	root := m.opts.DataDir
+	if r, err := filepath.EvalSymlinks(root); err == nil {
+		root = r // WalkDir does not descend into a symlinked root
+	}
 	if root != "" {
 		_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
