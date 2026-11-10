@@ -204,3 +204,23 @@ func TestHistoryAPI_SettingsShowSaved(t *testing.T) {
 		t.Fatalf("%d %s", w.Code, w.Body.String())
 	}
 }
+
+// The history page names a home's cloud app with its member, apart from the member's own changes.
+func TestHistoryAPI_NamesCloudApps(t *testing.T) {
+	e := newHistoryEnv(t)
+	la := newLocal(t, t.TempDir())
+	la.SetMembers(members(1, "owner"))
+	la.NoteApp("4821930571", "MacBar")
+	e.s.SetLocalAccess(la)
+	e.store.Record(history.Entry{Path: "lamp", Value: 0, Origin: "lua"}) // the first value is the startup state
+	e.store.Record(history.Entry{Path: "lamp", Old: 0, Value: 1, Origin: "remote", Actor: "cloud:12"})
+	e.store.Record(history.Entry{Path: "lamp", Old: 1, Value: 0, Origin: "remote", Actor: "app:4821930571@cloud:12"})
+	w := e.do(t, "GET", "/api/history?path=lamp", "", "apikey")
+	var page struct {
+		Actors map[string]string `json:"actors"`
+	}
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &page) != nil ||
+		page.Actors["cloud:12"] != "Anna" || page.Actors["app:4821930571@cloud:12"] != "MacBar · Anna" {
+		t.Errorf("history = %d %s", w.Code, w.Body.String())
+	}
+}

@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Domktorymysli/vclu/pkg/history"
+
 	"github.com/Domktorymysli/vclu-cloud/proto"
 
 	"github.com/Domktorymysli/vclu/pkg/lua"
@@ -75,5 +77,44 @@ func TestCmdActor(t *testing.T) {
 	run(proto.Cmd{ID: "c2", Path: "vclu:none", Action: proto.ActionOn, Actor: proto.Actor{User: "cloud:7", Via: "app"}}, time.Now().Add(time.Minute))
 	if len(noted) != 1 || noted[0] != "3=MacBar" {
 		t.Errorf("noted %v", noted)
+	}
+}
+
+// End to end in vCLU: a command from a home's cloud app changes the device, and the change is
+// recorded with the app apart from its member (origin remote, app:<id>@cloud:<id>).
+func TestHomeAppCommandInHistory(t *testing.T) {
+	engine := lua.NewLuaEngine()
+	defer engine.Close()
+	store := history.New(history.DefaultConfig(), nil)
+	engine.SetHistoryStore(store)
+	if _, err := engine.Execute(`
+		local v = VirtualSwitch:new("v")
+		_registry["virt.lamp"] = v
+		expose(v, "switch", { id = "lamp", name = "Lampa" }):remote()
+	`); err != nil {
+		t.Fatal(err)
+	}
+	list, err := cloudObjects(engine)()
+	if err != nil || len(list) != 1 {
+		t.Fatalf("objects %+v %v", list, err)
+	}
+	var noted string
+	run := cloudCommand(engine, func(id, name string) { noted = id + "=" + name })
+	actor := proto.Actor{User: "cloud:7", Name: "Anna", Via: "home_app", App: &proto.ActorApp{ID: "4821930571", Name: "MacBar"}}
+	if r := run(proto.Cmd{ID: "c1", Path: list[0].Path, Action: proto.ActionOn, Actor: actor}, time.Now().Add(time.Minute)); !r.OK {
+		t.Fatalf("command = %+v", r)
+	}
+	res, err := store.Search(history.SearchQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, e := range res.Entries {
+		if e.Origin == "remote" && e.Actor == "app:4821930571@cloud:7" && e.CorrelationID == "c1" {
+			found = true
+		}
+	}
+	if !found || noted != "4821930571=MacBar" {
+		t.Errorf("history %+v, noted %q", res.Entries, noted)
 	}
 }
