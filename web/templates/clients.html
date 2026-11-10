@@ -57,7 +57,7 @@
                     <div class="card mb-3">
                         <div class="card-header"><i class="bi bi-plug"></i> {{index .t "clients.api"}}</div>
                         <div class="card-body small">
-                            <p>{{index .t "clients.api_desc"}}</p>
+                            <p>{{index .t "clients.api_desc"}} <a href="/api-docs#tag/devices">{{index .t "clients.api_docs"}}</a>.</p>
                             <pre class="mb-2"><code>GET  /api/v1/devices
 POST /api/v1/states  {"paths": ["..."]}
 POST /api/v1/cmd     {"path": "...", "action": "on", "value": 50, "pin": "...", "confirmed": true}

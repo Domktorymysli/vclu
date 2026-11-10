@@ -1,7 +1,7 @@
 {
     "swagger": "2.0",
     "info": {
-        "description": "REST API of the vCLU smart home controller (Grenton CLU emulator, MQTT/HomeKit/Satel integrations, Lua runtime).\n\nAuthentication: a session cookie (`vclu_session`, created via `POST /login`)\nor the `X-API-Key` header (key configured in vCLU settings). When authentication\nis not configured, all endpoints are open.",
+        "description": "REST API of the vCLU smart home controller (Grenton CLU emulator, MQTT/HomeKit/Satel integrations, Lua runtime).\n\nAuthentication: a session cookie (`vclu_session`, created via `POST /login`)\nor the `X-API-Key` header (key configured in vCLU settings). When authentication\nis not configured, all endpoints are open.\n\nThe device API (`/api/v1/`, tag devices) is for API clients instead: it takes only a\nclient's token (`Authorization: Bearer vclu_client_…`), never the session or the API key,\nand is open on the LAN listener too.",
         "title": "vCLU HTTP API",
         "contact": {},
         "version": "1.0"
@@ -2746,6 +2746,169 @@
                 }
             }
         },
+        "/api/v1/cmd": {
+            "post": {
+                "security": [
+                    {
+                        "ClientToken": []
+                    }
+                ],
+                "description": "Runs an action on a device the client's profiles let it control, as the client (history: origin client, actor client:\u003cid\u003e). The answer is always a CmdResult; when refused, reason says why: not_found, forbidden (read only), invalid (the action does not fit the device), confirm (send again with confirmed: true), pin_required, pin_wrong, rate_limited (too many commands, or wrong PINs: the device locks for 30 s for everyone), expired, error. message is for a person, in Polish.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "devices"
+                ],
+                "summary": "Command",
+                "parameters": [
+                    {
+                        "description": "The command",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/web.ClientCmd"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/proto.CmdResult"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/web.ClientAPIError"
+                        }
+                    },
+                    "403": {
+                        "description": "forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/proto.CmdResult"
+                        }
+                    },
+                    "404": {
+                        "description": "not_found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.CmdResult"
+                        }
+                    },
+                    "409": {
+                        "description": "confirm, pin_required or pin_wrong",
+                        "schema": {
+                            "$ref": "#/definitions/proto.CmdResult"
+                        }
+                    },
+                    "422": {
+                        "description": "invalid",
+                        "schema": {
+                            "$ref": "#/definitions/proto.CmdResult"
+                        }
+                    },
+                    "429": {
+                        "description": "rate_limited",
+                        "schema": {
+                            "$ref": "#/definitions/proto.CmdResult"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/devices": {
+            "get": {
+                "security": [
+                    {
+                        "ClientToken": []
+                    }
+                ],
+                "description": "The exposed devices the client's access profiles let it read, sorted by path. access: full (commands), readonly, pin (a command needs the device's PIN) or confirm (a command needs confirmed: true). roles is never set for clients.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "devices"
+                ],
+                "summary": "Devices",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/web.ClientDevices"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/web.ClientAPIError"
+                        }
+                    },
+                    "429": {
+                        "description": "too many invalid tokens from this address",
+                        "schema": {
+                            "$ref": "#/definitions/web.ClientAPIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/states": {
+            "post": {
+                "security": [
+                    {
+                        "ClientToken": []
+                    }
+                ],
+                "description": "What devices are doing now: on (a light, switch, dimmer or fan is on; a binary sensor open; a motion sensor sees movement), position (a cover, 0..100, 100 open) or value (temperature °C, humidity %, illuminance lx). 1 to 100 paths; those the client may not read, or that cannot be read, are left out.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "devices"
+                ],
+                "summary": "Device states",
+                "parameters": [
+                    {
+                        "description": "Paths from GET /api/v1/devices",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/web.ClientStatesRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/web.ClientStates"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/web.ClientAPIError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/web.ClientAPIError"
+                        }
+                    }
+                }
+            }
+        },
         "/metrics": {
             "get": {
                 "security": [
@@ -3119,6 +3282,81 @@
                 }
             }
         },
+        "proto.CmdResult": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "message": {
+                    "description": "shown to the person (Polish), either way",
+                    "type": "string"
+                },
+                "ok": {
+                    "type": "boolean"
+                },
+                "reason": {
+                    "description": "with !OK",
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "proto.Object": {
+            "type": "object",
+            "properties": {
+                "access": {
+                    "description": "AccessFull, AccessReadonly, AccessConfirm or AccessPin",
+                    "type": "string"
+                },
+                "area": {
+                    "type": "string"
+                },
+                "floor": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "path": {
+                    "description": "stable while the device exists: the id commands name",
+                    "type": "string"
+                },
+                "roles": {
+                    "description": "the home's roles that reach it; none: every member",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "type": {
+                    "description": "the expose type: \"light\", \"switch\", \"dimmer\", \"cover\", \"scene\", ...",
+                    "type": "string"
+                }
+            }
+        },
+        "proto.State": {
+            "type": "object",
+            "properties": {
+                "on": {
+                    "description": "On: a light, switch, dimmer or fan is on; a binary_sensor is open, a motion sensor sees movement.",
+                    "type": "boolean"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "position": {
+                    "description": "Position: a cover's, 0..100, 100 open.",
+                    "type": "number"
+                },
+                "value": {
+                    "description": "Value: a reading, temperature in °C, humidity in %, illuminance in lx.",
+                    "type": "number"
+                }
+            }
+        },
         "satel.SavedScan": {
             "type": "object",
             "properties": {
@@ -3468,10 +3706,16 @@
                 1000000000,
                 60000000000,
                 3600000000000,
+                -9223372036854775808,
+                9223372036854775807,
                 1,
                 1000,
                 1000000,
                 1000000000,
+                60000000000,
+                3600000000000,
+                -9223372036854775808,
+                9223372036854775807,
                 1,
                 1000,
                 1000000,
@@ -3488,10 +3732,16 @@
                 "Second",
                 "Minute",
                 "Hour",
+                "minDuration",
+                "maxDuration",
                 "Nanosecond",
                 "Microsecond",
                 "Millisecond",
                 "Second",
+                "Minute",
+                "Hour",
+                "minDuration",
+                "maxDuration",
                 "Nanosecond",
                 "Microsecond",
                 "Millisecond",
@@ -3543,6 +3793,80 @@
                 },
                 "targetIP": {
                     "type": "string"
+                }
+            }
+        },
+        "web.ClientAPIError": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string",
+                    "example": "unauthorized"
+                },
+                "message": {
+                    "type": "string",
+                    "example": "client token not valid"
+                }
+            }
+        },
+        "web.ClientCmd": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "example": "on"
+                },
+                "confirmed": {
+                    "description": "for a device whose access is confirm",
+                    "type": "boolean"
+                },
+                "path": {
+                    "type": "string",
+                    "example": "brama.glowna"
+                },
+                "pin": {
+                    "description": "for a device whose access is pin",
+                    "type": "string"
+                },
+                "value": {
+                    "type": "number",
+                    "example": 50
+                }
+            }
+        },
+        "web.ClientDevices": {
+            "type": "object",
+            "properties": {
+                "devices": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/proto.Object"
+                    }
+                }
+            }
+        },
+        "web.ClientStates": {
+            "type": "object",
+            "properties": {
+                "states": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/proto.State"
+                    }
+                }
+            }
+        },
+        "web.ClientStatesRequest": {
+            "type": "object",
+            "properties": {
+                "paths": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "salon.lampa"
+                    ]
                 }
             }
         },
@@ -3724,6 +4048,12 @@
         "ApiKeyAuth": {
             "type": "apiKey",
             "name": "X-API-Key",
+            "in": "header"
+        },
+        "ClientToken": {
+            "description": "An API client's token as \"Bearer vclu_client_…\", made on the panel's API clients page. Only the device API (/api/v1/) takes it.",
+            "type": "apiKey",
+            "name": "Authorization",
             "in": "header"
         }
     }

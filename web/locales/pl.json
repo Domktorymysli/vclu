@@ -901,6 +901,7 @@
     "manage_profiles": "Zarządzaj profilami",
     "auth_required": "Panel nie ma hasła: każdy w sieci domowej mógłby nadać sobie klienta z dowolnymi uprawnieniami. Klientów można dodawać po ustawieniu hasła.",
     "set_password": "Ustaw hasło panelu",
+    "api_docs": "Dokumentacja API",
     "copy_warning": "Skopiuj teraz. Token nie zostanie pokazany ponownie.",
     "qr_hint": "Zeskanuj kod w aplikacji vCLU (tryb bez chmury, wkrótce) albo skopiuj dane poniżej do programu klienta.",
     "qr_alt": "Kod QR z danymi połączenia",

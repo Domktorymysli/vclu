@@ -131,6 +131,16 @@ func clientError(c *gin.Context, status int, code, msg string) {
 // handleClientDevices lists the exposed devices the client's profiles let it read
 // ({"devices": [proto.Object]}): a readonly profile makes the device readonly, a full one leaves
 // the device's own access (full, or with :remote()'s PIN or confirmation).
+//
+//	@Summary		Devices
+//	@Description	The exposed devices the client's access profiles let it read, sorted by path. access: full (commands), readonly, pin (a command needs the device's PIN) or confirm (a command needs confirmed: true). roles is never set for clients.
+//	@Tags			devices
+//	@Produce		json
+//	@Success		200	{object}	web.ClientDevices
+//	@Failure		401	{object}	web.ClientAPIError
+//	@Failure		429	{object}	web.ClientAPIError	"too many invalid tokens from this address"
+//	@Security		ClientToken
+//	@Router			/api/v1/devices [get]
 func (s *Server) handleClientDevices(c *gin.Context) {
 	if s.luaExecutor == nil {
 		clientError(c, http.StatusServiceUnavailable, "unavailable", "Lua engine not ready")
@@ -156,15 +166,25 @@ func (s *Server) handleClientDevices(c *gin.Context) {
 		}
 		devices = append(devices, o)
 	}
-	c.JSON(http.StatusOK, gin.H{"devices": devices})
+	c.JSON(http.StatusOK, ClientDevices{Devices: devices})
 }
 
 // handleClientStates answers what devices are doing ({"paths": [...]} → {"states": [proto.State]}):
 // those the client may not read, or that cannot be read, are left out.
+//
+//	@Summary		Device states
+//	@Description	What devices are doing now: on (a light, switch, dimmer or fan is on; a binary sensor open; a motion sensor sees movement), position (a cover, 0..100, 100 open) or value (temperature °C, humidity %, illuminance lx). 1 to 100 paths; those the client may not read, or that cannot be read, are left out.
+//	@Tags			devices
+//	@Accept			json
+//	@Produce		json
+//	@Param			request	body		web.ClientStatesRequest	true	"Paths from GET /api/v1/devices"
+//	@Success		200		{object}	web.ClientStates
+//	@Failure		400		{object}	web.ClientAPIError
+//	@Failure		401		{object}	web.ClientAPIError
+//	@Security		ClientToken
+//	@Router			/api/v1/states [post]
 func (s *Server) handleClientStates(c *gin.Context) {
-	var req struct {
-		Paths []string `json:"paths"`
-	}
+	var req ClientStatesRequest
 	if c.ShouldBindJSON(&req) != nil || len(req.Paths) == 0 || len(req.Paths) > proto.MaxStatePaths {
 		clientError(c, http.StatusBadRequest, proto.ReasonInvalid, fmt.Sprintf("1 to %d paths", proto.MaxStatePaths))
 		return
@@ -189,7 +209,40 @@ func (s *Server) handleClientStates(c *gin.Context) {
 		clientError(c, http.StatusInternalServerError, proto.ReasonError, "states not read")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"states": states})
+	c.JSON(http.StatusOK, ClientStates{States: states})
+}
+
+// ClientDevices is the answer of GET /api/v1/devices.
+type ClientDevices struct {
+	Devices []proto.Object `json:"devices"`
+}
+
+// ClientStatesRequest asks what some devices are doing.
+type ClientStatesRequest struct {
+	Paths []string `json:"paths" example:"salon.lampa"`
+}
+
+// ClientStates is the answer of POST /api/v1/states: devices the client may not read, or that
+// cannot be read, are left out.
+type ClientStates struct {
+	States []proto.State `json:"states"`
+}
+
+// ClientCmd is a command: an action the device's type takes (switch and light: on, off; dimmer:
+// on, off, set; cover: open, close, stop, set; scene: execute), set with value 0..100.
+type ClientCmd struct {
+	Path      string   `json:"path" example:"brama.glowna"`
+	Action    string   `json:"action" example:"on"`
+	Value     *float64 `json:"value,omitempty" example:"50"`
+	Confirmed bool     `json:"confirmed,omitempty"` // for a device whose access is confirm
+	Pin       string   `json:"pin,omitempty"`       // for a device whose access is pin
+}
+
+// ClientAPIError is the device API's error: a code (unauthorized, invalid, rate_limited, ...) and
+// a message.
+type ClientAPIError struct {
+	Error   string `json:"error" example:"unauthorized"`
+	Message string `json:"message" example:"client token not valid"`
 }
 
 // clientCmdWait is how long a client's command may wait in the Lua queue before it is not run.
@@ -210,14 +263,24 @@ var cmdStatus = map[string]int{
 // handleClientCmd runs a command as the client ({path, action, value?, confirmed?, pin?} →
 // proto.CmdResult): the same Lua as the cloud's cmd (Cloud._clientCommand), with the PIN, the
 // confirmation and the actions each type takes.
+//
+//	@Summary		Command
+//	@Description	Runs an action on a device the client's profiles let it control, as the client (history: origin client, actor client:<id>). The answer is always a CmdResult; when refused, reason says why: not_found, forbidden (read only), invalid (the action does not fit the device), confirm (send again with confirmed: true), pin_required, pin_wrong, rate_limited (too many commands, or wrong PINs: the device locks for 30 s for everyone), expired, error. message is for a person, in Polish.
+//	@Tags			devices
+//	@Accept			json
+//	@Produce		json
+//	@Param			request	body		web.ClientCmd	true	"The command"
+//	@Success		200		{object}	proto.CmdResult
+//	@Failure		403		{object}	proto.CmdResult	"forbidden"
+//	@Failure		404		{object}	proto.CmdResult	"not_found"
+//	@Failure		409		{object}	proto.CmdResult	"confirm, pin_required or pin_wrong"
+//	@Failure		422		{object}	proto.CmdResult	"invalid"
+//	@Failure		429		{object}	proto.CmdResult	"rate_limited"
+//	@Failure		401		{object}	web.ClientAPIError
+//	@Security		ClientToken
+//	@Router			/api/v1/cmd [post]
 func (s *Server) handleClientCmd(c *gin.Context) {
-	var req struct {
-		Path      string   `json:"path"`
-		Action    string   `json:"action"`
-		Value     *float64 `json:"value"`
-		Confirmed bool     `json:"confirmed"`
-		Pin       string   `json:"pin"`
-	}
+	var req ClientCmd
 	if c.ShouldBindJSON(&req) != nil || req.Path == "" || req.Action == "" {
 		clientError(c, http.StatusBadRequest, proto.ReasonInvalid, "path and action required")
 		return

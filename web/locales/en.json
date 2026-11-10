@@ -901,6 +901,7 @@
     "manage_profiles": "Manage profiles",
     "auth_required": "The panel has no password: anyone on the home network could give themselves a client with any access. Clients can be added once a password is set.",
     "set_password": "Set the panel password",
+    "api_docs": "API documentation",
     "copy_warning": "Copy it now. The token will not be shown again.",
     "qr_hint": "Scan the code in the vCLU app (no-cloud mode, coming soon) or copy the details below into the client program.",
     "qr_alt": "QR code with the connection details",
