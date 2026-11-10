@@ -1,6 +1,8 @@
 package web
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"html/template"
 	"net/http"
@@ -318,4 +320,43 @@ func TestClientsPage(t *testing.T) {
 			}
 		}
 	}
+}
+
+// A new client's token comes with where to reach vCLU, as JSON and as a QR code of it; a new
+// token comes with them too, under the client's name.
+func TestClientConnection(t *testing.T) {
+	s, r := clientsSite(t)
+	s.SetLocalAccess(newLocal(t, t.TempDir()))
+	res := call(r, "POST", "/api/clients", "", `{"name":"Telefon Ani","profiles":["podglad"]}`, "X-Test-Auth", "session")
+	check := func(res clientResp) {
+		t.Helper()
+		token, _ := res.body["token"].(string)
+		var conn struct {
+			V         int      `json:"v"`
+			Type      string   `json:"type"`
+			Name      string   `json:"name"`
+			Token     string   `json:"token"`
+			Addresses []string `json:"addresses"`
+			Pin       string   `json:"pin"`
+		}
+		if err := json.Unmarshal([]byte(res.body["connection"].(string)), &conn); err != nil {
+			t.Fatalf("connection: %v", err)
+		}
+		if conn.V != 1 || conn.Type != "vclu-client" || conn.Name != "Telefon Ani" || conn.Token != token ||
+			len(conn.Addresses) != 1 || conn.Addresses[0] != "192.168.1.20:9443" || conn.Pin != s.local.Pin() {
+			t.Errorf("connection: %+v", conn)
+		}
+		qrURL, _ := res.body["qr"].(string)
+		png, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(qrURL, "data:image/png;base64,"))
+		if !strings.HasPrefix(qrURL, "data:image/png;base64,") || err != nil || !bytes.HasPrefix(png, []byte("\x89PNG")) {
+			t.Errorf("qr: %.40s… %v", qrURL, err)
+		}
+	}
+	check(res)
+	id := res.body["client"].(map[string]any)["id"].(string)
+	again := call(r, "POST", "/api/clients/"+id+"/regenerate", "", "", "X-Test-Auth", "session")
+	if again.body["token"] == res.body["token"] {
+		t.Fatal("the same token again")
+	}
+	check(again)
 }

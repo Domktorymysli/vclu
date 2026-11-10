@@ -2,7 +2,9 @@ package web
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"net/http"
 	"slices"
 	"strings"
@@ -10,6 +12,7 @@ import (
 
 	"github.com/Domktorymysli/vclu/pkg/config"
 	"github.com/gin-gonic/gin"
+	"rsc.io/qr"
 )
 
 // The panel's page for the clients of the device API (clients.go): made, changed and deleted
@@ -152,8 +155,30 @@ func (s *Server) handleAPIClientCreate(c *gin.Context) {
 	if s.local != nil && s.local.OnIssue != nil {
 		s.local.OnIssue() // the LAN listener, if it has not started
 	}
-	c.JSON(http.StatusOK, gin.H{"client": clientView{ID: cl.ID, Name: cl.Name, Profiles: cl.Profiles,
-		Roles: nonNil(cl.Roles), ExpiresAt: cl.ExpiresAt, CreatedAt: cl.CreatedAt}, "token": token})
+	resp := s.clientConnection(cl.Name, token)
+	resp["client"] = clientView{ID: cl.ID, Name: cl.Name, Profiles: cl.Profiles,
+		Roles: nonNil(cl.Roles), ExpiresAt: cl.ExpiresAt, CreatedAt: cl.CreatedAt}
+	c.JSON(http.StatusOK, resp)
+}
+
+// clientConnection is what a client needs to reach this vCLU, shown once with its token: as
+// JSON to paste ("connection") and as a QR code of the same JSON for an app to scan ("qr", a PNG
+// data URL). Version 1: {v, type "vclu-client", name, token, addresses (host:port of the LAN
+// listener, best first), pin (sha256/ of its certificate's public key)}; no addresses or pin
+// when the LAN listener is off.
+func (s *Server) clientConnection(name, token string) gin.H {
+	conn := map[string]any{"v": 1, "type": "vclu-client", "name": name, "token": token}
+	if s.local != nil {
+		conn["addresses"] = s.local.addresses(s.local.port)
+		conn["pin"] = s.local.Pin()
+	}
+	b, _ := json.Marshal(conn)
+	resp := gin.H{"token": token, "connection": string(b)}
+	if code, err := qr.Encode(string(b), qr.M); err == nil {
+		code.Scale = 6
+		resp["qr"] = "data:image/png;base64," + base64.StdEncoding.EncodeToString(code.PNG())
+	}
+	return resp
 }
 
 // handleAPIClientUpdate changes a client's name, profiles, roles and expiry (all of them).
@@ -185,7 +210,13 @@ func (s *Server) handleAPIClientRegenerate(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate the token"})
 		return
 	}
-	s.updateClient(c, func(cl *config.APIClient) { cl.TokenHash = config.HashAPIKey(token) }, gin.H{"token": token})
+	resp := gin.H{} // filled in the change: the answer needs the client's name
+	s.updateClient(c, func(cl *config.APIClient) {
+		cl.TokenHash = config.HashAPIKey(token)
+		for k, v := range s.clientConnection(cl.Name, token) {
+			resp[k] = v
+		}
+	}, resp)
 }
 
 func (s *Server) updateClient(c *gin.Context, change func(*config.APIClient), ok gin.H) {

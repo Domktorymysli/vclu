@@ -898,6 +898,8 @@
     "delete_confirm": "Delete the client? Its token stops working at once.",
     "regen_confirm": "Generate a new token? The old one stops working at once.",
     "copy_warning": "Copy it now. The token will not be shown again.",
+    "qr_hint": "Scan the code in the vCLU app (no-cloud mode, coming soon) or copy the details below into the client program.",
+    "qr_alt": "QR code with the connection details",
     "api": "Device API",
     "api_desc": "A draft (v0), it may still change. Served on the panel's port and on the local network over HTTPS with a pinned certificate.",
     "lan": "On the local network"

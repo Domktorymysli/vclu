@@ -131,6 +131,8 @@ Authorization: Bearer vclu_client_...</code></pre>
                         <div class="alert alert-warning">
                             <i class="bi bi-exclamation-triangle"></i> <strong>{{index .t "clients.copy_warning"}}</strong>
                         </div>
+                        <p class="small text-muted mb-2">{{index .t "clients.qr_hint"}}</p>
+                        <div class="text-center mb-3"><img id="clientQR" alt="{{index .t "clients.qr_alt"}}" class="img-fluid bg-white p-2 rounded" style="display:none; max-width: 280px;"></div>
                         <textarea class="form-control font-monospace small mb-2" id="clientConnection" rows="7" readonly></textarea>
                         <button class="btn btn-outline-primary btn-sm" id="btnCopyClient">{{index .t "mcp.copy"}}</button>
                     </div>

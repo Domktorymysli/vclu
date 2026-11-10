@@ -106,11 +106,20 @@
         bootstrap.Modal.getOrCreateInstance(document.getElementById('clientModal')).show();
     }
 
-    // The token with where to reach vCLU, for the client's configuration: shown once.
-    function showToken(name, token) {
-        var conn = { v: 1, name: name, token: token };
-        if (lan) { conn.addresses = lan.addresses; conn.pin = lan.pin; }
-        document.getElementById('clientConnection').value = JSON.stringify(conn, null, 2);
+    // The token with where to reach vCLU, as vCLU gave it (clientConnection in clients_panel.go):
+    // a QR code for an app and the same JSON to paste. Shown once.
+    function showToken(data) {
+        var text = data.connection || '';
+        try { text = JSON.stringify(JSON.parse(text), null, 2); } catch (e) { /* shown as given */ }
+        document.getElementById('clientConnection').value = text;
+        var img = document.getElementById('clientQR');
+        if (data.qr) {
+            img.src = data.qr;
+            img.style.display = '';
+        } else {
+            img.removeAttribute('src');
+            img.style.display = 'none';
+        }
         document.getElementById('clientForm').style.display = 'none';
         document.getElementById('clientTokenResult').style.display = '';
         document.getElementById('btnSaveClient').style.display = 'none';
@@ -132,7 +141,7 @@
         req.then(function(data) {
             if (data.error) { VCLU.showToast(data.error, 'danger'); return; }
             if (data.token) {
-                showToken(name, data.token);
+                showToken(data);
             } else {
                 bootstrap.Modal.getInstance(document.getElementById('clientModal')).hide();
             }
@@ -151,7 +160,7 @@
             if (!confirm(t('regen_confirm'))) return;
             api('POST', '/api/clients/' + encodeURIComponent(cl.id) + '/regenerate').then(function(data) {
                 if (data.error) { VCLU.showToast(data.error, 'danger'); return; }
-                showToken(cl.name, data.token);
+                showToken(data);
             });
         } else if (b.dataset.act === 'delete') {
             if (!confirm(t('delete_confirm'))) return;
@@ -167,6 +176,11 @@
         document.getElementById('btnAddClient').addEventListener('click', function() { open(null); });
         document.getElementById('btnSaveClient').addEventListener('click', save);
         document.getElementById('clientsList').addEventListener('click', act);
+        document.getElementById('clientModal').addEventListener('hidden.bs.modal', function() {
+            var img = document.getElementById('clientQR');
+            img.removeAttribute('src');
+            document.getElementById('clientConnection').value = '';
+        });
         document.getElementById('btnCopyClient').addEventListener('click', function() {
             var box = document.getElementById('clientConnection');
             box.select();
