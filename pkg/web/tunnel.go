@@ -172,7 +172,9 @@ func (s *Server) handleTunnelCameraSnapshot(c *gin.Context) {
 	if known {
 		roles = v.([]string)
 	}
-	only, _ := json.Marshal(s.remoteDashboardsFor(roles, known))
+	// a client of the device API sees no dashboard naming no roles (clientMayView)
+	client := strings.HasPrefix(c.GetString(ctxRemoteActor), "client:")
+	only, _ := json.Marshal(s.remoteDashboardsFor(roles, known, client))
 	out, err := s.luaExecutor.Execute(fmt.Sprintf(`Dashboard.API.remoteCamera("%s"%s, "%s")`,
 		luaEscape(c.Param("id")), roleArg(c), luaEscape(string(only))))
 	var r struct {

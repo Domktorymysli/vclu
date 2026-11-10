@@ -197,8 +197,8 @@ func cloudNotifyAction(engine *lua.LuaEngine) func(proto.NotifyAction) proto.Not
 }
 
 // startLocalAccess turns on local tokens for the app (pkg/web/local.go) and starts the LAN
-// listener for them: at once when vCLU is paired, otherwise with the first token, which needs
-// pairing anyway. nil when cloud.localPort is -1 or the certificate cannot be made.
+// listener for them: at once when vCLU is paired or has clients of the device API, otherwise
+// with the first token or client. nil when cloud.localPort is -1 or the certificate cannot be made.
 func startLocalAccess(webSrv *web.Server, dir string, cfg *config.VCLUConfig) *web.LocalAccess {
 	var cc *config.VCLUCloudConfig
 	if cfg != nil {
@@ -230,8 +230,8 @@ func startLocalAccess(webSrv *web.Server, dir string, cfg *config.VCLUConfig) *w
 	}
 	la.OnIssue = listen
 	webSrv.SetLocalAccess(la)
-	if cc.IsPaired() {
-		listen()
+	if cc.IsPaired() || (cfg != nil && len(cfg.Clients) > 0) {
+		listen() // the device API's clients need no pairing
 	}
 	return la
 }

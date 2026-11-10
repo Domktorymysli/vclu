@@ -365,16 +365,20 @@ func (s *Server) LocalHandler() http.Handler {
 		c.JSON(http.StatusOK, gin.H{"ok": true, "role": remoteRole(c)})
 	})
 	s.remoteRoutes(r)
+	s.clientRoutes(r)
 	return r
 }
 
 func (s *Server) localViewer(c *gin.Context) {
-	h := c.GetHeader("Authorization")
-	if s.local == nil || len(h) < 8 || !strings.EqualFold(h[:7], "bearer ") {
+	token := bearer(c)
+	if strings.HasPrefix(token, clientTokenPrefix) {
+		s.lanClientViewer(c, token)
+		return
+	}
+	if s.local == nil || token == "" {
 		c.AbortWithStatus(http.StatusUnauthorized)
 		return
 	}
-	token := strings.TrimSpace(h[7:])
 	actor, role, roles, ok := s.local.Viewer(token)
 	if !ok {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "local token not valid"})
@@ -396,6 +400,35 @@ func (s *Server) localViewer(c *gin.Context) {
 			return http.StatusUnauthorized
 		}
 		return s.mayView(path, roles, true)
+	})
+	c.Next()
+}
+
+// lanClientViewer is localViewer for a client of the device API (clients.go): the device API
+// checks its token itself; the remote dashboards are its as a remote viewer, by its roles.
+func (s *Server) lanClientViewer(c *gin.Context, token string) {
+	if strings.HasPrefix(c.Request.URL.Path, "/api/v1/client/") {
+		c.Next()
+		return
+	}
+	actor, roles, ok := s.lanClient(token)
+	if !ok {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "client token not valid"})
+		return
+	}
+	if st := s.clientMayView(c.Request.URL.Path, roles); st != 0 {
+		c.AbortWithStatusJSON(st, gin.H{"error": "Dashboard not found"})
+		return
+	}
+	c.Set(ctxRemoteActor, actor)
+	c.Set(ctxRemoteRole, "member") // Lua only tells the house from a remote viewer (roleKey)
+	c.Set(ctxViewerRoles, roles)
+	c.Set(ctxRecheck, func(path string) int {
+		_, roles, ok := s.lanClient(token)
+		if !ok {
+			return http.StatusUnauthorized
+		}
+		return s.clientMayView(path, roles)
 	})
 	c.Next()
 }
@@ -443,12 +476,16 @@ func (s *Server) remoteDashboardRoles(id string) ([]string, bool) {
 }
 
 // remoteDashboardsFor are the ids of the remote dashboards roles reach; with known false (only
-// the cloud knows the person's roles) every one on the cloud's list.
-func (s *Server) remoteDashboardsFor(roles []string, known bool) []string {
+// the cloud knows the person's roles) every one on the cloud's list. named leaves out those
+// naming no roles.
+func (s *Server) remoteDashboardsFor(roles []string, known, named bool) []string {
 	s.remoteRolesMu.Lock()
 	defer s.remoteRolesMu.Unlock()
 	ids := []string{}
 	for id, dr := range s.remoteDashboardsLocked() {
+		if named && len(dr) == 0 {
+			continue
+		}
 		if !known || rolesAllow(dr, roles) {
 			ids = append(ids, id)
 		}

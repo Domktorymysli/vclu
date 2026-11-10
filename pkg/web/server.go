@@ -399,7 +399,7 @@ func (s *Server) authMiddleware() gin.HandlerFunc {
 		path := c.Request.URL.Path
 
 		// Always allow these paths without auth
-		publicPaths := []string{"/login", "/static/", "/wizard", "/setup", "/api/health", "/mcp", "/d/", "/api/dashboard/"}
+		publicPaths := []string{"/login", "/static/", "/wizard", "/setup", "/api/health", "/mcp", "/d/", "/api/dashboard/", "/api/v1/client/"}
 		if s.wizardOpen(path) {
 			c.Next()
 			return
@@ -471,7 +471,7 @@ func (s *Server) csrfMiddleware() gin.HandlerFunc {
 		path := c.Request.URL.Path
 
 		// Skip public paths (wizard, login, health, mcp)
-		publicPaths := []string{"/login", "/api/health", "/mcp", "/api/dashboard/"}
+		publicPaths := []string{"/login", "/api/health", "/mcp", "/api/dashboard/", "/api/v1/client/"}
 		if s.wizardOpen(path) {
 			c.Next()
 			return
@@ -798,6 +798,7 @@ func (s *Server) setupRoutes() {
 
 	// MCP dashboard page
 	s.router.GET("/mcp-dashboard", s.handleMCPDashboard)
+	s.router.GET("/clients", s.handleClientsPage)
 
 	// vclu cloud
 	s.router.GET("/cloud", s.handleCloud)
@@ -809,6 +810,9 @@ func (s *Server) setupRoutes() {
 	s.router.GET("/editor", s.handleEditor)
 
 	// Dashboard pages
+	// the device API for clients, with their own tokens (clients.go)
+	s.clientRoutes(s.router)
+
 	s.router.GET("/d/:id", s.handleDashboardPage)
 	s.router.GET("/d/:id/custom.css", s.handleDashboardCustomCSS)
 	s.router.GET("/d/:id/manifest.webmanifest", s.handleDashboardManifest)
@@ -921,6 +925,11 @@ func (s *Server) setupRoutes() {
 		api.GET("/mcp/activity", s.handleAPIMCPActivity)
 
 		// MCP Bot endpoints
+		api.GET("/clients", s.handleAPIClients)
+		api.POST("/clients", s.handleAPIClientCreate)
+		api.PUT("/clients/:id", s.handleAPIClientUpdate)
+		api.DELETE("/clients/:id", s.handleAPIClientDelete)
+		api.POST("/clients/:id/regenerate", s.handleAPIClientRegenerate)
 		api.GET("/mcp/bots", s.handleAPIMCPBots)
 		api.POST("/mcp/bots", s.handleAPIMCPBotCreate)
 		api.PUT("/mcp/bots/:id", s.handleAPIMCPBotUpdate)

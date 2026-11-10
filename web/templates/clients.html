@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="{{.lang}}" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{index .t "clients.title"}} - Virtual CLU</title>
+    <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/vendor/bootstrap-icons/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="/static/css/dark-theme.css">
+    <meta name="csrf-token" content="{{.csrfToken}}">
+</head>
+<body>
+    <div class="app-container">
+        {{template "sidebar" .}}
+
+        <main class="main-content">
+            <header class="topbar">
+                <button class="hamburger" id="hamburgerBtn"><i class="bi bi-list"></i></button>
+                <h1 class="page-title"><i class="bi bi-key"></i> {{index .t "clients.title"}}</h1>
+                <div class="topbar-actions">
+                    <button class="theme-toggle" id="themeToggle" title="Toggle theme">
+                        <i class="bi bi-moon-fill"></i>
+                        <i class="bi bi-sun-fill"></i>
+                    </button>
+                    <div class="dropdown">
+                        <button class="btn-icon dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-globe"></i>
+                            <span class="lang-label">{{if eq .lang "pl"}}PL{{else}}EN{{end}}</span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item {{if eq .lang "pl"}}active{{end}}" href="?lang=pl">Polski</a></li>
+                            <li><a class="dropdown-item {{if eq .lang "en"}}active{{end}}" href="?lang=en">English</a></li>
+                        </ul>
+                    </div>
+                </div>
+            </header>
+
+            <div class="page-content">
+                <div class="content-wrapper wide">
+
+                    <div class="card mb-3">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span><i class="bi bi-key"></i> {{index .t "clients.title"}}</span>
+                            <button class="btn btn-sm btn-primary" id="btnAddClient"><i class="bi bi-plus-lg"></i> {{index .t "clients.add"}}</button>
+                        </div>
+                        <div class="card-body">
+                            <p class="text-muted small mb-3">{{index .t "clients.desc"}}</p>
+                            <div id="clientsList"></div>
+                        </div>
+                    </div>
+
+                    <div class="card mb-3">
+                        <div class="card-header"><i class="bi bi-plug"></i> {{index .t "clients.api"}}</div>
+                        <div class="card-body small">
+                            <p>{{index .t "clients.api_desc"}}</p>
+                            <pre class="mb-2"><code>GET  /api/v1/client/devices
+GET  /api/v1/client/device?path=...
+POST /api/v1/client/set   {"path": "...", "value": ...}
+POST /api/v1/client/call  {"path": "...", "method": "...", "args": [...]}
+Authorization: Bearer vclu_client_...</code></pre>
+                            <div id="clientsLan" class="text-muted"></div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </main>
+    </div>
+
+
+    <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/utils.js"></script>
+    <script src="/static/js/csrf.js"></script>
+    <script src="/static/js/theme.js"></script>
+    <script src="/static/js/sidebar.js"></script>
+
+    <script>
+    var CLIENTS_I18N = {
+        none: '{{index .t "clients.none"}}',
+        add: '{{index .t "clients.add"}}',
+        edit: '{{index .t "clients.edit"}}',
+        create: '{{index .t "clients.create"}}',
+        save: '{{index .t "clients.save"}}',
+        profiles: '{{index .t "clients.profiles"}}',
+        roles: '{{index .t "clients.roles"}}',
+        no_profiles: '{{index .t "clients.no_profiles"}}',
+        no_roles: '{{index .t "clients.no_roles"}}',
+        expires: '{{index .t "clients.expires"}}',
+        expired: '{{index .t "clients.expired"}}',
+        never: '{{index .t "clients.never"}}',
+        created: '{{index .t "clients.created"}}',
+        name_required: '{{index .t "clients.name_required"}}',
+        delete_confirm: '{{index .t "clients.delete_confirm"}}',
+        regen_confirm: '{{index .t "clients.regen_confirm"}}',
+        lan: '{{index .t "clients.lan"}}',
+        copied: '{{index .t "mcp.copied"}}',
+        copy: '{{index .t "mcp.copy"}}'
+    };
+    </script>
+    <script src="/static/js/clients.js"></script>
+
+    <div class="modal fade" id="clientModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="clientModalTitle">{{index .t "clients.add"}}</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="clientForm">
+                        <div class="mb-3">
+                            <label class="form-label" for="clientName">{{index .t "clients.name"}}</label>
+                            <input type="text" class="form-control" id="clientName" maxlength="60" placeholder="{{index .t "clients.name_placeholder"}}">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">{{index .t "clients.profiles"}}</label>
+                            <div id="clientProfiles"></div>
+                            <small class="text-muted">{{index .t "clients.profiles_hint"}}</small>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">{{index .t "clients.roles"}}</label>
+                            <div id="clientRoles"></div>
+                            <small class="text-muted">{{index .t "clients.roles_hint"}}</small>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label" for="clientExpires">{{index .t "clients.expires"}}</label>
+                            <input type="date" class="form-control" id="clientExpires">
+                            <small class="text-muted">{{index .t "clients.expires_hint"}}</small>
+                        </div>
+                    </div>
+                    <div id="clientTokenResult" style="display:none;">
+                        <div class="alert alert-warning">
+                            <i class="bi bi-exclamation-triangle"></i> <strong>{{index .t "clients.copy_warning"}}</strong>
+                        </div>
+                        <textarea class="form-control font-monospace small mb-2" id="clientConnection" rows="7" readonly></textarea>
+                        <button class="btn btn-outline-primary btn-sm" id="btnCopyClient">{{index .t "mcp.copy"}}</button>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{index .t "mcp.close"}}</button>
+                    <button type="button" class="btn btn-primary" id="btnSaveClient">{{index .t "clients.create"}}</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

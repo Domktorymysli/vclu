@@ -1,6 +1,8 @@
 package web
 
 import (
+	"strings"
+
 	"github.com/Domktorymysli/vclu/pkg/config"
 	"github.com/gin-gonic/gin"
 )
@@ -17,6 +19,9 @@ type contextExecutor interface {
 func (s *Server) requestActor(c *gin.Context, fallback string) (origin, actor string) {
 	// through vclu cloud: the person the cloud named (TunnelHandler)
 	if a := c.GetString(ctxRemoteActor); a != "" {
+		if strings.HasPrefix(a, "client:") {
+			return "client", a // a client of the device API (clients.go)
+		}
 		return "remote", a
 	}
 	switch c.GetString("auth_method") {
