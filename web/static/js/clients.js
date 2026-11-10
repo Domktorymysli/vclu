@@ -51,29 +51,27 @@
     function render() {
         var box = document.getElementById('clientsList');
         if (clients.length === 0) {
-            box.innerHTML = '<div class="text-center text-muted py-4">' +
-                '<i class="bi bi-key fs-1 d-block mb-2 opacity-50"></i>' +
-                '<div class="mb-1">' + VCLU.esc(t('none')) + '</div>' +
-                '<div class="small">' + VCLU.esc(t('empty_hint')) + '</div></div>';
+            box.innerHTML = '<p class="text-muted small mb-0">' + VCLU.esc(t('none')) + '</p>';
             return;
         }
-        var html = '<div class="list-group">';
+        var html = '<div class="list-group list-group-flush">';
         clients.forEach(function(cl) {
-            var exp = cl.expired
-                ? '<span class="badge bg-danger">' + VCLU.esc(t('expired')) + '</span>'
-                : '<span class="text-muted">' + VCLU.esc(t('expires')) + ': ' + VCLU.esc(cl.expiresAt ? day(cl.expiresAt) : t('never')) + '</span>';
-            html += '<div class="list-group-item py-3"><div class="d-flex justify-content-between align-items-start gap-3">';
-            html += '<div class="flex-grow-1">';
-            html += '<div class="d-flex align-items-baseline gap-2 mb-2"><h6 class="mb-0">' + VCLU.esc(cl.name) + '</h6>' +
-                '<code class="small text-muted">client:' + VCLU.esc(cl.id) + '</code></div>';
-            html += '<div class="small mb-1"><span class="text-muted me-1">' + VCLU.esc(t('profiles')) + ':</span>' + badges(cl.profiles, 'bg-primary', t('no_profiles')) + '</div>';
-            html += '<div class="small mb-1"><span class="text-muted me-1">' + VCLU.esc(t('roles')) + ':</span>' + badges(cl.roles, 'border border-info text-info', t('no_roles')) + '</div>';
-            html += '<div class="small">' + exp + '</div>';
-            html += '</div><div class="btn-group btn-group-sm flex-shrink-0">';
+            var exp = '';
+            if (cl.expired) {
+                exp = '<span class="badge bg-danger">' + VCLU.esc(t('expired')) + '</span>';
+            } else if (cl.expiresAt) {
+                exp = '<small class="text-muted">' + VCLU.esc(t('expires')) + ' ' + VCLU.esc(day(cl.expiresAt)) + '</small>';
+            }
+            html += '<div class="list-group-item px-0 d-flex align-items-center gap-3">';
+            html += '<div class="flex-grow-1"><strong>' + VCLU.esc(cl.name) + '</strong>' +
+                '<div class="small mt-1">' + badges(cl.profiles, 'bg-primary', t('no_profiles')) + ' ' +
+                (cl.roles && cl.roles.length ? badges(cl.roles, 'border border-info text-info', '') : '') + '</div></div>';
+            html += exp;
+            html += '<div class="btn-group btn-group-sm flex-shrink-0">';
             html += '<button class="btn btn-outline-secondary" data-act="edit" data-id="' + VCLU.esc(cl.id) + '" title="' + VCLU.esc(t('edit')) + '"><i class="bi bi-pencil"></i></button>';
             html += '<button class="btn btn-outline-secondary" data-act="regen" data-id="' + VCLU.esc(cl.id) + '" title="' + VCLU.esc(t('new_token')) + '"><i class="bi bi-qr-code"></i></button>';
             html += '<button class="btn btn-outline-danger" data-act="delete" data-id="' + VCLU.esc(cl.id) + '" title="' + VCLU.esc(t('delete')) + '"><i class="bi bi-trash"></i></button>';
-            html += '</div></div></div>';
+            html += '</div></div>';
         });
         box.innerHTML = html + '</div>';
     }

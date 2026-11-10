@@ -41,14 +41,13 @@
                     <div class="card mb-3">
                         <div class="card-header d-flex justify-content-between align-items-center">
                             <span><i class="bi bi-key"></i> {{index .t "clients.title"}}</span>
-                            <button class="btn btn-sm btn-primary" id="btnAddClient"><i class="bi bi-plus-lg"></i> {{index .t "clients.add"}}</button>
+                            <div class="d-flex align-items-center gap-2">
+                                <a href="/access/profiles" class="btn btn-sm btn-outline-secondary" title="{{index .t "clients.manage_profiles"}}"><i class="bi bi-shield-lock"></i></a>
+                                <a href="/api-docs#tag/devices" class="btn btn-sm btn-outline-secondary" title="{{index .t "clients.api_docs"}}"><i class="bi bi-book"></i></a>
+                                <button class="btn btn-sm btn-primary" id="btnAddClient"><i class="bi bi-plus-lg"></i> {{index .t "clients.add"}}</button>
+                            </div>
                         </div>
                         <div class="card-body">
-                            <p class="text-muted small mb-2">{{index .t "clients.intro"}}</p>
-                            <div class="small mb-3 d-flex flex-wrap gap-3">
-                                <a href="/access/profiles"><i class="bi bi-shield-lock"></i> {{index .t "clients.manage_profiles"}}</a>
-                                <a href="/api-docs#tag/devices"><i class="bi bi-book"></i> {{index .t "clients.api_docs"}}</a>
-                            </div>
                             <div class="alert alert-warning small" id="clientsAuthRequired" style="display:none;">
                                 <i class="bi bi-exclamation-triangle"></i> {{index .t "clients.auth_required"}}
                                 <a href="/settings#securityForm">{{index .t "clients.set_password"}}</a>
@@ -87,7 +86,6 @@
         name_required: '{{index .t "clients.name_required"}}',
         delete_confirm: '{{index .t "clients.delete_confirm"}}',
         regen_confirm: '{{index .t "clients.regen_confirm"}}',
-        empty_hint: '{{index .t "clients.empty_hint"}}',
         new_token: '{{index .t "clients.new_token"}}',
         delete: '{{index .t "clients.delete"}}',
         copied: '{{index .t "mcp.copied"}}',

@@ -312,8 +312,8 @@ func TestClientsPage(t *testing.T) {
 	r.GET("/clients", s.handleClientsPage)
 	// a missing key renders as nothing (index .t), so look for texts from each part of the page
 	texts := map[string][]string{
-		"pl": {"<title>Klienci API", "Dodaj klienta", "Profile dostępu", "Skopiuj teraz", "Zarządzaj profilami", "Ustaw hasło panelu", "Dokumentacja API", "telefon bez chmury"},
-		"en": {"<title>API clients", "Add client", "Access profiles", "Copy it now", "Manage profiles", "Set the panel password", "API documentation", "a phone without the cloud"},
+		"pl": {"<title>Klienci API", "Dodaj klienta", "Profile dostępu", "Skopiuj teraz:", "Zarządzaj profilami", "Ustaw hasło", "Dokumentacja API"},
+		"en": {"<title>API clients", "Add client", "Access profiles", "Copy it now", "Manage profiles", "Set a password", "API documentation"},
 	}
 	for lang, want := range texts {
 		w := httptest.NewRecorder()
