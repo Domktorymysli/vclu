@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Domktorymysli/vclu-cloud/proto"
 	"github.com/Domktorymysli/vclu/pkg/accesscontrol"
 	"github.com/Domktorymysli/vclu/pkg/config"
 	"github.com/gin-gonic/gin"
@@ -24,8 +25,9 @@ import (
 //     objects, resolved per object as for the bots; with no profile, nothing;
 //   - the home's own roles: the remote dashboards naming one of them, on the LAN listener.
 //
-// The API is served on the panel's port and on the LAN listener (HTTPS, pinned). Lua runs its
-// calls as origin "client", actor "client:<id>".
+// The API is the cloud's device contract over HTTP (clientRoutes): one API for the cloud and
+// for everyone else, versioned in its path. It is served on the panel's port and on the LAN
+// listener (HTTPS, pinned). Lua runs its commands as origin "client", actor "client:<id>".
 
 const clientTokenPrefix = "vclu_client_"
 
@@ -76,13 +78,14 @@ func (s *Server) clientAuth(c *gin.Context) {
 	c.Next()
 }
 
-// clientRoutes are the device API, on the panel's router and on the LAN listener.
+// clientRoutes are the device API, on the panel's router and on the LAN listener: the cloud's
+// device contract (vclu-cloud docs/protocol.md, section 5, proto.Object, State, Cmd and
+// CmdResult) over HTTP, as the client, with its access profiles instead of :remote()'s roles.
 func (s *Server) clientRoutes(r gin.IRouter) {
-	g := r.Group("/api/v1/client", s.clientAuth)
+	g := r.Group("/api/v1", s.clientAuth)
 	g.GET("/devices", s.handleClientDevices)
-	g.GET("/device", s.handleClientDevice)
-	g.POST("/set", s.handleClientSet)
-	g.POST("/call", s.handleClientCall)
+	g.POST("/states", s.handleClientStates)
+	g.POST("/cmd", s.handleClientCmd)
 }
 
 // clientAccess is what the request's client may do with the object at path.
@@ -102,151 +105,136 @@ func clientError(c *gin.Context, status int, code, msg string) {
 	c.JSON(status, gin.H{"error": code, "message": msg})
 }
 
-// handleClientDevices lists the exposed objects the client may read, each with its access
-// (readonly or full). Query: type, area, group, tag, as for the MCP bots.
+// handleClientDevices lists the exposed devices the client's profiles let it read
+// ({"devices": [proto.Object]}): a readonly profile makes the device readonly, a full one leaves
+// the device's own access (full, or with :remote()'s PIN or confirmation).
 func (s *Server) handleClientDevices(c *gin.Context) {
 	if s.luaExecutor == nil {
 		clientError(c, http.StatusServiceUnavailable, "unavailable", "Lua engine not ready")
 		return
 	}
-	filter := map[string]string{}
-	for _, k := range []string{"type", "area", "group", "tag"} {
-		if v := c.Query(k); v != "" {
-			filter[k] = v
-		}
-	}
-	fj, _ := json.Marshal(filter)
-	out, err := s.luaExecutor.Execute(fmt.Sprintf(`MCP.list_devices("%s")`, luaEscape(string(fj))))
-	var list []map[string]any
+	out, err := s.luaExecutor.Execute("JSON.encode(ExposedObjects:deviceList())")
+	var list []proto.Object
 	if err == nil {
 		err = json.Unmarshal([]byte(out), &list)
 	}
 	if err != nil {
-		clientError(c, http.StatusInternalServerError, "error", "devices not listed")
+		clientError(c, http.StatusInternalServerError, proto.ReasonError, "devices not listed")
 		return
 	}
-	devices := []map[string]any{}
-	for _, d := range list {
-		path, _ := d["path"].(string)
-		level := s.clientAccess(c, path)
-		if level == accesscontrol.AccessHidden {
+	devices := []proto.Object{}
+	for _, o := range list {
+		switch s.clientAccess(c, o.Path) {
+		case accesscontrol.AccessHidden:
 			continue
+		case accesscontrol.AccessReadonly:
+			o.Access = proto.AccessReadonly
 		}
-		d["access"] = clientLevel(level, d["readonly"] == true)
-		delete(d, "readonly")
-		devices = append(devices, d)
+		devices = append(devices, o)
 	}
 	c.JSON(http.StatusOK, gin.H{"devices": devices})
 }
 
-// clientLevel is the access a client gets: full only when its profiles and the object allow it.
-func clientLevel(level accesscontrol.AccessLevel, readonly bool) string {
-	if level == accesscontrol.AccessFull && !readonly {
-		return "full"
+// handleClientStates answers what devices are doing ({"paths": [...]} → {"states": [proto.State]}):
+// those the client may not read, or that cannot be read, are left out.
+func (s *Server) handleClientStates(c *gin.Context) {
+	var req struct {
+		Paths []string `json:"paths"`
 	}
-	return "readonly"
-}
-
-// handleClientDevice is one object with its state, methods and capabilities (?path=).
-func (s *Server) handleClientDevice(c *gin.Context) {
-	path := c.Query("path")
-	if path == "" || s.clientAccess(c, path) == accesscontrol.AccessHidden || s.luaExecutor == nil {
-		clientError(c, http.StatusNotFound, "not_found", "no such device")
+	if c.ShouldBindJSON(&req) != nil || len(req.Paths) == 0 || len(req.Paths) > proto.MaxStatePaths {
+		clientError(c, http.StatusBadRequest, proto.ReasonInvalid, fmt.Sprintf("1 to %d paths", proto.MaxStatePaths))
 		return
-	}
-	out, err := s.luaExecutor.Execute(fmt.Sprintf(`MCP.get_device("%s")`, luaEscape(path)))
-	var d map[string]any
-	if err == nil {
-		err = json.Unmarshal([]byte(out), &d)
-	}
-	if err != nil || d["error"] != nil {
-		clientError(c, http.StatusNotFound, "not_found", "no such device")
-		return
-	}
-	d["access"] = clientLevel(s.clientAccess(c, path), d["readonly"] == true)
-	delete(d, "readonly")
-	c.JSON(http.StatusOK, d)
-}
-
-// clientControl checks that the client may control path and is not over the rate limit;
-// false when it answered.
-func (s *Server) clientControl(c *gin.Context, path string) bool {
-	switch s.clientAccess(c, path) {
-	case accesscontrol.AccessHidden:
-		clientError(c, http.StatusNotFound, "not_found", "no such device")
-		return false
-	case accesscontrol.AccessReadonly:
-		clientError(c, http.StatusForbidden, "forbidden", "read only for this client")
-		return false
 	}
 	if s.luaExecutor == nil {
 		clientError(c, http.StatusServiceUnavailable, "unavailable", "Lua engine not ready")
-		return false
+		return
 	}
-	if !actionLimiter.allow(limitKey(c)) {
-		clientError(c, http.StatusTooManyRequests, "rate_limited", "too many commands")
-		return false
+	paths := []string{}
+	for _, p := range req.Paths {
+		if s.clientAccess(c, p) != accesscontrol.AccessHidden {
+			paths = append(paths, p)
+		}
 	}
-	return true
-}
-
-// clientResult answers with Lua's {ok, error, ...}: 422 with its error when it refused.
-func clientResult(c *gin.Context, out string, err error) {
-	var r map[string]any
+	pj, _ := json.Marshal(paths)
+	out, err := s.luaExecutor.Execute(fmt.Sprintf(`Cloud._clientStates("%s")`, luaEscape(string(pj))))
+	states := []proto.State{}
 	if err == nil {
-		err = json.Unmarshal([]byte(out), &r)
+		err = json.Unmarshal([]byte(out), &states)
 	}
 	if err != nil {
-		clientError(c, http.StatusInternalServerError, "error", "command failed")
+		clientError(c, http.StatusInternalServerError, proto.ReasonError, "states not read")
 		return
 	}
-	if r["ok"] != true {
-		msg, _ := r["error"].(string)
-		clientError(c, http.StatusUnprocessableEntity, "refused", msg)
-		return
-	}
-	c.JSON(http.StatusOK, r)
+	c.JSON(http.StatusOK, gin.H{"states": states})
 }
 
-// handleClientSet sets an object's value: {path, value}.
-func (s *Server) handleClientSet(c *gin.Context) {
-	var req struct {
-		Path  string `json:"path"`
-		Value any    `json:"value"`
-	}
-	if c.ShouldBindJSON(&req) != nil || req.Path == "" {
-		clientError(c, http.StatusBadRequest, "invalid", "path and value required")
-		return
-	}
-	if !s.clientControl(c, req.Path) {
-		return
-	}
-	out, err := s.executeAs(c, "", fmt.Sprintf(`MCP.set_value("%s", %s)`, luaEscape(req.Path), actionValueLua(req.Value)))
-	clientResult(c, out, err)
+// clientCmdWait is how long a client's command may wait in the Lua queue before it is not run.
+const clientCmdWait = 10 * time.Second
+
+// cmdStatus is the HTTP status of a refused command, by its reason.
+var cmdStatus = map[string]int{
+	proto.ReasonNotFound:    http.StatusNotFound,
+	proto.ReasonForbidden:   http.StatusForbidden,
+	proto.ReasonInvalid:     http.StatusUnprocessableEntity,
+	proto.ReasonConfirm:     http.StatusConflict,
+	proto.ReasonPinRequired: http.StatusConflict,
+	proto.ReasonPinWrong:    http.StatusConflict,
+	proto.ReasonRateLimited: http.StatusTooManyRequests,
+	proto.ReasonExpired:     http.StatusGatewayTimeout,
 }
 
-// handleClientCall calls one of an object's methods: {path, method, args?}.
-func (s *Server) handleClientCall(c *gin.Context) {
+// handleClientCmd runs a command as the client ({path, action, value?, confirmed?, pin?} →
+// proto.CmdResult): the same Lua as the cloud's cmd (Cloud._clientCommand), with the PIN, the
+// confirmation and the actions each type takes.
+func (s *Server) handleClientCmd(c *gin.Context) {
 	var req struct {
-		Path   string `json:"path"`
-		Method string `json:"method"`
-		Args   []any  `json:"args"`
+		Path      string   `json:"path"`
+		Action    string   `json:"action"`
+		Value     *float64 `json:"value"`
+		Confirmed bool     `json:"confirmed"`
+		Pin       string   `json:"pin"`
 	}
-	if c.ShouldBindJSON(&req) != nil || req.Path == "" || req.Method == "" || strings.HasPrefix(req.Method, "_") {
-		clientError(c, http.StatusBadRequest, "invalid", "path and method required")
+	if c.ShouldBindJSON(&req) != nil || req.Path == "" || req.Action == "" {
+		clientError(c, http.StatusBadRequest, proto.ReasonInvalid, "path and action required")
 		return
 	}
-	if !s.clientControl(c, req.Path) {
+	level := s.clientAccess(c, req.Path)
+	if level == accesscontrol.AccessHidden {
+		c.JSON(http.StatusNotFound, proto.CmdResult{Reason: proto.ReasonNotFound, Message: "Nie ma takiego urządzenia."})
 		return
 	}
-	args := ""
-	if len(req.Args) > 0 {
-		b, _ := json.Marshal(req.Args)
-		args = string(b)
+	if s.luaExecutor == nil {
+		clientError(c, http.StatusServiceUnavailable, "unavailable", "Lua engine not ready")
+		return
 	}
-	out, err := s.executeAs(c, "", fmt.Sprintf(`MCP.execute_method("%s", "%s", "%s")`,
-		luaEscape(req.Path), luaEscape(req.Method), luaEscape(args)))
-	clientResult(c, out, err)
+	if !actionLimiter.allow(limitKey(c)) {
+		c.JSON(http.StatusTooManyRequests, proto.CmdResult{Reason: proto.ReasonRateLimited, Message: "Za dużo poleceń."})
+		return
+	}
+	// no level is -1, which Lua only reads with set (and refuses there)
+	value := -1.0
+	if req.Value != nil {
+		value = *req.Value
+	}
+	deadline := time.Now().Add(clientCmdWait).UnixMilli()
+	out, err := s.executeAs(c, "", fmt.Sprintf(`Cloud._clientCommand("%s", "%s", "%s", %t, "%s", %d, %g)`,
+		luaEscape(req.Path), luaEscape(req.Action), level, req.Confirmed, luaEscape(req.Pin), deadline, value))
+	var res proto.CmdResult
+	if err == nil {
+		err = json.Unmarshal([]byte(out), &res)
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, proto.CmdResult{Reason: proto.ReasonError, Message: "Nie udało się."})
+		return
+	}
+	status := http.StatusOK
+	if !res.OK {
+		status = http.StatusInternalServerError
+		if st, ok := cmdStatus[res.Reason]; ok {
+			status = st
+		}
+	}
+	c.JSON(status, res)
 }
 
 // lanClient is the LAN listener's viewer for a client token: its actor and roles. A client

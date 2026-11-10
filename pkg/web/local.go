@@ -407,7 +407,7 @@ func (s *Server) localViewer(c *gin.Context) {
 // lanClientViewer is localViewer for a client of the device API (clients.go): the device API
 // checks its token itself; the remote dashboards are its as a remote viewer, by its roles.
 func (s *Server) lanClientViewer(c *gin.Context, token string) {
-	if strings.HasPrefix(c.Request.URL.Path, "/api/v1/client/") {
+	if strings.HasPrefix(c.Request.URL.Path, "/api/v1/") {
 		c.Next()
 		return
 	}

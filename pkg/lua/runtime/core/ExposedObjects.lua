@@ -841,10 +841,41 @@ function ExposedObjects._remoteAccess(h)
     return 'full'
 end
 
+-- What a client of the device API reaches (Cloud._clientCommand): any exposed device; one with
+-- remote{pin = true} only once it has a PIN, as for the cloud
+function ExposedObjects:_deviceHandle(path)
+    local h = self._objects[path]
+    if not h or not h._exposed or h._hidden then return nil end
+    if h._remote and h._remote.pin and not h._pin then return nil end
+    return h
+end
+
+-- The access of a device for a client: :remote()'s, with its PIN and confirmation, when it has
+-- one, else readonly or full
+function ExposedObjects._deviceAccess(h)
+    if h._remote then return ExposedObjects._remoteAccess(h) end
+    return h.options.readonly and 'readonly' or 'full'
+end
+
 local function plainString(v)
     if type(v) == 'string' then return v end
     if type(v) == 'number' then return tostring(v) end
     return nil
+end
+
+-- One device as the device API lists it (proto.Object): never the PIN; roles only for the cloud
+local function deviceEntry(path, h, access, roles)
+    local o = h.options or {}
+    local obj = h.object
+    local name = plainString(o.name) or (type(obj) == 'table' and plainString(obj._name)) or tostring(path)
+    local e = { path = tostring(path), type = tostring(h.type), name = name,
+        area = plainString(o.area), floor = plainString(o.floor), access = access }
+    if roles and #roles > 0 then
+        local copy = {}
+        for i = 1, #roles do copy[i] = roles[i] end
+        e.roles = copy
+    end
+    return e
 end
 
 --- The devices exposed with :remote(), for the cloud's snapshot: sorted by path, each
@@ -860,20 +891,22 @@ function ExposedObjects:remoteList()
                     warn("[ExposedObjects] %s: remote{pin = true} without :pin(...), not offered to the cloud", tostring(path))
                 end
             else
-                local o = h.options or {}
-                local obj = h.object
-                local name = plainString(o.name) or (type(obj) == 'table' and plainString(obj._name)) or tostring(path)
-                local e = { path = tostring(path), type = tostring(h.type), name = name,
-                    area = plainString(o.area), floor = plainString(o.floor),
-                    access = ExposedObjects._remoteAccess(h) }
-                if #h._remote.roles > 0 then
-                    local roles = {}
-                    for i = 1, #h._remote.roles do roles[i] = h._remote.roles[i] end
-                    e.roles = roles
-                end
-                out[#out + 1] = e
+                out[#out + 1] = deviceEntry(path, h, ExposedObjects._remoteAccess(h), h._remote.roles)
             end
         end
+    end
+    table.sort(out, function(a, b) return a.path < b.path end)
+    return out
+end
+
+--- Every exposed device, for the clients of the device API (Go keeps those the client's profiles
+-- let it read): sorted by path, each {path, type, name, area, floor, access}, never the PIN
+-- @return table Array of plain tables
+function ExposedObjects:deviceList()
+    local out = {}
+    for path in pairs(self._objects) do
+        local h = self:_deviceHandle(path)
+        if h then out[#out + 1] = deviceEntry(path, h, ExposedObjects._deviceAccess(h)) end
     end
     table.sort(out, function(a, b) return a.path < b.path end)
     return out

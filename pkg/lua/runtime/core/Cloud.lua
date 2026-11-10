@@ -378,20 +378,15 @@ local function rolesAllow(want, rolesJSON)
     return false
 end
 
---- Runs a remote command on a device exposed with :remote() (called by Go with the cloud's cmd,
--- as the person). Returns the answer as JSON: { ok, reason?, message? }.
-function Cloud._command(path, action, rolesJSON, confirmed, pin, deadlineMs, value)
+-- Runs a command on h once who asks may (Cloud._command, Cloud._clientCommand), with access the
+-- device's for them: a readonly one refuses, then the confirmation, the PIN, the action and the
+-- deadline, the same for every way in. Returns the answer as JSON: { ok, reason?, message? }.
+local function command(h, path, access, action, confirmed, pin, deadlineMs, value)
     local function answer(ok, reason, message)
         return JSON.encode({ ok = ok, reason = reason, message = message })
     end
-    local h = ExposedObjects and ExposedObjects:_remoteHandle(path)
-    if not h then return answer(false, 'not_found', 'Nie ma takiego urządzenia.') end
-    local r = h._remote
-
-    if not rolesAllow(r.roles, rolesJSON) then
-        return answer(false, 'forbidden', 'Nie masz do tego uprawnień.')
-    end
-    if ExposedObjects._remoteAccess(h) == 'readonly' then
+    local r = h._remote or {}
+    if access == 'readonly' then
         return answer(false, 'forbidden', 'To urządzenie jest tylko do podglądu.')
     end
     if r.confirm and confirmed ~= true then
@@ -423,7 +418,7 @@ function Cloud._command(path, action, rolesJSON, confirmed, pin, deadlineMs, val
     if action == 'set' and (not value or value - value ~= 0 or value < 0 or value > 100) then
         return answer(false, 'invalid', 'Poziom musi być od 0 do 100%.')
     end
-    -- the Lua queue may have held the command past the time the cloud waits
+    -- the Lua queue may have held the command past the time the caller waits
     local deadline = tonumber(deadlineMs)
     if deadline and wallMs() > deadline then
         return answer(false, 'expired', 'Polecenie przyszło za późno.')
@@ -438,6 +433,31 @@ function Cloud._command(path, action, rolesJSON, confirmed, pin, deadlineMs, val
         return answer(false, 'error', err or 'Nie udało się.')
     end
     return answer(true)
+end
+
+local function notFound()
+    return JSON.encode({ ok = false, reason = 'not_found', message = 'Nie ma takiego urządzenia.' })
+end
+
+--- Runs a remote command on a device exposed with :remote() (called by Go with the cloud's cmd,
+-- as the person). Returns the answer as JSON: { ok, reason?, message? }.
+function Cloud._command(path, action, rolesJSON, confirmed, pin, deadlineMs, value)
+    local h = ExposedObjects and ExposedObjects:_remoteHandle(path)
+    if not h then return notFound() end
+    if not rolesAllow(h._remote.roles, rolesJSON) then
+        return JSON.encode({ ok = false, reason = 'forbidden', message = 'Nie masz do tego uprawnień.' })
+    end
+    return command(h, path, ExposedObjects._remoteAccess(h), action, confirmed, pin, deadlineMs, value)
+end
+
+--- The same command for a client of the device API (pkg/web/clients.go, as the client): any
+-- exposed device, level the client's access profiles give it ("full" or "readonly"; Go
+-- answers not_found for hidden ones). A device's :remote() PIN and confirmation hold here too.
+function Cloud._clientCommand(path, action, level, confirmed, pin, deadlineMs, value)
+    local h = ExposedObjects and ExposedObjects:_deviceHandle(path)
+    if not h or (level ~= 'full' and level ~= 'readonly') then return notFound() end
+    local access = level == 'readonly' and 'readonly' or ExposedObjects._deviceAccess(h)
+    return command(h, path, access, action, confirmed, pin, deadlineMs, value)
 end
 
 -- What each type's state is (the protocol's states): on for these, a cover's position, a reading
@@ -488,6 +508,25 @@ function Cloud._states(pathsJSON, rolesJSON)
         local path = paths[i]
         local h = type(path) == 'string' and ExposedObjects and ExposedObjects:_remoteHandle(path)
         if h and rolesAllow(h._remote.roles, rolesJSON) then
+            local st = remoteState(path, h)
+            if st then out[#out + 1] = st end
+        end
+    end
+    return JSON.encode(out)
+end
+
+--- What devices are doing, for a client of the device API: Go passes only the paths the client's
+-- profiles let it read. Devices that cannot be read are left out.
+-- @param pathsJSON string JSON array of paths
+-- @return string JSON array of {path, on?, position?, value?}
+function Cloud._clientStates(pathsJSON)
+    local out = {}
+    local ok, paths = pcall(JSON.decode, pathsJSON)
+    if not ok or type(paths) ~= 'table' then return JSON.encode(out) end
+    for i = 1, #paths do
+        local path = paths[i]
+        local h = type(path) == 'string' and ExposedObjects and ExposedObjects:_deviceHandle(path)
+        if h then
             local st = remoteState(path, h)
             if st then out[#out + 1] = st end
         end

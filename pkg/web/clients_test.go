@@ -27,17 +27,20 @@ func clientsSite(t *testing.T) (*Server, *gin.Engine) {
 	engine := lua.NewLuaEngine()
 	t.Cleanup(engine.Close)
 	if _, err := engine.Execute(tunnelDashboards + `
-		for _, o in ipairs({ { "DOU1", "salon.lampa" }, { "DOU2", "brama.glowna" } }) do
+		local h = {}
+		for i, o in ipairs({ { "DOU1", "salon.lampa" }, { "DOU2", "brama.glowna" }, { "DOU3", "sejf" } }) do
 			local sw = RemoteSwitch:new({ executeNoReply = function() end }, o[1], o[1])
 			registerObject("CLU1." .. o[1], sw)
-			expose(sw, "switch", { path = o[2] })
+			h[o[2]] = expose(sw, "switch", { path = o[2] })
+			_:sync("CLU1." .. o[1], 0)
 		end
+		h["sejf"]:pin("0420"):remote({ pin = true })
 	`); err != nil {
 		t.Fatal(err)
 	}
 	am := accesscontrol.NewManager(t.TempDir())
 	if err := am.SaveProfile("brama", accesscontrol.Profile{Default: accesscontrol.AccessHidden,
-		Objects: map[string]accesscontrol.AccessLevel{"brama.glowna": accesscontrol.AccessFull}}); err != nil {
+		Objects: map[string]accesscontrol.AccessLevel{"brama.glowna": accesscontrol.AccessFull, "sejf": accesscontrol.AccessFull}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := am.SaveProfile("podglad", accesscontrol.Profile{Default: accesscontrol.AccessReadonly}); err != nil {
@@ -113,49 +116,58 @@ func devicePaths(res clientResp) map[string]string {
 	return out
 }
 
-// Each client reaches what its own profiles give it, as the MCP bots do: the gate client
-// controls the gate only, the viewer reads everything, a client with no profile gets nothing.
+// Each client reaches what its own profiles give it, as the MCP bots do, through the cloud's
+// device contract: the gate client controls the gate and the safe, the viewer reads everything,
+// a client with no profile gets nothing. The safe's PIN holds for clients too.
 func TestClientDeviceAPI(t *testing.T) {
 	_, r := clientsSite(t)
 	_, gate := newClient(t, r, `{"name":"Zegarek","profiles":["brama"]}`)
 	_, viewer := newClient(t, r, `{"name":"Tablet","profiles":["podglad"]}`)
 	_, nothing := newClient(t, r, `{"name":"Pusty"}`)
 
-	if got := devicePaths(call(r, "GET", "/api/v1/client/devices", gate, "")); len(got) != 1 || got["brama.glowna"] != "full" {
+	if got := devicePaths(call(r, "GET", "/api/v1/devices", gate, "")); len(got) != 2 || got["brama.glowna"] != "full" || got["sejf"] != "pin" {
 		t.Errorf("gate client's devices: %v", got)
 	}
-	if got := devicePaths(call(r, "GET", "/api/v1/client/devices", viewer, "")); len(got) != 2 || got["salon.lampa"] != "readonly" {
+	if got := devicePaths(call(r, "GET", "/api/v1/devices", viewer, "")); len(got) != 3 || got["salon.lampa"] != "readonly" || got["sejf"] != "readonly" {
 		t.Errorf("viewer's devices: %v", got)
 	}
-	if res := call(r, "GET", "/api/v1/client/devices", nothing, ""); res.code != 200 || len(devicePaths(res)) != 0 {
+	if res := call(r, "GET", "/api/v1/devices", nothing, ""); res.code != 200 || len(devicePaths(res)) != 0 {
 		t.Errorf("client with no profile: %d %v", res.code, res.body)
 	}
 
-	if res := call(r, "GET", "/api/v1/client/device?path=brama.glowna", gate, ""); res.code != 200 || res.body["access"] != "full" {
-		t.Errorf("gate client's gate: %d %v", res.code, res.body)
+	states := call(r, "POST", "/api/v1/states", gate, `{"paths":["brama.glowna","salon.lampa"]}`)
+	if list, _ := states.body["states"].([]any); states.code != 200 || len(list) != 1 || list[0].(map[string]any)["path"] != "brama.glowna" {
+		t.Errorf("gate client's states: %d %v", states.code, states.body)
 	}
-	if res := call(r, "GET", "/api/v1/client/device?path=salon.lampa", gate, ""); res.code != 404 {
-		t.Errorf("gate client's lamp: %d", res.code)
+	if res := call(r, "POST", "/api/v1/states", gate, `{"paths":[]}`); res.code != 400 {
+		t.Errorf("no paths: %d", res.code)
 	}
 
-	if res := call(r, "POST", "/api/v1/client/set", gate, `{"path":"brama.glowna","value":true}`); res.code != 200 {
+	cmd := func(token, body string) clientResp { return call(r, "POST", "/api/v1/cmd", token, body) }
+	if res := cmd(gate, `{"path":"brama.glowna","action":"on"}`); res.code != 200 || res.body["ok"] != true {
 		t.Errorf("gate client opens the gate: %d %v", res.code, res.body)
 	}
-	if res := call(r, "POST", "/api/v1/client/set", gate, `{"path":"salon.lampa","value":true}`); res.code != 404 {
-		t.Errorf("gate client on the lamp: %d", res.code)
+	if res := cmd(gate, `{"path":"salon.lampa","action":"on"}`); res.code != 404 || res.body["reason"] != "not_found" {
+		t.Errorf("gate client on the lamp: %d %v", res.code, res.body)
 	}
-	if res := call(r, "POST", "/api/v1/client/set", viewer, `{"path":"salon.lampa","value":true}`); res.code != 403 || res.body["error"] != "forbidden" {
-		t.Errorf("viewer sets: %d %v", res.code, res.body)
+	if res := cmd(viewer, `{"path":"salon.lampa","action":"on"}`); res.code != 403 || res.body["reason"] != "forbidden" {
+		t.Errorf("viewer commands: %d %v", res.code, res.body)
 	}
-	if res := call(r, "POST", "/api/v1/client/call", gate, `{"path":"brama.glowna","method":"_private"}`); res.code != 400 {
-		t.Errorf("a private method: %d", res.code)
+	if res := cmd(gate, `{"path":"brama.glowna","action":"open"}`); res.code != 422 || res.body["reason"] != "invalid" {
+		t.Errorf("an action a switch does not take: %d %v", res.code, res.body)
 	}
-	if res := call(r, "POST", "/api/v1/client/call", gate, `{"path":"brama.glowna","method":"nope"}`); res.code != 422 {
-		t.Errorf("an unknown method: %d %v", res.code, res.body)
+	if res := cmd(gate, `{"path":"sejf","action":"on"}`); res.code != 409 || res.body["reason"] != "pin_required" {
+		t.Errorf("the safe without its PIN: %d %v", res.code, res.body)
+	}
+	if res := cmd(gate, `{"path":"sejf","action":"on","pin":"1111"}`); res.code != 409 || res.body["reason"] != "pin_wrong" {
+		t.Errorf("the safe with a wrong PIN: %d %v", res.code, res.body)
+	}
+	if res := cmd(gate, `{"path":"sejf","action":"on","pin":"0420"}`); res.code != 200 {
+		t.Errorf("the safe with its PIN: %d %v", res.code, res.body)
 	}
 
 	for _, tok := range []string{"", "vclu_client_wrong", "vclu_mcp_x"} {
-		if res := call(r, "GET", "/api/v1/client/devices", tok, ""); res.code != 401 {
+		if res := call(r, "GET", "/api/v1/devices", tok, ""); res.code != 401 {
 			t.Errorf("token %q: %d", tok, res.code)
 		}
 	}
@@ -166,7 +178,7 @@ func TestClientDeviceAPI(t *testing.T) {
 func TestClientLifecycle(t *testing.T) {
 	s, r := clientsSite(t)
 	id, token := newClient(t, r, `{"name":"CLI","profiles":["podglad"]}`)
-	devices := func(tok string) int { return call(r, "GET", "/api/v1/client/devices", tok, "").code }
+	devices := func(tok string) int { return call(r, "GET", "/api/v1/devices", tok, "").code }
 
 	if res := call(r, "POST", "/api/clients", "", `{"name":"x"}`, "X-Test-Auth", "apikey"); res.code != 403 {
 		t.Errorf("created with the API key: %d", res.code)
@@ -224,7 +236,7 @@ func TestClientOnLAN(t *testing.T) {
 	if res := call(lanApp, "GET", "/api/camera/front/snapshot", token, ""); res.code != 404 {
 		t.Errorf("the alarm's camera: %d", res.code)
 	}
-	if got := devicePaths(call(lanApp, "GET", "/api/v1/client/devices", token, "")); got["brama.glowna"] != "full" {
+	if got := devicePaths(call(lanApp, "GET", "/api/v1/devices", token, "")); got["brama.glowna"] != "full" {
 		t.Errorf("devices on the LAN: %v", got)
 	}
 

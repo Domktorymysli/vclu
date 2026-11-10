@@ -399,7 +399,7 @@ func (s *Server) authMiddleware() gin.HandlerFunc {
 		path := c.Request.URL.Path
 
 		// Always allow these paths without auth
-		publicPaths := []string{"/login", "/static/", "/wizard", "/setup", "/api/health", "/mcp", "/d/", "/api/dashboard/", "/api/v1/client/"}
+		publicPaths := []string{"/login", "/static/", "/wizard", "/setup", "/api/health", "/mcp", "/d/", "/api/dashboard/", "/api/v1/"}
 		if s.wizardOpen(path) {
 			c.Next()
 			return
@@ -471,7 +471,7 @@ func (s *Server) csrfMiddleware() gin.HandlerFunc {
 		path := c.Request.URL.Path
 
 		// Skip public paths (wizard, login, health, mcp)
-		publicPaths := []string{"/login", "/api/health", "/mcp", "/api/dashboard/", "/api/v1/client/"}
+		publicPaths := []string{"/login", "/api/health", "/mcp", "/api/dashboard/", "/api/v1/"}
 		if s.wizardOpen(path) {
 			c.Next()
 			return

@@ -53,10 +53,9 @@
                         <div class="card-header"><i class="bi bi-plug"></i> {{index .t "clients.api"}}</div>
                         <div class="card-body small">
                             <p>{{index .t "clients.api_desc"}}</p>
-                            <pre class="mb-2"><code>GET  /api/v1/client/devices
-GET  /api/v1/client/device?path=...
-POST /api/v1/client/set   {"path": "...", "value": ...}
-POST /api/v1/client/call  {"path": "...", "method": "...", "args": [...]}
+                            <pre class="mb-2"><code>GET  /api/v1/devices
+POST /api/v1/states  {"paths": ["..."]}
+POST /api/v1/cmd     {"path": "...", "action": "on", "value": 50, "pin": "...", "confirmed": true}
 Authorization: Bearer vclu_client_...</code></pre>
                             <div id="clientsLan" class="text-muted"></div>
                         </div>
