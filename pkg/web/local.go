@@ -67,7 +67,13 @@ type LocalAccess struct {
 	// cloudSeen is when the cloud was last heard from (unix seconds): a members list, or a
 	// health report sent on a working connection. Tokens stop after cloudSilence without it.
 	cloudSeen int64
+	// appNames are the names of the home's cloud apps by id, from their commands (NoteApp), for
+	// the history: the cloud sends no list of them. Only while vCLU runs.
+	appNames map[string]string
 }
+
+// maxAppNames bounds appNames; a home has at most 20 apps, ids change with new ones.
+const maxAppNames = 256
 
 // cloudSilence is how long local tokens keep working without the cloud: the members list, and the
 // roles in it, are the cloud's, and a home cut off from it must not honour them for ever.
@@ -179,6 +185,39 @@ func (a *LocalAccess) MemberName(actor string) string {
 		}
 	}
 	return ""
+}
+
+// NoteApp remembers the name of the home's cloud app id, as its latest command named it.
+func (a *LocalAccess) NoteApp(id, name string) {
+	if r := []rune(name); len(r) > 60 {
+		name = string(r[:60])
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.appNames == nil || len(a.appNames) >= maxAppNames {
+		a.appNames = map[string]string{}
+	}
+	a.appNames[id] = name
+}
+
+// ActorName is how history names actor: a member ("cloud:<id>") by their name, a cloud app
+// ("app:<id>@cloud:<id>") by its name and its member's; "" when vCLU knows neither.
+func (a *LocalAccess) ActorName(actor string) string {
+	app, member, isApp := strings.Cut(actor, "@")
+	if !isApp || !strings.HasPrefix(app, "app:") {
+		return a.MemberName(actor)
+	}
+	a.mu.Lock()
+	name := a.appNames[strings.TrimPrefix(app, "app:")]
+	a.mu.Unlock()
+	who := a.MemberName(member)
+	switch {
+	case name != "" && who != "":
+		return name + " · " + who
+	case name != "":
+		return name
+	}
+	return who
 }
 
 // MemberRoles are the home's own roles of actor in the cloud's members list; known is false

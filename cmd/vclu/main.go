@@ -363,7 +363,7 @@ func main() {
 		Members:      cloudMembers(localAccess),
 		Forgotten:    cloudForgotten(localAccess),
 		Objects:      cloudObjects(luaEngine),
-		Command:      cloudCommand(luaEngine),
+		Command:      cloudCommand(luaEngine, localAccess.NoteApp),
 		States:       cloudStates(luaEngine),
 		Metrics:      metricsCollector,
 	})

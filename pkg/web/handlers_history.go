@@ -98,7 +98,8 @@ func (s *Server) handleAPIHistory(c *gin.Context) {
 }
 
 // historyPage is a page of the history with the names of its actors that vCLU knows: the people
-// behind cloud:<id> (from the cloud's members list), so the page says who made a change.
+// behind cloud:<id> (from the cloud's members list) and the home's cloud apps acting for them
+// (app:<id>@cloud:<id>), so the page says who made a change.
 type historyPage struct {
 	history.SearchResult
 	Actors map[string]string `json:"actors,omitempty"`
@@ -110,10 +111,10 @@ func (s *Server) actorNames(entries []history.Entry) map[string]string {
 	}
 	out := map[string]string{}
 	for _, e := range entries {
-		if _, done := out[e.Actor]; done || !strings.HasPrefix(e.Actor, "cloud:") {
+		if _, done := out[e.Actor]; done || !strings.HasPrefix(e.Actor, "cloud:") && !strings.HasPrefix(e.Actor, "app:") {
 			continue
 		}
-		if name := s.local.MemberName(e.Actor); name != "" {
+		if name := s.local.ActorName(e.Actor); name != "" {
 			out[e.Actor] = name
 		}
 	}

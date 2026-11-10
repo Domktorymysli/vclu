@@ -433,3 +433,27 @@ func TestLocalAccessRevoke(t *testing.T) {
 		t.Error("the new pairing's first list (version 1) was not taken")
 	}
 }
+
+// History names a member by the cloud's list, and a home's cloud app by its latest command's name
+// and its member's; an app vCLU has not heard of yet keeps its member's name.
+func TestActorName(t *testing.T) {
+	la := newLocal(t, t.TempDir())
+	la.SetMembers(members(1, "owner"))
+	la.NoteApp("3", "MacBar")
+	for actor, want := range map[string]string{
+		"cloud:12":         "Anna",
+		"app:3@cloud:12":   "MacBar · Anna",
+		"app:4@cloud:12":   "Anna",
+		"app:3@cloud:99":   "MacBar",
+		"cloud:99":         "",
+		"agent:x@cloud:12": "",
+	} {
+		if got := la.ActorName(actor); got != want {
+			t.Errorf("%s = %q, want %q", actor, got, want)
+		}
+	}
+	la.NoteApp("3", strings.Repeat("ą", 80))
+	if got := la.ActorName("app:3@cloud:99"); len([]rune(got)) != 60 {
+		t.Errorf("a long name is kept as %d runes", len([]rune(got)))
+	}
+}

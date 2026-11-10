@@ -30,7 +30,7 @@ func TestCloudObjectsAndCommand(t *testing.T) {
 		t.Errorf("object %+v", o)
 	}
 
-	run := cloudCommand(engine)
+	run := cloudCommand(engine, nil)
 	cmd := proto.Cmd{ID: "c1", Path: "vclu:lamp", Action: proto.ActionOn, Pin: "0420",
 		Actor: proto.Actor{User: "cloud:7", Roles: []string{"domownicy"}}}
 	if r := run(cmd, time.Now().Add(time.Minute)); !r.OK {
@@ -45,5 +45,35 @@ func TestCloudObjectsAndCommand(t *testing.T) {
 	}
 	if out, _ := engine.Execute(`_on`); out != "1" {
 		t.Errorf("switchOn ran %s times", out)
+	}
+}
+
+// A home's cloud app is recorded apart from its member's phone, and learns its name for the history;
+// only a well-formed app id gets there.
+func TestCmdActor(t *testing.T) {
+	app := &proto.ActorApp{ID: "3", Name: "MacBar"}
+	for _, c := range []struct {
+		actor proto.Actor
+		want  string
+	}{
+		{proto.Actor{User: "cloud:7", Via: "app"}, "cloud:7"},
+		{proto.Actor{User: "cloud:7", Via: "home_app", App: app}, "app:3@cloud:7"},
+		{proto.Actor{User: "cloud:7", Via: "app", App: app}, "cloud:7"},
+		{proto.Actor{User: "cloud:7", Via: "home_app"}, "cloud:7"},
+		{proto.Actor{User: "cloud:7", Via: "home_app", App: &proto.ActorApp{ID: "3@cloud:1"}}, "cloud:7"},
+	} {
+		if got := cmdActor(c.actor); got != c.want {
+			t.Errorf("%+v = %q, want %q", c.actor, got, c.want)
+		}
+	}
+
+	engine := lua.NewLuaEngine()
+	defer engine.Close()
+	var noted []string
+	run := cloudCommand(engine, func(id, name string) { noted = append(noted, id+"="+name) })
+	run(proto.Cmd{ID: "c1", Path: "vclu:none", Action: proto.ActionOn, Actor: proto.Actor{User: "cloud:7", Via: "home_app", App: app}}, time.Now().Add(time.Minute))
+	run(proto.Cmd{ID: "c2", Path: "vclu:none", Action: proto.ActionOn, Actor: proto.Actor{User: "cloud:7", Via: "app"}}, time.Now().Add(time.Minute))
+	if len(noted) != 1 || noted[0] != "3=MacBar" {
+		t.Errorf("noted %v", noted)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
 	"runtime"
 	"strconv"
 	"sync"
@@ -105,10 +106,15 @@ func cloudObjects(engine *lua.LuaEngine) func() ([]proto.Object, error) {
 }
 
 // cloudCommand runs a command from the app in Lua (Cloud._command) as the person: history records
-// origin "remote", their cloud id and the command's id. Lua checks :remote(), the roles, the PIN
-// and the deadline again, since the Lua queue may hold the call.
-func cloudCommand(engine *lua.LuaEngine) func(proto.Cmd, time.Time) proto.CmdResult {
+// origin "remote", their cloud id (cmdActor) and the command's id. Lua checks :remote(), the roles,
+// the PIN and the deadline again, since the Lua queue may hold the call. noteApp, when set, learns
+// the names of the home's cloud apps for the history.
+func cloudCommand(engine *lua.LuaEngine, noteApp func(id, name string)) func(proto.Cmd, time.Time) proto.CmdResult {
 	return func(cmd proto.Cmd, deadline time.Time) proto.CmdResult {
+		actor := cmdActor(cmd.Actor)
+		if actor != cmd.Actor.User && noteApp != nil {
+			noteApp(cmd.Actor.App.ID, cmd.Actor.App.Name)
+		}
 		roles := cmd.Actor.Roles
 		if roles == nil {
 			roles = []string{}
@@ -119,7 +125,7 @@ func cloudCommand(engine *lua.LuaEngine) func(proto.Cmd, time.Time) proto.CmdRes
 		if cmd.Value != nil {
 			value = *cmd.Value
 		}
-		out, err := engine.CallAs("remote", cmd.Actor.User, cmd.ID, "Cloud._command",
+		out, err := engine.CallAs("remote", actor, cmd.ID, "Cloud._command",
 			cmd.Path, cmd.Action, string(rolesJSON), cmd.Confirmed, cmd.Pin, float64(deadline.UnixMilli()), value)
 		var res proto.CmdResult
 		if err == nil {
@@ -199,6 +205,18 @@ func cloudNotifyAction(engine *lua.LuaEngine) func(proto.NotifyAction) proto.Not
 // startLocalAccess turns on local tokens for the app (pkg/web/local.go) and starts the LAN
 // listener for them: at once when vCLU is paired or has clients of the device API, otherwise
 // with the first token or client. nil when cloud.localPort is -1 or the certificate cannot be made.
+// appIDRe is a cloud app's id (proto.ActorApp): digits, nothing to inject into the history.
+var appIDRe = regexp.MustCompile(`^[0-9]{1,18}$`)
+
+// cmdActor is who history records for a command: the person (cloud:<id>), or a home's cloud app
+// acting for them (via home_app) as app:<id>@cloud:<id>, so a program is told from their phone.
+func cmdActor(a proto.Actor) string {
+	if a.Via == "home_app" && a.App != nil && appIDRe.MatchString(a.App.ID) {
+		return "app:" + a.App.ID + "@" + a.User
+	}
+	return a.User
+}
+
 func startLocalAccess(webSrv *web.Server, dir string, cfg *config.VCLUConfig) *web.LocalAccess {
 	var cc *config.VCLUCloudConfig
 	if cfg != nil {
