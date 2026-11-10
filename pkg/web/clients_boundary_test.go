@@ -2,11 +2,13 @@ package web
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/Domktorymysli/vclu-cloud/proto"
+	"github.com/Domktorymysli/vclu/pkg/accesscontrol"
 	"github.com/Domktorymysli/vclu/pkg/config"
 	"github.com/Domktorymysli/vclu/pkg/lua"
 	"github.com/gin-gonic/gin"
@@ -236,5 +238,105 @@ func TestClientPinTries(t *testing.T) {
 	}
 	if res := call(r, "POST", "/api/v1/cmd", token, `{"path":"sejf","action":"on","pin":"0420"}`); res.code != http.StatusTooManyRequests || res.body["reason"] != "rate_limited" {
 		t.Errorf("the right PIN after five wrong ones: %d %v", res.code, res.body)
+	}
+}
+
+// Through the tunnel with a members list, someone it does not name gets no dashboard and no
+// camera, but the static files the pages need.
+func TestTunnelStranger(t *testing.T) {
+	s, _ := clientsSite(t)
+	s.SetLocalAccess(newLocal(t, t.TempDir()))
+	s.local.SetMembers(members(1, "owner", install12))
+	tunnel := s.TunnelHandler()
+	for _, p := range []string{"/d/home", "/api/dashboard/home", "/api/camera/front/snapshot"} {
+		if res := call(tunnel, "GET", p, "", "", proto.HeaderActor, "cloud:99", proto.HeaderRole, "owner"); res.code != http.StatusNotFound {
+			t.Errorf("%s for someone the list does not name: %d", p, res.code)
+		}
+	}
+	if res := call(tunnel, "GET", "/api/dashboard/home", "", "", proto.HeaderActor, "cloud:12", proto.HeaderRole, "owner"); res.code != http.StatusOK {
+		t.Errorf("a member: %d", res.code)
+	}
+}
+
+// The panel's API key manages no client, whatever the method; the list never shows a token
+// or its hash.
+func TestClientsPanelOnly(t *testing.T) {
+	_, r := clientsSite(t)
+	id, token := newClient(t, r, `{"name":"CLI","profiles":["podglad"]}`)
+	for _, p := range []struct{ method, path, body string }{
+		{"PUT", "/api/clients/" + id, `{"name":"x"}`}, {"DELETE", "/api/clients/" + id, ""},
+		{"POST", "/api/clients/" + id + "/regenerate", ""},
+	} {
+		if res := call(r, p.method, p.path, "", p.body, "X-Test-Auth", "apikey"); res.code != http.StatusForbidden {
+			t.Errorf("%s %s with the API key: %d", p.method, p.path, res.code)
+		}
+	}
+	res := call(r, "GET", "/api/clients", "", "", "X-Test-Auth", "session")
+	if b := mustJSON(res.body); strings.Contains(b, token) || strings.Contains(b, config.HashAPIKey(token)) || strings.Contains(strings.ToLower(b), "hash") {
+		t.Errorf("the list shows the token: %s", b)
+	}
+}
+
+// A level a profile file should not have (edited by hand) reaches nothing; states answer
+// only readable paths and refuse bad requests.
+func TestClientLevelsAndStates(t *testing.T) {
+	s, r := clientsSite(t)
+	if err := s.accessManager.SaveProfile("dziwny", accesscontrol.Profile{Default: `full"); PWNED = true; --`}); err != nil {
+		t.Fatal(err)
+	}
+	_, odd := newClient(t, r, `{"name":"Dziwny","profiles":["dziwny"]}`)
+	if got := devicePaths(call(r, "GET", "/api/v1/devices", odd, "")); len(got) != 0 {
+		t.Errorf("devices with an unknown level: %v", got)
+	}
+	if res := call(r, "POST", "/api/v1/cmd", odd, `{"path":"brama.glowna","action":"on"}`); res.code != http.StatusNotFound {
+		t.Errorf("a command with an unknown level: %d", res.code)
+	}
+	if out, _ := s.luaExecutor.Execute(`tostring(PWNED)`); out != "nil" {
+		t.Fatalf("a profile's level ran as Lua")
+	}
+
+	_, viewer := newClient(t, r, `{"name":"Tablet","profiles":["podglad"]}`)
+	if res := call(r, "POST", "/api/v1/states", viewer, `{"paths":["salon.lampa"]}`); res.code != 200 || len(res.body["states"].([]any)) != 1 {
+		t.Errorf("a readonly client reads: %d %v", res.code, res.body)
+	}
+	many := make([]string, proto.MaxStatePaths+1)
+	for i := range many {
+		many[i] = "salon.lampa"
+	}
+	for _, body := range []string{`{"paths":` + mustJSON(many) + `}`, `{"paths":[1]}`, `{"paths":"salon.lampa"}`, `x`} {
+		if res := call(r, "POST", "/api/v1/states", viewer, body); res.code != http.StatusBadRequest {
+			t.Errorf("states %.40s: %d", body, res.code)
+		}
+	}
+}
+
+// The device API takes only a bearer token: a panel session cookie is no client.
+func TestClientAPINotByCookie(t *testing.T) {
+	s, panel, _, _ := fullPanel(t)
+	session := s.sessions.create()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/cmd", strings.NewReader(`{"path":"brama.glowna","action":"on"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session})
+	w := httptest.NewRecorder()
+	panel.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("the device API with the panel's session: %d", w.Code)
+	}
+}
+
+// A flood of tokens that are no client's is slowed per address, and a real client from
+// another address is not.
+func TestClientBadTokenFlood(t *testing.T) {
+	_, r := clientsSite(t)
+	_, token := newClient(t, r, `{"name":"CLI","profiles":["podglad"]}`)
+	last := 0
+	for i := 0; i < 25; i++ {
+		last = call(r, "GET", "/api/v1/devices", "vclu_client_nope", "", "X-Forwarded-For", "10.0.0.9").code
+	}
+	if last != http.StatusTooManyRequests {
+		t.Errorf("after 25 bad tokens: %d", last)
+	}
+	if res := call(r, "GET", "/api/v1/devices", token, ""); res.code != http.StatusOK {
+		t.Errorf("a client from another address: %d", res.code)
 	}
 }

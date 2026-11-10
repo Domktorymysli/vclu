@@ -411,11 +411,12 @@ func (s *Server) lanClientViewer(c *gin.Context, token string) {
 		c.Next()
 		return
 	}
-	actor, roles, ok := s.lanClient(token)
-	if !ok {
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "client token not valid"})
+	cl, st := s.authClient(c, token)
+	if st != 0 {
+		c.AbortWithStatusJSON(st, gin.H{"error": "client token not valid"})
 		return
 	}
+	actor, roles := clientActor(cl), cl.Roles
 	if st := s.clientMayView(c.Request.URL.Path, roles); st != 0 {
 		c.AbortWithStatusJSON(st, gin.H{"error": "Dashboard not found"})
 		return
@@ -475,10 +476,9 @@ func (s *Server) remoteDashboardRoles(id string) ([]string, bool) {
 	return r, ok
 }
 
-// remoteDashboardsFor are the ids of the remote dashboards roles reach; with known false (only
-// the cloud knows the person's roles) every one on the cloud's list. named leaves out those
-// naming no roles.
-func (s *Server) remoteDashboardsFor(roles []string, known, named bool) []string {
+// remoteDashboardsFor are the ids of the remote dashboards roles reach (nil roles: those naming
+// none); named leaves out those naming no roles.
+func (s *Server) remoteDashboardsFor(roles []string, named bool) []string {
 	s.remoteRolesMu.Lock()
 	defer s.remoteRolesMu.Unlock()
 	ids := []string{}
@@ -486,7 +486,7 @@ func (s *Server) remoteDashboardsFor(roles []string, known, named bool) []string
 		if named && len(dr) == 0 {
 			continue
 		}
-		if !known || rolesAllow(dr, roles) {
+		if rolesAllow(dr, roles) {
 			ids = append(ids, id)
 		}
 	}

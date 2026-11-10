@@ -71,7 +71,7 @@ func (s *Server) tunnelViewer(c *gin.Context) {
 	}
 	check := func(path string) int {
 		if s.local == nil {
-			return 0
+			return s.mayView(path, nil, false)
 		}
 		roles, member, known := s.local.MemberRoles(actor)
 		if known && !member && viewerPath(path) {
@@ -108,11 +108,11 @@ func viewerPath(p string) bool {
 }
 
 // mayView is the status a remote viewer with roles gets for path: 0 to pass, 404 for a
-// dashboard their roles do not reach or that the cloud's list leaves out. known false (the
-// cloud alone knows the roles) lets every path pass.
+// dashboard the cloud's list leaves out (its roles function hides it) or, with known, that
+// their roles do not reach. known false (the cloud alone knows the roles) checks only the list.
 func (s *Server) mayView(path string, roles []string, known bool) int {
-	if id := dashboardOfPath(path); id != "" && known {
-		if dr, listed := s.remoteDashboardRoles(id); !listed || !rolesAllow(dr, roles) {
+	if id := dashboardOfPath(path); id != "" {
+		if dr, listed := s.remoteDashboardRoles(id); !listed || (known && !rolesAllow(dr, roles)) {
 			return http.StatusNotFound
 		}
 	}
@@ -166,15 +166,15 @@ func (s *Server) handleTunnelCameraSnapshot(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Lua engine not ready"})
 		return
 	}
-	// only on a dashboard the viewer's roles reach, when the house knows them
+	// only on a dashboard the viewer's roles reach; when the house does not know them (no
+	// members list), only on one naming no roles: the cloud does not check cameras by roles
 	var roles []string
-	v, known := c.Get(ctxViewerRoles)
-	if known {
+	if v, ok := c.Get(ctxViewerRoles); ok {
 		roles = v.([]string)
 	}
 	// a client of the device API sees no dashboard naming no roles (clientMayView)
 	client := strings.HasPrefix(c.GetString(ctxRemoteActor), "client:")
-	only, _ := json.Marshal(s.remoteDashboardsFor(roles, known, client))
+	only, _ := json.Marshal(s.remoteDashboardsFor(roles, client))
 	out, err := s.luaExecutor.Execute(fmt.Sprintf(`Dashboard.API.remoteCamera("%s"%s, "%s")`,
 		luaEscape(c.Param("id")), roleArg(c), luaEscape(string(only))))
 	var r struct {

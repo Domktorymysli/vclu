@@ -198,15 +198,39 @@ func TestTunnelPin(t *testing.T) {
 	}
 }
 
-// A camera is served through the cloud only when a remote dashboard shows it.
+// A camera is served through the cloud only when a remote dashboard shows it, and without a
+// members list (the house does not know the person's roles) only one naming no roles: the
+// cloud does not check cameras by roles. TestLocalCameraRoles has the camera with the role.
 func TestTunnelCamera(t *testing.T) {
-	tunnel, _, _ := newTunnel(t)
+	tunnel, _, engine := newTunnel(t)
+	if _, err := engine.Execute(`Dashboard.new('podworko'):remote():section('S', 'i')
+		:image('c', 'Podwórko', Camera.snapshotUrl('yard')):build()`); err != nil {
+		t.Fatal(err)
+	}
 	if r := do(tunnel, "GET", "/api/camera/back/snapshot", "owner", ""); r.code != 404 {
 		t.Errorf("camera on no dashboard: %d", r.code)
 	}
+	if r := do(tunnel, "GET", "/api/camera/front/snapshot", "owner", ""); r.code != 404 {
+		t.Errorf("camera of a dashboard naming roles, roles unknown: %d", r.code)
+	}
 	// no camera manager in the test: past the check it answers 503
-	if r := do(tunnel, "GET", "/api/camera/front/snapshot", "member", ""); r.code != 503 {
-		t.Errorf("camera of a remote dashboard: %d", r.code)
+	if r := do(tunnel, "GET", "/api/camera/yard/snapshot", "member", ""); r.code != 503 {
+		t.Errorf("camera of a dashboard for every member: %d", r.code)
+	}
+}
+
+// A dashboard its roles function hides is gone through the tunnel at once, also when the house
+// has no members list: the cloud may not have the new list yet.
+func TestTunnelHiddenByRolesFunction(t *testing.T) {
+	tunnel, _, engine := newTunnel(t)
+	if _, err := engine.Execute(`Dashboard.new('ukryty'):remote():roles(function() return nil end)
+		:section('S', 'i'):build()`); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{"/api/dashboard/ukryty", "/d/ukryty", "/api/dashboard/ukryty/values"} {
+		if r := do(tunnel, "GET", p, "owner", ""); r.code != 404 {
+			t.Errorf("%s: %d", p, r.code)
+		}
 	}
 }
 

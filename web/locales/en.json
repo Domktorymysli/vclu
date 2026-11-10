@@ -886,7 +886,7 @@
     "profiles": "Access profiles",
     "profiles_hint": "What the client may read (readonly) and control (full), as in the profiles on the Access page.",
     "roles": "Roles",
-    "roles_hint": "Remote dashboards with these roles, on the local network. Dashboards naming no roles are not for clients.",
+    "roles_hint": "Remote dashboards with these roles, on the local network. Dashboards naming no roles are not for clients. A role opens the whole dashboard: its buttons work whatever the profiles say.",
     "no_profiles": "none (no access)",
     "no_roles": "none",
     "expires": "Expires",

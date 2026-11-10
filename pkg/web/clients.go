@@ -66,10 +66,33 @@ func bearer(c *gin.Context) string {
 	return strings.TrimSpace(h[7:])
 }
 
+// clientFails counts tokens that are no client's, per address: each one reads config.json, so
+// a flood of them is answered 429 until it eases (20 at once, then one a second).
+var clientFails = &rateLimiter{buckets: make(map[string]*bucket), rate: 1, burst: 20}
+
+// authClient is the client of the request's token, or the status to answer: 401 for a token
+// that is no client's, 429 while its address has sent too many of those.
+func (s *Server) authClient(c *gin.Context, token string) (config.APIClient, int) {
+	ip := c.ClientIP()
+	if clientFails.empty(ip) {
+		return config.APIClient{}, http.StatusTooManyRequests
+	}
+	cl, ok := s.apiClient(token)
+	if !ok {
+		clientFails.allow(ip)
+		return config.APIClient{}, http.StatusUnauthorized
+	}
+	return cl, 0
+}
+
 // clientAuth lets through only a request with a client's token.
 func (s *Server) clientAuth(c *gin.Context) {
-	cl, ok := s.apiClient(bearer(c))
-	if !ok {
+	cl, st := s.authClient(c, bearer(c))
+	if st == http.StatusTooManyRequests {
+		c.AbortWithStatusJSON(st, gin.H{"error": proto.ReasonRateLimited, "message": "too many invalid tokens"})
+		return
+	}
+	if st != 0 {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized", "message": "client token not valid"})
 		return
 	}
@@ -125,10 +148,11 @@ func (s *Server) handleClientDevices(c *gin.Context) {
 	devices := []proto.Object{}
 	for _, o := range list {
 		switch s.clientAccess(c, o.Path) {
-		case accesscontrol.AccessHidden:
-			continue
+		case accesscontrol.AccessFull:
 		case accesscontrol.AccessReadonly:
 			o.Access = proto.AccessReadonly
+		default:
+			continue
 		}
 		devices = append(devices, o)
 	}
@@ -151,7 +175,7 @@ func (s *Server) handleClientStates(c *gin.Context) {
 	}
 	paths := []string{}
 	for _, p := range req.Paths {
-		if s.clientAccess(c, p) != accesscontrol.AccessHidden {
+		if l := s.clientAccess(c, p); l == accesscontrol.AccessFull || l == accesscontrol.AccessReadonly {
 			paths = append(paths, p)
 		}
 	}
@@ -198,8 +222,15 @@ func (s *Server) handleClientCmd(c *gin.Context) {
 		clientError(c, http.StatusBadRequest, proto.ReasonInvalid, "path and action required")
 		return
 	}
-	level := s.clientAccess(c, req.Path)
-	if level == accesscontrol.AccessHidden {
+	// the level reaches Lua as one of two constants, whatever a profile file says
+	level := ""
+	switch s.clientAccess(c, req.Path) {
+	case accesscontrol.AccessFull:
+		level = "full"
+	case accesscontrol.AccessReadonly:
+		level = "readonly"
+	}
+	if level == "" {
 		c.JSON(http.StatusNotFound, proto.CmdResult{Reason: proto.ReasonNotFound, Message: "Nie ma takiego urządzenia."})
 		return
 	}

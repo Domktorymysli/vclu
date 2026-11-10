@@ -886,7 +886,7 @@
     "profiles": "Profile dostępu",
     "profiles_hint": "Co klient może czytać (readonly) i czym sterować (full), jak w profilach na stronie Dostęp.",
     "roles": "Role",
-    "roles_hint": "Dashboardy zdalne z tymi rolami, w sieci lokalnej. Dashboardy bez ról nie są dla klientów.",
+    "roles_hint": "Dashboardy zdalne z tymi rolami, w sieci lokalnej. Dashboardy bez ról nie są dla klientów. Rola otwiera cały dashboard: jego przyciski działają niezależnie od profili.",
     "no_profiles": "brak (bez dostępu)",
     "no_roles": "brak",
     "expires": "Wygasa",

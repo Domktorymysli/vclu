@@ -223,6 +223,17 @@ func (rl *rateLimiter) allow(ip string) bool {
 	return true
 }
 
+// empty is whether key has no token left now, without taking one.
+func (rl *rateLimiter) empty(key string) bool {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	b, ok := rl.buckets[key]
+	if !ok {
+		return false
+	}
+	return b.tokens+time.Since(b.lastCheck).Seconds()*rl.rate < 1
+}
+
 // --------------------------------------------------------------------------
 // Page handlers
 // --------------------------------------------------------------------------

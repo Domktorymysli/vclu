@@ -24,6 +24,7 @@ func clientsSite(t *testing.T) (*Server, *gin.Engine) {
 	t.Helper()
 	dashCache.Invalidate()
 	actionLimiter = &rateLimiter{buckets: make(map[string]*bucket), rate: 100, burst: 100}
+	clientFails = &rateLimiter{buckets: make(map[string]*bucket), rate: 1, burst: 20}
 	engine := lua.NewLuaEngine()
 	t.Cleanup(engine.Close)
 	if _, err := engine.Execute(tunnelDashboards + `
