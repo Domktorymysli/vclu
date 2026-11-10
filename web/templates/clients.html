@@ -44,25 +44,16 @@
                             <button class="btn btn-sm btn-primary" id="btnAddClient"><i class="bi bi-plus-lg"></i> {{index .t "clients.add"}}</button>
                         </div>
                         <div class="card-body">
-                            <p class="text-muted small mb-2">{{index .t "clients.desc"}}</p>
-                            <p class="text-muted small mb-3"><i class="bi bi-shield-lock"></i> {{index .t "clients.profiles_where"}} <a href="/access/profiles">{{index .t "clients.manage_profiles"}}</a>.</p>
+                            <p class="text-muted small mb-2">{{index .t "clients.intro"}}</p>
+                            <div class="small mb-3 d-flex flex-wrap gap-3">
+                                <a href="/access/profiles"><i class="bi bi-shield-lock"></i> {{index .t "clients.manage_profiles"}}</a>
+                                <a href="/api-docs#tag/devices"><i class="bi bi-book"></i> {{index .t "clients.api_docs"}}</a>
+                            </div>
                             <div class="alert alert-warning small" id="clientsAuthRequired" style="display:none;">
                                 <i class="bi bi-exclamation-triangle"></i> {{index .t "clients.auth_required"}}
                                 <a href="/settings#securityForm">{{index .t "clients.set_password"}}</a>
                             </div>
                             <div id="clientsList"></div>
-                        </div>
-                    </div>
-
-                    <div class="card mb-3">
-                        <div class="card-header"><i class="bi bi-plug"></i> {{index .t "clients.api"}}</div>
-                        <div class="card-body small">
-                            <p>{{index .t "clients.api_desc"}} <a href="/api-docs#tag/devices">{{index .t "clients.api_docs"}}</a>.</p>
-                            <pre class="mb-2"><code>GET  /api/v1/devices
-POST /api/v1/states  {"paths": ["..."]}
-POST /api/v1/cmd     {"path": "...", "action": "on", "value": 50, "pin": "...", "confirmed": true}
-Authorization: Bearer vclu_client_...</code></pre>
-                            <div id="clientsLan" class="text-muted"></div>
                         </div>
                     </div>
 
@@ -96,7 +87,9 @@ Authorization: Bearer vclu_client_...</code></pre>
         name_required: '{{index .t "clients.name_required"}}',
         delete_confirm: '{{index .t "clients.delete_confirm"}}',
         regen_confirm: '{{index .t "clients.regen_confirm"}}',
-        lan: '{{index .t "clients.lan"}}',
+        empty_hint: '{{index .t "clients.empty_hint"}}',
+        new_token: '{{index .t "clients.new_token"}}',
+        delete: '{{index .t "clients.delete"}}',
         copied: '{{index .t "mcp.copied"}}',
         copy: '{{index .t "mcp.copy"}}'
     };

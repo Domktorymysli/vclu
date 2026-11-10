@@ -8,7 +8,6 @@
     var clients = [];
     var profiles = [];
     var roles = [];
-    var lan = null;
     var editingId = null;
 
     function t(key, fallback) {
@@ -29,7 +28,6 @@
             if (data.error) { VCLU.showToast(data.error, 'danger'); return; }
             clients = data.clients || [];
             roles = data.roles || [];
-            lan = data.lan || null;
             // no panel password: anyone on the network could give themselves a client
             document.getElementById('clientsAuthRequired').style.display = data.authEnabled ? 'none' : '';
             document.getElementById('btnAddClient').disabled = !data.authEnabled;
@@ -53,29 +51,31 @@
     function render() {
         var box = document.getElementById('clientsList');
         if (clients.length === 0) {
-            box.innerHTML = '<p class="text-muted small">' + VCLU.esc(t('none')) + '</p>';
-        } else {
-            var html = '<div class="list-group">';
-            clients.forEach(function(cl) {
-                var exp = cl.expiresAt ? day(cl.expiresAt) : t('never');
-                html += '<div class="list-group-item"><div class="d-flex justify-content-between align-items-start"><div>';
-                html += '<h6 class="mb-1">' + VCLU.esc(cl.name) + (cl.expired ? ' <span class="badge bg-danger">' + VCLU.esc(t('expired')) + '</span>' : '') + '</h6>';
-                html += '<small class="text-muted">client:' + VCLU.esc(cl.id) + '</small>';
-                html += '<div class="mt-1">' + VCLU.esc(t('profiles')) + ': ' + badges(cl.profiles, 'bg-primary', t('no_profiles')) + '</div>';
-                html += '<div class="mt-1">' + VCLU.esc(t('roles')) + ': ' + badges(cl.roles, 'bg-info text-dark', t('no_roles')) + '</div>';
-                html += '<small class="text-muted">' + VCLU.esc(t('expires')) + ': ' + VCLU.esc(exp) + ' · ' + VCLU.esc(t('created')) + ': ' + VCLU.esc(cl.createdAt) + '</small>';
-                html += '</div><div class="btn-group btn-group-sm">';
-                html += '<button class="btn btn-outline-primary" data-act="edit" data-id="' + VCLU.esc(cl.id) + '" title="' + VCLU.esc(t('edit')) + '"><i class="bi bi-pencil"></i></button>';
-                html += '<button class="btn btn-outline-warning" data-act="regen" data-id="' + VCLU.esc(cl.id) + '"><i class="bi bi-key"></i></button>';
-                html += '<button class="btn btn-outline-danger" data-act="delete" data-id="' + VCLU.esc(cl.id) + '"><i class="bi bi-trash"></i></button>';
-                html += '</div></div></div>';
-            });
-            box.innerHTML = html + '</div>';
+            box.innerHTML = '<div class="text-center text-muted py-4">' +
+                '<i class="bi bi-key fs-1 d-block mb-2 opacity-50"></i>' +
+                '<div class="mb-1">' + VCLU.esc(t('none')) + '</div>' +
+                '<div class="small">' + VCLU.esc(t('empty_hint')) + '</div></div>';
+            return;
         }
-        var lanBox = document.getElementById('clientsLan');
-        if (lan && lan.addresses && lan.addresses.length) {
-            lanBox.textContent = t('lan') + ': https://' + lan.addresses.join(', https://') + ' · pin ' + lan.pin;
-        }
+        var html = '<div class="list-group">';
+        clients.forEach(function(cl) {
+            var exp = cl.expired
+                ? '<span class="badge bg-danger">' + VCLU.esc(t('expired')) + '</span>'
+                : '<span class="text-muted">' + VCLU.esc(t('expires')) + ': ' + VCLU.esc(cl.expiresAt ? day(cl.expiresAt) : t('never')) + '</span>';
+            html += '<div class="list-group-item py-3"><div class="d-flex justify-content-between align-items-start gap-3">';
+            html += '<div class="flex-grow-1">';
+            html += '<div class="d-flex align-items-baseline gap-2 mb-2"><h6 class="mb-0">' + VCLU.esc(cl.name) + '</h6>' +
+                '<code class="small text-muted">client:' + VCLU.esc(cl.id) + '</code></div>';
+            html += '<div class="small mb-1"><span class="text-muted me-1">' + VCLU.esc(t('profiles')) + ':</span>' + badges(cl.profiles, 'bg-primary', t('no_profiles')) + '</div>';
+            html += '<div class="small mb-1"><span class="text-muted me-1">' + VCLU.esc(t('roles')) + ':</span>' + badges(cl.roles, 'border border-info text-info', t('no_roles')) + '</div>';
+            html += '<div class="small">' + exp + '</div>';
+            html += '</div><div class="btn-group btn-group-sm flex-shrink-0">';
+            html += '<button class="btn btn-outline-secondary" data-act="edit" data-id="' + VCLU.esc(cl.id) + '" title="' + VCLU.esc(t('edit')) + '"><i class="bi bi-pencil"></i></button>';
+            html += '<button class="btn btn-outline-secondary" data-act="regen" data-id="' + VCLU.esc(cl.id) + '" title="' + VCLU.esc(t('new_token')) + '"><i class="bi bi-qr-code"></i></button>';
+            html += '<button class="btn btn-outline-danger" data-act="delete" data-id="' + VCLU.esc(cl.id) + '" title="' + VCLU.esc(t('delete')) + '"><i class="bi bi-trash"></i></button>';
+            html += '</div></div></div>';
+        });
+        box.innerHTML = html + '</div>';
     }
 
     function checks(id, all, selected, cls) {
