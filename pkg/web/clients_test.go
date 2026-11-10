@@ -46,6 +46,9 @@ func clientsSite(t *testing.T) (*Server, *gin.Engine) {
 	if err := am.SaveProfile("podglad", accesscontrol.Profile{Default: accesscontrol.AccessReadonly}); err != nil {
 		t.Fatal(err)
 	}
+	if err := am.SaveProfile("wszystko", accesscontrol.Profile{Default: accesscontrol.AccessFull}); err != nil {
+		t.Fatal(err)
+	}
 	s := &Server{serverDir: t.TempDir(), sessions: newSessionStore(), luaExecutor: engine, accessManager: am,
 		calendarLimiter: newCalendarLimiter(), live: newLiveFeeds()}
 	t.Cleanup(s.live.shutdown)
