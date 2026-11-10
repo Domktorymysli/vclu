@@ -85,10 +85,11 @@ func lineLevel(line string, entry LogEntry) int32 {
 			return LevelError
 		}
 	}
-	switch entry.Level {
-	case "error":
+	// A recovered panic ("[RUNTIME] panic in work item ...") says neither error nor failed.
+	if entry.Level == "error" || strings.Contains(strings.ToLower(line), "panic") {
 		return LevelError
-	case "warning":
+	}
+	if entry.Level == "warning" {
 		return LevelWarn
 	}
 	return LevelInfo

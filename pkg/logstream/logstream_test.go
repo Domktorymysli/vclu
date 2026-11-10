@@ -2,6 +2,7 @@ package logstream
 
 import (
 	"bytes"
+	"io"
 	"log"
 	"strings"
 	"testing"
@@ -133,5 +134,53 @@ func TestParseLevel(t *testing.T) {
 	}
 	if got, err := ParseLevel("trace"); err == nil || got != LevelInfo {
 		t.Errorf("ParseLevel(trace) = %d, %v; want info and an error", got, err)
+	}
+}
+
+// A recovered panic is logged untagged and without "error"; it must pass a warn or error level.
+func TestLevelUntaggedPanicPassesErrorLevel(t *testing.T) {
+	stdout, _ := lines(t, "error", "[RUNTIME] panic in work item \"tick\": boom\ngoroutine 1 [running]:")
+	if !strings.Contains(stdout, "panic in work item") {
+		t.Errorf("panic line missing at level error:\n%s", stdout)
+	}
+}
+
+// A line kept off stdout still reaches the panel's live log.
+func TestLevelFilteredLineStillBroadcast(t *testing.T) {
+	var out bytes.Buffer
+	ls := NewLogStream(&out, 10)
+	ch := ls.Subscribe()
+	defer ls.Unsubscribe(ch)
+	log.New(ls, "", log.Ldate|log.Ltime).Println("[DEBUG] quiet")
+	select {
+	case e := <-ch:
+		if !strings.Contains(e.Message, "quiet") {
+			t.Errorf("broadcast %q", e.Message)
+		}
+	default:
+		t.Error("debug line not broadcast")
+	}
+	if out.Len() != 0 {
+		t.Errorf("debug on stdout: %q", out.String())
+	}
+}
+
+// SetLevel while lines are written (run with -race).
+func TestLevelSetWhileWriting(t *testing.T) {
+	ls := NewLogStream(io.Discard, 50)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 200; i++ {
+			_ = ls.SetLevel([]string{"debug", "info", "warn", "error"}[i%4])
+		}
+	}()
+	l := log.New(ls, "", 0)
+	for i := 0; i < 200; i++ {
+		l.Println("[DEBUG] x")
+	}
+	<-done
+	if got := ls.EntryCount(); got != 50 {
+		t.Errorf("ring buffer has %d entries, want 50", got)
 	}
 }
