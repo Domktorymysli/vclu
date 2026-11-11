@@ -893,7 +893,6 @@
     "roles_unused": "nothing, Lua does not use it",
     "roles_none": "The home has no roles of its own yet. The owner creates them in the cloud, under Members → Roles.",
     "howto_title": "How roles work",
-    "howto_short": "Owner, admin and member decide who manages the home; home roles (e.g. office, guests) decide who sees a dashboard or a device: :remote():roles('office') in Lua.",
     "howto_link": "Members and roles in the documentation"
   },
   "clients": {

@@ -893,8 +893,7 @@
     "roles_unused": "nic, Lua jej nie używa",
     "roles_none": "Dom nie ma jeszcze własnych ról. Właściciel tworzy je w chmurze, w zakładce Domownicy → Role.",
     "howto_title": "Jak działają role",
-    "howto_short": "Właściciel, administrator i domownik decydują o zarządzaniu domem, a role domu (np. biuro, goście) o tym, kto widzi dashboard albo urządzenie: :remote():roles('biuro') w Lua.",
-    "howto_link": "Role i domownicy w dokumentacji"
+    "howto_link": "Domownicy i role w dokumentacji"
   },
   "clients": {
     "title": "Klienci API",
