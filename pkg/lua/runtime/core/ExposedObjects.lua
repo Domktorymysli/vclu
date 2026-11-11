@@ -386,11 +386,13 @@ ExposedObjects = {
     _objectToPath = {},   -- weak table: object_ref -> path (stability after restart)
     _pluginContext = nil, -- current plugin ID (set by plugin sandbox)
     _noUnsubscribeWarned = {}, -- weak set: objects already warned about onChange()
+    _hidden = {},         -- weak set: objects a module exposed with hidden = true
 }
 
 -- Make _objectToPath a weak table (keys are garbage collected)
 setmetatable(ExposedObjects._objectToPath, { __mode = "k" })
 setmetatable(ExposedObjects._noUnsubscribeWarned, { __mode = "k" })
+setmetatable(ExposedObjects._hidden, { __mode = "k" })
 
 --- Generate a stable path for an object
 -- @param obj table Object to expose
@@ -460,16 +462,23 @@ function ExposedObjects:expose(obj, objType, options)
 
     checkOptions(objType, options)
 
-    -- Check if hidden
+    -- Check if hidden: kept out, also of exposeRegistry() before or after this call
     if options.hidden then
         if Logger then
             Logger:getShared():debug("[ExposedObjects] Object marked as hidden, not exposing")
+        end
+        self._hidden[obj] = true
+        local exposed = self._objects[self._objectToPath[obj] or ""]
+        if exposed and exposed.object == obj then
+            exposed:unexpose()
         end
         -- Return a dummy handle that does nothing
         local dummy = ExposedHandle:new("_hidden_", obj, objType, options)
         dummy._exposed = false
         return dummy
     end
+
+    self._hidden[obj] = nil
 
     -- Check if object was already exposed (identity is locked)
     local existingPath = self._objectToPath[obj]
@@ -1012,6 +1021,9 @@ function ExposedObjects:exposeRegistry(options)
             -- nothing to expose it as: no switch fallback
         elseif (capabilities[registryType(obj)] or {}).explicitOnly then
             -- a thermostat is exposed by expose() only
+        elseif self._hidden[obj] then
+            -- a module exposed it with hidden = true
+            skipped = skipped + 1
         elseif not self._objects[path] then
             -- Check AccessControl for per-integration visibility
             local mqttHidden = AccessControl and AccessControl.isHidden("mqtt", path)
@@ -1074,7 +1086,7 @@ function ExposedObjects:exposeRegistry(options)
     if Logger then
         local msg = string.format("[ExposedObjects] Auto-exposed %d objects from registry", count)
         if skipped > 0 then
-            msg = msg .. string.format(" (%d hidden by AccessControl)", skipped)
+            msg = msg .. string.format(" (%d hidden)", skipped)
         end
         Logger:getShared():info(msg)
     end

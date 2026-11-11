@@ -358,6 +358,12 @@ function RemoteObject:expose(options)
         self._exposeHandle = nil
     end
 
+    -- hidden = true takes back an earlier expose (exposeRegistry() included)
+    if options and options.hidden and self._exposeHandle then
+        self._exposeHandle:unexpose()
+        self._exposeHandle = nil
+    end
+
     -- Return cached handle if already exposed (idempotent)
     if self._exposeHandle then
         -- Update options if provided
