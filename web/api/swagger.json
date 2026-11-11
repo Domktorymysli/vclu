@@ -1934,7 +1934,7 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Accepts a single om.lua file or a diagnostic-pack ZIP containing CLU*/om.lua entries (the vCLU's own serial is skipped). Each file is parsed, stored as om_\u003cserial\u003e.lua, a proxy_\u003cserial\u003e.lua is generated and executed in the Lua runtime to register the remote devices, and an entry is added to .vclu.json.",
+                "description": "Accepts a single om.lua file, a diagnostic-pack ZIP containing CLU*/om.lua entries, or an Object Manager project (.omp, or a project ZIP with system.xml); the vCLU's own serial is skipped. Each CLU is parsed, stored as om_\u003cserial\u003e.lua, a proxy_\u003cserial\u003e.lua is generated and executed in the Lua runtime to register the remote devices, and an entry is added to .vclu.json. A project, also the one inside a diagnostic pack, is written for the agent to ai/om/ (event bindings, scripts); what could not be read is listed in warnings. The upload itself is not kept.",
                 "consumes": [
                     "multipart/form-data"
                 ],
@@ -1948,7 +1948,7 @@
                 "parameters": [
                     {
                         "type": "file",
-                        "description": "om.lua file or diagnostic-pack ZIP",
+                        "description": "om.lua file, diagnostic-pack ZIP or Object Manager project (.omp)",
                         "name": "file",
                         "in": "formData",
                         "required": true
@@ -1956,7 +1956,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "single file: success, filename, originalName, cluName, cluIP, objectCount, moduleCount; ZIP: success, isZip, originalName, imported, skipped, results, skippedList, errors",
+                        "description": "single file: success, filename, originalName, cluName, cluIP, objectCount, moduleCount; ZIP or project: success, isZip or isProject, originalName, imported, skipped, results, skippedList, errors, omVersion, agentDocs, warnings",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true

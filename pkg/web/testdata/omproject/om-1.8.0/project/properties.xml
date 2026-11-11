@@ -1,0 +1,14 @@
+<object-stream>
+  <ProjectProperties id="1">
+    <validateRangeIp>true</validateRangeIp>
+    <version>2301</version>
+    <versionExt>1.8.0_2301</versionExt>
+    <projectCipherKey id="2">
+      <keyBytes id="3">FIXTURE-SECRET-KEYBYTES</keyBytes>
+      <ivBytes id="4">FIXTURE-SECRET-IVBYTES</ivBytes>
+    </projectCipherKey>
+    <systemId>FIXTURE-SECRET-SYSTEMID</systemId>
+    <wifiSSID>FIXTURE-SECRET-SSID</wifiSSID>
+    <wifiPassword>FIXTURE-SECRET-WIFIPASSWORD</wifiPassword>
+  </ProjectProperties>
+</object-stream>
