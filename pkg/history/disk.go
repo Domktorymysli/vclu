@@ -274,6 +274,21 @@ func (d *diskStore) rotate(now time.Time, retentionDays int, maxBytes int64) (re
 	return removed, total > maxBytes
 }
 
+// writtenLast24h estimates what was written in the last 24 h: today's file and
+// the part of yesterday's that is less than 24 h old, at its average rate.
+func (d *diskStore) writtenLast24h(now time.Time) int64 {
+	now = now.UTC()
+	size := func(t time.Time) int64 {
+		if fi, err := os.Stat(d.path(t.Format(dayLayout))); err == nil {
+			return fi.Size()
+		}
+		return 0
+	}
+	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	rest := 24*time.Hour - now.Sub(midnight)
+	return size(now) + int64(float64(size(now.AddDate(0, 0, -1)))*rest.Hours()/24)
+}
+
 // clear deletes all day files.
 func (d *diskStore) clear() error {
 	var firstErr error

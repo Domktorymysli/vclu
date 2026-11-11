@@ -2651,6 +2651,43 @@
                 }
             }
         },
+        "/api/storage": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "The file system of the data directory (total, free, free in %, the thresholds), what vCLU keeps on it (history, metrics, backups of updates, promotes and the panel, plugins, the rest of the data directory; sizes on disk as `du` counts them) and how fast it grows: history written in the last 24 h, log output to stdout in the last hour, and `daysToFull` at that rate (null without growth or at 90 days and more). `level` is `low` below 10% or 500 MB free, whichever is larger, and `critical` below 3% or 100 MB. Directories are walked at start and every 15 minutes, free space is read every minute; `ready` is false until the first walk ends.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "stats"
+                ],
+                "summary": "Disk space",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/storage.Snapshot"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/update": {
             "get": {
                 "security": [
@@ -3457,6 +3494,128 @@
                 }
             }
         },
+        "storage.FileSystem": {
+            "type": "object",
+            "properties": {
+                "criticalBelowBytes": {
+                    "type": "integer"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "freeBytes": {
+                    "type": "integer"
+                },
+                "freePercent": {
+                    "type": "number"
+                },
+                "lowBelowBytes": {
+                    "type": "integer"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "totalBytes": {
+                    "type": "integer"
+                }
+            }
+        },
+        "storage.Growth": {
+            "type": "object",
+            "properties": {
+                "bytesPerDay": {
+                    "description": "history of 24 h + 24 x log per hour",
+                    "type": "integer"
+                },
+                "daysToFull": {
+                    "description": "null: no growth, or 90 days or more",
+                    "type": "integer"
+                },
+                "historyLast24hBytes": {
+                    "type": "integer"
+                },
+                "logBytesPerHour": {
+                    "type": "integer"
+                }
+            }
+        },
+        "storage.Level": {
+            "type": "string",
+            "enum": [
+                "ok",
+                "low",
+                "critical"
+            ],
+            "x-enum-comments": {
+                "LevelCritical": "below 3 % or 100 MB free",
+                "LevelLow": "below 10 % or 500 MB free"
+            },
+            "x-enum-varnames": [
+                "LevelOK",
+                "LevelLow",
+                "LevelCritical"
+            ]
+        },
+        "storage.Part": {
+            "type": "object",
+            "properties": {
+                "bytes": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string",
+                    "enum": [
+                        "history",
+                        "metrics",
+                        "backups",
+                        "plugins",
+                        "other"
+                    ]
+                }
+            }
+        },
+        "storage.Snapshot": {
+            "type": "object",
+            "properties": {
+                "fileSystem": {
+                    "$ref": "#/definitions/storage.FileSystem"
+                },
+                "freeAt": {
+                    "type": "string"
+                },
+                "growth": {
+                    "$ref": "#/definitions/storage.Growth"
+                },
+                "largest": {
+                    "type": "string"
+                },
+                "level": {
+                    "enum": [
+                        "ok",
+                        "low",
+                        "critical"
+                    ],
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/storage.Level"
+                        }
+                    ]
+                },
+                "parts": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/storage.Part"
+                    }
+                },
+                "ready": {
+                    "description": "false before the first walk ended",
+                    "type": "boolean"
+                },
+                "sizesAt": {
+                    "type": "string"
+                }
+            }
+        },
         "time.Duration": {
             "type": "integer",
             "enum": [
@@ -3468,10 +3627,6 @@
                 1000000000,
                 60000000000,
                 3600000000000,
-                1,
-                1000,
-                1000000,
-                1000000000,
                 1,
                 1000,
                 1000000,
@@ -3488,10 +3643,6 @@
                 "Second",
                 "Minute",
                 "Hour",
-                "Nanosecond",
-                "Microsecond",
-                "Millisecond",
-                "Second",
                 "Nanosecond",
                 "Microsecond",
                 "Millisecond",

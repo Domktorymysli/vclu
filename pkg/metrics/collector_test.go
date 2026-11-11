@@ -144,3 +144,22 @@ func TestIntervalMinimum(t *testing.T) {
 		t.Errorf("expected interval 60 for input 0, got %d", def.Interval)
 	}
 }
+
+func TestRegisterGoNeverDue(t *testing.T) {
+	c := NewCollector(t.TempDir())
+	c.RegisterGo("vclu:disk_free_bytes", "B", 900)
+	c.Register("lua", "", 60)
+	if due := c.DueMetrics(); len(due) != 1 || due[0] != "lua" {
+		t.Fatalf("due %v, want only the Lua metric", due)
+	}
+	c.Ingest([]CollectResult{{Path: "vclu:disk_free_bytes", Value: 42}})
+	list := c.List()
+	for _, m := range list {
+		if m.Path == "vclu:disk_free_bytes" && (m.Latest != 42 || m.Unit != "B") {
+			t.Errorf("listed as %+v", m)
+		}
+	}
+	if len(list) != 2 {
+		t.Errorf("listed %d metrics, want 2", len(list))
+	}
+}
