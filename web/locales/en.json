@@ -893,12 +893,8 @@
     "roles_unused": "nothing, Lua does not use it",
     "roles_none": "The home has no roles of its own yet. The owner creates them in the cloud, under Members → Roles.",
     "howto_title": "How roles work",
-    "howto_cloud": "Everyone in the home has one of three roles in the cloud. They decide who manages the home, not who sees what:",
-    "howto_owner": "manages the home, creates the home's roles and gives them, invites admins",
-    "howto_admin": "invites and removes members",
-    "howto_member": "uses what the home shares with them",
-    "howto_home": "Home roles (e.g. office, kids, guests) are labels the owner gives people in the cloud. Lua limits a dashboard or a device with them; without :roles() every member has access:",
-    "howto_check": "The cloud checks the roles before it shows a dashboard or accepts a command for a device. vCLU checks them again for device commands and for the app on the home network; dashboards through the cloud go to whoever the cloud lets in."
+    "howto_short": "Owner, admin and member decide who manages the home; home roles (e.g. office, guests) decide who sees a dashboard or a device: :remote():roles('office') in Lua.",
+    "howto_link": "Members and roles in the documentation"
   },
   "clients": {
     "title": "API clients",

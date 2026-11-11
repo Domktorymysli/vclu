@@ -893,12 +893,8 @@
     "roles_unused": "nic, Lua jej nie używa",
     "roles_none": "Dom nie ma jeszcze własnych ról. Właściciel tworzy je w chmurze, w zakładce Domownicy → Role.",
     "howto_title": "Jak działają role",
-    "howto_cloud": "Każda osoba w domu ma w chmurze jedną z trzech ról. Decydują one o zarządzaniu domem, nie o tym, co kto widzi:",
-    "howto_owner": "zarządza domem, tworzy role domu i je nadaje, zaprasza administratorów",
-    "howto_admin": "zaprasza i usuwa domowników",
-    "howto_member": "korzysta z tego, co dom mu udostępnia",
-    "howto_home": "Role domu (np. biuro, dzieci, goście) to etykiety, które właściciel nadaje osobom w chmurze. W Lua ograniczają nimi dashboard albo urządzenie; bez :roles() dostęp mają wszyscy domownicy:",
-    "howto_check": "Role sprawdza chmura, zanim pokaże dashboard albo przyjmie polecenie dla urządzenia. vCLU sprawdza je ponownie przy poleceniach dla urządzeń i dla aplikacji w sieci domowej; dashboardy przez chmurę serwuje temu, kogo chmura wpuści."
+    "howto_short": "Właściciel, administrator i domownik decydują o zarządzaniu domem, a role domu (np. biuro, goście) o tym, kto widzi dashboard albo urządzenie: :remote():roles('biuro') w Lua.",
+    "howto_link": "Role i domownicy w dokumentacji"
   },
   "clients": {
     "title": "Klienci API",

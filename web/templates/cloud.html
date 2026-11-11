@@ -455,16 +455,7 @@
                             <div class="card mb-3">
                                 <div class="card-header"><i class="bi bi-info-circle"></i> {{index .t "cloud.howto_title"}}</div>
                                 <div class="card-body small">
-                                    <p class="mb-2">{{index .t "cloud.howto_cloud"}}</p>
-                                    <ul class="mb-3">
-                                        <li><strong>{{index .t "cloud.role_owner"}}</strong>: {{index .t "cloud.howto_owner"}}</li>
-                                        <li><strong>{{index .t "cloud.role_admin"}}</strong>: {{index .t "cloud.howto_admin"}}</li>
-                                        <li><strong>{{index .t "cloud.role_member"}}</strong>: {{index .t "cloud.howto_member"}}</li>
-                                    </ul>
-                                    <p class="mb-2">{{index .t "cloud.howto_home"}}</p>
-                                    <pre class="mb-2"><code>Dashboard.new('biuro'):remote():roles('biuro')
-expose(lampa, "light", { name = "Lampa" }):remote():roles('biuro')</code></pre>
-                                    <p class="mb-0 text-muted">{{index .t "cloud.howto_check"}}</p>
+                                    <p class="mb-0">{{index .t "cloud.howto_short"}} <a href="https://docs.vclu.pl/docs/cloud/members-roles/" target="_blank" rel="noopener">{{index .t "cloud.howto_link"}} <i class="bi bi-box-arrow-up-right"></i></a></p>
                                 </div>
                             </div>
                         </div>
