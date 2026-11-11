@@ -15,26 +15,37 @@ import (
 
 	"github.com/Domktorymysli/vclu/pkg/config"
 	"github.com/Domktorymysli/vclu/pkg/omparser"
+	"github.com/Domktorymysli/vclu/pkg/omproject"
 	"github.com/gin-gonic/gin"
 )
 
-// handleAPIOMUpload handles OM file upload via API (supports both .lua and .zip)
+// handleAPIOMUpload handles OM file upload via API (.lua, diagnostic pack .zip, project .omp)
 //
 //	@Summary		Upload OM file
-//	@Description	Accepts a single om.lua file or a diagnostic-pack ZIP containing CLU*/om.lua entries (the vCLU's own serial is skipped). Each file is parsed, stored as om_<serial>.lua, a proxy_<serial>.lua is generated and executed in the Lua runtime to register the remote devices, and an entry is added to .vclu.json.
+//	@Description	Accepts a single om.lua file, a diagnostic-pack ZIP containing CLU*/om.lua entries, or an Object Manager project (.omp, or a project ZIP with system.xml); the vCLU's own serial is skipped. Each CLU is parsed, stored as om_<serial>.lua, a proxy_<serial>.lua is generated and executed in the Lua runtime to register the remote devices, and an entry is added to .vclu.json. A project, also the one inside a diagnostic pack, is written for the agent to ai/om/ (event bindings, scripts); what could not be read is listed in warnings. The upload itself is not kept.
 //	@Tags			grenton
 //	@Accept			mpfd
 //	@Produce		json
-//	@Param			file	formData	file	true	"om.lua file or diagnostic-pack ZIP"
-//	@Success		200		{object}	map[string]interface{}	"single file: success, filename, originalName, cluName, cluIP, objectCount, moduleCount; ZIP: success, isZip, originalName, imported, skipped, results, skippedList, errors"
+//	@Param			file	formData	file	true	"om.lua file, diagnostic-pack ZIP or Object Manager project (.omp)"
+//	@Success		200		{object}	map[string]interface{}	"single file: success, filename, originalName, cluName, cluIP, objectCount, moduleCount; ZIP or project: success, isZip or isProject, originalName, imported, skipped, results, skippedList, errors, omVersion, agentDocs, warnings"
 //	@Failure		400		{object}	web.APIError
 //	@Security		ApiKeyAuth
 //	@Router			/api/om/upload [post]
 func (s *Server) handleAPIOMUpload(c *gin.Context) {
 	// Get uploaded file
-	file, header, err := c.Request.FormFile("file")
+	header, err := c.FormFile("file")
+	if c.Request.MultipartForm != nil {
+		// An upload over the engine's MaxMultipartMemory is spooled to a
+		// temporary file: remove it before answering.
+		defer func() { _ = c.Request.MultipartForm.RemoveAll() }()
+	}
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "No file uploaded"})
+		return
+	}
+	file, err := header.Open()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read file"})
 		return
 	}
 	defer file.Close()
@@ -46,8 +57,18 @@ func (s *Server) handleAPIOMUpload(c *gin.Context) {
 		return
 	}
 
-	// Check if it's a ZIP file (diagnostic pack)
-	if strings.HasSuffix(strings.ToLower(header.Filename), ".zip") {
+	// An Object Manager project (.omp), or a ZIP: a diagnostic pack or a project
+	lower := strings.ToLower(header.Filename)
+	if strings.HasSuffix(lower, ".omp") || strings.HasSuffix(lower, ".zip") {
+		zr, err := zip.NewReader(bytes.NewReader(content), int64(len(content)))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid ZIP file: %v", err)})
+			return
+		}
+		if omproject.IsProject(zr) {
+			s.handleProjectUpload(c, zr, header.Filename)
+			return
+		}
 		s.handleZipUpload(c, content, header.Filename)
 		return
 	}
@@ -71,16 +92,15 @@ func (s *Server) handleZipUpload(c *gin.Context, content []byte, filename string
 		return
 	}
 
-	// Get vCLU's own serial number to skip it
-	var ownSerial uint64
-	masterConfig, err := config.ReadMasterConfig(s.serverDir)
-	if err == nil && masterConfig != nil && masterConfig.Device != nil {
-		ownSerial = masterConfig.Device.SerialNumber
-	}
+	ownSerial := s.ownSerial()
 
 	// Regex to match CLU*/om.lua pattern
 	cluOmPattern := regexp.MustCompile(`^CLU(\d+)/om\.lua$`)
-	names := cluNamesFromProject(zipReader)
+	project, warnings := projectFromPack(zipReader)
+	names := map[string]string{}
+	if project != nil {
+		names = project.Names()
+	}
 
 	var results []gin.H
 	var errors []string
@@ -107,17 +127,9 @@ func (s *Server) handleZipUpload(c *gin.Context, content []byte, filename string
 			continue
 		}
 
-		// Read file content
-		rc, err := f.Open()
+		fileContent, err := readZipFile(f)
 		if err != nil {
-			errors = append(errors, fmt.Sprintf("%s: failed to open om.lua", label))
-			continue
-		}
-
-		fileContent, err := io.ReadAll(rc)
-		rc.Close()
-		if err != nil {
-			errors = append(errors, fmt.Sprintf("%s: failed to read om.lua", label))
+			errors = append(errors, fmt.Sprintf("%s: failed to read om.lua: %v", label, err))
 			continue
 		}
 
@@ -138,6 +150,20 @@ func (s *Server) handleZipUpload(c *gin.Context, content []byte, filename string
 		return
 	}
 
+	var omVersion, agentDocs string
+	if project != nil {
+		omVersion = project.Version
+		warnings = append(warnings, project.Warnings...)
+		if err := s.writeProjectDocs(project); err != nil {
+			errors = append(errors, err.Error())
+		} else {
+			agentDocs = omproject.DocsDir
+		}
+	} else if err := s.removeProjectDocs(); err != nil {
+		// The files would describe an earlier project, not the one these CLUs run.
+		errors = append(errors, err.Error())
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"success":      len(errors) == 0,
 		"isZip":        true,
@@ -147,52 +173,159 @@ func (s *Server) handleZipUpload(c *gin.Context, content []byte, filename string
 		"results":      results,
 		"skippedList":  skipped,
 		"errors":       errors,
+		"omVersion":    omVersion,
+		"agentDocs":    agentDocs,
+		"warnings":     warnings,
 	})
 }
 
-// Project CLU entry in system.xml: <name>Dom1</name> <ipAddress>…</ipAddress> <nameOnCLU>CLU220000000</nameOnCLU>
-var reProjectCLU = regexp.MustCompile(`<name>([^<]*)</name>\s*(?:<ipAddress>[^<]*</ipAddress>\s*)?<nameOnCLU>(CLU\d+)</nameOnCLU>`)
+// handleProjectUpload registers every CLU of an Object Manager project, as the
+// diagnostic pack built from it would, and writes the project for the agent.
+func (s *Server) handleProjectUpload(c *gin.Context, zr *zip.Reader, filename string) {
+	project, err := omproject.ReadZip(zr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	ownSerial := s.ownSerial()
+	results := []gin.H{}
+	errors := []string{}
+	skipped := []string{}
+	for _, clu := range project.CLUs {
+		label := clu.Name + " (" + clu.ID + ")"
+		if serial := extractSerialFromCLUID(clu.ID); ownSerial > 0 && serial == ownSerial {
+			skipped = append(skipped, label+" (this vCLU)")
+			continue
+		}
+		result, err := s.processOMFile([]byte(project.OMLua(clu)), clu.ID)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("%s: %v", label, err))
+			continue
+		}
+		results = append(results, result)
+	}
+	agentDocs := omproject.DocsDir
+	if err := s.writeProjectDocs(project); err != nil {
+		errors = append(errors, err.Error())
+		agentDocs = ""
+	}
+	warnings := project.Warnings
+	if warnings == nil {
+		warnings = []string{}
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success":      len(errors) == 0,
+		"isProject":    true,
+		"originalName": filename,
+		"omVersion":    project.Version,
+		"imported":     len(results),
+		"skipped":      len(skipped),
+		"results":      results,
+		"skippedList":  skipped,
+		"errors":       errors,
+		"agentDocs":    agentDocs,
+		"warnings":     warnings,
+	})
+}
 
-// cluNamesFromProject maps CLU IDs to their project names, read from the Object
-// Manager project zip that diagnostic packs carry (any nested zip with system.xml).
-func cluNamesFromProject(pack *zip.Reader) map[string]string {
-	names := map[string]string{}
+// projectFromPack reads the Object Manager project a diagnostic pack carries.
+// A pack can hold the project zip and a backup .omp; the one with the newest
+// system.xml is what the CLUs got. Nil without a project.
+func projectFromPack(pack *zip.Reader) (*omproject.Project, []string) {
+	var newest *zip.Reader
+	var newestName string
+	var at time.Time
 	for _, f := range pack.File {
-		if strings.Contains(f.Name, "/") || !strings.HasSuffix(strings.ToLower(f.Name), ".zip") {
+		lower := strings.ToLower(f.Name)
+		if strings.Contains(f.Name, "/") || !(strings.HasSuffix(lower, ".zip") || strings.HasSuffix(lower, ".omp")) {
 			continue
 		}
 		data, err := readZipFile(f)
 		if err != nil {
 			continue
 		}
-		project, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+		zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 		if err != nil {
 			continue
 		}
-		for _, pf := range project.File {
-			if pf.Name != "system.xml" {
-				continue
+		for _, pf := range zr.File {
+			if pf.Name == "system.xml" && (newest == nil || pf.Modified.After(at)) {
+				newest, newestName, at = zr, f.Name, pf.Modified
 			}
-			xml, err := readZipFile(pf)
-			if err != nil {
-				break
-			}
-			for _, m := range reProjectCLU.FindAllSubmatch(xml, -1) {
-				names[string(m[2])] = string(m[1])
-			}
-			return names
 		}
 	}
-	return names
+	if newest == nil {
+		return nil, nil
+	}
+	project, err := omproject.ReadZip(newest)
+	if err != nil {
+		return nil, []string{fmt.Sprintf("Project %s: %v", newestName, err)}
+	}
+	return project, nil
 }
 
+// writeProjectDocs replaces the agent's files about the project in ai/om/. They
+// are written next to it first, so a failed import leaves the old ones whole.
+func (s *Server) writeProjectDocs(p *omproject.Project) error {
+	dir := filepath.Join(s.serverDir, filepath.FromSlash(omproject.DocsDir))
+	if err := os.MkdirAll(filepath.Dir(dir), 0755); err != nil {
+		return fmt.Errorf("failed to create %s: %v", omproject.DocsDir, err)
+	}
+	tmp, err := os.MkdirTemp(filepath.Dir(dir), ".om-")
+	if err != nil {
+		return fmt.Errorf("failed to create %s: %v", omproject.DocsDir, err)
+	}
+	defer func() { _ = os.RemoveAll(tmp) }()
+	if err := os.Chmod(tmp, 0755); err != nil {
+		return fmt.Errorf("failed to create %s: %v", omproject.DocsDir, err)
+	}
+	for name, content := range p.Docs() {
+		if err := os.WriteFile(filepath.Join(tmp, name), []byte(content), 0644); err != nil {
+			return fmt.Errorf("failed to write %s/%s: %v", omproject.DocsDir, name, err)
+		}
+	}
+	if err := s.removeProjectDocs(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, dir); err != nil {
+		return fmt.Errorf("failed to replace %s: %v", omproject.DocsDir, err)
+	}
+	return nil
+}
+
+// removeProjectDocs removes the agent's files about the project.
+func (s *Server) removeProjectDocs() error {
+	dir := filepath.Join(s.serverDir, filepath.FromSlash(omproject.DocsDir))
+	if err := os.RemoveAll(dir); err != nil {
+		return fmt.Errorf("failed to replace %s: %v", omproject.DocsDir, err)
+	}
+	return nil
+}
+
+// ownSerial is this vCLU's serial, 0 before it has one.
+func (s *Server) ownSerial() uint64 {
+	masterConfig, err := config.ReadMasterConfig(s.serverDir)
+	if err == nil && masterConfig != nil && masterConfig.Device != nil {
+		return masterConfig.Device.SerialNumber
+	}
+	return 0
+}
+
+// maxZipEntry caps what is unpacked from one file of an uploaded ZIP.
+const maxZipEntry = 64 << 20
+
+// readZipFile reads one file of a ZIP, up to maxZipEntry.
 func readZipFile(f *zip.File) ([]byte, error) {
 	rc, err := f.Open()
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = rc.Close() }()
-	return io.ReadAll(rc)
+	b, err := io.ReadAll(io.LimitReader(rc, maxZipEntry+1))
+	if err == nil && len(b) > maxZipEntry {
+		return nil, fmt.Errorf("over %d MB unpacked", maxZipEntry>>20)
+	}
+	return b, err
 }
 
 // cluLabel is "Name (CLU…)" when the project names the CLU, else the bare ID.

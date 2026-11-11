@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/Domktorymysli/vclu/pkg/lua"
@@ -145,8 +146,7 @@ func generateObjectsForClass(sb *strings.Builder, parsed *ParsedOM, namespace st
 		// Pass name as 3rd argument to new()
 		nameArg := ""
 		if obj.Name != "" {
-			// Escape quotes in name
-			escapedName := strings.ReplaceAll(obj.Name, `"`, `\"`)
+			escapedName := luaEscape(obj.Name)
 			nameArg = fmt.Sprintf(`, "%s"`, escapedName)
 		}
 		sb.WriteString(fmt.Sprintf("%s.%s = %s:new(_clu, \"%s\"%s)\n",
@@ -193,7 +193,7 @@ func generateTypedSensorsForClass(sb *strings.Builder, parsed *ParsedOM, namespa
 		objName := getObjectLuaName(obj)
 		nameArg := ""
 		if obj.Name != "" {
-			escapedName := strings.ReplaceAll(obj.Name, `"`, `\"`)
+			escapedName := luaEscape(obj.Name)
 			nameArg = fmt.Sprintf(`, "%s"`, escapedName)
 		}
 		sb.WriteString(fmt.Sprintf("%s.%s = RemoteValueSensor:new(_clu, \"%s\"%s, \"%s\")\n",
@@ -220,7 +220,7 @@ func GenerateLocalProxy(parsed *ParsedOM) string {
 	for _, obj := range objects {
 		// Set _name if NAME_IO comment provided a friendly name
 		if obj.Name != "" {
-			escapedName := strings.ReplaceAll(obj.Name, `"`, `\"`)
+			escapedName := luaEscape(obj.Name)
 			sb.WriteString(fmt.Sprintf("%s._name = \"%s\"\n", obj.ID, escapedName))
 		}
 
@@ -274,6 +274,9 @@ func GenerateLocalProxyFile(cluDataPath string, importsDir string) {
 	log.Printf("[OMPARSER] generated proxy_local.lua (%d objects)", count)
 }
 
+// reLuaName is a Lua identifier.
+var reLuaName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
 func getObjectLuaName(obj GrentonObject) string {
 	// Use friendly name if available, otherwise use ID
 	if obj.Name != "" && !strings.HasPrefix(obj.Name, "x") {
@@ -281,9 +284,29 @@ func getObjectLuaName(obj GrentonObject) string {
 		name := obj.Name
 		name = strings.ReplaceAll(name, "-", "_")
 		name = strings.ReplaceAll(name, " ", "_")
-		return name
+		// om.lua comes from an upload: a name that is no identifier would be code
+		if reLuaName.MatchString(name) {
+			return name
+		}
 	}
 	return obj.ID
+}
+
+// luaEscape makes s the contents of a double-quoted Lua string.
+func luaEscape(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; {
+		case c == '"' || c == '\\':
+			b.WriteByte('\\')
+			b.WriteByte(c)
+		case c < 0x20 || c == 0x7f:
+			fmt.Fprintf(&b, "\\%03d", c)
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
 }
 
 func generateBaseClasses() string {

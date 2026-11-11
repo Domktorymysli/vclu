@@ -1,0 +1,3426 @@
+<object-stream>
+  <TreeObject id="1">
+    <name>System</name>
+    <children id="2">
+      <TreeObject id="3">
+        <name>Object Manager</name>
+        <parent reference="1" />
+        <children id="4">
+          <TreeObject id="5">
+            <name>Ground</name>
+            <parent reference="3" />
+            <children id="6">
+              <TreeObject id="7">
+                <name>Skrypty</name>
+                <parent reference="5" />
+                <children id="8" />
+                <type>SCRIPT_CONTAINER</type>
+                <id>5</id>
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="9">
+                <name>Aplikacje</name>
+                <parent reference="5" />
+                <children id="10" />
+                <type>APPLICATIONS_CONTAINER</type>
+                <id>6</id>
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="11">
+                <name>satel3</name>
+                <parent reference="5" />
+                <children id="12" />
+                <type>HARDWARE_PERIPHERY</type>
+                <id>269</id>
+                <specificObject class="HardwarePeripheryCLU" id="13">
+                  <clu id="14">
+                    <name>Ground</name>
+                    <ipAddress>10.0.0.11</ipAddress>
+                    <nameOnCLU>CLU510000001</nameOnCLU>
+                    <definedFeaturesList id="15" />
+                    <embeddedFeaturesList class="linked-list" id="16" />
+                    <eventsList class="linked-list" id="45">
+                      </eventsList>
+                    <methodsList class="linked-list" id="50" />
+                    <iosList id="73" />
+                    <scripts id="74" />
+                    <peripheryList id="75">
+                      <HardwarePeripheryCLU reference="13" />
+                      <ProgrammablePeripheryCLU id="76">
+                        <clu reference="14" />
+                        <name>satelInput1</name>
+                        <nameOnCLU>SAT1001</nameOnCLU>
+                        <typeName>SatelInput</typeName>
+                        <typeSignature>SATELINPUT-257-1</typeSignature>
+                        <existsOnCLU>true</existsOnCLU>
+                        <features class="linked-list" id="77" />
+                        <methods class="linked-list" id="92" />
+                        <events class="linked-list" id="99">
+                          </events>
+                        <isRemoved>false</isRemoved>
+                      </ProgrammablePeripheryCLU>
+                      <ProgrammablePeripheryCLU id="112">
+                        <clu reference="14" />
+                        <name>satelZone2</name>
+                        <nameOnCLU>SAT1002</nameOnCLU>
+                        <typeName>SatelZone</typeName>
+                        <typeSignature>SATELZONE-256-1</typeSignature>
+                        <existsOnCLU>true</existsOnCLU>
+                        <features class="linked-list" id="113" />
+                        <methods class="linked-list" id="127" />
+                        <events class="linked-list" id="142">
+                          </events>
+                        <isRemoved>false</isRemoved>
+                      </ProgrammablePeripheryCLU>
+                    </peripheryList>
+                    <applicationsList id="155" />
+                    <isRemoved>false</isRemoved>
+                    <modulesList class="linked-list" id="156" />
+                    <validConfigurationOnCLU>true</validConfigurationOnCLU>
+                    <firmwareVersion>000003e8</firmwareVersion>
+                    <firmwareType>00000002</firmwareType>
+                    <hardwareVersion>00000002</hardwareVersion>
+                    <hardwareType>00000012</hardwareType>
+                    <serialNumber>0badc0de</serialNumber>
+                    <macAddress>FIXTURE-SECRET-MACADDRESS</macAddress>
+                    <privateKey id="157">FIXTURE-SECRET-PRIVATEKEY</privateKey>
+                    <encrypted>true</encrypted>
+                    <supportWiFi>false</supportWiFi>
+                  </clu>
+                  <name>satel3</name>
+                  <nameOnCLU>SAT1003</nameOnCLU>
+                  <typeName>Satel</typeName>
+                  <typeSignature>SATEL-259-1</typeSignature>
+                  <existsOnCLU>true</existsOnCLU>
+                  <features class="linked-list" id="158" />
+                  <methods class="linked-list" id="199" />
+                  <events class="linked-list" id="230">
+                    </events>
+                  <isRemoved>false</isRemoved>
+                </specificObject>
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="243">
+                <name>satelInput1</name>
+                <parent reference="5" />
+                <children id="244" />
+                <type>PROGRAMMABLE_PERIPHERY</type>
+                <id>270</id>
+                <specificObject class="ProgrammablePeripheryCLU" reference="76" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="245">
+                <name>satelZone2</name>
+                <parent reference="5" />
+                <children id="246" />
+                <type>PROGRAMMABLE_PERIPHERY</type>
+                <id>271</id>
+                <specificObject class="ProgrammablePeripheryCLU" reference="112" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+            </children>
+            <type>CLU</type>
+            <id>4</id>
+            <specificObject class="CLU" reference="14" />
+            <selected>false</selected>
+            <link>false</link>
+            <removedLink>false</removedLink>
+            <isDirty>false</isDirty>
+          </TreeObject>
+          <TreeObject id="247">
+            <name>Upstairs</name>
+            <parent reference="3" />
+            <children id="248">
+              <TreeObject id="249">
+                <name>Skrypty</name>
+                <parent reference="247" />
+                <children id="250">
+                  <TreeObject id="251">
+                    <name>script1</name>
+                    <parent reference="249" />
+                    <children id="252" />
+                    <type>SCRIPT</type>
+                    <id>282</id>
+                    <specificObject class="Script" id="253">
+                      <name>script1</name>
+                      <parameters id="254" />
+                      <isManualEdit>false</isManualEdit>
+                      <isRemoved>false</isRemoved>
+                    </specificObject>
+                    <selected>false</selected>
+                    <link>false</link>
+                    <removedLink>false</removedLink>
+                    <isDirty>false</isDirty>
+                  </TreeObject>
+                </children>
+                <type>SCRIPT_CONTAINER</type>
+                <id>8</id>
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="255">
+                <name>Aplikacje</name>
+                <parent reference="247" />
+                <children id="256" />
+                <type>APPLICATIONS_CONTAINER</type>
+                <id>9</id>
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="257">
+                <name>x330000101_DOUT1_ROOM2</name>
+                <parent reference="247" />
+                <children id="258" />
+                <type>OUTPUT</type>
+                <id>10</id>
+                <specificObject class="Output" id="259">
+                  <name>x330000101_DOUT1_ROOM2</name>
+                  <nameOnCLU>DOU1001</nameOnCLU>
+                  <type>DOUT</type>
+                  <typeSignature>DOUT-4-1</typeSignature>
+                  <description />
+                  <labels id="260" />
+                  <features id="261" />
+                  <events class="linked-list" id="288">
+                    </events>
+                  <clu id="301">
+                    <name>Upstairs</name>
+                    <ipAddress>10.0.0.12</ipAddress>
+                    <nameOnCLU>CLU220000002</nameOnCLU>
+                    <definedFeaturesList class="linked-list" id="302" />
+                    <embeddedFeaturesList class="linked-list" id="317" />
+                    <eventsList class="linked-list" id="410">
+                      </eventsList>
+                    <methodsList class="linked-list" id="415" />
+                    <iosList id="432">
+                      <Output reference="259" />
+                      <Output id="433">
+                        <name>x330000101_DOUT2_ROOM9</name>
+                        <nameOnCLU>DOU1002</nameOnCLU>
+                        <type>DOUT</type>
+                        <typeSignature>DOUT-4-1</typeSignature>
+                        <description />
+                        <labels id="434" />
+                        <features id="435" />
+                        <events class="linked-list" id="440">
+                          </events>
+                        <clu reference="301" />
+                        <module id="453">
+                          <moduleID>330000101</moduleID>
+                          <innerName>13ab66e5</innerName>
+                          <moduleClass>1e</moduleClass>
+                          <moduleTypeFirmware>02</moduleTypeFirmware>
+                          <moduleVersion>01</moduleVersion>
+                          <active>true</active>
+                          <moduleInterface id="454" />
+                        </module>
+                        <classTypeId>4</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>1</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Output>
+                      <Output id="664">
+                        <name>x330000101_DOUT3_ROOM1</name>
+                        <nameOnCLU>DOU1003</nameOnCLU>
+                        <type>DOUT</type>
+                        <typeSignature>DOUT-4-1</typeSignature>
+                        <description />
+                        <labels id="665" />
+                        <features id="666" />
+                        <events class="linked-list" id="671">
+                          </events>
+                        <clu reference="301" />
+                        <module reference="453" />
+                        <classTypeId>4</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>2</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Output>
+                      <Output id="684">
+                        <name>x330000101_DOUT4_ROOM3</name>
+                        <nameOnCLU>DOU1004</nameOnCLU>
+                        <type>DOUT</type>
+                        <typeSignature>DOUT-4-1</typeSignature>
+                        <description />
+                        <labels id="685" />
+                        <features id="686" />
+                        <events class="linked-list" id="691">
+                          </events>
+                        <clu reference="301" />
+                        <module reference="453" />
+                        <classTypeId>4</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>3</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Output>
+                      <Output id="704">
+                        <name>x330000101_DOUT5_ROOM7</name>
+                        <nameOnCLU>DOU1005</nameOnCLU>
+                        <type>DOUT</type>
+                        <typeSignature>DOUT-4-1</typeSignature>
+                        <description />
+                        <labels id="705" />
+                        <features id="706" />
+                        <events class="linked-list" id="711">
+                          </events>
+                        <clu reference="301" />
+                        <module reference="453" />
+                        <classTypeId>4</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>4</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Output>
+                      <Input id="784">
+                        <name>x330000101_DIN1_ROOM9</name>
+                        <nameOnCLU>DIN1001</nameOnCLU>
+                        <type>DIN</type>
+                        <typeSignature>DIN-3-1</typeSignature>
+                        <description />
+                        <labels id="785" />
+                        <features id="786" />
+                        <events class="linked-list" id="794">
+                          <Event id="799">
+                            <name>OnSwitchOn</name>
+                            <argList class="linked-list" id="800" />
+                            <commands class="linked-list" id="801">
+                              <string>Upstairs-&gt;x330000101_DOUT2_ROOM9-&gt;SwitchOn(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="802" />
+                            <vector>1</vector>
+                            <hint />
+                          </Event>
+                          <Event id="803">
+                            <name>OnSwitchOff</name>
+                            <argList class="linked-list" id="804" />
+                            <commands class="linked-list" id="805">
+                              <string>Upstairs-&gt;x330000101_DOUT2_ROOM9-&gt;SwitchOff(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="806" />
+                            <vector>2</vector>
+                            <hint />
+                          </Event>
+                        </events>
+                        <clu reference="301" />
+                        <module reference="453" />
+                        <classTypeId>3</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>0</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                      <Input id="823">
+                        <name>x330000101_DIN2_ROOM9</name>
+                        <nameOnCLU>DIN1002</nameOnCLU>
+                        <type>DIN</type>
+                        <typeSignature>DIN-3-1</typeSignature>
+                        <description />
+                        <labels id="824" />
+                        <features id="825" />
+                        <events class="linked-list" id="833">
+                          <Event id="838">
+                            <name>OnSwitchOn</name>
+                            <argList class="linked-list" id="839" />
+                            <commands class="linked-list" id="840">
+                              <string>Upstairs-&gt;x330000101_DOUT3_ROOM1-&gt;SwitchOn(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="841" />
+                            <vector>1</vector>
+                            <hint />
+                          </Event>
+                          <Event id="842">
+                            <name>OnSwitchOff</name>
+                            <argList class="linked-list" id="843" />
+                            <commands class="linked-list" id="844">
+                              <string>Upstairs-&gt;x330000101_DOUT3_ROOM1-&gt;SwitchOff(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="845" />
+                            <vector>2</vector>
+                            <hint />
+                          </Event>
+                        </events>
+                        <clu reference="301" />
+                        <module reference="453" />
+                        <classTypeId>3</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>1</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                      <Input id="862">
+                        <name>x330000101_DIN3_ROOM1</name>
+                        <nameOnCLU>DIN1003</nameOnCLU>
+                        <type>DIN</type>
+                        <typeSignature>DIN-3-1</typeSignature>
+                        <description />
+                        <labels id="863" />
+                        <features id="864" />
+                        <events class="linked-list" id="872">
+                          <Event id="897">
+                            <name>OnClick</name>
+                            <argList class="linked-list" id="898" />
+                            <commands class="linked-list" id="899">
+                              <string>Alarm-&gt;x200000115_DOUT2_ROOM5-&gt;Switch(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="900" />
+                            <vector>6</vector>
+                            <hint />
+                          </Event>
+                        </events>
+                        <clu reference="301" />
+                        <module reference="453" />
+                        <classTypeId>3</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>2</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                      <Input id="901">
+                        <name>x330000101_DIN4_ROOM7</name>
+                        <nameOnCLU>DIN1004</nameOnCLU>
+                        <type>DIN</type>
+                        <typeSignature>DIN-3-1</typeSignature>
+                        <description />
+                        <labels id="902" />
+                        <features id="903" />
+                        <events class="linked-list" id="911">
+                          <Event id="936">
+                            <name>OnClick</name>
+                            <argList class="linked-list" id="937" />
+                            <commands class="linked-list" id="938">
+                              <string>Upstairs-&gt;x330000101_DOUT7_ROOM5-&gt;Switch(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="939" />
+                            <vector>6</vector>
+                            <hint />
+                          </Event>
+                        </events>
+                        <clu reference="301" />
+                        <module reference="453" />
+                        <classTypeId>3</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>3</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                      <Input id="940">
+                        <name>x330000101_DIN5_ROOM3</name>
+                        <nameOnCLU>DIN1005</nameOnCLU>
+                        <type>DIN</type>
+                        <typeSignature>DIN-3-1</typeSignature>
+                        <description />
+                        <labels id="941" />
+                        <features id="942" />
+                        <events class="linked-list" id="950">
+                          <Event id="955">
+                            <name>OnSwitchOn</name>
+                            <argList class="linked-list" id="956" />
+                            <commands class="linked-list" id="957">
+                              <string>Upstairs-&gt;x330000101_DOUT4_ROOM3-&gt;SwitchOn(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="958" />
+                            <vector>1</vector>
+                            <hint />
+                          </Event>
+                          <Event id="959">
+                            <name>OnSwitchOff</name>
+                            <argList class="linked-list" id="960" />
+                            <commands class="linked-list" id="961">
+                              <string>Upstairs-&gt;x330000101_DOUT4_ROOM3-&gt;SwitchOff(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="962" />
+                            <vector>2</vector>
+                            <hint />
+                          </Event>
+                        </events>
+                        <clu reference="301" />
+                        <module reference="453" />
+                        <classTypeId>3</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>4</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                      <Input id="1018">
+                        <name>x330000101_DIN7_ROOM5</name>
+                        <nameOnCLU>DIN1006</nameOnCLU>
+                        <type>DIN</type>
+                        <typeSignature>DIN-3-1</typeSignature>
+                        <description />
+                        <labels id="1019" />
+                        <features id="1020" />
+                        <events class="linked-list" id="1028">
+                          <Event id="1053">
+                            <name>OnClick</name>
+                            <argList class="linked-list" id="1054" />
+                            <commands class="linked-list" id="1055">
+                              <string>Upstairs-&gt;x330000103_DOUT7_ROOM6-&gt;Switch(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="1056" />
+                            <vector>6</vector>
+                            <hint />
+                          </Event>
+                        </events>
+                        <clu reference="301" />
+                        <module reference="453" />
+                        <classTypeId>3</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>6</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                      <Input id="1057">
+                        <name>x330000101_DIN8_ROOM2</name>
+                        <nameOnCLU>DIN1007</nameOnCLU>
+                        <type>DIN</type>
+                        <typeSignature>DIN-3-1</typeSignature>
+                        <description />
+                        <labels id="1058" />
+                        <features id="1059" />
+                        <events class="linked-list" id="1067">
+                          <Event id="1084">
+                            <name>OnLongPress</name>
+                            <argList class="linked-list" id="1085" />
+                            <commands class="linked-list" id="1086">
+                              <string>Upstairs-&gt;x330000107_DOUT1_ROOM5-&gt;Switch(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="1087" />
+                            <vector>4</vector>
+                            <hint />
+                          </Event>
+                          <Event id="1092">
+                            <name>OnClick</name>
+                            <argList class="linked-list" id="1093" />
+                            <commands class="linked-list" id="1094">
+                              <string>Upstairs-&gt;x330000103_DOUT5_ROOM2-&gt;Switch(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="1095" />
+                            <vector>6</vector>
+                            <hint />
+                          </Event>
+                        </events>
+                        <clu reference="301" />
+                        <module reference="453" />
+                        <classTypeId>3</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>7</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                      <Input id="2925">
+                        <name>x330000102_DIN1_ROOM7</name>
+                        <nameOnCLU>DIN1008</nameOnCLU>
+                        <type>DIN</type>
+                        <typeSignature>DIN-3-1</typeSignature>
+                        <description />
+                        <labels id="2926" />
+                        <features id="2927" />
+                        <events class="linked-list" id="2935">
+                          <Event id="2960">
+                            <name>OnClick</name>
+                            <argList class="linked-list" id="2961" />
+                            <commands class="linked-list" id="2962">
+                              <string>Upstairs-&gt;x330000102_DOUT1_ROOM10-&gt;Switch(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="2963" />
+                            <vector>6</vector>
+                            <hint />
+                          </Event>
+                        </events>
+                        <clu reference="301" />
+                        <module id="2655">
+                          <moduleID>330000102</moduleID>
+                          <innerName>13ab66e6</innerName>
+                          <moduleClass>1e</moduleClass>
+                          <moduleTypeFirmware>02</moduleTypeFirmware>
+                          <moduleVersion>01</moduleVersion>
+                          <active>true</active>
+                          <moduleInterface id="2656" />
+                        </module>
+                        <classTypeId>3</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>0</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                      <Input id="2964">
+                        <name>x330000102_DIN2_ROOM5</name>
+                        <nameOnCLU>DIN1009</nameOnCLU>
+                        <type>DIN</type>
+                        <typeSignature>DIN-3-1</typeSignature>
+                        <description />
+                        <labels id="2965" />
+                        <features id="2966" />
+                        <events class="linked-list" id="2974">
+                          <Event id="2999">
+                            <name>OnClick</name>
+                            <argList class="linked-list" id="3000" />
+                            <commands class="linked-list" id="3001">
+                              <string>Upstairs-&gt;x330000102_DOUT2_ROOM7-&gt;Switch(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="3002" />
+                            <vector>6</vector>
+                            <hint />
+                          </Event>
+                        </events>
+                        <clu reference="301" />
+                        <module reference="2655" />
+                        <classTypeId>3</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>1</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                      <Input id="3003">
+                        <name>x330000102_DIN3_ROOM6</name>
+                        <nameOnCLU>DIN1010</nameOnCLU>
+                        <type>DIN</type>
+                        <typeSignature>DIN-3-1</typeSignature>
+                        <description />
+                        <labels id="3004" />
+                        <features id="3005" />
+                        <events class="linked-list" id="3013">
+                          <Event id="3026">
+                            <name>OnShortPress</name>
+                            <argList class="linked-list" id="3027" />
+                            <commands class="linked-list" id="3028">
+                              <string>Upstairs-&gt;x330000102_DOUT4_ROOM4-&gt;SwitchOff(0)</string>
+                              <string>Upstairs-&gt;x330000102_DOUT3_ROOM4-&gt;SwitchOff(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="3029" />
+                            <vector>3</vector>
+                            <hint />
+                          </Event>
+                          <Event id="3038">
+                            <name>OnClick</name>
+                            <argList class="linked-list" id="3039" />
+                            <commands class="linked-list" id="3040">
+                              <string>Upstairs-&gt;x330000102_DOUT3_ROOM4-&gt;Switch(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="3041" />
+                            <vector>6</vector>
+                            <hint />
+                          </Event>
+                        </events>
+                        <clu reference="301" />
+                        <module reference="2655" />
+                        <classTypeId>3</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>2</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                      <Input id="3042">
+                        <name>x330000102_DIN4_ROOM3</name>
+                        <nameOnCLU>DIN1011</nameOnCLU>
+                        <type>DIN</type>
+                        <typeSignature>DIN-3-1</typeSignature>
+                        <description />
+                        <labels id="3043" />
+                        <features id="3044" />
+                        <events class="linked-list" id="3052">
+                          <Event id="3065">
+                            <name>OnShortPress</name>
+                            <argList class="linked-list" id="3066" />
+                            <commands class="linked-list" id="3067">
+                              <string>Upstairs-&gt;x330000102_DOUT3_ROOM4-&gt;SwitchOff(0)</string>
+                              <string>Upstairs-&gt;x330000102_DOUT4_ROOM4-&gt;SwitchOff(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="3068" />
+                            <vector>3</vector>
+                            <hint />
+                          </Event>
+                          <Event id="3077">
+                            <name>OnClick</name>
+                            <argList class="linked-list" id="3078" />
+                            <commands class="linked-list" id="3079">
+                              <string>Upstairs-&gt;x330000102_DOUT4_ROOM4-&gt;Switch(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="3080" />
+                            <vector>6</vector>
+                            <hint />
+                          </Event>
+                        </events>
+                        <clu reference="301" />
+                        <module reference="2655" />
+                        <classTypeId>3</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>3</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                      <Input id="3081">
+                        <name>x330000102_DIN5_ROOM2</name>
+                        <nameOnCLU>DIN1012</nameOnCLU>
+                        <type>DIN</type>
+                        <typeSignature>DIN-3-1</typeSignature>
+                        <description />
+                        <labels id="3082" />
+                        <features id="3083" />
+                        <events class="linked-list" id="3091">
+                          <Event id="3104">
+                            <name>OnShortPress</name>
+                            <argList class="linked-list" id="3105" />
+                            <commands class="linked-list" id="3106">
+                              <string>Upstairs-&gt;x330000102_DOUT5_ROOM3-&gt;SwitchOff(0)</string>
+                              <string>Upstairs-&gt;x330000102_DOUT7_ROOM2-&gt;SwitchOff(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="3107" />
+                            <vector>3</vector>
+                            <hint />
+                          </Event>
+                          <Event id="3116">
+                            <name>OnClick</name>
+                            <argList class="linked-list" id="3117" />
+                            <commands class="linked-list" id="3118">
+                              <string>Upstairs-&gt;x330000102_DOUT5_ROOM3-&gt;Switch(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="3119" />
+                            <vector>6</vector>
+                            <hint />
+                          </Event>
+                        </events>
+                        <clu reference="301" />
+                        <module reference="2655" />
+                        <classTypeId>3</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>4</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                      <Input id="3120">
+                        <name>x330000102_DIN6_ROOM4</name>
+                        <nameOnCLU>DIN1013</nameOnCLU>
+                        <type>DIN</type>
+                        <typeSignature>DIN-3-1</typeSignature>
+                        <description />
+                        <labels id="3121" />
+                        <features id="3122" />
+                        <events class="linked-list" id="3130">
+                          <Event id="3143">
+                            <name>OnShortPress</name>
+                            <argList class="linked-list" id="3144" />
+                            <commands class="linked-list" id="3145">
+                              <string>Upstairs-&gt;x330000102_DOUT7_ROOM2-&gt;SwitchOff(0)</string>
+                              <string>Upstairs-&gt;x330000102_DOUT5_ROOM3-&gt;SwitchOff(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="3146" />
+                            <vector>3</vector>
+                            <hint />
+                          </Event>
+                          <Event id="3155">
+                            <name>OnClick</name>
+                            <argList class="linked-list" id="3156" />
+                            <commands class="linked-list" id="3157">
+                              <string>Upstairs-&gt;x330000102_DOUT7_ROOM2-&gt;Switch(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="3158" />
+                            <vector>6</vector>
+                            <hint />
+                          </Event>
+                        </events>
+                        <clu reference="301" />
+                        <module reference="2655" />
+                        <classTypeId>3</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>5</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                      <Input id="3159">
+                        <name>x330000102_DIN7_ROOM1</name>
+                        <nameOnCLU>DIN1014</nameOnCLU>
+                        <type>DIN</type>
+                        <typeSignature>DIN-3-1</typeSignature>
+                        <description />
+                        <labels id="3160" />
+                        <features id="3161" />
+                        <events class="linked-list" id="3169">
+                          <Event id="3194">
+                            <name>OnClick</name>
+                            <argList class="linked-list" id="3195" />
+                            <commands class="linked-list" id="3196">
+                              <string>Upstairs-&gt;x330000102_DOUT6_ROOM6-&gt;Switch(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="3197" />
+                            <vector>6</vector>
+                            <hint />
+                          </Event>
+                        </events>
+                        <clu reference="301" />
+                        <module reference="2655" />
+                        <classTypeId>3</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>6</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                      <Input id="3198">
+                        <name>x330000102_DIN8_ROOM6</name>
+                        <nameOnCLU>DIN1015</nameOnCLU>
+                        <type>DIN</type>
+                        <typeSignature>DIN-3-1</typeSignature>
+                        <description />
+                        <labels id="3199" />
+                        <features id="3200" />
+                        <events class="linked-list" id="3208">
+                          <Event id="3233">
+                            <name>OnClick</name>
+                            <argList class="linked-list" id="3234" />
+                            <commands class="linked-list" id="3235">
+                              <string>Upstairs-&gt;x330000102_DOUT8_ROOM4-&gt;Switch(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="3236" />
+                            <vector>6</vector>
+                            <hint />
+                          </Event>
+                        </events>
+                        <clu reference="301" />
+                        <module reference="2655" />
+                        <classTypeId>3</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>7</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                      <Input id="3566">
+                        <name>x330000103_DIN1_ROOM1</name>
+                        <nameOnCLU>DIN1016</nameOnCLU>
+                        <type>DIN</type>
+                        <typeSignature>DIN-3-1</typeSignature>
+                        <description />
+                        <labels id="3567" />
+                        <features id="3568" />
+                        <events class="linked-list" id="3576">
+                          <Event id="3581">
+                            <name>OnSwitchOn</name>
+                            <argList class="linked-list" id="3582" />
+                            <commands class="linked-list" id="3583">
+                              <string>Upstairs-&gt;x330000103_DOUT1_ROOM1-&gt;SwitchOn(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="3584" />
+                            <vector>1</vector>
+                            <hint />
+                          </Event>
+                          <Event id="3585">
+                            <name>OnSwitchOff</name>
+                            <argList class="linked-list" id="3586" />
+                            <commands class="linked-list" id="3587">
+                              <string>Upstairs-&gt;x330000103_DOUT1_ROOM1-&gt;SwitchOff(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="3588" />
+                            <vector>2</vector>
+                            <hint />
+                          </Event>
+                        </events>
+                        <clu reference="301" />
+                        <module id="3296">
+                          <moduleID>330000103</moduleID>
+                          <innerName>13ab66e7</innerName>
+                          <moduleClass>1e</moduleClass>
+                          <moduleTypeFirmware>02</moduleTypeFirmware>
+                          <moduleVersion>01</moduleVersion>
+                          <active>true</active>
+                          <moduleInterface id="3297" />
+                        </module>
+                        <classTypeId>3</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>0</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                      <Input id="3605">
+                        <name>x330000103_DIN2_ROOM7</name>
+                        <nameOnCLU>DIN1017</nameOnCLU>
+                        <type>DIN</type>
+                        <typeSignature>DIN-3-1</typeSignature>
+                        <description />
+                        <labels id="3606" />
+                        <features id="3607" />
+                        <events class="linked-list" id="3615">
+                          <Event id="3620">
+                            <name>OnSwitchOn</name>
+                            <argList class="linked-list" id="3621" />
+                            <commands class="linked-list" id="3622">
+                              <string>Upstairs-&gt;x330000103_DOUT2_ROOM3-&gt;SwitchOn(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="3623" />
+                            <vector>1</vector>
+                            <hint />
+                          </Event>
+                          <Event id="3624">
+                            <name>OnSwitchOff</name>
+                            <argList class="linked-list" id="3625" />
+                            <commands class="linked-list" id="3626">
+                              <string>Upstairs-&gt;x330000103_DOUT2_ROOM3-&gt;SwitchOff(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="3627" />
+                            <vector>2</vector>
+                            <hint />
+                          </Event>
+                        </events>
+                        <clu reference="301" />
+                        <module reference="3296" />
+                        <classTypeId>3</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>1</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                      <Input id="3644">
+                        <name>x330000103_DIN3_ROOM2</name>
+                        <nameOnCLU>DIN1018</nameOnCLU>
+                        <type>DIN</type>
+                        <typeSignature>DIN-3-1</typeSignature>
+                        <description />
+                        <labels id="3645" />
+                        <features id="3646" />
+                        <events class="linked-list" id="3654">
+                          <Event id="3659">
+                            <name>OnSwitchOn</name>
+                            <argList class="linked-list" id="3660" />
+                            <commands class="linked-list" id="3661">
+                              <string>Upstairs-&gt;x330000103_DOUT3_ROOM1-&gt;SwitchOn(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="3662" />
+                            <vector>1</vector>
+                            <hint />
+                          </Event>
+                          <Event id="3663">
+                            <name>OnSwitchOff</name>
+                            <argList class="linked-list" id="3664" />
+                            <commands class="linked-list" id="3665">
+                              <string>Upstairs-&gt;x330000103_DOUT3_ROOM1-&gt;SwitchOff(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="3666" />
+                            <vector>2</vector>
+                            <hint />
+                          </Event>
+                        </events>
+                        <clu reference="301" />
+                        <module reference="3296" />
+                        <classTypeId>3</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>2</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                      <Input id="3683">
+                        <name>x330000103_DIN4_ROOM8</name>
+                        <nameOnCLU>DIN1019</nameOnCLU>
+                        <type>DIN</type>
+                        <typeSignature>DIN-3-1</typeSignature>
+                        <description />
+                        <labels id="3684" />
+                        <features id="3685" />
+                        <events class="linked-list" id="3693">
+                          <Event id="3698">
+                            <name>OnSwitchOn</name>
+                            <argList class="linked-list" id="3699" />
+                            <commands class="linked-list" id="3700">
+                              <string>Upstairs-&gt;x330000103_DOUT4_ROOM8-&gt;SwitchOn(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="3701" />
+                            <vector>1</vector>
+                            <hint />
+                          </Event>
+                          <Event id="3702">
+                            <name>OnSwitchOff</name>
+                            <argList class="linked-list" id="3703" />
+                            <commands class="linked-list" id="3704">
+                              <string>Upstairs-&gt;x330000103_DOUT4_ROOM8-&gt;SwitchOff(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="3705" />
+                            <vector>2</vector>
+                            <hint />
+                          </Event>
+                        </events>
+                        <clu reference="301" />
+                        <module reference="3296" />
+                        <classTypeId>3</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>3</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                      <Input id="3722">
+                        <name>x330000103_DIN5_ROOM8</name>
+                        <nameOnCLU>DIN1020</nameOnCLU>
+                        <type>DIN</type>
+                        <typeSignature>DIN-3-1</typeSignature>
+                        <description />
+                        <labels id="3723" />
+                        <features id="3724" />
+                        <events class="linked-list" id="3732">
+                          <Event id="3757">
+                            <name>OnClick</name>
+                            <argList class="linked-list" id="3758" />
+                            <commands class="linked-list" id="3759">
+                              <string>Upstairs-&gt;x330000103_DOUT7_ROOM6-&gt;Switch(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="3760" />
+                            <vector>6</vector>
+                            <hint />
+                          </Event>
+                        </events>
+                        <clu reference="301" />
+                        <module reference="3296" />
+                        <classTypeId>3</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>4</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                      <Input id="3761">
+                        <name>x330000103_DIN6_ROOM8</name>
+                        <nameOnCLU>DIN1021</nameOnCLU>
+                        <type>DIN</type>
+                        <typeSignature>DIN-3-1</typeSignature>
+                        <description />
+                        <labels id="3762" />
+                        <features id="3763" />
+                        <events class="linked-list" id="3771">
+                          <Event id="3796">
+                            <name>OnClick</name>
+                            <argList class="linked-list" id="3797" />
+                            <commands class="linked-list" id="3798">
+                              <string>Upstairs-&gt;x330000103_DOUT6_ROOM5-&gt;Switch(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="3799" />
+                            <vector>6</vector>
+                            <hint />
+                          </Event>
+                        </events>
+                        <clu reference="301" />
+                        <module reference="3296" />
+                        <classTypeId>3</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>5</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                      <Input id="3800">
+                        <name>x330000103_DIN7_ROOM3</name>
+                        <nameOnCLU>DIN1022</nameOnCLU>
+                        <type>DIN</type>
+                        <typeSignature>DIN-3-1</typeSignature>
+                        <description />
+                        <labels id="3801" />
+                        <features id="3802" />
+                        <events class="linked-list" id="3810">
+                          <Event id="3827">
+                            <name>OnLongPress</name>
+                            <argList class="linked-list" id="3828" />
+                            <commands class="linked-list" id="3829">
+                              <string>Upstairs-&gt;x330000107_DOUT1_ROOM5-&gt;Switch(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="3830" />
+                            <vector>4</vector>
+                            <hint />
+                          </Event>
+                          <Event id="3835">
+                            <name>OnClick</name>
+                            <argList class="linked-list" id="3836" />
+                            <commands class="linked-list" id="3837">
+                              <string>Upstairs-&gt;x330000103_DOUT5_ROOM2-&gt;Switch(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="3838" />
+                            <vector>6</vector>
+                            <hint />
+                          </Event>
+                        </events>
+                        <clu reference="301" />
+                        <module reference="3296" />
+                        <classTypeId>3</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>6</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                      <Input id="3839">
+                        <name>x330000103_DIN8_ROOM7</name>
+                        <nameOnCLU>DIN1023</nameOnCLU>
+                        <type>DIN</type>
+                        <typeSignature>DIN-3-1</typeSignature>
+                        <description />
+                        <labels id="3840" />
+                        <features id="3841" />
+                        <events class="linked-list" id="3849">
+                          <Event id="3866">
+                            <name>OnLongPress</name>
+                            <argList class="linked-list" id="3867" />
+                            <commands class="linked-list" id="3868">
+                              <string>Upstairs-&gt;x330000107_DOUT1_ROOM5-&gt;Switch(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="3869" />
+                            <vector>4</vector>
+                            <hint />
+                          </Event>
+                          <Event id="3874">
+                            <name>OnClick</name>
+                            <argList class="linked-list" id="3875" />
+                            <commands class="linked-list" id="3876">
+                              <string>Upstairs-&gt;x330000103_DOUT7_ROOM6-&gt;Switch(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="3877" />
+                            <vector>6</vector>
+                            <hint />
+                          </Event>
+                        </events>
+                        <clu reference="301" />
+                        <module reference="3296" />
+                        <classTypeId>3</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>7</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                    </iosList>
+                    <scripts id="4723">
+                      <Script reference="253" />
+                    </scripts>
+                    <peripheryList id="4724">
+                      <ProgrammablePeripheryCLU id="4725">
+                        <clu reference="301" />
+                        <name>timer4</name>
+                        <nameOnCLU>TIM1001</nameOnCLU>
+                        <typeName>Timer</typeName>
+                        <typeSignature>TIMER-6-1</typeSignature>
+                        <existsOnCLU>true</existsOnCLU>
+                        <features class="linked-list" id="4726" />
+                        <methods class="linked-list" id="4747" />
+                        <events class="linked-list" id="4764">
+                          <Event id="4765">
+                            <name>OnTimer</name>
+                            <argList class="linked-list" id="4766" />
+                            <commands class="linked-list" id="4767">
+                              <string>Upstairs-&gt;script1()</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="4768" />
+                            <vector>0</vector>
+                            <hint />
+                          </Event>
+                        </events>
+                        <isRemoved>false</isRemoved>
+                      </ProgrammablePeripheryCLU>
+                    </peripheryList>
+                    <applicationsList id="4781" />
+                    <isRemoved>false</isRemoved>
+                    <modulesList class="linked-list" id="4782">
+                      <InputOutputDefinition reference="453" />
+                      <InputOutputDefinition id="1199">
+                        <moduleID>201000104</moduleID>
+                        <innerName>0bfb04a8</innerName>
+                        <moduleClass>15</moduleClass>
+                        <moduleTypeFirmware>02</moduleTypeFirmware>
+                        <moduleVersion>01</moduleVersion>
+                        <active>true</active>
+                        <moduleInterface id="1200" />
+                      </InputOutputDefinition>
+                      <InputOutputDefinition id="1519">
+                        <moduleID>181000105</moduleID>
+                        <innerName>0ac9d7a9</innerName>
+                        <moduleClass>14</moduleClass>
+                        <moduleTypeFirmware>02</moduleTypeFirmware>
+                        <moduleVersion>01</moduleVersion>
+                        <active>false</active>
+                        <moduleInterface id="1520" />
+                      </InputOutputDefinition>
+                      <InputOutputDefinition id="2054">
+                        <moduleID>461000106</moduleID>
+                        <innerName>1b7a4daa</innerName>
+                        <moduleClass>19</moduleClass>
+                        <moduleTypeFirmware>02</moduleTypeFirmware>
+                        <moduleVersion>01</moduleVersion>
+                        <active>true</active>
+                        <moduleInterface id="2055" />
+                      </InputOutputDefinition>
+                      <InputOutputDefinition reference="2655" />
+                      <InputOutputDefinition reference="3296" />
+                      <InputOutputDefinition id="3937">
+                        <moduleID>330000107</moduleID>
+                        <innerName>13ab66eb</innerName>
+                        <moduleClass>1e</moduleClass>
+                        <moduleTypeFirmware>02</moduleTypeFirmware>
+                        <moduleVersion>01</moduleVersion>
+                        <active>true</active>
+                        <moduleInterface id="3938" />
+                      </InputOutputDefinition>
+                      <InputOutputDefinition id="4616">
+                        <moduleID>320000108</moduleID>
+                        <innerName>1312d06c</innerName>
+                        <moduleClass>02</moduleClass>
+                        <moduleTypeFirmware>00</moduleTypeFirmware>
+                        <moduleVersion>10</moduleVersion>
+                        <active>true</active>
+                        <moduleInterface id="4617" />
+                      </InputOutputDefinition>
+                    </modulesList>
+                    <validConfigurationOnCLU>true</validConfigurationOnCLU>
+                    <firmwareVersion>000001f9</firmwareVersion>
+                    <firmwareType>00000003</firmwareType>
+                    <hardwareVersion>00000001</hardwareVersion>
+                    <hardwareType>00000013</hardwareType>
+                    <serialNumber>0badc0de</serialNumber>
+                    <macAddress>FIXTURE-SECRET-MACADDRESS</macAddress>
+                    <privateKey id="4783">FIXTURE-SECRET-PRIVATEKEY</privateKey>
+                    <encrypted>true</encrypted>
+                    <supportWiFi>false</supportWiFi>
+                  </clu>
+                  <module reference="453" />
+                  <classTypeId>4</classTypeId>
+                  <isRemoved>false</isRemoved>
+                  <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                  <number>0</number>
+                  <active>true</active>
+                  <statisticState />
+                </specificObject>
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="4784">
+                <name>x330000101_DOUT2_ROOM9</name>
+                <parent reference="247" />
+                <children id="4785" />
+                <type>OUTPUT</type>
+                <id>11</id>
+                <specificObject class="Output" reference="433" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="4786">
+                <name>x330000101_DOUT3_ROOM1</name>
+                <parent reference="247" />
+                <children id="4787" />
+                <type>OUTPUT</type>
+                <id>12</id>
+                <specificObject class="Output" reference="664" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="4788">
+                <name>x330000101_DOUT4_ROOM3</name>
+                <parent reference="247" />
+                <children id="4789" />
+                <type>OUTPUT</type>
+                <id>13</id>
+                <specificObject class="Output" reference="684" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="4790">
+                <name>x330000101_DOUT5_ROOM7</name>
+                <parent reference="247" />
+                <children id="4791" />
+                <type>OUTPUT</type>
+                <id>14</id>
+                <specificObject class="Output" reference="704" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="4798">
+                <name>x330000101_DIN1_ROOM9</name>
+                <parent reference="247" />
+                <children id="4799" />
+                <type>INPUT</type>
+                <id>18</id>
+                <specificObject class="Input" reference="784" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="4800">
+                <name>x330000101_DIN2_ROOM9</name>
+                <parent reference="247" />
+                <children id="4801" />
+                <type>INPUT</type>
+                <id>19</id>
+                <specificObject class="Input" reference="823" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="4802">
+                <name>x330000101_DIN3_ROOM1</name>
+                <parent reference="247" />
+                <children id="4803" />
+                <type>INPUT</type>
+                <id>20</id>
+                <specificObject class="Input" reference="862" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="4804">
+                <name>x330000101_DIN4_ROOM7</name>
+                <parent reference="247" />
+                <children id="4805" />
+                <type>INPUT</type>
+                <id>21</id>
+                <specificObject class="Input" reference="901" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="4806">
+                <name>x330000101_DIN5_ROOM3</name>
+                <parent reference="247" />
+                <children id="4807" />
+                <type>INPUT</type>
+                <id>22</id>
+                <specificObject class="Input" reference="940" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="4810">
+                <name>x330000101_DIN7_ROOM5</name>
+                <parent reference="247" />
+                <children id="4811" />
+                <type>INPUT</type>
+                <id>24</id>
+                <specificObject class="Input" reference="1018" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="4812">
+                <name>x330000101_DIN8_ROOM2</name>
+                <parent reference="247" />
+                <children id="4813" />
+                <type>INPUT</type>
+                <id>25</id>
+                <specificObject class="Input" reference="1057" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="4884">
+                <name>x330000102_DIN1_ROOM7</name>
+                <parent reference="247" />
+                <children id="4885" />
+                <type>INPUT</type>
+                <id>61</id>
+                <specificObject class="Input" reference="2925" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="4886">
+                <name>x330000102_DIN2_ROOM5</name>
+                <parent reference="247" />
+                <children id="4887" />
+                <type>INPUT</type>
+                <id>62</id>
+                <specificObject class="Input" reference="2964" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="4888">
+                <name>x330000102_DIN3_ROOM6</name>
+                <parent reference="247" />
+                <children id="4889" />
+                <type>INPUT</type>
+                <id>63</id>
+                <specificObject class="Input" reference="3003" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="4890">
+                <name>x330000102_DIN4_ROOM3</name>
+                <parent reference="247" />
+                <children id="4891" />
+                <type>INPUT</type>
+                <id>64</id>
+                <specificObject class="Input" reference="3042" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="4892">
+                <name>x330000102_DIN5_ROOM2</name>
+                <parent reference="247" />
+                <children id="4893" />
+                <type>INPUT</type>
+                <id>65</id>
+                <specificObject class="Input" reference="3081" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="4894">
+                <name>x330000102_DIN6_ROOM4</name>
+                <parent reference="247" />
+                <children id="4895" />
+                <type>INPUT</type>
+                <id>66</id>
+                <specificObject class="Input" reference="3120" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="4896">
+                <name>x330000102_DIN7_ROOM1</name>
+                <parent reference="247" />
+                <children id="4897" />
+                <type>INPUT</type>
+                <id>67</id>
+                <specificObject class="Input" reference="3159" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="4898">
+                <name>x330000102_DIN8_ROOM6</name>
+                <parent reference="247" />
+                <children id="4899" />
+                <type>INPUT</type>
+                <id>68</id>
+                <specificObject class="Input" reference="3198" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="4918">
+                <name>x330000103_DIN1_ROOM1</name>
+                <parent reference="247" />
+                <children id="4919" />
+                <type>INPUT</type>
+                <id>78</id>
+                <specificObject class="Input" reference="3566" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="4920">
+                <name>x330000103_DIN2_ROOM7</name>
+                <parent reference="247" />
+                <children id="4921" />
+                <type>INPUT</type>
+                <id>79</id>
+                <specificObject class="Input" reference="3605" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="4922">
+                <name>x330000103_DIN3_ROOM2</name>
+                <parent reference="247" />
+                <children id="4923" />
+                <type>INPUT</type>
+                <id>80</id>
+                <specificObject class="Input" reference="3644" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="4924">
+                <name>x330000103_DIN4_ROOM8</name>
+                <parent reference="247" />
+                <children id="4925" />
+                <type>INPUT</type>
+                <id>81</id>
+                <specificObject class="Input" reference="3683" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="4926">
+                <name>x330000103_DIN5_ROOM8</name>
+                <parent reference="247" />
+                <children id="4927" />
+                <type>INPUT</type>
+                <id>82</id>
+                <specificObject class="Input" reference="3722" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="4928">
+                <name>x330000103_DIN6_ROOM8</name>
+                <parent reference="247" />
+                <children id="4929" />
+                <type>INPUT</type>
+                <id>83</id>
+                <specificObject class="Input" reference="3761" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="4930">
+                <name>x330000103_DIN7_ROOM3</name>
+                <parent reference="247" />
+                <children id="4931" />
+                <type>INPUT</type>
+                <id>84</id>
+                <specificObject class="Input" reference="3800" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="4932">
+                <name>x330000103_DIN8_ROOM7</name>
+                <parent reference="247" />
+                <children id="4933" />
+                <type>INPUT</type>
+                <id>85</id>
+                <specificObject class="Input" reference="3839" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="4972">
+                <name>timer4</name>
+                <parent reference="247" />
+                <children id="4973" />
+                <type>PROGRAMMABLE_PERIPHERY</type>
+                <id>283</id>
+                <specificObject class="ProgrammablePeripheryCLU" reference="4725" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+            </children>
+            <type>CLU</type>
+            <id>7</id>
+            <specificObject class="CLU" reference="301" />
+            <selected>false</selected>
+            <link>false</link>
+            <removedLink>false</removedLink>
+            <isDirty>false</isDirty>
+          </TreeObject>
+          <TreeObject id="4974">
+            <name>Alarm</name>
+            <parent reference="3" />
+            <children id="4975">
+              <TreeObject id="4976">
+                <name>Skrypty</name>
+                <parent reference="4974" />
+                <children id="4977">
+                  <TreeObject id="4978">
+                    <name>script2</name>
+                    <parent reference="4976" />
+                    <children id="4979" />
+                    <type>SCRIPT</type>
+                    <id>172</id>
+                    <specificObject class="Script" id="4980">
+                      <name>script2</name>
+                      <parameters id="4981" />
+                      <isManualEdit>true</isManualEdit>
+                      <isRemoved>false</isRemoved>
+                    </specificObject>
+                    <selected>false</selected>
+                    <link>false</link>
+                    <removedLink>false</removedLink>
+                    <isDirty>false</isDirty>
+                  </TreeObject>
+                  <TreeObject id="4982">
+                    <name>script3</name>
+                    <parent reference="4976" />
+                    <children id="4983" />
+                    <type>SCRIPT</type>
+                    <id>262</id>
+                    <specificObject class="Script" id="4984">
+                      <name>script3</name>
+                      <parameters id="4985" />
+                      <isManualEdit>true</isManualEdit>
+                      <isRemoved>true</isRemoved>
+                    </specificObject>
+                    <selected>false</selected>
+                    <link>false</link>
+                    <removedLink>false</removedLink>
+                    <isDirty>false</isDirty>
+                  </TreeObject>
+                  <TreeObject id="4986">
+                    <name>script4</name>
+                    <parent reference="4976" />
+                    <children id="4987" />
+                    <type>SCRIPT</type>
+                    <id>263</id>
+                    <specificObject class="Script" id="4988">
+                      <name>script4</name>
+                      <parameters id="4989" />
+                      <isManualEdit>false</isManualEdit>
+                      <isRemoved>true</isRemoved>
+                    </specificObject>
+                    <selected>false</selected>
+                    <link>false</link>
+                    <removedLink>false</removedLink>
+                    <isDirty>false</isDirty>
+                  </TreeObject>
+                  <TreeObject id="4990">
+                    <name>script5</name>
+                    <parent reference="4976" />
+                    <children id="4991" />
+                    <type>SCRIPT</type>
+                    <id>264</id>
+                    <specificObject class="Script" id="4992">
+                      <name>script5</name>
+                      <parameters id="4993" />
+                      <isManualEdit>false</isManualEdit>
+                      <isRemoved>true</isRemoved>
+                    </specificObject>
+                    <selected>false</selected>
+                    <link>false</link>
+                    <removedLink>false</removedLink>
+                    <isDirty>false</isDirty>
+                  </TreeObject>
+                  <TreeObject id="4994">
+                    <name>script6</name>
+                    <parent reference="4976" />
+                    <children id="4995" />
+                    <type>SCRIPT</type>
+                    <id>265</id>
+                    <specificObject class="Script" id="4996">
+                      <name>script6</name>
+                      <parameters id="4997" />
+                      <isManualEdit>false</isManualEdit>
+                      <isRemoved>true</isRemoved>
+                    </specificObject>
+                    <selected>false</selected>
+                    <link>false</link>
+                    <removedLink>false</removedLink>
+                    <isDirty>false</isDirty>
+                  </TreeObject>
+                  <TreeObject id="4998">
+                    <name>script7</name>
+                    <parent reference="4976" />
+                    <children id="4999" />
+                    <type>SCRIPT</type>
+                    <id>266</id>
+                    <specificObject class="Script" id="5000">
+                      <name>script7</name>
+                      <parameters id="5001">
+                        <ScriptParameter id="5002">
+                          <name>p1</name>
+                          <value />
+                          <defaultValue />
+                          <extendParamType id="5003">
+                            <paramType>NUMBER</paramType>
+                          </extendParamType>
+                          <unit />
+                          <divisor>1.0</divisor>
+                          <optional>false</optional>
+                        </ScriptParameter>
+                        <ScriptParameter id="5004">
+                          <name>p2</name>
+                          <value />
+                          <defaultValue />
+                          <extendParamType id="5005">
+                            <paramType>NUMBER</paramType>
+                          </extendParamType>
+                          <unit />
+                          <divisor>1.0</divisor>
+                          <optional>false</optional>
+                        </ScriptParameter>
+                      </parameters>
+                      <isManualEdit>true</isManualEdit>
+                      <isRemoved>true</isRemoved>
+                    </specificObject>
+                    <selected>false</selected>
+                    <link>false</link>
+                    <removedLink>false</removedLink>
+                    <isDirty>false</isDirty>
+                  </TreeObject>
+                  <TreeObject id="5006">
+                    <name>script8</name>
+                    <parent reference="4976" />
+                    <children id="5007" />
+                    <type>SCRIPT</type>
+                    <id>267</id>
+                    <specificObject class="Script" id="5008">
+                      <name>script8</name>
+                      <parameters id="5009">
+                        <ScriptParameter id="5010">
+                          <name>p1</name>
+                          <value />
+                          <defaultValue />
+                          <extendParamType id="5011">
+                            <paramType>NUMBER</paramType>
+                          </extendParamType>
+                          <unit />
+                          <divisor>1.0</divisor>
+                          <optional>false</optional>
+                        </ScriptParameter>
+                        <ScriptParameter id="5012">
+                          <name>p2</name>
+                          <value />
+                          <defaultValue />
+                          <extendParamType id="5013">
+                            <paramType>NUMBER</paramType>
+                          </extendParamType>
+                          <unit />
+                          <divisor>1.0</divisor>
+                          <optional>false</optional>
+                        </ScriptParameter>
+                        <ScriptParameter id="5014">
+                          <name>p3</name>
+                          <value />
+                          <defaultValue />
+                          <extendParamType id="5015">
+                            <paramType>NUMBER</paramType>
+                          </extendParamType>
+                          <unit />
+                          <divisor>1.0</divisor>
+                          <optional>false</optional>
+                        </ScriptParameter>
+                        <ScriptParameter id="5016">
+                          <name>p4</name>
+                          <value />
+                          <defaultValue />
+                          <extendParamType id="5017">
+                            <paramType>STRING</paramType>
+                          </extendParamType>
+                          <unit />
+                          <divisor>1.0</divisor>
+                          <optional>false</optional>
+                        </ScriptParameter>
+                      </parameters>
+                      <isManualEdit>true</isManualEdit>
+                      <isRemoved>false</isRemoved>
+                    </specificObject>
+                    <selected>false</selected>
+                    <link>false</link>
+                    <removedLink>false</removedLink>
+                    <isDirty>false</isDirty>
+                  </TreeObject>
+                  <TreeObject id="5018">
+                    <name>script9</name>
+                    <parent reference="4976" />
+                    <children id="5019" />
+                    <type>SCRIPT</type>
+                    <id>268</id>
+                    <specificObject class="Script" id="5020">
+                      <name>script9</name>
+                      <parameters id="5021" />
+                      <isManualEdit>true</isManualEdit>
+                      <isRemoved>false</isRemoved>
+                    </specificObject>
+                    <selected>false</selected>
+                    <link>false</link>
+                    <removedLink>false</removedLink>
+                    <isDirty>false</isDirty>
+                  </TreeObject>
+                </children>
+                <type>SCRIPT_CONTAINER</type>
+                <id>88</id>
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="5022">
+                <name>Aplikacje</name>
+                <parent reference="4974" />
+                <children id="5023" />
+                <type>APPLICATIONS_CONTAINER</type>
+                <id>89</id>
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="5024">
+                <name>x180000109_DIN1_ROOM1</name>
+                <parent reference="4974" />
+                <children id="5025" />
+                <type>INPUT</type>
+                <id>90</id>
+                <specificObject class="Input" id="5026">
+                  <name>x180000109_DIN1_ROOM1</name>
+                  <nameOnCLU>DIN1024</nameOnCLU>
+                  <type>DIN</type>
+                  <typeSignature>DIN-3-1</typeSignature>
+                  <description />
+                  <labels id="5027" />
+                  <features id="5028" />
+                  <events class="linked-list" id="5069">
+                    <Event id="5074">
+                      <name>OnSwitchOn</name>
+                      <argList class="linked-list" id="5075" />
+                      <commands class="linked-list" id="5076">
+                        <string>Alarm-&gt;x200000114_DOUT4_ROOM1-&gt;SwitchOn(0)</string>
+                      </commands>
+                      <customSchemeCommands class="linked-list" id="5077" />
+                      <vector>1</vector>
+                      <hint />
+                    </Event>
+                    <Event id="5078">
+                      <name>OnSwitchOff</name>
+                      <argList class="linked-list" id="5079" />
+                      <commands class="linked-list" id="5080">
+                        <string>Alarm-&gt;x200000114_DOUT4_ROOM1-&gt;SwitchOff(0)</string>
+                      </commands>
+                      <customSchemeCommands class="linked-list" id="5081" />
+                      <vector>2</vector>
+                      <hint />
+                    </Event>
+                  </events>
+                  <clu id="5098">
+                    <name>Alarm</name>
+                    <ipAddress>10.0.0.13</ipAddress>
+                    <nameOnCLU>CLU220000003</nameOnCLU>
+                    <definedFeaturesList class="linked-list" id="5099" />
+                    <embeddedFeaturesList class="linked-list" id="5110" />
+                    <eventsList class="linked-list" id="5203">
+                      <Event id="5204">
+                        <name>OnInit</name>
+                        <argList class="linked-list" id="5205" />
+                        <commands class="linked-list" id="5206">
+                          <string>Alarm-&gt;script2()</string>
+                        </commands>
+                        <customSchemeCommands class="linked-list" id="5207" />
+                        <vector>0</vector>
+                        <hint />
+                      </Event>
+                    </eventsList>
+                    <methodsList class="linked-list" id="5208" />
+                    <iosList id="5225">
+                      <Input reference="5026" />
+                      <Input id="5226">
+                        <name>x180000109_DIN2_ROOM3</name>
+                        <nameOnCLU>DIN1025</nameOnCLU>
+                        <type>DIN</type>
+                        <typeSignature>DIN-3-1</typeSignature>
+                        <description />
+                        <labels id="5227" />
+                        <features id="5228" />
+                        <events class="linked-list" id="5235">
+                          <Event id="5240">
+                            <name>OnSwitchOn</name>
+                            <argList class="linked-list" id="5241" />
+                            <commands class="linked-list" id="5242">
+                              <string>Alarm-&gt;x200000114_DOUT3_ROOM2-&gt;SwitchOn(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="5243" />
+                            <vector>1</vector>
+                            <hint />
+                          </Event>
+                          <Event id="5244">
+                            <name>OnSwitchOff</name>
+                            <argList class="linked-list" id="5245" />
+                            <commands class="linked-list" id="5246">
+                              <string>Alarm-&gt;x200000114_DOUT3_ROOM2-&gt;SwitchOff(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="5247" />
+                            <vector>2</vector>
+                            <hint />
+                          </Event>
+                        </events>
+                        <clu reference="5098" />
+                        <module id="5264">
+                          <moduleID>180000109</moduleID>
+                          <innerName>0aba956d</innerName>
+                          <moduleClass>00</moduleClass>
+                          <moduleTypeFirmware>00</moduleTypeFirmware>
+                          <moduleVersion>10</moduleVersion>
+                          <active>true</active>
+                          <moduleInterface id="5265" />
+                        </module>
+                        <classTypeId>3</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>1</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                      <Input id="5322">
+                        <name>x180000109_DIN3_ROOM4</name>
+                        <nameOnCLU>DIN1026</nameOnCLU>
+                        <type>DIN</type>
+                        <typeSignature>DIN-3-1</typeSignature>
+                        <description />
+                        <labels id="5323" />
+                        <features id="5324" />
+                        <events class="linked-list" id="5331">
+                          <Event id="5344">
+                            <name>OnShortPress</name>
+                            <argList class="linked-list" id="5345" />
+                            <commands class="linked-list" id="5346">
+                              <string>Upstairs-&gt;x201000104_DOUT3_ROOM7-&gt;Switch(1000)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="5347" />
+                            <vector>3</vector>
+                            <hint />
+                          </Event>
+                        </events>
+                        <clu reference="5098" />
+                        <module reference="5264" />
+                        <classTypeId>3</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>2</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                      <Input id="5360">
+                        <name>x180000109_DIN4_ROOM9</name>
+                        <nameOnCLU>DIN1027</nameOnCLU>
+                        <type>DIN</type>
+                        <typeSignature>DIN-3-1</typeSignature>
+                        <description />
+                        <labels id="5361" />
+                        <features id="5362" />
+                        <events class="linked-list" id="5369">
+                          <Event id="5382">
+                            <name>OnShortPress</name>
+                            <argList class="linked-list" id="5383" />
+                            <commands class="linked-list" id="5384">
+                              <string>Upstairs-&gt;x201000104_DOUT4_ROOM5-&gt;Switch(1000)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="5385" />
+                            <vector>3</vector>
+                            <hint />
+                          </Event>
+                          <Event id="5394">
+                            <name>OnClick</name>
+                            <argList class="linked-list" id="5395" />
+                            <commands class="linked-list" id="5396">
+                              <string>Alarm-&gt;x200000114_DOUT2_ROOM5-&gt;Switch(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="5397" />
+                            <vector>6</vector>
+                            <hint />
+                          </Event>
+                        </events>
+                        <clu reference="5098" />
+                        <module reference="5264" />
+                        <classTypeId>3</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>3</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                      <Input id="5398">
+                        <name>x180000109_DIN5</name>
+                        <nameOnCLU>DIN1028</nameOnCLU>
+                        <type>DIN</type>
+                        <typeSignature>DIN-3-1</typeSignature>
+                        <description />
+                        <labels id="5399" />
+                        <features id="5400" />
+                        <events class="linked-list" id="5407">
+                          </events>
+                        <clu reference="5098" />
+                        <module reference="5264" />
+                        <classTypeId>3</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>4</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                      <Input id="5436">
+                        <name>x180000109_DIN6</name>
+                        <nameOnCLU>DIN1029</nameOnCLU>
+                        <type>DIN</type>
+                        <typeSignature>DIN-3-1</typeSignature>
+                        <description />
+                        <labels id="5437" />
+                        <features id="5438" />
+                        <events class="linked-list" id="5445">
+                          </events>
+                        <clu reference="5098" />
+                        <module reference="5264" />
+                        <classTypeId>3</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>5</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                      <Input id="5474">
+                        <name>x180000109_DIN7</name>
+                        <nameOnCLU>DIN1030</nameOnCLU>
+                        <type>DIN</type>
+                        <typeSignature>DIN-3-1</typeSignature>
+                        <description />
+                        <labels id="5475" />
+                        <features id="5476" />
+                        <events class="linked-list" id="5483">
+                          </events>
+                        <clu reference="5098" />
+                        <module reference="5264" />
+                        <classTypeId>3</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>6</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                      <Input id="5512">
+                        <name>x180000109_DIN8</name>
+                        <nameOnCLU>DIN1031</nameOnCLU>
+                        <type>DIN</type>
+                        <typeSignature>DIN-3-1</typeSignature>
+                        <description />
+                        <labels id="5513" />
+                        <features id="5514" />
+                        <events class="linked-list" id="5521">
+                          </events>
+                        <clu reference="5098" />
+                        <module reference="5264" />
+                        <classTypeId>3</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>7</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                      <Input id="6269">
+                        <name>x230000110_BUTTON1_ROOM2</name>
+                        <nameOnCLU>BUT1001</nameOnCLU>
+                        <type>BUTTON</type>
+                        <typeSignature>BUTTON-7-1</typeSignature>
+                        <description />
+                        <labels id="6270" />
+                        <features id="6271" />
+                        <events class="linked-list" id="6300">
+                          <Event id="6313">
+                            <name>OnShortPress</name>
+                            <argList class="linked-list" id="6314" />
+                            <commands class="linked-list" id="6315">
+                              <string>Upstairs-&gt;x201000104_DOUT3_ROOM7-&gt;Switch(1000)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="6316" />
+                            <vector>3</vector>
+                            <hint />
+                          </Event>
+                          <Event id="6325">
+                            <name>OnClick</name>
+                            <argList class="linked-list" id="6326" />
+                            <commands class="linked-list" id="6327">
+                              <string>Alarm-&gt;x200000115_DOUT1_ROOM4-&gt;Switch(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="6328" />
+                            <vector>6</vector>
+                            <hint />
+                          </Event>
+                        </events>
+                        <clu reference="5098" />
+                        <module id="6329">
+                          <moduleID>230000110</moduleID>
+                          <innerName>0db585ee</innerName>
+                          <moduleClass>03</moduleClass>
+                          <moduleTypeFirmware>01</moduleTypeFirmware>
+                          <moduleVersion>14</moduleVersion>
+                          <active>true</active>
+                          <moduleInterface id="6330" />
+                        </module>
+                        <classTypeId>7</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>0</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                      <Input id="6503">
+                        <name>x230000110_BUTTON2</name>
+                        <nameOnCLU>BUT1002</nameOnCLU>
+                        <type>BUTTON</type>
+                        <typeSignature>BUTTON-7-1</typeSignature>
+                        <description />
+                        <labels id="6504" />
+                        <features id="6505" />
+                        <events class="linked-list" id="6510">
+                          <Event id="6523">
+                            <name>OnShortPress</name>
+                            <argList class="linked-list" id="6524" />
+                            <commands class="linked-list" id="6525">
+                              <string>Upstairs-&gt;x201000104_DOUT4_ROOM5-&gt;Switch(1000)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="6526" />
+                            <vector>3</vector>
+                            <hint />
+                          </Event>
+                        </events>
+                        <clu reference="5098" />
+                        <module reference="6329" />
+                        <classTypeId>7</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>1</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                      <Input id="6575">
+                        <name>x230000110_BUTTON4_ROOM2</name>
+                        <nameOnCLU>BUT1003</nameOnCLU>
+                        <type>BUTTON</type>
+                        <typeSignature>BUTTON-7-1</typeSignature>
+                        <description />
+                        <labels id="6576" />
+                        <features id="6577" />
+                        <events class="linked-list" id="6582">
+                          <Event id="6607">
+                            <name>OnClick</name>
+                            <argList class="linked-list" id="6608" />
+                            <commands class="linked-list" id="6609">
+                              <string>Alarm-&gt;x200000114_DOUT2_ROOM5-&gt;Switch(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="6610" />
+                            <vector>6</vector>
+                            <hint />
+                          </Event>
+                        </events>
+                        <clu reference="5098" />
+                        <module reference="6329" />
+                        <classTypeId>7</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>3</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                      <Input id="6661">
+                        <name>x250000111_PANEL_ROOM6</name>
+                        <nameOnCLU>PAN1001</nameOnCLU>
+                        <type>PANEL_BUTTON</type>
+                        <typeSignature>PANEL_BUTTON-48-1</typeSignature>
+                        <description />
+                        <labels id="6662" />
+                        <features id="6663" />
+                        <events class="linked-list" id="6713">
+                          <Event id="6718">
+                            <name>OnSwitchOn</name>
+                            <argList class="linked-list" id="6719" />
+                            <commands class="linked-list" id="6720">
+                              <string>Alarm-&gt;x200000115_DOUT4_ROOM6-&gt;SwitchOn(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="6721" />
+                            <vector>1</vector>
+                            <hint />
+                          </Event>
+                          <Event id="6722">
+                            <name>OnSwitchOff</name>
+                            <argList class="linked-list" id="6723" />
+                            <commands class="linked-list" id="6724">
+                              <string>Alarm-&gt;x200000115_DOUT4_ROOM6-&gt;SwitchOff(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="6725" />
+                            <vector>2</vector>
+                            <hint />
+                          </Event>
+                        </events>
+                        <clu reference="5098" />
+                        <module id="6742">
+                          <moduleID>250000111</moduleID>
+                          <innerName>0ee6b2ef</innerName>
+                          <moduleClass>03</moduleClass>
+                          <moduleTypeFirmware>03</moduleTypeFirmware>
+                          <moduleVersion>04</moduleVersion>
+                          <active>true</active>
+                          <moduleInterface id="6743" />
+                        </module>
+                        <classTypeId>30</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>0</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                      <Input id="7387">
+                        <name>x250000111_PANEL_ROOM6X</name>
+                        <nameOnCLU>PAN1002</nameOnCLU>
+                        <type>PANEL_BUTTON</type>
+                        <typeSignature>PANEL_BUTTON-48-1</typeSignature>
+                        <description />
+                        <labels id="7388" />
+                        <features id="7389" />
+                        <events class="linked-list" id="7397">
+                          <Event id="7402">
+                            <name>OnSwitchOn</name>
+                            <argList class="linked-list" id="7403" />
+                            <commands class="linked-list" id="7404">
+                              <string>Alarm-&gt;x200000115_DOUT3_ROOM1-&gt;SwitchOn(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="7405" />
+                            <vector>1</vector>
+                            <hint />
+                          </Event>
+                          <Event id="7406">
+                            <name>OnSwitchOff</name>
+                            <argList class="linked-list" id="7407" />
+                            <commands class="linked-list" id="7408">
+                              <string>Alarm-&gt;x200000115_DOUT3_ROOM1-&gt;SwitchOff(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="7409" />
+                            <vector>2</vector>
+                            <hint />
+                          </Event>
+                        </events>
+                        <clu reference="5098" />
+                        <module reference="6742" />
+                        <classTypeId>30</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>1</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                      <Input id="7426">
+                        <name>x250000111_PANEL_ROOM6XX</name>
+                        <nameOnCLU>PAN1003</nameOnCLU>
+                        <type>PANEL_BUTTON</type>
+                        <typeSignature>PANEL_BUTTON-48-1</typeSignature>
+                        <description />
+                        <labels id="7427" />
+                        <features id="7428" />
+                        <events class="linked-list" id="7436">
+                          <Event id="7441">
+                            <name>OnSwitchOn</name>
+                            <argList class="linked-list" id="7442" />
+                            <commands class="linked-list" id="7443">
+                              <string>Alarm-&gt;x200000115_DOUT2_ROOM5-&gt;SwitchOn(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="7444" />
+                            <vector>1</vector>
+                            <hint />
+                          </Event>
+                          <Event id="7445">
+                            <name>OnSwitchOff</name>
+                            <argList class="linked-list" id="7446" />
+                            <commands class="linked-list" id="7447">
+                              <string>Alarm-&gt;x200000115_DOUT2_ROOM5-&gt;SwitchOff(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="7448" />
+                            <vector>2</vector>
+                            <hint />
+                          </Event>
+                        </events>
+                        <clu reference="5098" />
+                        <module reference="6742" />
+                        <classTypeId>30</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>2</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                      <Input id="8169">
+                        <name>x250000112_PANEL_ROOM1</name>
+                        <nameOnCLU>PAN1004</nameOnCLU>
+                        <type>PANEL_BUTTON</type>
+                        <typeSignature>PANEL_BUTTON-48-1</typeSignature>
+                        <description />
+                        <labels id="8170" />
+                        <features id="8171" />
+                        <events class="linked-list" id="8200">
+                          <Event id="8225">
+                            <name>OnClick</name>
+                            <argList class="linked-list" id="8226" />
+                            <commands class="linked-list" id="8227">
+                              <string>Upstairs-&gt;x330000103_DOUT8_ROOM10-&gt;Switch(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="8228" />
+                            <vector>6</vector>
+                            <hint />
+                          </Event>
+                        </events>
+                        <clu reference="5098" />
+                        <module id="8229">
+                          <moduleID>250000112</moduleID>
+                          <innerName>0ee6b2f0</innerName>
+                          <moduleClass>03</moduleClass>
+                          <moduleTypeFirmware>03</moduleTypeFirmware>
+                          <moduleVersion>04</moduleVersion>
+                          <active>true</active>
+                          <moduleInterface id="8230" />
+                        </module>
+                        <classTypeId>30</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>0</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                      <Input id="8538">
+                        <name>x250000112_PANEL_ROOM1X</name>
+                        <nameOnCLU>PAN1005</nameOnCLU>
+                        <type>PANEL_BUTTON</type>
+                        <typeSignature>PANEL_BUTTON-48-1</typeSignature>
+                        <description />
+                        <labels id="8539" />
+                        <features id="8540" />
+                        <events class="linked-list" id="8548">
+                          <Event id="8573">
+                            <name>OnClick</name>
+                            <argList class="linked-list" id="8574" />
+                            <commands class="linked-list" id="8575">
+                              <string>Upstairs-&gt;x330000103_DOUT5_ROOM2-&gt;Switch(0)</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="8576" />
+                            <vector>6</vector>
+                            <hint />
+                          </Event>
+                        </events>
+                        <clu reference="5098" />
+                        <module reference="8229" />
+                        <classTypeId>30</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>1</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                    </iosList>
+                    <scripts id="11319">
+                      <Script reference="4980" />
+                      <Script reference="4984" />
+                      <Script reference="4988" />
+                      <Script reference="4992" />
+                      <Script reference="4996" />
+                      <Script reference="5000" />
+                      <Script reference="5008" />
+                      <Script reference="5020" />
+                    </scripts>
+                    <peripheryList id="11320">
+                      <HardwarePeripheryCLU id="11321">
+                        <clu reference="5098" />
+                        <name>thermostat5</name>
+                        <nameOnCLU>THE1001</nameOnCLU>
+                        <typeName>Thermostat</typeName>
+                        <typeSignature>THERMOSTAT-24-2</typeSignature>
+                        <existsOnCLU>true</existsOnCLU>
+                        <features class="linked-list" id="11322" />
+                        <methods class="linked-list" id="11384" />
+                        <events class="linked-list" id="11463">
+                          </events>
+                        <isRemoved>false</isRemoved>
+                      </HardwarePeripheryCLU>
+                      <HardwarePeripheryCLU id="11492">
+                        <clu reference="5098" />
+                        <name>thermostat6</name>
+                        <nameOnCLU>THE1002</nameOnCLU>
+                        <typeName>Thermostat</typeName>
+                        <typeSignature>THERMOSTAT-24-2</typeSignature>
+                        <existsOnCLU>true</existsOnCLU>
+                        <features class="linked-list" id="11493" />
+                        <methods class="linked-list" id="11509" />
+                        <events class="linked-list" id="11566">
+                          </events>
+                        <isRemoved>false</isRemoved>
+                      </HardwarePeripheryCLU>
+                    </peripheryList>
+                    <applicationsList id="11595" />
+                    <isRemoved>false</isRemoved>
+                    <modulesList class="linked-list" id="11596">
+                      <InputOutputDefinition reference="5264" />
+                      <InputOutputDefinition id="5585">
+                        <moduleID>200000113</moduleID>
+                        <innerName>0bebc271</innerName>
+                        <moduleClass>01</moduleClass>
+                        <moduleTypeFirmware>01</moduleTypeFirmware>
+                        <moduleVersion>0b</moduleVersion>
+                        <active>true</active>
+                        <moduleInterface id="5586" />
+                      </InputOutputDefinition>
+                      <InputOutputDefinition id="5716">
+                        <moduleID>200000114</moduleID>
+                        <innerName>0bebc272</innerName>
+                        <moduleClass>01</moduleClass>
+                        <moduleTypeFirmware>01</moduleTypeFirmware>
+                        <moduleVersion>0b</moduleVersion>
+                        <active>true</active>
+                        <moduleInterface id="5717" />
+                      </InputOutputDefinition>
+                      <InputOutputDefinition id="5824">
+                        <moduleID>200000115</moduleID>
+                        <innerName>0bebc273</innerName>
+                        <moduleClass>01</moduleClass>
+                        <moduleTypeFirmware>01</moduleTypeFirmware>
+                        <moduleVersion>0b</moduleVersion>
+                        <active>true</active>
+                        <moduleInterface id="5825" />
+                      </InputOutputDefinition>
+                      <InputOutputDefinition id="5960">
+                        <moduleID>180000116</moduleID>
+                        <innerName>0aba9574</innerName>
+                        <moduleClass>00</moduleClass>
+                        <moduleTypeFirmware>00</moduleTypeFirmware>
+                        <moduleVersion>10</moduleVersion>
+                        <active>true</active>
+                        <moduleInterface id="5961" />
+                      </InputOutputDefinition>
+                      <InputOutputDefinition reference="6329" />
+                      <InputOutputDefinition reference="6742" />
+                      <InputOutputDefinition reference="8229" />
+                      <InputOutputDefinition id="9346">
+                        <moduleID>200000117</moduleID>
+                        <innerName>0bebc275</innerName>
+                        <moduleClass>01</moduleClass>
+                        <moduleTypeFirmware>01</moduleTypeFirmware>
+                        <moduleVersion>0b</moduleVersion>
+                        <active>true</active>
+                        <moduleInterface id="9347" />
+                      </InputOutputDefinition>
+                      <InputOutputDefinition id="9482">
+                        <moduleID>180000118</moduleID>
+                        <innerName>0aba9576</innerName>
+                        <moduleClass>00</moduleClass>
+                        <moduleTypeFirmware>00</moduleTypeFirmware>
+                        <moduleVersion>10</moduleVersion>
+                        <active>true</active>
+                        <moduleInterface id="9483" />
+                      </InputOutputDefinition>
+                      <InputOutputDefinition id="9817">
+                        <moduleID>200000119</moduleID>
+                        <innerName>0bebc277</innerName>
+                        <moduleClass>01</moduleClass>
+                        <moduleTypeFirmware>01</moduleTypeFirmware>
+                        <moduleVersion>0b</moduleVersion>
+                        <active>true</active>
+                        <moduleInterface id="9818" />
+                      </InputOutputDefinition>
+                      <InputOutputDefinition id="9925">
+                        <moduleID>200000120</moduleID>
+                        <innerName>0bebc278</innerName>
+                        <moduleClass>01</moduleClass>
+                        <moduleTypeFirmware>01</moduleTypeFirmware>
+                        <moduleVersion>0b</moduleVersion>
+                        <active>true</active>
+                        <moduleInterface id="9926" />
+                      </InputOutputDefinition>
+                      <InputOutputDefinition id="10033">
+                        <moduleID>200000121</moduleID>
+                        <innerName>0bebc279</innerName>
+                        <moduleClass>01</moduleClass>
+                        <moduleTypeFirmware>01</moduleTypeFirmware>
+                        <moduleVersion>0b</moduleVersion>
+                        <active>true</active>
+                        <moduleInterface id="10034" />
+                      </InputOutputDefinition>
+                      <InputOutputDefinition id="10185">
+                        <moduleID>460000122</moduleID>
+                        <innerName>1b6b0b7a</innerName>
+                        <moduleClass>08</moduleClass>
+                        <moduleTypeFirmware>00</moduleTypeFirmware>
+                        <moduleVersion>11</moduleVersion>
+                        <active>true</active>
+                        <moduleInterface id="10186" />
+                      </InputOutputDefinition>
+                      <InputOutputDefinition id="10684">
+                        <moduleID>175000123</moduleID>
+                        <innerName>0a6e4a3b</innerName>
+                        <moduleClass>ff</moduleClass>
+                        <moduleTypeFirmware>28</moduleTypeFirmware>
+                        <moduleVersion>02</moduleVersion>
+                        <active>true</active>
+                        <moduleInterface id="10685" />
+                      </InputOutputDefinition>
+                      <InputOutputDefinition id="10759">
+                        <moduleID>175000124</moduleID>
+                        <innerName>0a6e4a3c</innerName>
+                        <moduleClass>ff</moduleClass>
+                        <moduleTypeFirmware>28</moduleTypeFirmware>
+                        <moduleVersion>02</moduleVersion>
+                        <active>true</active>
+                        <moduleInterface id="10760" />
+                      </InputOutputDefinition>
+                      <InputOutputDefinition id="10834">
+                        <moduleID>146000125</moduleID>
+                        <innerName>08b3c8fd</innerName>
+                        <moduleClass>ff</moduleClass>
+                        <moduleTypeFirmware>28</moduleTypeFirmware>
+                        <moduleVersion>02</moduleVersion>
+                        <active>true</active>
+                        <moduleInterface id="10835" />
+                      </InputOutputDefinition>
+                      <InputOutputDefinition id="10909">
+                        <moduleID>175000126</moduleID>
+                        <innerName>0a6e4a3e</innerName>
+                        <moduleClass>ff</moduleClass>
+                        <moduleTypeFirmware>28</moduleTypeFirmware>
+                        <moduleVersion>02</moduleVersion>
+                        <active>true</active>
+                        <moduleInterface id="10910" />
+                      </InputOutputDefinition>
+                      <InputOutputDefinition id="10984">
+                        <moduleID>113000127</moduleID>
+                        <innerName>06bc3ebf</innerName>
+                        <moduleClass>ff</moduleClass>
+                        <moduleTypeFirmware>28</moduleTypeFirmware>
+                        <moduleVersion>02</moduleVersion>
+                        <active>true</active>
+                        <moduleInterface id="10985" />
+                      </InputOutputDefinition>
+                      <InputOutputDefinition id="11059">
+                        <moduleID>113000128</moduleID>
+                        <innerName>06bc3ec0</innerName>
+                        <moduleClass>ff</moduleClass>
+                        <moduleTypeFirmware>28</moduleTypeFirmware>
+                        <moduleVersion>02</moduleVersion>
+                        <active>true</active>
+                        <moduleInterface id="11060" />
+                      </InputOutputDefinition>
+                      <InputOutputDefinition id="11134">
+                        <moduleID>175000129</moduleID>
+                        <innerName>0a6e4a41</innerName>
+                        <moduleClass>ff</moduleClass>
+                        <moduleTypeFirmware>28</moduleTypeFirmware>
+                        <moduleVersion>02</moduleVersion>
+                        <active>true</active>
+                        <moduleInterface id="11135" />
+                      </InputOutputDefinition>
+                      <InputOutputDefinition id="11209">
+                        <moduleID>154000130</moduleID>
+                        <innerName>092ddb02</innerName>
+                        <moduleClass>ff</moduleClass>
+                        <moduleTypeFirmware>28</moduleTypeFirmware>
+                        <moduleVersion>02</moduleVersion>
+                        <active>true</active>
+                        <moduleInterface id="11210" />
+                      </InputOutputDefinition>
+                      <InputOutputDefinition id="11284">
+                        <moduleID>175000131</moduleID>
+                        <innerName>0a6e4a43</innerName>
+                        <moduleClass>ff</moduleClass>
+                        <moduleTypeFirmware>28</moduleTypeFirmware>
+                        <moduleVersion>02</moduleVersion>
+                        <active>true</active>
+                        <moduleInterface id="11285" />
+                      </InputOutputDefinition>
+                    </modulesList>
+                    <validConfigurationOnCLU>true</validConfigurationOnCLU>
+                    <firmwareVersion>00000198</firmwareVersion>
+                    <firmwareType>00000004</firmwareType>
+                    <hardwareVersion>00000000</hardwareVersion>
+                    <hardwareType>00000000</hardwareType>
+                    <serialNumber>0badc0de</serialNumber>
+                    <macAddress>FIXTURE-SECRET-MACADDRESS</macAddress>
+                    <privateKey id="11597">FIXTURE-SECRET-PRIVATEKEY</privateKey>
+                    <encrypted>true</encrypted>
+                    <supportWiFi>false</supportWiFi>
+                  </clu>
+                  <module reference="5264" />
+                  <classTypeId>3</classTypeId>
+                  <isRemoved>false</isRemoved>
+                  <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                  <number>0</number>
+                  <active>true</active>
+                  <statisticState />
+                </specificObject>
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="11598">
+                <name>x180000109_DIN2_ROOM3</name>
+                <parent reference="4974" />
+                <children id="11599" />
+                <type>INPUT</type>
+                <id>91</id>
+                <specificObject class="Input" reference="5226" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="11600">
+                <name>x180000109_DIN3_ROOM4</name>
+                <parent reference="4974" />
+                <children id="11601" />
+                <type>INPUT</type>
+                <id>92</id>
+                <specificObject class="Input" reference="5322" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="11602">
+                <name>x180000109_DIN4_ROOM9</name>
+                <parent reference="4974" />
+                <children id="11603" />
+                <type>INPUT</type>
+                <id>93</id>
+                <specificObject class="Input" reference="5360" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="11604">
+                <name>x180000109_DIN5</name>
+                <parent reference="4974" />
+                <children id="11605" />
+                <type>INPUT</type>
+                <id>94</id>
+                <specificObject class="Input" reference="5398" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="11606">
+                <name>x180000109_DIN6</name>
+                <parent reference="4974" />
+                <children id="11607" />
+                <type>INPUT</type>
+                <id>95</id>
+                <specificObject class="Input" reference="5436" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="11608">
+                <name>x180000109_DIN7</name>
+                <parent reference="4974" />
+                <children id="11609" />
+                <type>INPUT</type>
+                <id>96</id>
+                <specificObject class="Input" reference="5474" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="11610">
+                <name>x180000109_DIN8</name>
+                <parent reference="4974" />
+                <children id="11611" />
+                <type>INPUT</type>
+                <id>97</id>
+                <specificObject class="Input" reference="5512" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="11652">
+                <name>x230000110_BUTTON1_ROOM2</name>
+                <parent reference="4974" />
+                <children id="11653" />
+                <type>INPUT</type>
+                <id>118</id>
+                <specificObject class="Input" reference="6269" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="11654">
+                <name>x230000110_BUTTON2</name>
+                <parent reference="4974" />
+                <children id="11655" />
+                <type>INPUT</type>
+                <id>119</id>
+                <specificObject class="Input" reference="6503" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="11658">
+                <name>x230000110_BUTTON4_ROOM2</name>
+                <parent reference="4974" />
+                <children id="11659" />
+                <type>INPUT</type>
+                <id>121</id>
+                <specificObject class="Input" reference="6575" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="11664">
+                <name>x250000111_PANEL_ROOM6</name>
+                <parent reference="4974" />
+                <children id="11665" />
+                <type>INPUT</type>
+                <id>124</id>
+                <specificObject class="Input" reference="6661" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="11666">
+                <name>x250000111_PANEL_ROOM6X</name>
+                <parent reference="4974" />
+                <children id="11667" />
+                <type>INPUT</type>
+                <id>125</id>
+                <specificObject class="Input" reference="7387" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="11668">
+                <name>x250000111_PANEL_ROOM6XX</name>
+                <parent reference="4974" />
+                <children id="11669" />
+                <type>INPUT</type>
+                <id>126</id>
+                <specificObject class="Input" reference="7426" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="11710">
+                <name>x250000112_PANEL_ROOM1</name>
+                <parent reference="4974" />
+                <children id="11711" />
+                <type>INPUT</type>
+                <id>147</id>
+                <specificObject class="Input" reference="8169" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="11712">
+                <name>x250000112_PANEL_ROOM1X</name>
+                <parent reference="4974" />
+                <children id="11713" />
+                <type>INPUT</type>
+                <id>148</id>
+                <specificObject class="Input" reference="8538" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="11756">
+                <name>thermostat5</name>
+                <parent reference="4974" />
+                <children id="11757" />
+                <type>HARDWARE_PERIPHERY</type>
+                <id>170</id>
+                <specificObject class="HardwarePeripheryCLU" reference="11321" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="11758">
+                <name>thermostat6</name>
+                <parent reference="4974" />
+                <children id="11759" />
+                <type>HARDWARE_PERIPHERY</type>
+                <id>171</id>
+                <specificObject class="HardwarePeripheryCLU" reference="11492" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+            </children>
+            <type>CLU</type>
+            <id>87</id>
+            <specificObject class="CLU" reference="5098" />
+            <selected>false</selected>
+            <link>false</link>
+            <removedLink>false</removedLink>
+            <isDirty>false</isDirty>
+          </TreeObject>
+          <TreeObject id="11842">
+            <name>Garden</name>
+            <parent reference="3" />
+            <children id="11843">
+              <TreeObject id="11844">
+                <name>Scripts</name>
+                <parent reference="11842" />
+                <children id="11845">
+                  <TreeObject id="11846">
+                    <name>script10</name>
+                    <parent reference="11844" />
+                    <children id="11847" />
+                    <type>SCRIPT</type>
+                    <id>272</id>
+                    <specificObject class="Script" id="11848">
+                      <name>script10</name>
+                      <parameters id="11849">
+                        <ScriptParameter id="11850">
+                          <name>p1</name>
+                          <value />
+                          <defaultValue />
+                          <extendParamType id="11851">
+                            <paramType>STRING</paramType>
+                          </extendParamType>
+                          <unit />
+                          <divisor>1.0</divisor>
+                          <optional>false</optional>
+                        </ScriptParameter>
+                      </parameters>
+                      <isManualEdit>true</isManualEdit>
+                      <isRemoved>false</isRemoved>
+                    </specificObject>
+                    <selected>false</selected>
+                    <link>false</link>
+                    <removedLink>false</removedLink>
+                    <isDirty>false</isDirty>
+                  </TreeObject>
+                  <TreeObject id="11852">
+                    <name>script11</name>
+                    <parent reference="11844" />
+                    <children id="11853" />
+                    <type>SCRIPT</type>
+                    <id>276</id>
+                    <specificObject class="Script" id="11854">
+                      <name>script11</name>
+                      <parameters id="11855" />
+                      <isManualEdit>true</isManualEdit>
+                      <isRemoved>false</isRemoved>
+                    </specificObject>
+                    <selected>false</selected>
+                    <link>false</link>
+                    <removedLink>false</removedLink>
+                    <isDirty>false</isDirty>
+                  </TreeObject>
+                  <TreeObject id="11856">
+                    <name>script12</name>
+                    <parent reference="11844" />
+                    <children id="11857" />
+                    <type>SCRIPT</type>
+                    <id>277</id>
+                    <specificObject class="Script" id="11858">
+                      <name>script12</name>
+                      <parameters id="11859">
+                        <ScriptParameter id="11860">
+                          <name>p1</name>
+                          <value />
+                          <defaultValue />
+                          <extendParamType id="11861">
+                            <paramType>STRING</paramType>
+                          </extendParamType>
+                          <unit />
+                          <divisor>1.0</divisor>
+                          <optional>false</optional>
+                        </ScriptParameter>
+                        <ScriptParameter id="11862">
+                          <name>p2</name>
+                          <value />
+                          <defaultValue />
+                          <extendParamType id="11863">
+                            <paramType>STRING</paramType>
+                          </extendParamType>
+                          <unit />
+                          <divisor>1.0</divisor>
+                          <optional>false</optional>
+                        </ScriptParameter>
+                      </parameters>
+                      <isManualEdit>true</isManualEdit>
+                      <isRemoved>false</isRemoved>
+                    </specificObject>
+                    <selected>false</selected>
+                    <link>false</link>
+                    <removedLink>false</removedLink>
+                    <isDirty>false</isDirty>
+                  </TreeObject>
+                  <TreeObject id="11864">
+                    <name>script13</name>
+                    <parent reference="11844" />
+                    <children id="11865" />
+                    <type>SCRIPT</type>
+                    <id>278</id>
+                    <specificObject class="Script" id="11866">
+                      <name>script13</name>
+                      <parameters id="11867">
+                        <ScriptParameter id="11868">
+                          <name>p1</name>
+                          <value />
+                          <defaultValue />
+                          <extendParamType id="11869">
+                            <paramType>STRING</paramType>
+                          </extendParamType>
+                          <unit />
+                          <divisor>1.0</divisor>
+                          <optional>false</optional>
+                        </ScriptParameter>
+                        <ScriptParameter id="11870">
+                          <name>p2</name>
+                          <value />
+                          <defaultValue />
+                          <extendParamType id="11871">
+                            <paramType>STRING</paramType>
+                          </extendParamType>
+                          <unit />
+                          <divisor>1.0</divisor>
+                          <optional>false</optional>
+                        </ScriptParameter>
+                      </parameters>
+                      <isManualEdit>true</isManualEdit>
+                      <isRemoved>false</isRemoved>
+                    </specificObject>
+                    <selected>false</selected>
+                    <link>false</link>
+                    <removedLink>false</removedLink>
+                    <isDirty>false</isDirty>
+                  </TreeObject>
+                  <TreeObject id="11872">
+                    <name>script14</name>
+                    <parent reference="11844" />
+                    <children id="11873" />
+                    <type>SCRIPT</type>
+                    <id>288</id>
+                    <specificObject class="Script" id="11874">
+                      <name>script14</name>
+                      <parameters id="11875">
+                        <ScriptParameter id="11876">
+                          <name>p1</name>
+                          <value />
+                          <defaultValue />
+                          <extendParamType id="11877">
+                            <paramType>STRING</paramType>
+                          </extendParamType>
+                          <unit />
+                          <divisor>1.0</divisor>
+                          <optional>false</optional>
+                        </ScriptParameter>
+                        <ScriptParameter id="11878">
+                          <name>p2</name>
+                          <value />
+                          <defaultValue />
+                          <extendParamType id="11879">
+                            <paramType>STRING</paramType>
+                          </extendParamType>
+                          <unit />
+                          <divisor>1.0</divisor>
+                          <optional>false</optional>
+                        </ScriptParameter>
+                      </parameters>
+                      <isManualEdit>true</isManualEdit>
+                      <isRemoved>false</isRemoved>
+                    </specificObject>
+                    <selected>false</selected>
+                    <link>false</link>
+                    <removedLink>false</removedLink>
+                    <isDirty>false</isDirty>
+                  </TreeObject>
+                  <TreeObject id="11880">
+                    <name>script15</name>
+                    <parent reference="11844" />
+                    <children id="11881" />
+                    <type>SCRIPT</type>
+                    <id>289</id>
+                    <specificObject class="Script" id="11882">
+                      <name>script15</name>
+                      <parameters id="11883" />
+                      <isManualEdit>true</isManualEdit>
+                      <isRemoved>false</isRemoved>
+                    </specificObject>
+                    <selected>false</selected>
+                    <link>false</link>
+                    <removedLink>false</removedLink>
+                    <isDirty>true</isDirty>
+                  </TreeObject>
+                </children>
+                <type>SCRIPT_CONTAINER</type>
+                <id>234</id>
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>true</isDirty>
+              </TreeObject>
+              <TreeObject id="11884">
+                <name>Applications</name>
+                <parent reference="11842" />
+                <children id="11885" />
+                <type>APPLICATIONS_CONTAINER</type>
+                <id>235</id>
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="11886">
+                <name>httpRequest11</name>
+                <parent reference="11842" />
+                <children id="11887" />
+                <type>PROGRAMMABLE_PERIPHERY</type>
+                <id>273</id>
+                <specificObject class="ProgrammablePeripheryCLU" id="11888">
+                  <clu id="11889">
+                    <name>Garden</name>
+                    <ipAddress>10.0.0.14</ipAddress>
+                    <nameOnCLU>CLU520000004</nameOnCLU>
+                    <definedFeaturesList class="linked-list" id="11890" />
+                    <embeddedFeaturesList class="linked-list" id="11925" />
+                    <eventsList class="linked-list" id="11948">
+                      <Event id="11949">
+                        <name>OnInit</name>
+                        <argList class="linked-list" id="11950" />
+                        <commands class="linked-list" id="11951">
+                          <string>Garden-&gt;script11()</string>
+                        </commands>
+                        <customSchemeCommands class="linked-list" id="11952" />
+                        <vector>0</vector>
+                        <hint />
+                      </Event>
+                    </eventsList>
+                    <methodsList class="linked-list" id="11953" />
+                    <iosList id="11976" />
+                    <scripts id="11977">
+                      <Script reference="11848" />
+                      <Script reference="11854" />
+                      <Script reference="11858" />
+                      <Script reference="11866" />
+                      <Script reference="11874" />
+                      <Script reference="11882" />
+                    </scripts>
+                    <peripheryList id="11978">
+                      <ProgrammablePeripheryCLU reference="11888" />
+                      <ProgrammablePeripheryCLU id="11979">
+                        <clu reference="11889" />
+                        <name>timer7</name>
+                        <nameOnCLU>TIM1002</nameOnCLU>
+                        <typeName>Timer</typeName>
+                        <typeSignature>TIMER-6-2</typeSignature>
+                        <existsOnCLU>true</existsOnCLU>
+                        <features class="linked-list" id="11980" />
+                        <methods class="linked-list" id="11998" />
+                        <events class="linked-list" id="12013">
+                          </events>
+                        <isRemoved>true</isRemoved>
+                      </ProgrammablePeripheryCLU>
+                      <ProgrammablePeripheryCLU id="12026">
+                        <clu reference="11889" />
+                        <name>httpRequest8</name>
+                        <nameOnCLU>HTT1001</nameOnCLU>
+                        <typeName>HttpRequest</typeName>
+                        <typeSignature>HTTPREQUEST-289-1</typeSignature>
+                        <existsOnCLU>true</existsOnCLU>
+                        <features class="linked-list" id="12027" />
+                        <methods class="linked-list" id="12073" />
+                        <events class="linked-list" id="12126">
+                          <Event id="12131">
+                            <name>OnResponse</name>
+                            <argList class="linked-list" id="12132" />
+                            <commands class="linked-list" id="12133">
+                              <string>Garden-&gt;script13("x")</string>
+                            </commands>
+                            <customSchemeCommands class="linked-list" id="12134" />
+                            <vector>1</vector>
+                            <hint />
+                          </Event>
+                        </events>
+                        <isRemoved>false</isRemoved>
+                      </ProgrammablePeripheryCLU>
+                      <ProgrammablePeripheryCLU id="12135">
+                        <clu reference="11889" />
+                        <name>timer9</name>
+                        <nameOnCLU>TIM1003</nameOnCLU>
+                        <typeName>Timer</typeName>
+                        <typeSignature>TIMER-6-2</typeSignature>
+                        <existsOnCLU>true</existsOnCLU>
+                        <features class="linked-list" id="12136" />
+                        <methods class="linked-list" id="12154" />
+                        <events class="linked-list" id="12169">
+                          </events>
+                        <isRemoved>true</isRemoved>
+                      </ProgrammablePeripheryCLU>
+                      <ProgrammablePeripheryCLU id="12182">
+                        <clu reference="11889" />
+                        <name>httpRequest10</name>
+                        <nameOnCLU>HTT1002</nameOnCLU>
+                        <typeName>HttpRequest</typeName>
+                        <typeSignature>HTTPREQUEST-289-1</typeSignature>
+                        <existsOnCLU>true</existsOnCLU>
+                        <features class="linked-list" id="12183" />
+                        <methods class="linked-list" id="12229" />
+                        <events class="linked-list" id="12282">
+                          </events>
+                        <isRemoved>false</isRemoved>
+                      </ProgrammablePeripheryCLU>
+                    </peripheryList>
+                    <applicationsList id="12291" />
+                    <isRemoved>false</isRemoved>
+                    <modulesList class="linked-list" id="12292" />
+                    <validConfigurationOnCLU>false</validConfigurationOnCLU>
+                    <configurationErrorMessage />
+                    <firmwareVersion>000003e8</firmwareVersion>
+                    <firmwareType>00000003</firmwareType>
+                    <hardwareVersion>00000001</hardwareVersion>
+                    <hardwareType>00000012</hardwareType>
+                    <serialNumber>0badc0de</serialNumber>
+                    <macAddress>FIXTURE-SECRET-MACADDRESS</macAddress>
+                    <privateKey id="12293">FIXTURE-SECRET-PRIVATEKEY</privateKey>
+                    <encrypted>true</encrypted>
+                    <supportWiFi>false</supportWiFi>
+                  </clu>
+                  <name>httpRequest11</name>
+                  <nameOnCLU>HTT1003</nameOnCLU>
+                  <typeName>HttpRequest</typeName>
+                  <typeSignature>HTTPREQUEST-289-1</typeSignature>
+                  <existsOnCLU>true</existsOnCLU>
+                  <features class="linked-list" id="12294" />
+                  <methods class="linked-list" id="12340" />
+                  <events class="linked-list" id="12393">
+                    <Event id="12398">
+                      <name>OnResponse</name>
+                      <argList class="linked-list" id="12399" />
+                      <commands class="linked-list" id="12400">
+                        <string>Garden-&gt;script10("x")</string>
+                      </commands>
+                      <customSchemeCommands class="linked-list" id="12401" />
+                      <vector>1</vector>
+                      <hint />
+                    </Event>
+                  </events>
+                  <isRemoved>true</isRemoved>
+                </specificObject>
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="12402">
+                <name>timer7</name>
+                <parent reference="11842" />
+                <children id="12403" />
+                <type>PROGRAMMABLE_PERIPHERY</type>
+                <id>275</id>
+                <specificObject class="ProgrammablePeripheryCLU" reference="11979" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="12404">
+                <name>httpRequest8</name>
+                <parent reference="11842" />
+                <children id="12405" />
+                <type>PROGRAMMABLE_PERIPHERY</type>
+                <id>279</id>
+                <specificObject class="ProgrammablePeripheryCLU" reference="12026" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="12406">
+                <name>timer9</name>
+                <parent reference="11842" />
+                <children id="12407" />
+                <type>PROGRAMMABLE_PERIPHERY</type>
+                <id>280</id>
+                <specificObject class="ProgrammablePeripheryCLU" reference="12135" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="12408">
+                <name>httpRequest10</name>
+                <parent reference="11842" />
+                <children id="12409" />
+                <type>PROGRAMMABLE_PERIPHERY</type>
+                <id>287</id>
+                <specificObject class="ProgrammablePeripheryCLU" reference="12182" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+            </children>
+            <type>CLU</type>
+            <id>233</id>
+            <specificObject class="CLU" reference="11889" />
+            <selected>false</selected>
+            <link>false</link>
+            <removedLink>false</removedLink>
+            <isDirty>true</isDirty>
+          </TreeObject>
+          <TreeObject id="12410">
+            <name>Attic</name>
+            <parent reference="3" />
+            <children id="12411">
+              <TreeObject id="12412">
+                <name>Scripts</name>
+                <parent reference="12410" />
+                <children id="12413" />
+                <type>SCRIPT_CONTAINER</type>
+                <id>237</id>
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="12414">
+                <name>Applications</name>
+                <parent reference="12410" />
+                <children id="12415" />
+                <type>APPLICATIONS_CONTAINER</type>
+                <id>238</id>
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="12416">
+                <name>x250000132_PANEL_ROOM9</name>
+                <parent reference="12410" />
+                <children id="12417" />
+                <type>INPUT</type>
+                <id>239</id>
+                <specificObject class="Input" id="12418">
+                  <name>x250000132_PANEL_ROOM9</name>
+                  <nameOnCLU>PAN1006</nameOnCLU>
+                  <type>PANEL_BUTTON</type>
+                  <typeSignature>PANEL_BUTTON-48-1</typeSignature>
+                  <description />
+                  <labels id="12419" />
+                  <features id="12420" />
+                  <events class="linked-list" id="12470">
+                    </events>
+                  <clu id="12499">
+                    <name>Attic</name>
+                    <ipAddress>10.0.0.15</ipAddress>
+                    <nameOnCLU>CLU470000005</nameOnCLU>
+                    <definedFeaturesList id="12500" />
+                    <embeddedFeaturesList class="linked-list" id="12501" />
+                    <eventsList class="linked-list" id="12533">
+                      </eventsList>
+                    <methodsList class="linked-list" id="12538" />
+                    <iosList id="12563">
+                      <Input reference="12418" />
+                      <Input id="12564">
+                        <name>x250000132_PANEL_ROOM2</name>
+                        <nameOnCLU>PAN1007</nameOnCLU>
+                        <type>PANEL_BUTTON</type>
+                        <typeSignature>PANEL_BUTTON-48-1</typeSignature>
+                        <description />
+                        <labels id="12565" />
+                        <features id="12566" />
+                        <events class="linked-list" id="12574">
+                          </events>
+                        <clu reference="12499" />
+                        <module id="12603">
+                          <moduleID>250000132</moduleID>
+                          <innerName>0ee6b304</innerName>
+                          <moduleClass>03</moduleClass>
+                          <moduleTypeFirmware>03</moduleTypeFirmware>
+                          <moduleVersion>04</moduleVersion>
+                          <active>true</active>
+                          <moduleInterface id="12604" />
+                        </module>
+                        <classTypeId>30</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>1</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                      <Input id="13248">
+                        <name>x250000132_PANEL_ROOM2X</name>
+                        <nameOnCLU>PAN1008</nameOnCLU>
+                        <type>PANEL_BUTTON</type>
+                        <typeSignature>PANEL_BUTTON-48-1</typeSignature>
+                        <description />
+                        <labels id="13249" />
+                        <features id="13250" />
+                        <events class="linked-list" id="13258">
+                          </events>
+                        <clu reference="12499" />
+                        <module reference="12603" />
+                        <classTypeId>30</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>2</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                      <Input id="13287">
+                        <name>x250000132_PANEL_ROOM2XX</name>
+                        <nameOnCLU>PAN1009</nameOnCLU>
+                        <type>PANEL_BUTTON</type>
+                        <typeSignature>PANEL_BUTTON-48-1</typeSignature>
+                        <description />
+                        <labels id="13288" />
+                        <features id="13289" />
+                        <events class="linked-list" id="13297">
+                          </events>
+                        <clu reference="12499" />
+                        <module reference="12603" />
+                        <classTypeId>30</classTypeId>
+                        <isRemoved>false</isRemoved>
+                        <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                        <number>3</number>
+                        <active>true</active>
+                        <statisticState />
+                      </Input>
+                    </iosList>
+                    <scripts id="13991" />
+                    <peripheryList id="13992" />
+                    <applicationsList id="13993" />
+                    <isRemoved>false</isRemoved>
+                    <modulesList class="linked-list" id="13994">
+                      <InputOutputDefinition reference="12603" />
+                    </modulesList>
+                    <validConfigurationOnCLU>true</validConfigurationOnCLU>
+                    <firmwareVersion>000003e8</firmwareVersion>
+                    <firmwareType>00000002</firmwareType>
+                    <hardwareVersion>00000001</hardwareVersion>
+                    <hardwareType>00000021</hardwareType>
+                    <serialNumber>0badc0de</serialNumber>
+                    <macAddress>FIXTURE-SECRET-MACADDRESS</macAddress>
+                    <privateKey id="13995">FIXTURE-SECRET-PRIVATEKEY</privateKey>
+                    <encrypted>true</encrypted>
+                    <supportWiFi>false</supportWiFi>
+                  </clu>
+                  <module reference="12603" />
+                  <classTypeId>30</classTypeId>
+                  <isRemoved>false</isRemoved>
+                  <sourceReceiverTypeID>0</sourceReceiverTypeID>
+                  <number>0</number>
+                  <active>true</active>
+                  <statisticState />
+                </specificObject>
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="13996">
+                <name>x250000132_PANEL_ROOM2</name>
+                <parent reference="12410" />
+                <children id="13997" />
+                <type>INPUT</type>
+                <id>240</id>
+                <specificObject class="Input" reference="12564" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="13998">
+                <name>x250000132_PANEL_ROOM2X</name>
+                <parent reference="12410" />
+                <children id="13999" />
+                <type>INPUT</type>
+                <id>241</id>
+                <specificObject class="Input" reference="13248" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+              <TreeObject id="14000">
+                <name>x250000132_PANEL_ROOM2XX</name>
+                <parent reference="12410" />
+                <children id="14001" />
+                <type>INPUT</type>
+                <id>242</id>
+                <specificObject class="Input" reference="13287" />
+                <selected>false</selected>
+                <link>false</link>
+                <removedLink>false</removedLink>
+                <isDirty>false</isDirty>
+              </TreeObject>
+            </children>
+            <type>CLU</type>
+            <id>236</id>
+            <specificObject class="CLU" reference="12499" />
+            <selected>false</selected>
+            <link>false</link>
+            <removedLink>false</removedLink>
+            <isDirty>false</isDirty>
+          </TreeObject>
+        </children>
+        <type>OBJECT_MANAGER</type>
+        <id>1</id>
+        <selected>false</selected>
+        <link>false</link>
+        <removedLink>false</removedLink>
+        <isDirty>false</isDirty>
+      </TreeObject>
+    </children>
+    <type>CONTAINER</type>
+    <id>0</id>
+    <selected>false</selected>
+    <link>false</link>
+    <removedLink>false</removedLink>
+    <isDirty>true</isDirty>
+  </TreeObject>
+</object-stream>
