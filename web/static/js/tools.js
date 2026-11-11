@@ -201,7 +201,7 @@ ToolsConsole.prototype.execute = function() {
 
     // Create cell
     var cellId = ++this.cellCounter;
-    var targetLabel = this.target === 'local' ? 'Local vCLU' : ('CLU ' + this.selectedCLU);
+    var targetLabel = this.target === 'local' ? 'Local vclu' : ('CLU ' + this.selectedCLU);
     this._addCell(cellId, script, targetLabel);
     this._setCellLoading(cellId);
 
