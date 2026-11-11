@@ -201,7 +201,7 @@ ToolsConsole.prototype.execute = function() {
 
     // Create cell
     var cellId = ++this.cellCounter;
-    var targetLabel = this.target === 'local' ? 'Local vCLU' : ('CLU ' + this.selectedCLU);
+    var targetLabel = this.target === 'local' ? 'Local vclu' : ('CLU ' + this.selectedCLU);
     this._addCell(cellId, script, targetLabel);
     this._setCellLoading(cellId);
 
@@ -287,7 +287,7 @@ ToolsConsole.prototype._addCell = function(id, command, targetLabel) {
     cell.innerHTML =
         '<div class="cell-header">' +
             '<span class="cell-timestamp">' + VCLU.esc(timestamp) + '</span>' +
-            '<span class="cell-target">' + VCLU.esc(targetLabel) + '</span>' +
+            '<span class="cell-target">' + VCLU.brand(targetLabel) + '</span>' +
         '</div>' +
         '<div class="cell-command">' +
             '<span class="cell-prompt">&gt;</span>' +

@@ -226,6 +226,7 @@ func NewServer(port int, webDir string, serverDir string, deviceConfig *config.C
 			b, _ := json.Marshal(v)
 			return template.JS(b)
 		},
+		"brand": brandHTML,
 	})
 	tmpl = template.Must(tmpl.ParseGlob(templatesPath))
 	router.SetHTMLTemplate(tmpl)

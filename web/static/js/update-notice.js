@@ -23,6 +23,14 @@
         return e;
     }
 
+    // el() whose text shows "vclu" as the brand (VCLU.brand from utils.js, where the page has it)
+    function brandEl(tag, cls, text) {
+        var e = el(tag, cls);
+        if (window.VCLU && VCLU.brand) e.innerHTML = VCLU.brand(text);
+        else e.textContent = text;
+        return e;
+    }
+
     function httpsLink(url, text) {
         if (typeof url !== 'string' || url.indexOf('https://') !== 0) return null;
         var a = el('a', null, text);
@@ -45,7 +53,7 @@
     // version, date and the release page link
     function releaseHead(r) {
         var head = el('div', 'update-release-head');
-        head.appendChild(el('strong', null, 'vCLU ' + r.version));
+        head.appendChild(brandEl('strong', null, 'vclu ' + r.version));
         var date = formatDate(r.published_at);
         if (date) head.appendChild(el('span', 'text-muted small', date));
         var link = httpsLink(r.url, t.releasePage || 'Release page');
@@ -75,7 +83,7 @@
         root.appendChild(el('div', 'modal-dialog modal-dialog-scrollable modal-lg')).appendChild(content);
 
         var header = el('div', 'modal-header');
-        header.appendChild(el('h5', 'modal-title', t.title || 'New vCLU version'));
+        header.appendChild(brandEl('h5', 'modal-title', t.title || 'New vclu version'));
         var x = el('button', 'btn-close');
         x.type = 'button';
         x.setAttribute('data-bs-dismiss', 'modal');
@@ -155,13 +163,13 @@
         var bar = document.querySelector('.topbar-actions');
         if (!bar || !data.enabled || !data.update_available || !data.latest || !data.latest.version) return;
         if (hiddenVersion() === data.latest.version) return;
-        var label = (t.available || 'vCLU {version} is available').replace('{version}', data.latest.version);
+        var label = (t.available || 'vclu {version} is available').replace('{version}', data.latest.version);
         badge = el('button', 'update-badge');
         badge.type = 'button';
         badge.title = label;
         badge.setAttribute('aria-label', label);
         badge.appendChild(el('i', 'bi bi-arrow-up-circle'));
-        badge.appendChild(el('span', 'update-badge-label', 'vCLU ' + data.latest.version));
+        badge.appendChild(brandEl('span', 'update-badge-label', 'vclu ' + data.latest.version));
         badge.addEventListener('click', function() {
             if (!modal) modal = buildModal(data);
             bootstrap.Modal.getOrCreateInstance(modal).show();

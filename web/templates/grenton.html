@@ -573,7 +573,7 @@
         })();
 
         function restartVCLU() {
-            if (!confirm('Restart vCLU? This will briefly interrupt all services.')) return;
+            if (!confirm('Restart vclu? This will briefly interrupt all services.')) return;
             var csrfToken = document.querySelector('meta[name="csrf-token"]');
             csrfToken = csrfToken ? csrfToken.content : '';
             fetch('/api/restart', {
