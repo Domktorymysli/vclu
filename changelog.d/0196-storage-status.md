@@ -9,3 +9,7 @@
 ### History
 
 - **History gives way on a nearly full disk** - below the red line (3% or 100 MB free) history removes day files older than 7 days even when `retentionDays` keeps more, and logs it once per episode; today's file and the 7 days before it are never removed by this, and `maxDiskMB` still applies ([#196](https://github.com/Domktorymysli/vclu/issues/196)).
+
+### Dashboards
+
+- **A technical dashboard from vCLU's own metrics** - `:chart()` and `:bars()` take the metrics vCLU writes itself: `vclu:disk_free_bytes`, `vclu:history_bytes`, `vclu:log_bytes_per_hour` (every 15 min), `runtime:memory_mb`, `runtime:goroutines` (new, every minute), `runtime:busy_percent`, `runtime:loop_lag_ms` (every 10 s). With `unit = "B"` or `"B/h"` a chart or bars shows bytes in KB, MB, GB or TB ([#196](https://github.com/Domktorymysli/vclu/issues/196)).
