@@ -154,3 +154,28 @@ func TestExposeAgainBadOptionChangesNothing(t *testing.T) {
 		}
 	}
 }
+
+// Access hidden in the panel on the registry path takes off that integration an exposure a
+// module made under its own path, keeping the module's name (as the registry pass did before).
+func TestExposeRegistryAppliesPanelHiddenToModuleExposure(t *testing.T) {
+	for _, c := range []struct{ integration, want string }{
+		{"mqtt", "false|true|Roleta|Salon"},
+		{"homekit", "true|false|Roleta|Salon"},
+		{"both", "false|false|Roleta|Salon"},
+	} {
+		engine := exposeAgainEngine(t)
+		got := mustExec(t, engine, `(function()
+			local o = _objs.remote
+			local h = expose(o, "cover", { path = "vclu:salon_roleta", name = "Roleta", area = "Salon" })
+			for _, i in ipairs(("`+c.integration+`" == "both") and { "mqtt", "homekit" } or { "`+c.integration+`" }) do
+				AccessControl.set(i, "CLU1.ROL1", "hidden")
+			end
+			exposeRegistry()
+			return table.concat({ tostring(h.options.mqtt), tostring(h.options.homekit), h.options.name,
+				tostring(h.options.area) }, "|")
+		end)()`)
+		if got != c.want {
+			t.Errorf("%s hidden: mqtt|homekit|name|area = %s, want %s", c.integration, got, c.want)
+		}
+	}
+}

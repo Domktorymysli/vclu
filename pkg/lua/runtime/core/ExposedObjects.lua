@@ -486,7 +486,7 @@ function ExposedObjects:expose(obj, objType, options)
         local existing = self._objects[existingPath]
         if existing and existing.object == obj and existing:isExposed() then
             -- Warn if user tries to change identity (id/path)
-            if options.id or options.path then
+            if (options.id or options.path) and (options.path or options.id) ~= existingPath then
                 local attemptedId = options.path or options.id
                 if Logger then
                     Logger:getShared():warn(
@@ -1040,7 +1040,16 @@ function ExposedObjects:exposeRegistry(options)
             -- a module exposed it with hidden = true
             skipped = skipped + 1
         elseif self:_handleOf(obj) then
-            -- a module exposed it already (maybe under its own path): its options stay
+            -- a module exposed it already (maybe under its own path): its options stay, but
+            -- the panel's access set on the registry path still takes it off an integration
+            local mqttHidden = AccessControl and AccessControl.isHidden("mqtt", path)
+            local homekitHidden = AccessControl and AccessControl.isHidden("homekit", path)
+            if mqttHidden or homekitHidden then
+                local off = {}
+                if mqttHidden then off.mqtt = false end
+                if homekitHidden then off.homekit = false end
+                self:_handleOf(obj):update(off)
+            end
         elseif not self._objects[path] then
             -- Check AccessControl for per-integration visibility
             local mqttHidden = AccessControl and AccessControl.isHidden("mqtt", path)
