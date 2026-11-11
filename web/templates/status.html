@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{index .t "status.title"}} - Virtual CLU</title>
+    <title>{{index .t "status.title"}}</title>
     <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="/static/vendor/bootstrap-icons/font/bootstrap-icons.css">
     <link rel="stylesheet" href="/static/css/dark-theme.css">
@@ -17,7 +17,7 @@
         <main class="main-content">
             <header class="topbar">
                 <button class="hamburger" id="hamburgerBtn"><i class="bi bi-list"></i></button>
-                <h1 class="page-title">{{index .t "status.title"}}</h1>
+                <h1 class="page-title">{{brand (index .t "status.title")}}</h1>
                 <div class="topbar-actions">
                     <button class="theme-toggle" id="themeToggle" title="Toggle theme">
                         <i class="bi bi-moon-fill"></i>
@@ -60,7 +60,7 @@
 
                     {{if .setupComplete}}
                     <div class="alert alert-success">
-                        <i class="bi bi-check-circle"></i> {{index .t "status.setup_complete"}}
+                        <i class="bi bi-check-circle"></i> {{brand (index .t "status.setup_complete")}}
                     </div>
                     {{end}}
 
@@ -68,7 +68,7 @@
                     <div class="alert alert-warning">
                         <i class="bi bi-exclamation-triangle"></i>
                         <strong>{{index .t "status.config_required"}}</strong><br>
-                        {{index .t "status.config_required_text"}} <a href="/setup">{{index .t "status.initial_setup"}}</a>.
+                        {{brand (index .t "status.config_required_text")}} <a href="/setup">{{index .t "status.initial_setup"}}</a>.
                     </div>
                     {{end}}
 

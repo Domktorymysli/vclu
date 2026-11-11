@@ -12,7 +12,7 @@ func (s *Server) handleStatus(c *gin.Context) {
 	trans := s.getTranslations(c)
 
 	data := gin.H{
-		"title":           "Virtual CLU Status",
+		"title":           "vclu Status",
 		"currentPage":     "status",
 		"configured":      s.isConfigured,
 		"supportsModules": s.supportsModules,

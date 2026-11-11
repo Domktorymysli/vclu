@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Statistics - Virtual CLU</title>
+    <title>Statistics - vclu</title>
     <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="/static/vendor/bootstrap-icons/font/bootstrap-icons.css">
     <link rel="stylesheet" href="/static/css/dark-theme.css">
@@ -395,7 +395,7 @@
                             {{end}}
                             <div class="row g-4">
                                 <div class="col-md-6">
-                                    <div class="fw-medium mb-1">{{index $.t "storage.parts"}}</div>
+                                    <div class="fw-medium mb-1">{{brand (index $.t "storage.parts")}}</div>
                                     <table class="table table-sm mb-0" id="storageParts">
                                         <tbody>
                                             {{range .Parts}}

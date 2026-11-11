@@ -54,8 +54,9 @@ func newDashAppServer(t *testing.T) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	tmpl := template.New("").Funcs(template.FuncMap{
-		"t":    func(lang, key string) string { return key },
-		"json": func(v interface{}) template.JS { b, _ := json.Marshal(v); return template.JS(b) },
+		"t":     func(lang, key string) string { return key },
+		"json":  func(v interface{}) template.JS { b, _ := json.Marshal(v); return template.JS(b) },
+		"brand": brandHTML,
 	})
 	r.SetHTMLTemplate(template.Must(tmpl.ParseGlob("../../web/templates/*.html")))
 	r.Use(s.authMiddleware(), s.csrfMiddleware())

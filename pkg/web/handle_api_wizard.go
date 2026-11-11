@@ -466,7 +466,7 @@ func (s *Server) handleAPIWizardFinish(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "Configuration saved. Virtual CLU restarts to apply it.",
+		"message": "Configuration saved. vclu restarts to apply it.",
 		"device": gin.H{
 			"type":      vcluConfig.Device.DeviceTypeID,
 			"category":  vcluConfig.Device.Category,

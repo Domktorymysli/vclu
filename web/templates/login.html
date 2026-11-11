@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{index .t "login.title"}} - Virtual CLU</title>
+    <title>{{index .t "login.title"}} - vclu</title>
     <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="/static/vendor/bootstrap-icons/font/bootstrap-icons.css">
     <link rel="stylesheet" href="/static/css/main.css">
@@ -15,7 +15,7 @@
             <nav class="navbar border-bottom" style="border-radius: 15px 15px 0 0;">
                 <div class="container-fluid">
                     <span class="navbar-brand mb-0 h1">
-                        <i class="bi bi-hdd-network"></i> {{index .t "app.name"}}
+                        <i class="bi bi-hdd-network"></i> {{brand (index .t "app.name")}}
                     </span>
                     <div class="dropdown">
                         <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
@@ -35,7 +35,7 @@
                         <i class="bi bi-shield-lock" style="font-size: 3rem; color: #27C2A8;"></i>
                     </div>
                     <h2>{{index .t "login.title"}}</h2>
-                    <p class="text-muted">{{index .t "login.subtitle"}}</p>
+                    <p class="text-muted">{{brand (index .t "login.subtitle")}}</p>
                 </div>
 
                 {{if .error}}

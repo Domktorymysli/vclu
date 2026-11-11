@@ -61,6 +61,11 @@ Contract: `callback_limit_test.go`.
 `newPersistEngine` (`persist_test.go`), `newHistoryEngine` with a step clock (`history_test.go`),
 an `httptest` stand-in for httpbin (`fake_httpbin_test.go`). Reuse them.
 
+A new engine parses the ~1 MB runtime (0.4 s under `-race`). pkg/lua's tests share the compiled
+files (`runtime_cache.go`, turned on in `runtime_cache_test.go`), which keeps the package around
+80 s under `-race`; vCLU leaves it off, as the cache keeps ~30 MB that the MCP sandbox's memory
+guard counts (#209).
+
 ## runtime/grenton: talking to Grenton CLUs
 
 ### The CLU drops bursts of UDP messages without a word

@@ -325,19 +325,16 @@ end
 -- @param options table Optional settings
 -- @return ExposedHandle Handle for configuring the exposure
 function VirtualObject:expose(options)
-    if self._exposeHandle and not self._exposeHandle:isExposed() then
-        self._exposeHandle = nil
-    end
-
-    if self._exposeHandle then
-        if options then
-            self._exposeHandle:update(options)
-        end
-        return self._exposeHandle
-    end
-
     if not ExposedObjects then
         error("ExposedObjects not available - expose API requires ExposedObjects module")
+    end
+
+    -- exposed already (by any form, exposeRegistry() included): ExposedObjects merges the
+    -- options, hidden = true takes it back
+    local exposed = ExposedObjects:_handleOf(self)
+    if exposed then
+        if options == nil then return exposed end
+        return ExposedObjects:expose(self, exposed.type, options)
     end
 
     -- a copy: the caller's table may be used for other objects
@@ -345,6 +342,7 @@ function VirtualObject:expose(options)
     for k, v in pairs(options or {}) do opts[k] = v end
     options = opts
 
+    -- Get registry path for stable identification
     local path = self:_getRegistryPath()
     if path then
         options.path = options.path or path
@@ -353,17 +351,17 @@ function VirtualObject:expose(options)
     options.name = options.name or self._name
 
     local exposeType = self:_getExposeType()
-    self._exposeHandle = ExposedObjects:expose(self, exposeType, options)
-    return self._exposeHandle
+
+    return ExposedObjects:expose(self, exposeType, options)
 end
 
 --- Unexposes this object.
 -- @api public
 -- @return boolean True if was exposed and now unexposed
 function VirtualObject:unexpose()
-    if self._exposeHandle then
-        self._exposeHandle:unexpose()
-        self._exposeHandle = nil
+    local h = ExposedObjects and ExposedObjects:_handleOf(self)
+    if h then
+        h:unexpose()
         return true
     end
     return false
@@ -373,19 +371,13 @@ end
 -- @api public
 -- @return boolean True if exposed
 function VirtualObject:isExposed()
-    if self._exposeHandle and not self._exposeHandle:isExposed() then
-        self._exposeHandle = nil
-    end
-    return self._exposeHandle ~= nil
+    return (ExposedObjects and ExposedObjects:_handleOf(self)) ~= nil
 end
 
 --- Gets the expose handle if exposed.
 -- @return ExposedHandle|nil
 function VirtualObject:getExposeHandle()
-    if self._exposeHandle and not self._exposeHandle:isExposed() then
-        self._exposeHandle = nil
-    end
-    return self._exposeHandle
+    return ExposedObjects and ExposedObjects:_handleOf(self)
 end
 
 return VirtualObject

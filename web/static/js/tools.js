@@ -287,7 +287,7 @@ ToolsConsole.prototype._addCell = function(id, command, targetLabel) {
     cell.innerHTML =
         '<div class="cell-header">' +
             '<span class="cell-timestamp">' + VCLU.esc(timestamp) + '</span>' +
-            '<span class="cell-target">' + VCLU.esc(targetLabel) + '</span>' +
+            '<span class="cell-target">' + VCLU.brand(targetLabel) + '</span>' +
         '</div>' +
         '<div class="cell-command">' +
             '<span class="cell-prompt">&gt;</span>' +

@@ -15,6 +15,14 @@ window.VCLU = (function() {
         return _escDiv.innerHTML;
     }
 
+    // esc() with each standalone word "vclu" in <span class="vclu"> (first letter in the
+    // accent colour, as the sidebar logo); vclu.pl, /opt/vclu or vclu-update stay plain
+    var BRAND = /(^|[^A-Za-z0-9_.\/:-])vclu(?=$|[^A-Za-z0-9_.\/:-]|[.:](?![A-Za-z0-9_]))/g;
+
+    function brand(str) {
+        return esc(str).replace(BRAND, '$1<span class="vclu">vclu</span>');
+    }
+
     // ---- fetchJSON ----
 
     function fetchJSON(url, opts) {
@@ -99,6 +107,7 @@ window.VCLU = (function() {
 
     return {
         esc: esc,
+        brand: brand,
         fetchJSON: fetchJSON,
         showToast: showToast,
         isDark: isDark,
