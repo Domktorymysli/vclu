@@ -1,4 +1,4 @@
-# vCLU
+# vclu
 
 **Polski** | [English](README.en.md)
 
@@ -9,11 +9,11 @@
 [![codecov](https://codecov.io/gh/Domktorymysli/vclu/graph/badge.svg)](https://codecov.io/gh/Domktorymysli/vclu)
 [![License](https://img.shields.io/badge/license-BSL%201.1-blue.svg)](LICENSE)
 
-vCLU jest dla właścicieli instalacji Grenton. Dołącza do sieci jako kolejny CLU i jako klient Twoich CLU: importuje projekt z Object Managera, zna Twoje wyjścia, ściemniacze, rolety i czujniki, i dokłada to, czego CLU nie ma: historię zmian z informacją, kto co zmienił, Satela, HomeKit, Home Assistant, MQTT, Modbus i dashboardy na tablety. Działa na Raspberry Pi albo dowolnym małym komputerze z Linuksem.
+vclu jest dla właścicieli instalacji Grenton. Dołącza do sieci jako kolejny CLU i jako klient Twoich CLU: importuje projekt z Object Managera, zna Twoje wyjścia, ściemniacze, rolety i czujniki, i dokłada to, czego CLU nie ma: historię zmian z informacją, kto co zmienił, Satela, HomeKit, Home Assistant, MQTT, Modbus i dashboardy na tablety. Działa na Raspberry Pi albo dowolnym małym komputerze z Linuksem.
 
-Automatyki piszesz w tej samej Lua co na CLU, ale nie musisz robić tego sam. Agent AI (Claude Code, Codex, Gemini i inne) pracuje na nich przez MCP: pisze szkic, testuje go w sandboxie na wirtualnym zegarze, z komendami do CLU nagranymi zamiast wysłanymi, i dopiero wtedy wdraża, z kopią zapasową każdej zmiany. Agent potrafi dziś zmienić każdy system; w vCLU najpierw musi pokazać, że zmiana działa.
+Automatyki piszesz w tej samej Lua co na CLU, ale nie musisz robić tego sam. Agent AI (Claude Code, Codex, Gemini i inne) pracuje na nich przez MCP: pisze szkic, testuje go w sandboxie na wirtualnym zegarze, z komendami do CLU nagranymi zamiast wysłanymi, i dopiero wtedy wdraża, z kopią zapasową każdej zmiany. Agent potrafi dziś zmienić każdy system; w vclu najpierw musi pokazać, że zmiana działa.
 
-**Bez Grentona?** vCLU to też środowisko, w którym Ty albo agent piszecie integracje, których Home Assistant nie ma. Wszystko, co da się odczytać przez HTTP, MQTT, Modbus czy UDP, staje się w kilku linijkach Lua obiektem, a `expose` wysyła go do Home Assistanta, Apple Home albo przez MQTT do Node-RED. Działa przy tym na dużo słabszym sprzęcie niż Home Assistant: w domu autora zajmuje około 75 MB RAM, a buildy są nawet na pierwsze Raspberry Pi i Zero (ARMv6).
+**Bez Grentona?** vclu to też środowisko, w którym Ty albo agent piszecie integracje, których Home Assistant nie ma. Wszystko, co da się odczytać przez HTTP, MQTT, Modbus czy UDP, staje się w kilku linijkach Lua obiektem, a `expose` wysyła go do Home Assistanta, Apple Home albo przez MQTT do Node-RED. Działa przy tym na dużo słabszym sprzęcie niż Home Assistant: w domu autora zajmuje około 75 MB RAM, a buildy są nawet na pierwsze Raspberry Pi i Zero (ARMv6).
 
 <p align="center">
   <img src="docs/images/dashboard.png" alt="Dashboard zbudowany w Lua" width="32%">
@@ -64,11 +64,11 @@ A to test, który agent uruchamia, zanim ta zmiana trafi na produkcję. Działa 
 }
 ```
 
-## Dlaczego vCLU
+## Dlaczego vclu
 
 **Kod, nie konfiguracja.** Automatyki, sceny, dashboardy i wirtualne urządzenia to pliki Lua. Można je czytać, porównywać, recenzować, testować i generować, zarówno Ty, jak i agent.
 
-**Bezpieczny dla agentów AI w działającym domu.** Wbudowany serwer MCP nie ogranicza się do „zapal światło”. Agent pisze draft, testuje go w izolowanym sandboxie z wirtualnym zegarem, widzi diff względem produkcji i wdraża z kopią zapasową. Po wdrożeniu vCLU sprawdza, czy moduły się załadowały, i zgłasza agentowi błędy; poprzednią wersję przywraca się z kopii jednym kliknięciem. Każdy bot ma własny token i własny widok domu: obiekty mogą być dla niego `full`, `readonly` albo `hidden`.
+**Bezpieczny dla agentów AI w działającym domu.** Wbudowany serwer MCP nie ogranicza się do „zapal światło”. Agent pisze draft, testuje go w izolowanym sandboxie z wirtualnym zegarem, widzi diff względem produkcji i wdraża z kopią zapasową. Po wdrożeniu vclu sprawdza, czy moduły się załadowały, i zgłasza agentowi błędy; poprzednią wersję przywraca się z kopii jednym kliknięciem. Każdy bot ma własny token i własny widok domu: obiekty mogą być dla niego `full`, `readonly` albo `hidden`.
 
 **Wie, kto co zmienił.** Każda zmiana stanu niesie `origin` i `actor`: włącznik ścienny (`grenton`), alarm (`physical`, `device:satel`), osoba w interfejsie web (`user:<login>`), agent (`agent:<bot>`), Home Assistant (`service:home-assistant`) albo Twoja automatyka (`automation:<id>`). Historia jest zapisywana na dysku i można ją przeglądać, więc pytanie „czemu światło zapaliło się o 3 w nocy?” ma odpowiedź.
 
@@ -124,11 +124,11 @@ docker run -d --name vclu \
   ghcr.io/domktorymysli/vclu:latest
 ```
 
-`--log-opt` ogranicza log kontenera do 3 plików po 10 MB. vCLU wypisuje komunikaty od poziomu info; `"log": { "level": "debug" }` w `.vclu.json` dodaje komunikaty debug (`warn`, `error`: tylko ostrzeżenia i błędy). Strona logów w panelu i `vclu_logs` mają je zawsze.
+`--log-opt` ogranicza log kontenera do 3 plików po 10 MB. vclu wypisuje komunikaty od poziomu info; `"log": { "level": "debug" }` w `.vclu.json` dodaje komunikaty debug (`warn`, `error`: tylko ostrzeżenia i błędy). Strona logów w panelu i `vclu_logs` mają je zawsze.
 
 `--network host` jest potrzebne do broadcastu UDP (wykrywanie Grentona) i mDNS (HomeKit).
 
-vCLU działa w kontenerze jako użytkownik `vclu` (UID/GID 1000), nie jako root. Przy starcie kontener oddaje mu katalog danych, więc wolumen z wcześniejszej wersji obrazu działa bez zmian; katalog hosta podpięty jako `/data` (`-v /sciezka:/data`) też dostaje właściciela 1000:1000. Port 69/udp (TFTP) otwiera dzięki uprawnieniu nadanemu binarce, bez `--cap-add`. Z `--security-opt no-new-privileges` to uprawnienie nie działa i TFTP się nie uruchomi; z `--cap-drop ALL` dodaj `--cap-add NET_BIND_SERVICE`, inaczej vCLU nie wystartuje. `docker ps` pokazuje stan z `/api/health` (`healthy`/`unhealthy`). `docker exec` domyślnie wchodzi jako root; `docker exec -u vclu` jako użytkownik vCLU.
+vclu działa w kontenerze jako użytkownik `vclu` (UID/GID 1000), nie jako root. Przy starcie kontener oddaje mu katalog danych, więc wolumen z wcześniejszej wersji obrazu działa bez zmian; katalog hosta podpięty jako `/data` (`-v /sciezka:/data`) też dostaje właściciela 1000:1000. Port 69/udp (TFTP) otwiera dzięki uprawnieniu nadanemu binarce, bez `--cap-add`. Z `--security-opt no-new-privileges` to uprawnienie nie działa i TFTP się nie uruchomi; z `--cap-drop ALL` dodaj `--cap-add NET_BIND_SERVICE`, inaczej vclu nie wystartuje. `docker ps` pokazuje stan z `/api/health` (`healthy`/`unhealthy`). `docker exec` domyślnie wchodzi jako root; `docker exec -u vclu` jako użytkownik vclu.
 
 GPIO na Raspberry Pi: dodaj `--device /dev/gpiomem`; kontener da `vclu` dostęp do urządzenia (dopisze go do grupy urządzenia, a urządzenie należące do grupy root przekaże grupie `vclu`).
 
@@ -300,9 +300,9 @@ Zmiany są mile widziane, także te pisane z pomocą agentów AI. Po to są test
 
 ## Demo
 
-[![vCLU: wprowadzenie](https://img.youtube.com/vi/POgNGuUyhSU/maxresdefault.jpg)](https://www.youtube.com/watch?v=POgNGuUyhSU)
+[![vclu: wprowadzenie](https://img.youtube.com/vi/POgNGuUyhSU/maxresdefault.jpg)](https://www.youtube.com/watch?v=POgNGuUyhSU)
 
-Wprowadzenie do vCLU: instalacja na Raspberry Pi, GPIO, MQTT, integracja z Home Assistant.
+Wprowadzenie do vclu: instalacja na Raspberry Pi, GPIO, MQTT, integracja z Home Assistant.
 
 ## Linki
 
@@ -311,14 +311,14 @@ Wprowadzenie do vCLU: instalacja na Raspberry Pi, GPIO, MQTT, integracja z Home 
 - [vclu-plugins](https://github.com/Domktorymysli/vclu-plugins): repozytorium pluginów (Salda, SolaX, Supla, Modbus, Frigate, Telegram i inne)
 - [domktorymysli.org](https://domktorymysli.org/): blog autora: Dom który myśli
 - [Facebook: Dom który myśli](https://www.facebook.com/domktorymysli)
-- [Discord](https://discord.gg/9cgrnXkVP): społeczność vCLU: pytania i pomoc
+- [Discord](https://discord.gg/9cgrnXkVP): społeczność vclu: pytania i pomoc
 
 ## Dokumentacja
 
 - [docs.vclu.pl](https://docs.vclu.pl)
 - [Dokumentacja API Lua](docs/ai/lua-api-reference.md) i [wzorce kodu](docs/ai/examples.md) (po angielsku; agenci dostają je też przez MCP)
-- [Integracja innego systemu z vCLU](docs/integrating.md): kiedy MQTT, a kiedy MCP, tematy MQTT, komendy i profile dostępu (po angielsku)
+- [Integracja innego systemu z vclu](docs/integrating.md): kiedy MQTT, a kiedy MCP, tematy MQTT, komendy i profile dostępu (po angielsku)
 
 ## Licencja
 
-[Business Source License 1.1](LICENSE): bezpłatna dla prywatnych i komercyjnych instalacji inteligentnego domu; nie wolno na bazie vCLU budować konkurencyjnego sterownika. Każde wydanie po 4 latach przechodzi na licencję Apache 2.0.
+[Business Source License 1.1](LICENSE): bezpłatna dla prywatnych i komercyjnych instalacji inteligentnego domu; nie wolno na bazie vclu budować konkurencyjnego sterownika. Każde wydanie po 4 latach przechodzi na licencję Apache 2.0.
