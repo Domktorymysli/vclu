@@ -129,7 +129,7 @@ type Snapshot struct {
 // Options wire a Monitor; every function may be nil.
 type Options struct {
 	DataDir string
-	// UpdateBackups is a glob of the archives deploy/update.sh keeps (next to the binary)
+	// UpdateBackups is a glob of update archives, usually UpdateBackupsGlob(); "" skips them
 	UpdateBackups   string
 	HistoryLast24h  func() int64
 	LogBytesPerHour func() int64
@@ -150,6 +150,15 @@ type Monitor struct {
 }
 
 // New creates a Monitor and registers its metrics; Run measures.
+// UpdateBackupsGlob matches the archives deploy/update.sh keeps next to the binary.
+func UpdateBackupsGlob() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(exe), "backup-*.tar.gz")
+}
+
 func New(o Options) *Monitor {
 	if o.Now == nil {
 		o.Now = time.Now

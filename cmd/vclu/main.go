@@ -361,7 +361,7 @@ func main() {
 	// Disk space: walked off the Lua loop; nearly full makes history keep 7 days
 	storageMonitor := storage.New(storage.Options{
 		DataDir:         serverDir,
-		UpdateBackups:   updateBackupsGlob(),
+		UpdateBackups:   storage.UpdateBackupsGlob(),
 		HistoryLast24h:  historyStore.WrittenLast24h,
 		LogBytesPerHour: logStream.BytesLastHour,
 		OnLevel:         func(l storage.Level) { historyStore.SetDiskLow(l == storage.LevelCritical) },
@@ -403,15 +403,6 @@ func main() {
 	if err := historyStore.Close(10 * time.Second); err != nil {
 		log.Printf("Error writing history: %v", err)
 	}
-}
-
-// updateBackupsGlob matches the archives deploy/update.sh keeps next to the binary.
-func updateBackupsGlob() string {
-	exe, err := os.Executable()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(filepath.Dir(exe), "backup-*.tar.gz")
 }
 
 // fileExists checks if a file or directory exists
