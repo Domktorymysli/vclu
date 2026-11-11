@@ -120,7 +120,6 @@
                             {{if not .Ready}}
                             <p class="text-muted mb-0">{{index $.t "storage.measuring"}}</p>
                             {{else}}
-                            <div class="small text-muted mb-2">{{index $.t "storage.file_system"}}: <code>{{.Path}}</code></div>
                             {{if .Error}}
                             <div class="alert alert-secondary py-2 small">{{index $.t "storage.unavailable"}}: {{.Error}}</div>
                             {{else}}
@@ -139,16 +138,16 @@
                                 </div>
                             </div>
                             {{end}}
-                            <div class="row g-3">
+                            <div class="row g-4">
                                 <div class="col-md-6">
                                     <div class="fw-medium mb-1">{{index $.t "storage.parts"}}</div>
                                     <table class="table table-sm mb-0" id="storageParts">
                                         <tbody>
                                             {{range .Parts}}
                                             <tr data-part="{{.Name}}">
-                                                <td>{{index $.t (printf "storage.part_%s" .Name)}}</td>
-                                                <td class="w-50"><div class="progress" style="height: 6px; margin-top: 0.6rem;"><div class="progress-bar" style="width: {{printf "%.0f" .Percent}}%"></div></div></td>
-                                                <td class="text-end text-nowrap">{{.Size}}</td>
+                                                <td class="ps-0 text-nowrap">{{index $.t (printf "storage.part_%s" .Name)}}</td>
+                                                <td class="w-50 px-3 align-middle"><div class="progress" style="height: 6px;"><div class="progress-bar" style="width: {{printf "%.0f" .Percent}}%"></div></div></td>
+                                                <td class="pe-0 text-end text-nowrap">{{.Size}}</td>
                                             </tr>
                                             {{end}}
                                         </tbody>
@@ -158,18 +157,15 @@
                                     <div class="fw-medium mb-1">{{index $.t "storage.growth"}}</div>
                                     <table class="table table-sm mb-2">
                                         <tbody>
-                                            <tr><td>{{index $.t "storage.history_24h"}}</td><td class="text-end text-nowrap" id="storageHistory24h">{{.History24h}}</td></tr>
-                                            <tr><td>{{index $.t "storage.log_per_hour"}}</td><td class="text-end text-nowrap" id="storageLogPerHour">{{.LogPerHour}}</td></tr>
+                                            <tr><td class="ps-0">{{index $.t "storage.history_24h"}}</td><td class="pe-0 text-end text-nowrap" id="storageHistory24h">{{.History24h}}</td></tr>
+                                            <tr><td class="ps-0">{{index $.t "storage.log_per_hour"}}</td><td class="pe-0 text-end text-nowrap" id="storageLogPerHour">{{.LogPerHour}}</td></tr>
                                         </tbody>
                                     </table>
                                     {{if .Full}}
                                     <p class="mb-2 text-warning" id="storageDaysToFull">{{index $.t "storage.full_in"}} <strong>{{.DaysToFull}}</strong> {{index $.t "storage.days"}}.</p>
-                                    {{else if not .Error}}
-                                    <p class="mb-2 text-muted small">{{index $.t "storage.no_full"}}</p>
                                     {{end}}
                                     <div class="small">
                                         <a href="/history#settings"><i class="bi bi-sliders"></i> {{index $.t "storage.history_settings"}}</a>
-                                        <span class="text-muted ms-3"><i class="bi bi-journal-text"></i> <a href="/debug">{{index $.t "storage.log_level"}}</a>: <code>{{index $.t "storage.log_level_hint"}}</code></span>
                                     </div>
                                 </div>
                             </div>
@@ -513,6 +509,22 @@
                             </div>
                         </div>
                     </div>
+
+                    {{if .storage}}
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            <div class="section-header mb-0 pb-0 border-0">
+                                <i class="bi bi-device-hdd text-primary"></i>
+                                <span>{{index $.t "storage.chart_free"}}</span>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="chart-container">
+                                <canvas id="diskFreeChart" data-label="{{index $.t "storage.free"}}"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    {{end}}
                 </div>
             </div>
         </main>
@@ -567,6 +579,6 @@
     <script src="/static/js/csrf.js"></script>
     <script src="/static/js/theme.js"></script>
     <script src="/static/js/sidebar.js"></script>
-    <script src="/static/js/stats.js?v=5"></script>
+    <script src="/static/js/stats.js?v=6"></script>
 </body>
 </html>
