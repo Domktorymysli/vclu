@@ -74,16 +74,16 @@ func TestOfficialPluginsSmoke(t *testing.T) {
 				if err := os.MkdirAll(dst, 0o755); err != nil {
 					t.Fatal(err)
 				}
-				os.WriteFile(filepath.Join(dst, "plugin.json"), raw, 0o644)
+				mustWrite(t, filepath.Join(dst, "plugin.json"), raw)
 				files, _ := os.ReadDir(filepath.Join(src, e.Name()))
 				for _, f := range files {
 					if f.Name() == "plugin.json" || f.IsDir() {
 						continue
 					}
 					b, _ := os.ReadFile(filepath.Join(src, e.Name(), f.Name()))
-					os.WriteFile(filepath.Join(dst, f.Name()), b, 0o644)
+					mustWrite(t, filepath.Join(dst, f.Name()), b)
 				}
-				os.WriteFile(filepath.Join(dst, ".complete"), []byte("ok"), 0o644)
+				mustWrite(t, filepath.Join(dst, ".complete"), []byte("ok"))
 				installed = append(installed, config.InstalledPlugin{ID: id, Version: version, Repository: "vCLU Official", Enabled: true, Config: configs[id]})
 				ids = append(ids, id)
 			}
@@ -138,7 +138,6 @@ func TestOfficialPluginsSmoke(t *testing.T) {
 			if !strings.HasPrefix(out, "14 ") {
 				t.Errorf("want 14 instances")
 			}
-			timersBefore := activeTimers(engine)
 			fact, err := engine.Execute(`
 				local modbus = Plugin.getPlugin("@vclu/modbus-gateway")
 				local gw = modbus:create({ id = "rozdzielnica", host = "192.0.2.9", port = 4196, interval = 30, timeout = 500,
@@ -176,7 +175,7 @@ func TestOfficialPluginsSmoke(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Logf("sensor errors after 1.5 s: %s", out2)
-			timersBefore = activeTimers(engine)
+			timersBefore := activeTimers(engine)
 
 			for _, id := range ids {
 				if err := loader.UnloadPlugin(id); err != nil {
@@ -216,4 +215,11 @@ func timerLabels(e *LuaEngine) []string {
 		out = append(out, fmt.Sprintf("%d:%s", t.ID, t.Label))
 	}
 	return out
+}
+
+func mustWrite(t *testing.T, path string, data []byte) {
+	t.Helper()
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
 }

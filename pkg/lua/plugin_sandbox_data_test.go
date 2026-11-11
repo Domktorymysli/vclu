@@ -123,7 +123,7 @@ func TestPluginSandboxReadOnlyDataInStdlib(t *testing.T) {
 
 // The LAN permission, end to end through the plugin's HTTP API.
 func TestPluginSandboxLANGuard(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("hi")) }))
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("hi")) }))
 	defer ts.Close()
 	engine := sandboxEngine(t, "@t/nolan", "{}")
 	engine.StartTimers()
