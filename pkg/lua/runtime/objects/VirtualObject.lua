@@ -333,7 +333,8 @@ function VirtualObject:expose(options)
     -- options, hidden = true takes it back
     local exposed = ExposedObjects:_handleOf(self)
     if exposed then
-        return ExposedObjects:expose(self, exposed.type, options or {})
+        if options == nil then return exposed end
+        return ExposedObjects:expose(self, exposed.type, options)
     end
 
     -- a copy: the caller's table may be used for other objects

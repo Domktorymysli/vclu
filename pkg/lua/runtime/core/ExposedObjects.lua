@@ -484,7 +484,7 @@ function ExposedObjects:expose(obj, objType, options)
     local existingPath = self._objectToPath[obj]
     if existingPath then
         local existing = self._objects[existingPath]
-        if existing and existing:isExposed() then
+        if existing and existing.object == obj and existing:isExposed() then
             -- Warn if user tries to change identity (id/path)
             if options.id or options.path then
                 local attemptedId = options.path or options.id
@@ -504,7 +504,7 @@ function ExposedObjects:expose(obj, objType, options)
                     existing.options[k] = v
                 end
             end
-            StateChange.setFilter(obj, existing.options.filter)
+            if options.filter ~= nil then StateChange.setFilter(obj, options.filter or nil) end
             changed()
             -- new options reach Home Assistant, as handle:update() does
             if next(options) ~= nil and StateBus then
@@ -1039,6 +1039,8 @@ function ExposedObjects:exposeRegistry(options)
         elseif self._hidden[obj] then
             -- a module exposed it with hidden = true
             skipped = skipped + 1
+        elseif self:_handleOf(obj) then
+            -- a module exposed it already (maybe under its own path): its options stay
         elseif not self._objects[path] then
             -- Check AccessControl for per-integration visibility
             local mqttHidden = AccessControl and AccessControl.isHidden("mqtt", path)
