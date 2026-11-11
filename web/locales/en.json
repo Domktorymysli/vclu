@@ -871,7 +871,7 @@
     "howto_admin": "invites and removes members",
     "howto_member": "uses what the home shares with them",
     "howto_home": "Home roles (e.g. office, kids, guests) are labels the owner gives people in the cloud. Lua limits a dashboard or a device with them; without :roles() every member has access:",
-    "howto_check": "The cloud checks the roles before it shows anything, and vCLU checks them again on every command."
+    "howto_check": "The cloud checks the roles before it shows a dashboard or accepts a command for a device. vCLU checks them again for device commands and for the app on the home network; dashboards through the cloud go to whoever the cloud lets in."
   },
   "clients": {
     "title": "API clients",

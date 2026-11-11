@@ -871,7 +871,7 @@
     "howto_admin": "zaprasza i usuwa domowników",
     "howto_member": "korzysta z tego, co dom mu udostępnia",
     "howto_home": "Role domu (np. biuro, dzieci, goście) to etykiety, które właściciel nadaje osobom w chmurze. W Lua ograniczają nimi dashboard albo urządzenie; bez :roles() dostęp mają wszyscy domownicy:",
-    "howto_check": "Chmura sprawdza role, zanim cokolwiek pokaże, a vCLU sprawdza je jeszcze raz przy każdej komendzie."
+    "howto_check": "Role sprawdza chmura, zanim pokaże dashboard albo przyjmie polecenie dla urządzenia. vCLU sprawdza je ponownie przy poleceniach dla urządzeń i dla aplikacji w sieci domowej; dashboardy przez chmurę serwuje temu, kogo chmura wpuści."
   },
   "clients": {
     "title": "Klienci API",
