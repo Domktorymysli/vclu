@@ -93,7 +93,9 @@ func TestPluginIDsKeepTheirNames(t *testing.T) {
 		}
 	}
 	dir := t.TempDir()
-	NewKVStoreManager(dir).GetStore("@vclu/weather").Set("token", "secret", false, 0)
+	if err := NewKVStoreManager(dir).GetStore("@vclu/weather").Set("token", "secret", false, 0); err != nil {
+		t.Fatal(err)
+	}
 	for _, other := range []string{"@VCLU/weather", "@vclu--weather", "vclu--weather"} {
 		if _, ok := NewKVStoreManager(dir).GetStore(other).Get("token"); ok {
 			t.Errorf("%s reads @vclu/weather's KV", other)

@@ -32,7 +32,7 @@ func TestIsLocalAddr(t *testing.T) {
 
 func TestHTTPManagerNoLAN(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 	defer srv.Close()
 	// a name resolving to the LAN is refused as well, after resolution

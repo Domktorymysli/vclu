@@ -387,7 +387,7 @@ func TestPluginEscapeAfterCleanup(t *testing.T) {
 		t.Errorf("timers after cleanup: %d, baseline %d", n, baseline)
 	}
 	mustLua(t, engine, `tostring(_registry["@t/a"])`, "nil")
-	engine.Execute(`pcall(function() __kept:get() end)`)
+	_, _ = engine.Execute(`pcall(function() __kept:get() end)`)
 	if n := activeTimers(engine); n != baseline {
 		t.Errorf("a disabled plugin started a timer: %d, baseline %d", n, baseline)
 	}
@@ -478,7 +478,7 @@ func TestPluginEscapeExposeAfterCleanup(t *testing.T) {
 	if _, err := engine.Execute(`Plugin.instances["@t/a"] = nil; PluginSandbox:cleanup("@t/a")`); err != nil {
 		t.Fatal(err)
 	}
-	engine.Execute(`pcall(function() __kept:get() end)`)
+	_, _ = engine.Execute(`pcall(function() __kept:get() end)`)
 	mustLua(t, engine, `tostring(ExposedObjects:get("@t/a:zombie") ~= nil)`, "false")
 }
 
