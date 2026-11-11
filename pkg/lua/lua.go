@@ -194,6 +194,10 @@ func (le *LuaEngine) initializeLuaState(cluName string) error {
 	L.SetGlobal("dofile", lua.LNil)   // Disable file execution
 	L.SetGlobal("loadfile", lua.LNil) // Disable file loading
 
+	if shareRuntimeChunks {
+		installRuntimeLoader(L, le.runtimePath)
+	}
+
 	L.SetGlobal("_VCLU_RUNTIME_PATH", lua.LString(le.runtimePath))
 	L.SetGlobal("_CLU", lua.LString(cluName))
 
