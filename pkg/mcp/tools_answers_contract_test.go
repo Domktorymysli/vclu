@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -83,6 +84,35 @@ func TestContract_MCPLogs_DefaultHidesDebug(t *testing.T) {
 	}
 	if !found {
 		t.Error(`level: "debug" returns no debug entries`)
+	}
+}
+
+// At the default stdout level a debug line is off stdout but still in vclu_logs with level debug.
+func TestContract_MCPLogs_DebugOffStdout(t *testing.T) {
+	var stdout bytes.Buffer
+	ls := logstream.NewLogStream(&stdout, 100)
+	for _, l := range []string{
+		"2026/11/09 21:00:00 [DEBUG] [CLIENT-REPORT] from 10.0.0.2 session=5 values={1}",
+		"2026/11/09 21:00:00 [INFO] module salon: tick",
+	} {
+		if _, err := ls.Write([]byte(l + "\n")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	srv := phase2Harness(nil, nil)
+	srv.SetLogProvider(ls)
+
+	if strings.Contains(stdout.String(), "CLIENT-REPORT") || !strings.Contains(stdout.String(), "tick") {
+		t.Errorf("stdout at the default level:\n%s", stdout.String())
+	}
+	found := false
+	for _, e := range logEntries(t, devCall(t, srv.handleLogs, map[string]any{"level": "debug"})) {
+		if e["level"] == "debug" && strings.Contains(e["message"].(string), "CLIENT-REPORT") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error(`level: "debug" does not return the debug line kept off stdout`)
 	}
 }
 

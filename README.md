@@ -120,8 +120,11 @@ curl -sSL https://raw.githubusercontent.com/Domktorymysli/vclu/main/deploy/updat
 docker run -d --name vclu \
   --network host \
   -v vclu-data:/data \
+  --log-opt max-size=10m --log-opt max-file=3 \
   ghcr.io/domktorymysli/vclu:latest
 ```
+
+`--log-opt` ogranicza log kontenera do 3 plików po 10 MB. vCLU wypisuje komunikaty od poziomu info; `"log": { "level": "debug" }` w `.vclu.json` dodaje komunikaty debug (`warn`, `error`: tylko ostrzeżenia i błędy). Strona logów w panelu i `vclu_logs` mają je zawsze.
 
 `--network host` jest potrzebne do broadcastu UDP (wykrywanie Grentona) i mDNS (HomeKit).
 
