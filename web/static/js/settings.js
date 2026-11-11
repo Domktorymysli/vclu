@@ -1,4 +1,4 @@
-// Virtual CLU Settings - Object-oriented JavaScript
+// vclu Settings - Object-oriented JavaScript
 
 // Translation helper — falls back to English default
 function _st(key, fallback) {
@@ -107,7 +107,7 @@ SecuritySettings.prototype.validateSecurityForm = function() {
  * Restart CLU (no data loss)
  */
 SecuritySettings.prototype.restartCLU = function() {
-    if (!confirm(_st('confirm_restart', 'Restart Virtual CLU?\n\nNo data will be lost.'))) {
+    if (!confirm(_st('confirm_restart', 'Restart vclu?\n\nNo data will be lost.'))) {
         return;
     }
 
