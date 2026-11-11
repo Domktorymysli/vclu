@@ -1,7 +1,7 @@
 /**
  * Brand: wraps each standalone word "vclu" in page text in <span class="vclu">,
  * which colours its first letter (dark-theme.css). Runs once on DOMContentLoaded.
- * "vclu.pl", "/opt/vclu", "vclu-cloud", "vclu_session" and "vclu:disk" are left alone.
+ * "vclu.pl", "/opt/vclu", "vclu-update", "vclu_session" and "vclu:disk" are left alone.
  */
 (function () {
     'use strict';
