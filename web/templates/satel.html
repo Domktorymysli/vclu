@@ -162,7 +162,7 @@
                                     <div id="satelDisarmWarning" class="alert alert-danger {{if not .allowDisarm}}d-none{{end}}">
                                         <i class="bi bi-exclamation-octagon"></i>
                                         <strong>{{index .t "satel.disarm_warning_title"}}</strong>
-                                        {{index .t "satel.disarm_warning"}}
+                                        {{brand (index .t "satel.disarm_warning")}}
                                     </div>
 
                                     <div class="d-flex gap-2 align-items-center flex-wrap">
@@ -186,7 +186,7 @@
                                     <span class="text-muted small" id="scanInfo"></span>
                                 </div>
                                 <div class="card-body">
-                                    <p class="text-muted mb-2">{{index .t "satel.scan_desc"}}</p>
+                                    <p class="text-muted mb-2">{{brand (index .t "satel.scan_desc")}}</p>
                                     <button class="btn btn-outline-primary" id="scanBtn" {{if not .connected}}disabled{{end}}>
                                         <i class="bi bi-search"></i> {{index .t "satel.scan_btn"}}
                                     </button>

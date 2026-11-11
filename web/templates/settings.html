@@ -110,7 +110,7 @@
                         </div>
                         <div class="card-body">
                             <p class="text-muted small">
-                                {{index .t "settings.api_key_desc"}}
+                                {{brand (index .t "settings.api_key_desc")}}
                                 {{index .t "settings.api_key_header_hint"}} <code>X-API-Key</code> {{index .t "settings.api_key_header_hint2"}}
                             </p>
                             {{if .hasAPIKey}}
@@ -150,7 +150,7 @@
                                        {{if .updateCheck.forcedOff}}disabled{{end}}>
                                 <label class="form-check-label" for="updateCheckEnabled">{{index .t "settings.update_check"}}</label>
                             </div>
-                            <div class="form-text">{{index .t "settings.update_check_desc"}}</div>
+                            <div class="form-text">{{brand (index .t "settings.update_check_desc")}}</div>
                             {{if .updateCheck.forcedOff}}
                             <div class="form-text">{{index .t "settings.update_check_forced_off"}} <code>VCLU_UPDATE_CHECK=off</code></div>
                             {{end}}
