@@ -11,21 +11,25 @@ import (
 func brandHTML(text string) template.HTML {
 	s := template.HTMLEscapeString(text)
 	var b strings.Builder
+	prev := byte(' ') // the byte before s; the start of the text joins nothing
 	for {
 		i := strings.Index(s, "vclu")
 		if i < 0 {
 			b.WriteString(s)
 			break
 		}
+		if i > 0 {
+			prev = s[i-1]
+		}
 		after := s[i+4:]
-		word := (i == 0 || !brandJoined(s[i-1])) && !brandContinues(after)
+		word := !brandJoined(prev) && !brandContinues(after)
 		b.WriteString(s[:i])
 		if word {
 			b.WriteString(`<span class="vclu">vclu</span>`)
 		} else {
 			b.WriteString("vclu")
 		}
-		s = after
+		s, prev = after, 'u'
 	}
 	return template.HTML(b.String())
 }
