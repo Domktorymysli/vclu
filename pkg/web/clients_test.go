@@ -307,8 +307,9 @@ func TestClientsPage(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	tmpl := template.New("").Funcs(template.FuncMap{
-		"t":    func(lang, key string) string { return i18n.Get(lang, key) },
-		"json": func(v interface{}) template.JS { b, _ := json.Marshal(v); return template.JS(b) },
+		"t":     func(lang, key string) string { return i18n.Get(lang, key) },
+		"json":  func(v interface{}) template.JS { b, _ := json.Marshal(v); return template.JS(b) },
+		"brand": brandHTML,
 	})
 	r.SetHTMLTemplate(template.Must(tmpl.ParseGlob("../../web/templates/*.html")))
 	r.Use(s.languageMiddleware())
