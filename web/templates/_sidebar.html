@@ -117,4 +117,11 @@
         data-how-to="{{index .t "update.how_to"}}" data-cmd-service="{{index .t "update.cmd_service"}}"
         data-cmd-docker="{{index .t "update.cmd_docker"}}" data-docs="{{index .t "update.docs"}}"
         data-hide="{{index .t "update.hide"}}" data-close="{{index .t "update.close"}}"></script>
+<!-- Disk space banner under the top bar (#196) -->
+<script src="/static/js/storage-notice.js" defer id="storageNoticeScript"
+        data-low="{{index .t "storage.banner_low"}}" data-critical="{{index .t "storage.banner_critical"}}"
+        data-largest="{{index .t "storage.banner_largest"}}" data-details="{{index .t "storage.banner_details"}}"
+        data-part-history="{{index .t "storage.part_history"}}" data-part-metrics="{{index .t "storage.part_metrics"}}"
+        data-part-backups="{{index .t "storage.part_backups"}}" data-part-plugins="{{index .t "storage.part_plugins"}}"
+        data-part-other="{{index .t "storage.part_other"}}"></script>
 {{end}}

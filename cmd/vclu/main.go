@@ -23,6 +23,7 @@ import (
 	"github.com/Domktorymysli/vclu/pkg/metrics"
 	"github.com/Domktorymysli/vclu/pkg/plugins"
 	"github.com/Domktorymysli/vclu/pkg/server"
+	"github.com/Domktorymysli/vclu/pkg/storage"
 	"github.com/Domktorymysli/vclu/pkg/updatecheck"
 	"github.com/Domktorymysli/vclu/pkg/web"
 )
@@ -154,6 +155,11 @@ func main() {
 
 	// Initialize metrics collector early — must be available before Lua modules load
 	cluDir := filepath.Join(serverDir, "clu")
+	if mc, err := config.ReadMasterConfig(cluDir); err == nil {
+		if err := logStream.SetLevel(mc.LogLevel()); err != nil {
+			log.Printf("[WARN] log.level: %v; using info", err)
+		}
+	}
 	metricsCollector := metrics.NewCollector(filepath.Join(cluDir, "metrics"),
 		metrics.WithRetainDays(config.GetMetricsConfig(cluDir).RetentionDays))
 
@@ -388,6 +394,18 @@ func main() {
 		Enabled: func() bool { return config.UpdateCheckEnabled(cluDir) },
 	})
 	webSrv.SetUpdateChecker(updateChecker)
+
+	// Disk space: walked off the Lua loop; nearly full makes history keep 7 days
+	storageMonitor := storage.New(storage.Options{
+		DataDir:         serverDir,
+		UpdateBackups:   storage.UpdateBackupsGlob(),
+		HistoryLast24h:  historyStore.WrittenLast24h,
+		LogBytesPerHour: logStream.BytesLastHour,
+		OnLevel:         func(l storage.Level) { historyStore.SetDiskLow(l == storage.LevelCritical) },
+		Metrics:         metricsCollector,
+	})
+	webSrv.SetStorageMonitor(storageMonitor)
+	go storageMonitor.Run(context.Background())
 
 	if err := webSrv.Start(); err != nil {
 		log.Fatalf("Failed to start web server: %v", err)

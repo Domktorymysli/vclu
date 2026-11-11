@@ -139,6 +139,8 @@ type Store struct {
 	lastFlushAt    int64
 	lastFlushError string
 	overLimit      bool
+	diskLow        atomic.Bool // the file system is nearly full: keep LowDiskKeepDays
+	lowDiskLogged  atomic.Bool
 	flushMu        sync.Mutex // one flush at a time
 	stop           chan struct{}
 	workerDone     chan struct{}

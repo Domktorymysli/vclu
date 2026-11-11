@@ -355,6 +355,12 @@ html, body {
     padding: 8px;
     overflow-y: auto;
     overflow-x: hidden;
+    /* Scrolls on short screens, but a scrollbar would squeeze the 56px icon rail */
+    scrollbar-width: none;
+}
+
+.sidebar-nav::-webkit-scrollbar {
+    display: none;
 }
 
 .nav-item {
@@ -746,6 +752,12 @@ html, body {
     background: var(--bs-tertiary-bg);
     white-space: pre-wrap;
     word-break: break-all;
+}
+
+.code-block {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
 }
 
 /* Page Content */

@@ -109,8 +109,8 @@
                                 <!-- Agent instructions template (shared by all tabs) -->
                                 {{define "agent-instructions"}}
 <div class="position-relative">
-<button class="btn btn-sm btn-outline-light position-absolute top-0 end-0 m-2 copy-btn" onclick="navigator.clipboard.writeText(this.closest('.position-relative').querySelector('code').textContent).then(()=>{this.textContent='Copied!';setTimeout(()=>this.innerHTML='<i class=\'bi bi-clipboard\'></i> Copy',1500)})"><i class="bi bi-clipboard"></i> Copy</button>
-<pre class="bg-dark p-3 rounded mb-0" style="white-space: pre-wrap;"><code># vCLU Smart Home
+<button class="btn btn-sm btn-outline-secondary position-absolute top-0 end-0 m-2 copy-btn" onclick="navigator.clipboard.writeText(this.closest('.position-relative').querySelector('code').textContent).then(()=>{this.textContent='Copied!';setTimeout(()=>this.innerHTML='<i class=\'bi bi-clipboard\'></i> Copy',1500)})"><i class="bi bi-clipboard"></i> Copy</button>
+<pre class="code-block p-3 rounded mb-0" style="white-space: pre-wrap;"><code># vCLU Smart Home
 
 You are connected to a vCLU smart home controller via MCP.
 
@@ -133,7 +133,7 @@ Never modify a/user.lua or a/om.lua (auto-generated).
                                 <div class="tab-pane fade show active" id="guide-claude" role="tabpanel">
                                     <h6>1. {{index .t "mcp.step_connect"}}</h6>
                                     <p class="text-muted mb-2">{{index .t "mcp.add_hint_claude"}}</p>
-                                    <pre class="bg-dark p-3 rounded mb-3"><code>{
+                                    <pre class="code-block p-3 rounded mb-3"><code>{
   "mcpServers": {
     "vclu": {
       "type": "http",
@@ -152,7 +152,7 @@ Never modify a/user.lua or a/om.lua (auto-generated).
                                 <div class="tab-pane fade" id="guide-codex" role="tabpanel">
                                     <h6>1. {{index .t "mcp.step_connect"}}</h6>
                                     <p class="text-muted mb-2">{{index .t "mcp.add_hint_codex"}}</p>
-                                    <pre class="bg-dark p-3 rounded mb-2"><code>[mcp_servers.vclu]
+                                    <pre class="code-block p-3 rounded mb-2"><code>[mcp_servers.vclu]
 url = "<span class="mcp-url">http://&lt;vclu-ip&gt;:&lt;port&gt;</span>/mcp"
 bearer_token_env_var = "VCLU_MCP_KEY"</code></pre>
                                     <p class="text-muted mb-3"><small>{{index .t "mcp.codex_env_hint"}} <code>export VCLU_MCP_KEY="&lt;your-api-key&gt;"</code></small></p>
@@ -164,7 +164,7 @@ bearer_token_env_var = "VCLU_MCP_KEY"</code></pre>
                                 <div class="tab-pane fade" id="guide-gemini" role="tabpanel">
                                     <h6>1. {{index .t "mcp.step_connect"}}</h6>
                                     <p class="text-muted mb-2">{{index .t "mcp.add_hint_gemini"}}</p>
-                                    <pre class="bg-dark p-3 rounded mb-3"><code>{
+                                    <pre class="code-block p-3 rounded mb-3"><code>{
   "mcpServers": {
     "vclu": {
       "httpUrl": "<span class="mcp-url">http://&lt;vclu-ip&gt;:&lt;port&gt;</span>/mcp",

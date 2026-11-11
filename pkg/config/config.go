@@ -87,6 +87,9 @@ type VCLUConfig struct {
 	// Lua runtime limits (absent = defaults)
 	Lua *VCLULuaConfig `json:"lua,omitempty"`
 
+	// Log output (absent = info and above to stdout)
+	Log *VCLULogConfig `json:"log,omitempty"`
+
 	// Pairing state - set after CLU is added to a system via Object Manager
 	Paired      bool   `json:"paired,omitempty"`
 	PairedAt    string `json:"pairedAt,omitempty"`

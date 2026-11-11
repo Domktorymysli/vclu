@@ -32,6 +32,7 @@ import (
 	"github.com/Domktorymysli/vclu/pkg/metrics"
 	"github.com/Domktorymysli/vclu/pkg/server"
 	"github.com/Domktorymysli/vclu/pkg/stats"
+	"github.com/Domktorymysli/vclu/pkg/storage"
 	"github.com/Domktorymysli/vclu/pkg/updatecheck"
 	"github.com/gin-gonic/gin"
 )
@@ -198,6 +199,7 @@ type Server struct {
 	backupState      backupSchedulerState
 	version          string
 	updateChecker    *updatecheck.Checker // nil: GET /api/update says enabled false
+	storage          *storage.Monitor     // nil: GET /api/storage answers 503
 }
 
 // NewServer creates a new web server
@@ -205,7 +207,8 @@ func NewServer(port int, webDir string, serverDir string, deviceConfig *config.C
 	// Set Gin to release mode for production
 	gin.SetMode(gin.ReleaseMode)
 
-	router := gin.Default()
+	router := gin.New()
+	router.Use(accessLog(gin.DefaultWriter, slowRequest), gin.Recovery())
 
 	// Trust all proxies — vCLU is designed for local network behind reverse proxy (nginx/caddy)
 	// This enables correct handling of X-Forwarded-For, X-Forwarded-Proto, X-Real-IP
@@ -1006,6 +1009,7 @@ func (s *Server) setupRoutes() {
 
 		// New-version check (top bar badge, Settings)
 		api.GET("/update", s.handleAPIUpdate)
+		api.GET("/storage", s.handleAPIStorage)
 		api.PUT("/update/settings", s.handleAPIUpdateSettings)
 
 		// OM Files endpoints

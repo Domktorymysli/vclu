@@ -99,9 +99,18 @@ func (s *Store) Flush() error {
 			s.mu.Unlock()
 		}
 	}
-	removed, over := disk.rotate(s.now(), cfg.RetentionDays, int64(cfg.MaxDiskMB)*1024*1024)
+	maxBytes := int64(cfg.MaxDiskMB) * 1024 * 1024
+	removed, over := disk.rotate(s.now(), cfg.RetentionDays, maxBytes)
 	if skipped > 0 || removed > 0 {
 		log.Printf("[history] write: %d skipped (over 64 KiB), %d old files removed", skipped, removed)
+	}
+	if s.diskLow.Load() && cfg.RetentionDays > LowDiskKeepDays {
+		var low int
+		low, over = disk.rotate(s.now(), LowDiskKeepDays, maxBytes)
+		if low > 0 && !s.lowDiskLogged.Swap(true) {
+			log.Printf("[history] disk nearly full: %d day files older than %d days removed (retentionDays %d)",
+				low, LowDiskKeepDays, cfg.RetentionDays)
+		}
 	}
 
 	s.mu.Lock()
@@ -121,6 +130,29 @@ func (s *Store) Flush() error {
 	s.lastFlushAt = s.now().UnixMilli()
 	s.lastFlushError = ""
 	return nil
+}
+
+// LowDiskKeepDays is how many days back history keeps while the disk is nearly full.
+const LowDiskKeepDays = 7
+
+// SetDiskLow says whether the file system is nearly full; while it is, each
+// write removes day files older than LowDiskKeepDays, whatever RetentionDays.
+func (s *Store) SetDiskLow(low bool) {
+	s.diskLow.Store(low)
+	if !low {
+		s.lowDiskLogged.Store(false)
+	}
+}
+
+// WrittenLast24h is about how much history went to disk in the last 24 h.
+func (s *Store) WrittenLast24h() int64 {
+	s.mu.Lock()
+	disk := s.disk
+	s.mu.Unlock()
+	if disk == nil {
+		return 0
+	}
+	return disk.writtenLast24h(s.now())
 }
 
 // ClearMemory empties the in-memory rings; files on disk stay.
