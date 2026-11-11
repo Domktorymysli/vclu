@@ -329,6 +329,12 @@ function VirtualObject:expose(options)
         self._exposeHandle = nil
     end
 
+    -- hidden = true takes back an earlier expose (exposeRegistry() included)
+    if options and options.hidden and self._exposeHandle then
+        self._exposeHandle:unexpose()
+        self._exposeHandle = nil
+    end
+
     if self._exposeHandle then
         if options then
             self._exposeHandle:update(options)

@@ -21,6 +21,8 @@ const exposeHiddenSetup = `
 	_hidden = RemoteCover:new(clu, "ROL2", "strych")
 	_registry["CLU1.ROL1"] = _shown
 	_registry["CLU1.ROL2"] = _hidden
+	_virtual = VirtualSwitch:new("v1")
+	_registry["virt.v1"] = _virtual
 
 	function _cleared(topic)
 		local v
@@ -29,7 +31,7 @@ const exposeHiddenSetup = `
 	end
 	function _state()
 		_sent = {}
-		HACommands.handleExposedMessage("vclu/exposed/vclu/cover/clu1_rol2/position/set", "40")
+		HACommands.handleExposedMessage("vclu/exposed/vclu/cover/clu1_rol2/set", "OPEN")
 		return tostring(ExposedObjects:get("CLU1.ROL2") ~= nil) .. "|" ..
 			tostring(ExposedObjects:get("CLU1.ROL1") ~= nil) .. "|" .. #_sent
 	end
@@ -70,6 +72,29 @@ func TestExposeHiddenStaysOut(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// The same for a virtual object in the registry (Satel outputs, zones, partitions are ones):
+// obj:expose({hidden = true}) after exposeRegistry() takes it back.
+func TestExposeHiddenVirtualObject(t *testing.T) {
+	for _, order := range []string{
+		"exposeRegistry(); _virtual:expose({ hidden = true })",
+		"_virtual:expose({ hidden = true }); exposeRegistry()",
+	} {
+		engine := NewLuaEngine()
+		if _, err := engine.Execute(exposeHiddenSetup); err != nil {
+			engine.Close()
+			t.Fatalf("setup failed: %v", err)
+		}
+		if _, err := engine.Execute(order); err != nil {
+			engine.Close()
+			t.Fatalf("%s: %v", order, err)
+		}
+		if got := mustExec(t, engine, `tostring(ExposedObjects:get("virt.v1") ~= nil)`); got != "false" {
+			t.Errorf("%s: hidden virtual object still exposed", order)
+		}
+		engine.Close()
 	}
 }
 
