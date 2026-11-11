@@ -122,7 +122,7 @@
                                 <div class="card-body">
                                     <!-- not paired -->
                                     <div id="cloudOff" class="d-none">
-                                        <p>{{index .t "cloud.intro"}}</p>
+                                        <p><a href="https://docs.vclu.pl/docs/cloud/pairing/" target="_blank" rel="noopener">{{index .t "cloud.pairing_docs"}} <i class="bi bi-box-arrow-up-right"></i></a></p>
                                         {{if not .cloudAuth}}
                                         <div class="alert alert-warning small" id="cloudAuthRequired">
                                             <i class="bi bi-exclamation-triangle"></i> {{index .t "cloud.auth_required"}}
@@ -324,7 +324,7 @@
                                     </table>
                                     </div>
                                     {{else}}
-                                    <p class="text-muted small mb-0 mt-2">{{index $.t "cloud.metrics_howto"}} <code>metric("energia:dom", fn, { unit = "kWh", kind = "counter", cloud = true })</code></p>
+                                    <p class="text-muted small mb-0 mt-2"><a href="https://docs.vclu.pl/docs/cloud/statistics/" target="_blank" rel="noopener">{{index $.t "cloud.metrics_docs"}} <i class="bi bi-box-arrow-up-right"></i></a></p>
                                     {{end}}
                                 </div>
                             </div>

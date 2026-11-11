@@ -245,7 +245,7 @@ func TestCloudPageMetricsTab(t *testing.T) {
 	t.Cleanup(func() { cc.Shutdown("test", 0) })
 	e.s.SetCloudClient(cc)
 	body := e.do(t, "GET", "/cloud?lang=pl", "", "session").Body.String()
-	for _, want := range []string{`id="tab-metrics"`, `id="pane-metrics"`, "Statystyki w chmurze", "cloud = true"} {
+	for _, want := range []string{`id="tab-metrics"`, `id="pane-metrics"`, "Statystyki w chmurze", "docs.vclu.pl/docs/cloud/statistics/"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("cloud page lacks %q", want)
 		}
