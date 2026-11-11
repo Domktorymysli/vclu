@@ -196,7 +196,8 @@ func NewServer(port int, webDir string, serverDir string, deviceConfig *config.C
 	// Set Gin to release mode for production
 	gin.SetMode(gin.ReleaseMode)
 
-	router := gin.Default()
+	router := gin.New()
+	router.Use(accessLog(gin.DefaultWriter, slowRequest), gin.Recovery())
 
 	// Trust all proxies — vCLU is designed for local network behind reverse proxy (nginx/caddy)
 	// This enables correct handling of X-Forwarded-For, X-Forwarded-Proto, X-Real-IP

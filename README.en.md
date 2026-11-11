@@ -114,8 +114,11 @@ cd vclu && sudo ./install.sh
 docker run -d --name vclu \
   --network host \
   -v vclu-data:/data \
+  --log-opt max-size=10m --log-opt max-file=3 \
   ghcr.io/domktorymysli/vclu:latest
 ```
+
+`--log-opt` caps the container log at 3 files of 10 MB. vCLU writes messages from info up; `"log": { "level": "debug" }` in `.vclu.json` adds debug ones (`warn`, `error`: only warnings and errors). The panel's log page and `vclu_logs` always have them.
 
 `--network host` is needed for UDP broadcast (Grenton discovery) and mDNS (HomeKit).
 

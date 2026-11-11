@@ -152,6 +152,11 @@ func main() {
 
 	// Initialize metrics collector early — must be available before Lua modules load
 	cluDir := filepath.Join(serverDir, "clu")
+	if mc, err := config.ReadMasterConfig(cluDir); err == nil {
+		if err := logStream.SetLevel(mc.LogLevel()); err != nil {
+			log.Printf("[WARN] log.level: %v; using info", err)
+		}
+	}
 	metricsCollector := metrics.NewCollector(filepath.Join(cluDir, "metrics"),
 		metrics.WithRetainDays(config.GetMetricsConfig(cluDir).RetentionDays))
 

@@ -13,6 +13,11 @@ services:
       - vclu-data:/data
     environment:
       - TZ=${TZ:-Europe/Warsaw}
+    logging:                    # cap the container log at 3 x 10 MB
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   vclu-data:
