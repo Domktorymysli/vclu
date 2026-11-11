@@ -97,7 +97,7 @@ func TestStorageAPI_ShapeAndLogin(t *testing.T) {
 func TestStorageCard_OnStatusPage(t *testing.T) {
 	e := newHistoryEnv(t)
 	w := e.do(t, "GET", "/stats", "", "session")
-	if w.Code != 200 || strings.Contains(w.Body.String(), `id="storage"`) {
+	if w.Code != 200 || strings.Contains(w.Body.String(), `id="storage"`) || strings.Contains(w.Body.String(), `id="diskFreeChart"`) {
 		t.Fatalf("without a monitor: %d, card shown", w.Code)
 	}
 	m, disk := withStorage(t, e, 1)
@@ -107,7 +107,7 @@ func TestStorageCard_OnStatusPage(t *testing.T) {
 	m.RefreshFree()
 	body := e.do(t, "GET", "/stats?lang=en", "", "session").Body.String()
 	for _, want := range []string{`id="storage"`, "Disk nearly full", `data-part="history"`, "History",
-		"Rest of the data directory", "is full in <strong>10</strong> days", `href="/history#settings"`, "3.0 MB"} {
+		"Rest of the data directory", "is full in <strong>10</strong> days", `href="/history#settings"`, "3.0 MB", `id="diskFreeChart"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("card lacks %q", want)
 		}

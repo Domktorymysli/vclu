@@ -335,7 +335,6 @@
         }
     }
 
-    // Download diagnostic ZIP
     // Free disk space over 7 days, from the metric the storage monitor writes every 15 min (#196)
     async function fetchDiskFree() {
         const canvas = document.getElementById('diskFreeChart');
@@ -343,10 +342,15 @@
         try {
             const response = await fetch('/api/metrics/data?path=vclu:disk_free_bytes&range=7d');
             if (!response.ok) throw new Error('Failed to fetch disk space');
-            const data = (await response.json()).map(([t, v]) => ({ t: t * 1000, v: v / 1e9 }));
+            // GiB, as the Storage card counts them
+            const data = (await response.json()).map(([t, v]) => ({ t: t * 1000, v: v / 2 ** 30 }));
             if (data.length === 0) return;
             if (!diskFreeChart) {
                 diskFreeChart = createChart('diskFreeChart', data, canvas.dataset.label, 'rgba(54, 162, 235, 1)', 'GB', formatDayTime);
+                // from zero a large disk's line would sit flat at the top
+                diskFreeChart.options.scales.y.beginAtZero = false;
+                diskFreeChart.update('none');
+                document.getElementById('diskFreeCard').classList.remove('d-none');
             } else {
                 updateChart(diskFreeChart, data, formatDayTime);
             }
@@ -355,6 +359,7 @@
         }
     }
 
+    // Download diagnostic ZIP
     async function downloadDiagnostic() {
         const btn = document.getElementById('diagnosticDownloadBtn');
         if (btn) {
