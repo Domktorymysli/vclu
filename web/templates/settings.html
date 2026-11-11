@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{index .t "app.settings"}} - Virtual CLU</title>
+    <title>{{index .t "app.settings"}} - vclu</title>
     <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="/static/vendor/bootstrap-icons/font/bootstrap-icons.css">
     <link rel="stylesheet" href="/static/css/dark-theme.css">
@@ -163,7 +163,7 @@
                         </div>
                         <div class="card-body">
                             <p class="card-text text-muted small">
-                                {{index .t "settings.restart_desc"}}
+                                {{brand (index .t "settings.restart_desc")}}
                             </p>
                             <button type="button" class="btn btn-warning" id="restartBtn">
                                 <i class="bi bi-arrow-clockwise"></i> {{index .t "settings.restart_btn"}}

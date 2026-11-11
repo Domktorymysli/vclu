@@ -1,4 +1,13 @@
-/* Virtual CLU - Main Stylesheet (Login & Standalone pages) */
+/* vclu - Main Stylesheet (Login & Standalone pages) */
+
+/* Brand: "vclu" with its first letter in the accent colour, as in dark-theme.css */
+.vclu {
+    display: inline-block;
+}
+
+.vclu::first-letter {
+    color: #27C2A8;
+}
 
 /* Body & Layout */
 body {

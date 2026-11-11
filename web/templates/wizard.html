@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{index .t "wizard.title"}} - Virtual CLU</title>
+    <title>{{index .t "wizard.title"}} - vclu</title>
     <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="/static/vendor/bootstrap-icons/font/bootstrap-icons.css">
     <link rel="stylesheet" href="/static/css/dark-theme.css">
@@ -15,7 +15,7 @@
         <!-- Main Content -->
         <main class="main-content" style="margin-left: 0;">
             <header class="topbar">
-                <h1 class="page-title">{{index .t "wizard.title"}}</h1>
+                <h1 class="page-title">{{brand (index .t "wizard.title")}}</h1>
                 <div class="topbar-actions">
                     <div class="dropdown">
                         <button class="btn-icon dropdown-toggle" type="button" data-bs-toggle="dropdown">
@@ -257,7 +257,7 @@
 
                                 <div class="alert alert-info mt-4" id="finishNoteAlert">
                                     <i class="bi bi-info-circle"></i>
-                                    <strong>{{index .t "wizard.note"}}</strong> {{index .t "wizard.finish_note"}}
+                                    <strong>{{index .t "wizard.note"}}</strong> {{brand (index .t "wizard.finish_note")}}
                                 </div>
                             </div>
                             <div class="card-footer d-flex justify-content-between">
