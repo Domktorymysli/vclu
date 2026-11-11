@@ -18,14 +18,14 @@ A module reads and sets a user feature of a remote CLU in one call, e.g.
 ## Context
 Users ask how to show a CLU user feature (a global variable defined in OM) on a dashboard.
 Import of om.lua makes registry objects only for modules and outputs, so the only way today is
-`CLU221000290:execute(0, "return temp_zadana")`, which returns a string and is not in the docs.
+`CLU221000290:execute(0, 'getVar("temp_zadana")')`, which returns a string (`"nil"` when unset)
+and is not in the docs. OM puts `getVar`/`setVar` on every CLU.
+
+The CLU prepends `return` to the script itself: `"return x"` is a syntax error there and the CLU
+does not answer, so `execute` times out (checked on 2026-11-11, docs fixed). The API must hide this.
 
 `CLU_REMOTE:get(key)` and `CLU_REMOTE:set(key, value)` already exist but do nothing (`get` returns
 `nil`). They are the natural place for the API.
-
-On 2026-11-11 `execute` and `executeAsync` to two production CLUs (.3 and .5) both ended with
-`i/o timeout`. Find out why before building on top of `execute`: the API is useless if a request
-with a reply does not work against a real CLU.
 
 ## Files
 - `pkg/lua/runtime/grenton/modules/CLU_REMOTE.lua`
@@ -36,7 +36,7 @@ with a reply does not work against a real CLU.
 - [ ] `clu:set(name, value)` sets the feature; strings are quoted and escaped, so a value cannot inject Lua.
 - [ ] `name` must be a Lua identifier; anything else is an error, not a script sent to the CLU.
 - [ ] A timeout gives `nil, err`, and the run loop is not blocked for longer than today's `execute`.
-- [ ] The request/response timeout seen on 2026-11-11 is explained and fixed, or shown to be a network issue.
+- [ ] `execute` with a script starting with `return` logs a warning instead of a bare timeout.
 - [ ] Checked on a real CLU: read and write of a number and a string feature.
 - [ ] `go test ./...` and `go test -race ./...` pass.
 - [ ] A changelog entry in `changelog.d/NNNN-remote-clu-user-features.md`.
