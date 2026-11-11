@@ -8,6 +8,7 @@
     let httpRateChart = null;
     let busyPercentChart = null;
     let loopLagChart = null;
+    let diskFreeChart = null;
 
     // Chart.js default configuration for dark theme
     const chartDefaults = {
@@ -94,12 +95,18 @@
         return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }
 
+    // Day and time, for charts longer than a day
+    function formatDayTime(ts) {
+        const d = new Date(ts);
+        return d.toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+    }
+
     // Create or update a chart
-    function createChart(canvasId, data, label, color, unit) {
+    function createChart(canvasId, data, label, color, unit, fmt = formatTime) {
         const ctx = document.getElementById(canvasId);
         if (!ctx) return null;
 
-        const labels = data.map(d => formatTime(d.t));
+        const labels = data.map(d => fmt(d.t));
         const values = data.map(d => d.v);
 
         const config = {
@@ -156,10 +163,10 @@
     }
 
     // Update chart data
-    function updateChart(chart, data) {
+    function updateChart(chart, data, fmt = formatTime) {
         if (!chart || !data) return;
 
-        const labels = data.map(d => formatTime(d.t));
+        const labels = data.map(d => fmt(d.t));
         const values = data.map(d => d.v);
 
         chart.data.labels = labels;
@@ -328,6 +335,30 @@
         }
     }
 
+    // Free disk space over 7 days, from the metric the storage monitor writes every 15 min (#196)
+    async function fetchDiskFree() {
+        const canvas = document.getElementById('diskFreeChart');
+        if (!canvas) return;
+        try {
+            const response = await fetch('/api/metrics/data?path=vclu:disk_free_bytes&range=7d');
+            if (!response.ok) throw new Error('Failed to fetch disk space');
+            // GiB, as the Storage card counts them
+            const data = (await response.json()).map(([t, v]) => ({ t: t * 1000, v: v / 2 ** 30 }));
+            if (data.length === 0) return;
+            if (!diskFreeChart) {
+                diskFreeChart = createChart('diskFreeChart', data, canvas.dataset.label, 'rgba(54, 162, 235, 1)', 'GB', formatDayTime);
+                // from zero a large disk's line would sit flat at the top
+                diskFreeChart.options.scales.y.beginAtZero = false;
+                diskFreeChart.update('none');
+                document.getElementById('diskFreeCard').classList.remove('d-none');
+            } else {
+                updateChart(diskFreeChart, data, formatDayTime);
+            }
+        } catch (error) {
+            console.error('Error fetching disk space:', error);
+        }
+    }
+
     // Download diagnostic ZIP
     async function downloadDiagnostic() {
         const btn = document.getElementById('diagnosticDownloadBtn');
@@ -390,6 +421,7 @@
         fetchStats();
         fetchMQTTStats();
         fetchTimeSeries();
+        fetchDiskFree();
 
         // Refresh button
         const refreshBtn = document.getElementById('refreshBtn');
@@ -398,6 +430,7 @@
                 fetchStats();
                 fetchMQTTStats();
                 fetchTimeSeries();
+                fetchDiskFree();
             });
         }
 
@@ -421,6 +454,7 @@
         setInterval(fetchMQTTStats, 30000);
         // Update charts every minute
         setInterval(fetchTimeSeries, 60000);
+        setInterval(fetchDiskFree, 15 * 60000);
     }
 
     // Run when DOM is ready

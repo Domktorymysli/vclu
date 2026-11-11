@@ -406,6 +406,7 @@ func main() {
 	})
 	webSrv.SetStorageMonitor(storageMonitor)
 	go storageMonitor.Run(context.Background())
+	go metricsCollector.RunRuntime(context.Background())
 
 	if err := webSrv.Start(); err != nil {
 		log.Fatalf("Failed to start web server: %v", err)

@@ -54,6 +54,14 @@
     function withUnit(v, unit, decimals) {
         return fmtNum(v, decimals) + (unit ? ' ' + unit : '');
     }
+    // unit "B" or "B/h": bytes in KB, MB, GB or TB by the largest value (1024s, as the panel counts)
+    function byteUnit(unit, maxAbs) {
+        var m = /^B(\/.+)?$/.exec(unit || '');
+        if (!m) return { div: 1, unit: unit };
+        var names = ['B', 'KB', 'MB', 'GB', 'TB'], i = 0;
+        while (i < names.length - 1 && maxAbs >= Math.pow(1024, i + 1)) i++;
+        return { div: Math.pow(1024, i), unit: names[i] + (m[1] || '') };
+    }
 
     // ---- Time-of-day period tracking ----
     var currentPeriod = null;
@@ -3068,9 +3076,13 @@
                 var secs = rangeSecs(range);
                 var labels = data.map(function(d) { return chartLabel(d[0], secs); });
                 var rawValues = data.map(function(d) { return d[1]; });
+                var bu = byteUnit(w.unit, rawValues.reduce(function(m, v) { return Math.max(m, Math.abs(v)); }, 0));
+                var unit = bu.unit;
+                canvas.$unit = unit; // read by the axis and tooltip, also on the first draw
+                if (bu.div !== 1) rawValues = rawValues.map(function(v) { return v / bu.div; });
                 var tile = canvas.closest('.dash-widget');
                 if (tile && rawValues.length) {
-                    setState(tile, 'value', withUnit(Math.round(rawValues[rawValues.length - 1] * 10) / 10, w.unit));
+                    setState(tile, 'value', withUnit(Math.round(rawValues[rawValues.length - 1] * 10) / 10, unit));
                 }
 
                 // Smooth to reduce sensor jitter
@@ -3078,7 +3090,7 @@
 
                 var color = resolveColor(w.color) || themeAccent();
                 var fillBg = colorToRGBA(color, 0.08);
-                var yBounds = calcYBounds(values, w.min, w.max, 2);
+                var yBounds = calcYBounds(values, w.min != null ? w.min / bu.div : w.min, w.max != null ? w.max / bu.div : w.max, 2);
 
                 if (chartInstances[w.id]) {
                     var chart = chartInstances[w.id];
@@ -3115,7 +3127,7 @@
                                     max: yBounds.max,
                                     ticks: {
                                         color: 'rgba(128,128,128,0.9)', font: {size: 10},
-                                        callback: function(v) { return v + (w.unit ? ' ' + w.unit : ''); }
+                                        callback: function(v) { return v + (canvas.$unit ? ' ' + canvas.$unit : ''); }
                                     },
                                     grid: { color: 'rgba(128,128,128,0.12)' },
                                 }
@@ -3141,7 +3153,7 @@
                                         label: function(item) {
                                             var v = parseFloat(item.raw);
                                             var formatted = isNaN(v) ? item.formattedValue : v.toFixed(1);
-                                            return formatted + (w.unit ? ' ' + w.unit : '');
+                                            return formatted + (canvas.$unit ? ' ' + canvas.$unit : '');
                                         }
                                     }
                                 }
@@ -3309,9 +3321,16 @@
         var buckets = st.data.buckets;
         var n = buckets.length;
         var W = wrap.clientWidth || 300, H = wrap.clientHeight || 150;
+        var rawMax = 0;
+        buckets.forEach(function(b) {
+            [b.v, w.compare ? b.c : null].forEach(function(v) { if (v != null) rawMax = Math.max(rawMax, Math.abs(v)); });
+        });
+        var bu = byteUnit(w.unit, rawMax);
+        st.unit = bu.unit;
+        st.sv = function(v) { return v == null ? v : v / bu.div; };
         var lo = 0, hi = 0, maxAbs = 0;
         buckets.forEach(function(b) {
-            [b.v, w.compare ? b.c : null].forEach(function(v) {
+            [st.sv(b.v), w.compare ? st.sv(b.c) : null].forEach(function(v) {
                 if (v == null) return;
                 lo = Math.min(lo, v); hi = Math.max(hi, v); maxAbs = Math.max(maxAbs, Math.abs(v));
             });
@@ -3359,7 +3378,7 @@
         buckets.forEach(function(b, i) {
             var x0 = padL + i * slot;
             var g = svgEl('g', {}, 'dash-bars-bucket' + (b.partial ? ' partial' : ''));
-            [[b.v, 0, 'dash-bars-bar'], [w.compare ? b.c : null, 1, 'dash-bars-bar dash-bars-cmp']].forEach(function(s) {
+            [[st.sv(b.v), 0, 'dash-bars-bar'], [w.compare ? st.sv(b.c) : null, 1, 'dash-bars-bar dash-bars-cmp']].forEach(function(s) {
                 if (s[0] == null) return;
                 var top = Math.min(y(s[0]), y0), h = Math.max(1, Math.abs(y(s[0]) - y0));
                 g.appendChild(svgEl('rect', { x: x0 + slot * gap + s[1] * bw, y: top,
@@ -3395,7 +3414,7 @@
         var last = buckets[n - 1];
         if (last.v != null) {
             var now = { '1h': T.thisHour, '1d': T.today, '1w': T.thisWeek, '1mo': T.thisMonth }[w.bucket] || T.today;
-            setState(st.el, 'value', now + ' ' + withUnit(last.v, w.unit, st.dec));
+            setState(st.el, 'value', now + ' ' + withUnit(st.sv(last.v), st.unit, st.dec));
         } else {
             setState(st.el, 'unknown', T.noData);
         }
@@ -3411,7 +3430,7 @@
         if (i < 0 || !st.data) { tip.hidden = true; return; }
         var b = st.data.buckets[i];
         var none = b.old ? T.notKept.replace('{n}', st.data.kept) : T.noData;
-        var val = function(v) { return v == null ? none : withUnit(v, w.unit, st.dec); };
+        var val = function(v) { return v == null ? none : withUnit(st.sv(v), st.unit, st.dec); };
         tip.textContent = '';
         tip.appendChild(calEl('div', 'dash-bars-tip-when', barsWhen(w, b, st.data.buckets.length) + (b.partial ? ' · ' + T.soFar : '')));
         tip.appendChild(calEl('div', 'dash-bars-tip-v', (w.compare ? (w.label || '') + ': ' : '') + val(b.v)));
