@@ -468,8 +468,8 @@ function ExposedObjects:expose(obj, objType, options)
             Logger:getShared():debug("[ExposedObjects] Object marked as hidden, not exposing")
         end
         self._hidden[obj] = true
-        local exposed = self._objects[self._objectToPath[obj] or ""]
-        if exposed and exposed.object == obj then
+        local exposed = self:_handleOf(obj)
+        if exposed then
             exposed:unexpose()
         end
         -- Return a dummy handle that does nothing
@@ -506,6 +506,10 @@ function ExposedObjects:expose(obj, objType, options)
             end
             StateChange.setFilter(obj, existing.options.filter)
             changed()
+            -- new options reach Home Assistant, as handle:update() does
+            if next(options) ~= nil and StateBus then
+                StateBus:getShared():emit("object_updated", { path = existingPath })
+            end
             if Logger then
                 Logger:getShared():debug("[ExposedObjects] Re-expose (idempotent): %s", existingPath)
             end
@@ -607,6 +611,17 @@ function ExposedObjects:expose(obj, objType, options)
     end
 
     return handle
+end
+
+--- The handle exposing obj now (nil when it is not exposed), whichever form exposed it
+-- @param obj table Object
+-- @return ExposedHandle or nil
+function ExposedObjects:_handleOf(obj)
+    local h = self._objects[self._objectToPath[obj] or ""]
+    if h and h.object == obj and h:isExposed() then
+        return h
+    end
+    return nil
 end
 
 --- Remove an exposed object by path

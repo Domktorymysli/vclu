@@ -353,29 +353,15 @@ end
 --       :readonly()
 --       :mqttOnly()
 function RemoteObject:expose(options)
-    -- Clean up dead handle reference (e.g., if handle:unexpose() was called directly)
-    if self._exposeHandle and not self._exposeHandle:isExposed() then
-        self._exposeHandle = nil
-    end
-
-    -- hidden = true takes back an earlier expose (exposeRegistry() included)
-    if options and options.hidden and self._exposeHandle then
-        self._exposeHandle:unexpose()
-        self._exposeHandle = nil
-    end
-
-    -- Return cached handle if already exposed (idempotent)
-    if self._exposeHandle then
-        -- Update options if provided
-        if options then
-            self._exposeHandle:update(options)
-        end
-        return self._exposeHandle
-    end
-
-    -- Check if ExposedObjects is available
     if not ExposedObjects then
         error("ExposedObjects not available - expose API requires ExposedObjects module")
+    end
+
+    -- exposed already (by any form, exposeRegistry() included): ExposedObjects merges the
+    -- options, hidden = true takes it back
+    local exposed = ExposedObjects:_handleOf(self)
+    if exposed then
+        return ExposedObjects:expose(self, exposed.type, options or {})
     end
 
     -- a copy: the caller's table may be used for other objects
@@ -389,7 +375,6 @@ function RemoteObject:expose(options)
         options.path = options.path or path
     end
 
-    -- Use object name if no name provided
     options.name = options.name or self._name or self._objId
 
     -- Determine expose type
@@ -398,18 +383,15 @@ function RemoteObject:expose(options)
         error("expose: " .. tostring(self._objId) .. " (" .. tostring(self._type) .. ") has no expose type yet")
     end
 
-    -- Expose and cache handle
-    self._exposeHandle = ExposedObjects:expose(self, exposeType, options)
-
-    return self._exposeHandle
+    return ExposedObjects:expose(self, exposeType, options)
 end
 
 --- Unexposes this object from MQTT and HomeKit
 -- @return boolean True if was exposed and now unexposed
 function RemoteObject:unexpose()
-    if self._exposeHandle then
-        self._exposeHandle:unexpose()
-        self._exposeHandle = nil
+    local h = ExposedObjects and ExposedObjects:_handleOf(self)
+    if h then
+        h:unexpose()
         return true
     end
     return false
@@ -418,21 +400,13 @@ end
 --- Checks if this object is currently exposed
 -- @return boolean True if exposed
 function RemoteObject:isExposed()
-    -- Clean up dead handle reference
-    if self._exposeHandle and not self._exposeHandle:isExposed() then
-        self._exposeHandle = nil
-    end
-    return self._exposeHandle ~= nil
+    return (ExposedObjects and ExposedObjects:_handleOf(self)) ~= nil
 end
 
 --- Gets the expose handle if this object is exposed
 -- @return ExposedHandle|nil The handle or nil if not exposed
 function RemoteObject:getExposeHandle()
-    -- Clean up dead handle reference
-    if self._exposeHandle and not self._exposeHandle:isExposed() then
-        self._exposeHandle = nil
-    end
-    return self._exposeHandle
+    return ExposedObjects and ExposedObjects:_handleOf(self)
 end
 
 return RemoteObject
