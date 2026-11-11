@@ -388,7 +388,7 @@ function Plugin:mqttPublish(topic, payload, options)
     end
 
     if MQTT and MQTT.publish then
-        MQTT:publish(topic, payloadStr, options.retain or false, options.qos or 0)
+        MQTT:publish(topic, payloadStr, options.qos or 0, options.retain or false)
     end
 end
 
@@ -418,6 +418,9 @@ end
 -- @param opts table Request options (see PluginHelpers.httpRequest)
 -- @param callback function Callback(response, err)
 function Plugin:httpRequest(opts, callback)
+    if self._sandbox and self._sandbox.api then
+        return self._sandbox.api.httpRequest(opts, callback)
+    end
     PluginHelpers.httpRequest(self.id, opts, callback)
 end
 
@@ -457,6 +460,9 @@ end
 -- @return string|nil JSON string
 -- @return string|nil Error message
 function Plugin:encodeJson(data)
+    if self._sandbox and self._sandbox.api then
+        return self._sandbox.api.encodeJson(data)
+    end
     return PluginHelpers.encodeJson(data)
 end
 
@@ -497,6 +503,9 @@ end
 -- @param opts table Poller options
 -- @return table Poller object
 function Plugin:poller(name, opts)
+    if self._sandbox and self._sandbox.api then
+        return self._sandbox.api.createPoller(name, opts)
+    end
     return PluginHelpers.createPoller(self.id, name, opts)
 end
 
@@ -560,6 +569,9 @@ end
 -- @return boolean|string true=emitted, false=dropped, "pending"=queued
 function Plugin:emit(eventName, data, opts)
     if opts and (opts.throttle or opts.coalesce or opts.leading ~= nil or opts.trailing) then
+        if self._sandbox and self._sandbox.api then
+            self._sandbox.api.checkEvent(eventName)
+        end
         -- Use throttled emit
         local emitFn = function(event, payload)
             if self._sandbox and self._sandbox.api then
@@ -1033,13 +1045,16 @@ function Plugin.getPlugin(pluginId)
     if Plugin.instances[pluginId] then
         return Plugin.instances[pluginId]
     end
-    -- Try to find by shortId
+    -- By shortId: the official one, else the only one; two others are ambiguous
+    local found
     for id, instance in pairs(Plugin.instances) do
         if instance.shortId == pluginId then
-            return instance
+            if instance.namespace == "vclu" then return instance end
+            if found then return nil end
+            found = instance
         end
     end
-    return nil
+    return found
 end
 
 -- List all registered plugins

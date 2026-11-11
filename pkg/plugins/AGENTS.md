@@ -11,8 +11,32 @@ options and refuse a duplicate with an error in the log instead of replacing ano
 
 ## What the sandbox gives
 `pkg/lua/runtime/core/PluginSandbox.lua` builds the environment from an allow-list: no
-`setmetatable`, `require`, `io` or `debug`; `os` is a safe subset. `string`, `table` and `math` are
-the shared global tables, not copies: a plugin must not modify them. Timers, events, MQTT
-subscriptions and registered objects go through the plugin API and are cleaned up on disable or
-reload; `HTTP` is the global client passed through, so a plugin must not leave requests or retries
-running after it stops.
+`setmetatable`, `require`, `io`, `debug`, `HTTP` or `MQTT`; `os` is a safe subset. Nothing a plugin
+can reach is a shared mutable table: `string`, `table` and `math` are its own copies, `Logger`,
+`JSON` and expose handles are facades bound to the real object, its own instance is a proxy
+(identity fields read-only, sandbox hidden), and other plugins and registry objects are read-only
+proxies whose only callable methods are reads (`get`, `getX`, `isX`, `hasX`), `pairs` included.
+Functions a plugin puts on its instance (`create`, `init`, `get`) get its proxy as `self` also when
+the core or a module calls them on the real instance. Arguments of those read methods are numbers,
+strings and booleans only. Event payloads reach a plugin read-only. Timers, pollers, events, MQTT
+subscriptions, exposed objects and the registry entry go through the plugin API and are cleaned up
+on disable or reload; after cleanup the API refuses every call, so code still reachable (a sensor a
+module kept) starts nothing. A plugin clears only its own timers and exposes only under its id. Methods of
+facades (handles, pollers) and proxies refuse a self other than their own; `init`, `cleanup`,
+`timers` are the core's. Events a plugin emits start with its prefix: an official plugin's short
+id or the id's first word (`sun-position` → `sun:`), any other plugin's full id (`@jan/foo:`). `pkg/lua/plugin_sandbox_escape_test.go` holds the attempts to get out; a
+change to the sandbox keeps them failing.
+
+## Plugin ids
+A namespace and a short id are lower case, without `--` or a `-` at either end
+(`validPluginID`): the directory and KV file name `ns--id` then belong to one id, also on a
+case-insensitive file system. Exposed paths of plugins that would share an MQTT topic or HA
+unique_id after its normalization are refused (`ExposedObjects:expose`).
+
+## Permissions
+`plugin.json` declares what a plugin reaches beyond HTTP to the internet:
+`"permissions": {"lan": true, "mqtt": true, "modbus": true}`. `lan` is HTTP to local addresses,
+checked in Go after DNS resolution, including this machine's own networks (`pkg/lua/http_lan.go`); `mqtt` and `modbus` give the plugin API
+and the `Modbus` table. A plugin without the field gets none of them, except an official one
+(installed from the official repository, or by hand in `@vclu`), which keeps all three with a
+warning in the log until its manifest declares them (`permissions.go`).
