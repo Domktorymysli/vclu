@@ -1785,8 +1785,8 @@ end
 --- Add a chart widget to this section.
 -- @param id string Unique widget identifier
 -- @param label string Display label (e.g., "Temperatura 24h")
--- @param metricPath string Metric path registered via metric() (e.g., "temp:salon", "salda:outsideAir")
--- @param opts table Optional: {range=string (any duration such as "30m", "2h", "24h", "7d"; default "2h"; 30m/2h/24h/7d have tuned refresh, others refresh every 60 s), unit=string, min=n, max=n (Y axis), fill=bool (default true), refresh=seconds, span=n, color=string, visible=function()->bool}
+-- @param metricPath string Metric path registered via metric() (e.g., "temp:salon", "salda:outsideAir"), or one vCLU writes itself: "vclu:disk_free_bytes", "vclu:history_bytes", "vclu:log_bytes_per_hour" (every 15 min), "runtime:memory_mb", "runtime:goroutines" (every minute), "runtime:busy_percent", "runtime:loop_lag_ms" (every 10 s)
+-- @param opts table Optional: {range=string (any duration such as "30m", "2h", "24h", "7d"; default "2h"; 30m/2h/24h/7d have tuned refresh, others refresh every 60 s), unit=string ("B" or "B/h": bytes shown in KB, MB, GB or TB), min=n, max=n (Y axis), fill=bool (default true), refresh=seconds, span=n, color=string, visible=function()->bool}
 -- @api public
 function SectionHandle:chart(id, label, metricPath, opts)
     self._builder:_addWidget(self._sectionIndex, {
@@ -1799,8 +1799,8 @@ end
 --- Add a bar chart of a metric to this section: one bar per hour or day of the house's zone.
 -- @param id string Unique widget identifier
 -- @param label string Display label (e.g., "Energia dziennie")
--- @param metricPath string Metric path registered via metric() (e.g., "energia:licznik")
--- @param opts table Optional: {range=string (a duration up to "31d"; default "7d"), bucket="1h"|"1d" (default "1d" from a 2-day range, else "1h"), agg="avg"|"sum"|"max"|"min"|"delta" (default "avg", the mean of the samples; sum depends on the sampling interval; delta: what a growing counter such as a kWh meter added in each bar, a single bad reading or a reset adds nothing), unit=string, decimals=0-6, color=string, compare=metricPath (a second bar beside each), compareLabel=string, visible=function()->bool, span=n, size=string, refresh=seconds (at least 30)}; samples are kept metrics.retentionDays (default 7) days
+-- @param metricPath string Metric path registered via metric() (e.g., "energia:licznik"), or one vCLU writes itself (see chart)
+-- @param opts table Optional: {range=string (a duration up to "31d"; default "7d"), bucket="1h"|"1d" (default "1d" from a 2-day range, else "1h"), agg="avg"|"sum"|"max"|"min"|"delta" (default "avg", the mean of the samples; sum depends on the sampling interval; delta: what a growing counter such as a kWh meter added in each bar, a single bad reading or a reset adds nothing), unit=string ("B" or "B/h": bytes shown in KB, MB, GB or TB), decimals=0-6, color=string, compare=metricPath (a second bar beside each), compareLabel=string, visible=function()->bool, span=n, size=string, refresh=seconds (at least 30)}; samples are kept metrics.retentionDays (default 7) days
 -- @api public
 function SectionHandle:bars(id, label, metricPath, opts)
     self._builder:_addWidget(self._sectionIndex, barsWidget(id, label, metricPath, opts))
@@ -2564,8 +2564,8 @@ end
 --- Add a chart widget to the current section.
 -- @param id string Unique widget identifier
 -- @param label string Display label (e.g., "Temperatura 24h")
--- @param metricPath string Metric path registered via metric() (e.g., "temp:salon", "salda:outsideAir")
--- @param opts table Optional: {range=string (any duration such as "30m", "2h", "24h", "7d"; default "2h"; 30m/2h/24h/7d have tuned refresh, others refresh every 60 s), unit=string, min=n, max=n (Y axis), fill=bool (default true), refresh=seconds, span=n, color=string, visible=function()->bool}
+-- @param metricPath string Metric path registered via metric() (e.g., "temp:salon", "salda:outsideAir"), or one vCLU writes itself: "vclu:disk_free_bytes", "vclu:history_bytes", "vclu:log_bytes_per_hour" (every 15 min), "runtime:memory_mb", "runtime:goroutines" (every minute), "runtime:busy_percent", "runtime:loop_lag_ms" (every 10 s)
+-- @param opts table Optional: {range=string (any duration such as "30m", "2h", "24h", "7d"; default "2h"; 30m/2h/24h/7d have tuned refresh, others refresh every 60 s), unit=string ("B" or "B/h": bytes shown in KB, MB, GB or TB), min=n, max=n (Y axis), fill=bool (default true), refresh=seconds, span=n, color=string, visible=function()->bool}
 -- @api public
 function DashboardBuilder:chart(id, label, metricPath, opts)
     if not self._currentSection then
@@ -2581,8 +2581,8 @@ end
 --- Add a bar chart of a metric to the current section: one bar per hour or day of the house's zone.
 -- @param id string Unique widget identifier
 -- @param label string Display label (e.g., "Energia dziennie")
--- @param metricPath string Metric path registered via metric() (e.g., "energia:licznik")
--- @param opts table Optional: {range=string (a duration up to "31d"; default "7d"), bucket="1h"|"1d" (default "1d" from a 2-day range, else "1h"), agg="avg"|"sum"|"max"|"min"|"delta" (default "avg", the mean of the samples; sum depends on the sampling interval; delta: what a growing counter such as a kWh meter added in each bar, a single bad reading or a reset adds nothing), unit=string, decimals=0-6, color=string, compare=metricPath (a second bar beside each), compareLabel=string, visible=function()->bool, span=n, size=string, refresh=seconds (at least 30)}; samples are kept metrics.retentionDays (default 7) days
+-- @param metricPath string Metric path registered via metric() (e.g., "energia:licznik"), or one vCLU writes itself (see chart)
+-- @param opts table Optional: {range=string (a duration up to "31d"; default "7d"), bucket="1h"|"1d" (default "1d" from a 2-day range, else "1h"), agg="avg"|"sum"|"max"|"min"|"delta" (default "avg", the mean of the samples; sum depends on the sampling interval; delta: what a growing counter such as a kWh meter added in each bar, a single bad reading or a reset adds nothing), unit=string ("B" or "B/h": bytes shown in KB, MB, GB or TB), decimals=0-6, color=string, compare=metricPath (a second bar beside each), compareLabel=string, visible=function()->bool, span=n, size=string, refresh=seconds (at least 30)}; samples are kept metrics.retentionDays (default 7) days
 -- @api public
 function DashboardBuilder:bars(id, label, metricPath, opts)
     if not self._currentSection then
