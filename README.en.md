@@ -1,4 +1,4 @@
-# vCLU
+# vclu
 
 [Polski](README.md) | **English**
 
@@ -9,11 +9,11 @@
 [![codecov](https://codecov.io/gh/Domktorymysli/vclu/graph/badge.svg)](https://codecov.io/gh/Domktorymysli/vclu)
 [![License](https://img.shields.io/badge/license-BSL%201.1-blue.svg)](LICENSE)
 
-vCLU is for owners of a [Grenton](https://www.grenton.com/) smart home installation. It joins the network as another CLU (Grenton's controller) and as a client of your CLUs: it imports the project from Object Manager, knows your outputs, dimmers, rollers and sensors, and adds what a CLU lacks: a history of changes that records who changed what, Satel alarms, HomeKit, Home Assistant, MQTT, Modbus and wall-tablet dashboards. It runs on a Raspberry Pi or any small Linux box.
+vclu is for owners of a [Grenton](https://www.grenton.com/) smart home installation. It joins the network as another CLU (Grenton's controller) and as a client of your CLUs: it imports the project from Object Manager, knows your outputs, dimmers, rollers and sensors, and adds what a CLU lacks: a history of changes that records who changed what, Satel alarms, HomeKit, Home Assistant, MQTT, Modbus and wall-tablet dashboards. It runs on a Raspberry Pi or any small Linux box.
 
-You write automations in the same Lua as on a CLU, but you don't have to write them yourself. An AI agent (Claude Code, Codex, Gemini and others) works on them over MCP: it writes a draft, tests it in a sandbox on a virtual clock, with commands to the CLU recorded instead of sent, and only then deploys it, with a backup of every change. Agents can already change any system; in vCLU an agent first has to show that the change works.
+You write automations in the same Lua as on a CLU, but you don't have to write them yourself. An AI agent (Claude Code, Codex, Gemini and others) works on them over MCP: it writes a draft, tests it in a sandbox on a virtual clock, with commands to the CLU recorded instead of sent, and only then deploys it, with a backup of every change. Agents can already change any system; in vclu an agent first has to show that the change works.
 
-**No Grenton?** vCLU is also an environment where you or an agent write the integrations Home Assistant lacks. Anything you can read over HTTP, MQTT, Modbus or UDP becomes an object in a few lines of Lua, and `expose` sends it to Home Assistant, Apple Home, or over MQTT to Node-RED. It runs on much smaller hardware than Home Assistant: in the author's house it takes about 75 MB of RAM, and there are builds down to the first Raspberry Pi and the Zero (ARMv6).
+**No Grenton?** vclu is also an environment where you or an agent write the integrations Home Assistant lacks. Anything you can read over HTTP, MQTT, Modbus or UDP becomes an object in a few lines of Lua, and `expose` sends it to Home Assistant, Apple Home, or over MQTT to Node-RED. It runs on much smaller hardware than Home Assistant: in the author's house it takes about 75 MB of RAM, and there are builds down to the first Raspberry Pi and the Zero (ARMv6).
 
 <p align="center">
   <img src="docs/images/dashboard.png" alt="A dashboard defined in Lua" width="32%">
@@ -64,11 +64,11 @@ And the test an agent runs before this goes live. It runs on a virtual clock, wi
 }
 ```
 
-## Why vCLU
+## Why vclu
 
 **Code, not configuration.** Automations, scenes, dashboards and virtual devices are Lua files. They can be read, diffed, reviewed, tested and generated, by you or by an agent.
 
-**Safe for AI agents on a live house.** The built-in MCP server does not just expose "turn on the light". Agents write drafts, test them in an isolated sandbox with a virtual clock, see a diff against production, and promote with a backup. After a promote vCLU checks that the modules loaded and reports errors to the agent; the previous version is one click away in the backups. Each bot has its own token and its own view of the house: objects can be `full`, `readonly` or `hidden` per bot.
+**Safe for AI agents on a live house.** The built-in MCP server does not just expose "turn on the light". Agents write drafts, test them in an isolated sandbox with a virtual clock, see a diff against production, and promote with a backup. After a promote vclu checks that the modules loaded and reports errors to the agent; the previous version is one click away in the backups. Each bot has its own token and its own view of the house: objects can be `full`, `readonly` or `hidden` per bot.
 
 **It knows who changed what.** Every state change carries `origin` and `actor`: a wall switch (`grenton`), the alarm (`physical`, `device:satel`), a person in the web UI (`user:<login>`), an agent (`agent:<bot>`), Home Assistant (`service:home-assistant`) or your own automation (`automation:<id>`). History is kept on disk and browsable, so "why did the light turn on at 3 a.m.?" has an answer.
 
@@ -118,11 +118,11 @@ docker run -d --name vclu \
   ghcr.io/domktorymysli/vclu:latest
 ```
 
-`--log-opt` caps the container log at 3 files of 10 MB. vCLU writes messages from info up; `"log": { "level": "debug" }` in `.vclu.json` adds debug ones (`warn`, `error`: only warnings and errors). The panel's log page and `vclu_logs` always have them.
+`--log-opt` caps the container log at 3 files of 10 MB. vclu writes messages from info up; `"log": { "level": "debug" }` in `.vclu.json` adds debug ones (`warn`, `error`: only warnings and errors). The panel's log page and `vclu_logs` always have them.
 
 `--network host` is needed for UDP broadcast (Grenton discovery) and mDNS (HomeKit).
 
-In the container vCLU runs as the user `vclu` (UID/GID 1000), not as root. On start the container hands the data directory to it, so a volume from an earlier image keeps working as it is; a host directory mounted as `/data` (`-v /path:/data`) is given owner 1000:1000 too. Port 69/udp (TFTP) opens through a capability given to the binary, without `--cap-add`. With `--security-opt no-new-privileges` that capability does not apply and TFTP does not start; with `--cap-drop ALL` add `--cap-add NET_BIND_SERVICE`, or vCLU does not start. `docker ps` shows the state from `/api/health` (`healthy`/`unhealthy`). `docker exec` enters as root by default; `docker exec -u vclu` as vCLU's user.
+In the container vclu runs as the user `vclu` (UID/GID 1000), not as root. On start the container hands the data directory to it, so a volume from an earlier image keeps working as it is; a host directory mounted as `/data` (`-v /path:/data`) is given owner 1000:1000 too. Port 69/udp (TFTP) opens through a capability given to the binary, without `--cap-add`. With `--security-opt no-new-privileges` that capability does not apply and TFTP does not start; with `--cap-drop ALL` add `--cap-add NET_BIND_SERVICE`, or vclu does not start. `docker ps` shows the state from `/api/health` (`healthy`/`unhealthy`). `docker exec` enters as root by default; `docker exec -u vclu` as vclu's user.
 
 GPIO on a Raspberry Pi: add `--device /dev/gpiomem`; the container gives `vclu` access to the device (adds it to the device's group, and hands a device of group root to the group `vclu`).
 
@@ -294,9 +294,9 @@ Contributions are welcome, including ones written with AI agents. That is what t
 
 ## Demo
 
-[![vCLU intro](https://img.youtube.com/vi/POgNGuUyhSU/maxresdefault.jpg)](https://www.youtube.com/watch?v=POgNGuUyhSU)
+[![vclu intro](https://img.youtube.com/vi/POgNGuUyhSU/maxresdefault.jpg)](https://www.youtube.com/watch?v=POgNGuUyhSU)
 
-Introduction to vCLU: installation on a Raspberry Pi, GPIO, MQTT, Home Assistant integration.
+Introduction to vclu: installation on a Raspberry Pi, GPIO, MQTT, Home Assistant integration.
 
 ## Links
 
@@ -305,13 +305,13 @@ Introduction to vCLU: installation on a Raspberry Pi, GPIO, MQTT, Home Assistant
 - [vclu-plugins](https://github.com/Domktorymysli/vclu-plugins): plugin repository (Salda, SolaX, Supla, Modbus, Frigate, Telegram and more)
 - [domktorymysli.org](https://domktorymysli.org/): the author's blog, Dom który myśli (Polish)
 - [Facebook: Dom który myśli](https://www.facebook.com/domktorymysli)
-- [Discord](https://discord.gg/9cgrnXkVP): vCLU community: questions and help (mostly Polish)
+- [Discord](https://discord.gg/9cgrnXkVP): vclu community: questions and help (mostly Polish)
 
 ## Documentation
 
 - [docs.vclu.pl](https://docs.vclu.pl)
 - [Lua API reference](docs/ai/lua-api-reference.md) and [code patterns](docs/ai/examples.md) (also served to agents over MCP)
-- [Connecting another system to vCLU](docs/integrating.md): when to use MQTT and when MCP, topics, commands and access profiles
+- [Connecting another system to vclu](docs/integrating.md): when to use MQTT and when MCP, topics, commands and access profiles
 
 ## License
 
