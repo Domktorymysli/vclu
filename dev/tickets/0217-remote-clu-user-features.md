@@ -1,4 +1,4 @@
-# #NNNN: Read and write user features on a remote CLU
+# #217: Read and write user features on a remote CLU
 
 - **Type:** feature
 - **Area:** grenton, lua-runtime
@@ -39,7 +39,7 @@ does not answer, so `execute` times out (checked on 2026-11-11, docs fixed). The
 - [ ] `execute` with a script starting with `return` logs a warning instead of a bare timeout.
 - [ ] Checked on a real CLU: read and write of a number and a string feature.
 - [ ] `go test ./...` and `go test -race ./...` pass.
-- [ ] A changelog entry in `changelog.d/NNNN-remote-clu-user-features.md`.
+- [ ] A changelog entry in `changelog.d/0217-remote-clu-user-features.md`.
 
 ## Contract impact
 Lua API: new behaviour of `CLU_REMOTE:get/set` (today no-ops). No decision record needed.
