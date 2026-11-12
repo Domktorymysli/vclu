@@ -92,7 +92,7 @@ OmFilesManager.prototype.upload = function() {
         if (data.error) {
             result.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> ' +
                               VCLU.esc(data.error) + '</div>';
-        } else if (data.isZip) {
+        } else if (data.isZip || data.isProject) {
             result.innerHTML = self._renderZipResult(data);
             fileInput.value = '';
             self.loadFiles();
@@ -125,9 +125,10 @@ OmFilesManager.prototype.upload = function() {
  */
 OmFilesManager.prototype._renderZipResult = function(data) {
     var html = '<div class="alert alert-' + (data.success ? 'success' : 'warning') + '">';
-    html += '<h6><i class="bi bi-file-earmark-zip"></i> ' +
-            (this.translations.diagnosticPack || 'Diagnostic Pack') + ': ' +
-            VCLU.esc(data.originalName) + '</h6>';
+    var title = data.isProject ? (this.translations.project || 'Object Manager project') :
+                                 (this.translations.diagnosticPack || 'Diagnostic Pack');
+    html += '<h6><i class="bi bi-file-earmark-zip"></i> ' + title + ': ' +
+            VCLU.esc(data.originalName) + (data.omVersion ? ' (OM ' + VCLU.esc(data.omVersion) + ')' : '') + '</h6>';
     html += '<p class="mb-2">' + (this.translations.imported || 'Imported') + ': <strong>' +
             data.imported + '</strong> ' + (this.translations.cluFiles || 'CLU files');
 
@@ -149,6 +150,21 @@ OmFilesManager.prototype._renderZipResult = function(data) {
     if (data.skippedList && data.skippedList.length > 0) {
         html += '<div class="text-muted small"><i class="bi bi-skip-forward"></i> ' +
                (this.translations.skipped || 'Skipped') + ': ' + data.skippedList.map(VCLU.esc).join(', ') + '</div>';
+    }
+
+    if (data.agentDocs) {
+        html += '<div class="text-muted small"><i class="bi bi-robot"></i> ' +
+               (this.translations.agentDocs || 'Event bindings and scripts for the agent') + ': ' +
+               VCLU.esc(data.agentDocs) + '/</div>';
+    }
+
+    if (data.warnings && data.warnings.length > 0) {
+        html += '<div class="text-warning mt-2"><strong>' +
+               (this.translations.warnings || 'Left out') + ':</strong><ul class="mb-0">';
+        data.warnings.forEach(function(w) {
+            html += '<li>' + VCLU.esc(w) + '</li>';
+        });
+        html += '</ul></div>';
     }
 
     if (data.errors && data.errors.length > 0) {
