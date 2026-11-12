@@ -46,7 +46,13 @@ end
 
 -- The CLU puts return before the script itself; "return x" is a syntax error there and gets no answer
 local function warnReturn(id, script)
-    if type(script) == "string" and (script:match("^%s*return$") or script:match("^%s*return[^%w_]")) then
+    if type(script) ~= "string" then return end
+    local code = script
+    repeat
+        local rest = code:match("^%s*%-%-[^\n]*\n(.*)$")
+        code = rest or code
+    until not rest
+    if code:match("^%s*return$") or code:match("^%s*return[^%w_]") then
         Logger:getShared():warn("CLU_REMOTE %s: the CLU adds return itself, send the expression without it: %s",
             tostring(id), script)
     end
@@ -116,7 +122,8 @@ end
 -- A user feature name goes into the script as is, so only a Lua identifier is accepted
 local function featureName(name)
     if type(name) ~= "string" or not name:match("^[%a_][%w_]*$") then
-        error("CLU_REMOTE: feature name must be a Lua identifier, got " .. tostring(name), 3)
+        local hint = type(name) == "number" and " (a feature by index: execute(0, \"CLU...:get(n)\"))" or ""
+        error("CLU_REMOTE: feature name must be a Lua identifier, got " .. tostring(name) .. hint, 3)
     end
     return name
 end
@@ -139,12 +146,16 @@ local function literal(value)
     error("CLU_REMOTE: cannot send a " .. t .. " value", 3)
 end
 
--- Sends a script and waits for the answer, like execute but logged at debug
-function CLU_REMOTE:_ask(script)
+-- Sends a script and waits for the answer, like execute but logged at debug. No result
+-- and no error is the sandbox, which records the script and does not answer
+function CLU_REMOTE:_ask(what, script)
     if not __go_send_command then return nil, "command sender not configured" end
     Logger:getShared():debug("CLU_REMOTE %s <- %s", tostring(self.id), script)
     local result, err = __go_send_command(numericIPToString(self.address), script)
-    if err then return nil, err end
+    if err then
+        Logger:getShared():warn("CLU_REMOTE %s: %s failed: %s", tostring(self.id), what, tostring(err))
+        return nil, err
+    end
     if result == nil then return nil, "no answer" end
     return result
 end
@@ -157,17 +168,16 @@ end
 function CLU_REMOTE:get(name)
     featureName(name)
     -- The CLU answers with plain text, so the type is sent along with the value
-    local result, err = self:_ask('(function() local v = getVar("' .. name ..
+    local result, err = self:_ask("get(" .. name .. ")", '(function() local v = getVar("' .. name ..
         '") return type(v) .. ":" .. tostring(v) end)()')
-    if err then
-        Logger:getShared():warn("CLU_REMOTE %s: get(%s) failed: %s", tostring(self.id), name, tostring(err))
-        return nil, err
-    end
+    if err then return nil, err end
     local t, text = result:match("^(%a+):(.*)$")
     if t == "nil" then return nil end
     if t == "string" then return text end
     if t == "boolean" then return text == "true" end
-    if t == "number" and tonumber(text) then return tonumber(text) end
+    -- gopher-lua reads "1e+15" (Lua 5.1 prints big and small numbers so) only with a point
+    local n = t == "number" and (tonumber(text) or tonumber((text:gsub("^([+-]?%d+)([eE])", "%1.0%2"))))
+    if n then return n end
     return nil, "unexpected answer: " .. result
 end
 
@@ -178,11 +188,8 @@ end
 -- @return boolean true when the CLU answered, or nil and an error
 function CLU_REMOTE:set(name, value)
     featureName(name)
-    local _, err = self:_ask('setVar("' .. name .. '", ' .. literal(value) .. ')')
-    if err then
-        Logger:getShared():warn("CLU_REMOTE %s: set(%s) failed: %s", tostring(self.id), name, tostring(err))
-        return nil, err
-    end
+    local _, err = self:_ask("set(" .. name .. ")", 'setVar("' .. name .. '", ' .. literal(value) .. ')')
+    if err then return nil, err end
     return true
 end
 

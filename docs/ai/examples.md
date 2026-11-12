@@ -443,7 +443,7 @@ CLU220000592:set("temp_zadana", 21)                    -- true, or nil, err
 - The first argument is ignored; the script is plain Lua run on the CLU. The CLU puts `return` before it, so send the expression alone (`"THE0855:get(5)"`, not `"return THE0855:get(5)"`, which gets no reply); wrap several statements as `"(function() ... return x end)()"`.
 - `execute` blocks the vCLU event loop until the CLU replies, up to 5 s when the CLU is offline or the reply is lost (the CLU does drop UDP packets). Do not call it in a loop or from frequent timers; prefer `executeNoReply` for commands.
 - Changes the script makes to proxied objects come back as CLU reports, so history records them with actor `device:<CLU>`, not your automation. Objects without a proxy do not appear in history at all.
-- In `vclu_draft_test` the script is recorded in `clu_calls` instead of being sent; `execute` returns no reply there.
+- In `vclu_draft_test` the script is recorded in `clu_calls` instead of being sent; `execute` returns no reply there, `get` and `set` return `nil, "no answer"`.
 - Check the script name and arguments in OM first; a typo only shows up as an error reply from the CLU.
 
 ## Dashboard (Lua-defined)
