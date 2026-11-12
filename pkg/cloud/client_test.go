@@ -736,3 +736,21 @@ func TestLimitListener(t *testing.T) {
 	}
 	second.Close()
 }
+
+// The token and the pairing's answer never cross a network without TLS.
+func TestEncryptedOnly(t *testing.T) {
+	for raw, ok := range map[string]bool{
+		"https://cloud.vclu.pl":          true,
+		"wss://cloud.vclu.pl/v1/connect": true,
+		"http://127.0.0.1:8080":          true,
+		"ws://localhost:8080/v1/connect": true,
+		"http://[::1]:8080":              true,
+		"http://cloud.vclu.pl":           false,
+		"ws://192.168.0.10/v1/connect":   false,
+		"ftp://cloud.vclu.pl":            false,
+	} {
+		if err := encrypted(raw); (err == nil) != ok {
+			t.Errorf("encrypted(%q) = %v", raw, err)
+		}
+	}
+}

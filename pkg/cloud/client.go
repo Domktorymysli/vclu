@@ -19,6 +19,7 @@ import (
 	"math/rand/v2"
 	"net"
 	"net/http"
+	neturl "net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -616,6 +617,9 @@ func (c *Client) connect(ctx context.Context, cfg config.VCLUCloudConfig) error 
 			s.State, s.Since = StateConnecting, time.Now()
 		}
 	})
+	if err := encrypted(cfg.ConnectURL); err != nil {
+		return err
+	}
 	dialer := websocket.Dialer{Proxy: http.ProxyFromEnvironment, HandshakeTimeout: 15 * time.Second}
 	ws, resp, err := dialer.DialContext(ctx, cfg.ConnectURL+fmt.Sprintf("?v=%d", proto.Version),
 		http.Header{"Authorization": {"Bearer " + cfg.Token}})
@@ -1071,6 +1075,9 @@ func (c *Client) setStatus(fn func(*Status)) {
 // post sends a JSON request to the cloud. It returns the HTTP status and,
 // for an error answer, the protocol error code.
 func (c *Client) post(ctx context.Context, url, token string, in, out any) (int, string, error) {
+	if err := encrypted(url); err != nil {
+		return 0, "", err
+	}
 	var body io.Reader
 	if in != nil {
 		b, _ := json.Marshal(in)
@@ -1193,4 +1200,25 @@ type limitedConn struct {
 func (c *limitedConn) Close() error {
 	c.once.Do(c.release)
 	return c.Conn.Close()
+}
+
+// encrypted refuses a cloud address without TLS (http://, ws://) unless it is this machine's:
+// the device token and the pairing's answer must not cross a network in the clear, whatever
+// cloud.url in .vclu.json or the cloud's connect URL says.
+func encrypted(raw string) error {
+	u, err := neturl.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("cloud address %q: %w", raw, err)
+	}
+	switch u.Scheme {
+	case "https", "wss":
+		return nil
+	case "http", "ws":
+		h := u.Hostname()
+		if ip := net.ParseIP(h); h == "localhost" || (ip != nil && ip.IsLoopback()) {
+			return nil
+		}
+		return fmt.Errorf("cloud address %q is not encrypted: use https", raw)
+	}
+	return fmt.Errorf("cloud address %q: unknown scheme", raw)
 }
