@@ -323,6 +323,11 @@
         return r.json();
     }
 
+    // Swallows what okJSON throws for an error status; any other error is the code's: logged
+    function httpOnly(e) {
+        if (!/^HTTP \d+$/.test(e && e.message)) console.error(e);
+    }
+
     function fetchJSON(url, opts) {
         return fetch(url, opts).then(function(r) {
             if (r.status === 404) return { _notFound: true };
@@ -3169,7 +3174,7 @@
                     });
                 }
             })
-            .catch(function() {}); // a busy or offline vCLU: the next refresh asks again
+            .catch(httpOnly); // a busy or offline vCLU: the next refresh asks again
     }
 
     function fetchSparkline(w, canvas) {
@@ -3223,7 +3228,7 @@
                     });
                 }
             })
-            .catch(function() {}); // a busy or offline vCLU: the next refresh asks again
+            .catch(httpOnly); // a busy or offline vCLU: the next refresh asks again
     }
 
     // ---- Bars: one bar per hour or day of the house's zone, aggregated by the server ----
