@@ -11,6 +11,9 @@
 -- @type ExposedHandle
 local ExposedHandle = {}
 local checkOptions -- defined after capabilities
+
+-- A pulse switch (expose option pulse = ms): a gate, an intercom's door release
+local PULSE_MIN_MS, PULSE_MAX_MS = 100, 60000
 local climateRange -- defined after capabilities
 
 -- Counts changes of what is exposed and how; dashboards reuse their rooms until it moves.
@@ -368,6 +371,46 @@ function ExposedHandle:setValue(value)
     if self.type == "climate" then
         return self:_setTarget(value)
     end
+    if self.options.pulse then
+        local n = tonumber(value)
+        if value == true or (n and n > 0) then return self:_pulse() end
+        return true -- off: the pulse switches itself off
+    end
+    return self:_write(value)
+end
+
+-- A pulse switch's "on" from any way in (setValue, the cloud): on for options.pulse ms, then
+-- off by itself. Its own pulse(ms) when it has one (a Grenton DOUT is timed on the CLU, so a
+-- vCLU restart cannot leave it on), else on and a timer for the off. A pulse asked while one
+-- runs is ignored: a second press must not move a gate twice.
+-- @return boolean Success
+function ExposedHandle:_pulse()
+    local obj, ms = self.object, self.options.pulse
+    if self._pulsing then return true end
+    local ok
+    if type(obj) == "table" and type(obj.pulse) == "function" then
+        ok = pcall(obj.pulse, obj, ms)
+        if ok then self._lastChanged = os.time() end
+    else
+        ok = self:_write(1)
+    end
+    if not ok then return false end
+    self._pulsing = true
+    local native = type(obj) == "table" and type(obj.pulse) == "function"
+    local function done()
+        self._pulsing = nil
+        if not native and self._exposed then self:_write(0) end
+    end
+    if TIMERS then
+        TIMERS:setTimeout(ms, done)
+    else
+        done()
+    end
+    return true
+end
+
+-- Writes feature 0 and records the change (setValue without its checks)
+function ExposedHandle:_write(value)
     if self.object and type(self.object.set) == "function" then
         local obj = self.object
         local old, stateful = StateChange.read(obj)
@@ -463,6 +506,16 @@ checkOptions = function(objType, opts)
     if opts.dashboard ~= nil and type(opts.dashboard) ~= "boolean" then
         error("ExposedObjects:expose() - dashboard must be true or false", 3)
     end
+    if opts.pulse ~= nil and opts.pulse ~= false then
+        if objType ~= "switch" then
+            error("ExposedObjects:expose() - pulse is for a switch, not '" .. tostring(objType) .. "'", 3)
+        end
+        local ms = opts.pulse
+        if type(ms) ~= "number" or ms % 1 ~= 0 or ms < PULSE_MIN_MS or ms > PULSE_MAX_MS then
+            error("ExposedObjects:expose() - pulse must be milliseconds, a whole number from " ..
+                PULSE_MIN_MS .. " to " .. PULSE_MAX_MS, 3)
+        end
+    end
 end
 
 -- ==========================================================================
@@ -551,6 +604,8 @@ end
 -- @param obj table Object to expose (must implement get(0))
 -- @param objType string Type: switch, light, dimmer, sensor, temperature, etc.
 -- @param options table Optional settings: name, path, id, readonly, hidden, mqtt, homekit, group,
+--   pulse = ms for a switch that must only pulse (a gate, an intercom): "on" from any integration
+--   switches it on for that long (100-60000 ms), "off" does nothing,
 --   filter = {delta, heartbeat} for noisy numeric sensors (see StateChange.setFilter),
 --   history = false to keep the object's changes out of the history store,
 --   min/max/step for a number or a climate (a climate's target is clamped to min/max),
@@ -941,7 +996,8 @@ local function deviceEntry(path, h, access, roles)
     local obj = h.object
     local name = plainString(o.name) or (type(obj) == 'table' and plainString(obj._name)) or tostring(path)
     local e = { path = tostring(path), type = tostring(h.type), name = name,
-        area = plainString(o.area), floor = plainString(o.floor), access = access }
+        area = plainString(o.area), floor = plainString(o.floor), access = access,
+        pulse = (o.pulse and h.type == 'switch') and true or nil }
     if roles and #roles > 0 then
         local copy = {}
         for i = 1, #roles do copy[i] = roles[i] end
@@ -1428,6 +1484,12 @@ end
 --- Global function to expose an object.
 -- A custom object's onChange(cb) must return a function that removes cb: unexpose() calls it,
 -- otherwise the callback stays registered and expose() logs a warning.
+-- Options include pulse = ms for a switch that must only pulse, a gate or an intercom's door release:
+-- expose(DOMOFON, "switch", { id = "domofon", name = "Domofon", pulse = 1000 }). "on" from Home
+-- Assistant, HomeKit, the cloud app, voice, bots or API clients switches it on for that long, then it
+-- goes off by itself (a Grenton DOUT is timed on the CLU); "off" does nothing, and through the cloud
+-- "open" and "close" pulse too. A pulse asked while one runs is ignored. Lua calling the object
+-- itself (DOMOFON:switchOn()) is not limited.
 -- @api public
 -- @param obj table Object to expose
 -- @param objType string Type (switch, light, sensor, etc.)

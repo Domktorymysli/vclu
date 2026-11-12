@@ -46,6 +46,12 @@ function RemoteSwitch:switchOn(time)
     if time and time > 0 then StateChange.expectLater(self, 0, time) else StateChange.forgetExpected(self) end
 end
 
+--- One pulse: on for ms, switched off by the CLU itself (expose option pulse)
+-- @param ms number Duration in milliseconds
+function RemoteSwitch:pulse(ms)
+    self:switchOn(ms)
+end
+
 --- Turns the switch off.
 -- @param time number Optional duration in milliseconds
 function RemoteSwitch:switchOff(time)

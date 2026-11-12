@@ -245,6 +245,11 @@ function MCP.execute_method(path, method, argsJson)
         return JSON:encode({ ok = false, error = "device is readonly: " .. path })
     end
 
+    -- a pulse switch only pulses: its own methods (switchOn) could leave a gate's relay on
+    if handle.options.pulse then
+        return JSON:encode({ ok = false, error = "device only pulses, use set_value: " .. path })
+    end
+
     local obj = handle.object
     if not obj then
         return JSON:encode({ ok = false, error = "device object is nil" })

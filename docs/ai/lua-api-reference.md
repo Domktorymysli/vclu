@@ -916,7 +916,7 @@ All exposed objects: the live map, read it and never change it
 
 ### `expose(obj, objType, options) → ExposedHandle`
 
-Global function to expose an object. A custom object's onChange(cb) must return a function that removes cb: unexpose() calls it, otherwise the callback stays registered and expose() logs a warning.
+Global function to expose an object. A custom object's onChange(cb) must return a function that removes cb: unexpose() calls it, otherwise the callback stays registered and expose() logs a warning. Options include pulse = ms for a switch that must only pulse, a gate or an intercom's door release: expose(DOMOFON, "switch", { id = "domofon", name = "Domofon", pulse = 1000 }). "on" from Home Assistant, HomeKit, the cloud app, voice, bots or API clients switches it on for that long, then it goes off by itself (a Grenton DOUT is timed on the CLU); "off" does nothing, and through the cloud "open" and "close" pulse too. A pulse asked while one runs is ignored. Lua calling the object itself (DOMOFON:switchOn()) is not limited.
 
 - `obj` (table) — Object to expose
 - `objType` (string) — Type (switch, light, sensor, etc.)

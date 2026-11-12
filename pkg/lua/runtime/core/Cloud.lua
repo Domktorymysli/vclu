@@ -306,6 +306,8 @@ local ACTIONS = {
     cover = { open = true, close = true, stop = true, set = true },
     scene = { execute = true },
 }
+-- A switch exposed with pulse (a gate, an intercom): "otwórz bramę" is open, and close pulses too
+local PULSE_ACTIONS = { on = true, off = true, open = true, close = true }
 -- Five wrong PINs in a row lock the device, for 30 s, then twice as long each time, up to an
 -- hour: a 4-digit PIN would otherwise fall to a few hundred guesses an hour. The right PIN
 -- clears it all.
@@ -337,6 +339,11 @@ end
 -- when it has none
 local function perform(h, action, value)
     local obj = h.object
+    -- a pulse switch: on, open and close give one pulse, off has nothing to do
+    if h.options and h.options.pulse then
+        if action == 'off' then return true end
+        return run(h._pulse, h)
+    end
     if action == 'set' then
         if h.type == 'dimmer' then
             if hasMethod(obj, 'setBrightness') then return run(obj.setBrightness, obj, value) end
@@ -417,7 +424,7 @@ local function command(h, path, access, action, confirmed, pin, deadlineMs, valu
         pinFails[path] = nil
     end
 
-    local fits = ACTIONS[h.type]
+    local fits = (h.options and h.options.pulse) and PULSE_ACTIONS or ACTIONS[h.type]
     if not fits or not fits[action] then
         return answer(false, 'invalid', 'Tego nie da się zrobić z tym urządzeniem.')
     end
