@@ -280,6 +280,8 @@ function ExposedHandle:unexpose()
         return -- already unexposed
     end
     self._exposed = false
+    -- an access change runs exposeRegistry() again: it must not bring this one back
+    if ExposedObjects._registryOptions then ExposedObjects._dropped[self.object] = true end
     ExposedObjects:_remove(self.path)
 end
 
@@ -494,12 +496,14 @@ ExposedObjects = {
     _pluginContext = nil, -- current plugin ID (set by plugin sandbox)
     _noUnsubscribeWarned = {}, -- weak set: objects already warned about onChange()
     _hidden = {},         -- weak set: objects a module exposed with hidden = true
+    _dropped = {},        -- weak set: objects a module unexposed after exposeRegistry()
 }
 
 -- Make _objectToPath a weak table (keys are garbage collected)
 setmetatable(ExposedObjects._objectToPath, { __mode = "k" })
 setmetatable(ExposedObjects._noUnsubscribeWarned, { __mode = "k" })
 setmetatable(ExposedObjects._hidden, { __mode = "k" })
+setmetatable(ExposedObjects._dropped, { __mode = "k" })
 
 --- Generate a stable path for an object
 -- @param obj table Object to expose
@@ -590,6 +594,7 @@ function ExposedObjects:expose(obj, objType, options)
     end
 
     self._hidden[obj] = nil
+    self._dropped[obj] = nil
 
     -- Check if object was already exposed (identity is locked)
     local existingPath = self._objectToPath[obj]
@@ -864,8 +869,9 @@ end
 -- What the panel's Access page gives a device in the cloud ("full", "readonly" or "hidden") when
 -- Lua's :remote() says nothing about it: hidden until the owner opens it there
 local function panelCloud(path)
-    if not AccessControl then return 'hidden' end
-    return AccessControl.get('cloud', path)
+    local level = AccessControl and AccessControl.get('cloud', path)
+    if level == 'full' or level == 'readonly' then return level end
+    return 'hidden' -- anything else, a typo in the access file too, keeps it closed
 end
 
 -- What a remote command reaches: the handle when it is exposed with :remote() and, with
@@ -912,11 +918,12 @@ function ExposedObjects._remoteAccess(h)
     return ExposedObjects._deviceAccess(h)
 end
 
--- What a client of the device API reaches (Cloud._clientCommand): any exposed device; one with
+-- What a client of the device API reaches (Cloud._clientCommand): any exposed device but those
+-- exposed only for the cloud; one with
 -- remote{pin = true} only once it has a PIN, as for the cloud
 function ExposedObjects:_deviceHandle(path)
     local h = self._objects[path]
-    if not h or not h._exposed or h._hidden then return nil end
+    if not h or not h._exposed or h._hidden or h._cloudOnly then return nil end
     if h._remote and h._remote.pin and not h._pin then return nil end
     return h
 end
@@ -965,7 +972,17 @@ end
 --- The panel's access changed (LuaAPI.syncProfiles): once exposeRegistry() has run, registry
 -- objects it opens are exposed now, not at the next reload, and the cloud gets its list again
 function ExposedObjects:accessChanged()
-    if self._registryOptions then self:exposeRegistry(self._registryOptions) end
+    if not self._registryOptions then return changed() end
+    -- a handle made only for the cloud goes once the cloud closes, or once MQTT or HomeKit
+    -- opens (exposeRegistry makes it again with their options)
+    for path, h in pairs(self._objects) do
+        if h._cloudOnly and (panelCloud(path) == 'hidden' or not AccessControl.isHidden("mqtt", path)
+            or not AccessControl.isHidden("homekit", path)) then
+            h._exposed = false
+            self:_remove(path)
+        end
+    end
+    self:exposeRegistry(self._registryOptions)
     changed()
 end
 
@@ -1295,6 +1312,8 @@ function ExposedObjects:exposeRegistry(options)
         elseif self._hidden[obj] then
             -- a module exposed it with hidden = true
             skipped = skipped + 1
+        elseif self._dropped[obj] then
+            -- a module unexposed it after load
         elseif self:_handleOf(obj) then
             -- a module exposed it already (maybe under its own path): its options stay, but
             -- the panel's access set on the registry path still takes it off an integration
@@ -1361,6 +1380,10 @@ function ExposedObjects:exposeRegistry(options)
                         Logger:getShared():warn("[ExposedObjects] Failed to expose %s: %s", path, tostring(err))
                     end
                 end
+                -- exposed only because the cloud is open for it: bots and API clients do not
+                -- see it, and accessChanged takes it back when the cloud closes
+                local h = self:_handleOf(obj)
+                if h then h._cloudOnly = (mqttHidden and homekitHidden) or nil end
             end
         end
     end

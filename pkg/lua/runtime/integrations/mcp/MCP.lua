@@ -5,6 +5,12 @@
 
 local MCP = {}
 
+-- A handle bots may see: exposed, and not only for vclu cloud (the Access page's cloud column
+-- does not open a device to bots)
+local function visible(h)
+    return h ~= nil and h:isExposed() and not h._cloudOnly
+end
+
 --- List all exposed devices, optionally filtered.
 -- @param filterJson string|nil JSON filter object or legacy type string
 -- @return string JSON array of devices
@@ -26,7 +32,7 @@ function MCP.list_devices(filterJson)
 
     local results = {}
     for path, handle in pairs(ExposedObjects:list()) do
-        if handle:isExposed() then
+        if visible(handle) then
             local include = true
 
             -- Filter by type
@@ -127,7 +133,7 @@ function MCP.get_device(path)
     end
 
     local handle = ExposedObjects:get(path)
-    if not handle or not handle:isExposed() then
+    if not visible(handle) then
         return JSON:encode({ error = "device not found: " .. path })
     end
 
@@ -195,7 +201,7 @@ function MCP.set_value(path, value)
     end
 
     local handle = ExposedObjects:get(path)
-    if not handle or not handle:isExposed() then
+    if not visible(handle) then
         return JSON:encode({ ok = false, error = "device not found: " .. path })
     end
 
@@ -231,7 +237,7 @@ function MCP.execute_method(path, method, argsJson)
     end
 
     local handle = ExposedObjects:get(path)
-    if not handle or not handle:isExposed() then
+    if not visible(handle) then
         return JSON:encode({ ok = false, error = "device not found: " .. path })
     end
 
@@ -280,7 +286,7 @@ function MCP.list_scenes()
 
     local results = {}
     for path, handle in pairs(ExposedObjects:list()) do
-        if handle:isExposed() and handle.type == "scene" then
+        if visible(handle) and handle.type == "scene" then
             table.insert(results, {
                 path = path,
                 name = handle.options.name or path,
@@ -304,7 +310,7 @@ function MCP.execute_scene(path)
     end
 
     local handle = ExposedObjects:get(path)
-    if not handle or not handle:isExposed() then
+    if not visible(handle) then
         return JSON:encode({ ok = false, error = "scene not found: " .. path })
     end
 

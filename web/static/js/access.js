@@ -414,8 +414,14 @@ AccessControl.prototype._createCloudCell = function(obj) {
     }
     var head = document.getElementById('cloudHeader');
     var t = function(key) { return (head && head.dataset[key]) || key; };
+    // a level the page still keeps for it takes over once Lua stops naming the device: show it,
+    // with a select to hide it
+    var kept = (obj.access && obj.access.cloud) || 'hidden';
+    var keptHTML = kept === 'hidden' ? '' :
+        '<div class="small text-warning mt-1" title="' + VCLU.esc(t('pageKept')) + '"><i class="bi bi-exclamation-triangle"></i> ' +
+        this._createSelect(obj.path, 'cloud', kept) + '</div>';
     if (cloud === false) {
-        return '<span class="text-muted" title="' + VCLU.esc(t('luaOff')) + '">— <small>Lua</small></span>';
+        return '<span class="text-muted" title="' + VCLU.esc(t('luaOff')) + '">— <small>Lua</small></span>' + keptHTML;
     }
     var html = (cloud.roles && cloud.roles.length)
         ? cloud.roles.map(function(r) { return '<span class="badge text-bg-secondary me-1">' + VCLU.esc(r) + '</span>'; }).join('')
@@ -427,7 +433,7 @@ AccessControl.prototype._createCloudCell = function(obj) {
     } else if (cloud.access === 'readonly') {
         html += ' <i class="bi bi-eye" title="' + VCLU.esc(t('readonly')) + '"></i>';
     }
-    return '<span title="' + VCLU.esc(t('lua')) + '">' + html + ' <small class="text-muted">Lua</small></span>';
+    return '<span title="' + VCLU.esc(t('lua')) + '">' + html + ' <small class="text-muted">Lua</small></span>' + keptHTML;
 };
 
 /**

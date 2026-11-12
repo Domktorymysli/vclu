@@ -813,3 +813,31 @@ func TestCloudHiddenByDefault(t *testing.T) {
 		t.Errorf("after reset: cloud = %s", got)
 	}
 }
+
+// A legacy per-object file naming the cloud opens only what it names: its profile defaults to
+// hidden, and an object set to full there stays full.
+func TestMigrateLegacyCloudStaysClosed(t *testing.T) {
+	dir := t.TempDir()
+	file := `objects:
+    CLU1.DOU1:
+        cloud: full
+    CLU1.DOU2:
+        cloud: hidden
+        mqtt: readonly
+`
+	if err := os.WriteFile(filepath.Join(dir, "access_control.yaml"), []byte(file), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := NewManager(dir)
+	if err := m.Load(); err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range map[string]AccessLevel{"CLU1.DOU1": AccessFull, "CLU1.DOU2": AccessHidden, "CLU1.DOU3": AccessHidden} {
+		if got := m.GetAccess(IntegrationCloud, path); got != want {
+			t.Errorf("cloud %s = %s, want %s", path, got, want)
+		}
+	}
+	if got := m.GetAccess(IntegrationMQTT, "CLU1.DOU3"); got != AccessFull {
+		t.Errorf("mqtt CLU1.DOU3 = %s", got)
+	}
+}

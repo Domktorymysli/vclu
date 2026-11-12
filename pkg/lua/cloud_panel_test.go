@@ -91,3 +91,88 @@ func TestCloudPanelExposesRegistryObject(t *testing.T) {
 		t.Errorf("exposed for the cloud, mqtt = %s", v)
 	}
 }
+
+// A level the access file does not know (a typo, an empty default) keeps the cloud closed: only
+// exactly "full" or "readonly" open a device.
+func TestCloudPanelTypoStaysClosed(t *testing.T) {
+	engine, _, _ := newHistoryEngine(t)
+	c := commander{t, engine}
+	luaOK(t, engine, `
+		for i, id in ipairs({ "a", "b" }) do
+			local sw = VirtualSwitch:new(id)
+			registerObject("virt." .. id, sw)
+			expose(sw, "light")
+		end
+		LuaAPI.syncProfiles({ typo = { default = "", objects = { ["virt.a"] = "Readonly" } } }, { cloud = { "typo" } })`)
+	if got := remoteNames(t, engine); got != "" {
+		t.Errorf("remoteList = %q", got)
+	}
+	for _, path := range []string{"virt.a", "virt.b"} {
+		if a := c.run(path, "on", "[]", false, ""); a.Reason != "not_found" {
+			t.Errorf("%s = %+v", path, a)
+		}
+	}
+}
+
+// A registry object exposed only because the cloud is open for it stays out of bots' and API
+// clients' reach, goes when the cloud closes, and comes back as an ordinary handle once MQTT
+// opens it.
+func TestCloudOnlyHandle(t *testing.T) {
+	engine, _, _ := newHistoryEngine(t)
+	syncCloud(t, engine, `{ ["CLU1.DOU1"] = "full" }`, true)
+	luaOK(t, engine, `
+		registerObject("CLU1.DOU1", VirtualSwitch:new("dou1"))
+		exposeRegistry()`)
+	if got := remoteNames(t, engine); got != "CLU1.DOU1=full" {
+		t.Fatalf("remoteList = %q", got)
+	}
+	for what, script := range map[string]string{
+		"MCP.list_devices": `MCP.list_devices(nil)`,
+		"MCP.get_device":   `MCP.get_device("CLU1.DOU1")`,
+		"MCP.set_value":    `MCP.set_value("CLU1.DOU1", 1)`,
+		"deviceList":       `JSON.encode(ExposedObjects:deviceList())`,
+		"clientCommand":    `Cloud._clientCommand("CLU1.DOU1", "on", "full", false, "", 0)`,
+	} {
+		out := mustExec(t, engine, script)
+		if strings.Contains(out, `"ok":true`) || (strings.Contains(out, "dou1") && !strings.Contains(out, "not found")) {
+			t.Errorf("%s reaches a cloud-only device: %s", what, out)
+		}
+	}
+
+	syncCloud(t, engine, `{}`, true)
+	if got := remoteNames(t, engine); got != "" {
+		t.Errorf("remoteList after closing = %q", got)
+	}
+	if v := mustExec(t, engine, `tostring(ExposedObjects._objects["CLU1.DOU1"] ~= nil)`); v != "false" {
+		t.Errorf("the cloud-only handle stays after the cloud closed")
+	}
+
+	luaOK(t, engine, `LuaAPI.syncProfiles({ ["custom-cloud"] = { default = "hidden" } }, { cloud = { "custom-cloud" } })`)
+	if v := mustExec(t, engine, `(function() local h = ExposedObjects._objects["CLU1.DOU1"]
+		return h and (tostring(h._cloudOnly) .. " " .. tostring(h.options.mqtt ~= false)) or "none" end)()`); v != "nil true" {
+		t.Errorf("opened for MQTT: handle = %s, want an ordinary one", v)
+	}
+	if !strings.Contains(mustExec(t, engine, `MCP.list_devices(nil)`), "CLU1.DOU1") {
+		t.Error("bots do not see a device open for MQTT")
+	}
+}
+
+// A registry object a module unexposes after load stays unexposed through access changes,
+// until a module exposes it again.
+func TestCloudAccessChangeKeepsUnexposed(t *testing.T) {
+	engine, _, _ := newHistoryEngine(t)
+	syncCloud(t, engine, `{}`, false)
+	luaOK(t, engine, `
+		_dou = VirtualSwitch:new("dou1")
+		registerObject("CLU1.DOU1", _dou)
+		exposeRegistry()
+		ExposedObjects:get("CLU1.DOU1"):unexpose()`)
+	syncCloud(t, engine, `{ ["CLU1.DOU1"] = "full" }`, false)
+	if v := mustExec(t, engine, `tostring(ExposedObjects._objects["CLU1.DOU1"] ~= nil)`); v != "false" {
+		t.Error("an access change brought back an object a module unexposed")
+	}
+	luaOK(t, engine, `expose(_dou, "light")`)
+	if got := remoteNames(t, engine); got != "CLU1.DOU1=full" {
+		t.Errorf("exposed again: remoteList = %q", got)
+	}
+}

@@ -156,15 +156,29 @@ func TestAccessListShowsCloudShare(t *testing.T) {
 		}
 	}
 
-	// Opened on the page: v3 reaches the cloud, every member, read-only; v4 stays home
-	for name, level := range map[string]string{"v3": "readonly", "v4": "full"} {
-		body := fmt.Sprintf(`{"path":%q,"integration":"cloud","access":%q}`, got[name].Path, level)
-		if w := e.do(t, "POST", "/api/access", body, "session"); w.Code != http.StatusOK {
-			t.Fatalf("set %s: %d %s", name, w.Code, w.Body)
-		}
+	// Opened on the page: v3 reaches the cloud, every member, read-only; v4 stays home (:remote(false))
+	if w := e.do(t, "POST", "/api/access", fmt.Sprintf(`{"path":%q,"integration":"cloud","access":"readonly"}`, got["v3"].Path), "session"); w.Code != http.StatusOK {
+		t.Fatalf("set v3: %d %s", w.Code, w.Body)
+	}
+	if w := e.do(t, "POST", "/api/access", fmt.Sprintf(`{"path":%q,"integration":"cloud","access":"full"}`, got["v4"].Path), "session"); w.Code != http.StatusConflict {
+		t.Errorf("opening v4, kept home by Lua: %d %s", w.Code, w.Body)
 	}
 	if a := list()["v3"].Access["cloud"]; a != "readonly" {
 		t.Errorf("v3 access.cloud = %q after setting it", a)
+	}
+
+	// Lua decides about v1: the page refuses to open it (the level would take over unseen once Lua
+	// stops naming it), lets it be hidden, and shows a level it still keeps
+	v1 := got["v1"].Path
+	if w := e.do(t, "POST", "/api/access", fmt.Sprintf(`{"path":%q,"integration":"cloud","access":"full"}`, v1), "session"); w.Code != http.StatusConflict {
+		t.Errorf("opening a Lua device: %d %s", w.Code, w.Body)
+	}
+	if w := e.do(t, "POST", "/api/access", fmt.Sprintf(`{"path":%q,"integration":"cloud","access":"hidden"}`, v1), "session"); w.Code != http.StatusOK {
+		t.Errorf("hiding a Lua device: %d %s", w.Code, w.Body)
+	}
+	e.s.accessManager.SetAccess(accesscontrol.IntegrationCloud, v1, accesscontrol.AccessFull) // kept from before Lua named it
+	if o := list()["v1"]; o.Access["cloud"] != "full" || string(o.CloudLua) != `{"access":"full"}` {
+		t.Errorf("v1 = %+v: the kept level is not shown beside Lua's", o)
 	}
 	out, err := engine.Execute(`local s = {}
 		for _, d in ipairs(ExposedObjects:remoteList()) do s[#s + 1] = d.name .. "=" .. d.access .. "/" .. #(d.roles or {}) end

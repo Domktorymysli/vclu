@@ -343,6 +343,7 @@
     "cloud_hint": "Domyślnie ukryte. Full lub Readonly udostępnia urządzenie wszystkim domownikom w chmurze. Gdy Lua ustawia expose(...):remote() (role, PIN, potwierdzenie), decyduje Lua, a tu jest tylko podgląd.",
     "cloud_lua": "Ustawione w Lua przez :remote(): tu tylko podgląd.",
     "cloud_lua_off": "Lua: :remote(false), urządzenie nie trafia do chmury.",
+    "cloud_page_kept": "Strona dalej ma zapisany ten poziom. Zadziała, gdy Lua przestanie ustawiać :remote() dla tego urządzenia; ustaw Hidden, żeby go usunąć.",
     "cloud_everyone": "domownicy",
     "cloud_confirm": "z potwierdzeniem",
     "cloud_readonly": "tylko odczyt",

@@ -193,7 +193,7 @@ func (m *Manager) migrateLegacy() {
 	intgObjects := map[Integration]map[string]AccessLevel{}
 	for path, obj := range m.config.Objects {
 		for intg, level := range obj {
-			if level == AccessFull {
+			if level == defaultLevel(intg) {
 				continue // skip default
 			}
 			if intgObjects[intg] == nil {
@@ -207,7 +207,7 @@ func (m *Manager) migrateLegacy() {
 	for intg, objects := range intgObjects {
 		name := "migrated-" + string(intg)
 		m.config.Profiles[name] = &Profile{
-			Default: AccessFull,
+			Default: defaultLevel(intg),
 			Objects: objects,
 		}
 		m.config.Assignments[string(intg)] = []string{name}

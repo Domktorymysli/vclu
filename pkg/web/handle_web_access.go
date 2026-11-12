@@ -102,29 +102,7 @@ func (s *Server) handleAPIAccessList(c *gin.Context) {
 		bots = masterConfig.MCP.Bots
 	}
 
-	// What Lua's :remote() says about vclu cloud, shown read-only: for these devices Lua decides,
-	// not this page. Remote is false for :remote(false), else {access, roles}.
-	type cloudShare struct {
-		Access string   `json:"access"`
-		Roles  []string `json:"roles,omitempty"`
-	}
-	remote := map[string]any{}
-	if out, err := s.luaExecutor.Execute("JSON.encode(ExposedObjects:luaRemoteList())"); err == nil {
-		var list []struct {
-			Path   string          `json:"path"`
-			Remote json.RawMessage `json:"remote"`
-		}
-		if json.Unmarshal([]byte(out), &list) == nil {
-			for _, o := range list {
-				var share cloudShare
-				if json.Unmarshal(o.Remote, &share) == nil && share.Access != "" {
-					remote[o.Path] = share
-				} else {
-					remote[o.Path] = false
-				}
-			}
-		}
-	}
+	remote := s.luaCloud()
 
 	// Build response with access levels from manager
 	var response []map[string]interface{}
@@ -192,6 +170,41 @@ func (s *Server) handleAPIAccessList(c *gin.Context) {
 	})
 }
 
+// cloudShare is how Lua's :remote() shares a device with vclu cloud.
+type cloudShare struct {
+	Access string   `json:"access"`
+	Roles  []string `json:"roles,omitempty"`
+}
+
+// luaCloud is what Lua's :remote() says about vclu cloud, per path: false for :remote(false),
+// else a cloudShare. For these devices Lua decides, not the Access page.
+func (s *Server) luaCloud() map[string]any {
+	remote := map[string]any{}
+	if s.luaExecutor == nil {
+		return remote
+	}
+	out, err := s.luaExecutor.Execute("JSON.encode(ExposedObjects:luaRemoteList())")
+	if err != nil {
+		return remote
+	}
+	var list []struct {
+		Path   string          `json:"path"`
+		Remote json.RawMessage `json:"remote"`
+	}
+	if json.Unmarshal([]byte(out), &list) != nil {
+		return remote
+	}
+	for _, o := range list {
+		var share cloudShare
+		if json.Unmarshal(o.Remote, &share) == nil && share.Access != "" {
+			remote[o.Path] = share
+		} else {
+			remote[o.Path] = false
+		}
+	}
+	return remote
+}
+
 // handleAPIAccessSet sets access level for an object and integration
 //
 //	@Summary		Set object access level
@@ -236,6 +249,15 @@ func (s *Server) handleAPIAccessSet(c *gin.Context) {
 	if s.accessManager == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Access manager not available"})
 		return
+	}
+
+	// A level kept for a device Lua decides about would take over, unseen, once Lua stops
+	// naming it; hiding it is always allowed
+	if integration == accesscontrol.IntegrationCloud && access != accesscontrol.AccessHidden {
+		if _, ok := s.luaCloud()[req.Path]; ok {
+			c.JSON(http.StatusConflict, gin.H{"error": "Lua decides about this device in the cloud (:remote())"})
+			return
+		}
 	}
 
 	// Update manager
