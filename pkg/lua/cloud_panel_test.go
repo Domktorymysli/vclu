@@ -176,3 +176,18 @@ func TestCloudAccessChangeKeepsUnexposed(t *testing.T) {
 		t.Errorf("exposed again: remoteList = %q", got)
 	}
 }
+
+// Hiding an object from MQTT on the Access page and opening it again works without a reload:
+// an access change makes new handles only and does not set mqtt = false on existing ones.
+func TestAccessChangeKeepsHandleOptions(t *testing.T) {
+	engine, _, _ := newHistoryEngine(t)
+	syncCloud(t, engine, `{}`, false)
+	luaOK(t, engine, `
+		registerObject("CLU1.DOU1", VirtualSwitch:new("dou1"))
+		exposeRegistry()
+		LuaAPI.syncProfiles({ hide = { default = "hidden" } }, { mqtt = { "hide" } })
+		LuaAPI.syncProfiles({}, {})`)
+	if v := mustExec(t, engine, `tostring(ExposedObjects._objects["CLU1.DOU1"].options.mqtt ~= false)`); v != "true" {
+		t.Error("hidden from MQTT and opened again: the handle stays off MQTT")
+	}
+}

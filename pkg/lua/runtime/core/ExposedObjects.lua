@@ -249,6 +249,7 @@ function ExposedHandle:update(opts)
         return false
     end
     checkOptions(self.type, opts)
+    if opts.pulse ~= nil and opts.pulse ~= self.options.pulse then self:_endPulse() end
     for k, v in pairs(opts) do
         self.options[k] = v
     end
@@ -283,6 +284,7 @@ function ExposedHandle:unexpose()
         return -- already unexposed
     end
     self._exposed = false
+    self:_endPulse()
     -- an access change runs exposeRegistry() again: it must not bring this one back
     if ExposedObjects._registryOptions then ExposedObjects._dropped[self.object] = true end
     ExposedObjects:_remove(self.path)
@@ -395,18 +397,28 @@ function ExposedHandle:_pulse()
         ok = self:_write(1)
     end
     if not ok then return false end
-    self._pulsing = true
     local native = type(obj) == "table" and type(obj.pulse) == "function"
-    local function done()
-        self._pulsing = nil
-        if not native and self._exposed then self:_write(0) end
-    end
+    self._pulsing = native and "native" or "timer"
     if TIMERS then
-        TIMERS:setTimeout(ms, done)
+        self._pulseTimer = TIMERS:setTimeout(ms, function()
+            self._pulseTimer = nil
+            self:_endPulse()
+        end)
     else
-        done()
+        self:_endPulse()
     end
     return true
+end
+
+-- Ends a running pulse now: a timed one is switched off (also once unexposed, or with pulse
+-- taken off: the relay must not stay on), a native one is the CLU's to end
+function ExposedHandle:_endPulse()
+    local how = self._pulsing
+    if not how then return end
+    self._pulsing = nil
+    if self._pulseTimer and TIMERS and TIMERS.clearTimer then TIMERS:clearTimer(self._pulseTimer) end
+    self._pulseTimer = nil
+    if how == "timer" then self:_write(0) end
 end
 
 -- Writes feature 0 and records the change (setValue without its checks)
@@ -1032,13 +1044,15 @@ function ExposedObjects:accessChanged()
     -- a handle made only for the cloud goes once the cloud closes, or once MQTT or HomeKit
     -- opens (exposeRegistry makes it again with their options)
     for path, h in pairs(self._objects) do
-        if h._cloudOnly and (panelCloud(path) == 'hidden' or not AccessControl.isHidden("mqtt", path)
+        if h._cloudOnly and h._remote == nil and (panelCloud(path) == 'hidden' or not AccessControl.isHidden("mqtt", path)
             or not AccessControl.isHidden("homekit", path)) then
             h._exposed = false
             self:_remove(path)
         end
     end
-    self:exposeRegistry(self._registryOptions)
+    -- new handles only: integrations check access live, and setting mqtt/homekit = false on
+    -- handles again would stick after the page opens them back
+    self:exposeRegistry(self._registryOptions, true)
     changed()
 end
 
@@ -1342,8 +1356,9 @@ end
 --   "hidden" from one → that integration disabled (mqtt=false or homekit=false)
 --   "readonly" → exposed as readonly
 -- @param options table Optional default options for all objects
+-- @param newOnly boolean Only expose objects without a handle (accessChanged)
 -- @return number Count of newly exposed objects
-function ExposedObjects:exposeRegistry(options)
+function ExposedObjects:exposeRegistry(options, newOnly)
     if not _registry then
         if Logger then
             Logger:getShared():warn("[ExposedObjects] _registry not available")
@@ -1370,6 +1385,8 @@ function ExposedObjects:exposeRegistry(options)
             skipped = skipped + 1
         elseif self._dropped[obj] then
             -- a module unexposed it after load
+        elseif self:_handleOf(obj) and newOnly then
+            -- an access change (accessChanged) makes new handles only
         elseif self:_handleOf(obj) then
             -- a module exposed it already (maybe under its own path): its options stay, but
             -- the panel's access set on the registry path still takes it off an integration

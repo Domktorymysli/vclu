@@ -148,3 +148,56 @@ func TestExposePulseCloud(t *testing.T) {
 		t.Errorf("bot calling switchOn = %s", out)
 	}
 }
+
+// Taken off the house (unexpose, hidden = true) or with pulse changed during a timed pulse, the
+// relay goes off at once and a pulse after a change runs.
+func TestExposePulseEndsEarly(t *testing.T) {
+	engine, _, _ := newHistoryEngine(t)
+	luaOK(t, engine, pulseClock+`
+		G = VirtualSwitch:new("g")
+		H = expose(G, "switch", { id = "g", pulse = 1000 })`)
+	state := func() string { return mustExec(t, engine, `tostring(G:getValue())`) }
+
+	luaOK(t, engine, `H:setValue(1); T.advance(100); H:unexpose()`)
+	if state() != "0" {
+		t.Errorf("unexposed during the pulse: %s", state())
+	}
+	luaOK(t, engine, `H = expose(G, "switch", { id = "g", pulse = 1000 }); H:setValue(1); T.advance(100)
+		expose(G, "switch", { hidden = true })`)
+	if state() != "0" {
+		t.Errorf("hidden during the pulse: %s", state())
+	}
+	luaOK(t, engine, `H = expose(G, "switch", { id = "g", pulse = 1000 }); H:setValue(1); T.advance(100)
+		H:update({ pulse = false })`)
+	if state() != "0" {
+		t.Errorf("pulse taken off during the pulse: %s", state())
+	}
+	luaOK(t, engine, `H:setValue(1); T.advance(2000)`) // an ordinary switch now: stays on
+	if state() != "1" {
+		t.Errorf("an ordinary switch was switched off by the old pulse's timer: %s", state())
+	}
+	luaOK(t, engine, `H:setValue(0); H:update({ pulse = 500 }); H:setValue(1)`)
+	if state() != "1" {
+		t.Errorf("a pulse right after setting pulse did not run: %s", state())
+	}
+}
+
+// A dashboard's toggle for a pulse switch pulses through the handle, never leaves it on.
+func TestExposePulseDashboardToggle(t *testing.T) {
+	engine, _, _ := newHistoryEngine(t)
+	luaOK(t, engine, pulseClock+`
+		G = VirtualSwitch:new("brama")
+		registerObject("virt.brama", G)
+		expose(G, "switch", { id = "brama", name = "Brama", area = "Wjazd", pulse = 1000 })
+		Dashboard.new('wjazd'):section('Wjazd'):area('Wjazd', { kinds = { 'switch' } }):build()`)
+	if out := mustExec(t, engine, `JSON.encode(Dashboard.API.executeAction("wjazd", "area:virt.brama", "toggle", true))`); !strings.Contains(out, "true") {
+		t.Fatalf("toggle = %s", out)
+	}
+	if v := mustExec(t, engine, `tostring(G:getValue())`); v != "1" {
+		t.Fatalf("toggle did not pulse: %s", v)
+	}
+	luaOK(t, engine, `T.advance(1000)`)
+	if v := mustExec(t, engine, `tostring(G:getValue())`); v != "0" {
+		t.Errorf("still on after the pulse: %s", v)
+	}
+}

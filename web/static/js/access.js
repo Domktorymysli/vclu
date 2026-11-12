@@ -287,8 +287,8 @@ AccessControl.prototype._createRow = function(obj) {
 /**
  * Create access select element HTML
  */
-AccessControl.prototype._createSelect = function(path, integration, currentValue) {
-    var options = ['full', 'readonly', 'hidden'];
+AccessControl.prototype._createSelect = function(path, integration, currentValue, only) {
+    var options = only || ['full', 'readonly', 'hidden'];
     var html = '<select class="form-select form-select-sm access-select" ' +
                'style="width: auto; margin: 0 auto;" ' +
                'data-path="' + VCLU.esc(path) + '" ' +
@@ -419,7 +419,7 @@ AccessControl.prototype._createCloudCell = function(obj) {
     var kept = (obj.access && obj.access.cloud) || 'hidden';
     var keptHTML = kept === 'hidden' ? '' :
         '<div class="small text-warning mt-1" title="' + VCLU.esc(t('pageKept')) + '"><i class="bi bi-exclamation-triangle"></i> ' +
-        this._createSelect(obj.path, 'cloud', kept) + '</div>';
+        this._createSelect(obj.path, 'cloud', kept, [kept, 'hidden']) + '</div>';
     if (cloud === false) {
         return '<span class="text-muted" title="' + VCLU.esc(t('luaOff')) + '">— <small>Lua</small></span>' + keptHTML;
     }
@@ -714,7 +714,7 @@ AccessControl.prototype.bulkSetAccess = function(integration, access) {
     this.bulkInProgress = true;
     this.elements.bulkProgress.style.display = 'inline';
 
-    var completed = 0;
+    var completed = 0, failed = 0;
     var total = selects.length;
 
     function updateProgress() {
@@ -725,6 +725,8 @@ AccessControl.prototype.bulkSetAccess = function(integration, access) {
         if (index >= selects.length) {
             self.bulkInProgress = false;
             self.elements.bulkProgress.style.display = 'none';
+            // e.g. the cloud for devices Lua decides about: the page may only hide those
+            if (failed > 0) VCLU.showToast(failed + ' / ' + total + ' not changed', 'warning');
             // Keep selection so user can apply another action (e.g., HomeKit after MQTT)
             return;
         }
@@ -751,9 +753,11 @@ AccessControl.prototype.bulkSetAccess = function(integration, access) {
             if (!result.error) {
                 select.value = access;
                 self._flashSuccess(select);
+            } else {
+                failed++;
             }
         })
-        .catch(function() {})
+        .catch(function() { failed++; })
         .finally(function() {
             select.disabled = false;
             row.style.backgroundColor = '';

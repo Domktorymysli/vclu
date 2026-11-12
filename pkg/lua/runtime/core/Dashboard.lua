@@ -998,7 +998,10 @@ local function areaWidget(h, id, off)
         w.icon = (kind == 'lock' and 'lock') or (kind == 'switch' and 'power') or 'lightbulb'
         w.getValue = function() return isOn(h:getValue()) end
         w.onToggle = function(v)
-            if v and o.switchOn then o:switchOn()
+            -- a pulse switch (a gate) pulses through its handle, never stays on
+            if h.options and h.options.pulse then
+                if not h:setValue(v and 1 or 0) then error('cannot switch ' .. h.path) end
+            elseif v and o.switchOn then o:switchOn()
             elseif not v and o.switchOff then o:switchOff()
             elseif o.setValue then o:setValue(v and 1 or 0)
             elseif not h:setValue(v and 1 or 0) then error('cannot switch ' .. h.path) end
