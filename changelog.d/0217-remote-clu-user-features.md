@@ -1,0 +1,4 @@
+### Grenton
+
+- **User features of a remote CLU** - `CLU221000290:get("temp_zadana")` reads a user feature (a variable defined in Object Manager) as a number, string or boolean, `nil` when it is not set; `CLU221000290:set("temp_zadana", 21)` sets it. Both wait for the CLU's answer like `execute` and give `nil, err` when it does not come. The name must be a Lua identifier and a string value is escaped, so neither can run other code on the CLU. Before, both methods did nothing ([#217](https://github.com/Domktorymysli/vclu/issues/217)).
+- **`execute` warns about `return`** - the CLU puts `return` before a script itself, so `execute(0, "return x")` gets no answer and times out; vCLU now logs a warning naming the cause. Send the expression alone: `execute(0, "x")` ([#217](https://github.com/Domktorymysli/vclu/issues/217)).
