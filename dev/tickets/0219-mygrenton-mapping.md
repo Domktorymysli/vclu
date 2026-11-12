@@ -4,7 +4,7 @@
 - **Area:** grenton, lua-runtime
 - **Size:** M
 - **Epic:** —
-- **Blocked by:** #178 (project import); VARIABLE values by #217
+- **Blocked by:** #178 (project import)
 - **Skill:** —
 - **Needs hardware:** no (fixtures); a CLU to check the result by hand
 
@@ -19,7 +19,8 @@ and the mapping that the "Dashboards" section on the Grenton page (#220) builds 
 
 ## Context
 - The interface is `nodes/<id>/data.json` in the project (`.omp` or project `.zip`). A diagnostic
-  pack carries the project inside, which #178 already reads.
+  pack carries the project inside, which #178 already reads. A project may have more than one
+  `nodes/<id>/`: each is an interface of its own, all are kept, keyed by their `id`.
 - Shape (OM 1.8): `{id, label, icon, theme, pages: [{id, label, icon, widgets: [...]}], ...}`. Each
   widget has `id`, `type` and, per type, parts with a `rowId`, a `label`, and calls.
 - Widget types and their parts:
@@ -44,13 +45,23 @@ and the mapping that the "Dashboards" section on the Grenton page (#220) builds 
   | `ATTRIBUTE` | feature `index` of object `objectName` on `cluId` | the object's value from the registry, `<cluId>.<objectName>` |
   | `PSEUDO_METHOD` | set feature `index` to `value` | `obj:set(index, value)` |
   | `METHOD` | execute method `index` with `value` | `obj:execute(index, value)` |
-  | `SCRIPT` | run the CLU script `objectName` with `value`; `index` is null | a call of that script on the CLU |
-  | `VARIABLE` | the user feature `index` of the CLU (`objectName` is the CLU) | `clu:get(index)` from #217 |
+  | `SCRIPT` | run the CLU script `objectName` with `value`; `index` is null | `clu:executeNoReply(0, name .. "(" .. RemoteObject.literal(value) .. ")")`, the name checked as an identifier |
+  | `VARIABLE` | the user feature `index` of the CLU (`objectName` is the CLU) | the user feature, as `clu:get(index)` (#217) reads it |
 
-  `value` `"$value$"` is what the user enters (slider, thermostat target). `type` of an action is
-  `ON`, `OFF` or `CLICK`.
+  `value` `"$value$"` is what the user enters: a number for a slider or a thermostat target,
+  otherwise a string, and always through `RemoteObject.literal`. `type` of an action is `ON`, `OFF`
+  or `CLICK`.
+- Reads must not block. `clu:get` (#217) and `RemoteObject:get(index)` wait for the CLU's answer,
+  and a dashboard reads on every poll. A VARIABLE, and an ATTRIBUTE other than the value the
+  registry already follows, are read with `executeAsync` in the background and the widget shows
+  the last value read.
+- Commands go through the proxies, so their guards apply: a METHOD call that disarms a SatelZone
+  (#214) is refused unless disarming is allowed.
 - Decided: the mapping lives in a runtime Lua module (e.g. `pkg/lua/runtime/grenton/MyGrenton.lua`),
-  so a change in Grenton's format is a change there only. The raw JSON is kept in `imports/mygrenton/`,
+  so a change in Grenton's format is a change there only. Its entry point takes a dashboard section
+  and one widget as a Lua table (the checked JSON of that widget) and adds the vclu widget:
+  `MyGrenton.widget(section, {type = "ON_OFF", ...})`. The files #220 writes are lines of such calls,
+  so they need only the runtime, not the stored import. The raw JSON is kept in `imports/mygrenton/`,
   next to the imported om.lua files, not among the user's files.
 - The JSON comes from an upload. As in #178, every value that reaches Lua is checked, never escaped
   into code: `cluId` and object IDs against the patterns #178 uses, script and user feature names as
@@ -64,9 +75,13 @@ and the mapping that the "Dashboards" section on the Grenton page (#220) builds 
 
 ## Acceptance criteria
 - [ ] Importing a project or a diagnostic pack with an interface stores it in `imports/mygrenton/`;
-      a new import replaces it, one without an interface removes it.
+      a new import replaces it, and an import of a project or pack without one removes it. Uploading
+      a single om.lua leaves it alone.
 - [ ] `MyGrenton` lists the pages and, per widget, the vclu widget, its label, what it reads and what
-      it does; a test with a fixture interface that has every widget type and call type above.
+      it does; `MyGrenton.widget(section, w)` adds it. A test with a fixture interface that has every
+      widget type and call type above.
+- [ ] No read blocks the run loop: a test with a CLU that does not answer shows the dashboard still
+      answers, with the last value or none.
 - [ ] Each call type reads or commands the right object (tested against registry objects): ATTRIBUTE,
       PSEUDO_METHOD with a literal and with `$value$`, METHOD, SCRIPT, VARIABLE.
 - [ ] A widget or call vclu cannot map (SCHEDULER, an object not in the registry, a failed check) is
@@ -76,4 +91,6 @@ and the mapping that the "Dashboards" section on the Grenton page (#220) builds 
 - [ ] `go test ./...` and `go test -race ./...` pass; a changelog entry in `changelog.d/`.
 
 ## Contract impact
-None: no dashboard changes until the user creates them (#220).
+`MyGrenton.widget` becomes a public Lua API: the files #220 writes call it, and users edit them.
+Its table format (the widget as in the interface) changes only with a compatible reading of older
+tables. No dashboard changes until the user creates them (#220).
