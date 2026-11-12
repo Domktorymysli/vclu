@@ -153,8 +153,7 @@ end
 -- Blocks until the CLU answers, like execute.
 -- @api public
 -- @param name string Feature name, e.g. "temp_zadana"
--- @return any|nil Value as number, string or boolean; nil when the feature is not set
--- @return string|nil Error when the CLU did not answer
+-- @return any Number, string or boolean; nil when not set, or nil and an error when the CLU did not answer
 function CLU_REMOTE:get(name)
     featureName(name)
     -- The CLU answers with plain text, so the type is sent along with the value
@@ -175,9 +174,8 @@ end
 --- Sets a user feature on the CLU. Blocks until the CLU answers, like execute.
 -- @api public
 -- @param name string Feature name, e.g. "temp_zadana"
--- @param value number|string|boolean|nil New value
--- @return boolean|nil true when the CLU answered
--- @return string|nil Error when the CLU did not answer
+-- @param value any Number, string, boolean or nil
+-- @return boolean true when the CLU answered, or nil and an error
 function CLU_REMOTE:set(name, value)
     featureName(name)
     local _, err = self:_ask('setVar("' .. name .. '", ' .. literal(value) .. ')')
