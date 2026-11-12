@@ -128,7 +128,7 @@
     }
 
     function resetToDefaults() {
-        if (!confirm('Reset all profiles and assignments to defaults?\n\nAll custom profiles will be deleted and all integrations will get full access.')) return;
+        if (!confirm('Reset all profiles and assignments to defaults?\n\nAll custom profiles will be deleted and all integrations will get full access (vclu cloud: none).')) return;
 
         fetch('/api/access/reset', {
             method: 'POST',

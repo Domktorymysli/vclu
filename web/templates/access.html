@@ -116,6 +116,11 @@
                                         <li><a class="dropdown-item" href="#" onclick="accessControl.bulkSetAccess('homekit', 'full'); return false;"><span class="badge bg-success">F</span> {{index .t "access.level_full"}}</a></li>
                                         <li><a class="dropdown-item" href="#" onclick="accessControl.bulkSetAccess('homekit', 'readonly'); return false;"><span class="badge bg-warning">R</span> {{index .t "access.level_readonly"}}</a></li>
                                         <li><a class="dropdown-item" href="#" onclick="accessControl.bulkSetAccess('homekit', 'hidden'); return false;"><span class="badge bg-secondary">H</span> {{index .t "access.level_hidden"}}</a></li>
+                                        <li><hr class="dropdown-divider"></li>
+                                        <li><h6 class="dropdown-header"><i class="bi bi-cloud"></i> {{index .t "access.cloud"}}</h6></li>
+                                        <li><a class="dropdown-item" href="#" onclick="accessControl.bulkSetAccess('cloud', 'full'); return false;"><span class="badge bg-success">F</span> {{index .t "access.level_full"}}</a></li>
+                                        <li><a class="dropdown-item" href="#" onclick="accessControl.bulkSetAccess('cloud', 'readonly'); return false;"><span class="badge bg-warning">R</span> {{index .t "access.level_readonly"}}</a></li>
+                                        <li><a class="dropdown-item" href="#" onclick="accessControl.bulkSetAccess('cloud', 'hidden'); return false;"><span class="badge bg-secondary">H</span> {{index .t "access.level_hidden"}}</a></li>
                                         <!-- Bot sections appended dynamically by JS -->
                                     </ul>
                                 </div>
@@ -157,7 +162,8 @@
                                                 </th>
                                                 <th class="text-center" id="cloudHeader" title="{{index .t "access.cloud_hint"}}"
                                                     data-everyone="{{index .t "access.cloud_everyone"}}" data-confirm="{{index .t "access.cloud_confirm"}}"
-                                                    data-readonly="{{index .t "access.cloud_readonly"}}">
+                                                    data-readonly="{{index .t "access.cloud_readonly"}}" data-lua="{{index .t "access.cloud_lua"}}"
+                                                    data-lua-off="{{index .t "access.cloud_lua_off"}}">
                                                     <i class="bi bi-cloud"></i> {{index .t "access.cloud"}} <i class="bi bi-info-circle text-muted"></i>
                                                 </th>
                                                 <!-- Bot columns rendered dynamically by JS -->

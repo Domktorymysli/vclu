@@ -5,6 +5,7 @@
 -- Integrations:
 --   "mqtt"    - MQTT/Home Assistant
 --   "homekit" - Apple HomeKit
+--   "cloud"   - vclu cloud (hidden by default; Lua's :remote() decides over it)
 --
 -- Access levels:
 --   "full"     - publish states + handle commands (default)
@@ -61,7 +62,11 @@ function AccessControl.get(integration, objectPath)
         return AccessControl.resolveAccess(assigned, objectPath)
     end
 
-    -- 3. Per-integration default override, then global default.
+    -- 3. Per-integration default override, then global default. vclu cloud is closed until
+    --    the owner opens objects on the Access page.
+    if integration == "cloud" then
+        return "hidden"
+    end
     if integration == "mqtt" and AccessControl.DEFAULT_MQTT then
         return AccessControl.DEFAULT_MQTT
     end

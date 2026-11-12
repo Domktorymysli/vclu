@@ -340,7 +340,9 @@
   },
   "access": {
     "cloud": "Cloud",
-    "cloud_hint": "Set in Lua: expose(...):remote(), with :roles(...) for chosen roles. Shown here only.",
+    "cloud_hint": "Hidden by default. Full or Readonly shares the device with every member of the home in the cloud. When Lua sets expose(...):remote() (roles, PIN, confirmation), Lua decides and this is shown only.",
+    "cloud_lua": "Set in Lua with :remote(): shown here only.",
+    "cloud_lua_off": "Lua: :remote(false), the device stays out of the cloud.",
     "cloud_everyone": "members",
     "cloud_confirm": "with confirmation",
     "cloud_readonly": "read only",

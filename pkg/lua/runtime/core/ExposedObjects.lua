@@ -150,7 +150,7 @@ local function warn(fmt, ...)
     if Logger then Logger:getShared():warn(fmt, ...) end
 end
 
---- Make the device reachable from the vclu cloud app: :remote() (or true) lets every member of the home control it, :remote(false) takes it back (with its roles), or a table {confirm = true (the person confirms each command), pin = true (each command needs the PIN set with :pin()), readonly = true (seen, never commanded)}. With :roles(...) only people given one of those roles in the cloud reach it. Without it the device never leaves the house. Give the object an id (expose(obj, type, {id = "..."})): the cloud names the device by its path.
+--- Make the device reachable from the vclu cloud app: :remote() (or true) lets every member of the home control it, :remote(false) keeps it home whatever the panel's Access page says (and drops its roles), or a table {confirm = true (the person confirms each command), pin = true (each command needs the PIN set with :pin()), readonly = true (seen, never commanded)}. With :roles(...) only people given one of those roles in the cloud reach it. Without it the panel's Access page decides (hidden until opened there). Give the object an id (expose(obj, type, {id = "..."})): the cloud names the device by its path.
 -- @param spec table nothing, true, false or {confirm, pin, readonly}
 -- @return ExposedHandle self for chaining
 -- @api public
@@ -158,7 +158,7 @@ function ExposedHandle:remote(spec)
     if self._hidden then return self end
     local where = 'expose:remote'
     if spec == false then
-        self._remote = nil
+        self._remote = false
         changed()
         return self
     end
@@ -861,13 +861,30 @@ function ExposedObjects:_areasOn(floor, order, key)
     return list
 end
 
+-- What the panel's Access page gives a device in the cloud ("full", "readonly" or "hidden") when
+-- Lua's :remote() says nothing about it: hidden until the owner opens it there
+local function panelCloud(path)
+    if not AccessControl then return 'hidden' end
+    return AccessControl.get('cloud', path)
+end
+
 -- What a remote command reaches: the handle when it is exposed with :remote() and, with
--- remote{pin = true}, has a PIN (Cloud._command)
+-- remote{pin = true}, has a PIN, or, without :remote() or :remote(false), when the panel opens it
+-- (Cloud._command)
 function ExposedObjects:_remoteHandle(path)
     local h = self._objects[path]
-    if not h or not h._exposed or h._hidden or not h._remote then return nil end
-    if h._remote.pin and not h._pin then return nil end
+    if not h or not h._exposed or h._hidden or h._remote == false then return nil end
+    if h._remote then
+        if h._remote.pin and not h._pin then return nil end
+        return h
+    end
+    if panelCloud(path) == 'hidden' then return nil end
     return h
+end
+
+-- Who reaches a remote device: the roles of :roles(...); none (every member) when the panel shares it
+function ExposedObjects._remoteRoles(h)
+    return h._remote and h._remote.roles or {}
 end
 
 -- What each command on h needs, whichever way it comes in: the PIN (:pin(), or remote{pin = true},
@@ -888,7 +905,12 @@ function ExposedObjects._deviceAccess(h)
     return 'full'
 end
 
-ExposedObjects._remoteAccess = ExposedObjects._deviceAccess
+-- The access a remote viewer gets: as for an API client, or readonly when the panel shares the
+-- device read-only
+function ExposedObjects._remoteAccess(h)
+    if not h._remote and panelCloud(h.path) == 'readonly' then return 'readonly' end
+    return ExposedObjects._deviceAccess(h)
+end
 
 -- What a client of the device API reaches (Cloud._clientCommand): any exposed device; one with
 -- remote{pin = true} only once it has a PIN, as for the cloud
@@ -921,21 +943,47 @@ local function deviceEntry(path, h, access, roles)
     return e
 end
 
---- The devices exposed with :remote(), for the cloud's snapshot: sorted by path, each
--- {path, type, name, area, floor, access, roles}, never the PIN
+--- The devices the cloud gets (exposed with :remote(), or opened on the panel's Access page), for
+-- its snapshot: sorted by path, each {path, type, name, area, floor, access, roles}, never the PIN
 -- @return table Array of plain tables
 function ExposedObjects:remoteList()
     local out = {}
     for path, h in pairs(self._objects) do
-        if h._exposed and not h._hidden and h._remote then
-            if h._remote.pin and not h._pin then
-                if not pinWarned[path] then
-                    pinWarned[path] = true
-                    warn("[ExposedObjects] %s: remote{pin = true} without :pin(...), not offered to the cloud", tostring(path))
-                end
-            else
-                out[#out + 1] = deviceEntry(path, h, ExposedObjects._remoteAccess(h), h._remote.roles)
+        if h._exposed and not h._hidden and h._remote and h._remote.pin and not h._pin then
+            if not pinWarned[path] then
+                pinWarned[path] = true
+                warn("[ExposedObjects] %s: remote{pin = true} without :pin(...), not offered to the cloud", tostring(path))
             end
+        elseif self:_remoteHandle(path) then
+            out[#out + 1] = deviceEntry(path, h, ExposedObjects._remoteAccess(h), ExposedObjects._remoteRoles(h))
+        end
+    end
+    table.sort(out, function(a, b) return a.path < b.path end)
+    return out
+end
+
+--- The panel's access changed (LuaAPI.syncProfiles): once exposeRegistry() has run, registry
+-- objects it opens are exposed now, not at the next reload, and the cloud gets its list again
+function ExposedObjects:accessChanged()
+    if self._registryOptions then self:exposeRegistry(self._registryOptions) end
+    changed()
+end
+
+--- What Lua's :remote() says, for the panel's Access page: sorted by path, each {path, remote}
+-- with remote false (:remote(false), kept home) or {access, roles}. Devices it says nothing
+-- about are left to the page.
+-- @return table Array of plain tables
+function ExposedObjects:luaRemoteList()
+    local out = {}
+    for path, h in pairs(self._objects) do
+        if h._exposed and not h._hidden and h._remote ~= nil then
+            local e = { path = tostring(path), remote = false }
+            if h._remote then
+                local roles = {}
+                for i = 1, #h._remote.roles do roles[i] = h._remote.roles[i] end
+                e.remote = { access = ExposedObjects._remoteAccess(h), roles = roles }
+            end
+            out[#out + 1] = e
         end
     end
     table.sort(out, function(a, b) return a.path < b.path end)
@@ -1231,6 +1279,8 @@ function ExposedObjects:exposeRegistry(options)
     end
 
     options = options or {}
+    -- kept for LuaAPI.syncProfiles: an access change exposes what it opens at once
+    self._registryOptions = options
     local count = 0
     local skipped = 0
 
@@ -1261,8 +1311,8 @@ function ExposedObjects:exposeRegistry(options)
             local mqttHidden = AccessControl and AccessControl.isHidden("mqtt", path)
             local homekitHidden = AccessControl and AccessControl.isHidden("homekit", path)
 
-            if mqttHidden and homekitHidden then
-                -- Hidden from both integrations — skip entirely
+            if mqttHidden and homekitHidden and panelCloud(path) == 'hidden' then
+                -- Hidden from every integration — skip entirely
                 skipped = skipped + 1
             else
                 -- NOTE: readonly is deliberately NOT snapshotted into objOptions here.

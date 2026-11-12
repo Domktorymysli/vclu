@@ -814,7 +814,7 @@ Set description for AI agents (fluent)
 
 ### `ExposedHandle:remote(spec) → ExposedHandle self for chaining`
 
-Make the device reachable from the vclu cloud app: :remote() (or true) lets every member of the home control it, :remote(false) takes it back (with its roles), or a table {confirm = true (the person confirms each command), pin = true (each command needs the PIN set with :pin()), readonly = true (seen, never commanded)}. With :roles(...) only people given one of those roles in the cloud reach it. Without it the device never leaves the house. Give the object an id (expose(obj, type, {id = "..."})): the cloud names the device by its path.
+Make the device reachable from the vclu cloud app: :remote() (or true) lets every member of the home control it, :remote(false) keeps it home whatever the panel's Access page says (and drops its roles), or a table {confirm = true (the person confirms each command), pin = true (each command needs the PIN set with :pin()), readonly = true (seen, never commanded)}. With :roles(...) only people given one of those roles in the cloud reach it. Without it the panel's Access page decides (hidden until opened there). Give the object an id (expose(obj, type, {id = "..."})): the cloud names the device by its path.
 
 - `spec` (table) — nothing, true, false or {confirm, pin, readonly}
 

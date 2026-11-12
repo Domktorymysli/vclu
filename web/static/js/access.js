@@ -242,7 +242,7 @@ AccessControl.prototype._createRow = function(obj) {
         '<td class="text-center">' +
             this._createSelect(obj.path, 'homekit', obj.access.homekit) +
         '</td>' +
-        '<td class="text-center">' + this._createCloudCell(obj.cloud) + '</td>';
+        '<td class="text-center">' + this._createCloudCell(obj) + '</td>';
 
     // Single "Bots" column with popover
     if (this.bots.length > 0) {
@@ -402,17 +402,21 @@ AccessControl.prototype.setAccess = function(path, integration, access, selectEl
 };
 
 /**
- * Read-only cell for vclu cloud: who reaches the object through the cloud, as Lua's
- * expose(...):remote():roles(...) says; "—" when it is not shared
- * @param {Object|undefined} cloud - {access, roles} from /api/access
+ * Cell for vclu cloud: the page's own level (hidden until opened), or, when Lua's
+ * expose(...):remote() names the object, read-only who reaches it and how; "—" for :remote(false)
+ * @param {Object} obj - an object from /api/access (access.cloud, cloudLua)
  * @returns {string} HTML
  */
-AccessControl.prototype._createCloudCell = function(cloud) {
-    if (!cloud) {
-        return '<span class="text-muted">—</span>';
+AccessControl.prototype._createCloudCell = function(obj) {
+    var cloud = obj.cloudLua;
+    if (cloud === undefined || cloud === null) {
+        return this._createSelect(obj.path, 'cloud', (obj.access && obj.access.cloud) || 'hidden');
     }
     var head = document.getElementById('cloudHeader');
     var t = function(key) { return (head && head.dataset[key]) || key; };
+    if (cloud === false) {
+        return '<span class="text-muted" title="' + VCLU.esc(t('luaOff')) + '">— <small>Lua</small></span>';
+    }
     var html = (cloud.roles && cloud.roles.length)
         ? cloud.roles.map(function(r) { return '<span class="badge text-bg-secondary me-1">' + VCLU.esc(r) + '</span>'; }).join('')
         : '<span class="badge bg-success">' + VCLU.esc(t('everyone')) + '</span>';
@@ -423,7 +427,7 @@ AccessControl.prototype._createCloudCell = function(cloud) {
     } else if (cloud.access === 'readonly') {
         html += ' <i class="bi bi-eye" title="' + VCLU.esc(t('readonly')) + '"></i>';
     }
-    return html;
+    return '<span title="' + VCLU.esc(t('lua')) + '">' + html + ' <small class="text-muted">Lua</small></span>';
 };
 
 /**

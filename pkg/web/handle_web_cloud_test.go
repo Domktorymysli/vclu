@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Domktorymysli/vclu-cloud/proto"
+	"github.com/Domktorymysli/vclu/pkg/accesscontrol"
 	"github.com/Domktorymysli/vclu/pkg/cloud"
 	"github.com/Domktorymysli/vclu/pkg/config"
 	"github.com/Domktorymysli/vclu/pkg/lua"
@@ -106,7 +108,8 @@ func TestCloudPageListsSharedDashboards(t *testing.T) {
 	}
 }
 
-// The access page shows, read-only, what Lua shares with the cloud: roles, how, or nothing.
+// The access page shows, read-only, what Lua's :remote() says about the cloud (roles, how, or
+// kept home); for the rest its own cloud column decides, hidden until opened there.
 func TestAccessListShowsCloudShare(t *testing.T) {
 	engine := lua.NewLuaEngine()
 	t.Cleanup(engine.Close)
@@ -114,36 +117,60 @@ func TestAccessListShowsCloudShare(t *testing.T) {
 		expose(VirtualObject:new("v1", { value = 0 }), "light", { name = "Lampa" }):remote()
 		expose(VirtualObject:new("v2", { value = 0 }), "cover", { name = "Roleta" }):remote({ confirm = true }):roles('biuro')
 		expose(VirtualObject:new("v3", { value = 0 }), "light", { name = "Tylko dom" })
+		expose(VirtualObject:new("v4", { value = 0 }), "light", { name = "Nigdy" }):remote(false)
 	`); err != nil {
 		t.Fatal(err)
 	}
 	e := newHistoryEnv(t)
 	e.s.luaExecutor = engine
-	var resp struct {
-		Objects []struct {
-			Name  string `json:"name"`
-			Cloud *struct {
-				Access string   `json:"access"`
-				Roles  []string `json:"roles"`
-			} `json:"cloud"`
-		} `json:"objects"`
+	e.s.accessManager = accesscontrol.NewManager(t.TempDir())
+
+	type object struct {
+		Path     string            `json:"path"`
+		Name     string            `json:"name"`
+		Access   map[string]string `json:"access"`
+		CloudLua json.RawMessage   `json:"cloudLua"`
 	}
-	if err := json.Unmarshal(e.do(t, "GET", "/api/access", "", "session").Body.Bytes(), &resp); err != nil {
-		t.Fatal(err)
-	}
-	got := map[string]string{}
-	for _, o := range resp.Objects {
-		if o.Cloud == nil {
-			got[o.Name] = "-"
-		} else {
-			got[o.Name] = o.Cloud.Access + " " + strings.Join(o.Cloud.Roles, ",")
+	list := func() map[string]object {
+		t.Helper()
+		var resp struct {
+			Objects []object `json:"objects"`
 		}
+		if err := json.Unmarshal(e.do(t, "GET", "/api/access", "", "session").Body.Bytes(), &resp); err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]object{}
+		for _, o := range resp.Objects {
+			out[o.Name] = o // the access page names objects by their own names
+		}
+		return out
 	}
-	want := map[string]string{"v1": "full ", "v2": "confirm biuro", "v3": "-"} // the access page names objects by their own names
+	got := list()
+	want := map[string]string{
+		"v1": `{"access":"full"}`, "v2": `{"access":"confirm","roles":["biuro"]}`, "v3": ``, "v4": `false`,
+	}
 	for name, w := range want {
-		if got[name] != w {
-			t.Errorf("%s: cloud = %q, want %q (all: %v)", name, got[name], w, got)
+		o := got[name]
+		if string(o.CloudLua) != w || o.Access["cloud"] != "hidden" {
+			t.Errorf("%s: cloudLua = %s, access.cloud = %q; want %s, hidden", name, o.CloudLua, o.Access["cloud"], w)
 		}
+	}
+
+	// Opened on the page: v3 reaches the cloud, every member, read-only; v4 stays home
+	for name, level := range map[string]string{"v3": "readonly", "v4": "full"} {
+		body := fmt.Sprintf(`{"path":%q,"integration":"cloud","access":%q}`, got[name].Path, level)
+		if w := e.do(t, "POST", "/api/access", body, "session"); w.Code != http.StatusOK {
+			t.Fatalf("set %s: %d %s", name, w.Code, w.Body)
+		}
+	}
+	if a := list()["v3"].Access["cloud"]; a != "readonly" {
+		t.Errorf("v3 access.cloud = %q after setting it", a)
+	}
+	out, err := engine.Execute(`local s = {}
+		for _, d in ipairs(ExposedObjects:remoteList()) do s[#s + 1] = d.name .. "=" .. d.access .. "/" .. #(d.roles or {}) end
+		return table.concat(s, " ")`)
+	if err != nil || out != "Lampa=full/0 Roleta=confirm/1 Tylko dom=readonly/0" {
+		t.Errorf("remoteList = %q (%v)", out, err)
 	}
 }
 

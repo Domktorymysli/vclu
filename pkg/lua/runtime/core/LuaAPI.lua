@@ -29,6 +29,9 @@ function LuaAPI.syncProfiles(profilesMap, assignmentsMap)
     if AccessControl and AccessControl.loadProfiles then
         AccessControl.loadProfiles(profilesMap, assignmentsMap)
     end
+    if ExposedObjects and ExposedObjects.accessChanged then
+        ExposedObjects:accessChanged()
+    end
     return "OK"
 end
 

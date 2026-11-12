@@ -227,8 +227,8 @@ func TestLoad_MissingFile(t *testing.T) {
 func TestAllIntegrations(t *testing.T) {
 	integrations := AllIntegrations()
 
-	if len(integrations) != 3 {
-		t.Errorf("expected 3 integrations, got %d", len(integrations))
+	if len(integrations) != 4 || integrations[3] != IntegrationCloud {
+		t.Errorf("expected mqtt, homekit, mcp and cloud, got %v", integrations)
 	}
 
 	hasMQTT := false
@@ -627,9 +627,15 @@ func TestReset(t *testing.T) {
 		t.Error("expected full-access profile after reset")
 	}
 
-	// All integrations should have full-access
+	// All integrations should have full-access, but the cloud nothing
 	for _, intg := range AllIntegrations() {
 		names := m.GetAssignment(intg)
+		if intg == IntegrationCloud {
+			if len(names) != 0 {
+				t.Errorf("expected [] for cloud, got %v", names)
+			}
+			continue
+		}
 		if len(names) != 1 || names[0] != BuiltinProfileFullAccess {
 			t.Errorf("expected [full-access] for %s, got %v", intg, names)
 		}
@@ -747,5 +753,63 @@ assignments:
 	}
 	if got := m.GetAccess(IntegrationMQTT, "light/salon"); got != AccessHidden {
 		t.Errorf("mqtt light/salon = %s", got)
+	}
+}
+
+// vclu cloud is closed until the owner opens objects: a fresh install, a file written before the
+// cloud and a reset give it nothing; opening one object leaves the rest hidden; deleting its
+// profile closes it again.
+func TestCloudHiddenByDefault(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManager(dir)
+	if err := m.Load(); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.GetAccess(IntegrationCloud, "CLU1.DOU1"); got != AccessHidden {
+		t.Errorf("fresh install: cloud = %s", got)
+	}
+	if got := m.GetAccess(IntegrationMQTT, "CLU1.DOU1"); got != AccessFull {
+		t.Errorf("fresh install: mqtt = %s", got)
+	}
+
+	file := "assignments:\n    mqtt: [full-access]\n"
+	if err := os.WriteFile(filepath.Join(dir, "access_control.yaml"), []byte(file), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Load(); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.GetAccess(IntegrationCloud, "CLU1.DOU1"); got != AccessHidden {
+		t.Errorf("file without cloud: cloud = %s", got)
+	}
+
+	m.SetAccess(IntegrationCloud, "CLU1.DOU1", AccessFull)
+	m.SetAccess(IntegrationCloud, "CLU1.DOU2", AccessReadonly)
+	if err := m.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Load(); err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range map[string]AccessLevel{"CLU1.DOU1": AccessFull, "CLU1.DOU2": AccessReadonly, "CLU1.DOU3": AccessHidden} {
+		if got := m.GetAccess(IntegrationCloud, path); got != want {
+			t.Errorf("cloud %s = %s, want %s", path, got, want)
+		}
+	}
+	if got := m.GetAccess(IntegrationMQTT, "CLU1.DOU3"); got != AccessFull {
+		t.Errorf("mqtt changed with the cloud: %s", got)
+	}
+
+	if err := m.DeleteProfile("custom-cloud"); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.GetAccess(IntegrationCloud, "CLU1.DOU1"); got != AccessHidden {
+		t.Errorf("after deleting its profile: cloud = %s", got)
+	}
+
+	m.SetAccess(IntegrationCloud, "CLU1.DOU1", AccessFull)
+	m.Reset()
+	if got := m.GetAccess(IntegrationCloud, "CLU1.DOU1"); got != AccessHidden {
+		t.Errorf("after reset: cloud = %s", got)
 	}
 }

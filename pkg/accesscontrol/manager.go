@@ -17,11 +17,32 @@ const (
 	IntegrationMQTT    Integration = "mqtt"
 	IntegrationHomeKit Integration = "homekit"
 	IntegrationMCP     Integration = "mcp"
+	// IntegrationCloud is vclu cloud: closed until the owner opens objects. Lua's :remote()
+	// decides over it for the devices it names.
+	IntegrationCloud Integration = "cloud"
 )
 
 // AllIntegrations returns all available integrations
 func AllIntegrations() []Integration {
-	return []Integration{IntegrationMQTT, IntegrationHomeKit, IntegrationMCP}
+	return []Integration{IntegrationMQTT, IntegrationHomeKit, IntegrationMCP, IntegrationCloud}
+}
+
+// defaultAssignment is what an integration gets when nothing is assigned: full-access, except
+// the cloud, which gets no profile (everything hidden).
+func defaultAssignment(intg Integration) []string {
+	if intg == IntegrationCloud {
+		return []string{}
+	}
+	return []string{BuiltinProfileFullAccess}
+}
+
+// defaultLevel is the access of an integration with no profiles, and the default of the
+// profile SetAccess makes for it.
+func defaultLevel(intg Integration) AccessLevel {
+	if intg == IntegrationCloud {
+		return AccessHidden
+	}
+	return AccessFull // backwards compat
 }
 
 // AccessLevel defines the access level for an object
@@ -113,9 +134,9 @@ func (m *Manager) Load() error {
 		if os.IsNotExist(err) {
 			m.config = newEmptyConfig()
 			m.ensureBuiltinProfiles()
-			// Assign full-access to all integrations by default
+			// Assign full-access to all integrations by default (the cloud: nothing)
 			for _, intg := range AllIntegrations() {
-				m.config.Assignments[string(intg)] = []string{BuiltinProfileFullAccess}
+				m.config.Assignments[string(intg)] = defaultAssignment(intg)
 			}
 			return nil
 		}
@@ -156,7 +177,7 @@ func (m *Manager) Load() error {
 	// Ensure every integration has at least one assignment
 	for _, intg := range AllIntegrations() {
 		if _, ok := m.config.Assignments[string(intg)]; !ok {
-			m.config.Assignments[string(intg)] = []string{BuiltinProfileFullAccess}
+			m.config.Assignments[string(intg)] = defaultAssignment(intg)
 		}
 	}
 
@@ -196,7 +217,7 @@ func (m *Manager) migrateLegacy() {
 	m.ensureBuiltinProfiles()
 	for _, intg := range AllIntegrations() {
 		if _, ok := m.config.Assignments[string(intg)]; !ok {
-			m.config.Assignments[string(intg)] = []string{BuiltinProfileFullAccess}
+			m.config.Assignments[string(intg)] = defaultAssignment(intg)
 		}
 	}
 
@@ -226,7 +247,8 @@ func (m *Manager) Save() error {
 	return nil
 }
 
-// Reset clears all profiles and assignments back to defaults (only full-access, assigned to all).
+// Reset clears all profiles and assignments back to defaults (only full-access, assigned to all
+// but the cloud).
 func (m *Manager) Reset() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -234,7 +256,7 @@ func (m *Manager) Reset() {
 	m.config = newEmptyConfig()
 	m.ensureBuiltinProfiles()
 	for _, intg := range AllIntegrations() {
-		m.config.Assignments[string(intg)] = []string{BuiltinProfileFullAccess}
+		m.config.Assignments[string(intg)] = defaultAssignment(intg)
 	}
 }
 
@@ -325,7 +347,7 @@ func (m *Manager) DeleteProfile(name string) error {
 			}
 		}
 		if len(filtered) == 0 {
-			filtered = []string{BuiltinProfileFullAccess}
+			filtered = defaultAssignment(Integration(intg))
 		}
 		m.config.Assignments[intg] = filtered
 	}
@@ -343,7 +365,7 @@ func (m *Manager) GetAssignment(integration Integration) []string {
 
 	names := m.config.Assignments[string(integration)]
 	if names == nil {
-		return []string{BuiltinProfileFullAccess}
+		return defaultAssignment(integration)
 	}
 	result := make([]string, len(names))
 	copy(result, names)
@@ -446,7 +468,7 @@ func (m *Manager) GetAccess(integration Integration, objectPath string) AccessLe
 
 	profiles := m.config.Assignments[string(integration)]
 	if len(profiles) == 0 {
-		return AccessFull // no assignments = unrestricted (backwards compat)
+		return defaultLevel(integration) // no assignments: unrestricted (backwards compat), the cloud closed
 	}
 
 	return m.resolveAccessLocked(profiles, objectPath)
@@ -474,7 +496,7 @@ func (m *Manager) SetAccess(integration Integration, objectPath string, level Ac
 		// No mutable profile — create one
 		targetName = "custom-" + string(integration)
 		m.config.Profiles[targetName] = &Profile{
-			Default: AccessFull,
+			Default: defaultLevel(integration),
 			Objects: map[string]AccessLevel{},
 		}
 		// Replace or append to assignments

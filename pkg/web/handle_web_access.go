@@ -66,10 +66,10 @@ func (s *Server) handleAccessProfileEdit(c *gin.Context) {
 // handleAPIAccessList returns all objects with their access levels
 //
 //	@Summary		List objects with access levels
-//	@Description	Returns all exposed objects from the Lua registry together with their per-integration access levels (mqtt, homekit) and the resolved access level for each MCP bot. Returns an empty object list when the Lua engine is unavailable.
+//	@Description	Returns all exposed objects from the Lua registry together with their per-integration access levels (mqtt, homekit, cloud), what Lua's :remote() says about the cloud (cloudLua: false or {access, roles}; it decides over access.cloud) and the resolved access level for each MCP bot. Returns an empty object list when the Lua engine is unavailable.
 //	@Tags			access
 //	@Produce		json
-//	@Success		200	{object}	map[string]interface{}	"objects [{path, name, type, cluId, access {mqtt, homekit}, botAccess {botId: level}}], integrations []string, bots [{id, name}]"
+//	@Success		200	{object}	map[string]interface{}	"objects [{path, name, type, cluId, access {mqtt, homekit, cloud}, cloudLua, botAccess {botId: level}}], integrations []string, bots [{id, name}]"
 //	@Security		ApiKeyAuth
 //	@Router			/api/access [get]
 func (s *Server) handleAPIAccessList(c *gin.Context) {
@@ -102,20 +102,26 @@ func (s *Server) handleAPIAccessList(c *gin.Context) {
 		bots = masterConfig.MCP.Bots
 	}
 
-	// What Lua shares with vclu cloud (:remote()), shown read-only: Lua decides, not this page
+	// What Lua's :remote() says about vclu cloud, shown read-only: for these devices Lua decides,
+	// not this page. Remote is false for :remote(false), else {access, roles}.
 	type cloudShare struct {
 		Access string   `json:"access"`
 		Roles  []string `json:"roles,omitempty"`
 	}
-	remote := map[string]cloudShare{}
-	if out, err := s.luaExecutor.Execute("JSON.encode(ExposedObjects:remoteList())"); err == nil {
+	remote := map[string]any{}
+	if out, err := s.luaExecutor.Execute("JSON.encode(ExposedObjects:luaRemoteList())"); err == nil {
 		var list []struct {
-			Path string `json:"path"`
-			cloudShare
+			Path   string          `json:"path"`
+			Remote json.RawMessage `json:"remote"`
 		}
 		if json.Unmarshal([]byte(out), &list) == nil {
 			for _, o := range list {
-				remote[o.Path] = o.cloudShare
+				var share cloudShare
+				if json.Unmarshal(o.Remote, &share) == nil && share.Access != "" {
+					remote[o.Path] = share
+				} else {
+					remote[o.Path] = false
+				}
 			}
 		}
 	}
@@ -129,9 +135,11 @@ func (s *Server) handleAPIAccessList(c *gin.Context) {
 			// Only include MQTT and HomeKit as integration columns
 			accessMap["mqtt"] = string(s.accessManager.GetAccess(accesscontrol.IntegrationMQTT, obj.Path))
 			accessMap["homekit"] = string(s.accessManager.GetAccess(accesscontrol.IntegrationHomeKit, obj.Path))
+			accessMap["cloud"] = string(s.accessManager.GetAccess(accesscontrol.IntegrationCloud, obj.Path))
 		} else {
 			accessMap["mqtt"] = "full"
 			accessMap["homekit"] = "full"
+			accessMap["cloud"] = "hidden"
 		}
 
 		// Per-bot resolved access
@@ -162,7 +170,7 @@ func (s *Server) handleAPIAccessList(c *gin.Context) {
 			entry["botAccess"] = botAccessMap
 		}
 		if share, ok := remote[obj.Path]; ok {
-			entry["cloud"] = share
+			entry["cloudLua"] = share
 		}
 
 		response = append(response, entry)
@@ -179,7 +187,7 @@ func (s *Server) handleAPIAccessList(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"objects":      response,
-		"integrations": []string{"mqtt", "homekit"},
+		"integrations": []string{"mqtt", "homekit", "cloud"},
 		"bots":         botsMeta,
 	})
 }
@@ -187,7 +195,7 @@ func (s *Server) handleAPIAccessList(c *gin.Context) {
 // handleAPIAccessSet sets access level for an object and integration
 //
 //	@Summary		Set object access level
-//	@Description	Sets the access level (full, readonly or hidden) for a single object path and integration (mqtt, homekit or mcp). Persists the change to the access control file and syncs it to the Lua runtime.
+//	@Description	Sets the access level (full, readonly or hidden) for a single object path and integration (mqtt, homekit, mcp or cloud). Persists the change to the access control file and syncs it to the Lua runtime.
 //	@Tags			access
 //	@Accept			json
 //	@Produce		json
@@ -212,8 +220,9 @@ func (s *Server) handleAPIAccessSet(c *gin.Context) {
 
 	// Validate integration
 	integration := accesscontrol.Integration(req.Integration)
-	if integration != accesscontrol.IntegrationMQTT && integration != accesscontrol.IntegrationHomeKit && integration != accesscontrol.IntegrationMCP {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid integration. Must be: mqtt, homekit, or mcp"})
+	if integration != accesscontrol.IntegrationMQTT && integration != accesscontrol.IntegrationHomeKit &&
+		integration != accesscontrol.IntegrationMCP && integration != accesscontrol.IntegrationCloud {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid integration. Must be: mqtt, homekit, mcp or cloud"})
 		return
 	}
 
@@ -252,7 +261,7 @@ func (s *Server) handleAPIAccessSet(c *gin.Context) {
 // handleAPIAccessIntegrations returns list of available integrations
 //
 //	@Summary		List available integrations
-//	@Description	Returns the static list of integrations that support access control (mqtt, homekit, mcp) with display names and icons.
+//	@Description	Returns the static list of integrations that support access control (mqtt, homekit, mcp, cloud) with display names and icons.
 //	@Tags			access
 //	@Produce		json
 //	@Success		200	{object}	map[string]interface{}	"integrations [{id, name, icon}]"
@@ -263,6 +272,7 @@ func (s *Server) handleAPIAccessIntegrations(c *gin.Context) {
 		{"id": "mqtt", "name": "MQTT / Home Assistant", "icon": "bi-house-heart"},
 		{"id": "homekit", "name": "Apple HomeKit", "icon": "bi-apple"},
 		{"id": "mcp", "name": "MCP (AI Bots)", "icon": "bi-robot"},
+		{"id": "cloud", "name": "vclu cloud", "icon": "bi-cloud"},
 	}
 	c.JSON(http.StatusOK, gin.H{"integrations": integrations})
 }

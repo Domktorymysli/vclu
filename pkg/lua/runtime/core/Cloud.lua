@@ -446,12 +446,12 @@ local function notFound()
     return JSON.encode({ ok = false, reason = 'not_found', message = 'Nie ma takiego urządzenia.' })
 end
 
---- Runs a remote command on a device exposed with :remote() (called by Go with the cloud's cmd,
+--- Runs a remote command on a device the cloud reaches (:remote() or the Access page; called by Go with the cloud's cmd,
 -- as the person). Returns the answer as JSON: { ok, reason?, message? }.
 function Cloud._command(path, action, rolesJSON, confirmed, pin, deadlineMs, value)
     local h = ExposedObjects and ExposedObjects:_remoteHandle(path)
     if not h then return notFound() end
-    if not rolesAllow(h._remote.roles, rolesJSON) then
+    if not rolesAllow(ExposedObjects._remoteRoles(h), rolesJSON) then
         return JSON.encode({ ok = false, reason = 'forbidden', message = 'Nie masz do tego uprawnień.' })
     end
     return command(h, path, ExposedObjects._remoteAccess(h), action, confirmed, pin, deadlineMs, value)
@@ -502,8 +502,8 @@ local function remoteState(path, h)
 end
 
 --- What remote devices are doing, for the cloud's states (called by Go, as nobody: reading
--- changes nothing): those exposed with :remote() whose roles reach the person's. Others, and
--- devices that cannot be read, are left out.
+-- changes nothing): those the cloud reaches (:remote() or the Access page) whose roles reach the
+-- person's. Others, and devices that cannot be read, are left out.
 -- @param pathsJSON string JSON array of paths
 -- @param rolesJSON string JSON array of the person's roles
 -- @return string JSON array of {path, on?, position?, value?}
@@ -514,7 +514,7 @@ function Cloud._states(pathsJSON, rolesJSON)
     for i = 1, #paths do
         local path = paths[i]
         local h = type(path) == 'string' and ExposedObjects and ExposedObjects:_remoteHandle(path)
-        if h and rolesAllow(h._remote.roles, rolesJSON) then
+        if h and rolesAllow(ExposedObjects._remoteRoles(h), rolesJSON) then
             local st = remoteState(path, h)
             if st then out[#out + 1] = st end
         end
