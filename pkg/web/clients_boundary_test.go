@@ -368,3 +368,20 @@ func TestClientsNeedAPanelPassword(t *testing.T) {
 		t.Errorf("delete without a password: %d", res.code)
 	}
 }
+
+// A request from away from the house carries at most remoteBodyMax: a bigger one is refused, not
+// read into memory, through the tunnel and on the LAN listener alike.
+func TestRemoteBodyBounded(t *testing.T) {
+	s, _ := clientsSite(t)
+	s.SetLocalAccess(newLocal(t, t.TempDir()))
+	s.local.SetMembers(members(1, "owner", install12))
+	tunnel := s.TunnelHandler()
+	big := `{"widgetId":"lamp","action":"toggle","value":true,"pad":"` + strings.Repeat("x", remoteBodyMax) + `"}`
+	if res := call(tunnel, "POST", "/api/dashboard/home/action", "", big, proto.HeaderActor, "cloud:12", proto.HeaderRole, "owner"); res.code == http.StatusOK {
+		t.Errorf("a body past remoteBodyMax through the tunnel: %d", res.code)
+	}
+	small := `{"widgetId":"lamp","action":"toggle","value":true}`
+	if res := call(tunnel, "POST", "/api/dashboard/home/action", "", small, proto.HeaderActor, "cloud:12", proto.HeaderRole, "owner"); res.code == http.StatusRequestEntityTooLarge {
+		t.Errorf("a normal action refused as too large")
+	}
+}

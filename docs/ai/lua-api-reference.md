@@ -2469,7 +2469,7 @@ Whether someone is at home, by their name or cloud id.
 
 ### `Cloud.disable() → boolean|nil true, or nil and an error (e.g. not paired)`
 
-Switches the connection to the cloud off, keeping the pairing: dashboards, the app and notifications stop until Cloud.enable() or the switch on the cloud page. It is saved and survives a restart; the cloud shows the home as switched off and sends no offline alert.
+Switches the connection to the cloud off, keeping the pairing: access from away (dashboards, devices and voice through the cloud) and notifications stop until Cloud.enable() or the switch on the cloud page. The app on the home's network keeps working (up to a week without the cloud); to end that too, unpair. It is saved and survives a restart; the cloud shows the home as switched off and sends no offline alert.
 
 **Returns:** boolean|nil true, or nil and an error (e.g. not paired)
 

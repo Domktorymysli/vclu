@@ -410,7 +410,7 @@ func (s *Server) LocalHandler() http.Handler {
 		r.HTMLRender = s.router.HTMLRender
 	}
 	r.UseRawPath, r.UnescapePathValues = true, true
-	r.Use(gin.Recovery(), s.localViewer, staticCache)
+	r.Use(gin.Recovery(), limitBody, s.localViewer, staticCache)
 	r.GET("/api/local/ping", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"ok": true, "role": remoteRole(c)})
 	})

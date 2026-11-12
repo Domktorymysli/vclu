@@ -694,3 +694,45 @@ func TestPairingKeepsLocalPortAndForgets(t *testing.T) {
 		t.Errorf("after unpairing: forgotten %d, localPort %d", forgotten.Load(), port())
 	}
 }
+
+// limitListener serves at most n connections at once; a closed one makes room for the next.
+func TestLimitListener(t *testing.T) {
+	inner, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := limitListener(inner, 2)
+	defer l.Close()
+	accepted := make(chan net.Conn, 3)
+	go func() {
+		for {
+			c, err := l.Accept()
+			if err != nil {
+				return
+			}
+			accepted <- c
+		}
+	}()
+	for range 3 {
+		c, err := net.Dial("tcp", inner.Addr().String())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer c.Close()
+	}
+	first, second := <-accepted, <-accepted
+	select {
+	case <-accepted:
+		t.Fatal("a third connection was served while two were open")
+	case <-time.After(100 * time.Millisecond):
+	}
+	first.Close()
+	first.Close() // twice frees one place only
+	select {
+	case c := <-accepted:
+		c.Close()
+	case <-time.After(time.Second):
+		t.Fatal("no room after one closed")
+	}
+	second.Close()
+}

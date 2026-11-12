@@ -17,6 +17,7 @@ import (
 	"io"
 	"log"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	"slices"
 	"strings"
@@ -682,9 +683,12 @@ func (c *Client) connect(ctx context.Context, cfg config.VCLUCloudConfig) error 
 	t.metricsQuery = t.metrics && w.Metrics.Query
 	t.home = w.HomeID
 	if c.opts.Tunnel != nil && slices.Contains(w.Enable, proto.CapHTTP) {
-		// The cloud opens a stream per request; the session is their listener.
-		hs := &http.Server{Handler: c.opts.Tunnel, ReadHeaderTimeout: 10 * time.Second, ErrorLog: log.New(io.Discard, "", 0)}
-		go hs.Serve(sess)
+		// The cloud opens a stream per request; the session is their listener. The house bounds
+		// what it takes even from its cloud: headers, bodies (web's limitBody) and the streams
+		// served at once (more wait in the session until one ends).
+		hs := &http.Server{Handler: c.opts.Tunnel, ReadHeaderTimeout: 10 * time.Second, MaxHeaderBytes: tunnelHeaderMax,
+			ErrorLog: log.New(io.Discard, "", 0)}
+		go hs.Serve(limitListener(sess, tunnelStreamsMax))
 		defer hs.Close()
 	}
 	c.mu.Lock()
@@ -1151,3 +1155,42 @@ func (c *Client) pingLoop(t *tunnel, done <-chan struct{}) {
 
 // Link reports the pings and outages of the last day, for the cloud page.
 func (c *Client) Link() LinkReport { return c.link.report(time.Now()) }
+
+// What the house takes through the tunnel at once (c.serve): request headers, and streams served:
+// room for the cloud's own limits per home (32 live sockets, 8 requests in flight) and more.
+const (
+	tunnelHeaderMax  = 32 << 10
+	tunnelStreamsMax = 64
+)
+
+// limitListener accepts from l only while fewer than n of its connections are open: a cloud
+// opening thousands of streams gets them served n at a time, not all into vCLU's memory.
+func limitListener(l net.Listener, n int) net.Listener {
+	return &limitedListener{Listener: l, sem: make(chan struct{}, n)}
+}
+
+type limitedListener struct {
+	net.Listener
+	sem chan struct{}
+}
+
+func (l *limitedListener) Accept() (net.Conn, error) {
+	l.sem <- struct{}{}
+	conn, err := l.Listener.Accept()
+	if err != nil {
+		<-l.sem
+		return nil, err
+	}
+	return &limitedConn{Conn: conn, release: func() { <-l.sem }}, nil
+}
+
+type limitedConn struct {
+	net.Conn
+	once    sync.Once
+	release func()
+}
+
+func (c *limitedConn) Close() error {
+	c.once.Do(c.release)
+	return c.Conn.Close()
+}

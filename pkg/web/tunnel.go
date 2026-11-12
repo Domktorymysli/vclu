@@ -34,10 +34,23 @@ func (s *Server) TunnelHandler() http.Handler {
 		r.HTMLRender = s.router.HTMLRender // the dashboard and PIN pages
 	}
 	r.UseRawPath, r.UnescapePathValues = true, true
-	r.Use(gin.Recovery(), s.tunnelViewer, staticCache)
+	r.Use(gin.Recovery(), limitBody, s.tunnelViewer, staticCache)
 	r.POST(proto.PathLocalToken, s.handleLocalToken)
 	s.remoteRoutes(r)
 	return r
+}
+
+// remoteBodyMax is the most a request from away from the house may carry: a dashboard action or
+// PIN is a few hundred bytes. The house does not count on the cloud to bound it.
+const remoteBodyMax = 64 << 10
+
+// limitBody bounds a remote request's body to remoteBodyMax: reading past it fails, so a
+// hostile cloud or LAN client cannot fill vCLU's memory with one request.
+func limitBody(c *gin.Context) {
+	if c.Request.Body != nil {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, remoteBodyMax)
+	}
+	c.Next()
 }
 
 // remoteRoutes are what a person away from the house gets, through the tunnel or with a local

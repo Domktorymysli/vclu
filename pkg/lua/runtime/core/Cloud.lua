@@ -16,8 +16,7 @@
 --   end)
 --   if Cloud.anyoneHome() then ... end
 --
---   Satel.partition(1):onArmed(function() Cloud.disable() end)   -- no outside access while armed
---   Cloud.enable(); if Cloud.enabled() then ... end
+--   Cloud.disable(); Cloud.enable(); if Cloud.enabled() then ... end
 --
 -- vCLU sends the notification to the cloud, which picks the people (to) and sends a push to
 -- their phones; the cloud never sees the buttons' code, only their labels. A pressed button
@@ -197,9 +196,11 @@ function Cloud.isHome(who)
     return nil
 end
 
---- Switches the connection to the cloud off, keeping the pairing: dashboards, the app and
--- notifications stop until Cloud.enable() or the switch on the cloud page. It is saved and
--- survives a restart; the cloud shows the home as switched off and sends no offline alert.
+--- Switches the connection to the cloud off, keeping the pairing: access from away (dashboards,
+-- devices and voice through the cloud) and notifications stop until Cloud.enable() or the switch
+-- on the cloud page. The app on the home's network keeps working (up to a week without the
+-- cloud); to end that too, unpair. It is saved and survives a restart; the cloud shows the home
+-- as switched off and sends no offline alert.
 -- @return boolean|nil true, or nil and an error (e.g. not paired)
 -- @api public
 function Cloud.disable()
