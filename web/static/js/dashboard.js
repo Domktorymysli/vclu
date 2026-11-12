@@ -317,6 +317,12 @@
 
     // ---- Fetch helpers ----
 
+    // A response's JSON, or a rejection for an error status: a 429 or 503 is text, not JSON
+    function okJSON(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+    }
+
     function fetchJSON(url, opts) {
         return fetch(url, opts).then(function(r) {
             if (r.status === 404) return { _notFound: true };
@@ -3067,7 +3073,7 @@
     function fetchChartData(w, canvas) {
         var range = chartRange(w);
         fetch('/api/dashboard/' + dashId + '/metrics?path=' + encodeURIComponent(w.metricPath) + '&range=' + range)
-            .then(function(r) { return r.json(); })
+            .then(okJSON)
             .then(function(data) {
                 // Downsample long ranges
                 data = downsample(data, 300);
@@ -3162,13 +3168,14 @@
                         }
                     });
                 }
-            });
+            })
+            .catch(function() {}); // a busy or offline vCLU: the next refresh asks again
     }
 
     function fetchSparkline(w, canvas) {
         var range = w.sparkRange || '2h';
         fetch('/api/dashboard/' + dashId + '/metrics?path=' + encodeURIComponent(w.spark) + '&range=' + range)
-            .then(function(r) { return r.json(); })
+            .then(okJSON)
             .then(function(data) {
                 data = downsample(data, 60);
                 var values = smoothValues(data.map(function(d) { return d[1]; }), 3);
@@ -3215,7 +3222,8 @@
                         }
                     });
                 }
-            });
+            })
+            .catch(function() {}); // a busy or offline vCLU: the next refresh asks again
     }
 
     // ---- Bars: one bar per hour or day of the house's zone, aggregated by the server ----
