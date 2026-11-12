@@ -171,6 +171,8 @@ function CLU_REMOTE:get(name)
     local result, err = self:_ask("get(" .. name .. ")", '(function() local v = getVar("' .. name ..
         '") return type(v) .. ":" .. tostring(v) end)()')
     if err then return nil, err end
+    -- A CLU answers at most 2047 characters; with a longer value it answers nothing
+    if result == "" then return nil, "empty answer (a value longer than about 2000 characters?)" end
     local t, text = result:match("^(%a+):(.*)$")
     if t == "nil" then return nil end
     if t == "string" then return text end

@@ -254,7 +254,7 @@ func TestCLUFeatureAnswers(t *testing.T) {
 		"number:inf":        "nil:nil:unexpected answer: number:inf",
 		"21.50":             "nil:nil:unexpected answer: 21.50",
 		"nil":               "nil:nil:unexpected answer: nil",
-		"":                  "nil:nil:unexpected answer: ",
+		"":                  "nil:nil:empty answer (a value longer than about 2000 characters?)",
 		"table:table: 0x01": "nil:nil:unexpected answer: table:table: 0x01",
 	} {
 		engine.SetCommandSender(func(ip, script string) (string, error) { return answer, nil })

@@ -13,6 +13,40 @@ import (
 	"github.com/Domktorymysli/vclu/pkg/commands"
 )
 
+// MaxRequestBytes is the largest encrypted request a CLU takes: one Ethernet frame without
+// fragments (1500 - 20 IP - 8 UDP). A CLU drops a fragmented request without answering.
+const MaxRequestBytes = 1472
+
+// encryptRequest builds and encrypts the request for a script, refusing one that does not fit
+// into MaxRequestBytes.
+func (s *Server) encryptRequest(script string) ([]byte, *cipher.CipherKey, error) {
+	req := &commands.LuaScriptRequest{
+		IPAddress: s.localIP,
+		SessionID: uint32(rand.Intn(0xFFFFFF)),
+		Script:    script,
+	}
+	requestData := req.AsBytes()
+
+	s.mu.RLock()
+	projectKey := s.projectCipherKey
+	s.mu.RUnlock()
+
+	if projectKey == nil {
+		return nil, nil, fmt.Errorf("project key not configured")
+	}
+
+	encrypted, err := projectKey.Encrypt(requestData)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to encrypt request: %w", err)
+	}
+	if len(encrypted) > MaxRequestBytes {
+		// PKCS7 adds at least one byte, so the plain request may have MaxRequestBytes-1
+		limit := len(script) - (len(requestData) - (MaxRequestBytes - 1))
+		return nil, nil, fmt.Errorf("script too long for a CLU: %d bytes, at most %d", len(script), limit)
+	}
+	return encrypted, projectKey, nil
+}
+
 // SendCommand sends a Lua script command to a CLU and waits for response (5s timeout)
 func (s *Server) SendCommand(targetIP string, script string) (string, error) {
 	return s.SendCommandWithTimeout(targetIP, script, 5*time.Second)
@@ -26,29 +60,9 @@ func (s *Server) SendCommandWithTimeout(targetIP string, script string, timeout 
 		return "", fmt.Errorf("invalid target IP: %s", targetIP)
 	}
 
-	// Generate random session ID
-	sessionID := uint32(rand.Intn(0xFFFFFF))
-
-	// Create request
-	req := &commands.LuaScriptRequest{
-		IPAddress: s.localIP,
-		SessionID: sessionID,
-		Script:    script,
-	}
-	requestData := req.AsBytes()
-
-	// Encrypt with project key
-	s.mu.RLock()
-	projectKey := s.projectCipherKey
-	s.mu.RUnlock()
-
-	if projectKey == nil {
-		return "", fmt.Errorf("project key not configured")
-	}
-
-	encryptedRequest, err := projectKey.Encrypt(requestData)
+	encryptedRequest, projectKey, err := s.encryptRequest(script)
 	if err != nil {
-		return "", fmt.Errorf("failed to encrypt request: %w", err)
+		return "", err
 	}
 
 	// Create UDP connection for sending/receiving
@@ -107,26 +121,9 @@ func (s *Server) SendCommandNoReply(targetIP string, script string) error {
 		return fmt.Errorf("invalid target IP: %s", targetIP)
 	}
 
-	sessionID := uint32(rand.Intn(0xFFFFFF))
-
-	req := &commands.LuaScriptRequest{
-		IPAddress: s.localIP,
-		SessionID: sessionID,
-		Script:    script,
-	}
-	requestData := req.AsBytes()
-
-	s.mu.RLock()
-	projectKey := s.projectCipherKey
-	s.mu.RUnlock()
-
-	if projectKey == nil {
-		return fmt.Errorf("project key not configured")
-	}
-
-	encryptedRequest, err := projectKey.Encrypt(requestData)
+	encryptedRequest, projectKey, err := s.encryptRequest(script)
 	if err != nil {
-		return fmt.Errorf("failed to encrypt request: %w", err)
+		return err
 	}
 
 	conn, err := net.DialUDP("udp4", nil, &net.UDPAddr{
