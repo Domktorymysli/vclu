@@ -9,10 +9,12 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"syscall"
 	"time"
 
 	"github.com/Domktorymysli/vclu/pkg/camera"
+	"github.com/Domktorymysli/vclu/pkg/cloud"
 	"github.com/Domktorymysli/vclu/pkg/config"
 	"github.com/Domktorymysli/vclu/pkg/history"
 	"github.com/Domktorymysli/vclu/pkg/homekit"
@@ -296,9 +298,16 @@ func main() {
 	webSrv.SetMCPServer(mcpSrv)
 
 	// Register pre-reset callback to block HomeKit callbacks BEFORE Lua reload
+	// Made below, before the first load; a reload tells it which dashboards are remote.
+	var cloudClient *cloud.Client
+
 	srv.SetOnLuaPreReset(func() {
 		if homekitSrv != nil {
 			homekitSrv.SetInitializing(true)
+		}
+		// the device list from a half-loaded Lua must not reach the cloud
+		if cloudClient != nil {
+			cloudClient.ObjectsHold()
 		}
 	})
 
@@ -336,7 +345,35 @@ func main() {
 				homekitSrv.ResumeGen(gen, 3*time.Second)
 			}()
 		}
+		if cloudClient != nil {
+			go cloudClient.DashboardsChanged()
+			cloudClient.ObjectsRelease() // after exposeRegistry: the whole list, once
+		}
 	})
+
+	// The vCLU app at home connects here on the LAN with a token issued through the cloud.
+	localAccess := startLocalAccess(webSrv, cluDir, masterConfig)
+
+	// vclu cloud: connects only once paired in the panel (/cloud). Made before Lua loads, so
+	// Cloud.notify works from the first script; notifications wait for the connection.
+	cloudClient = cloud.New(cloud.Options{
+		Dir:          cluDir,
+		Name:         deviceName(masterConfig),
+		Version:      version,
+		Platform:     runtime.GOOS + "/" + runtime.GOARCH,
+		Health:       cloudSeen(localAccess, cloudHealth(time.Now(), luaEngine.GetMQTTManager(), luaEngine.GetSatelManager(), homekitSrv)),
+		NotifyAction: cloudNotifyAction(luaEngine),
+		Presence:     cloudPresence(luaEngine),
+		Tunnel:       webSrv.TunnelHandler(),
+		Dashboards:   cloudDashboards(luaEngine),
+		Members:      cloudMembers(localAccess),
+		Forgotten:    cloudForgotten(localAccess),
+		Objects:      cloudObjects(luaEngine),
+		Command:      cloudCommand(luaEngine, localAccess.NoteApp),
+		States:       cloudStates(luaEngine),
+		Metrics:      metricsCollector,
+	})
+	luaEngine.SetCloud(cloudBridge(cloudClient))
 
 	// Load CLU data (plugins → user.lua → om.lua → MQTT → expose)
 	srv.LoadInitialData()
@@ -377,6 +414,8 @@ func main() {
 
 	updateCtx, stopUpdateCheck := context.WithCancel(context.Background())
 	go updateChecker.Run(updateCtx)
+	webSrv.SetCloudClient(cloudClient)
+	cloudClient.Start()
 
 	// Wait for interrupt signal
 	sigChan := make(chan os.Signal, 1)
@@ -387,6 +426,8 @@ func main() {
 
 	log.Println("Shutting down...")
 	stopUpdateCheck()
+	// bye first: the cloud then waits longer before alerting the owner
+	cloudClient.Shutdown("shutdown", 2*time.Minute)
 	go historyStore.Flush() // early write in case a slow stop below runs into the systemd kill; Close bounds the wait
 	metricsCollector.Stop() // final flush before exit
 	if homekitSrv != nil {

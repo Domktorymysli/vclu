@@ -588,6 +588,12 @@ func createBackupZip(zipPath string, dataDir string) error {
 		if strings.Contains(path, "backup") {
 			return nil
 		}
+		// and the LAN listener's certificate (local.go): with its key a backup could stand in
+		// for this vCLU on the LAN and catch the tokens the apps and clients send; a restored
+		// vCLU makes a new one, and the apps get its pin with their next token
+		if base := filepath.Base(path); base == localKeyFile || base == localCertFile {
+			return nil
+		}
 
 		// Get relative path
 		relPath, err := filepath.Rel(filepath.Dir(dataDir), path)

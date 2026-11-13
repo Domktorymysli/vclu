@@ -12,23 +12,38 @@ const MaxBuckets = 31 * 24
 // Aggregations a bucket can take.
 var Aggregations = map[string]bool{"sum": true, "avg": true, "max": true, "min": true, "delta": true}
 
-// BucketEdges returns n+1 edges of n buckets in loc, the last bucket holding now. Daily
-// buckets start at local midnight (a DST day is 23 or 25 h long), hourly ones on the hour.
-func BucketEdges(now time.Time, loc *time.Location, n int, daily bool) ([]time.Time, error) {
+// BucketEdges returns n+1 edges of n buckets in loc, the last bucket holding now. bucket is
+// "1h" (on the hour), "1d" (from local midnight: a DST day is 23 or 25 h long), "1w" (from
+// Monday's midnight) or "1mo" (from the 1st).
+func BucketEdges(now time.Time, loc *time.Location, n int, bucket string) ([]time.Time, error) {
 	if n < 1 || n > MaxBuckets {
 		return nil, fmt.Errorf("buckets: %d not in 1..%d", n, MaxBuckets)
 	}
 	t := now.In(loc)
 	edges := make([]time.Time, n+1)
-	if daily {
-		y, m, d := t.Date()
+	y, m, d := t.Date()
+	switch bucket {
+	case "1d", "1w":
+		days := 1
+		if bucket == "1w" {
+			days = 7
+			d -= (int(t.Weekday()) + 6) % 7 // back to Monday
+		}
 		for i := 0; i <= n; i++ {
 			// time.Date normalises the day and gives midnight in loc on any DST day
-			edges[i] = time.Date(y, m, d-(n-1)+i, 0, 0, 0, 0, loc)
+			edges[i] = time.Date(y, m, d+(i-(n-1))*days, 0, 0, 0, 0, loc)
 		}
 		return edges, nil
+	case "1mo":
+		for i := 0; i <= n; i++ {
+			edges[i] = time.Date(y, m+time.Month(i-(n-1)), 1, 0, 0, 0, 0, loc)
+		}
+		return edges, nil
+	case "1h":
+	default:
+		return nil, fmt.Errorf("buckets: unknown bucket %q", bucket)
 	}
-	y, m, d := t.Date()
+
 	cur := time.Date(y, m, d, t.Hour(), 0, 0, 0, loc)
 	// a fall-back hour is there twice and time.Date picks one of them: take the one with now
 	if cur.After(now) {

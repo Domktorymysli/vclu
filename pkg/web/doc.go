@@ -20,12 +20,14 @@ package web
 //	@description	Authentication: a session cookie (`vclu_session`, created via `POST /login`)
 //	@description	or the `X-API-Key` header (key configured in vCLU settings). When authentication
 //	@description	is not configured, all endpoints are open.
+//	@description
+//	@description	The device API (`/api/v1/`, tag devices) is for API clients instead: it takes only a
+//	@description	client's token (`Authorization: Bearer vclu_client_…`), never the session or the API key,
+//	@description	and is open on the LAN listener too.
 //
 //	@BasePath	/
 //
-//	@securityDefinitions.apikey	ApiKeyAuth
-//	@in							header
-//	@name						X-API-Key
+//	@x-tagGroups	[{"name": "Client API (v1)", "tags": ["client", "devices"]}, {"name": "Panel API (administration)", "tags": ["system", "settings", "access", "clients", "registry", "history", "stats", "backup", "grenton", "mqtt", "homekit", "satel"]}]
 //
 //	@tag.name			system
 //	@tag.description	Health, restart, factory reset
@@ -43,7 +45,24 @@ package web
 //	@tag.description	Access control profiles and assignments
 //	@tag.name			backup
 //	@tag.description	Configuration backup and restore
+//	@tag.name			history
+//	@tag.description	What changed and who did it: the panel, MQTT, MCP bots, API clients, the cloud
 //	@tag.name			stats
 //	@tag.description	Runtime statistics and metrics
 //	@tag.name			settings
 //	@tag.description	Device settings
+//	@tag.name			clients
+//	@tag.description	The API clients: made, changed and deleted from the panel's session only (never with the API key), and only while the panel has a password.
+//	@tag.name			client
+//	@tag.description	For API clients (v0): who the token is for, and the remote dashboards its roles open on the LAN listener.
+//	@tag.name			devices
+//	@tag.description	The device API for API clients (v0, may still change): the devices a client's access profiles let it read, their states and commands. The same contract as vclu cloud's devices (snapshot, states, cmd), on the panel's port and on the LAN listener (HTTPS, certificate pinned by the "pin" of the client's connection). A device's PIN and confirmation hold here too.
+//
+//	@securityDefinitions.apikey	ApiKeyAuth
+//	@in							header
+//	@name						X-API-Key
+//
+//	@securityDefinitions.apikey	ClientToken
+//	@in							header
+//	@name						Authorization
+//	@description				An API client's token as "Bearer vclu_client_…", made on the panel's API clients page. Only the device API (/api/v1/) takes it.

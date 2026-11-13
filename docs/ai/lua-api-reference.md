@@ -15,16 +15,17 @@ Only public API is listed — internal/private functions are omitted.
 - [objects.VirtualObject](#objectsvirtualobject) (12 functions)
 - [objects.VirtualThermostat](#objectsvirtualthermostat) (12 functions)
 - [objects.VirtualPresence](#objectsvirtualpresence) (8 functions)
-- [ExposedObjects](#exposedobjects) (21 functions)
+- [ExposedObjects](#exposedobjects) (25 functions)
 - [core.Registry](#coreregistry) (10 functions)
 - [core.Metrics](#coremetrics) (1 functions)
 - [core.Calendar](#corecalendar) (39 functions)
-- [Dashboard](#dashboard) (79 functions)
+- [Dashboard](#dashboard) (83 functions)
 - [lib.panel](#libpanel) (55 functions)
 - [objects.RemotePanel](#objectsremotepanel) (6 functions)
 - [GPIO_DOUT](#gpio_dout) (1 functions)
 - [GPIO_DIN](#gpio_din) (1 functions)
 - [integrations.mqtt.MqttClient](#integrationsmqttmqttclient) (30 functions)
+- [core.Cloud](#corecloud) (9 functions)
 - [grenton.CLU_REMOTE](#grentonclu_remote) (3 functions)
 - [lib.cct](#libcct) (1 functions)
 - [lib.tasmota](#libtasmota) (5 functions)
@@ -811,6 +812,36 @@ Set description for AI agents (fluent)
 
 **Returns:** ExposedHandle self for chaining
 
+### `ExposedHandle:remote(spec) → ExposedHandle self for chaining`
+
+Make the device reachable from the vclu cloud app: :remote() (or true) lets every member of the home control it, :remote(false) keeps it home whatever the panel's Access page says (and drops its roles), or a table {confirm = true (the person confirms each command), pin = true (each command needs the PIN set with :pin()), readonly = true (seen, never commanded)}. With :roles(...) only people given one of those roles in the cloud reach it. Without it the panel's Access page decides (hidden until opened there). Give the object an id (expose(obj, type, {id = "..."})): the cloud names the device by its path.
+
+- `spec` (table) — nothing, true, false or {confirm, pin, readonly}
+
+**Returns:** ExposedHandle self for chaining
+
+### `ExposedHandle:roles(...) → ExposedHandle self for chaining`
+
+Who reaches the remote device in vclu cloud: people given one of these roles there (e.g. 'domownicy', 'gosia'). Call :remote() first. Without it every member of the home does.
+
+**Returns:** ExposedHandle self for chaining
+
+### `ExposedHandle:pin(p) → ExposedHandle self for chaining`
+
+The PIN each command needs, from the cloud's app, by voice or from an API client: 4 to 8 digits, as a string ("0420") or a number. It stays in vCLU: the cloud, the app and the clients never see it. :remote({pin = true}) says the same and needs it: a device with remote{pin = true} and no PIN is not offered at all. Five wrong PINs in a row lock the device for 30 s.
+
+- `p` (string) — The PIN
+
+**Returns:** ExposedHandle self for chaining
+
+### `ExposedHandle:confirm(on) → ExposedHandle self for chaining`
+
+Each command needs a confirmation, from the cloud's app, by voice or from an API client (confirmed: true): the person or the program says yes first. :confirm(false) takes it back; :remote({confirm = true}) says the same for the cloud's way in.
+
+- `on` (boolean) — Optional: false takes it back
+
+**Returns:** ExposedHandle self for chaining
+
 ### `ExposedHandle:update(opts) → boolean Success, false if handle is inactive`
 
 Update options at runtime
@@ -885,7 +916,7 @@ All exposed objects: the live map, read it and never change it
 
 ### `expose(obj, objType, options) → ExposedHandle`
 
-Global function to expose an object. A custom object's onChange(cb) must return a function that removes cb: unexpose() calls it, otherwise the callback stays registered and expose() logs a warning.
+Global function to expose an object. A custom object's onChange(cb) must return a function that removes cb: unexpose() calls it, otherwise the callback stays registered and expose() logs a warning. Options include pulse = ms for a switch that must only pulse, a gate or an intercom's door release: expose(DOMOFON, "switch", { id = "domofon", name = "Domofon", pulse = 1000 }). "on" from Home Assistant, HomeKit, the cloud app, voice, bots or API clients switches it on for that long, then it goes off by itself (a Grenton DOUT is timed on the CLU); "off" does nothing, and through the cloud "open" and "close" pulse too. A pulse asked while one runs is ignored. Lua calling the object itself (DOMOFON:switchOn()) is not limited.
 
 - `obj` (table) — Object to expose
 - `objType` (string) — Type (switch, light, sensor, etc.)
@@ -985,7 +1016,7 @@ Register a metric for periodic collection.
 
 - `path` (Unique) — metric identifier (e.g., "salda:outsideAir")
 - `getter` (Function) — that returns the current value
-- `opts` (Optional) — table: {unit="°C", interval=60, decimals=1}
+- `opts` (Optional) — table: {unit="°C", interval=60, decimals=1, cloud=true (also kept in the cloud, as one-minute buckets, when its plan allows), kind="gauge"|"counter" (counter: a reading that only grows, such as energy)}
 
 **Returns:** path
 
@@ -1229,16 +1260,16 @@ Add a chart widget to this section.
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label (e.g., "Temperatura 24h")
 - `metricPath` (string) — Metric path registered via metric() (e.g., "temp:salon", "salda:outsideAir"), or one vCLU writes itself: "vclu:disk_free_bytes", "vclu:history_bytes", "vclu:log_bytes_per_hour" (every 15 min), "runtime:memory_mb", "runtime:goroutines" (every minute), "runtime:busy_percent", "runtime:loop_lag_ms" (every 10 s)
-- `opts` (table) — Optional: {range=string (any duration such as "30m", "2h", "24h", "7d"; default "2h"; 30m/2h/24h/7d have tuned refresh, others refresh every 60 s), unit=string ("B" or "B/h": bytes shown in KB, MB, GB or TB), min=n, max=n (Y axis), fill=bool (default true), refresh=seconds, span=n, color=string, visible=function()->bool}
+- `opts` (table) — Optional: {range=string (any duration such as "30m", "2h", "24h", "7d"; default "2h", or the first of ranges; 30m/2h/24h/7d have tuned refresh, others refresh every 60 s), ranges={durations up to "366d"} (the viewer switches between them on the chart, e.g. {"24h", "7d", "30d", "90d", "365d"}; beyond what vCLU keeps the chart comes from the cloud for metrics with cloud = true), unit=string ("B" or "B/h": bytes shown in KB, MB, GB or TB), min=n, max=n (Y axis), fill=bool (default true), refresh=seconds, span=n, color=string, visible=function()->bool}
 
 ### `SectionHandle:bars(id, label, metricPath, opts)`
 
-Add a bar chart of a metric to this section: one bar per hour or day of the house's zone.
+Add a bar chart of a metric to this section: one bar per hour, day, week or month of the house's zone.
 
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label (e.g., "Energia dziennie")
 - `metricPath` (string) — Metric path registered via metric() (e.g., "energia:licznik"), or one vCLU writes itself (see chart)
-- `opts` (table) — Optional: {range=string (a duration up to "31d"; default "7d"), bucket="1h"|"1d" (default "1d" from a 2-day range, else "1h"), agg="avg"|"sum"|"max"|"min"|"delta" (default "avg", the mean of the samples; sum depends on the sampling interval; delta: what a growing counter such as a kWh meter added in each bar, a single bad reading or a reset adds nothing), unit=string ("B" or "B/h": bytes shown in KB, MB, GB or TB), decimals=0-6, color=string, compare=metricPath (a second bar beside each), compareLabel=string, visible=function()->bool, span=n, size=string, refresh=seconds (at least 30)}; samples are kept metrics.retentionDays (default 7) days
+- `opts` (table) — Optional: {range=string (a duration up to "366d"; default "7d"), bucket="1h"|"1d"|"1w"|"1mo" (weeks from Monday, calendar months; default "1h" below 2 days, "1d" up to 62, "1w" up to 182, else "1mo"; at most 744 bars), agg="avg"|"sum"|"max"|"min"|"delta" (default "avg", the mean of the samples; sum depends on the sampling interval; delta: what a growing counter such as a kWh meter added in each bar, a single bad reading or a reset adds nothing), unit=string ("B" or "B/h": bytes shown in KB, MB, GB or TB), decimals=0-6, color=string, compare=metricPath (a second bar beside each), compareLabel=string, visible=function()->bool, span=n, size=string, refresh=seconds (at least 30)}; samples are kept metrics.retentionDays (default 7) days, older ones come from the cloud for metrics with cloud = true
 
 ### `SectionHandle:calendar(id, label, cal, opts)`
 
@@ -1451,6 +1482,14 @@ Set dashboard name (delegates to DashboardBuilder:name). Set dashboard theme (de
 
 Set dashboard name (delegates to DashboardBuilder:name). Set dashboard theme (delegates to DashboardBuilder:theme). Set dashboard poll interval (delegates to DashboardBuilder:poll). Add dashboard to a tab group (delegates to DashboardBuilder:tabGroup).
 
+### `SectionHandle:remote(spec)`
+
+Make the dashboard reachable through vclu cloud (see DashboardBuilder:remote).
+
+### `SectionHandle:roles(...)`
+
+Who sees the remote dashboard in vclu cloud (see DashboardBuilder:roles).
+
 ### `SectionHandle:width(w)`
 
 Set the page width (delegates to DashboardBuilder:width).
@@ -1508,6 +1547,16 @@ Set the dashboard theme.
 Add this dashboard to a named tab group for navigation.
 
 - `name` (string) — Tab group name (dashboards with same group show as tabs)
+
+### `DashboardBuilder:remote(spec)`
+
+Make the dashboard reachable through vclu cloud: :remote() (or true), :remote(false) to take it back, or a table {pin = true (remote viewers also enter the PIN), poll = seconds (default 5, at least 2)}. Every member of the home sees it, or with :roles(...) only those given one of those roles in the cloud. Without it the dashboard never leaves the house. Widgets narrow it with opts.remote: false (not sent), 'readonly', or {confirm = true}.
+
+- `spec` (boolean) — |table|nil nothing or true, false, or the options
+
+### `DashboardBuilder:roles(...)`
+
+Who sees the remote dashboard in vclu cloud: people given one of these roles there (e.g. 'domownicy', 'gosia'). The cloud decides; vCLU only passes the names on. Without it every member of the home sees it. A function instead of names decides again and again (e.g. the cleaner only on Tuesdays 9-13): it returns the roles as a table, and the cloud gets each change within about 15 s; nil, an empty table or an error hide the dashboard from everyone in the cloud.
 
 ### `DashboardBuilder:header()`
 
@@ -1599,16 +1648,16 @@ Add a chart widget to the current section.
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label (e.g., "Temperatura 24h")
 - `metricPath` (string) — Metric path registered via metric() (e.g., "temp:salon", "salda:outsideAir"), or one vCLU writes itself: "vclu:disk_free_bytes", "vclu:history_bytes", "vclu:log_bytes_per_hour" (every 15 min), "runtime:memory_mb", "runtime:goroutines" (every minute), "runtime:busy_percent", "runtime:loop_lag_ms" (every 10 s)
-- `opts` (table) — Optional: {range=string (any duration such as "30m", "2h", "24h", "7d"; default "2h"; 30m/2h/24h/7d have tuned refresh, others refresh every 60 s), unit=string ("B" or "B/h": bytes shown in KB, MB, GB or TB), min=n, max=n (Y axis), fill=bool (default true), refresh=seconds, span=n, color=string, visible=function()->bool}
+- `opts` (table) — Optional: {range=string (any duration such as "30m", "2h", "24h", "7d"; default "2h", or the first of ranges; 30m/2h/24h/7d have tuned refresh, others refresh every 60 s), ranges={durations up to "366d"} (the viewer switches between them on the chart, e.g. {"24h", "7d", "30d", "90d", "365d"}; beyond what vCLU keeps the chart comes from the cloud for metrics with cloud = true), unit=string ("B" or "B/h": bytes shown in KB, MB, GB or TB), min=n, max=n (Y axis), fill=bool (default true), refresh=seconds, span=n, color=string, visible=function()->bool}
 
 ### `DashboardBuilder:bars(id, label, metricPath, opts)`
 
-Add a bar chart of a metric to the current section: one bar per hour or day of the house's zone.
+Add a bar chart of a metric to the current section: one bar per hour, day, week or month of the house's zone.
 
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label (e.g., "Energia dziennie")
 - `metricPath` (string) — Metric path registered via metric() (e.g., "energia:licznik"), or one vCLU writes itself (see chart)
-- `opts` (table) — Optional: {range=string (a duration up to "31d"; default "7d"), bucket="1h"|"1d" (default "1d" from a 2-day range, else "1h"), agg="avg"|"sum"|"max"|"min"|"delta" (default "avg", the mean of the samples; sum depends on the sampling interval; delta: what a growing counter such as a kWh meter added in each bar, a single bad reading or a reset adds nothing), unit=string ("B" or "B/h": bytes shown in KB, MB, GB or TB), decimals=0-6, color=string, compare=metricPath (a second bar beside each), compareLabel=string, visible=function()->bool, span=n, size=string, refresh=seconds (at least 30)}; samples are kept metrics.retentionDays (default 7) days
+- `opts` (table) — Optional: {range=string (a duration up to "366d"; default "7d"), bucket="1h"|"1d"|"1w"|"1mo" (weeks from Monday, calendar months; default "1h" below 2 days, "1d" up to 62, "1w" up to 182, else "1mo"; at most 744 bars), agg="avg"|"sum"|"max"|"min"|"delta" (default "avg", the mean of the samples; sum depends on the sampling interval; delta: what a growing counter such as a kWh meter added in each bar, a single bad reading or a reset adds nothing), unit=string ("B" or "B/h": bytes shown in KB, MB, GB or TB), decimals=0-6, color=string, compare=metricPath (a second bar beside each), compareLabel=string, visible=function()->bool, span=n, size=string, refresh=seconds (at least 30)}; samples are kept metrics.retentionDays (default 7) days, older ones come from the cloud for metrics with cloud = true
 
 ### `DashboardBuilder:calendar(id, label, cal, opts)`
 
@@ -2382,6 +2431,73 @@ Publish state update for object
 - `state` (any) — State value
 
 **Returns:** boolean Success
+
+---
+
+## core.Cloud
+
+### `Cloud.notify(opts, body) → string|nil The notification's id; nil and the reason when not sent`
+
+Sends a notification to the members' phones. opts: title (required), body, priority ("normal" or "high"), to ("all", "admins" or a list of cloud ids), tag (a newer one with the same tag replaces it), open (a dashboard id), actions (up to 3 buttons { label, run = function(who) ... end, roles = { "admin" } (who may press it; "admin" includes the owner), id }; run returns the text shown, or false and why), expires (seconds the buttons work, default 3600). Cloud.notify(title, body) is the short form.
+
+- `opts` (table) — |string The options, or the title
+- `body` (string) — |nil The body, with a title
+
+**Returns:** string|nil The notification's id; nil and the reason when not sent
+
+### `Cloud.channel(opts) → table An object with :send(e)`
+
+A channel for Calendar:notify and other code that takes an object with :send(e): each event becomes a notification with the event's title.
+
+- `opts` (table) — |nil Options of Cloud.notify for every event (to, priority, open)
+
+**Returns:** table An object with :send(e)
+
+### `Cloud.presence() → table List of { user = "cloud:<id>", name, home (boolean), since (unix seconds of the last change) }`
+
+Everyone who shares their presence with this home, sorted by name.
+
+**Returns:** table List of { user = "cloud:<id>", name, home (boolean), since (unix seconds of the last change) }
+
+### `Cloud.isHome(who) → boolean|nil true or false, nil when they do not share their presence`
+
+Whether someone is at home, by their name or cloud id.
+
+- `who` (string) — A name as in the cloud ("Anna") or "cloud:<id>"
+
+**Returns:** boolean|nil true or false, nil when they do not share their presence
+
+### `Cloud.disable() → boolean|nil true, or nil and an error (e.g. not paired)`
+
+Switches the connection to the cloud off, keeping the pairing: access from away (dashboards, devices and voice through the cloud) and notifications stop until Cloud.enable() or the switch on the cloud page. The app on the home's network keeps working (up to a week without the cloud); to end that too, unpair. It is saved and survives a restart; the cloud shows the home as switched off and sends no offline alert.
+
+**Returns:** boolean|nil true, or nil and an error (e.g. not paired)
+
+### `Cloud.enable() → boolean|nil true, or nil and an error (e.g. not paired)`
+
+Switches the connection to the cloud on again, with the same pairing.
+
+**Returns:** boolean|nil true, or nil and an error (e.g. not paired)
+
+### `Cloud.enabled() → boolean`
+
+Whether vCLU is paired with the cloud and the connection is switched on.
+
+**Returns:** boolean
+
+### `Cloud.anyoneHome() → boolean`
+
+Whether anyone who shares their presence is at home (false when nobody shares it).
+
+**Returns:** boolean
+
+### `Cloud.onPresence(fn) → function Call it to stop`
+
+Calls fn(e) when someone comes home or leaves: e = { user, name, home, since, anyone } (anyone: whether anyone is at home after this change). Runs as that person (origin "remote").
+
+- `fn` (function) — The handler
+
+**Returns:** function Call it to stop
 
 ---
 

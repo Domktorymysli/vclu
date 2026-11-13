@@ -534,6 +534,9 @@ func (s *Server) scheduleRestart() {
 	}
 	go func() {
 		time.Sleep(500 * time.Millisecond)
+		if s.cloudClient != nil {
+			s.cloudClient.Shutdown("restart", time.Minute)
+		}
 		log.Printf("Restarting vCLU...")
 		os.Exit(0)
 	}()

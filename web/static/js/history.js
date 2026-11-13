@@ -33,13 +33,23 @@
         return String(v);
     }
 
+    var actors = {}; // actor -> name, from the pages loaded
+
+    // who made a change: a name when vCLU knows the person, the id beside it
+    function who(e) {
+        var name = actors[e.actor];
+        var id = '<span class="text-muted small">' + esc(e.actor) + '</span>';
+        return name ? '<strong>' + esc(name) + '</strong> ' + id : esc(e.actor);
+    }
+
     function row(e) {
+        var origin = T['origin_' + e.origin] || e.origin;
         return '<tr>' +
             '<td class="text-nowrap">' + esc(new Date(e.atMs).toLocaleString()) + '</td>' +
             '<td><a href="#" class="history-path" data-path="' + escAttr(e.path) + '">' + esc(e.path) + '</a></td>' +
             '<td class="text-nowrap">' + esc(fmtValue(e.old)) + ' → <strong>' + esc(fmtValue(e.value)) + '</strong></td>' +
-            '<td><span class="badge text-bg-secondary">' + esc(e.origin) + '</span></td>' +
-            '<td>' + esc(e.actor) + (e.correlationId ? ' <span class="text-muted small">' + esc(e.correlationId) + '</span>' : '') + '</td>' +
+            '<td><span class="badge text-bg-secondary" title="' + escAttr(e.origin) + '">' + esc(origin) + '</span></td>' +
+            '<td>' + who(e) + '</td>' +
             '</tr>';
     }
 
@@ -54,6 +64,7 @@
         }
         $('historyError').style.display = 'none';
         VCLU.fetchJSON('/api/history?' + p.toString()).then(function(res) {
+            Object.keys(res.actors || {}).forEach(function(k) { actors[k] = res.actors[k]; });
             var body = $('historyBody');
             var html = (res.entries || []).map(row).join('');
             body.innerHTML = append ? body.innerHTML + html : html;
@@ -153,6 +164,11 @@
     }
 
     document.addEventListener('DOMContentLoaded', function() {
+        // filters from the address (/history?origin=remote, a link from the cloud page)
+        var q = new URLSearchParams(location.search);
+        [['path', 'fPath'], ['origin', 'fOrigin'], ['actor', 'fActor'], ['q', 'fText']].forEach(function(f) {
+            if (q.get(f[0])) $(f[1]).value = q.get(f[0]);
+        });
         $('historyFilters').addEventListener('submit', function() { load(false); });
         $('historyMore').addEventListener('click', function() { load(true); });
         $('historyBody').addEventListener('click', function(ev) {

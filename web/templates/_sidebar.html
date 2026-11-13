@@ -9,7 +9,7 @@
             <i class="bi bi-graph-up"></i>
             <span class="nav-label">Stats</span>
         </a>
-        <div class="nav-group {{if or (eq .currentPage "grenton") (eq .currentPage "satel") (eq .currentPage "mqtt") (eq .currentPage "homekit") (eq .currentPage "mcp")}}open{{end}}" id="navGroupIntegrations">
+        <div class="nav-group {{if or (eq .currentPage "grenton") (eq .currentPage "satel") (eq .currentPage "mqtt") (eq .currentPage "homekit") (eq .currentPage "mcp") (eq .currentPage "clients") (eq .currentPage "cloud")}}open{{end}}" id="navGroupIntegrations">
             <div class="nav-group-header" data-tooltip="Integracje">
                 <i class="bi bi-stack"></i>
                 <span class="nav-label">Integracje</span>
@@ -35,6 +35,14 @@
                 <a href="/mcp-dashboard" class="nav-item nav-sub-item {{if eq .currentPage "mcp"}}active{{end}}" data-tooltip="MCP">
                     <i class="bi bi-robot"></i>
                     <span class="nav-label">MCP</span>
+                </a>
+                <a href="/clients" class="nav-item nav-sub-item {{if eq .currentPage "clients"}}active{{end}}" data-tooltip="{{index .t "clients.title"}}">
+                    <i class="bi bi-key"></i>
+                    <span class="nav-label">{{index .t "clients.title"}}</span>
+                </a>
+                <a href="/cloud" class="nav-item nav-sub-item {{if eq .currentPage "cloud"}}active{{end}}" data-tooltip="{{index .t "cloud.title"}}">
+                    <i class="bi bi-cloud"></i>
+                    <span class="nav-label">{{index .t "cloud.title"}}</span>
                 </a>
             </div>
         </div>

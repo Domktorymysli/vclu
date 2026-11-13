@@ -423,8 +423,8 @@ func (s *Server) handleAPIDashboardWS(c *gin.Context) {
 		c.JSON(status, gin.H{"error": msg})
 		return
 	}
-	key, read := s.dashboardValues(id)
-	sub, ok := s.live.join(c.ClientIP(), id, key, poll, read)
+	key, read := s.dashboardValues(c, id)
+	sub, ok := s.live.join(limitKey(c), id, key, poll, read)
 	if !ok {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "too many live dashboards"})
 		return
@@ -510,7 +510,12 @@ func (s *Server) handleAPIDashboardWS(c *gin.Context) {
 		// a session ended, the PIN cookie expired, or a reload changed the PIN or the auth: a Lua
 		// error (500) is not a refusal and keeps the socket
 		if checkAuth {
-			switch status, msg, _ := s.dashboardAccess(c, id); status {
+			// a remote viewer's token, members list or roles may have changed too
+			status, msg, _ := s.dashboardAccess(c, id)
+			if st := viewerRecheck(c, c.Request.URL.Path); st != 0 {
+				status, msg = st, "access ended"
+			}
+			switch status {
 			case http.StatusUnauthorized, http.StatusForbidden:
 				closeWith(liveCloseDenied, msg)
 				return
@@ -549,5 +554,8 @@ func (s *Server) NotifyStateChanged() {
 // definition again; call it after every Lua load.
 func (s *Server) DashboardsReloaded() {
 	dashCache.Invalidate()
+	s.remoteRolesMu.Lock()
+	s.remoteRolesCache = nil // :roles() may have changed
+	s.remoteRolesMu.Unlock()
 	s.live.reloaded()
 }

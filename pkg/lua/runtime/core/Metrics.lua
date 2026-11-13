@@ -15,7 +15,7 @@ Metrics._registered = {}
 -- @api public
 -- @param path    Unique metric identifier (e.g., "salda:outsideAir")
 -- @param getter  Function that returns the current value
--- @param opts    Optional table: {unit="°C", interval=60, decimals=1}
+-- @param opts    Optional table: {unit="°C", interval=60, decimals=1, cloud=true (also kept in the cloud, as one-minute buckets, when its plan allows), kind="gauge"|"counter" (counter: a reading that only grows, such as energy)}
 -- @return path
 function metric(path, getter, opts)
     opts = opts or {}
@@ -29,7 +29,7 @@ function metric(path, getter, opts)
 
     -- Tell Go to register this metric in the collector
     if __go_metric_register then
-        __go_metric_register(path, opts.unit or "", opts.interval or 60)
+        __go_metric_register(path, opts.unit or "", opts.interval or 60, opts.cloud == true, opts.kind or "gauge")
     end
 
     return path

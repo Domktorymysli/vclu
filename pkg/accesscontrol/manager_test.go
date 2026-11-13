@@ -227,14 +227,13 @@ func TestLoad_MissingFile(t *testing.T) {
 func TestAllIntegrations(t *testing.T) {
 	integrations := AllIntegrations()
 
-	if len(integrations) != 4 {
-		t.Errorf("expected 4 integrations, got %d", len(integrations))
+	if len(integrations) != 4 || integrations[3] != IntegrationCloud {
+		t.Errorf("expected mqtt, homekit, mcp and cloud, got %v", integrations)
 	}
 
 	hasMQTT := false
 	hasHomeKit := false
 	hasMCP := false
-	hasRemote := false
 	for _, i := range integrations {
 		switch i {
 		case IntegrationMQTT:
@@ -243,13 +242,7 @@ func TestAllIntegrations(t *testing.T) {
 			hasHomeKit = true
 		case IntegrationMCP:
 			hasMCP = true
-		case IntegrationRemote:
-			hasRemote = true
 		}
-	}
-
-	if !hasRemote {
-		t.Error("expected remote integration")
 	}
 
 	if !hasMQTT {
@@ -625,24 +618,27 @@ func TestReset(t *testing.T) {
 
 	m.Reset()
 
-	// Only the built-in profiles should remain
+	// Only full-access should remain
 	all := m.ListProfiles()
-	if len(all) != 2 {
-		t.Errorf("expected 2 profiles after reset, got %d", len(all))
+	if len(all) != 1 {
+		t.Errorf("expected 1 profile after reset, got %d", len(all))
 	}
 	if _, ok := all[BuiltinProfileFullAccess]; !ok {
 		t.Error("expected full-access profile after reset")
 	}
 
-	// Every integration should have its default: full-access, remote no-access
+	// All integrations should have full-access, but the cloud nothing
 	for _, intg := range AllIntegrations() {
 		names := m.GetAssignment(intg)
-		if len(names) != 1 || names[0] != DefaultProfile(intg) {
-			t.Errorf("expected [%s] for %s, got %v", DefaultProfile(intg), intg, names)
+		if intg == IntegrationCloud {
+			if len(names) != 0 {
+				t.Errorf("expected [] for cloud, got %v", names)
+			}
+			continue
 		}
-	}
-	if got := m.GetAssignment(IntegrationMQTT); got[0] != BuiltinProfileFullAccess {
-		t.Errorf("mqtt after reset = %v, want [full-access]", got)
+		if len(names) != 1 || names[0] != BuiltinProfileFullAccess {
+			t.Errorf("expected [full-access] for %s, got %v", intg, names)
+		}
 	}
 }
 
@@ -724,5 +720,124 @@ func TestLoad_RecoversAfterFixingConfig(t *testing.T) {
 	}
 	if !m.CanControl(IntegrationMQTT, "CLU.LAMP") {
 		t.Error("still denying after the config was fixed")
+	}
+}
+
+// An access file written by v1.8.0 has a "remote" assignment and the built-in no-access profile:
+// it loads, the assignment is dropped and everything else stays as it was.
+func TestLoadDropsUnknownIntegration(t *testing.T) {
+	dir := t.TempDir()
+	file := `profiles:
+    no-access:
+        default: hidden
+    biuro:
+        default: hidden
+        objects:
+            light/biuro: full
+assignments:
+    mqtt: [biuro]
+    remote: [no-access]
+`
+	if err := os.WriteFile(filepath.Join(dir, "access_control.yaml"), []byte(file), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := NewManager(dir)
+	if err := m.Load(); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := m.config.Assignments["remote"]; ok {
+		t.Error("the remote assignment is kept")
+	}
+	if got := m.GetAccess(IntegrationMQTT, "light/biuro"); got != AccessFull {
+		t.Errorf("mqtt light/biuro = %s", got)
+	}
+	if got := m.GetAccess(IntegrationMQTT, "light/salon"); got != AccessHidden {
+		t.Errorf("mqtt light/salon = %s", got)
+	}
+}
+
+// vclu cloud is closed until the owner opens objects: a fresh install, a file written before the
+// cloud and a reset give it nothing; opening one object leaves the rest hidden; deleting its
+// profile closes it again.
+func TestCloudHiddenByDefault(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManager(dir)
+	if err := m.Load(); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.GetAccess(IntegrationCloud, "CLU1.DOU1"); got != AccessHidden {
+		t.Errorf("fresh install: cloud = %s", got)
+	}
+	if got := m.GetAccess(IntegrationMQTT, "CLU1.DOU1"); got != AccessFull {
+		t.Errorf("fresh install: mqtt = %s", got)
+	}
+
+	file := "assignments:\n    mqtt: [full-access]\n"
+	if err := os.WriteFile(filepath.Join(dir, "access_control.yaml"), []byte(file), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Load(); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.GetAccess(IntegrationCloud, "CLU1.DOU1"); got != AccessHidden {
+		t.Errorf("file without cloud: cloud = %s", got)
+	}
+
+	m.SetAccess(IntegrationCloud, "CLU1.DOU1", AccessFull)
+	m.SetAccess(IntegrationCloud, "CLU1.DOU2", AccessReadonly)
+	if err := m.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Load(); err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range map[string]AccessLevel{"CLU1.DOU1": AccessFull, "CLU1.DOU2": AccessReadonly, "CLU1.DOU3": AccessHidden} {
+		if got := m.GetAccess(IntegrationCloud, path); got != want {
+			t.Errorf("cloud %s = %s, want %s", path, got, want)
+		}
+	}
+	if got := m.GetAccess(IntegrationMQTT, "CLU1.DOU3"); got != AccessFull {
+		t.Errorf("mqtt changed with the cloud: %s", got)
+	}
+
+	if err := m.DeleteProfile("custom-cloud"); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.GetAccess(IntegrationCloud, "CLU1.DOU1"); got != AccessHidden {
+		t.Errorf("after deleting its profile: cloud = %s", got)
+	}
+
+	m.SetAccess(IntegrationCloud, "CLU1.DOU1", AccessFull)
+	m.Reset()
+	if got := m.GetAccess(IntegrationCloud, "CLU1.DOU1"); got != AccessHidden {
+		t.Errorf("after reset: cloud = %s", got)
+	}
+}
+
+// A legacy per-object file naming the cloud opens only what it names: its profile defaults to
+// hidden, and an object set to full there stays full.
+func TestMigrateLegacyCloudStaysClosed(t *testing.T) {
+	dir := t.TempDir()
+	file := `objects:
+    CLU1.DOU1:
+        cloud: full
+    CLU1.DOU2:
+        cloud: hidden
+        mqtt: readonly
+`
+	if err := os.WriteFile(filepath.Join(dir, "access_control.yaml"), []byte(file), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := NewManager(dir)
+	if err := m.Load(); err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range map[string]AccessLevel{"CLU1.DOU1": AccessFull, "CLU1.DOU2": AccessHidden, "CLU1.DOU3": AccessHidden} {
+		if got := m.GetAccess(IntegrationCloud, path); got != want {
+			t.Errorf("cloud %s = %s, want %s", path, got, want)
+		}
+	}
+	if got := m.GetAccess(IntegrationMQTT, "CLU1.DOU3"); got != AccessFull {
+		t.Errorf("mqtt CLU1.DOU3 = %s", got)
 	}
 }

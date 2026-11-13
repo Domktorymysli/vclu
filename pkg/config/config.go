@@ -55,6 +55,9 @@ type VCLUConfig struct {
 	// MCP (Model Context Protocol) server configuration
 	MCP *VCLUMCPConfig `json:"mcp,omitempty"`
 
+	// Clients of the device API (/api/v1/client/), each with its own token and access profiles
+	Clients []APIClient `json:"clients,omitempty"`
+
 	// OM files from other CLUs (for registry/discovery)
 	OMFiles []OMFileConfig `json:"omFiles,omitempty"`
 
@@ -78,6 +81,8 @@ type VCLUConfig struct {
 
 	// Check for new vCLU versions (absent = on)
 	UpdateCheck *VCLUUpdateCheckConfig `json:"updateCheck,omitempty"`
+	// vclu cloud: the server and, once paired, the device token
+	Cloud *VCLUCloudConfig `json:"cloud,omitempty"`
 
 	// Lua runtime limits (absent = defaults)
 	Lua *VCLULuaConfig `json:"lua,omitempty"`
@@ -154,6 +159,21 @@ type MCPBot struct {
 	DevMode    bool     `json:"devMode"`  // Layer 2 sandbox access (requires global DevModeEnabled too)
 	ExecMode   bool     `json:"execMode"` // Allow vclu_exec (live Lua execution, requires DevMode too)
 	CreatedAt  string   `json:"createdAt"`
+}
+
+// APIClient is a program using the device API (/api/v1/client/): a desktop app, a watch, a
+// CLI. Like an MCP bot it has its own token and access profiles; with no profile it reaches
+// nothing.
+type APIClient struct {
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	TokenHash string   `json:"tokenHash"`
+	Profiles  []string `json:"profiles"`
+	// Roles are the home's own roles (vclu cloud, :remote():roles()): the remote dashboards
+	// naming one of them, on the LAN listener
+	Roles     []string `json:"roles,omitempty"`
+	ExpiresAt int64    `json:"expiresAt,omitempty"` // unix seconds, 0 for never
+	CreatedAt string   `json:"createdAt"`
 }
 
 // VCLUMetricsConfig contains Prometheus metrics endpoint settings

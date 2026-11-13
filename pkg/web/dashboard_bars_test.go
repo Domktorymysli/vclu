@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -264,12 +265,12 @@ func TestDashboardBarsMergesConcurrentLoads(t *testing.T) {
 	var mu sync.Mutex
 	loads := 0
 	release := make(chan struct{})
-	barsLoad = func(s *Server, id, widget string) (int, []byte) {
+	barsLoad = func(s *Server, id, widget, role, key string) (int, []byte) {
 		mu.Lock()
 		loads++
 		mu.Unlock()
 		<-release
-		return orig(s, id, widget)
+		return orig(s, id, widget, role, key)
 	}
 	var wg sync.WaitGroup
 	codes := make([]int, 8)
@@ -293,5 +294,87 @@ func TestDashboardBarsMergesConcurrentLoads(t *testing.T) {
 		if c != 200 {
 			t.Errorf("request %d: %d", i, c)
 		}
+	}
+}
+
+// Through the cloud a bars widget with remote = false is not on the dashboard: its buckets stay
+// in the house, and the LAN's cached answer is not handed to the remote viewer.
+func TestDashboardBarsRemote(t *testing.T) {
+	s, lan, _ := barsServer(t, `Dashboard.new('e'):remote():section('S','i')
+  :bars('pub', 'PV', 'energia:pv')
+  :bars('priv', 'Sekret', 'energia:secret', { remote = false })
+  :build()`)
+	s.live = newLiveFeeds()
+	t.Cleanup(s.live.shutdown)
+	tunnel := s.TunnelHandler()
+	if r := do(lan, "GET", "/api/dashboard/e/bars?widget=priv", "", ""); r.code != 200 {
+		t.Fatalf("LAN: %d %s", r.code, r.raw)
+	}
+	if r := do(tunnel, "GET", "/api/dashboard/e/bars?widget=priv", "member", ""); r.code != 403 {
+		t.Errorf("remote = false through the cloud: %d %s", r.code, r.raw)
+	}
+	if r := do(tunnel, "GET", "/api/dashboard/e/bars?widget=pub", "member", ""); r.code != 200 {
+		t.Errorf("a shared bars widget through the cloud: %d %s", r.code, r.raw)
+	}
+}
+
+// fakeHistory answers like the cloud: hourly steps of a counter rising by 1 kWh an hour.
+type fakeHistory struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (f *fakeHistory) MetricsHistory(_ context.Context, path string, since, until int64, step int) ([][5]float64, int64, error) {
+	f.mu.Lock()
+	f.calls++
+	f.mu.Unlock()
+	var out [][5]float64
+	for t := since / 3600 * 3600; t < until; t += 3600 {
+		v := float64(t / 3600)
+		out = append(out, [5]float64{float64(t), v - 0.5, v - 1, v, 60})
+	}
+	return out, until, nil
+}
+
+// A counter sent to the cloud draws the days vCLU no longer keeps from there; one that is not
+// sent leaves them "not kept".
+func TestDashboardBarsFromTheCloud(t *testing.T) {
+	s, _, _ := barsServer(t, `Dashboard.new('x'):section('S','i'):bars('b', 'B', 'energia:licznik'):build()`)
+	h := &fakeHistory{}
+	s.metricsHistory = h
+	now := time.Now()
+	spec := barsSpec{Path: "energia:licznik", Bucket: "1d", Buckets: 10, Agg: "delta", Zone: "UTC"}
+
+	res, err := s.barsSeries(spec, now)
+	if err != nil || h.calls != 0 || !res.Buckets[0].Old {
+		t.Fatalf("not sent to the cloud: %d calls, %+v %v", h.calls, res, err)
+	}
+
+	s.metricsCollector.SetCloud("energia:licznik", true, metrics.KindCounter)
+	if res, err = s.barsSeries(spec, now); err != nil || h.calls != 1 {
+		t.Fatalf("%d calls, %v", h.calls, err)
+	}
+	// 10 days back, 7 kept: the 2 oldest whole days from the cloud (the third is cut by now-7d)
+	for i, b := range res.Buckets[:2] {
+		if b.Old || b.V == nil || *b.V != 24 {
+			t.Errorf("day %d from the cloud = %+v, want 24 kWh", i, b)
+		}
+	}
+}
+
+// A chart over a month takes the weeks before what vCLU keeps from the cloud, in steps.
+func TestDashboardChartFromTheCloud(t *testing.T) {
+	s, r, _ := barsServer(t, `Dashboard.new('x'):auth('public'):section('S','i'):chart('c', 'C', 'energia:licznik', { ranges = {'30d'} }):build()`)
+	s.metricsHistory = &fakeHistory{}
+	s.metricsCollector.SetCloud("energia:licznik", true, metrics.KindCounter)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("GET", "/api/dashboard/x/metrics?path=energia:licznik&range=30d", nil))
+	var pts [][2]float64
+	if err := json.Unmarshal(w.Body.Bytes(), &pts); err != nil || w.Code != 200 {
+		t.Fatalf("%d %s", w.Code, w.Body)
+	}
+	// 23 days before the 7 kept, in the fake's hours
+	if len(pts) < 22*24 || int64(pts[1][0]-pts[0][0]) != 3600 || pts[0][0] > float64(time.Now().Add(-29*24*time.Hour).Unix()) {
+		t.Errorf("%d points from %v", len(pts), pts[:min(3, len(pts))])
 	}
 }

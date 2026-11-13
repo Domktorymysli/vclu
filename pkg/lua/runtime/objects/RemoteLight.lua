@@ -55,12 +55,35 @@ function RemoteLight:setBrightness(percent, ramp)
     self:setValue(percent / 100, ramp)
 end
 
+--- Keeps the last brightness above 0, which switchOn() comes back to.
+-- @param newState any The reported or set value
+function RemoteLight:updateState(newState)
+    local v = tonumber(newState)
+    if v and v > 0 then self._lastOn = v end
+    return RemoteObject.updateState(self, newState)
+end
+
+--- Sends the last brightness again; false when there is none.
+-- @return boolean Whether it was restored
+function RemoteLight:_restore()
+    if not self._lastOn then return false end
+    self:setValue(self._lastOn)
+    return true
+end
+
 --- Turns the light on.
+-- Without a time or a ramp it comes back to the last brightness (and colour): Grenton's own
+-- SwitchOn goes to the module's default instead (a dimmer at 60 %, 2026-11-04). The first
+-- time, before any brightness is known, it is Grenton's SwitchOn.
 -- @param time number Optional duration in milliseconds
 -- @param ramp number Optional ramp time
 function RemoteLight:switchOn(time, ramp)
+    if (time == nil or time == 0) and ramp == nil and self:_restore() then return end
     self:execute(self.METHODS.switchOn, time or 0, ramp)
+    -- on, at a brightness the CLU will report: the guess of 1 is not one to come back to
+    local last = self._lastOn
     self:updateState(1)
+    self._lastOn = last
 end
 
 --- Turns the light off.

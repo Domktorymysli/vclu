@@ -11,11 +11,17 @@
 -- @type ExposedHandle
 local ExposedHandle = {}
 local checkOptions -- defined after capabilities
+
+-- A pulse switch (expose option pulse = ms): a gate, an intercom's door release
+local PULSE_MIN_MS, PULSE_MAX_MS = 100, 60000
 local climateRange -- defined after capabilities
 
--- Counts changes of what is exposed and how; dashboards reuse their rooms until it moves
+-- Counts changes of what is exposed and how; dashboards reuse their rooms until it moves.
+-- The cloud client is told too: it only marks its device list dirty and sends it later, so
+-- this never waits for Go.
 local function changed()
     if ExposedObjects then ExposedObjects._generation = (ExposedObjects._generation or 0) + 1 end
+    if __go_cloud_objectsChanged then __go_cloud_objectsChanged() end
 end
 ExposedHandle.__index = ExposedHandle
 
@@ -133,6 +139,107 @@ function ExposedHandle:description(d)
     return self
 end
 
+-- vclu cloud: devices a member may see and command from the app (:remote(), :roles()), and the
+-- guards a device holds on every way its commands come in (:pin(), :confirm(): the cloud, voice and
+-- API clients, Cloud.lua's command).
+-- Kept on the handle, not in options: options are merged by a re-expose and by update(),
+-- which would skip the checks below. The PIN never leaves the handle.
+local REMOTE_KEYS = { confirm = true, pin = true, readonly = true }
+local ROLE_PATTERN = '^[a-z0-9][a-z0-9_%-]*$'
+local nameWarned = {} -- paths already warned about a path taken from the name
+local pinWarned = {}  -- paths already warned about remote{pin = true} without a PIN
+
+local function warn(fmt, ...)
+    if Logger then Logger:getShared():warn(fmt, ...) end
+end
+
+--- Make the device reachable from the vclu cloud app: :remote() (or true) lets every member of the home control it, :remote(false) keeps it home whatever the panel's Access page says (and drops its roles), or a table {confirm = true (the person confirms each command), pin = true (each command needs the PIN set with :pin()), readonly = true (seen, never commanded)}. With :roles(...) only people given one of those roles in the cloud reach it. Without it the panel's Access page decides (hidden until opened there). Give the object an id (expose(obj, type, {id = "..."})): the cloud names the device by its path.
+-- @param spec table nothing, true, false or {confirm, pin, readonly}
+-- @return ExposedHandle self for chaining
+-- @api public
+function ExposedHandle:remote(spec)
+    if self._hidden then return self end
+    local where = 'expose:remote'
+    if spec == false then
+        self._remote = false
+        changed()
+        return self
+    end
+    if spec == nil or spec == true then spec = {} end
+    if type(spec) ~= 'table' then error(where .. ': expects nothing, true, false or a table', 2) end
+    for k in pairs(spec) do
+        if not REMOTE_KEYS[k] then error(where .. ': unknown option "' .. tostring(k) .. '" (confirm, pin, readonly)', 2) end
+    end
+    for _, k in ipairs({ 'confirm', 'pin', 'readonly' }) do
+        if spec[k] ~= nil and type(spec[k]) ~= 'boolean' then error(where .. ': ' .. k .. ' must be true or false', 2) end
+    end
+    if spec.readonly and (spec.confirm or spec.pin) then
+        error(where .. ': readonly cannot be combined with confirm or pin', 2)
+    end
+    self._remote = { roles = self._remote and self._remote.roles or {}, confirm = spec.confirm == true,
+        pin = spec.pin == true, readonly = spec.readonly == true }
+    if self._pathFrom == 'name' and not nameWarned[self.path] then
+        nameWarned[self.path] = true
+        warn("[ExposedObjects] %s: the path comes from the name, so renaming the device changes it in the cloud; " ..
+            "give it an id (expose(obj, type, { id = \"...\" }))", tostring(self.path))
+    end
+    changed()
+    return self
+end
+
+--- Who reaches the remote device in vclu cloud: people given one of these roles there (e.g. 'domownicy', 'gosia'). Call :remote() first. Without it every member of the home does.
+-- @param ... string Role names: a-z, 0-9, - and _, as in the cloud
+-- @return ExposedHandle self for chaining
+-- @api public
+function ExposedHandle:roles(...)
+    if self._hidden then return self end
+    local where = 'expose:roles'
+    if not self._remote then error(where .. ': call :remote() first', 2) end
+    local list = { ... }
+    if #list == 0 then error(where .. ': expects at least one role', 2) end
+    for i = 1, #list do
+        local r = list[i]
+        if type(r) ~= 'string' or #r > 32 or not r:match(ROLE_PATTERN) then
+            error(where .. ': invalid role "' .. tostring(r) .. '" (a-z, 0-9, - and _, as in the cloud)', 2)
+        end
+    end
+    self._remote.roles = list
+    changed()
+    return self
+end
+
+--- The PIN each command needs, from the cloud's app, by voice or from an API client: 4 to 8 digits, as a string ("0420") or a number. It stays in vCLU: the cloud, the app and the clients never see it. :remote({pin = true}) says the same and needs it: a device with remote{pin = true} and no PIN is not offered at all. Five wrong PINs in a row lock the device for 30 s.
+-- @param p string The PIN
+-- @return ExposedHandle self for chaining
+-- @api public
+function ExposedHandle:pin(p)
+    if self._hidden then return self end
+    local s
+    if type(p) == 'number' and p - p == 0 and p >= 0 and p == math.floor(p) then
+        s = string.format('%d', p)
+    elseif type(p) == 'string' then
+        s = p
+    end
+    if not s or #s < 4 or #s > 8 or not s:match('^%d+$') then
+        error('expose:pin: the PIN is 4 to 8 digits', 2)
+    end
+    self._pin = s
+    changed()
+    return self
+end
+
+--- Each command needs a confirmation, from the cloud's app, by voice or from an API client (confirmed: true): the person or the program says yes first. :confirm(false) takes it back; :remote({confirm = true}) says the same for the cloud's way in.
+-- @param on boolean Optional: false takes it back
+-- @return ExposedHandle self for chaining
+-- @api public
+function ExposedHandle:confirm(on)
+    if self._hidden then return self end
+    if on ~= nil and type(on) ~= 'boolean' then error('expose:confirm: expects nothing, true or false', 2) end
+    self._confirm = on ~= false
+    changed()
+    return self
+end
+
 --- Update options at runtime
 -- @api public
 -- @param opts table Options to merge (filter = false removes a filter)
@@ -142,6 +249,7 @@ function ExposedHandle:update(opts)
         return false
     end
     checkOptions(self.type, opts)
+    if opts.pulse ~= nil and opts.pulse ~= self.options.pulse then self:_endPulse() end
     for k, v in pairs(opts) do
         self.options[k] = v
     end
@@ -176,6 +284,9 @@ function ExposedHandle:unexpose()
         return -- already unexposed
     end
     self._exposed = false
+    self:_endPulse()
+    -- an access change runs exposeRegistry() again: it must not bring this one back
+    if ExposedObjects._registryOptions then ExposedObjects._dropped[self.object] = true end
     ExposedObjects:_remove(self.path)
 end
 
@@ -262,6 +373,56 @@ function ExposedHandle:setValue(value)
     if self.type == "climate" then
         return self:_setTarget(value)
     end
+    if self.options.pulse then
+        local n = tonumber(value)
+        if value == true or (n and n > 0) then return self:_pulse() end
+        return true -- off: the pulse switches itself off
+    end
+    return self:_write(value)
+end
+
+-- A pulse switch's "on" from any way in (setValue, the cloud): on for options.pulse ms, then
+-- off by itself. Its own pulse(ms) when it has one (a Grenton DOUT is timed on the CLU, so a
+-- vCLU restart cannot leave it on), else on and a timer for the off. A pulse asked while one
+-- runs is ignored: a second press must not move a gate twice.
+-- @return boolean Success
+function ExposedHandle:_pulse()
+    local obj, ms = self.object, self.options.pulse
+    if self._pulsing then return true end
+    local ok
+    if type(obj) == "table" and type(obj.pulse) == "function" then
+        ok = pcall(obj.pulse, obj, ms)
+        if ok then self._lastChanged = os.time() end
+    else
+        ok = self:_write(1)
+    end
+    if not ok then return false end
+    local native = type(obj) == "table" and type(obj.pulse) == "function"
+    self._pulsing = native and "native" or "timer"
+    if TIMERS then
+        self._pulseTimer = TIMERS:setTimeout(ms, function()
+            self._pulseTimer = nil
+            self:_endPulse()
+        end)
+    else
+        self:_endPulse()
+    end
+    return true
+end
+
+-- Ends a running pulse now: a timed one is switched off (also once unexposed, or with pulse
+-- taken off: the relay must not stay on), a native one is the CLU's to end
+function ExposedHandle:_endPulse()
+    local how = self._pulsing
+    if not how then return end
+    self._pulsing = nil
+    if self._pulseTimer and TIMERS and TIMERS.clearTimer then TIMERS:clearTimer(self._pulseTimer) end
+    self._pulseTimer = nil
+    if how == "timer" then self:_write(0) end
+end
+
+-- Writes feature 0 and records the change (setValue without its checks)
+function ExposedHandle:_write(value)
     if self.object and type(self.object.set) == "function" then
         local obj = self.object
         local old, stateful = StateChange.read(obj)
@@ -347,12 +508,25 @@ end
 
 -- Raises for invalid expose options; nothing is changed before it passes
 checkOptions = function(objType, opts)
+    for _, k in ipairs({ 'remote', 'roles', 'pin' }) do
+        if opts[k] ~= nil then error('expose: use :' .. k .. '() instead of the option ' .. k, 3) end
+    end
     checkFilterOption(objType, opts.filter)
     if opts.history ~= nil and type(opts.history) ~= "boolean" then
         error("ExposedObjects:expose() - history must be true or false", 3)
     end
     if opts.dashboard ~= nil and type(opts.dashboard) ~= "boolean" then
         error("ExposedObjects:expose() - dashboard must be true or false", 3)
+    end
+    if opts.pulse ~= nil and opts.pulse ~= false then
+        if objType ~= "switch" then
+            error("ExposedObjects:expose() - pulse is for a switch, not '" .. tostring(objType) .. "'", 3)
+        end
+        local ms = opts.pulse
+        if type(ms) ~= "number" or ms % 1 ~= 0 or ms < PULSE_MIN_MS or ms > PULSE_MAX_MS then
+            error("ExposedObjects:expose() - pulse must be milliseconds, a whole number from " ..
+                PULSE_MIN_MS .. " to " .. PULSE_MAX_MS, 3)
+        end
     end
 end
 
@@ -387,12 +561,14 @@ ExposedObjects = {
     _pluginContext = nil, -- current plugin ID (set by plugin sandbox)
     _noUnsubscribeWarned = {}, -- weak set: objects already warned about onChange()
     _hidden = {},         -- weak set: objects a module exposed with hidden = true
+    _dropped = {},        -- weak set: objects a module unexposed after exposeRegistry()
 }
 
 -- Make _objectToPath a weak table (keys are garbage collected)
 setmetatable(ExposedObjects._objectToPath, { __mode = "k" })
 setmetatable(ExposedObjects._noUnsubscribeWarned, { __mode = "k" })
 setmetatable(ExposedObjects._hidden, { __mode = "k" })
+setmetatable(ExposedObjects._dropped, { __mode = "k" })
 
 --- Generate a stable path for an object
 -- @param obj table Object to expose
@@ -400,6 +576,8 @@ setmetatable(ExposedObjects._hidden, { __mode = "k" })
 -- @param options table Options with optional path/id/name
 -- @param pluginId string Optional plugin ID
 -- @return string Generated path
+-- @return string Generated path, and "name" when it was made from options.name (it changes
+-- with the name: :remote() warns about it)
 local function generatePath(obj, objType, options, pluginId)
     -- Priority 1: explicit path
     if options.path then
@@ -424,19 +602,22 @@ local function generatePath(obj, objType, options, pluginId)
     -- Priority 4: plugin_id:id or plugin_id:name or obj._id or obj._name
     local base = pluginId or "vclu"
     local id = options.id or obj._id or options.name or obj._name
+    local from = (options.id == nil and obj._id == nil and options.name ~= nil) and "name" or nil
 
     -- Priority 5: stable hash
     if not id then
         id = hashStable(obj, objType)
     end
 
-    return base .. ":" .. id
+    return base .. ":" .. id, from
 end
 
 --- Expose an object to MQTT and HomeKit
 -- @param obj table Object to expose (must implement get(0))
 -- @param objType string Type: switch, light, dimmer, sensor, temperature, etc.
 -- @param options table Optional settings: name, path, id, readonly, hidden, mqtt, homekit, group,
+--   pulse = ms for a switch that must only pulse (a gate, an intercom): "on" from any integration
+--   switches it on for that long (100-60000 ms), "off" does nothing,
 --   filter = {delta, heartbeat} for noisy numeric sensors (see StateChange.setFilter),
 --   history = false to keep the object's changes out of the history store,
 --   min/max/step for a number or a climate (a climate's target is clamped to min/max),
@@ -475,10 +656,12 @@ function ExposedObjects:expose(obj, objType, options)
         -- Return a dummy handle that does nothing
         local dummy = ExposedHandle:new("_hidden_", obj, objType, options)
         dummy._exposed = false
+        dummy._hidden = true
         return dummy
     end
 
     self._hidden[obj] = nil
+    self._dropped[obj] = nil
 
     -- Check if object was already exposed (identity is locked)
     local existingPath = self._objectToPath[obj]
@@ -519,7 +702,7 @@ function ExposedObjects:expose(obj, objType, options)
 
     -- Generate path for new object
     local pluginId = self._pluginContext
-    local path = generatePath(obj, objType, options, pluginId)
+    local path, pathFrom = generatePath(obj, objType, options, pluginId)
 
     -- Check for path collision (different object, same path)
     if self._objects[path] then
@@ -539,6 +722,7 @@ function ExposedObjects:expose(obj, objType, options)
 
     -- Create handle
     local handle = ExposedHandle:new(path, obj, objType, options)
+    handle._pathFrom = pathFrom
 
     -- Apply defaults
     if options.mqtt == nil then handle.options.mqtt = true end
@@ -747,6 +931,163 @@ function ExposedObjects:_areasOn(floor, order, key)
         return a < b
     end)
     return list
+end
+
+-- What the panel's Access page gives a device in the cloud ("full", "readonly" or "hidden") when
+-- Lua's :remote() says nothing about it: hidden until the owner opens it there
+local function panelCloud(path)
+    local level = AccessControl and AccessControl.get('cloud', path)
+    if level == 'full' or level == 'readonly' then return level end
+    return 'hidden' -- anything else, a typo in the access file too, keeps it closed
+end
+
+-- What a remote command reaches: the handle when it is exposed with :remote() and, with
+-- remote{pin = true}, has a PIN, or, without :remote() or :remote(false), when the panel opens it
+-- (Cloud._command)
+function ExposedObjects:_remoteHandle(path)
+    local h = self._objects[path]
+    if not h or not h._exposed or h._hidden or h._remote == false then return nil end
+    if h._remote then
+        if h._remote.pin and not h._pin then return nil end
+        return h
+    end
+    if panelCloud(path) == 'hidden' then return nil end
+    return h
+end
+
+-- Who reaches a remote device: the roles of :roles(...); none (every member) when the panel shares it
+function ExposedObjects._remoteRoles(h)
+    return h._remote and h._remote.roles or {}
+end
+
+-- What each command on h needs, whichever way it comes in: the PIN (:pin(), or remote{pin = true},
+-- which needs one) and a confirmation (:confirm() or remote{confirm = true})
+function ExposedObjects._guards(h)
+    local r = h._remote or {}
+    return h._pin ~= nil or r.pin == true, h._confirm == true or r.confirm == true
+end
+
+-- The access a remote viewer or an API client gets: readonly, pin, confirm or full
+-- (proto.Object.Access)
+function ExposedObjects._deviceAccess(h)
+    local r = h._remote or {}
+    if r.readonly or h.options.readonly then return 'readonly' end
+    local pin, confirm = ExposedObjects._guards(h)
+    if pin then return 'pin' end
+    if confirm then return 'confirm' end
+    return 'full'
+end
+
+-- The access a remote viewer gets: as for an API client, or readonly when the panel shares the
+-- device read-only
+function ExposedObjects._remoteAccess(h)
+    if not h._remote and panelCloud(h.path) == 'readonly' then return 'readonly' end
+    return ExposedObjects._deviceAccess(h)
+end
+
+-- What a client of the device API reaches (Cloud._clientCommand): any exposed device but those
+-- exposed only for the cloud; one with
+-- remote{pin = true} only once it has a PIN, as for the cloud
+function ExposedObjects:_deviceHandle(path)
+    local h = self._objects[path]
+    if not h or not h._exposed or h._hidden or h._cloudOnly then return nil end
+    if h._remote and h._remote.pin and not h._pin then return nil end
+    return h
+end
+
+
+local function plainString(v)
+    if type(v) == 'string' then return v end
+    if type(v) == 'number' then return tostring(v) end
+    return nil
+end
+
+-- One device as the device API lists it (proto.Object): never the PIN; roles only for the cloud
+local function deviceEntry(path, h, access, roles)
+    local o = h.options or {}
+    local obj = h.object
+    local name = plainString(o.name) or (type(obj) == 'table' and plainString(obj._name)) or tostring(path)
+    local e = { path = tostring(path), type = tostring(h.type), name = name,
+        area = plainString(o.area), floor = plainString(o.floor), access = access,
+        pulse = (o.pulse and h.type == 'switch') and true or nil }
+    if roles and #roles > 0 then
+        local copy = {}
+        for i = 1, #roles do copy[i] = roles[i] end
+        e.roles = copy
+    end
+    return e
+end
+
+--- The devices the cloud gets (exposed with :remote(), or opened on the panel's Access page), for
+-- its snapshot: sorted by path, each {path, type, name, area, floor, access, roles}, never the PIN
+-- @return table Array of plain tables
+function ExposedObjects:remoteList()
+    local out = {}
+    for path, h in pairs(self._objects) do
+        if h._exposed and not h._hidden and h._remote and h._remote.pin and not h._pin then
+            if not pinWarned[path] then
+                pinWarned[path] = true
+                warn("[ExposedObjects] %s: remote{pin = true} without :pin(...), not offered to the cloud", tostring(path))
+            end
+        elseif self:_remoteHandle(path) then
+            out[#out + 1] = deviceEntry(path, h, ExposedObjects._remoteAccess(h), ExposedObjects._remoteRoles(h))
+        end
+    end
+    table.sort(out, function(a, b) return a.path < b.path end)
+    return out
+end
+
+--- The panel's access changed (LuaAPI.syncProfiles): once exposeRegistry() has run, registry
+-- objects it opens are exposed now, not at the next reload, and the cloud gets its list again
+function ExposedObjects:accessChanged()
+    if not self._registryOptions then return changed() end
+    -- a handle made only for the cloud goes once the cloud closes, or once MQTT or HomeKit
+    -- opens (exposeRegistry makes it again with their options)
+    for path, h in pairs(self._objects) do
+        if h._cloudOnly and h._remote == nil and (panelCloud(path) == 'hidden' or not AccessControl.isHidden("mqtt", path)
+            or not AccessControl.isHidden("homekit", path)) then
+            h._exposed = false
+            self:_remove(path)
+        end
+    end
+    -- new handles only: integrations check access live, and setting mqtt/homekit = false on
+    -- handles again would stick after the page opens them back
+    self:exposeRegistry(self._registryOptions, true)
+    changed()
+end
+
+--- What Lua's :remote() says, for the panel's Access page: sorted by path, each {path, remote}
+-- with remote false (:remote(false), kept home) or {access, roles}. Devices it says nothing
+-- about are left to the page.
+-- @return table Array of plain tables
+function ExposedObjects:luaRemoteList()
+    local out = {}
+    for path, h in pairs(self._objects) do
+        if h._exposed and not h._hidden and h._remote ~= nil then
+            local e = { path = tostring(path), remote = false }
+            if h._remote then
+                local roles = {}
+                for i = 1, #h._remote.roles do roles[i] = h._remote.roles[i] end
+                e.remote = { access = ExposedObjects._remoteAccess(h), roles = roles }
+            end
+            out[#out + 1] = e
+        end
+    end
+    table.sort(out, function(a, b) return a.path < b.path end)
+    return out
+end
+
+--- Every exposed device, for the clients of the device API (Go keeps those the client's profiles
+-- let it read): sorted by path, each {path, type, name, area, floor, access}, never the PIN
+-- @return table Array of plain tables
+function ExposedObjects:deviceList()
+    local out = {}
+    for path in pairs(self._objects) do
+        local h = self:_deviceHandle(path)
+        if h then out[#out + 1] = deviceEntry(path, h, ExposedObjects._deviceAccess(h)) end
+    end
+    table.sort(out, function(a, b) return a.path < b.path end)
+    return out
 end
 
 --- Get count of exposed objects
@@ -1015,8 +1356,9 @@ end
 --   "hidden" from one → that integration disabled (mqtt=false or homekit=false)
 --   "readonly" → exposed as readonly
 -- @param options table Optional default options for all objects
+-- @param newOnly boolean Only expose objects without a handle (accessChanged)
 -- @return number Count of newly exposed objects
-function ExposedObjects:exposeRegistry(options)
+function ExposedObjects:exposeRegistry(options, newOnly)
     if not _registry then
         if Logger then
             Logger:getShared():warn("[ExposedObjects] _registry not available")
@@ -1025,6 +1367,8 @@ function ExposedObjects:exposeRegistry(options)
     end
 
     options = options or {}
+    -- kept for LuaAPI.syncProfiles: an access change exposes what it opens at once
+    self._registryOptions = options
     local count = 0
     local skipped = 0
 
@@ -1039,6 +1383,10 @@ function ExposedObjects:exposeRegistry(options)
         elseif self._hidden[obj] then
             -- a module exposed it with hidden = true
             skipped = skipped + 1
+        elseif self._dropped[obj] then
+            -- a module unexposed it after load
+        elseif self:_handleOf(obj) and newOnly then
+            -- an access change (accessChanged) makes new handles only
         elseif self:_handleOf(obj) then
             -- a module exposed it already (maybe under its own path): its options stay, but
             -- the panel's access set on the registry path still takes it off an integration
@@ -1055,8 +1403,8 @@ function ExposedObjects:exposeRegistry(options)
             local mqttHidden = AccessControl and AccessControl.isHidden("mqtt", path)
             local homekitHidden = AccessControl and AccessControl.isHidden("homekit", path)
 
-            if mqttHidden and homekitHidden then
-                -- Hidden from both integrations — skip entirely
+            if mqttHidden and homekitHidden and panelCloud(path) == 'hidden' then
+                -- Hidden from every integration — skip entirely
                 skipped = skipped + 1
             else
                 -- NOTE: readonly is deliberately NOT snapshotted into objOptions here.
@@ -1105,6 +1453,10 @@ function ExposedObjects:exposeRegistry(options)
                         Logger:getShared():warn("[ExposedObjects] Failed to expose %s: %s", path, tostring(err))
                     end
                 end
+                -- exposed only because the cloud is open for it: bots and API clients do not
+                -- see it, and accessChanged takes it back when the cloud closes
+                local h = self:_handleOf(obj)
+                if h then h._cloudOnly = (mqttHidden and homekitHidden) or nil end
             end
         end
     end
@@ -1149,6 +1501,12 @@ end
 --- Global function to expose an object.
 -- A custom object's onChange(cb) must return a function that removes cb: unexpose() calls it,
 -- otherwise the callback stays registered and expose() logs a warning.
+-- Options include pulse = ms for a switch that must only pulse, a gate or an intercom's door release:
+-- expose(DOMOFON, "switch", { id = "domofon", name = "Domofon", pulse = 1000 }). "on" from Home
+-- Assistant, HomeKit, the cloud app, voice, bots or API clients switches it on for that long, then it
+-- goes off by itself (a Grenton DOUT is timed on the CLU); "off" does nothing, and through the cloud
+-- "open" and "close" pulse too. A pulse asked while one runs is ignored. Lua calling the object
+-- itself (DOMOFON:switchOn()) is not limited.
 -- @api public
 -- @param obj table Object to expose
 -- @param objType string Type (switch, light, sensor, etc.)

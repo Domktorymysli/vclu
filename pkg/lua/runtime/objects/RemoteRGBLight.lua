@@ -109,6 +109,22 @@ function RemoteRGBLight:setValue(value, ramp)
     self:updateState(value)
 end
 
+--- Sends the last colour at the last brightness (the CLU takes both from the colour), or
+-- the brightness alone before a colour is known; false when neither is.
+-- @return boolean Whether it was restored
+function RemoteRGBLight:_restore()
+    local v, c = self._lastOn, self._color
+    if not v then return false end
+    if not c then
+        self:setValue(v)
+        return true
+    end
+    local function out(x) return math.max(0, math.min(255, math.floor(x * v + 0.5))) end
+    self:execute(6, string.format("#%02x%02x%02x", out(c.r), out(c.g), out(c.b)))
+    self:updateState(v)
+    return true
+end
+
 --- Gets the white channel of an RGBW module: the last reported or set value, else from the CLU.
 -- @return number White value (0 to 255)
 function RemoteRGBLight:getWhite()

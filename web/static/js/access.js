@@ -242,9 +242,7 @@ AccessControl.prototype._createRow = function(obj) {
         '<td class="text-center">' +
             this._createSelect(obj.path, 'homekit', obj.access.homekit) +
         '</td>' +
-        '<td class="text-center">' +
-            this._createSelect(obj.path, 'remote', obj.access.remote || 'hidden') +
-        '</td>';
+        '<td class="text-center">' + this._createCloudCell(obj) + '</td>';
 
     // Single "Bots" column with popover
     if (this.bots.length > 0) {
@@ -274,6 +272,15 @@ AccessControl.prototype._createRow = function(obj) {
         });
     });
 
+    var rolesToggle = row.querySelector('.cloud-roles-toggle');
+    if (rolesToggle) {
+        rolesToggle.addEventListener('click', function() {
+            var open = rolesToggle.textContent === rolesToggle.dataset.more;
+            row.querySelectorAll('.cloud-role-extra').forEach(function(el) { el.classList.toggle('d-none', !open); });
+            rolesToggle.textContent = open ? '\u2212' : rolesToggle.dataset.more;
+        });
+    }
+
     // Bind bot popover trigger
     var botTrigger = row.querySelector('.bot-popover-trigger');
     if (botTrigger) {
@@ -289,8 +296,8 @@ AccessControl.prototype._createRow = function(obj) {
 /**
  * Create access select element HTML
  */
-AccessControl.prototype._createSelect = function(path, integration, currentValue) {
-    var options = ['full', 'readonly', 'hidden'];
+AccessControl.prototype._createSelect = function(path, integration, currentValue, only) {
+    var options = only || ['full', 'readonly', 'hidden'];
     var html = '<select class="form-select form-select-sm access-select" ' +
                'style="width: auto; margin: 0 auto;" ' +
                'data-path="' + VCLU.esc(path) + '" ' +
@@ -401,6 +408,61 @@ AccessControl.prototype.setAccess = function(path, integration, access, selectEl
     .finally(function() {
         selectElement.disabled = false;
     });
+};
+
+/**
+ * Cell for vclu cloud: the page's own level (hidden until opened), or, when Lua's
+ * expose(...):remote() names the object, a LUA badge with who reaches it and how in its tooltip
+ * (grey for :remote(false), which keeps it out of the cloud)
+ * @param {Object} obj - an object from /api/access (access.cloud, cloudLua)
+ * @returns {string} HTML
+ */
+AccessControl.prototype._createCloudCell = function(obj) {
+    var cloud = obj.cloudLua;
+    if (cloud === undefined || cloud === null) {
+        return this._createSelect(obj.path, 'cloud', (obj.access && obj.access.cloud) || 'hidden');
+    }
+    var head = document.getElementById('cloudHeader');
+    var t = function(key) { return (head && head.dataset[key]) || key; };
+    // a level the page still keeps for it takes over once Lua stops naming the device: show it,
+    // with a select to hide it
+    var kept = (obj.access && obj.access.cloud) || 'hidden';
+    var keptHTML = kept === 'hidden' ? '' :
+        '<div class="small text-warning mt-1" title="' + VCLU.esc(t('pageKept')) + '"><i class="bi bi-exclamation-triangle"></i> ' +
+        this._createSelect(obj.path, 'cloud', kept, [kept, 'hidden']) + '</div>';
+    // One yellow LUA badge; who reaches the device and how is in its tooltip.
+    var badge = function(title, cls) {
+        return '<span class="badge ' + cls + '" style="cursor: help" title="' + VCLU.esc(title) + '">LUA</span>';
+    };
+    if (cloud === false) {
+        return badge(t('luaOff'), 'text-bg-secondary') + keptHTML;
+    }
+    var roles = cloud.roles || [];
+    var who = roles.length ? roles.join(', ') : t('everyone');
+    var mode = { pin: 'PIN', confirm: t('confirm'), readonly: t('readonly') }[cloud.access];
+    return '<span class="d-inline-flex flex-wrap justify-content-center gap-1" style="max-width: 16rem">' +
+        badge(t('lua') + '\n' + who + (mode ? ' (' + mode + ')' : ''), 'text-bg-warning') + this._roleBadges(roles) + '</span>' + keptHTML;
+};
+
+// How many roles the cloud cell shows before folding the rest into "+N".
+var CLOUD_ROLES_SHOWN = 2;
+
+/**
+ * Role badges for the cloud cell: the first CLOUD_ROLES_SHOWN, the rest behind a "+N" toggle
+ * so a device with ten roles keeps a one-line row until opened.
+ */
+AccessControl.prototype._roleBadges = function(roles) {
+    var tag = function(extra) {
+        return function(r) { return '<span class="badge text-bg-secondary' + extra + '">' + VCLU.esc(r) + '</span>'; };
+    };
+    var html = roles.slice(0, CLOUD_ROLES_SHOWN).map(tag('')).join('');
+    var rest = roles.slice(CLOUD_ROLES_SHOWN);
+    if (rest.length) {
+        html += rest.map(tag(' cloud-role-extra d-none')).join('') +
+            '<button type="button" class="badge text-bg-light border-0 cloud-roles-toggle" data-more="+' + rest.length +
+            '" title="' + VCLU.esc(rest.join(', ')) + '">+' + rest.length + '</button>';
+    }
+    return html;
 };
 
 /**
@@ -681,7 +743,7 @@ AccessControl.prototype.bulkSetAccess = function(integration, access) {
     this.bulkInProgress = true;
     this.elements.bulkProgress.style.display = 'inline';
 
-    var completed = 0;
+    var completed = 0, failed = 0;
     var total = selects.length;
 
     function updateProgress() {
@@ -692,6 +754,8 @@ AccessControl.prototype.bulkSetAccess = function(integration, access) {
         if (index >= selects.length) {
             self.bulkInProgress = false;
             self.elements.bulkProgress.style.display = 'none';
+            // e.g. the cloud for devices Lua decides about: the page may only hide those
+            if (failed > 0) VCLU.showToast(failed + ' / ' + total + ' not changed', 'warning');
             // Keep selection so user can apply another action (e.g., HomeKit after MQTT)
             return;
         }
@@ -718,9 +782,11 @@ AccessControl.prototype.bulkSetAccess = function(integration, access) {
             if (!result.error) {
                 select.value = access;
                 self._flashSuccess(select);
+            } else {
+                failed++;
             }
         })
-        .catch(function() {})
+        .catch(function() { failed++; })
         .finally(function() {
             select.disabled = false;
             row.style.backgroundColor = '';

@@ -1,6 +1,8 @@
 package metrics
 
 import (
+	"slices"
+	"sort"
 	"sync"
 	"time"
 
@@ -17,7 +19,9 @@ type Sample struct {
 type MetricDef struct {
 	Path     string
 	Unit     string
-	Interval int // seconds between samples
+	Interval int    // seconds between samples
+	Cloud    bool   // metric(..., {cloud=true}): sent to the cloud as one-minute buckets
+	Kind     string // KindGauge or KindCounter
 	ring     *stats.RingBuffer[Sample]
 	lastPoll time.Time
 	writeBuf []Sample // pending samples for disk flush
@@ -164,6 +168,80 @@ func (c *Collector) Register(path, unit string, interval int) {
 		Interval: interval,
 		ring:     stats.NewRingBuffer[Sample](c.ringSize),
 	}
+}
+
+// Kinds of a metric, as the cloud keeps them.
+const (
+	KindGauge   = "gauge"   // a level: temperature, power
+	KindCounter = "counter" // a reading that only grows: energy
+)
+
+// SetCloud marks a registered metric for the cloud, or unmarks it; a kind other than
+// KindCounter is KindGauge.
+func (c *Collector) SetCloud(path string, cloud bool, kind string) {
+	if kind != KindCounter {
+		kind = KindGauge
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if def, ok := c.metrics[path]; ok {
+		def.Cloud, def.Kind = cloud, kind
+	}
+}
+
+// CloudSeries is a metric marked for the cloud.
+type CloudSeries struct {
+	Path, Unit, Kind string
+}
+
+// CloudSeries lists the metrics marked for the cloud, by path.
+func (c *Collector) CloudSeries() []CloudSeries {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	var out []CloudSeries
+	for _, def := range c.metrics {
+		if def.Cloud {
+			out = append(out, CloudSeries{Path: def.Path, Unit: def.Unit, Kind: def.Kind})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	return out
+}
+
+// IsCloud says whether the metric is marked for the cloud.
+func (c *Collector) IsCloud(path string) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	def, ok := c.metrics[path]
+	return ok && def.Cloud
+}
+
+// BucketSeconds is the length of a bucket in Buckets.
+const BucketSeconds = 60
+
+// Buckets are the metric's samples from since up to until (unix seconds) in one-minute buckets,
+// oldest first: [start, avg, min, max, samples]. Pass a minute's start as until to get only
+// minutes that are over.
+func (c *Collector) Buckets(path string, since, until int64) [][5]float64 {
+	samples := c.Query(path, since)
+	slices.SortStableFunc(samples, func(a, b Sample) int { return int(a.Timestamp - b.Timestamp) })
+	var out [][5]float64
+	for _, s := range samples {
+		if s.Timestamp >= until {
+			break
+		}
+		start := float64(s.Timestamp / BucketSeconds * BucketSeconds)
+		if n := len(out); n > 0 && out[n-1][0] == start {
+			b := &out[n-1]
+			b[1] += (s.Value - b[1]) / (b[4] + 1) // running average
+			b[2] = min(b[2], s.Value)
+			b[3] = max(b[3], s.Value)
+			b[4]++
+			continue
+		}
+		out = append(out, [5]float64{start, s.Value, s.Value, s.Value, 1})
+	}
+	return out
 }
 
 // RegisterGo registers a metric whose samples Go ingests itself: DueMetrics leaves it out.

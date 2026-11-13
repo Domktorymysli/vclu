@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -61,26 +62,28 @@ func (s *Server) handleAPIDashboardBars(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "widget is required (max 128 chars)"})
 		return
 	}
-	key := id + "\x00" + widget
+	key := id + "\x00" + widget + roleKey(c) // a remote role sees its own view of the dashboard
 	if data, ok := dashCache.getBars(key); ok {
-		if s.dashWidgetHidden(id, widget) {
+		if s.dashWidgetHidden(c, id, widget) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "bars widget is hidden"})
 			return
 		}
 		c.Data(http.StatusOK, "application/json", []byte(data))
 		return
 	}
-	status, data := barsFlight.do(key, func() (int, []byte) { return barsLoad(s, id, widget) })
+	role := roleArg(c)
+	status, data := barsFlight.do(key, func() (int, []byte) { return barsLoad(s, id, widget, role, key) })
 	c.Data(status, "application/json", data)
 }
 
-// barsLoad reads the widget's spec and aggregates it; a 200 answer is cached.
-var barsLoad = func(s *Server, id, widget string) (int, []byte) {
+// barsLoad reads the widget's spec (role is roleArg's, for a remote viewer) and aggregates it; a
+// 200 answer is cached under key.
+var barsLoad = func(s *Server, id, widget, role, key string) (int, []byte) {
 	fail := func(status int, msg string) (int, []byte) {
 		b, _ := json.Marshal(gin.H{"error": msg})
 		return status, b
 	}
-	raw, err := s.luaExecutor.Execute(fmt.Sprintf(`Dashboard.API.barsSpec("%s", "%s")`, luaEscape(id), luaEscape(widget)))
+	raw, err := s.luaExecutor.Execute(fmt.Sprintf(`Dashboard.API.barsSpec("%s", "%s"%s)`, luaEscape(id), luaEscape(widget), role))
 	if err != nil {
 		log.Printf("[DASHBOARD] %s bars %s: %v", id, widget, err)
 		return fail(http.StatusInternalServerError, "bars unavailable")
@@ -98,7 +101,7 @@ var barsLoad = func(s *Server, id, widget string) (int, []byte) {
 		return fail(http.StatusInternalServerError, "bars unavailable")
 	}
 	data, _ := json.Marshal(res)
-	dashCache.setBars(id+"\x00"+widget, string(data))
+	dashCache.setBars(key, string(data))
 	return http.StatusOK, data
 }
 
@@ -149,20 +152,37 @@ func (s *Server) barsSeries(spec barsSpec, now time.Time) (*barsResult, error) {
 		}
 		loc = l
 	}
-	edges, err := metrics.BucketEdges(now, loc, spec.Buckets, spec.Bucket == "1d")
+	edges, err := metrics.BucketEdges(now, loc, spec.Buckets, spec.Bucket)
 	if err != nil {
 		return nil, err
 	}
 	// two buckets earlier: delta's first step can start up to 1.5 buckets before the range
 	since := edges[0].Add(-2 * edges[1].Sub(edges[0])).Unix()
-	vals := metrics.Aggregate(s.metricsCollector.Query(spec.Path, since), edges, spec.Agg)
+	kept := s.metricsCollector.Retention(now)
+	samples := func(path string) []metrics.Sample {
+		// hours, or as many as keep a year within the cloud's 2000 points
+		step := int(max(1, (now.Unix()-since+3600*2000-1)/(3600*2000))) * 3600
+		old, upTo, ok := s.cloudSamples(context.Background(), path, time.Unix(since, 0), now, step, barsValue(spec.Agg))
+		if !ok {
+			return s.metricsCollector.Query(path, since)
+		}
+		if spec.Agg == "delta" {
+			for i := range old {
+				old[i].Timestamp += int64(step) - 60 // the reading at the step's end
+			}
+		}
+		if t := time.Unix(old[0].Timestamp, 0); t.Before(kept) {
+			kept = t // drawn from the cloud, not "not kept"
+		}
+		return append(old, s.metricsCollector.Query(path, upTo)...)
+	}
+	vals := metrics.Aggregate(samples(spec.Path), edges, spec.Agg)
 	var cmp []*float64
 	if spec.Compare != "" {
-		cmp = metrics.Aggregate(s.metricsCollector.Query(spec.Compare, since), edges, spec.Agg)
+		cmp = metrics.Aggregate(samples(spec.Compare), edges, spec.Agg)
 	}
 	out := &barsResult{Bucket: spec.Bucket, Agg: spec.Agg, Zone: spec.Zone, Kept: s.metricsCollector.RetainDays(),
 		Buckets: make([]barsBucket, len(vals))}
-	kept := s.metricsCollector.Retention(now)
 	for i, v := range vals {
 		t := edges[i].In(loc)
 		b := barsBucket{T: t.Unix(), Date: t.Format("2006-01-02"), Weekday: int(t.Weekday()), Hour: t.Hour(),
@@ -174,6 +194,22 @@ func (s *Server) barsSeries(spec barsSpec, now time.Time) (*barsResult, error) {
 	}
 	out.Buckets[len(vals)-1].Partial = true
 	return out, nil
+}
+
+// barsValue picks from a step the cloud stored the one sample Aggregate gets for it: a counter's
+// highest reading at the step's end for delta, the sum of its samples for sum.
+func barsValue(agg string) func(p [5]float64, step int) float64 {
+	return func(p [5]float64, step int) float64 {
+		switch agg {
+		case "min":
+			return p[2]
+		case "max", "delta":
+			return p[3]
+		case "sum":
+			return p[1] * p[4]
+		}
+		return p[1]
+	}
 }
 
 // round6 drops the float noise of summed steps (10.40099999999984 -> 10.401).

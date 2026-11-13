@@ -1,6 +1,7 @@
 package web
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -17,6 +18,7 @@ import (
 func TestDashboardPinCookie(t *testing.T) {
 	dashCache.Invalidate()
 	pinLimiter = &rateLimiter{buckets: make(map[string]*bucket), rate: 1.0 / 6, burst: 5}
+	dashPinLocks = newPinLocks()
 	engine := lua.NewLuaEngine()
 	defer engine.Close()
 	if _, err := engine.Execute(`Dashboard.new('p'):auth('pin'):pin('1234'):section('S','i'):build()`); err != nil {
@@ -90,7 +92,54 @@ func TestDashboardPinCookie(t *testing.T) {
 	}
 	// a numeric :pin(9876) accepts the typed "9876"
 	pinLimiter = &rateLimiter{buckets: make(map[string]*bucket), rate: 1.0 / 6, burst: 5}
+	dashPinLocks = newPinLocks()
 	if w := login("9876"); w.Code != 200 {
 		t.Errorf("numeric PIN: %d %s", w.Code, w.Body)
+	}
+}
+
+// A dashboard's PIN locks for everyone after five wrong ones in a row, each lock twice the
+// last, up to an hour; the right PIN clears it.
+func TestDashboardPinLockGrows(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	p := newPinLocks()
+	p.now = func() time.Time { return now }
+	wrong5 := func() {
+		for i := 0; i < 5; i++ {
+			p.result("alarm", false)
+		}
+	}
+	wrong5()
+	if !p.locked("alarm") || p.locked("garaz") {
+		t.Fatal("five wrong PINs do not lock the dashboard, or lock another")
+	}
+	now = now.Add(31 * time.Second)
+	if p.locked("alarm") {
+		t.Fatal("still locked after 30 s")
+	}
+	wrong5()
+	now = now.Add(31 * time.Second)
+	if !p.locked("alarm") {
+		t.Error("the second lock is not longer")
+	}
+	now = now.Add(30 * time.Second)
+	p.result("alarm", true)
+	wrong5()
+	now = now.Add(31 * time.Second)
+	if p.locked("alarm") {
+		t.Error("the right PIN did not clear the growth")
+	}
+	for i := 0; i < 12; i++ {
+		wrong5()
+		now = now.Add(time.Hour + time.Second)
+	}
+	if p.locked("alarm") {
+		t.Error("a lock longer than an hour")
+	}
+	for i := 0; i < 2*pinLocksMax; i++ {
+		p.result(fmt.Sprintf("x%d", i), false)
+	}
+	if len(p.m) > pinLocksMax+1 {
+		t.Errorf("%d entries for made-up ids", len(p.m))
 	}
 }
