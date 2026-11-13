@@ -272,6 +272,15 @@ AccessControl.prototype._createRow = function(obj) {
         });
     });
 
+    var rolesToggle = row.querySelector('.cloud-roles-toggle');
+    if (rolesToggle) {
+        rolesToggle.addEventListener('click', function() {
+            var open = rolesToggle.textContent === rolesToggle.dataset.more;
+            row.querySelectorAll('.cloud-role-extra').forEach(function(el) { el.classList.toggle('d-none', !open); });
+            rolesToggle.textContent = open ? '\u2212' : rolesToggle.dataset.more;
+        });
+    }
+
     // Bind bot popover trigger
     var botTrigger = row.querySelector('.bot-popover-trigger');
     if (botTrigger) {
@@ -403,7 +412,8 @@ AccessControl.prototype.setAccess = function(path, integration, access, selectEl
 
 /**
  * Cell for vclu cloud: the page's own level (hidden until opened), or, when Lua's
- * expose(...):remote() names the object, read-only who reaches it and how; "—" for :remote(false)
+ * expose(...):remote() names the object, a LUA badge with who reaches it and how in its tooltip
+ * (grey for :remote(false), which keeps it out of the cloud)
  * @param {Object} obj - an object from /api/access (access.cloud, cloudLua)
  * @returns {string} HTML
  */
@@ -420,20 +430,39 @@ AccessControl.prototype._createCloudCell = function(obj) {
     var keptHTML = kept === 'hidden' ? '' :
         '<div class="small text-warning mt-1" title="' + VCLU.esc(t('pageKept')) + '"><i class="bi bi-exclamation-triangle"></i> ' +
         this._createSelect(obj.path, 'cloud', kept, [kept, 'hidden']) + '</div>';
+    // One yellow LUA badge; who reaches the device and how is in its tooltip.
+    var badge = function(title, cls) {
+        return '<span class="badge ' + cls + '" style="cursor: help" title="' + VCLU.esc(title) + '">LUA</span>';
+    };
     if (cloud === false) {
-        return '<span class="text-muted" title="' + VCLU.esc(t('luaOff')) + '">— <small>Lua</small></span>' + keptHTML;
+        return badge(t('luaOff'), 'text-bg-secondary') + keptHTML;
     }
-    var html = (cloud.roles && cloud.roles.length)
-        ? cloud.roles.map(function(r) { return '<span class="badge text-bg-secondary me-1">' + VCLU.esc(r) + '</span>'; }).join('')
-        : '<span class="badge bg-success">' + VCLU.esc(t('everyone')) + '</span>';
-    if (cloud.access === 'pin') {
-        html += ' <i class="bi bi-lock" title="PIN"></i>';
-    } else if (cloud.access === 'confirm') {
-        html += ' <i class="bi bi-question-circle" title="' + VCLU.esc(t('confirm')) + '"></i>';
-    } else if (cloud.access === 'readonly') {
-        html += ' <i class="bi bi-eye" title="' + VCLU.esc(t('readonly')) + '"></i>';
+    var roles = cloud.roles || [];
+    var who = roles.length ? roles.join(', ') : t('everyone');
+    var mode = { pin: 'PIN', confirm: t('confirm'), readonly: t('readonly') }[cloud.access];
+    return '<span class="d-inline-flex flex-wrap justify-content-center gap-1" style="max-width: 16rem">' +
+        badge(t('lua') + '\n' + who + (mode ? ' (' + mode + ')' : ''), 'text-bg-warning') + this._roleBadges(roles) + '</span>' + keptHTML;
+};
+
+// How many roles the cloud cell shows before folding the rest into "+N".
+var CLOUD_ROLES_SHOWN = 2;
+
+/**
+ * Role badges for the cloud cell: the first CLOUD_ROLES_SHOWN, the rest behind a "+N" toggle
+ * so a device with ten roles keeps a one-line row until opened.
+ */
+AccessControl.prototype._roleBadges = function(roles) {
+    var tag = function(extra) {
+        return function(r) { return '<span class="badge text-bg-secondary' + extra + '">' + VCLU.esc(r) + '</span>'; };
+    };
+    var html = roles.slice(0, CLOUD_ROLES_SHOWN).map(tag('')).join('');
+    var rest = roles.slice(CLOUD_ROLES_SHOWN);
+    if (rest.length) {
+        html += rest.map(tag(' cloud-role-extra d-none')).join('') +
+            '<button type="button" class="badge text-bg-light border-0 cloud-roles-toggle" data-more="+' + rest.length +
+            '" title="' + VCLU.esc(rest.join(', ')) + '">+' + rest.length + '</button>';
     }
-    return '<span title="' + VCLU.esc(t('lua')) + '">' + html + ' <small class="text-muted">Lua</small></span>' + keptHTML;
+    return html;
 };
 
 /**
