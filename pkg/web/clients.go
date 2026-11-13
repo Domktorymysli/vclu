@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Domktorymysli/vclu-cloud/proto"
 	"github.com/Domktorymysli/vclu/pkg/accesscontrol"
+	"github.com/Domktorymysli/vclu/pkg/cloud/proto"
 	"github.com/Domktorymysli/vclu/pkg/config"
 	"github.com/gin-gonic/gin"
 )

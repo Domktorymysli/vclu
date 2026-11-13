@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Domktorymysli/vclu-cloud/proto"
+	"github.com/Domktorymysli/vclu/pkg/cloud/proto"
 	"github.com/gorilla/websocket"
 	"github.com/hashicorp/yamux"
 

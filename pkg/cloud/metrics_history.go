@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Domktorymysli/vclu-cloud/proto"
+	"github.com/Domktorymysli/vclu/pkg/cloud/proto"
 )
 
 // Statistics read back (protocol section 10, "Reading them back"): a chart longer than vCLU keeps

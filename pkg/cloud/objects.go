@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Domktorymysli/vclu-cloud/proto"
+	"github.com/Domktorymysli/vclu/pkg/cloud/proto"
 )
 
 // Remote devices (protocol section 5, "snapshot", "cmd"): vCLU sends the devices exposed with

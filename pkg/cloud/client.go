@@ -1,7 +1,7 @@
 // Package cloud connects vCLU to vclu cloud: pairing (an RFC 8628 device
 // grant), the tunnel (one WebSocket carrying a yamux session) with its
-// control channel, and the kill switch. The protocol and its types live in
-// github.com/Domktorymysli/vclu-cloud/proto.
+// control channel, and the kill switch. The protocol's types live in
+// pkg/cloud/proto.
 //
 // The house never depends on it: every failure here only changes Status.
 package cloud
@@ -26,7 +26,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Domktorymysli/vclu-cloud/proto"
+	"github.com/Domktorymysli/vclu/pkg/cloud/proto"
 	"github.com/gorilla/websocket"
 	"github.com/hashicorp/yamux"
 

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Domktorymysli/vclu-cloud/proto"
+	"github.com/Domktorymysli/vclu/pkg/cloud/proto"
 	"github.com/Domktorymysli/vclu/pkg/history"
 	"github.com/Domktorymysli/vclu/pkg/lua"
 	"github.com/gin-gonic/gin"

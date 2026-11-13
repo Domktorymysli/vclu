@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Domktorymysli/vclu-cloud/proto"
+	"github.com/Domktorymysli/vclu/pkg/cloud/proto"
 )
 
 // fakeDevices stands in for ExposedObjects:remoteList() and counts the calls.

@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Domktorymysli/vclu-cloud/proto"
+	"github.com/Domktorymysli/vclu/pkg/cloud/proto"
 
 	"github.com/Domktorymysli/vclu/pkg/cloud"
 	"github.com/Domktorymysli/vclu/pkg/config"

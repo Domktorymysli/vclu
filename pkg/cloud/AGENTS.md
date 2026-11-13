@@ -1,8 +1,7 @@
 # pkg/cloud: the vclu cloud client
 
-- The protocol is `docs/protocol.md` in `../vclu-cloud`; its types come from
-  `github.com/Domktorymysli/vclu-cloud/proto` through the `replace` in `go.mod`, so this branch
-  builds only with `../vclu-cloud` checked out next to it (not in Docker or CI).
+- The protocol's types are in `pkg/cloud/proto`, a copy of the cloud's own package: change both
+  together, the cloud keeps it in step.
 - Test against the fake cloud in `client_test.go`, or end to end with the real cloud from
   `../vclu-cloud` (`VCLU_CLOUD_MAIL=log`) and `cloud.url` in `.vclu.json` pointing at it.
 - Close codes arrive as `*websocket.CloseError` from the first failed read of `wsConn`; yamux
