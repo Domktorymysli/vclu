@@ -50,7 +50,7 @@ func newFakeCloud(t *testing.T) *fakeCloud {
 	f := &fakeCloud{t: t, conns: make(chan *fakeConn, 8)}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST "+proto.PathPairStart, func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(proto.PairStartResponse{
+		_ = json.NewEncoder(w).Encode(proto.PairStartResponse{
 			DeviceCode: "dev-code", UserCode: "KXQF-7MPA", VerifyURL: f.ts.URL + "/pair",
 			VerifyURLFull: f.ts.URL + "/pair?code=KXQF-7MPA", Interval: 0, ExpiresIn: 600, ProtocolVersion: proto.Version,
 		})
@@ -61,20 +61,20 @@ func newFakeCloud(t *testing.T) *fakeCloud {
 		switch f.decision {
 		case "approve":
 			f.token = "device-token"
-			json.NewEncoder(w).Encode(proto.PairPollResponse{
+			_ = json.NewEncoder(w).Encode(proto.PairPollResponse{
 				DeviceID: 7, DeviceToken: f.token, HomeID: 42, HomeName: "Dom testowy",
 				ConnectURL: "ws" + strings.TrimPrefix(f.ts.URL, "http") + proto.PathConnect,
 			})
 			f.decision = "used"
 		case "deny":
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(proto.PairError{Error: proto.ErrAccessDenied})
+			_ = json.NewEncoder(w).Encode(proto.PairError{Error: proto.ErrAccessDenied})
 		case "used":
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(proto.PairError{Error: proto.ErrExpiredToken})
+			_ = json.NewEncoder(w).Encode(proto.PairError{Error: proto.ErrExpiredToken})
 		default:
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(proto.PairError{Error: proto.ErrAuthorizationPending})
+			_ = json.NewEncoder(w).Encode(proto.PairError{Error: proto.ErrAuthorizationPending})
 		}
 	})
 	mux.HandleFunc("POST "+proto.PathUnpair, func(w http.ResponseWriter, r *http.Request) {
@@ -128,7 +128,9 @@ func newFakeCloud(t *testing.T) *fakeCloud {
 		}
 		limits := f.metrics
 		f.mu.Unlock()
-		proto.Write(ctrl, proto.Welcome{Type: proto.TypeWelcome, Proto: proto.Version, HomeID: 42, HomeName: "Dom testowy", Enable: enable, Metrics: limits})
+		if err := proto.Write(ctrl, proto.Welcome{Type: proto.TypeWelcome, Proto: proto.Version, HomeID: 42, HomeName: "Dom testowy", Enable: enable, Metrics: limits}); err != nil {
+			return
+		}
 		f.conns <- fc
 	})
 	f.ts = httptest.NewServer(mux)
@@ -146,7 +148,7 @@ func (f *fakeCloud) nextConn(t *testing.T) *fakeConn {
 	t.Helper()
 	select {
 	case c := <-f.conns:
-		t.Cleanup(func() { c.sess.Close() })
+		t.Cleanup(func() { _ = c.sess.Close() })
 		return c
 	case <-time.After(5 * time.Second):
 		t.Fatal("vCLU did not connect")
@@ -157,7 +159,9 @@ func (f *fakeCloud) nextConn(t *testing.T) *fakeConn {
 // read returns the next message of type typ the vCLU sent.
 func (c *fakeConn) read(t *testing.T, typ string) proto.Message {
 	t.Helper()
-	c.ctrl.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if err := c.ctrl.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
 	for {
 		m, err := c.r.Read()
 		if err != nil {
@@ -235,7 +239,9 @@ func TestPairConnectAndHealth(t *testing.T) {
 		t.Errorf("hello = %+v", conn.hello)
 	}
 	var h proto.Health
-	conn.read(t, proto.TypeHealth).Decode(&h)
+	if err := conn.read(t, proto.TypeHealth).Decode(&h); err != nil {
+		t.Fatal(err)
+	}
 	if h.UptimeS != 5 || h.MemMB != 30 {
 		t.Errorf("health = %+v", h)
 	}
@@ -273,7 +279,9 @@ func TestPairingDenied(t *testing.T) {
 func TestCancelPairing(t *testing.T) {
 	f := newFakeCloud(t)
 	c, _ := newTestClient(t, f)
-	c.Pair(context.Background())
+	if _, err := c.Pair(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	c.CancelPairing()
 	if st := c.Status(); st.State != StateOff || st.Pairing != nil {
 		t.Errorf("status = %+v", st)
@@ -287,8 +295,10 @@ func TestRevokedInTheCloud(t *testing.T) {
 	f.mu.Lock()
 	f.token = ""
 	f.mu.Unlock()
-	proto.Write(conn.ctrl, proto.Unpair{Type: proto.TypeUnpair})
-	conn.nc.closeWith(proto.CloseUnpaired, "unpaired")
+	if err := proto.Write(conn.ctrl, proto.Unpair{Type: proto.TypeUnpair}); err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.nc.closeWith(proto.CloseUnpaired, "unpaired")
 
 	if st := waitState(t, c, StateOff); st.Error != ReasonRevoked {
 		t.Errorf("status = %+v", st)
@@ -322,7 +332,7 @@ func TestRefusedTokenAtStart(t *testing.T) {
 func TestReplacedStops(t *testing.T) {
 	f := newFakeCloud(t)
 	c, dir, conn := pairAndConnect(t, f)
-	conn.nc.closeWith(proto.CloseReplaced, "replaced")
+	_ = conn.nc.closeWith(proto.CloseReplaced, "replaced")
 
 	if st := waitState(t, c, StateStopped); st.Error != ReasonReplaced {
 		t.Errorf("status = %+v", st)
@@ -347,12 +357,14 @@ func TestReplacedStops(t *testing.T) {
 func TestReconnects(t *testing.T) {
 	f := newFakeCloud(t)
 	c, _, conn := pairAndConnect(t, f)
-	proto.Write(conn.ctrl, proto.Reconnect{Type: proto.TypeReconnect, AfterS: 0})
-	conn.nc.closeWith(websocket.CloseGoingAway, "cloud restarting")
+	if err := proto.Write(conn.ctrl, proto.Reconnect{Type: proto.TypeReconnect, AfterS: 0}); err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.nc.closeWith(websocket.CloseGoingAway, "cloud restarting")
 	conn = f.nextConn(t)
 	waitState(t, c, StateOnline)
 
-	conn.nc.ws.NetConn().Close() // no close frame: the network went away
+	_ = conn.nc.ws.NetConn().Close() // no close frame: the network went away
 	f.nextConn(t)
 	waitState(t, c, StateOnline)
 }
@@ -362,7 +374,9 @@ func TestShutdownSaysBye(t *testing.T) {
 	c, _, conn := pairAndConnect(t, f)
 	go c.Shutdown("update", 2*time.Minute)
 	var bye proto.Bye
-	conn.read(t, proto.TypeBye).Decode(&bye)
+	if err := conn.read(t, proto.TypeBye).Decode(&bye); err != nil {
+		t.Fatal(err)
+	}
 	if bye.Reason != "update" || bye.ExpectBackS != 120 {
 		t.Errorf("bye = %+v", bye)
 	}
@@ -373,11 +387,17 @@ func TestShutdownSaysBye(t *testing.T) {
 func TestSwitchOffAndOn(t *testing.T) {
 	f := newFakeCloud(t)
 	c, dir, conn := pairAndConnect(t, f)
-	go c.SetEnabled(false)
+	errc := make(chan error, 1)
+	go func() { errc <- c.SetEnabled(false) }()
 	var bye proto.Bye
-	conn.read(t, proto.TypeBye).Decode(&bye)
+	if err := conn.read(t, proto.TypeBye).Decode(&bye); err != nil {
+		t.Fatal(err)
+	}
 	if bye.Reason != proto.ByeDisabled {
 		t.Errorf("bye = %+v", bye)
+	}
+	if err := <-errc; err != nil {
+		t.Fatal(err)
 	}
 	waitState(t, c, StateDisabled)
 	if c.Enabled() || savedToken(t, dir) != "device-token" {
@@ -492,24 +512,32 @@ func TestNotifyQueuedSentAndButtons(t *testing.T) {
 		t.Errorf("hello caps %v", conn.hello.Caps)
 	}
 	var n proto.Notify
-	conn.read(t, proto.TypeNotify).Decode(&n)
+	if err := conn.read(t, proto.TypeNotify).Decode(&n); err != nil {
+		t.Fatal(err)
+	}
 	if n.ID != "n1" || n.Title != "Czeka" {
 		t.Errorf("queued notify = %+v", n)
 	}
 	if err := c.Notify(proto.Notify{ID: "n2", Title: "Alarm", Actions: []proto.NotifyButton{{ID: "1", Label: "Rozbrój"}}}); err != nil {
 		t.Fatal(err)
 	}
-	conn.read(t, proto.TypeNotify).Decode(&n)
+	if err := conn.read(t, proto.TypeNotify).Decode(&n); err != nil {
+		t.Fatal(err)
+	}
 	if n.ID != "n2" || len(n.Actions) != 1 {
 		t.Errorf("notify = %+v", n)
 	}
 
 	press := func(id, role string, deadline int64) proto.NotifyActionResult {
 		t.Helper()
-		proto.Write(conn.ctrl, proto.NotifyAction{Type: proto.TypeNotifyAction, ID: id, Notify: "n2", Action: "1",
-			Actor: proto.Actor{User: "cloud:7", Role: role}, DeadlineMs: deadline})
+		if err := proto.Write(conn.ctrl, proto.NotifyAction{Type: proto.TypeNotifyAction, ID: id, Notify: "n2", Action: "1",
+			Actor: proto.Actor{User: "cloud:7", Role: role}, DeadlineMs: deadline}); err != nil {
+			t.Fatal(err)
+		}
 		var r proto.NotifyActionResult
-		conn.read(t, proto.TypeNotifyActionResult).Decode(&r)
+		if err := conn.read(t, proto.TypeNotifyActionResult).Decode(&r); err != nil {
+			t.Fatal(err)
+		}
 		if r.ID != id {
 			t.Fatalf("answer to %s, want %s", r.ID, id)
 		}
@@ -547,7 +575,9 @@ func TestPresenceFromTheCloud(t *testing.T) {
 	if !slices.Contains(conn.hello.Caps, proto.CapPresence) {
 		t.Errorf("hello caps %v", conn.hello.Caps)
 	}
-	proto.Write(conn.ctrl, proto.Presence{Type: proto.TypePresence, People: []proto.Person{{User: "cloud:7", Name: "Tytus", State: proto.StateHome, Since: 5}}})
+	if err := proto.Write(conn.ctrl, proto.Presence{Type: proto.TypePresence, People: []proto.Person{{User: "cloud:7", Name: "Tytus", State: proto.StateHome, Since: 5}}}); err != nil {
+		t.Fatal(err)
+	}
 	select {
 	case p := <-got:
 		if len(p.People) != 1 || p.People[0].State != proto.StateHome {
@@ -574,7 +604,7 @@ func TestTunnelAndDashboards(t *testing.T) {
 		return slices.Clone(list)
 	}
 	c.opts.Tunnel = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "%s %s as %s", r.Method, r.URL.Path, r.Header.Get(proto.HeaderActor))
+		_, _ = fmt.Fprintf(w, "%s %s as %s", r.Method, r.URL.Path, r.Header.Get(proto.HeaderActor))
 	})
 	got := make(chan proto.Members, 1)
 	c.opts.Members = func(m proto.Members) { got <- m }
@@ -605,13 +635,15 @@ func TestTunnelAndDashboards(t *testing.T) {
 		t.Fatal(err)
 	}
 	body, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if string(body) != "GET /d/home as cloud:7" {
 		t.Errorf("tunnel answer %q", body)
 	}
 
 	// the members list reaches the local tokens
-	proto.Write(conn.ctrl, proto.Members{Type: proto.TypeMembers, Version: 3, Members: []proto.Member{{User: "cloud:7", Role: "owner"}}})
+	if err := proto.Write(conn.ctrl, proto.Members{Type: proto.TypeMembers, Version: 3, Members: []proto.Member{{User: "cloud:7", Role: "owner"}}}); err != nil {
+		t.Fatal(err)
+	}
 	select {
 	case m := <-got:
 		if m.Version != 3 || m.Members[0].User != "cloud:7" {
@@ -702,7 +734,7 @@ func TestLimitListener(t *testing.T) {
 		t.Fatal(err)
 	}
 	l := limitListener(inner, 2)
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	accepted := make(chan net.Conn, 3)
 	go func() {
 		for {
@@ -718,7 +750,7 @@ func TestLimitListener(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer c.Close()
+		defer func() { _ = c.Close() }()
 	}
 	first, second := <-accepted, <-accepted
 	select {
@@ -726,15 +758,15 @@ func TestLimitListener(t *testing.T) {
 		t.Fatal("a third connection was served while two were open")
 	case <-time.After(100 * time.Millisecond):
 	}
-	first.Close()
-	first.Close() // twice frees one place only
+	_ = first.Close()
+	_ = first.Close() // twice frees one place only
 	select {
 	case c := <-accepted:
-		c.Close()
+		_ = c.Close()
 	case <-time.After(time.Second):
 		t.Fatal("no room after one closed")
 	}
-	second.Close()
+	_ = second.Close()
 }
 
 // The token and the pairing's answer never cross a network without TLS.

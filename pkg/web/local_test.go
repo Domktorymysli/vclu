@@ -163,7 +163,7 @@ func TestLocalHandler(t *testing.T) {
 		w := httptest.NewRecorder()
 		lanApp.ServeHTTP(w, req)
 		out := tunnelResp{code: w.Code, raw: w.Body.String(), hdr: w.Header()}
-		json.Unmarshal(w.Body.Bytes(), &out.body)
+		_ = json.Unmarshal(w.Body.Bytes(), &out.body) // not JSON: raw has it
 		return out
 	}
 	if r := lan(http.MethodGet, "/api/local/ping", g.Token, ""); r.code != http.StatusOK || r.body["role"] != "member" {
@@ -293,7 +293,9 @@ func TestLocalHandlerRoles(t *testing.T) {
 	if code := get("/api/dashboard/sprzatanie"); code != http.StatusNotFound {
 		t.Errorf("hidden by its roles function = %d", code)
 	}
-	engine.Execute(`sprzatanie = true`)
+	if _, err := engine.Execute(`sprzatanie = true`); err != nil {
+		t.Fatal(err)
+	}
 	s.remoteRolesMu.Lock()
 	s.remoteRolesAt = time.Now().Add(-remoteRolesFor)
 	s.remoteRolesMu.Unlock()
@@ -382,7 +384,7 @@ func TestLocalSocketEndsWithToken(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		t.Cleanup(func() { c.Close() })
+		t.Cleanup(func() { _ = c.Close() })
 		return c
 	}
 	closedWith := func(c *websocket.Conn, code int) {

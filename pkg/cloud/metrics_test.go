@@ -92,13 +92,17 @@ func TestMetricsSentFromTheCursor(t *testing.T) {
 	if p := points(m); len(p) != 2 || p["a"] != 3 || p["c"] != 3 || m.Series[0].Unit != "°C" || m.Series[1].Kind != "counter" {
 		t.Fatalf("first batch = %+v", m)
 	}
-	proto.Write(conn.ctrl, proto.MetricsAck{Type: proto.TypeMetricsAck, ID: m.ID, Error: proto.MetricsRateLimited, RetryAfterS: 1})
+	if err := proto.Write(conn.ctrl, proto.MetricsAck{Type: proto.TypeMetricsAck, ID: m.ID, Error: proto.MetricsRateLimited, RetryAfterS: 1}); err != nil {
+		t.Fatal(err)
+	}
 	m2 := readMetrics(t, conn)
 	if p := points(m2); p["a"] != 3 || p["c"] != 3 || m2.ID == m.ID {
 		t.Fatalf("after rate_limited = %+v", m2)
 	}
-	proto.Write(conn.ctrl, proto.MetricsAck{Type: proto.TypeMetricsAck, ID: m2.ID, Stored: 3,
-		Rejected: []proto.MetricRejected{{Path: "c", Reason: proto.MetricOverLimit}}})
+	if err := proto.Write(conn.ctrl, proto.MetricsAck{Type: proto.TypeMetricsAck, ID: m2.ID, Stored: 3,
+		Rejected: []proto.MetricRejected{{Path: "c", Reason: proto.MetricOverLimit}}}); err != nil {
+		t.Fatal(err)
+	}
 
 	eventually(t, "status after the ack", func() bool { return c.Metrics().Stored == 3 })
 	st := c.Metrics()
@@ -114,7 +118,7 @@ func TestMetricsSentFromTheCursor(t *testing.T) {
 
 	// The next round has only the minute since, and nothing of c on this connection.
 	src.add("a", min0.Add(time.Minute), 5)
-	ahead.Store(int64(min0.Add(2*time.Minute + time.Second).Sub(time.Now())))
+	ahead.Store(int64(time.Until(min0.Add(2*time.Minute + time.Second))))
 	m3 := readMetrics(t, conn)
 	if p := points(m3); len(p) != 1 || p["a"] != 2 {
 		t.Errorf("next round = %+v", m3)
@@ -177,8 +181,10 @@ func TestMetricsHistoryCached(t *testing.T) {
 	if q.Path != "energia:dom" || q.Since != 3600 || q.Until != 90000 || q.StepS != 1800 {
 		t.Fatalf("query = %+v", q)
 	}
-	proto.Write(conn.ctrl, proto.MetricsPoints{Type: proto.TypeMetricsPoints, ID: q.ID, StepS: 3600,
-		Points: [][5]float64{{3600, 1, 1, 1, 60}, {7200, 2, 2, 2, 60}}})
+	if err := proto.Write(conn.ctrl, proto.MetricsPoints{Type: proto.TypeMetricsPoints, ID: q.ID, StepS: 3600,
+		Points: [][5]float64{{3600, 1, 1, 1, 60}, {7200, 2, 2, 2, 60}}}); err != nil {
+		t.Fatal(err)
+	}
 	if r := <-ch; r.err != nil || r.until != 90000 || len(r.pts) != 1 || r.pts[0][0] != 7200 {
 		t.Fatalf("first = %+v", r)
 	}
@@ -192,7 +198,9 @@ func TestMetricsHistoryCached(t *testing.T) {
 	if err := conn.read(t, proto.TypeMetricsQuery).Decode(&q); err != nil {
 		t.Fatal(err)
 	}
-	proto.Write(conn.ctrl, proto.MetricsPoints{Type: proto.TypeMetricsPoints, ID: q.ID, Points: [][5]float64{}, Error: proto.MetricsRateLimited, RetryAfterS: 60})
+	if err := proto.Write(conn.ctrl, proto.MetricsPoints{Type: proto.TypeMetricsPoints, ID: q.ID, Points: [][5]float64{}, Error: proto.MetricsRateLimited, RetryAfterS: 60}); err != nil {
+		t.Fatal(err)
+	}
 	if r := <-ch; !errors.Is(r.err, ErrNoHistory) {
 		t.Errorf("rate limited = %+v", r)
 	}

@@ -75,7 +75,7 @@ func do(h http.Handler, method, path, role, body string, cookies ...*http.Cookie
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	out := tunnelResp{code: w.Code, raw: w.Body.String(), hdr: w.Header()}
-	json.Unmarshal(w.Body.Bytes(), &out.body)
+	_ = json.Unmarshal(w.Body.Bytes(), &out.body) // not JSON: raw has it
 	return out
 }
 
@@ -245,13 +245,15 @@ func TestTunnelSocket(t *testing.T) {
 		h := http.Header{proto.HeaderActor: {actor}, proto.HeaderRole: {role}}
 		c, resp, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(ts.URL, "http")+"/api/dashboard/home/ws", h)
 		if c != nil {
-			t.Cleanup(func() { c.Close() })
+			t.Cleanup(func() { _ = c.Close() })
 		}
 		return c, resp, err
 	}
 	read := func(c *websocket.Conn) map[string]map[string]any {
 		t.Helper()
-		c.SetReadDeadline(time.Now().Add(3 * time.Second))
+		if err := c.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+			t.Fatal(err)
+		}
 		var m struct {
 			Type   string                    `json:"type"`
 			Values map[string]map[string]any `json:"values"`

@@ -61,7 +61,7 @@ func (c *wsConn) Write(b []byte) (int, error) {
 // closeWith sends a close frame with code, then closes the connection.
 func (c *wsConn) closeWith(code int, reason string) error {
 	c.wmu.Lock()
-	c.ws.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(code, reason), time.Now().Add(time.Second))
+	_ = c.ws.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(code, reason), time.Now().Add(time.Second))
 	c.wmu.Unlock()
 	return c.ws.Close()
 }

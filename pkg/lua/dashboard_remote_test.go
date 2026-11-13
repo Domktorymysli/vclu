@@ -98,7 +98,9 @@ func TestDashboardRemoteErrors(t *testing.T) {
 			} `json:"tabs"`
 		} `json:"groupTabs"`
 	}
-	json.Unmarshal([]byte(out), &def)
+	if err := json.Unmarshal([]byte(out), &def); err != nil {
+		t.Fatal(err)
+	}
 	if def.Poll != 2 || len(def.GroupTabs) != 1 || len(def.GroupTabs[0].Tabs) != 2 || def.GroupTabs[0].Tabs[1].ID != "c" {
 		t.Errorf("remote definition %s", out)
 	}
@@ -136,7 +138,9 @@ func TestDashboardRemoteRolesFunction(t *testing.T) {
 	if out := list(); !strings.Contains(out, `"roles":["domownicy","sprzatanie"]`) || strings.Count(out, `"id"`) != 1 {
 		t.Errorf("with the cleaner: %s", out)
 	}
-	engine.Execute(`sprzatanie = false`)
+	if _, err := engine.Execute(`sprzatanie = false`); err != nil {
+		t.Fatal(err)
+	}
 	if out := list(); !strings.Contains(out, `"roles":["domownicy"]`) {
 		t.Errorf("without the cleaner: %s", out)
 	}

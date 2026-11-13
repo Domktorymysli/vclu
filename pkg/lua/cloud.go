@@ -1,6 +1,7 @@
 package lua
 
 import (
+	"log"
 	"time"
 
 	lua "github.com/yuin/gopher-lua"
@@ -26,11 +27,14 @@ type CloudBridge struct {
 // SetCloud connects the Cloud module to the cloud client. Without it Cloud.notify returns nil
 // and an error, and nobody is known to be at home.
 func (le *LuaEngine) SetCloud(b CloudBridge) {
-	le.executeFast("SetCloud", func(L *lua.LState) (string, error) {
+	_, err := le.executeFast("SetCloud", func(L *lua.LState) (string, error) {
 		le.cloud = &b
 		registerCloudFunctions(L, &b)
 		return "", nil
 	})
+	if err != nil {
+		log.Printf("[Cloud] Cloud module not connected: %v", err)
+	}
 }
 
 // registerCloudFunctions registers __go_cloud_notify(json) -> true | nil, err,

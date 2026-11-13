@@ -297,7 +297,7 @@ func (c *Client) applyEnabled() {
 		t := c.tun
 		c.mu.Unlock()
 		if t != nil {
-			t.send(proto.Bye{Type: proto.TypeBye, Reason: proto.ByeDisabled})
+			_ = t.send(proto.Bye{Type: proto.TypeBye, Reason: proto.ByeDisabled})
 		}
 		c.stop()
 		c.link.up(time.Now()) // switched off on purpose: not an outage
@@ -420,7 +420,7 @@ func (c *Client) Shutdown(reason string, expectBack time.Duration) {
 	t := c.tun
 	c.mu.Unlock()
 	if t != nil {
-		t.send(proto.Bye{Type: proto.TypeBye, Reason: reason, ExpectBackS: int(expectBack / time.Second)})
+		_ = t.send(proto.Bye{Type: proto.TypeBye, Reason: reason, ExpectBackS: int(expectBack / time.Second)})
 	}
 	c.stop()
 }
@@ -606,7 +606,7 @@ type tunnel struct {
 func (t *tunnel) send(v any) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.ctrl.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	_ = t.ctrl.SetWriteDeadline(time.Now().Add(10 * time.Second))
 	return proto.Write(t.ctrl, v)
 }
 
@@ -625,7 +625,7 @@ func (c *Client) connect(ctx context.Context, cfg config.VCLUCloudConfig) error 
 		http.Header{"Authorization": {"Bearer " + cfg.Token}})
 	if err != nil {
 		if resp != nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			if resp.StatusCode == http.StatusUnauthorized {
 				return errRevoked
 			}
@@ -634,8 +634,8 @@ func (c *Client) connect(ctx context.Context, cfg config.VCLUCloudConfig) error 
 		return fmt.Errorf("cannot reach the cloud: %w", err)
 	}
 	nc := newWSConn(ws)
-	defer nc.Close()
-	stopWatch := context.AfterFunc(ctx, func() { nc.Close() })
+	defer func() { _ = nc.Close() }()
+	stopWatch := context.AfterFunc(ctx, func() { _ = nc.Close() })
 	defer stopWatch()
 
 	ycfg := yamux.DefaultConfig()
@@ -646,7 +646,7 @@ func (c *Client) connect(ctx context.Context, cfg config.VCLUCloudConfig) error 
 	if err != nil {
 		return err
 	}
-	defer sess.Close()
+	defer func() { _ = sess.Close() }()
 	ctrl, err := sess.OpenStream()
 	if err != nil {
 		return err
@@ -661,7 +661,7 @@ func (c *Client) connect(ctx context.Context, cfg config.VCLUCloudConfig) error 
 	}); err != nil {
 		return c.ended(t, err)
 	}
-	ctrl.SetReadDeadline(time.Now().Add(15 * time.Second))
+	_ = ctrl.SetReadDeadline(time.Now().Add(15 * time.Second))
 	m, err := r.Read()
 	if err != nil {
 		return c.ended(t, err)
@@ -670,14 +670,17 @@ func (c *Client) connect(ctx context.Context, cfg config.VCLUCloudConfig) error 
 	if m.Type != proto.TypeWelcome || m.Decode(&w) != nil {
 		return fmt.Errorf("expected welcome, got %q", m.Type)
 	}
-	ctrl.SetReadDeadline(time.Time{})
+	_ = ctrl.SetReadDeadline(time.Time{})
 	if w.HomeName != cfg.HomeName && w.HomeName != "" {
-		config.UpdateMasterConfig(c.opts.Dir, func(v *config.VCLUConfig) error {
+		err := config.UpdateMasterConfig(c.opts.Dir, func(v *config.VCLUConfig) error {
 			if v.Cloud != nil && v.Cloud.Token == cfg.Token {
 				v.Cloud.HomeName = w.HomeName
 			}
 			return nil
 		})
+		if err != nil {
+			log.Printf("[Cloud] home name not saved: %v", err)
+		}
 	}
 
 	t.notify = slices.Contains(w.Enable, proto.CapNotify)
@@ -692,8 +695,8 @@ func (c *Client) connect(ctx context.Context, cfg config.VCLUCloudConfig) error 
 		// served at once (more wait in the session until one ends).
 		hs := &http.Server{Handler: c.opts.Tunnel, ReadHeaderTimeout: 10 * time.Second, MaxHeaderBytes: tunnelHeaderMax,
 			ErrorLog: log.New(io.Discard, "", 0)}
-		go hs.Serve(limitListener(sess, tunnelStreamsMax))
-		defer hs.Close()
+		go func() { _ = hs.Serve(limitListener(sess, tunnelStreamsMax)) }() // ends with the session
+		defer func() { _ = hs.Close() }()
 	}
 	c.mu.Lock()
 	c.tun = t
@@ -719,7 +722,9 @@ func (c *Client) connect(ctx context.Context, cfg config.VCLUCloudConfig) error 
 			log.Printf("[Cloud] notification %s dropped: %v", q.n.ID, ErrNoNotify)
 			continue
 		}
-		t.send(q.n)
+		if err := t.send(q.n); err != nil {
+			log.Printf("[Cloud] notification %s not sent: %v", q.n.ID, err)
+		}
 	}
 
 	if t.dashes {
@@ -971,7 +976,9 @@ func (c *Client) notifyAction(t *tunnel, a proto.NotifyAction, done <-chan struc
 		go func() {
 			select {
 			case <-e.done:
-				t.send(e.res)
+				if err := t.send(e.res); err != nil {
+					log.Printf("[Cloud] notify_action_result %.64q not sent: %v", a.ID, err)
+				}
 			case <-done:
 			}
 		}()
@@ -987,7 +994,9 @@ func (c *Client) notifyAction(t *tunnel, a proto.NotifyAction, done <-chan struc
 		}
 		res.Type, res.ID = proto.TypeNotifyActionResult, a.ID
 		c.actions.finish(a.ID, e, res, true)
-		t.send(res)
+		if err := t.send(res); err != nil {
+			log.Printf("[Cloud] notify_action_result %.64q not sent: %v", a.ID, err)
+		}
 	}()
 }
 
@@ -1095,11 +1104,11 @@ func (c *Client) post(ctx context.Context, url, token string, in, out any) (int,
 	if err != nil {
 		return 0, "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
 	if resp.StatusCode >= 300 {
 		var perr proto.PairError
-		json.Unmarshal(raw, &perr)
+		_ = json.Unmarshal(raw, &perr) // not JSON: no code, the status says enough
 		return resp.StatusCode, perr.Error, nil
 	}
 	if out != nil {

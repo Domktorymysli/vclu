@@ -65,10 +65,14 @@ func readSnapshot(t *testing.T, conn *fakeConn) proto.Snapshot {
 // answered on the read loop itself.
 func roundTrip(t *testing.T, conn *fakeConn) {
 	t.Helper()
-	proto.Write(conn.ctrl, proto.Cmd{Type: proto.TypeCmd, ID: "sync!"})
+	if err := proto.Write(conn.ctrl, proto.Cmd{Type: proto.TypeCmd, ID: "sync!"}); err != nil {
+		t.Fatal(err)
+	}
 	for {
 		var r proto.CmdResult
-		conn.read(t, proto.TypeCmdResult).Decode(&r)
+		if err := conn.read(t, proto.TypeCmdResult).Decode(&r); err != nil {
+			t.Fatal(err)
+		}
 		if r.ID == "sync!" {
 			return
 		}
@@ -296,7 +300,9 @@ func TestCmdChecksAndResult(t *testing.T) {
 	mu.Unlock()
 
 	// someone the members list does not name
-	proto.Write(conn.ctrl, proto.Members{Type: proto.TypeMembers, Version: 2, Members: []proto.Member{{User: "cloud:7", Role: "owner"}}})
+	if err := proto.Write(conn.ctrl, proto.Members{Type: proto.TypeMembers, Version: 2, Members: []proto.Member{{User: "cloud:7", Role: "owner"}}}); err != nil {
+		t.Fatal(err)
+	}
 	sendCmd(t, conn, proto.Cmd{ID: "m1", Actor: proto.Actor{User: "cloud:9"}})
 	if r := readResult(t, conn); r.Reason != proto.ReasonUnknownActor {
 		t.Errorf("not a member = %+v", r)
@@ -405,14 +411,20 @@ func TestNotifyActionRepeatWhileRunning(t *testing.T) {
 	})
 	a := proto.NotifyAction{Type: proto.TypeNotifyAction, ID: "a1", Notify: "n1", Action: "1",
 		Actor: proto.Actor{User: "cloud:7"}, DeadlineMs: time.Now().Add(time.Minute).UnixMilli()}
-	proto.Write(conn.ctrl, a)
-	proto.Write(conn.ctrl, a)
+	if err := proto.Write(conn.ctrl, a); err != nil {
+		t.Fatal(err)
+	}
+	if err := proto.Write(conn.ctrl, a); err != nil {
+		t.Fatal(err)
+	}
 	eventually(t, "the button running", func() bool { return runs.Load() == 1 })
 	roundTrip(t, conn) // the read loop has seen the repeat
 	close(release)
 	for range 2 {
 		var r proto.NotifyActionResult
-		conn.read(t, proto.TypeNotifyActionResult).Decode(&r)
+		if err := conn.read(t, proto.TypeNotifyActionResult).Decode(&r); err != nil {
+			t.Fatal(err)
+		}
 		if r.ID != "a1" || !r.OK || r.Message != "Brama otwarta" {
 			t.Errorf("answer %+v", r)
 		}

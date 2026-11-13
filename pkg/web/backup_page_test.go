@@ -108,7 +108,7 @@ func TestBackupLeavesOutLANCertificate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer zr.Close()
+	defer func() { _ = zr.Close() }()
 	got := map[string]bool{}
 	for _, f := range zr.File {
 		got[filepath.Base(f.Name)] = true

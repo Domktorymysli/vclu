@@ -244,7 +244,9 @@ func (c *Client) command(t *tunnel, cmd proto.Cmd, done <-chan struct{}) {
 		go func() { // a repeat: the first answer, once there is one
 			select {
 			case <-e.done:
-				t.send(e.res)
+				if err := t.send(e.res); err != nil {
+					log.Printf("[Cloud] cmd_result %s not sent: %v", cmd.ID, err)
+				}
 			case <-done:
 			}
 		}()
@@ -253,7 +255,9 @@ func (c *Client) command(t *tunnel, cmd proto.Cmd, done <-chan struct{}) {
 	refuse := func(reason string) {
 		res := proto.CmdResult{Type: proto.TypeCmdResult, ID: cmd.ID, Reason: reason}
 		c.cmds.finish(cmd.ID, e, res, false)
-		t.send(res)
+		if err := t.send(res); err != nil {
+			log.Printf("[Cloud] cmd_result %s not sent: %v", cmd.ID, err)
+		}
 	}
 	if !t.cmdRate.allow(now) {
 		refuse(proto.ReasonRateLimited)

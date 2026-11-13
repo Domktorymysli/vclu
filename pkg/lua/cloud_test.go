@@ -100,7 +100,9 @@ func TestCloudNotifyButtons(t *testing.T) {
 			t.Fatal(err)
 		}
 		var m map[string]any
-		json.Unmarshal([]byte(out), &m)
+		if err := json.Unmarshal([]byte(out), &m); err != nil {
+			t.Fatal(err)
+		}
 		return m
 	}
 	if m := press("disarm", "member"); m["ok"] != false || m["reason"] != "forbidden" {

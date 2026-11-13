@@ -14,7 +14,9 @@ func TestRoundTrip(t *testing.T) {
 	if err := Write(&buf, in); err != nil {
 		t.Fatal(err)
 	}
-	Write(&buf, Bye{Type: TypeBye, Reason: "update"})
+	if err := Write(&buf, Bye{Type: TypeBye, Reason: "update"}); err != nil {
+		t.Fatal(err)
+	}
 	buf.WriteString(`{"type":"from_the_future","x":1}` + "\n")
 
 	r := NewReader(&buf)

@@ -285,7 +285,7 @@ func TestClientSocketEndsWhenDeleted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { conn.Close() })
+	t.Cleanup(func() { _ = conn.Close() })
 	call(r, "DELETE", "/api/clients/"+id, "", "", "X-Test-Auth", "session")
 	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	for {
