@@ -1,5 +1,61 @@
 # Changelog
 
+## v1.11.0 (2026-11-14)
+
+### English
+
+**Highlights:** the vclu mobile app for Android and vclu cloud! How to start: https://docs.vclu.pl/docs/tutorials/tutorial-20-chmura/
+
+**Before you update**
+- Debug lines no longer go to the system log by default; set `"log": { "level": "debug" }` in `.vclu.json` to keep them ([#194](https://github.com/Domktorymysli/vclu/issues/194)).
+- The "Remote access" profile on the Access page is gone; an access file that still uses it loads without it ([#223](https://github.com/Domktorymysli/vclu/pull/223)).
+
+**New**
+- vclu cloud and the vclu app for Android: pair vclu on the Cloud page, then see and control your home from the phone, with an account for every household member; at home the app connects to vclu directly on port 9443 (in Docker without host networking add `-p 9443:9443`) ([#223](https://github.com/Domktorymysli/vclu/pull/223)).
+- You decide what the cloud shows: the Cloud column on the Access page, or `:remote()` in Lua with roles, PIN or confirmation per device ([#223](https://github.com/Domktorymysli/vclu/pull/223)).
+- Push notifications with buttons and voice commands in the app, for devices you share ([#223](https://github.com/Domktorymysli/vclu/pull/223)).
+- Gates and intercoms: `pulse` makes "open" one short pulse of the relay, from every app and voice ([#223](https://github.com/Domktorymysli/vclu/pull/223)).
+- A dashboard PIN locks after 5 wrong tries, from 30 s up to an hour ([#223](https://github.com/Domktorymysli/vclu/pull/223)).
+- Dashboards update live instead of every few seconds ([#223](https://github.com/Domktorymysli/vclu/pull/223)).
+- Disk space on the status page, with a warning before the disk fills; history makes room by itself ([#196](https://github.com/Domktorymysli/vclu/issues/196)).
+- An API for a CLU's user features: `CLU:get("name")` reads one, `CLU:set("name", value)` sets it ([#217](https://github.com/Domktorymysli/vclu/issues/217)).
+- Log level for the system log in `.vclu.json`; quieter logs by default ([#194](https://github.com/Domktorymysli/vclu/issues/194)).
+
+**Fixes**
+- The panel is readable in the light theme: code snippets and the Dashboards page, thanks @osieckiAdam ([#198](https://github.com/Domktorymysli/vclu/pull/198)).
+- `hidden = true` keeps an object hidden also when `exposeRegistry()` runs ([#213](https://github.com/Domktorymysli/vclu/pull/213)).
+- A script too long for a CLU is refused at once instead of timing out ([#217](https://github.com/Domktorymysli/vclu/issues/217)).
+- Smaller fixes: the name written "vclu" across the panel ([#212](https://github.com/Domktorymysli/vclu/pull/212)); `expose(obj)` and `obj:expose()` behave the same; no scrollbar in the collapsed menu.
+
+Full list: https://github.com/Domktorymysli/vclu/compare/v1.10.0...v1.11.0
+
+### Po polsku
+
+**Najważniejsze:** mobilna aplikacja na Androida oraz vclu cloud! Jak zacząć: https://docs.vclu.pl/docs/tutorials/tutorial-20-chmura/
+
+**Przed aktualizacją**
+- Linie debug domyślnie nie trafiają już do logu systemowego; żeby je zachować, ustaw `"log": { "level": "debug" }` w `.vclu.json` ([#194](https://github.com/Domktorymysli/vclu/issues/194)).
+- Profil „Dostęp zdalny” na stronie Dostęp zniknął; plik dostępu, który go używa, wczyta się bez niego ([#223](https://github.com/Domktorymysli/vclu/pull/223)).
+
+**Nowe**
+- vclu cloud i aplikacja vclu na Androida: sparuj vclu na stronie Chmura i steruj domem z telefonu, z kontem dla każdego domownika; w domu aplikacja łączy się z vclu bezpośrednio przez port 9443 (w Dockerze bez sieci hosta dodaj `-p 9443:9443`) ([#223](https://github.com/Domktorymysli/vclu/pull/223)).
+- Ty decydujesz, co widać w chmurze: kolumna Chmura na stronie Dostęp albo `:remote()` w Lua z rolami, PIN-em lub potwierdzeniem ([#223](https://github.com/Domktorymysli/vclu/pull/223)).
+- Powiadomienia push z przyciskami i polecenia głosowe w aplikacji, dla udostępnionych urządzeń ([#223](https://github.com/Domktorymysli/vclu/pull/223)).
+- Bramy i domofony: `pulse` sprawia, że „otwórz” to jeden krótki impuls przekaźnika, z każdej aplikacji i głosem ([#223](https://github.com/Domktorymysli/vclu/pull/223)).
+- PIN dashboardu blokuje się po 5 błędnych próbach, od 30 s do godziny ([#223](https://github.com/Domktorymysli/vclu/pull/223)).
+- Dashboardy odświeżają się na żywo, a nie co kilka sekund ([#223](https://github.com/Domktorymysli/vclu/pull/223)).
+- Miejsce na dysku na stronie statusu, z ostrzeżeniem, zanim dysk się zapełni; historia sama robi miejsce ([#196](https://github.com/Domktorymysli/vclu/issues/196)).
+- API do cech użytkownika CLU: `CLU:get("nazwa")` odczytuje cechę, `CLU:set("nazwa", wartość)` ją ustawia ([#217](https://github.com/Domktorymysli/vclu/issues/217)).
+- Poziom logowania do logu systemowego w `.vclu.json`; domyślnie mniej szumu ([#194](https://github.com/Domktorymysli/vclu/issues/194)).
+
+**Poprawki**
+- Panel jest czytelny w jasnym motywie: fragmenty kodu i strona Dashboardy, dzięki @osieckiAdam ([#198](https://github.com/Domktorymysli/vclu/pull/198)).
+- `hidden = true` ukrywa obiekt także wtedy, gdy działa `exposeRegistry()` ([#213](https://github.com/Domktorymysli/vclu/pull/213)).
+- Skrypt za długi dla CLU jest odrzucany od razu, zamiast czekać na timeout ([#217](https://github.com/Domktorymysli/vclu/issues/217)).
+- Drobne poprawki: nazwa „vclu” w całym panelu ([#212](https://github.com/Domktorymysli/vclu/pull/212)); `expose(obj)` i `obj:expose()` działają tak samo; brak paska przewijania w zwiniętym menu.
+
+Pełna lista: https://github.com/Domktorymysli/vclu/compare/v1.10.0...v1.11.0
+
 ## v1.10.0 (2026-11-08)
 
 ### English
