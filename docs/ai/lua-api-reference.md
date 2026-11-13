@@ -26,7 +26,7 @@ Only public API is listed — internal/private functions are omitted.
 - [GPIO_DIN](#gpio_din) (1 functions)
 - [integrations.mqtt.MqttClient](#integrationsmqttmqttclient) (30 functions)
 - [core.Cloud](#corecloud) (9 functions)
-- [grenton.CLU_REMOTE](#grentonclu_remote) (1 functions)
+- [grenton.CLU_REMOTE](#grentonclu_remote) (3 functions)
 - [lib.cct](#libcct) (1 functions)
 - [lib.tasmota](#libtasmota) (5 functions)
 
@@ -2502,6 +2502,23 @@ Calls fn(e) when someone comes home or leaves: e = { user, name, home, since, an
 ---
 
 ## grenton.CLU_REMOTE
+
+### `CLU_REMOTE:get(name) → any Number, string or boolean; nil when not set, or nil and an error when the CLU did not answer`
+
+Reads a user feature (a variable defined in Object Manager) from the CLU. Blocks until the CLU answers, like execute.
+
+- `name` (string) — Feature name, e.g. "temp_zadana"
+
+**Returns:** any Number, string or boolean; nil when not set, or nil and an error when the CLU did not answer
+
+### `CLU_REMOTE:set(name, value) → boolean true when the CLU answered, or nil and an error`
+
+Sets a user feature on the CLU. Blocks until the CLU answers, like execute.
+
+- `name` (string) — Feature name, e.g. "temp_zadana"
+- `value` (any) — Number, string, boolean or nil
+
+**Returns:** boolean true when the CLU answered, or nil and an error
 
 ### `CLU_REMOTE:firmware() → string|nil Firmware version`
 
