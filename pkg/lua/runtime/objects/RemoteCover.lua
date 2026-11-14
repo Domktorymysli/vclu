@@ -79,7 +79,10 @@ end
 -- @param value any Reported value
 -- @return any The value to store, or nil when the feature is kept aside (movement, tilt)
 function RemoteCover:fromFeature(index, value)
-    if index == RemoteCover.FEATURE_STATE then self:_confirmed() end
+    if index == RemoteCover.FEATURE_STATE then
+        self._reported = tonumber(value)
+        self:_confirmed()
+    end
     if not self._hasPosition then return value end
     if index == RemoteCover.FEATURE_POSITION then
         return tonumber(value)
@@ -156,11 +159,12 @@ function RemoteCover:_atEnd(position)
     return self._hasPosition and self._lastState == position and (self._movement or 0) == 0
 end
 
--- Optimistic movement until the CLU reports, ended by a timeout if it never does.
+-- Optimistic movement until the CLU reports, ended by a timeout if it never does; none for
+-- the movement the CLU reported last (a second open() while opening: nothing to report).
 -- Without a position the movement is the value.
 function RemoteCover:_moved(movement)
     self:_confirmed()
-    if movement ~= 0 then
+    if movement ~= 0 and movement ~= self._reported then
         self._unconfirmed = TIMERS:setTimeout(RemoteCover.UNCONFIRMED_MS, function()
             self._unconfirmed = nil
             self:_moved(0)

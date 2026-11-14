@@ -96,9 +96,15 @@ func TestRemoteCoverMovementConfirmedOrTimedOut(t *testing.T) {
 		table.insert(out, st(_roller) .. " " .. moves() .. " " .. pending())
 		_roller:close(); _roller:close()
 		table.insert(out, moves() .. " " .. pending())
+		-- a second open() while the CLU reports opening: no timeout, it keeps opening
+		report(1, 50, 0); moves(); T.list = {}
+		_roller:open()
+		table.insert(out, st(_roller) .. " " .. moves() .. " " .. pending())
+		fire()
+		table.insert(out, st(_roller) .. " " .. moves())
 		return table.concat(out, ";")
 	end)()`)
-	want := "1/40 1 1;1/60  0;0/100 0;2/100 2 1;0/100 0 0;0/100 2,0 0;2 1"
+	want := "1/40 1 1;1/60  0;0/100 0;2/100 2 1;0/100 0 0;0/100 2,0 0;2 1;1/50  0;1/50 "
 	if got != want {
 		t.Errorf("movement\n got: %s\nwant: %s", got, want)
 	}
