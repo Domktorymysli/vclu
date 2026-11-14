@@ -1,4 +1,4 @@
-# #NNNN: Grenton: a roller already at its end stays "opening" after open()
+# #224: Grenton: a roller already at its end stays "opening" after open()
 
 - **Type:** bug
 - **Area:** grenton
@@ -41,7 +41,7 @@ closed one leaves it stopped, and a movement vCLU assumed but the CLU never repo
 - [ ] Home Assistant gets `open` (not `opening`) for the first case.
 - [ ] Checked on a real roller: a scene opening an open roller leaves the tile "otwarta".
 - [ ] `go test ./...` and `go test -race ./...` pass.
-- [ ] A changelog entry in `changelog.d/NNNN-roller-stuck-moving.md`.
+- [ ] A changelog entry in `changelog.d/0224-roller-stuck-moving.md`.
 
 ## Contract impact
 None: the movement reported to dashboards, Home Assistant and HomeKit follows the CLU more closely.
