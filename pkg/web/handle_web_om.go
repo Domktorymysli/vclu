@@ -490,9 +490,15 @@ type moduleLoadReporter interface {
 	LastModuleLoad() []lua.ModuleLoadResult
 }
 
+// proxyLoadReporter reports the OM proxy files that failed in the last reload.
+type proxyLoadReporter interface {
+	LastProxyLoad() []string
+}
+
 // reloadForOM reloads the Lua runtime after an OM change, so subscriptions, expose() and
 // dashboards take the new proxies (#226), and adds the outcome to resp: "reloaded", and
-// "reloadError" or "moduleErrors" when it went wrong.
+// "reloadError", "proxyErrors" (success false: the CLU's objects are missing) or
+// "moduleErrors" when it went wrong.
 func (s *Server) reloadForOM(resp gin.H) {
 	if s.luaReloader == nil {
 		return
@@ -503,6 +509,12 @@ func (s *Server) reloadForOM(resp gin.H) {
 		return
 	}
 	resp["reloaded"] = true
+	if r, ok := s.luaReloader.(proxyLoadReporter); ok {
+		if errs := r.LastProxyLoad(); len(errs) > 0 {
+			resp["proxyErrors"] = errs
+			resp["success"] = false
+		}
+	}
 	if r, ok := s.luaReloader.(moduleLoadReporter); ok {
 		var errs []string
 		for _, m := range r.LastModuleLoad() {

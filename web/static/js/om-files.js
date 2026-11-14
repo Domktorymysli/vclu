@@ -175,6 +175,11 @@ OmFilesManager.prototype._reloadNote = function(data) {
         return '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> ' +
                (this.translations.reloadFailed || 'Lua reload failed') + ': ' + VCLU.esc(data.reloadError) + '</div>';
     }
+    if (data.proxyErrors && data.proxyErrors.length > 0) {
+        return '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> ' +
+               (this.translations.proxyFailed || 'Lua reloaded, but the CLU objects failed to load') + ':<ul class="mb-0">' +
+               data.proxyErrors.map(function(e) { return '<li>' + VCLU.esc(e) + '</li>'; }).join('') + '</ul></div>';
+    }
     if (data.moduleErrors && data.moduleErrors.length > 0) {
         return '<div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i> ' +
                (this.translations.modulesFailed || 'Lua reloaded, but modules failed to load') + ':<ul class="mb-0">' +
@@ -289,8 +294,9 @@ OmFilesManager.prototype.deleteFile = function(serial) {
             if (data.error) {
                 VCLU.showToast('Error: ' + data.error, 'danger');
             } else {
-                if (data.reloadError || (data.moduleErrors && data.moduleErrors.length > 0)) {
-                    VCLU.showToast(data.reloadError || data.moduleErrors.join('; '), 'warning');
+                var problems = [].concat(data.reloadError ? [data.reloadError] : [], data.proxyErrors || [], data.moduleErrors || []);
+                if (problems.length > 0) {
+                    VCLU.showToast(problems.join('; '), 'warning');
                 }
                 self.loadFiles();
             }

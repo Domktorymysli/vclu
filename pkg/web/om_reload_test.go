@@ -7,6 +7,8 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -58,6 +60,8 @@ func (r *engineReloader) Reload() error {
 func (r *engineReloader) LastModuleLoad() []lua.ModuleLoadResult {
 	return []lua.ModuleLoadResult{{Name: "ok", OK: true}}
 }
+
+func (r *engineReloader) LastProxyLoad() []string { return r.eng.LastProxyLoad() }
 
 func omServer(t *testing.T) (*Server, *engineReloader) {
 	t.Helper()
@@ -194,5 +198,26 @@ func TestOMReloadNamesFailedModules(t *testing.T) {
 	errs, _ := ans["moduleErrors"].([]any)
 	if ans["reloaded"] != true || len(errs) != 1 || errs[0] != "modules/rolety: attempt to index nil" {
 		t.Errorf("module errors: %v", ans)
+	}
+}
+
+// A proxy that fails in the reload leaves its CLU without objects: the answer says so.
+func TestOMReloadReportsFailedProxy(t *testing.T) {
+	s, _ := omServer(t)
+	omUpload(t, s, "om.lua", reloadOMWith("0"))
+	bad := filepath.Join(config.GetOMFilesDir(s.serverDir), "proxy_999.lua")
+	if err := os.WriteFile(bad, []byte(`error("boom")`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	ans := omUpload(t, s, "om.lua", reloadOMWith("1500"))
+	errs, _ := ans["proxyErrors"].([]any)
+	if ans["success"] != false || len(errs) != 1 || !strings.HasPrefix(errs[0].(string), "proxy_999.lua: ") {
+		t.Errorf("failed proxy: %v", ans)
+	}
+	if err := os.Remove(bad); err != nil {
+		t.Fatal(err)
+	}
+	if ans := omUpload(t, s, "om.lua", reloadOMWith("1500")); ans["success"] != true || ans["proxyErrors"] != nil {
+		t.Errorf("after the fix: %v", ans)
 	}
 }

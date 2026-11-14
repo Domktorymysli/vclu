@@ -53,6 +53,7 @@ type Server struct {
 	grentonEnabled bool // whether Grenton UDP protocol is active
 
 	luaEngine           *lua.LuaEngine
+	reloadMu            sync.Mutex // one reload at a time: the panel, MCP and OM imports call it
 	tftpServer          *tftp.Server
 	mqttBroker          *broker.Broker
 	subscriptionManager *SubscriptionManager
@@ -132,10 +133,20 @@ func (s *Server) LastModuleLoad() []lua.ModuleLoadResult {
 	return s.luaEngine.LastModuleLoad()
 }
 
+// LastProxyLoad reports the OM proxy files that failed in the most recent load.
+func (s *Server) LastProxyLoad() []string {
+	if s.luaEngine == nil {
+		return nil
+	}
+	return s.luaEngine.LastProxyLoad()
+}
+
 // Reload implements the web.LuaReloader interface
 // It reinitializes the Lua engine and reloads all CLU data
 func (s *Server) Reload() error {
 	log.Println("🔄 [RELOAD] Manual Lua reload requested")
+	s.reloadMu.Lock()
+	defer s.reloadMu.Unlock()
 
 	if s.luaEngine == nil {
 		return fmt.Errorf("no Lua engine available")
