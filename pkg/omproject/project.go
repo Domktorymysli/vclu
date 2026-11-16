@@ -28,6 +28,10 @@ const (
 	maxSystemXML = 32 << 20
 	maxScript    = 1 << 20
 	maxScripts   = 8 << 20
+	// maxCommands caps the event commands of a project: XStream lets many
+	// objects reference one list, so a small system.xml can name the same
+	// commands many times over. A house with six CLUs has 4 KB of them.
+	maxCommands = 4 << 20
 )
 
 // Project is what vCLU takes from an Object Manager project.
@@ -35,6 +39,9 @@ type Project struct {
 	Version  string // OM version from properties.xml, e.g. "1.8.0_2301"
 	CLUs     []CLU
 	Warnings []string
+
+	commands int // bytes of event commands read so far, up to maxCommands
+	overCmds bool
 }
 
 // CLU is one CLU of the project.
@@ -205,6 +212,15 @@ func ReadZip(z *zip.Reader) (*Project, error) {
 
 func (p *Project) warn(w string) { p.Warnings = append(p.Warnings, w) }
 
+// atoi reads a count or an index: a number that is not negative.
+func atoi(s string) (int, error) {
+	i, err := strconv.Atoi(s)
+	if err == nil && i < 0 {
+		err = fmt.Errorf("%d is negative", i)
+	}
+	return i, err
+}
+
 // checkName warns about a name vCLU cannot use in Lua; om.lua leaves it out
 // and the object goes by its ID.
 func (p *Project) checkName(what, name string) {
@@ -322,11 +338,17 @@ func (p *Project) readCLU(s *stream, n *node) CLU {
 	c.Events = p.readEvents(s, n, "eventsList", label)
 
 	used := map[uint64]bool{}
+	ids := map[string]bool{}
 	for _, io := range s.items(n, "iosList") {
 		o, ok := p.readObject(s, io, label)
 		if !ok {
 			continue
 		}
+		if ids[o.ID] {
+			p.warn(fmt.Sprintf("%s: %s is in the list twice, left out the second time", label, o.ID))
+			continue
+		}
+		ids[o.ID] = true
 		used[o.Module] = true
 		c.Objects = append(c.Objects, o)
 	}
@@ -362,6 +384,11 @@ func (p *Project) readCLU(s *stream, n *node) CLU {
 			p.warn(label + ": a peripheral without a name on the CLU, left out")
 			continue
 		}
+		if ids[per.ID] {
+			p.warn(fmt.Sprintf("%s: %s is in the list twice, left out the second time", label, per.ID))
+			continue
+		}
+		ids[per.ID] = true
 		p.checkName(label+": peripheral "+per.ID, per.Name)
 		per.Class = peripheralClasses[per.Type]
 		if per.Class == 0 {
@@ -375,6 +402,10 @@ func (p *Project) readCLU(s *stream, n *node) CLU {
 			continue
 		}
 		sc := Script{Name: s.text(sn, "name")}
+		if ids["script "+sc.Name] {
+			continue
+		}
+		ids["script "+sc.Name] = true
 		for _, par := range s.items(sn, "parameters") {
 			sc.Params = append(sc.Params, s.text(par, "name"))
 		}
@@ -401,13 +432,13 @@ func (p *Project) readObject(s *stream, n *node, label string) (Object, bool) {
 		return o, false
 	}
 	p.checkName(what+" ("+o.ID+")", o.Name)
-	class, err := strconv.Atoi(s.text(n, "classTypeId"))
+	class, err := atoi(s.text(n, "classTypeId"))
 	if err != nil {
 		p.warn(what + " (" + o.ID + ") has no object class, left out")
 		return o, false
 	}
 	o.Class = class
-	o.Index, err = strconv.Atoi(s.text(n, "number"))
+	o.Index, err = atoi(s.text(n, "number"))
 	if err != nil {
 		p.warn(what + " (" + o.ID + ") has no index on its module, left out")
 		return o, false
@@ -434,11 +465,22 @@ func (p *Project) readObject(s *stream, n *node, label string) (Object, bool) {
 func (p *Project) readEvents(s *stream, n *node, list, label string) []Binding {
 	var out []Binding
 	for _, e := range s.items(n, list) {
+		if p.overCmds {
+			break
+		}
 		var cmds []string
 		for _, c := range s.items(e, "commands") {
-			if c.text != "" {
-				cmds = append(cmds, c.text)
+			if c.text == "" {
+				continue
 			}
+			if p.commands += len(c.text); p.commands > maxCommands {
+				if !p.overCmds {
+					p.overCmds = true
+					p.warn(fmt.Sprintf("%s: event commands over %d MB, the rest left out", label, maxCommands>>20))
+				}
+				break
+			}
+			cmds = append(cmds, c.text)
 		}
 		if len(cmds) == 0 {
 			continue
@@ -448,7 +490,7 @@ func (p *Project) readEvents(s *stream, n *node, list, label string) []Binding {
 		if idx == "" {
 			idx = s.text(e, "vector")
 		}
-		i, err := strconv.Atoi(idx)
+		i, err := atoi(idx)
 		if err != nil {
 			p.warn(fmt.Sprintf("%s: event %s has no index, left out", label, b.Event))
 			continue

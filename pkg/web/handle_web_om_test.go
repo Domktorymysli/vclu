@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"mime/multipart"
@@ -12,9 +13,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/Domktorymysli/vclu/pkg/config"
+	"github.com/Domktorymysli/vclu/pkg/lua"
 	"github.com/gin-gonic/gin"
 )
 
@@ -137,6 +140,7 @@ func zipDir(t *testing.T, dir string) []byte {
 type projectAnswer struct {
 	IsProject   bool     `json:"isProject"`
 	AgentDocs   string   `json:"agentDocs"`
+	Success     bool     `json:"success"`
 	OMVersion   string   `json:"omVersion"`
 	Imported    int      `json:"imported"`
 	SkippedList []string `json:"skippedList"`
@@ -219,7 +223,10 @@ func TestProjectUploadMatchesDiagnosticPack(t *testing.T) {
 			if code, body := uploadFile(t, fromPack, "pack.zip", pack); code != http.StatusOK {
 				t.Fatalf("pack: %d %s", code, body)
 			}
-			fromProject := &Server{serverDir: t.TempDir()}
+			// the runtime runs the proxies the project gives
+			engine := lua.NewLuaEngine()
+			t.Cleanup(engine.Close)
+			fromProject := &Server{serverDir: t.TempDir(), luaExecutor: engine}
 			code, body := uploadFile(t, fromProject, "house.omp", omp)
 			if code != http.StatusOK {
 				t.Fatalf("project: %d %s", code, body)
@@ -246,6 +253,63 @@ func TestProjectUploadMatchesDiagnosticPack(t *testing.T) {
 				t.Errorf("project registered %d CLUs, want %d", len(got), tc.clus)
 			}
 		})
+	}
+}
+
+// failingLua is a runtime that refuses every script.
+type failingLua struct{}
+
+func (failingLua) Execute(string) (string, error) { return "", errors.New("syntax error near 'end'") }
+
+// A proxy the runtime refuses is an error of the import, not a success.
+func TestProjectUploadReportsLuaErrors(t *testing.T) {
+	omp := zipDir(t, filepath.Join("testdata", "omproject", "om-1.8.0", "project"))
+	s := &Server{serverDir: t.TempDir(), luaExecutor: failingLua{}}
+	code, body := uploadFile(t, s, "house.omp", omp)
+	var ans projectAnswer
+	if err := json.Unmarshal(body, &ans); err != nil {
+		t.Fatal(err)
+	}
+	if code != http.StatusOK || ans.Success || len(ans.Errors) != ans.Imported || ans.Imported == 0 ||
+		!strings.Contains(ans.Errors[0], "objects not registered, Lua: syntax error near 'end'") {
+		t.Errorf("%d %+v", code, ans)
+	}
+	code, body = uploadFile(t, s, "om.lua", []byte(namesOMLua))
+	if code != http.StatusOK || !strings.Contains(string(body), `"luaError":"objects not registered`) {
+		t.Errorf("single om.lua: %d %s", code, body)
+	}
+}
+
+const namesOMLua = `CLU212345678 = OBJECT:new(0, 0xC0000203)
+-- NAME_CLU home=CLU212345678
+`
+
+// Imports at once all finish and leave ai/om whole. (The window the lock
+// closes, between removing ai/om and renaming the new one in, is too short
+// for this test to hit without it.)
+func TestProjectUploadsAtOnce(t *testing.T) {
+	omp := zipDir(t, filepath.Join("testdata", "omproject", "om-1.8.0", "project"))
+	s := &Server{serverDir: t.TempDir()}
+	var wg sync.WaitGroup
+	codes := make([]int, 4)
+	for i := range codes {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			codes[i], _ = uploadFile(t, s, "house.omp", omp)
+		}()
+	}
+	wg.Wait()
+	for i, c := range codes {
+		if c != http.StatusOK {
+			t.Errorf("upload %d: %d", i, c)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(s.serverDir, "ai", "om", "index.md")); err != nil {
+		t.Error(err)
+	}
+	if left, _ := filepath.Glob(filepath.Join(s.serverDir, "ai", ".om-*")); len(left) > 0 {
+		t.Errorf("left behind: %v", left)
 	}
 }
 

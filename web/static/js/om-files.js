@@ -102,6 +102,10 @@ OmFilesManager.prototype.upload = function() {
                               VCLU.esc(data.cluName) + ' (' + data.objectCount + ' ' +
                               (self.translations.objects || 'objects') + ', ' + data.moduleCount + ' ' +
                               (self.translations.modules || 'modules') + ')</div>';
+            if (data.luaError) {
+                result.innerHTML += '<div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i> ' +
+                                    VCLU.esc(data.luaError) + '</div>';
+            }
             fileInput.value = '';
             self.loadFiles();
         }

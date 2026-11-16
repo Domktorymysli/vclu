@@ -280,8 +280,11 @@ func TestReadRejectsWhatIsNoProject(t *testing.T) {
 // index.md turns the project's own commands into vCLU's Lua and lists the
 // objects OM already commands.
 func TestDocsTranslateAndListDriven(t *testing.T) {
+	// an argument in OM's notation makes no example
+	sys := strings.Replace(twoCLUs, `<commands class="linked-list" id="35"/>`,
+		`<commands class="linked-list" id="35"><string>Home-&gt;hall_light-&gt;SetValue(Home-&gt;hall_button-&gt;Value())</string></commands>`, 1)
 	p, err := Read(projectZip(t, map[string]string{
-		"system.xml":             twoCLUs,
+		"system.xml":             sys,
 		"scripts/Home/setup.lua": "if x then Home->hall_light->SwitchOff(0) end\nlocal v = Home->hall_button->Value()\n",
 	}))
 	if err != nil {
@@ -291,15 +294,72 @@ func TestDocsTranslateAndListDriven(t *testing.T) {
 	for _, want := range []string{
 		"| `Home->hall_light->SwitchOn(0)` | `_:get(\"CLU221000002.DOU0001\"):switchOn(0)` |",
 		"| CLU221000002.DOU0001 | hall_light | ",
-		"OnSwitchOn, script setup |",
+		"hall_button OnSwitchOn, hall_button OnSwitchOff, script setup |",
 	} {
 		if !strings.Contains(idx, want) {
 			t.Errorf("index.md has no %q:\n%s", want, idx)
 		}
 	}
+	if strings.Contains(idx, "setValue(Home->") {
+		t.Errorf("an example with OM's notation in its arguments:\n%s", idx)
+	}
 	// reading a value commands nothing
 	if strings.Contains(idx, "| CLU221000002.DIN0001 |") {
 		t.Errorf("hall_button is read, not commanded:\n%s", idx)
+	}
+}
+
+// XStream references let a small system.xml name one object, event or command
+// many times: the import reads each object once and caps the commands.
+func TestReadCapsSharedReferences(t *testing.T) {
+	long := "Home-&gt;hall_light-&gt;SwitchOn(" + strings.Repeat("1", 1000) + ")"
+	sys := strings.Replace(twoCLUs, "<string>Home-&gt;hall_light-&gt;SwitchOn(0)</string>",
+		`<string id="99">`+long+"</string>"+strings.Repeat(`<string reference="99"/>`, 3000), 1)
+	sys = strings.Replace(sys, `<Event id="34">`, strings.Repeat(`<Event reference="32"/>`, 300)+`<Event id="34">`, 1)
+	sys = strings.Replace(sys, `<Output id="41">`, strings.Repeat(`<Input reference="30"/>`, 100)+`<Output id="41">`, 1)
+	if len(sys) > 200<<10 {
+		t.Fatalf("system.xml has %d bytes", len(sys))
+	}
+	p, err := Read(projectZip(t, map[string]string{"system.xml": sys}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := p.CLUs[1]
+	if len(home.Objects) != 2 {
+		t.Errorf("%d objects, want hall_button and hall_light once each", len(home.Objects))
+	}
+	n := 0
+	for _, e := range home.Objects[0].Events {
+		for _, c := range e.Commands {
+			n += len(c)
+		}
+	}
+	if n > maxCommands {
+		t.Errorf("%d bytes of commands, over %d", n, maxCommands)
+	}
+	warned := strings.Join(p.Warnings, "\n")
+	if !strings.Contains(warned, "event commands over") || !strings.Contains(warned, "DIN0001 is in the list twice") {
+		t.Errorf("warnings: %s", warned)
+	}
+	for name, d := range p.Docs() {
+		if len(d) > maxDoc {
+			t.Errorf("%s has %d bytes, over %d", name, len(d), maxDoc)
+		}
+	}
+}
+
+// A negative index or class is no value: the object is left out with a warning.
+func TestReadLeavesOutNegativeNumbers(t *testing.T) {
+	sys := strings.Replace(twoCLUs, "<number>1</number>", "<number>-1</number>", 1)
+	p, err := Read(projectZip(t, map[string]string{"system.xml": sys}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if objs := p.CLUs[1].Objects; len(objs) != 1 || objs[0].ID != "DIN0001" {
+		t.Errorf("objects %+v", objs)
+	}
+	if w := strings.Join(p.Warnings, "\n"); !strings.Contains(w, "hall_light (DOU0001) has no index on its module") {
+		t.Errorf("warnings: %s", w)
 	}
 }
 

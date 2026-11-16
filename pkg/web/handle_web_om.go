@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -56,6 +57,9 @@ func (s *Server) handleAPIOMUpload(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read file"})
 		return
 	}
+
+	s.omImport.Lock()
+	defer s.omImport.Unlock()
 
 	// An Object Manager project (.omp), or a ZIP: a diagnostic pack or a project
 	lower := strings.ToLower(header.Filename)
@@ -139,6 +143,9 @@ func (s *Server) handleZipUpload(c *gin.Context, content []byte, filename string
 			errors = append(errors, fmt.Sprintf("%s: %v", label, err))
 			continue
 		}
+		if e, _ := result["luaError"].(string); e != "" {
+			errors = append(errors, label+": "+e)
+		}
 
 		results = append(results, result)
 	}
@@ -201,6 +208,9 @@ func (s *Server) handleProjectUpload(c *gin.Context, zr *zip.Reader, filename st
 		if err != nil {
 			errors = append(errors, fmt.Sprintf("%s: %v", label, err))
 			continue
+		}
+		if e, _ := result["luaError"].(string); e != "" {
+			errors = append(errors, label+": "+e)
 		}
 		results = append(results, result)
 	}
@@ -270,6 +280,12 @@ func (s *Server) writeProjectDocs(p *omproject.Project) error {
 	dir := filepath.Join(s.serverDir, filepath.FromSlash(omproject.DocsDir))
 	if err := os.MkdirAll(filepath.Dir(dir), 0755); err != nil {
 		return fmt.Errorf("failed to create %s: %v", omproject.DocsDir, err)
+	}
+	// what an import cut short left behind
+	if old, _ := filepath.Glob(filepath.Join(filepath.Dir(dir), ".om-*")); len(old) > 0 {
+		for _, o := range old {
+			_ = os.RemoveAll(o)
+		}
 	}
 	tmp, err := os.MkdirTemp(filepath.Dir(dir), ".om-")
 	if err != nil {
@@ -377,10 +393,12 @@ func (s *Server) processOMFile(content []byte, originalName string) (gin.H, erro
 	}
 
 	// Execute proxy in Lua runtime to register devices
+	var luaErr string
 	if s.luaExecutor != nil {
 		if _, err := s.luaExecutor.Execute(proxyCode); err != nil {
-			// Log error but don't fail the upload - device will be registered on restart
-			fmt.Printf("Warning: Failed to execute proxy in Lua: %v\n", err)
+			// The files stay: the next start runs the proxy again
+			log.Printf("[OM] %s: proxy failed in Lua: %v", parsed.CLU.ID, err)
+			luaErr = fmt.Sprintf("objects not registered, Lua: %v", err)
 		}
 	}
 
@@ -408,6 +426,7 @@ func (s *Server) processOMFile(content []byte, originalName string) (gin.H, erro
 		"cluIP":        omparser.IPToString(parsed.CLU.IP),
 		"objectCount":  len(parsed.Objects),
 		"moduleCount":  len(parsed.Modules),
+		"luaError":     luaErr,
 	}, nil
 }
 

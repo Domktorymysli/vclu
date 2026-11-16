@@ -11,7 +11,8 @@ import (
 // directory. vCLU owns it: an import replaces everything in it.
 const DocsDir = "ai/om"
 
-// maxDoc keeps every file under what MCP's vclu_read_file returns (100 KB).
+// maxDoc keeps every file under what MCP's vclu_read_file returns (100 KB):
+// scripts are split in parts, anything else longer is cut.
 const maxDoc = 90 << 10
 
 // Docs writes what the agent reads about the project: index.md, one file per
@@ -52,7 +53,23 @@ func (p *Project) Docs() map[string]string {
 		}
 	}
 	files["index.md"] = idx.String()
+	for name, d := range files {
+		files[name] = cut(d)
+	}
 	return files
+}
+
+// cut shortens a file over maxDoc at the end of a line, saying so.
+func cut(d string) string {
+	const note = "\n(cut by vCLU: the rest is in the Object Manager project)\n"
+	if len(d) <= maxDoc {
+		return d
+	}
+	d = strings.ToValidUTF8(d[:maxDoc-len(note)], "")
+	if i := strings.LastIndexByte(d, '\n'); i > 0 {
+		d = d[:i+1]
+	}
+	return d + note
 }
 
 func (p *Project) cluDoc(c CLU) string {
@@ -166,13 +183,14 @@ func cell(s string) string {
 }
 
 // verbs are the OM methods a vCLU proxy has, by om.lua class: OM's name and
-// the proxy's, which sends the same execute (pkg/lua/runtime/objects/Remote*.lua).
+// the proxy's, which does the same (pkg/lua/runtime/objects/Remote*.lua). Not
+// here: a DIMM's switchOn goes back to its last brightness, and a roller with
+// a position (24) moves by SetPosition.
 var verbs = map[int]map[string]string{
 	3:  {"Value": "getValue"},
 	4:  {"Value": "getValue", "SetValue": "setValue", "SwitchOn": "switchOn", "SwitchOff": "switchOff", "Switch": "switch"},
-	5:  {"Value": "getValue", "SetValue": "setValue", "SwitchOn": "switchOn", "SwitchOff": "switchOff", "Switch": "toggle"},
+	5:  {"Value": "getValue", "SetValue": "setValue", "SwitchOff": "switchOff", "Switch": "toggle"},
 	11: {"MoveUp": "up", "MoveDown": "down", "Stop": "stop"},
-	24: {"MoveUp": "up", "MoveDown": "down", "Stop": "stop"},
 }
 
 // reCall is a command in OM's notation that calls an object's method.
@@ -183,27 +201,36 @@ var reads = map[string]bool{"Value": true, "get": true}
 
 // target is the object a command calls, with its CLU.
 type target struct {
-	clu CLU
-	obj Object
+	clu *CLU
+	obj *Object
+}
+
+// targets finds objects by "<CLU name>-><object name>", as commands name them;
+// the first of two with the same names.
+type targets map[string]target
+
+func (p *Project) targets() targets {
+	t := targets{}
+	for ci := range p.CLUs {
+		c := &p.CLUs[ci]
+		for oi := range c.Objects {
+			key := c.Name + "->" + c.Objects[oi].Name
+			if _, ok := t[key]; !ok {
+				t[key] = target{c, &c.Objects[oi]}
+			}
+		}
+	}
+	return t
 }
 
 // call resolves a command in OM's notation: its object, method and arguments.
-func (p *Project) call(cmd string) (t target, method, args string, ok bool) {
+func (ts targets) call(cmd string) (t target, method, args string, ok bool) {
 	m := reCall.FindStringSubmatch(cmd)
 	if m == nil {
 		return t, "", "", false
 	}
-	for _, c := range p.CLUs {
-		if c.Name != m[1] {
-			continue
-		}
-		for _, o := range c.Objects {
-			if o.Name == m[2] {
-				return target{c, o}, m[3], m[4], true
-			}
-		}
-	}
-	return t, "", "", false
+	t, ok = ts[m[1]+"->"+m[2]]
+	return t, m[3], m[4], ok
 }
 
 // howTo tells the agent how OM's notation reads in vCLU's Lua, with examples
@@ -213,20 +240,28 @@ func (p *Project) howTo() string {
 	b.WriteString("\n## From Object Manager to vCLU's Lua\n\n")
 	b.WriteString("The bindings and scripts here are in Object Manager's notation: `CLU->object->Method(args)` calls an object's method, `CLU->script(args)` a script. In vCLU:\n\n")
 	b.WriteString("- An object is in the registry as `<CLU ID>.<object ID>`, the IDs from the tables in the CLU's file: `_:get(\"CLU221000001.DOU0001\")`. Its name works too (`_:get(\"hall_light\")`) only while no other object has it; use the path.\n")
-	b.WriteString("- Methods start with a small letter and take the same arguments. Those that differ: `Switch` is `switch` on a DOUT and `toggle` on a DIMM, a roller's `MoveUp`/`MoveDown`/`Stop` are `up`/`down`/`stop`. `->Value()` is `:getValue()`, or `_:value(\"<path>\")`.\n")
-	b.WriteString("- Events: `obj:onEvent(\"OnSwitchOn\", function() ... end)` or `obj:onChange(function(new, old) ... end)`. Events that follow a change of the value (OnChange, OnSwitchOn, OnSwitchOff) come by themselves; others (OnClick, OnHold, ...) only when the CLU sends them to vCLU.\n")
+	b.WriteString("- Methods start with a small letter. The same as in OM: on a DOUT `SwitchOn`, `SwitchOff`, `Switch` (`switch`), `SetValue`; on a DIMM `SwitchOff`, `Switch` (`toggle`), `SetValue`; on a roller without a position `MoveUp`/`MoveDown`/`Stop` (`up`/`down`/`stop`). Not the same: a DIMM's `switchOn()` goes back to its last brightness, OM's `SwitchOn` to the module's start level (`setValue` sets a brightness); a roller with a position goes up and down by its position. `->Value()` is `:getValue()`, or `_:value(\"<path>\")`. For anything else, read the object's methods before using them.\n")
+	b.WriteString("- Events: `obj:onEvent(\"OnSwitchOn\", function() ... end)` or `obj:onChange(function(new, old) ... end)`. OnChange comes on every object when its value changes (not for the first value after a start); OnSwitchOn and OnSwitchOff only on a DOUT and a DIN. Other events (OnClick, OnHold, ...) come only when the CLU sends them to vCLU.\n")
 	b.WriteString("- Scripts run on the CLU; vCLU does not run them. What a script does is written again in Lua, or left on the CLU.\n")
 	b.WriteString("- `vclu_registry` lists what is registered; `vclu_device_get` gives the methods of an exposed one.\n")
 
 	seen := map[string]bool{}
 	var ex []string
+	ts := p.targets()
 	for _, c := range p.CLUs {
 		for _, o := range c.Objects {
 			for _, e := range o.Events {
 				for _, cmd := range e.Commands {
-					t, method, args, ok := p.call(cmd)
+					if len(ex) == 6 {
+						break
+					}
+					t, method, args, ok := ts.call(cmd)
+					if !ok || strings.Contains(args, "->") {
+						// an argument in OM's notation is no Lua
+						continue
+					}
 					verb := verbs[t.obj.Class][method]
-					if !ok || verb == "" || seen[t.obj.Type+method] || len(ex) == 6 {
+					if verb == "" || seen[t.obj.Type+method] {
 						continue
 					}
 					seen[t.obj.Type+method] = true
@@ -250,18 +285,19 @@ const maxDriven = 300
 func (p *Project) driven() string {
 	by := map[string][]string{}
 	name := map[string]string{}
+	seen := map[string]bool{}
+	ts := p.targets()
 	add := func(cmd, from string) {
-		t, method, _, ok := p.call(cmd)
+		t, method, _, ok := ts.call(cmd)
 		if !ok || reads[method] {
 			return
 		}
 		path := t.clu.ID + "." + t.obj.ID
-		name[path] = t.obj.Name
-		for _, f := range by[path] {
-			if f == from {
-				return
-			}
+		if seen[path+" "+from] {
+			return
 		}
+		seen[path+" "+from] = true
+		name[path] = t.obj.Name
 		by[path] = append(by[path], from)
 	}
 	for _, c := range p.CLUs {

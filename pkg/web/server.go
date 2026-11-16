@@ -191,6 +191,7 @@ type Server struct {
 	restart          func()       // nil: scheduleRestart exits the process; tests record the call
 	calendarLimiter  *rateLimiter // calendar widget requests that miss the cache, per IP
 	live             *liveFeeds   // dashboards watched over WebSockets
+	omImport         sync.Mutex   // one OM import at a time: imports/, .vclu.json and ai/om
 
 	// the roles each remote dashboard names, for the app on the LAN (local.go)
 	remoteRolesMu    sync.Mutex
