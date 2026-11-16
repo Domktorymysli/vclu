@@ -186,11 +186,11 @@ func Do(client *http.Client, req *http.Request, user, password string) (*http.Re
 	}
 	auth, err := c.Authorization(req.Method, req.URL.RequestURI(), user, password)
 	if err != nil {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return nil, err
 	}
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	again := req.Clone(req.Context())
 	if req.GetBody != nil {

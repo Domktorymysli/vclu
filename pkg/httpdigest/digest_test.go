@@ -85,7 +85,7 @@ func (d *device) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	d.bodies = append(d.bodies, string(body))
 	d.mu.Unlock()
 	if d.valid(r.Method, r.URL.RequestURI(), auth) {
-		fmt.Fprint(w, "open")
+		_, _ = fmt.Fprint(w, "open")
 		return
 	}
 	ch := `Digest realm="DS-KV6124", nonce="n0nce"`
@@ -139,7 +139,7 @@ func put(t *testing.T, url, password string) (*http.Response, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 	return resp, string(body)
 }
