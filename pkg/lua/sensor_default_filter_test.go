@@ -165,6 +165,13 @@ func TestSensorDefaultFilter_ModuleDefaults(t *testing.T) {
 		fails("unknown path", function() ExposedObjects:defaults("CLU1.NOPE", { filter = false }) end, "no object")
 		fails("filter on a switch", function() ExposedObjects:defaults("CLU1.DOU1", { filter = { delta = 1 } }) end, "read-only")
 		fails("path", function() ExposedObjects:defaults("CLU1.PAN1", { path = "x" }) end, "path")
+		fails("hidden", function() ExposedObjects:defaults("CLU1.PAN1", { hidden = true }) end, "hidden")
+		registerObject("CLU1.THE1", RemoteThermostat:new(_clu, "THE1"))
+		fails("climate", function() ExposedObjects:defaults("CLU1.THE1", { name = "x" }) end, "does not expose")
+		registerObject("CLU1.X1", RemoteObject:new(_clu, "X1"))
+		CLU1_X1 = _:get("CLU1.X1")
+		CLU1_X1._getExposeType = function() return nil end
+		fails("no expose type", function() ExposedObjects:defaults("CLU1.X1", { name = "x" }) end, "does not expose")
 
 		exposeRegistry()
 		assert(filterOf("CLU1.PAN1") == "false", "PAN1: " .. filterOf("CLU1.PAN1"))
@@ -180,5 +187,40 @@ func TestSensorDefaultFilter_ModuleDefaults(t *testing.T) {
 		_pub = {}
 		_:sync("CLU1.PAN1", 25.5)
 		assert(statePublishes("PAN1") == 0, "PAN1 filtered after start: " .. statePublishes("PAN1"))
+
+		-- exposed again by an access change: the module's options stay
+		local h = ExposedObjects:get("CLU1.PAN1")
+		h._exposed = false
+		ExposedObjects:_remove("CLU1.PAN1")
+		ExposedObjects:exposeRegistry(nil, true)
+		assert(filterOf("CLU1.PAN1") == "1/nil", "PAN1 exposed again: " .. filterOf("CLU1.PAN1"))
+		assert(ExposedObjects:get("CLU1.PAN1").options.area == "Salon", "area lost when exposed again")
 	`)
+}
+
+// A filtered source still counts as reporting for a VirtualThermostat: flapping 21.0/21.1 every
+// 500 s is never "no reading for staleAfter", and the thermostat sees the raw reading.
+func TestSensorDefaultFilter_ThermostatSourceNotStale(t *testing.T) {
+	te := newVTEngine(t)
+	mustExec(t, te.LuaEngine, `
+		SRC = RemoteValueSensor:new({ address = "192.168.0.5", executeNoReply = function() end }, "PAN1", "Salon", "PANELSENSTEMP")
+		registerObject("CLU1.PAN1", SRC)
+		exposeRegistry()
+		_:sync("CLU1.PAN1", 21.1)
+		TH = VirtualThermostat:new("salon", { source = SRC, output = HEATER, setpoint = 21 })
+		logs()`)
+	// ends on 21.0, a change the filter swallows
+	for i := 0; i < 11; i++ {
+		te.advance(t, 500*time.Second)
+		v := "21.0"
+		if i%2 == 1 {
+			v = "21.1"
+		}
+		mustExec(t, te.LuaEngine, `_:sync("CLU1.PAN1", `+v+`)`)
+	}
+	te.advance(t, 10*time.Second)
+	got := mustExec(t, te.LuaEngine, `return tostring(TH:getFault()) .. "/" .. tostring(TH:getValue()) .. "|" .. logs()`)
+	if got != "nil/21|" {
+		t.Errorf("fault/temperature|logs = %q, want nil/21 and no warning", got)
+	}
 }

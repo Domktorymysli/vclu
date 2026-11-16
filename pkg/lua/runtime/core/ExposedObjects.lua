@@ -1357,31 +1357,39 @@ local REGISTRY_FILTERS = {
 }
 
 ExposedObjects._defaults = {} -- registry path -> options from ExposedObjects:defaults()
+local DEFAULT_KEYS = { filter = true, name = true, area = true }
 
---- Options exposeRegistry() gives the registry object at path, over its defaults: a module sets
--- them before the object is exposed (filter = false: no default filter). Once exposed, they go to its handle.
+--- The filter, name or area exposeRegistry() gives the registry object at path: a module sets
+-- them before the object is exposed (filter = false: no default filter); after that they change it at once.
 -- @api public
 -- @param path string Registry path, e.g. "CLU220000592.PAN9127"
--- @param opts table Expose options (filter, name, area, readonly, ...)
+-- @param opts table { filter, name, area }
 -- @usage ExposedObjects:defaults("CLU220000592.PAN9127", { filter = { delta = 20, heartbeat = 900 } })
 function ExposedObjects:defaults(path, opts)
     if type(path) ~= "string" or type(opts) ~= "table" then
         error("ExposedObjects:defaults(path, opts) - path must be a string and opts a table", 2)
     end
+    for k in pairs(opts) do
+        if not DEFAULT_KEYS[k] then
+            error("ExposedObjects:defaults() - unknown option '" .. tostring(k) .. "' (filter, name, area); "
+                .. "use expose() or the panel's access for others", 2)
+        end
+    end
     local obj = _registry and _registry[path]
     if type(obj) ~= "table" then
         error("ExposedObjects:defaults() - no object at '" .. path .. "' in the registry", 2)
     end
-    if opts.path ~= nil or opts.id ~= nil then
-        error("ExposedObjects:defaults() - the path of a registry object cannot change", 2)
+    local objType = registryType(obj)
+    if obj._isPlugin or objType == nil or (capabilities[objType] or {}).explicitOnly then
+        error("ExposedObjects:defaults() - exposeRegistry() does not expose '" .. path .. "'; use expose()", 2)
     end
-    checkOptions(registryType(obj), opts)
-    local h = self:_handleOf(obj)
-    if h then return h:update(opts) end
+    checkOptions(objType, opts)
+    -- kept also after start: accessChanged() may expose it again
     local merged = self._defaults[path] or {}
     for k, v in pairs(opts) do merged[k] = v end
     self._defaults[path] = merged
-    return true
+    local h = self:_handleOf(obj)
+    if h then h:update(opts) end
 end
 
 --- Auto-expose all objects from _registry, respecting AccessControl.

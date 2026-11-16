@@ -94,6 +94,7 @@ function VirtualObject:updateState(newValue)
     if old == newValue then return end
     local mark = StateChange and StateChange.mark(self)
     self._state = newValue
+    self._rawChanges = (self._rawChanges or 0) + 1 -- also those the expose filter swallows
     if self._persistKey and storable(newValue) then persist(PERSIST_NS):set(self._persistKey, newValue) end
     if StateChange then
         local report

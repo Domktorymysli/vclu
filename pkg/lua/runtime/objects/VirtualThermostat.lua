@@ -178,6 +178,7 @@ end
 
 local function reading(self, v, at)
     self._readAt = at
+    self._rawSeen = self._source._rawChanges
     self._hasReading = true
     if self._fault == "stale" then
         log():info("[Thermostat] %s: the source reports again", tostring(self._name))
@@ -203,6 +204,16 @@ local function tick(self)
             reading(self, v, t)
             apply(self, wanted(self))
             return
+        end
+    end
+    -- a change the source's expose filter kept from onChange is a reading too
+    local raw = self._source._rawChanges
+    if raw ~= self._rawSeen then
+        self._rawSeen = raw
+        local v = read(self)
+        if v then
+            reading(self, v, t)
+            apply(self, wanted(self))
         end
     end
     -- one fault at a time: a maxOn stop must not end with the next reading
@@ -311,6 +322,7 @@ function VirtualThermostat:new(name, opts)
     obj._readAt = now() -- no reading for staleAfter from here is stale too
     -- a value from before (a default 0, one kept over a reload) is not a reading
     obj._before = read(obj)
+    obj._rawSeen = obj._source._rawChanges
     apply(obj, false, true)
     live[obj] = true
 

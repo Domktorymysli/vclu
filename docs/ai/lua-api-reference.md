@@ -916,10 +916,10 @@ All exposed objects: the live map, read it and never change it
 
 ### `ExposedObjects:defaults(path, opts)`
 
-Options exposeRegistry() gives the registry object at path, over its defaults: a module sets them before the object is exposed (filter = false: no default filter). Once exposed, they go to its handle.
+The filter, name or area exposeRegistry() gives the registry object at path: a module sets them before the object is exposed (filter = false: no default filter); after that they change it at once.
 
 - `path` (string) — Registry path, e.g. "CLU220000592.PAN9127"
-- `opts` (table) — Expose options (filter, name, area, readonly, ...)
+- `opts` (table) — { filter, name, area }
 
 ```lua
 ExposedObjects:defaults("CLU220000592.PAN9127", { filter = { delta = 20, heartbeat = 900 } })
