@@ -14,6 +14,8 @@ import (
 // Inna, which count their runs and note the feature they see (SEEN).
 const bindHarness = `
 QUEUE = {}
+-- the answer is lost on the way back to Lua (Go could not queue it)
+DROP = { on = false }
 BLOCKING = { n = 0 }
 NOW = { t = 1000000 }
 os.time = function() return NOW.t end
@@ -30,7 +32,7 @@ function deliver()
 	while #QUEUE > 0 do
 		local q = table.remove(QUEUE, 1)
 		local result, err = send(q.ip, q.script)
-		__vclu_command_reply(q.id, result or "", err)
+		if not DROP.on then __vclu_command_reply(q.id, result or "", err) end
 	end
 end
 -- a plugin-like source: reports a value, also the same one again, also nil
@@ -462,5 +464,105 @@ return table.concat(REC, "|")`)
 	want := `(function() setVar("cecha", 1) end)()|(function() setVar("cecha", 2) end)()`
 	if got != want {
 		t.Errorf("recorded:\n got %s\nwant %s", got, want)
+	}
+}
+
+// A Remote* object reports no change for its first value; a binding made before it is
+// written by the next check.
+func TestCLUBindRemoteFirstReport(t *testing.T) {
+	engine, clu := newBindEngine(t)
+	mustExec(t, engine, `
+lamp = RemoteSwitch:new(CLU221000290, "DOU0001", "lamp")
+CLU221000290:bind("ha_lamp", lamp)
+deliver()
+lamp:updateState(1) deliver()`)
+	if w := clu.writes(); len(w) != 0 {
+		t.Fatalf("writes before the first report counted = %q", w)
+	}
+	mustExec(t, engine, `CLU_REMOTE._checkBound() deliver()`)
+	if got := globalString(clu, "ha_lamp"); got != "1" {
+		t.Errorf("after the check the CLU has %s, want 1", got)
+	}
+	mustExec(t, engine, `lamp:updateState(0) deliver()`)
+	if got := globalString(clu, "ha_lamp"); got != "0" {
+		t.Errorf("after a change the CLU has %s, want 0", got)
+	}
+}
+
+// A script that fails on the CLU (a typo here) does not stop the write it follows, nor the
+// writes of other bindings, and is not sent again.
+func TestCLUBindFailingScript(t *testing.T) {
+	engine, clu := newBindEngine(t)
+	mustExec(t, engine, `
+a = VirtualNumber:new("a", { initial = 0 })
+b = VirtualNumber:new("b", { initial = 0 })
+CLU221000290:bind("cecha_a", a, { script = "Nope" })
+CLU221000290:bind("cecha_b", b, { script = "HaZmiana" })
+deliver()
+CLU_REMOTE._checkBound() deliver()
+a:setValue(1) deliver()
+b:setValue(2) deliver()`)
+	if got := globalString(clu, "cecha_a") + "," + globalString(clu, "cecha_b"); got != "1,2" {
+		t.Errorf("the CLU has %s, want 1,2", got)
+	}
+	if n := clu.runs("HaZmiana"); n != 1 {
+		t.Errorf("HaZmiana runs = %d, want 1", n)
+	}
+	clu.exec(t, `UPTIME = 1030`)
+	mustExec(t, engine, `NOW.t = NOW.t + 30 CLU_REMOTE._checkBound() deliver()`)
+	nope := 0
+	clu.mu.Lock()
+	for _, s := range clu.sent {
+		if strings.Contains(s, "Nope") {
+			nope++
+		}
+	}
+	clu.mu.Unlock()
+	if nope != 1 {
+		t.Errorf("Nope sent %d times, want 1", nope)
+	}
+	if got := mustExec(t, engine, `return table.concat(WARN, "|")`); !strings.Contains(got, "script Nope") {
+		t.Errorf("no warning naming the script: %s", got)
+	}
+}
+
+// A write whose answer never comes back is given up after BIND_LOST_SECONDS: the CLU is
+// asked again and the last value is written.
+func TestCLUBindLostAnswer(t *testing.T) {
+	engine, clu := newBindEngine(t)
+	mustExec(t, engine, `
+v = VirtualNumber:new("v", { initial = 1 })
+CLU221000290:bind("cecha", v)
+deliver()
+CLU_REMOTE._checkBound() deliver()
+DROP.on = true
+v:setValue(2) deliver()
+DROP.on = false
+v:setValue(3) deliver()`)
+	clu.exec(t, `cecha = 0 UPTIME = 1005`)
+	mustExec(t, engine, `NOW.t = NOW.t + 5 CLU_REMOTE._checkBound() deliver()`)
+	if got := globalString(clu, "cecha"); got != "0" {
+		t.Errorf("written before the answer was given up: %s", got)
+	}
+	clu.exec(t, `UPTIME = 1020`)
+	mustExec(t, engine, `NOW.t = NOW.t + 15 CLU_REMOTE._checkBound() deliver()`)
+	if got := globalString(clu, "cecha"); got != "3" {
+		t.Errorf("after the lost answer the CLU has %s, want 3", got)
+	}
+}
+
+// A value that cannot be sent is skipped; a write again after a restart keeps the last
+// value that could.
+func TestCLUBindKeepsLastGoodValue(t *testing.T) {
+	engine, clu := newBindEngine(t)
+	mustExec(t, engine, `
+CLU221000290:bind("ha_src", SRC)
+SRC:report(5) deliver()
+CLU_REMOTE._checkBound() deliver()
+SRC:report({}) deliver()`)
+	clu.exec(t, `ha_src = nil UPTIME = 3`)
+	mustExec(t, engine, `NOW.t = NOW.t + 30 CLU_REMOTE._checkBound() deliver()`)
+	if got := globalString(clu, "ha_src"); got != "5" {
+		t.Errorf("after the restart the CLU has %s, want 5", got)
 	}
 }

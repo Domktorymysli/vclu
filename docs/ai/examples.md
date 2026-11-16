@@ -459,6 +459,7 @@ local stop = CLU220000592:bind("pralka", pralka, { script = "PralkaZmiana" })
 
 - `bind` writes the value at once, then on each change (the same value again is not written, `nil` never), without waiting for the CLU; changes during a write go in the next one.
 - vclu asks the CLU for its uptime every 30 s; after a restart, a configuration sent from OM or when the CLU answers again, it writes every bound feature again, without the script.
+- The script runs as its own command after the write; one that fails on the CLU (a typo) is logged and not repeated. A Grenton object not reported yet when bound is written at the next uptime check.
 - The feature and the script must be Lua identifiers defined in OM; a binding lasts until the module is reloaded. In `vclu_draft_test` the writes show in `clu_calls`.
 
 ## Dashboard (Lua-defined)

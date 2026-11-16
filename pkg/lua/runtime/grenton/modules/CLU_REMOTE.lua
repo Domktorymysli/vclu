@@ -201,6 +201,8 @@ CLU_REMOTE.FEATURE_UPTIME = 0
 CLU_REMOTE.BIND_CHECK_SECONDS = 30
 -- A boot time later by more than this (s) is a restart, not clock jitter
 CLU_REMOTE.BIND_RESTART_SLACK = 10
+-- A command without an answer after this long (s, twice the 5 s timeout) is lost
+CLU_REMOTE.BIND_LOST_SECONDS = 15
 -- One write script stays under the CLU's packet (about 1440 characters)
 CLU_REMOTE.BIND_SCRIPT_MAX = 1400
 CLU_REMOTE._bound = {}
@@ -222,7 +224,36 @@ local function setVarCall(name, value)
     return 'setVar("' .. name .. '", ' .. lit .. ')'
 end
 
--- Sends the dirty bindings of a CLU in one script, one write at a time per CLU; what does
+-- Sends one command for the bindings; done(err) is dropped when the command was given up
+-- as lost meanwhile (_checkBound)
+function CLU_REMOTE:_sendBound(script, done)
+    local st = self._bindState
+    st.seq = (st.seq or 0) + 1
+    local seq = st.seq
+    st.inflight = true
+    st.inflightAt = os.time()
+    self:executeAsync(script, function(result, err)
+        if st.seq ~= seq or not st.inflight then return end
+        st.inflight = false
+        done(err)
+    end)
+end
+
+-- Runs the OM scripts one by one, each in its own command, so one that fails (a typo, an
+-- error on the CLU) stops neither the writes nor the other scripts. Not repeated on a failure
+function CLU_REMOTE:_runBoundScripts(scripts, i)
+    local name = scripts[i]
+    if not name then return self:_flushBound() end
+    self:_sendBound(name .. "()", function(err)
+        if err then
+            Logger:getShared():warn("CLU_REMOTE %s: script %s after a bound write failed: %s",
+                tostring(self.id), name, tostring(err))
+        end
+        self:_runBoundScripts(scripts, i + 1)
+    end)
+end
+
+-- Sends the dirty bindings of a CLU in one script, one command at a time per CLU; what does
 -- not fit goes after the answer. A failure waits for the CLU to come back (_checkBound)
 function CLU_REMOTE:_flushBound()
     local st = self._bindState
@@ -233,56 +264,64 @@ function CLU_REMOTE:_flushBound()
     end
     if #names == 0 then return end
     table.sort(names)
-    local parts, scripts, seen, sent = {}, {}, {}, {}
-    local size = #"(function()  end)()"
+    local parts, sent = {}, {}
+    local wrap = #"(function()  end)()"
+    local size = wrap
     for _, name in ipairs(names) do
         local b = CLU_REMOTE._bound[self][name]
         local part = setVarCall(name, b.value)
-        local call = b.runScript and b.script and not seen[b.script] and (b.script .. "()") or nil
-        local add = (part and #part + 1 or 0) + (call and #call + 1 or 0)
-        if not part or add + #"(function()  end)()" > CLU_REMOTE.BIND_SCRIPT_MAX then
+        if not part or #part + 1 + wrap > CLU_REMOTE.BIND_SCRIPT_MAX then
             Logger:getShared():warn("CLU_REMOTE %s: bind(%s): cannot send %s", tostring(self.id), name,
                 tostring(b.value):sub(1, 60))
+            -- a write again after a restart keeps the last value that could be sent
             b.dirty = false
             b.runScript = false
-            b.value = nil
-        elseif size + add <= CLU_REMOTE.BIND_SCRIPT_MAX then
-            size = size + add
+            b.value = b.good
+        elseif size + #part + 1 <= CLU_REMOTE.BIND_SCRIPT_MAX then
+            size = size + #part + 1
             parts[#parts + 1] = part
-            if call then
-                seen[b.script] = true
-                scripts[#scripts + 1] = call
-            end
             sent[#sent + 1] = b
+            b.good = b.value
             b.dirty = false
         end
     end
     if #sent == 0 then return end
-    local wasScript = {}
+    local scripts, seen, wasScript = {}, {}, {}
     for i, b in ipairs(sent) do
         wasScript[i] = b.runScript
+        if b.runScript and not seen[b.script] then
+            seen[b.script] = true
+            scripts[#scripts + 1] = b.script
+        end
         b.runScript = false
     end
-    for _, call in ipairs(scripts) do parts[#parts + 1] = call end
-    st.inflight = true
-    self:executeAsync("(function() " .. table.concat(parts, " ") .. " end)()", function(result, err)
-        st.inflight = false
+    st.sent = sent
+    st.wasScript = wasScript
+    self:_sendBound("(function() " .. table.concat(parts, " ") .. " end)()", function(err)
+        st.sent = nil
         if CLU_REMOTE._bound[self] == nil then return end
         if err then
-            for i, b in ipairs(sent) do
-                -- a value written meanwhile is already dirty; keep its script too
-                b.dirty = true
-                b.runScript = b.runScript or wasScript[i]
-            end
-            if not st.down then
-                st.down = true
-                Logger:getShared():warn("CLU_REMOTE %s: bound features not written: %s", tostring(self.id),
-                    tostring(err))
-            end
+            self:_boundFailed(sent, wasScript, err)
             return
         end
-        self:_flushBound()
+        -- a lost answer to an applied write sends it again, and its script runs twice
+        self:_runBoundScripts(scripts, 1)
     end)
+end
+
+-- A write not answered: written again with its script once the CLU answers (_checkBound)
+function CLU_REMOTE:_boundFailed(sent, wasScript, err)
+    local st = self._bindState
+    for i, b in ipairs(sent) do
+        -- a value written meanwhile is already dirty; keep its script too
+        b.dirty = true
+        b.runScript = b.runScript or wasScript[i]
+    end
+    if not st.down then
+        st.down = true
+        Logger:getShared():warn("CLU_REMOTE %s: bound features not written: %s", tostring(self.id),
+            tostring(err))
+    end
 end
 
 -- Marks every bound feature of the CLU to be written again, without its script
@@ -293,44 +332,86 @@ function CLU_REMOTE:_rewriteBound()
     self:_flushBound()
 end
 
+-- A Remote* object reports no change for its first value, so a binding made before it
+-- picks the value up here
+local function readMissing(clu)
+    local found = false
+    for _, b in pairs(CLU_REMOTE._bound[clu] or {}) do
+        if b.value == nil then
+            local v = currentValue(b.obj)
+            if v ~= nil then
+                b.value = v
+                b.dirty = true
+                found = true
+            end
+        end
+    end
+    return found
+end
+
+-- A command whose answer never came (the reply was dropped) frees the CLU again
+local function recoverLost(clu, st)
+    local now = os.time()
+    if st.inflight and now - (st.inflightAt or now) > CLU_REMOTE.BIND_LOST_SECONDS then
+        Logger:getShared():warn("CLU_REMOTE %s: no answer to a bound write, giving it up", tostring(clu.id))
+        st.inflight = false
+        if st.sent then clu:_boundFailed(st.sent, st.wasScript, "no answer") end
+        st.sent = nil
+        st.down = true
+    end
+    if st.checking and now - (st.checkingAt or now) > CLU_REMOTE.BIND_LOST_SECONDS then
+        st.checking = false
+        st.checkSeq = (st.checkSeq or 0) + 1
+    end
+end
+
 -- Asks each CLU with bindings for its uptime; a restart or an answer after none writes
 -- all its bound features again
 function CLU_REMOTE._checkBound()
-    -- without answers (the sandbox) an uptime cannot be read
-    if not __go_send_command_async then return end
     for clu in pairs(CLU_REMOTE._bound) do
         local st = clu._bindState
-        if st and not st.inflight and not st.checking then
-            st.checking = true
-            local name = tostring(clu.id)
-            if not name:match("^CLU") then name = "CLU" .. name end
-            clu:executeAsync(name .. ":get(" .. CLU_REMOTE.FEATURE_UPTIME .. ")", function(result, err)
-                st.checking = false
-                if CLU_REMOTE._bound[clu] == nil then return end
-                local uptime = not err and tonumber(result) or nil
-                if not uptime then
-                    if not st.down then
-                        st.down = true
-                        Logger:getShared():warn("CLU_REMOTE %s: no uptime for bound features: %s",
-                            tostring(clu.id), tostring(err or result))
-                    end
-                    return
-                end
-                local bootAt = os.time() - uptime
-                local restarted = st.bootAt and bootAt > st.bootAt + CLU_REMOTE.BIND_RESTART_SLACK
-                local back = st.down
-                st.bootAt = bootAt
-                st.down = false
-                if restarted or back then
-                    Logger:getShared():info("CLU_REMOTE %s: %s, writing bound features again", tostring(clu.id),
-                        restarted and "restarted" or "answers again")
-                    clu:_rewriteBound()
-                else
-                    clu:_flushBound()
-                end
-            end)
+        if readMissing(clu) then clu:_flushBound() end
+        -- without answers (the sandbox) an uptime cannot be read
+        if __go_send_command_async and st then
+            recoverLost(clu, st)
+            if not st.inflight and not st.checking then clu:_checkUptime(st) end
         end
     end
+end
+
+function CLU_REMOTE:_checkUptime(st)
+    st.checking = true
+    st.checkingAt = os.time()
+    st.checkSeq = (st.checkSeq or 0) + 1
+    local seq = st.checkSeq
+    local name = tostring(self.id)
+    if not name:match("^CLU") then name = "CLU" .. name end
+    self:executeAsync(name .. ":get(" .. CLU_REMOTE.FEATURE_UPTIME .. ")", function(result, err)
+        if st.checkSeq ~= seq then return end
+        st.checking = false
+        if CLU_REMOTE._bound[self] == nil then return end
+        local uptime = not err and tonumber(result) or nil
+        if not uptime then
+            if not st.down then
+                st.down = true
+                Logger:getShared():warn("CLU_REMOTE %s: no uptime for bound features: %s",
+                    tostring(self.id), tostring(err or result))
+            end
+            return
+        end
+        local bootAt = os.time() - uptime
+        local restarted = st.bootAt and bootAt > st.bootAt + CLU_REMOTE.BIND_RESTART_SLACK
+        local back = st.down
+        st.bootAt = bootAt
+        st.down = false
+        if restarted or back then
+            Logger:getShared():info("CLU_REMOTE %s: %s, writing bound features again", tostring(self.id),
+                restarted and "restarted" or "answers again")
+            self:_rewriteBound()
+        else
+            self:_flushBound()
+        end
+    end)
 end
 
 --- Keeps a user feature equal to an object's value. Writes it when the value changes
