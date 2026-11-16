@@ -118,12 +118,13 @@ func TestExposePulseCloud(t *testing.T) {
 	luaOK(t, engine, pulseClock+`
 		G = VirtualSwitch:new("brama")
 		registerObject("virt.brama", G)
-		expose(G, "switch", { pulse = 1000 }):remote()
+		expose(G, "switch", { pulse = 1000, device_class = "gate" }):remote()
 		L = VirtualSwitch:new("lampa")
 		registerObject("virt.lampa", L)
 		expose(L, "switch"):remote()`)
 	list := mustExec(t, engine, `JSON.encode(ExposedObjects:remoteList())`)
-	if !strings.Contains(list, `"pulse":true`) || strings.Count(list, `"pulse"`) != 1 {
+	if !strings.Contains(list, `"pulse":true`) || strings.Count(list, `"pulse"`) != 1 ||
+		!strings.Contains(list, `"class":"gate"`) || strings.Count(list, `"class"`) != 1 {
 		t.Errorf("remoteList = %s", list)
 	}
 	for _, action := range []string{"open", "close", "on"} {
