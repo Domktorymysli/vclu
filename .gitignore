@@ -51,3 +51,4 @@ coverage.out
 # Built tool binaries
 tools/generate-api-reference/generate-api-reference
 tools/generate-completions/generate-completions
+.img-out/

@@ -66,3 +66,9 @@ jobs:
             .github/imagescan.sh "ghcr.io/domktorymysli/vclu:$v-$arch" --format spdx-json -o "vclu-$v-image-$arch.spdx.json"
           done
           gh release upload "$GITHUB_REF_NAME" vclu-$v-image-*.spdx.json
+
+  rpi-image:
+    needs: release
+    uses: ./.github/workflows/rpi-image.yml
+    with:
+      tag: ${{ github.ref_name }}
