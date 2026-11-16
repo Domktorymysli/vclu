@@ -194,13 +194,14 @@ func TestDashboardCoversCountsFollowState(t *testing.T) {
 		return v
 	}
 
+	// ROL3 is closed already and does not move (#224)
 	coversAction(t, engine, "all", "close", "nil")
 	mustExec(t, engine, `T.advance(1000)`)
 	v := read()
-	if a := v["all"]; a["moving"] != 3.0 || a["open"] != 0.0 || a["closed"] != 0.0 || a["disabled"] != false {
+	if a := v["all"]; a["moving"] != 2.0 || a["open"] != 0.0 || a["closed"] != 1.0 || a["disabled"] != false {
 		t.Errorf("moving: %v", a)
 	}
-	if s := v["_section_0"]; s["moving"] != 3.0 || s["open"] != 1.0 || s["closed"] != 0.0 {
+	if s := v["_section_0"]; s["moving"] != 2.0 || s["open"] != 1.0 || s["closed"] != 1.0 {
 		t.Errorf("section while moving: %v", s)
 	}
 	if _, ok := v["_section_1"]; ok {
