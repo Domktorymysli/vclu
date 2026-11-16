@@ -36,6 +36,19 @@ local READONLY_REMAP = {
 -- Effective readonly for an exposed object: the expose() option OR the "Readonly"
 -- access level set per object in the dashboard. Honouring only the former let a
 -- UI-readonly object be published as a controllable component with a command_topic.
+-- HA's device classes of the components that have a fixed list (others take any, as sensors)
+local HA_CLASSES = {
+    switch = { outlet = true, switch = true },
+    cover = { awning = true, blind = true, curtain = true, damper = true, door = true, garage = true,
+        gate = true, shade = true, shutter = true, window = true },
+    light = {},
+}
+
+local function haClassFits(component, class)
+    local known = HA_CLASSES[component]
+    return known == nil or known[class] == true
+end
+
 local function isReadonly(path, options)
     if options and options.readonly then
         return true
@@ -718,7 +731,10 @@ local function onObjectExposed(data)
     --   expose(o, "number", { readonly = true, unit = "kWh",
     --     device_class = "energy", state_class = "total_increasing" })
     -- The HA Energy dashboard needs both, and no built-in expose type sets them.
-    if options.device_class then
+    -- device_class also tells the cloud (Google Home) what a device is, e.g. a pulse switch
+    -- that opens a gate: HA refuses an entity whose class its component does not know, so a
+    -- switch, a cover or a light gets only HA's own
+    if options.device_class and haClassFits(component, options.device_class) then
         discoveryPayload.device_class = options.device_class
     end
     if options.state_class then
