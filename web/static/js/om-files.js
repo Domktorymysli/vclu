@@ -101,7 +101,8 @@ OmFilesManager.prototype.upload = function() {
                               (self.translations.fileSaved || 'File saved') + ': ' +
                               VCLU.esc(data.cluName) + ' (' + data.objectCount + ' ' +
                               (self.translations.objects || 'objects') + ', ' + data.moduleCount + ' ' +
-                              (self.translations.modules || 'modules') + ')</div>';
+                              (self.translations.modules || 'modules') + ')</div>' +
+                              self._reloadNote(data);
             fileInput.value = '';
             self.loadFiles();
         }
@@ -161,7 +162,34 @@ OmFilesManager.prototype._renderZipResult = function(data) {
     }
 
     html += '</div>';
-    return html;
+    return html + this._reloadNote(data);
+};
+
+/**
+ * Whether the Lua runtime took the change: an import, delete or regenerate reloads it
+ * @param {Object} data - Response data (reloaded, reloadError, moduleErrors)
+ * @returns {string} HTML string, empty when there was no reload
+ */
+OmFilesManager.prototype._reloadNote = function(data) {
+    if (data.reloadError) {
+        return '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> ' +
+               (this.translations.reloadFailed || 'Lua reload failed') + ': ' + VCLU.esc(data.reloadError) + '</div>';
+    }
+    if (data.proxyErrors && data.proxyErrors.length > 0) {
+        return '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> ' +
+               (this.translations.proxyFailed || 'Lua reloaded, but the CLU objects failed to load') + ':<ul class="mb-0">' +
+               data.proxyErrors.map(function(e) { return '<li>' + VCLU.esc(e) + '</li>'; }).join('') + '</ul></div>';
+    }
+    if (data.moduleErrors && data.moduleErrors.length > 0) {
+        return '<div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i> ' +
+               (this.translations.modulesFailed || 'Lua reloaded, but modules failed to load') + ':<ul class="mb-0">' +
+               data.moduleErrors.map(function(e) { return '<li>' + VCLU.esc(e) + '</li>'; }).join('') + '</ul></div>';
+    }
+    if (data.reloaded) {
+        return '<div class="text-muted small"><i class="bi bi-arrow-repeat"></i> ' +
+               (this.translations.reloaded || 'Lua reloaded with the new objects') + '</div>';
+    }
+    return '';
 };
 
 /**
@@ -266,6 +294,10 @@ OmFilesManager.prototype.deleteFile = function(serial) {
             if (data.error) {
                 VCLU.showToast('Error: ' + data.error, 'danger');
             } else {
+                var problems = [].concat(data.reloadError ? [data.reloadError] : [], data.proxyErrors || [], data.moduleErrors || []);
+                if (problems.length > 0) {
+                    VCLU.showToast(problems.join('; '), 'warning');
+                }
                 self.loadFiles();
             }
         })

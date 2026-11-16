@@ -1,0 +1,3 @@
+### Grenton
+
+- **Importing om.lua applies it at once** - an upload of om.lua or a diagnostic pack, deleting an OM file and `POST /api/om/regenerate` reload the Lua runtime (once per pack), so subscriptions, `expose()`, dashboards and integrations use the imported objects without a manual reload; slats, positions and new objects show up straight away. The answer says `reloaded`, or `reloadError`, `proxyErrors` / `moduleErrors`, and the OM files page shows it; reloads from the panel, MCP, OM imports and a CLU reset run one at a time. Contract change: these calls now reload the runtime, so state kept only in Lua variables is lost, as with any reload ([#226](https://github.com/Domktorymysli/vclu/issues/226)).
