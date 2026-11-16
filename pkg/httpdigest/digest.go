@@ -23,14 +23,17 @@ type Challenge struct {
 	Qop       []string
 }
 
-// Find returns the Digest challenge among the WWW-Authenticate headers; a device often sends
-// Basic next to it.
+// Find returns the first Digest challenge this package can answer among the WWW-Authenticate
+// headers; a device often sends Basic next to it, or several algorithms.
 func Find(h http.Header) (*Challenge, bool) {
+	var first *Challenge
 	for _, v := range h.Values("WWW-Authenticate") {
-		scheme, rest, _ := strings.Cut(strings.TrimSpace(v), " ")
-		if !strings.EqualFold(scheme, "Digest") {
+		v = strings.TrimSpace(v)
+		end := strings.IndexAny(v, " \t")
+		if end < 0 || !strings.EqualFold(v[:end], "Digest") {
 			continue
 		}
+		rest := v[end+1:]
 		p := parseParams(rest)
 		c := &Challenge{Realm: p["realm"], Nonce: p["nonce"], Opaque: p["opaque"], Algorithm: p["algorithm"]}
 		for _, q := range strings.Split(p["qop"], ",") {
@@ -38,9 +41,42 @@ func Find(h http.Header) (*Challenge, bool) {
 				c.Qop = append(c.Qop, q)
 			}
 		}
-		return c, true
+		if _, err := c.hash(); err == nil && (len(c.Qop) == 0 || c.qop() != "") {
+			return c, true
+		}
+		if first == nil {
+			first = c
+		}
 	}
-	return nil, false
+	// none answerable: Authorization says why
+	return first, first != nil
+}
+
+func (c *Challenge) algorithm() string {
+	if c.Algorithm == "" {
+		return "MD5"
+	}
+	return strings.ToUpper(c.Algorithm)
+}
+
+func (c *Challenge) hash() (func() hash.Hash, error) {
+	switch strings.TrimSuffix(c.algorithm(), "-SESS") {
+	case "MD5":
+		return md5.New, nil
+	case "SHA-256":
+		return sha256.New, nil
+	}
+	return nil, fmt.Errorf("digest algorithm %s not supported", c.Algorithm)
+}
+
+// qop is "auth" when the server offers it, else "".
+func (c *Challenge) qop() string {
+	for _, q := range c.Qop {
+		if strings.EqualFold(q, "auth") {
+			return "auth"
+		}
+	}
+	return ""
 }
 
 // parseParams reads key=value pairs, where a quoted value may hold commas (qop="auth,auth-int").
@@ -79,18 +115,9 @@ func parseParams(s string) map[string]string {
 
 // Authorization is the header value answering c for a request of method to uri (path and query).
 func (c *Challenge) Authorization(method, uri, user, password string) (string, error) {
-	alg := c.Algorithm
-	if alg == "" {
-		alg = "MD5"
-	}
-	var newHash func() hash.Hash
-	switch strings.TrimSuffix(strings.ToUpper(alg), "-SESS") {
-	case "MD5":
-		newHash = md5.New
-	case "SHA-256":
-		newHash = sha256.New
-	default:
-		return "", fmt.Errorf("digest algorithm %s not supported", alg)
+	newHash, err := c.hash()
+	if err != nil {
+		return "", err
 	}
 	h := func(s string) string {
 		d := newHash()
@@ -98,12 +125,7 @@ func (c *Challenge) Authorization(method, uri, user, password string) (string, e
 		return hex.EncodeToString(d.Sum(nil))
 	}
 
-	qop := ""
-	for _, q := range c.Qop {
-		if q == "auth" {
-			qop = q
-		}
-	}
+	qop := c.qop()
 	if qop == "" && len(c.Qop) > 0 {
 		return "", fmt.Errorf("digest qop %s not supported", strings.Join(c.Qop, ","))
 	}
@@ -115,7 +137,7 @@ func (c *Challenge) Authorization(method, uri, user, password string) (string, e
 	nc := "00000001"
 
 	ha1 := h(user + ":" + c.Realm + ":" + password)
-	if strings.HasSuffix(strings.ToUpper(alg), "-SESS") {
+	if strings.HasSuffix(c.algorithm(), "-SESS") {
 		ha1 = h(ha1 + ":" + c.Nonce + ":" + cnonce)
 	}
 	ha2 := h(method + ":" + uri)

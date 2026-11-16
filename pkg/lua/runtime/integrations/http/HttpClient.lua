@@ -134,6 +134,9 @@ end
 -- @param password string Password
 -- @return self
 function HTTP:setDigestAuth(username, password)
+    if type(username) ~= "string" or username == "" then
+        error("setDigestAuth: username must be a non-empty string", 2)
+    end
     self._props.authorization = nil
     self._props.digest = { user = tostring(username), password = tostring(password or "") }
     return self

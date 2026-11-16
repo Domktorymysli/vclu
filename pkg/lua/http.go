@@ -111,6 +111,12 @@ func (hm *HTTPManager) RequestContext(ctx context.Context, instanceID, method, u
 
 func (hm *HTTPManager) request(ctx context.Context, instanceID, method, url string, headers map[string]string, body string, timeout int, verifySSL, followRedirects bool, digest *digestAuth) (int, string, map[string]string, error) {
 	client := hm.getOrCreateClient(instanceID, timeout, verifySSL, followRedirects)
+	if digest != nil {
+		// both requests of the exchange within one timeout, as Lua waits for one
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(timeout)*time.Millisecond)
+		defer cancel()
+	}
 
 	var bodyReader io.Reader
 	if body != "" {

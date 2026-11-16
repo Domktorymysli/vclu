@@ -1,6 +1,7 @@
 package lua
 
 import (
+	"context"
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
@@ -82,5 +83,29 @@ func TestHTTPDigestAuthAsync(t *testing.T) {
 	}
 	if got["client"] != "200 POST x" || got["plugin"] != "200 PUT y" {
 		t.Errorf("client %q, plugin %q", got["client"], got["plugin"])
+	}
+}
+
+// Both requests of the exchange fit in one timeout, the one Lua waits for.
+func TestHTTPDigestOneTimeout(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(150 * time.Millisecond)
+		w.Header().Set("WWW-Authenticate", `Digest realm="door", nonce="n0nce", qop="auth"`)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+	hm := NewHTTPManager()
+	start := time.Now()
+	_, _, _, err := hm.request(context.Background(), "slow", "GET", srv.URL, nil, "", 200, true, true, &digestAuth{user: "admin", password: "x"})
+	if err == nil || time.Since(start) > 280*time.Millisecond {
+		t.Errorf("after %v: %v", time.Since(start), err)
+	}
+}
+
+func TestHTTPDigestAuthNeedsUser(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+	if _, err := engine.Execute(`HTTP:new("x"):setDigestAuth(nil, "p")`); err == nil {
+		t.Error("setDigestAuth(nil) accepted")
 	}
 }

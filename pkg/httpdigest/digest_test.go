@@ -193,3 +193,17 @@ func TestDoWithoutChallenge(t *testing.T) {
 		}
 	}
 }
+
+// Of several Digest challenges the first one this package can answer is used.
+func TestFindSkipsUnsupported(t *testing.T) {
+	h := http.Header{}
+	h.Add("WWW-Authenticate", `Digest realm="r", nonce="1", algorithm=SHA-512-256, qop="auth"`)
+	h.Add("WWW-Authenticate", "Digest\trealm=\"r\", nonce=\"2\", algorithm=MD5, qop=\"AUTH\"")
+	c, ok := Find(h)
+	if !ok || c.Nonce != "2" {
+		t.Fatalf("%+v", c)
+	}
+	if got, err := c.Authorization("GET", "/", "u", "p"); err != nil || !strings.Contains(got, "qop=auth") {
+		t.Errorf("%s %v", got, err)
+	}
+}

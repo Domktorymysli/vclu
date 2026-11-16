@@ -617,7 +617,7 @@ function PluginHelpers.httpRequest(pluginId, opts, callback)
 
     -- Digest auth: { user = ..., password = ... }, answered in Go on a 401 challenge
     local digest = opts.digest
-    if digest ~= nil and (type(digest) ~= "table" or type(digest.user) ~= "string") then
+    if digest ~= nil and (type(digest) ~= "table" or type(digest.user) ~= "string" or digest.user == "") then
         error("httpRequest: 'digest' must be { user = ..., password = ... }")
     end
 
