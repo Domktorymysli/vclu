@@ -1,6 +1,7 @@
 package lua
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -222,5 +223,99 @@ func TestSensorDefaultFilter_ThermostatSourceNotStale(t *testing.T) {
 	got := mustExec(t, te.LuaEngine, `return tostring(TH:getFault()) .. "/" .. tostring(TH:getValue()) .. "|" .. logs()`)
 	if got != "nil/21|" {
 		t.Errorf("fault/temperature|logs = %q, want nil/21 and no warning", got)
+	}
+}
+
+// defaults() that the exposed handle refuses records nothing.
+func TestSensorDefaultFilter_DefaultsRefusedByHandle(t *testing.T) {
+	engine, _, _ := newSensorFilterEngine(t)
+	luaOK(t, engine, `
+		expose(sensor("PAN1", "PANELSENSTEMP"), "number", { path = "CLU1.PAN1" })
+		local ok, err = pcall(function() ExposedObjects:defaults("CLU1.PAN1", { filter = { delta = 1 } }) end)
+		assert(not ok and tostring(err):find("read-only", 1, true), "accepted: " .. tostring(err))
+		assert(ExposedObjects._defaults["CLU1.PAN1"] == nil, "refused options were recorded")
+	`)
+}
+
+// A thermostat behind a filtered imported sensor: setpoint 21, hysteresis 0.1, readings
+// counted by wrapping its updateState.
+func newFilteredThermostat(t *testing.T, opts string) *vtEngine {
+	t.Helper()
+	te := newVTEngine(t)
+	mustExec(t, te.LuaEngine, `
+		SRC = RemoteValueSensor:new({ address = "192.168.0.5", executeNoReply = function() end }, "PAN1", "Salon", "PANELSENSTEMP")
+		registerObject("CLU1.PAN1", SRC)
+		exposeRegistry()
+		_:sync("CLU1.PAN1", 30)
+		TH = VirtualThermostat:new("salon", { source = SRC, output = HEATER, setpoint = 21, hysteresis = 0.1, `+opts+` })
+		R = { n = 0 }
+		local orig = TH.updateState
+		TH.updateState = function(self, v) R.n = R.n + 1; return orig(self, v) end
+		function state() return tostring(TH:getFault()) .. "/" .. HEATER:getValue() .. "/" .. R.n end
+		_:sync("CLU1.PAN1", 22)
+		logs()`)
+	return te
+}
+
+func TestSensorDefaultFilter_ThermostatOneReadingPerChange(t *testing.T) {
+	te := newFilteredThermostat(t, "staleAfter = 900")
+	te.advance(t, 30*time.Second)
+	if got := mustExec(t, te.LuaEngine, `return state()`); got != "nil/0/1" {
+		t.Errorf("a reported change and ticks: fault/output/readings = %s, want nil/0/1", got)
+	}
+}
+
+func TestSensorDefaultFilter_ThermostatSwallowedChangeEndsStale(t *testing.T) {
+	te := newFilteredThermostat(t, "staleAfter = 60")
+	te.advance(t, 60*time.Second)
+	if got := mustExec(t, te.LuaEngine, `return tostring(TH:getFault())`); got != "stale" {
+		t.Fatalf("fault = %s, want stale", got)
+	}
+	mustExec(t, te.LuaEngine, `logs(); _:sync("CLU1.PAN1", 22.1)`)
+	te.advance(t, 10*time.Second)
+	got := mustExec(t, te.LuaEngine, `return tostring(TH:getFault()) .. "|" .. logs()`)
+	if !strings.HasPrefix(got, "nil|info ") || !strings.Contains(got, "the source reports again") {
+		t.Errorf("after a swallowed change: %q, want no fault and the source reports again", got)
+	}
+}
+
+func TestSensorDefaultFilter_ThermostatSwallowedChangeCrossesThreshold(t *testing.T) {
+	te := newFilteredThermostat(t, "staleAfter = 900")
+	mustExec(t, te.LuaEngine, `_:sync("CLU1.PAN1", 21.0)`)
+	// 0.15 below the reported 21.0: under delta, but at target - hysteresis
+	mustExec(t, te.LuaEngine, `_:sync("CLU1.PAN1", 20.85)`)
+	if got := mustExec(t, te.LuaEngine, `return state()`); got != "nil/0/2" {
+		t.Fatalf("before the tick: %s, want nil/0/2", got)
+	}
+	te.advance(t, 10*time.Second)
+	if got := mustExec(t, te.LuaEngine, `return state()`); got != "nil/1/3" {
+		t.Errorf("after the tick: fault/output/readings = %s, want nil/1/3", got)
+	}
+}
+
+func TestSensorDefaultFilter_ThermostatSwallowedChangeKeepsMaxOn(t *testing.T) {
+	te := newFilteredThermostat(t, "staleAfter = 7200, maxOn = 3600")
+	mustExec(t, te.LuaEngine, `_:sync("CLU1.PAN1", 20.0)`)
+	te.advance(t, 3600*time.Second)
+	if got := mustExec(t, te.LuaEngine, `return tostring(TH:getFault()) .. "/" .. HEATER:getValue()`); got != "maxOn/0" {
+		t.Fatalf("after maxOn: %s, want maxOn/0", got)
+	}
+	mustExec(t, te.LuaEngine, `_:sync("CLU1.PAN1", 20.1)`)
+	te.advance(t, 10*time.Second)
+	if got := mustExec(t, te.LuaEngine, `return tostring(TH:getFault()) .. "/" .. HEATER:getValue()`); got != "maxOn/0" {
+		t.Errorf("after a swallowed change: %s, want maxOn/0", got)
+	}
+}
+
+func TestSensorDefaultFilter_ThermostatNaNNoReading(t *testing.T) {
+	te := newFilteredThermostat(t, "staleAfter = 60")
+	mustExec(t, te.LuaEngine, `_:sync("CLU1.PAN1", "nan")`)
+	te.advance(t, 10*time.Second)
+	if got := mustExec(t, te.LuaEngine, `return state()`); got != "nil/0/1" {
+		t.Errorf("after nan: %s, want nil/0/1", got)
+	}
+	te.advance(t, 60*time.Second)
+	if got := mustExec(t, te.LuaEngine, `return tostring(TH:getFault())`); got != "stale" {
+		t.Errorf("nan counted as a reading: fault = %s, want stale", got)
 	}
 }

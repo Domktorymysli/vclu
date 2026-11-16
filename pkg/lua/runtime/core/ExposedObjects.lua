@@ -1384,12 +1384,13 @@ function ExposedObjects:defaults(path, opts)
         error("ExposedObjects:defaults() - exposeRegistry() does not expose '" .. path .. "'; use expose()", 2)
     end
     checkOptions(objType, opts)
+    -- the handle first: one exposed by hand under another type can refuse the filter
+    local h = self:_handleOf(obj)
+    if h then h:update(opts) end
     -- kept also after start: accessChanged() may expose it again
     local merged = self._defaults[path] or {}
     for k, v in pairs(opts) do merged[k] = v end
     self._defaults[path] = merged
-    local h = self:_handleOf(obj)
-    if h then h:update(opts) end
 end
 
 --- Auto-expose all objects from _registry, respecting AccessControl.
