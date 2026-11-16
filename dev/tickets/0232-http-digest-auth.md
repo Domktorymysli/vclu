@@ -1,4 +1,4 @@
-# #NNNN: HTTP Digest authentication in the Lua HTTP client
+# #232: HTTP Digest authentication in the Lua HTTP client
 
 - **Type:** feature
 - **Area:** lua-runtime, plugins
@@ -45,7 +45,7 @@ parameter, not as a header the user could read back.
 - [ ] Camera snapshots with `auth = "digest"` work as before (tests on the shared helper).
 - [ ] Tests against an `httptest` server that checks the Digest answer (RFC 7616).
 - [ ] `go test ./...` and `go test -race ./...` pass.
-- [ ] A changelog entry in `changelog.d/NNNN-http-digest-auth.md`.
+- [ ] A changelog entry in `changelog.d/0232-http-digest-auth.md`.
 
 ## Contract impact
 Lua API: a new method `HTTP:setDigestAuth`; nothing existing changes. No decision record needed.
