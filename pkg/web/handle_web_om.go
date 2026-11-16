@@ -247,7 +247,7 @@ func projectFromPack(pack *zip.Reader) (*omproject.Project, []string) {
 	var at time.Time
 	for _, f := range pack.File {
 		lower := strings.ToLower(f.Name)
-		if strings.Contains(f.Name, "/") || !(strings.HasSuffix(lower, ".zip") || strings.HasSuffix(lower, ".omp")) {
+		if strings.Contains(f.Name, "/") || !strings.HasSuffix(lower, ".zip") && !strings.HasSuffix(lower, ".omp") {
 			continue
 		}
 		data, err := readZipFile(f)
