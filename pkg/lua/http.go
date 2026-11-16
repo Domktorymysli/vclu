@@ -13,6 +13,8 @@ import (
 	"time"
 
 	lua "github.com/yuin/gopher-lua"
+
+	"github.com/Domktorymysli/vclu/pkg/httpdigest"
 )
 
 // HTTPManager manages HTTP client instances for Lua
@@ -36,6 +38,11 @@ type asyncHTTPResponse struct {
 	Headers map[string]string
 	Error   string
 	doneAt  time.Time
+}
+
+// digestAuth is a user and password for servers that ask for HTTP Digest; nil sends none.
+type digestAuth struct {
+	user, password string
 }
 
 // NewHTTPManager creates a new HTTP manager
@@ -99,6 +106,10 @@ func (hm *HTTPManager) Request(instanceID, method, url string, headers map[strin
 
 // RequestContext is Request that also ends when ctx does (a callback's time limit).
 func (hm *HTTPManager) RequestContext(ctx context.Context, instanceID, method, url string, headers map[string]string, body string, timeout int, verifySSL, followRedirects bool) (int, string, map[string]string, error) {
+	return hm.request(ctx, instanceID, method, url, headers, body, timeout, verifySSL, followRedirects, nil)
+}
+
+func (hm *HTTPManager) request(ctx context.Context, instanceID, method, url string, headers map[string]string, body string, timeout int, verifySSL, followRedirects bool, digest *digestAuth) (int, string, map[string]string, error) {
 	client := hm.getOrCreateClient(instanceID, timeout, verifySSL, followRedirects)
 
 	var bodyReader io.Reader
@@ -118,7 +129,12 @@ func (hm *HTTPManager) RequestContext(ctx context.Context, instanceID, method, u
 	}
 
 	// Perform request
-	resp, err := client.Do(req)
+	var resp *http.Response
+	if digest != nil {
+		resp, err = httpdigest.Do(client, req, digest.user, digest.password)
+	} else {
+		resp, err = client.Do(req)
+	}
 	if err != nil {
 		hm.recordRequest(true)
 		return 0, "", nil, fmt.Errorf("request failed: %w", err)
@@ -157,6 +173,10 @@ func (hm *HTTPManager) recordRequest(hasError bool) {
 // AsyncRequest performs an asynchronous HTTP request. Its response is collected by requestID
 // with GetAsyncResponse, so concurrent requests never see each other's results.
 func (hm *HTTPManager) AsyncRequest(instanceID, requestID, method, url string, headers map[string]string, body string, timeout int, verifySSL, followRedirects bool) {
+	hm.asyncRequest(instanceID, requestID, method, url, headers, body, timeout, verifySSL, followRedirects, nil)
+}
+
+func (hm *HTTPManager) asyncRequest(instanceID, requestID, method, url string, headers map[string]string, body string, timeout int, verifySSL, followRedirects bool, digest *digestAuth) {
 	hm.asyncMu.Lock()
 	if _, done := hm.asyncResponses[requestID]; hm.asyncInFlight[requestID] || done {
 		log.Printf("[HTTP] Warning: async request id %s reused before its response was collected", requestID)
@@ -165,7 +185,7 @@ func (hm *HTTPManager) AsyncRequest(instanceID, requestID, method, url string, h
 	hm.asyncMu.Unlock()
 
 	go func() {
-		status, respBody, respHeaders, err := hm.Request(instanceID, method, url, headers, body, timeout, verifySSL, followRedirects)
+		status, respBody, respHeaders, err := hm.request(context.Background(), instanceID, method, url, headers, body, timeout, verifySSL, followRedirects, digest)
 
 		resp := &asyncHTTPResponse{Status: status, Body: respBody, Headers: respHeaders, doneAt: time.Now()}
 		if err != nil {
@@ -198,7 +218,7 @@ func (hm *HTTPManager) GetAsyncResponse(requestID string) *asyncHTTPResponse {
 
 // registerHTTPFunctions registers Go HTTP functions in Lua
 func registerHTTPFunctions(L *lua.LState, hm *HTTPManager) {
-	// __go_http_request(instanceId, method, url, headersJson, body, timeout, verifySSL, followRedirects)
+	// __go_http_request(instanceId, method, url, headersJson, body, timeout, verifySSL, followRedirects, digestUser, digestPassword)
 	// Returns: status, body, headersJson, error
 	L.SetGlobal("__go_http_request", L.NewFunction(func(L *lua.LState) int {
 		instanceID := L.CheckString(1)
@@ -220,7 +240,7 @@ func registerHTTPFunctions(L *lua.LState, hm *HTTPManager) {
 		if ctx == nil {
 			ctx = context.Background()
 		}
-		status, respBody, respHeaders, err := hm.RequestContext(ctx, instanceID, method, url, headers, body, timeout, verifySSL, followRedirects)
+		status, respBody, respHeaders, err := hm.request(ctx, instanceID, method, url, headers, body, timeout, verifySSL, followRedirects, optDigest(L, 9))
 
 		L.Push(lua.LNumber(status))
 		L.Push(lua.LString(respBody))
@@ -238,7 +258,7 @@ func registerHTTPFunctions(L *lua.LState, hm *HTTPManager) {
 		return 4
 	}))
 
-	// __go_http_async_request(instanceId, requestId, method, url, headersJson, body, timeout, verifySSL, followRedirects)
+	// __go_http_async_request(instanceId, requestId, method, url, headersJson, body, timeout, verifySSL, followRedirects, digestUser, digestPassword)
 	// Returns immediately, result retrieved later via __go_http_get_async_response
 	L.SetGlobal("__go_http_async_request", L.NewFunction(func(L *lua.LState) int {
 		instanceID := L.CheckString(1)
@@ -257,7 +277,7 @@ func registerHTTPFunctions(L *lua.LState, hm *HTTPManager) {
 			headers = make(map[string]string)
 		}
 
-		hm.AsyncRequest(instanceID, requestID, method, url, headers, body, timeout, verifySSL, followRedirects)
+		hm.asyncRequest(instanceID, requestID, method, url, headers, body, timeout, verifySSL, followRedirects, optDigest(L, 10))
 
 		return 0
 	}))
@@ -287,4 +307,13 @@ func registerHTTPFunctions(L *lua.LState, hm *HTTPManager) {
 
 		return 4
 	}))
+}
+
+// optDigest reads the Digest user and password at argument n; none without a user.
+func optDigest(L *lua.LState, n int) *digestAuth {
+	user := L.OptString(n, "")
+	if user == "" {
+		return nil
+	}
+	return &digestAuth{user: user, password: L.OptString(n+1, "")}
 }
