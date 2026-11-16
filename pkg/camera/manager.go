@@ -5,17 +5,15 @@
 package camera
 
 import (
-	"crypto/md5"
-	"crypto/rand"
 	"crypto/tls"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
+
+	"github.com/Domktorymysli/vclu/pkg/httpdigest"
 )
 
 // Camera holds the config for a single camera.
@@ -187,127 +185,25 @@ func (m *Manager) fetchBasic(cam *Camera) ([]byte, string, error) {
 }
 
 func (m *Manager) fetchDigest(cam *Camera) ([]byte, string, error) {
-	// Step 1: Initial request to get WWW-Authenticate challenge
 	req, err := http.NewRequest("GET", cam.URL, nil)
 	if err != nil {
 		return nil, "", err
 	}
 
-	resp, err := m.client.Do(req)
-	if err != nil {
-		return nil, "", fmt.Errorf("digest challenge failed: %w", err)
-	}
-	resp.Body.Close()
-
-	if resp.StatusCode != http.StatusUnauthorized {
-		// No auth required — re-fetch normally
-		return m.fetchSimple(cam.URL)
-	}
-
-	wwwAuth := resp.Header.Get("WWW-Authenticate")
-	if wwwAuth == "" {
-		return nil, "", fmt.Errorf("401 but no WWW-Authenticate header")
-	}
-
-	// Step 2: Parse challenge and build digest response
-	params := parseDigestChallenge(wwwAuth)
-	realm := params["realm"]
-	nonce := params["nonce"]
-	qop := params["qop"]
-	opaque := params["opaque"]
-
-	// Generate cnonce
-	cnonceBytes := make([]byte, 8)
-	rand.Read(cnonceBytes)
-	cnonce := hex.EncodeToString(cnonceBytes)
-	nc := "00000001"
-
-	// Extract URI from URL
-	uri := extractURI(cam.URL)
-
-	// Compute digest
-	ha1 := md5hex(cam.Username + ":" + realm + ":" + cam.Password)
-	ha2 := md5hex("GET:" + uri)
-
-	var response string
-	if qop == "auth" || strings.Contains(qop, "auth") {
-		response = md5hex(ha1 + ":" + nonce + ":" + nc + ":" + cnonce + ":auth:" + ha2)
-	} else {
-		response = md5hex(ha1 + ":" + nonce + ":" + ha2)
-	}
-
-	// Step 3: Authenticated request
-	req2, err := http.NewRequest("GET", cam.URL, nil)
-	if err != nil {
-		return nil, "", err
-	}
-
-	authHeader := fmt.Sprintf(`Digest username="%s", realm="%s", nonce="%s", uri="%s", response="%s"`,
-		cam.Username, realm, nonce, uri, response)
-	if qop != "" {
-		authHeader += fmt.Sprintf(`, qop=auth, nc=%s, cnonce="%s"`, nc, cnonce)
-	}
-	if opaque != "" {
-		authHeader += fmt.Sprintf(`, opaque="%s"`, opaque)
-	}
-	req2.Header.Set("Authorization", authHeader)
-
-	resp2, err := m.client.Do(req2)
+	resp, err := httpdigest.Do(m.client, req, cam.Username, cam.Password)
 	if err != nil {
 		return nil, "", fmt.Errorf("digest auth request failed: %w", err)
 	}
-	defer resp2.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
-	if resp2.StatusCode != http.StatusOK {
-		return nil, "", fmt.Errorf("digest auth HTTP %d", resp2.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", fmt.Errorf("digest auth HTTP %d", resp.StatusCode)
 	}
 
-	data, err := io.ReadAll(resp2.Body)
+	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, "", fmt.Errorf("read body: %w", err)
 	}
 
-	return data, resp2.Header.Get("Content-Type"), nil
-}
-
-// parseDigestChallenge parses WWW-Authenticate: Digest realm="...", nonce="...", ...
-func parseDigestChallenge(header string) map[string]string {
-	params := make(map[string]string)
-	header = strings.TrimPrefix(header, "Digest ")
-	header = strings.TrimPrefix(header, "digest ")
-
-	// Simple parser: split by comma, then by =
-	for _, part := range strings.Split(header, ",") {
-		part = strings.TrimSpace(part)
-		eq := strings.IndexByte(part, '=')
-		if eq < 0 {
-			continue
-		}
-		key := strings.TrimSpace(part[:eq])
-		val := strings.TrimSpace(part[eq+1:])
-		val = strings.Trim(val, `"`)
-		params[key] = val
-	}
-
-	return params
-}
-
-// extractURI extracts the path+query from a URL string.
-func extractURI(rawURL string) string {
-	// Find :// then next /
-	idx := strings.Index(rawURL, "://")
-	if idx < 0 {
-		return rawURL
-	}
-	rest := rawURL[idx+3:]
-	slash := strings.IndexByte(rest, '/')
-	if slash < 0 {
-		return "/"
-	}
-	return rest[slash:]
-}
-
-func md5hex(s string) string {
-	h := md5.Sum([]byte(s))
-	return hex.EncodeToString(h[:])
+	return data, resp.Header.Get("Content-Type"), nil
 }

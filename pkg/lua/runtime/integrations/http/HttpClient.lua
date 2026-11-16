@@ -106,6 +106,7 @@ end
 -- @return self
 function HTTP:setAuthorization(auth)
     self._props.authorization = auth
+    self._props.digest = nil
     return self
 end
 
@@ -125,6 +126,20 @@ function HTTP:setBasicAuth(username, password)
     local credentials = username .. ":" .. password
     local encoded = self:_base64Encode(credentials)
     return self:setAuthorization("Basic " .. encoded)
+end
+
+--- Set Digest auth: a server that answers 401 with a Digest challenge gets the request again
+-- with the answer (any method, same body). The password is not put in the headers.
+-- @param username string Username
+-- @param password string Password
+-- @return self
+function HTTP:setDigestAuth(username, password)
+    if type(username) ~= "string" or username == "" then
+        error("setDigestAuth: username must be a non-empty string", 2)
+    end
+    self._props.authorization = nil
+    self._props.digest = { user = tostring(username), password = tostring(password or "") }
+    return self
 end
 
 --- Enable/disable SSL verification
@@ -202,7 +217,9 @@ function HTTP:request(method, url, body, headers)
             requestBody,
             self._props.timeout,
             self._props.verifySSL,
-            self._props.followRedirects
+            self._props.followRedirects,
+            self._props.digest and self._props.digest.user,
+            self._props.digest and self._props.digest.password
         )
 
         return {
@@ -338,7 +355,9 @@ function HTTP:asyncRequest(method, url, body, headers, callback)
             requestBody,
             self._props.timeout,
             self._props.verifySSL,
-            self._props.followRedirects
+            self._props.followRedirects,
+            self._props.digest and self._props.digest.user,
+            self._props.digest and self._props.digest.password
         )
 
         -- Start polling for response
