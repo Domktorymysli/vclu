@@ -1349,12 +1349,49 @@ local function registryType(obj)
     return TypeMap.getExposeType(obj._type or "switch", "switch")
 end
 
+-- exposeRegistry() gives these sensors a filter: a reading flipping by one step is no change
+local REGISTRY_FILTERS = {
+    temperature = { delta = 0.2, heartbeat = 600 },
+    humidity = { delta = 1, heartbeat = 600 },
+    illuminance = { delta = 5, heartbeat = 600 },
+}
+
+ExposedObjects._defaults = {} -- registry path -> options from ExposedObjects:defaults()
+
+--- Options exposeRegistry() gives the registry object at path, over its defaults: a module sets
+-- them before the object is exposed (filter = false: no default filter). Once exposed, they go to its handle.
+-- @api public
+-- @param path string Registry path, e.g. "CLU220000592.PAN9127"
+-- @param opts table Expose options (filter, name, area, readonly, ...)
+-- @usage ExposedObjects:defaults("CLU220000592.PAN9127", { filter = { delta = 20, heartbeat = 900 } })
+function ExposedObjects:defaults(path, opts)
+    if type(path) ~= "string" or type(opts) ~= "table" then
+        error("ExposedObjects:defaults(path, opts) - path must be a string and opts a table", 2)
+    end
+    local obj = _registry and _registry[path]
+    if type(obj) ~= "table" then
+        error("ExposedObjects:defaults() - no object at '" .. path .. "' in the registry", 2)
+    end
+    if opts.path ~= nil or opts.id ~= nil then
+        error("ExposedObjects:defaults() - the path of a registry object cannot change", 2)
+    end
+    checkOptions(registryType(obj), opts)
+    local h = self:_handleOf(obj)
+    if h then return h:update(opts) end
+    local merged = self._defaults[path] or {}
+    for k, v in pairs(opts) do merged[k] = v end
+    self._defaults[path] = merged
+    return true
+end
+
 --- Auto-expose all objects from _registry, respecting AccessControl.
 -- Objects already exposed via manual expose() are skipped (user overrides win).
 -- AccessControl determines per-integration visibility for remaining objects:
 --   "hidden" from both mqtt+homekit → skipped entirely
 --   "hidden" from one → that integration disabled (mqtt=false or homekit=false)
 --   "readonly" → exposed as readonly
+-- Temperature, humidity and illuminance sensors get REGISTRY_FILTERS; ExposedObjects:defaults()
+-- sets an object's own options.
 -- @param options table Optional default options for all objects
 -- @param newOnly boolean Only expose objects without a handle (accessChanged)
 -- @return number Count of newly exposed objects
@@ -1424,6 +1461,11 @@ function ExposedObjects:exposeRegistry(options, newOnly)
                 -- could only go stale and give a false sense of protection.
                 local objOptions = {}
                 for k, v in pairs(options) do objOptions[k] = v end
+                local f = REGISTRY_FILTERS[registryType(obj)]
+                if objOptions.filter == nil and f then
+                    objOptions.filter = { delta = f.delta, heartbeat = f.heartbeat }
+                end
+                for k, v in pairs(self._defaults[path] or {}) do objOptions[k] = v end
                 objOptions.path = path
                 objOptions.name = objOptions.name or obj._name or path
                 if mqttHidden then objOptions.mqtt = false end
@@ -1518,7 +1560,9 @@ end
 
 --- Global function to auto-expose all registry objects
 -- Call this after om.lua is loaded to expose all objects to MQTT/HomeKit.
--- Objects can then be modified via their handles.
+-- Objects can then be modified via their handles. Sensors get a filter: temperature
+-- { delta = 0.2, heartbeat = 600 }, humidity { delta = 1, ... }, illuminance { delta = 5, ... };
+-- ExposedObjects:defaults(path, opts) sets one object's options, filter = false for none.
 -- @api public
 -- @param options table Optional default options
 -- @return number Count of exposed objects
