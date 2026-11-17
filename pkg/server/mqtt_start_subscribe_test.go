@@ -195,3 +195,35 @@ func TestReloadOwnClientSubscribesOnConnect(t *testing.T) {
 	}
 	waitFor(t, b, engine, "test/own", `tostring(GOT.n > 0)`)
 }
+
+// A reload after an OM send (reset) sets up the HA integration again, so HA commands keep
+// their topics on the broker (#181 review).
+func TestResetKeepsHACommandTopics(t *testing.T) {
+	b, port := startBroker(t)
+	s, engine := startServer(t, port, `GOT = { n = 0 }`)
+	const cmd = "vclu/exposed/+/+/+/set"
+	brokerSubs := func() []string {
+		for _, c := range b.GetClients() {
+			if c.ID == "vclu_start_test" {
+				return c.Subscriptions
+			}
+		}
+		return nil
+	}
+	waitSubs := func(what string) {
+		deadline := time.Now().Add(5 * time.Second)
+		for !slices.Contains(brokerSubs(), cmd) {
+			if time.Now().After(deadline) {
+				t.Fatalf("%s: broker subscriptions %v, want %s", what, brokerSubs(), cmd)
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+	waitSubs("after start")
+	s.reloadLuaEngine()
+	time.Sleep(500 * time.Millisecond) // the unsubscribe of dropped topics is asynchronous
+	waitSubs("after reset")
+	if subs := engine.GetMQTTManager().Stats().Clients[0].Subscriptions; !slices.Contains(subs, cmd) {
+		t.Errorf("Go topics after reset = %v, want %s", subs, cmd)
+	}
+}

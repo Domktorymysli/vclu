@@ -66,6 +66,9 @@ func (s *Server) reloadLuaEngine() {
 	// Post-load hook: auto-expose registry (after plugins + user.lua)
 	s.callOnLuaReset()
 
+	// As a manual reload: without it HA commands have no handler after an OM send
+	s.reapplyMQTT()
+
 	// Auto-subscribe to remote CLUs for initial state sync (non-blocking)
 	go s.triggerAutoSubscribe()
 

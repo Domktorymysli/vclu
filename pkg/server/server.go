@@ -193,14 +193,7 @@ func (s *Server) Reload() error {
 	// Post-load hook: auto-expose registry (after plugins + user.lua)
 	s.callOnLuaReset()
 
-	// Re-apply MQTT config to Lua and HA integration (Go connection survives reload)
-	if clientConfig := config.GetMQTTClientConfig(s.serverDir); clientConfig != nil && clientConfig.Enabled {
-		s.luaEngine.Execute(fmt.Sprintf(`MQTT:setHost(%q):setPort(%d):setClientId(%q):setCredentials(%q, %q)`,
-			clientConfig.Host, clientConfig.Port, clientConfig.ClientID, clientConfig.Username, clientConfig.Password))
-		if clientConfig.HAIntegration {
-			s.luaEngine.Execute("HAIntegration.setup(MQTT)")
-		}
-	}
+	s.reapplyMQTT()
 
 	// Auto-subscribe to remote CLUs for initial state sync (non-blocking)
 	go s.triggerAutoSubscribe()
@@ -405,6 +398,17 @@ func (s *Server) LoadInitialData() {
 
 	// Auto-subscribe to remote CLU states (non-blocking)
 	go s.triggerAutoSubscribe()
+}
+
+// reapplyMQTT gives the reloaded Lua the MQTT config and the HA integration (Go connection survives reload).
+func (s *Server) reapplyMQTT() {
+	if clientConfig := config.GetMQTTClientConfig(s.serverDir); clientConfig != nil && clientConfig.Enabled {
+		s.luaEngine.Execute(fmt.Sprintf(`MQTT:setHost(%q):setPort(%d):setClientId(%q):setCredentials(%q, %q)`,
+			clientConfig.Host, clientConfig.Port, clientConfig.ClientID, clientConfig.Username, clientConfig.Password))
+		if clientConfig.HAIntegration {
+			s.luaEngine.Execute("HAIntegration.setup(MQTT)")
+		}
+	}
 }
 
 // connectMQTT auto-connects the MQTT client from config (client config takes priority over broker fallback)
