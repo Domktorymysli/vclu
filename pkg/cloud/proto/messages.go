@@ -293,6 +293,9 @@ type Object struct {
 	// Pulse: a switch that only pulses (a gate, an intercom's door release): vCLU turns on,
 	// open and close into one pulse, and off does nothing
 	Pulse bool `json:"pulse,omitempty"`
+	// Class: what the device is, expose's device_class in Home Assistant's words ("gate",
+	// "garage", "shutter", "awning", ...), for assistants that tell a gate from a blind
+	Class string `json:"class,omitempty"`
 }
 
 // Object.Access. The cloud reads anything else as AccessReadonly.

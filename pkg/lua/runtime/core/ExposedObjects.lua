@@ -1009,7 +1009,9 @@ local function deviceEntry(path, h, access, roles)
     local name = plainString(o.name) or (type(obj) == 'table' and plainString(obj._name)) or tostring(path)
     local e = { path = tostring(path), type = tostring(h.type), name = name,
         area = plainString(o.area), floor = plainString(o.floor), access = access,
-        pulse = (o.pulse and h.type == 'switch') and true or nil }
+        pulse = (o.pulse and h.type == 'switch') and true or nil,
+        -- what the device is, in Home Assistant's words (gate, garage, shutter, ...)
+        class = plainString(o.device_class) }
     if roles and #roles > 0 then
         local copy = {}
         for i = 1, #roles do copy[i] = roles[i] end
@@ -1019,7 +1021,7 @@ local function deviceEntry(path, h, access, roles)
 end
 
 --- The devices the cloud gets (exposed with :remote(), or opened on the panel's Access page), for
--- its snapshot: sorted by path, each {path, type, name, area, floor, access, roles}, never the PIN
+-- its snapshot: sorted by path, each {path, type, name, area, floor, access, roles, class}, never the PIN
 -- @return table Array of plain tables
 function ExposedObjects:remoteList()
     local out = {}
