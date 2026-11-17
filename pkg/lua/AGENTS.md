@@ -105,8 +105,9 @@ index, parameters) and events of an object class. Take indexes and scales from t
 memory; when the English and Polish hints disagree, the feature's own description decides.
 `ROLLER_SHUTTER` (class 24): feature 0 State, 7 Position, 8 LamelPosition; methods 0 MoveUp,
 1 MoveDown, 3 Stop, 9 SetLamelPosition, 10 SetPosition; feature 13 ReversePosition flips the
-scale in the installation. The first firmware (fv01) has no Position, and om.lua does not say
-which firmware a module runs, so the OM import only marks class 24 with `_hasPosition = true`.
+scale in the installation. The first firmware (fv01) has no Position. om.lua tells it apart by
+the settable feature 1 MaxTime (`ROL…:set(1, ms)`; fv02+ has MaxTime as feature 9), so the OM
+import marks class 24 with `_hasPosition = true` unless that line is there (#186).
 Slats: feature 8 LamelPosition is degrees, 0 = open .. 90 = closed (HA tilt the other way,
 converted in `HAStatePublisher.coverTiltToHA`/`FromHA`); feature 10 LamelMoveTimeout is 0 without
 slats, and om.lua writes it (`ROL…:set(10, ms)`), so the import marks `_hasTilt` when it is above 0.

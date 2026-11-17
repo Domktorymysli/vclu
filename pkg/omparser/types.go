@@ -131,6 +131,7 @@ type GrentonObject struct {
 	ModuleID string      // Parent module ID (e.g., "mm_330000027")
 	Index    int         // Index on the module (0-7 typically)
 	HasTilt  bool        // ROLLER_SHUTTER with slats: om.lua sets LamelMoveTimeout above 0
+	Fv01     bool        // ROLLER_SHUTTER on fv01 firmware (om.lua sets feature 1 MaxTime): no position, no slats
 }
 
 // CLUReference represents a reference to another CLU

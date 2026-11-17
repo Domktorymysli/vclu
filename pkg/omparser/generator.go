@@ -151,8 +151,8 @@ func generateObjectsForClass(sb *strings.Builder, parsed *ParsedOM, namespace st
 		}
 		sb.WriteString(fmt.Sprintf("%s.%s = %s:new(_clu, \"%s\"%s)\n",
 			namespace, objName, proxyClass, obj.ID, nameArg))
-		if class == ClassROLLER {
-			// Feature 7 Position (not on fv01 firmware, which om.lua does not tell apart)
+		if class == ClassROLLER && !obj.Fv01 {
+			// Feature 7 Position; fv01 firmware has none and moves by MoveUp/MoveDown
 			fmt.Fprintf(sb, "%s.%s._hasPosition = true\n", namespace, objName)
 		}
 		if class == ClassROLLER && obj.HasTilt {

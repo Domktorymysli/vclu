@@ -41,8 +41,9 @@ Assistant, HomeKit and dashboards, without a position it does not have.
   LamelMoveTimeout parsing.
 - `pkg/omparser/types.go`: a field for it, next to `HasTilt`.
 - `pkg/omparser/generator.go`: `_hasPosition = true` only without the fv01 sign; fix the comment.
-- `pkg/omparser/generator_ha.go`: `generateCover` drops the position topics only for ROLLER_SH
-  (class 11); drop them for an fv01 roller too.
+- Home Assistant discovery is built at runtime from `_hasPosition`
+  (`runtime/integrations/homeassistant/StatePublisher.lua`), so a proxy without it already has
+  no position or tilt topics.
 - tests next to `pkg/omparser/generator_tilt_test.go`.
 
 ## Acceptance criteria
