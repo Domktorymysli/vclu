@@ -47,8 +47,9 @@ var (
 	// Peripheral name comment: -- NAME_PERIPHERY aSalon=THE0855
 	rePeripheryName = regexp.MustCompile(`^-- NAME_PERIPHERY\s+(\S+)=(\w+)`)
 
-	// Roller setting LamelMoveTimeout (feature 10, ms; 0 = no slats): ROL1234:set(10, 1500)
-	reLamelTimeout = regexp.MustCompile(`^(\w+):set\s*\(\s*10\s*,\s*([0-9.]+)\s*\)`)
+	// Roller settings: LamelMoveTimeout (feature 10, ms; 0 = no slats) ROL1234:set(10, 1500), and
+	// MaxTime as feature 1, which only fv01 firmware has: ROL1234:set(1, 30000)
+	reRollerSetting = regexp.MustCompile(`^(\w+):set\s*\(\s*(1|10)\s*,\s*([0-9.]+)\s*\)`)
 
 	// Event handler: DIN1473:add_event(2, EventsFor_DIN1473_2)
 	reEventAdd = regexp.MustCompile(`^(\w+):add_event\s*\(\s*(\d+)\s*,\s*(\w+)\s*\)`)
@@ -62,6 +63,7 @@ func Parse(content string) (*ParsedOM, error) {
 	// Temporary map for IO names (collected from comments)
 	ioNames := make(map[string]string)
 	lamelTimeouts := make(map[string]float64)
+	fv01 := make(map[string]bool)
 
 	for i, line := range lines {
 		line = strings.TrimSpace(line)
@@ -187,8 +189,10 @@ func Parse(content string) (*ParsedOM, error) {
 			continue
 		}
 
-		if matches := reLamelTimeout.FindStringSubmatch(line); matches != nil {
-			if v, err := strconv.ParseFloat(matches[2], 64); err == nil {
+		if matches := reRollerSetting.FindStringSubmatch(line); matches != nil {
+			if matches[2] == "1" {
+				fv01[matches[1]] = true
+			} else if v, err := strconv.ParseFloat(matches[3], 64); err == nil {
 				lamelTimeouts[matches[1]] = v
 			}
 			continue
@@ -214,7 +218,11 @@ func Parse(content string) (*ParsedOM, error) {
 			obj.Name = name
 			result.ObjectMap[obj.ID] = obj
 		}
-		if obj.Class == ClassROLLER && lamelTimeouts[obj.ID] > 0 {
+		if obj.Class == ClassROLLER && fv01[obj.ID] {
+			result.Objects[i].Fv01 = true
+			obj.Fv01 = true
+			result.ObjectMap[obj.ID] = obj
+		} else if obj.Class == ClassROLLER && lamelTimeouts[obj.ID] > 0 {
 			result.Objects[i].HasTilt = true
 			obj.HasTilt = true
 			result.ObjectMap[obj.ID] = obj

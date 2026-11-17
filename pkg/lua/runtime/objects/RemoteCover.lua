@@ -3,8 +3,8 @@
 -- The value is the position, 0 = closed .. 100 = open, as in Grenton (ROLLER_SHUTTER,
 -- class 24: feature 7 Position and method 10 SetPosition; Object Manager device-interfaces),
 -- Home Assistant and HomeKit. The OM import sets _hasPosition = true for
--- class 24; without it (ROLLER_SH, class 11, or a proxy generated before) the value
--- stays feature 0. First firmware of the 2.0 roller modules (fv01) has no Position either.
+-- class 24; without it (ROLLER_SH, class 11, a class 24 roller on fv01 firmware, which has
+-- no Position, or a proxy generated before) the value stays feature 0.
 -- A roller with slats (om.lua sets LamelMoveTimeout above 0) gets _hasTilt = true from the
 -- OM import: feature 8 LamelPosition is its tilt, 0 = open .. 90 = closed (degrees).
 -- @module objects.RemoteCover
