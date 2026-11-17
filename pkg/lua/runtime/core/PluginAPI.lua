@@ -19,7 +19,7 @@ local PluginHelpers = require("PluginHelpers")
 Plugin = {}
 Plugin.__index = Plugin
 Plugin.instances = {}
-Plugin.apiVersion = 1
+Plugin.apiVersion = 2 -- the highest plugin API this runtime runs (PluginAPIMax in pkg/plugins)
 
 --- Create a new plugin instance
 -- @param id string Plugin identifier (short id). If __plugin_id is set by loader, it will be used as fullId.

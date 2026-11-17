@@ -635,7 +635,7 @@ func (s *Server) handlePluginsAPIGetSchema(c *gin.Context) {
 // fetchPluginSchema fetches plugin.json from repository
 func fetchPluginSchema(repo config.PluginRepository, pluginPath, gitTag string) (map[string]interface{}, error) {
 	resolver := plugins.DefaultResolver(repo.URL)
-	pluginURL := resolver.RawFileURL(repo.URL, gitTag, pluginPath+"/plugin.json")
+	pluginURL := resolver.RawFileURL(repo.URL, gitTag, plugins.RepoFilePath(pluginPath, "plugin.json"))
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Get(pluginURL)
@@ -738,7 +738,7 @@ func (s *Server) handlePluginsAPIGetDoc(c *gin.Context) {
 // fetchPluginDoc fetches a documentation file from repository
 func fetchPluginDoc(repo config.PluginRepository, pluginPath, docFile, gitTag string) (string, error) {
 	resolver := plugins.DefaultResolver(repo.URL)
-	docURL := resolver.RawFileURL(repo.URL, gitTag, pluginPath+"/"+docFile)
+	docURL := resolver.RawFileURL(repo.URL, gitTag, plugins.RepoFilePath(pluginPath, docFile))
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Get(docURL)
@@ -769,46 +769,39 @@ func fetchPluginsFromRepo(repo config.PluginRepository) ([]PluginMetadata, error
 }
 
 // maxRegistrySize bounds a repository's plugins.json.
-const maxRegistrySize = 2 << 20
+const maxRegistrySize = plugins.MaxIndexSize
 
-// fetchRegistryFromRepo fetches full plugins.json registry from a repository
+// fetchRegistryFromRepo fetches full plugins.json registry from a repository; a
+// repository with only a root plugin.json is a registry of one plugin
 func fetchRegistryFromRepo(repo config.PluginRepository) (*PluginRegistryResponse, error) {
 	return fetchRegistryFromRepoCtx(context.Background(), repo)
 }
 
 func fetchRegistryFromRepoCtx(ctx context.Context, repo config.PluginRepository) (*PluginRegistryResponse, error) {
-	resolver := plugins.DefaultResolver(repo.URL)
-	pluginsURL := resolver.RawFileURL(repo.URL, "", "plugins.json")
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pluginsURL, nil)
+	index, err := plugins.FetchIndexCtx(ctx, &http.Client{Timeout: 10 * time.Second}, repo)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch: %w", err)
+		return nil, err
 	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch: %w", err)
+	registry := &PluginRegistryResponse{
+		Version:     index.Version,
+		Name:        index.Name,
+		Namespace:   index.Namespace,
+		Description: index.Description,
+		URL:         index.URL,
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+	for _, p := range index.Plugins {
+		registry.Plugins = append(registry.Plugins, PluginMetadata{
+			ID:          p.ID,
+			Name:        p.Name,
+			Version:     p.Version,
+			Description: p.Description,
+			Author:      p.Author,
+			Path:        p.Path,
+			Tags:        p.Categories,
+			GitTag:      p.GitTag,
+		})
 	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxRegistrySize+1))
-	if err == nil && len(body) > maxRegistrySize {
-		err = fmt.Errorf("larger than %d bytes", maxRegistrySize)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	var registry PluginRegistryResponse
-	if err := json.Unmarshal(body, &registry); err != nil {
-		return nil, fmt.Errorf("invalid JSON: %w", err)
-	}
-
-	return &registry, nil
+	return registry, nil
 }
 
 // buildPluginRepoUrl builds a URL to the plugin's directory in the repository

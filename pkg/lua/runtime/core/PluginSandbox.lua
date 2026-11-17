@@ -165,6 +165,33 @@ local function boundFunctions(obj, names)
     })
 end
 
+-- A shared class (HTTP, MQTT) for plugin API 1: its constructors and functions work
+-- as on the real one, its fields cannot be replaced
+local function classFacade(class)
+    if type(class) ~= "table" then return nil end
+    local facade
+    local fns = {}
+    facade = setmetatable({}, {
+        __index = function(_, key)
+            local val = class[key]
+            if type(val) ~= "function" then return val end
+            local f = fns[key]
+            if not f then
+                f = function(self, ...)
+                    if self == facade then return val(class, ...) end
+                    return val(self, ...)
+                end
+                fns[key] = f
+            end
+            return f
+        end,
+        __newindex = function()
+            error("Read-only: plugins cannot modify a shared object", 2)
+        end,
+    })
+    return facade
+end
+
 -- pairs/ipairs/next over a proxy go through the proxy, never hand out raw values
 local originalPairs = pairs
 local originalIpairs = ipairs
@@ -280,7 +307,7 @@ local function instanceProxy(inner)
             end
             local opts = {}
             for k, v in originalPairs(options or {}) do opts[k] = v end
-            if opts.path ~= nil and (type(opts.path) ~= "string" or opts.path:sub(1, #prefix) ~= prefix) then
+            if inner._sandbox and inner._sandbox.apiVersion >= 2 and opts.path ~= nil and (type(opts.path) ~= "string" or opts.path:sub(1, #prefix) ~= prefix) then
                 opts.path = prefix .. tostring(opts.path)
             end
             local handle = Plugin.expose(inner, obj, objType, opts)
@@ -346,7 +373,7 @@ end
 
 --- Create a new sandbox for a plugin
 -- @param pluginId string The full plugin ID (e.g., "@vclu/weather")
--- @param permissions table|nil {lan, mqtt, modbus} from plugin.json; nil grants none
+-- @param permissions table|nil {api, lan, mqtt, modbus, official} from the loader; nil grants none
 -- @return table The created sandbox
 function PluginSandbox:create(pluginId, permissions)
     -- Pre-compute plugin namespace prefix (e.g., "plugins.vclu.weather")
@@ -371,6 +398,10 @@ function PluginSandbox:create(pluginId, permissions)
         dead = false,             -- set by cleanup
     }
     permissions = type(permissions) == "table" and permissions or {}
+    -- plugin API version (pkg/plugins/permissions.go): 1 keeps the contract from before
+    -- permissions, 2 adds prefixes and drops the HTTP and MQTT globals; the loader always
+    -- passes it, any other caller gets the strict one
+    sandbox.apiVersion = tonumber(permissions.api) or 2
     sandbox.permissions = {
         lan = permissions.lan == true,
         mqtt = permissions.mqtt == true,
@@ -476,6 +507,7 @@ function PluginSandbox:buildAPI(sandbox)
     end
 
     local function checkEventName(eventName)
+        if sandbox.apiVersion < 2 then return end
         if type(eventName) == "string" then
             for _, prefix in ipairs(sandbox.eventPrefixes) do
                 if eventName:sub(1, #prefix) == prefix then return end
@@ -859,6 +891,9 @@ function PluginSandbox:buildEnvironment(sandbox)
         Modbus = modbus,
 
         Plugin = pluginClass,
+        HTTP = sandbox.apiVersion < 2 and classFacade(HTTP) or nil,
+        HttpClient = sandbox.apiVersion < 2 and classFacade(HTTP) or nil,
+        MQTT = sandbox.apiVersion < 2 and classFacade(MQTT) or nil,
         EventBus = setmetatable({}, {
             __index = function(_, key)
                 if key == "on" then return api.on end
@@ -877,7 +912,7 @@ function PluginSandbox:buildEnvironment(sandbox)
 
         -- BLOCKED - dangerous functions
         -- os.execute, io.*, loadfile, dofile, load, rawset, rawget, debug, getfenv, setfenv,
-        -- setmetatable, getmetatable, require, HTTP, MQTT
+        -- setmetatable, getmetatable, require; HTTP and MQTT from plugin API 2
     }
 
     -- Registry access with write protection
