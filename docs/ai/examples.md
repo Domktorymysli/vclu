@@ -662,7 +662,8 @@ Dashboard.new('dom'):auth('session')
 
 ### Cover widget (blind)
 
-Buttons up / stop / down, and a 0-100% position slider when `set` is given.
+Buttons up / stop / down, a 0-100% position slider when `set` is given, and a 0-90° slat slider
+when `setTilt` is given and `getTilt` returns a number.
 
 ```lua
 local roleta = r:get("CLU220000592.ROL0001")
@@ -675,6 +676,8 @@ local roleta = r:get("CLU220000592.ROL0001")
     close = function() roleta:close() end,
     stop  = function() roleta:stop() end,
     set   = function(p) roleta:setPosition(p) end,            -- without it: buttons only
+    getTilt = function() return roleta:getTilt() end,          -- slats only: nil hides the slider
+    setTilt = function(a) roleta:setTilt(a) end,
 })
 
 -- A fixed position on one tap: a plain button
@@ -687,6 +690,9 @@ local roleta = r:get("CLU220000592.ROL0001")
   `getPosition()`; the slider then shows `--`. Leave out `getPosition` and `set` for such a roller
   and keep the buttons.
 - **getState:** 0 = stopped, 1 = up, 2 = down. Without it the stop button stays lit.
+- **Slats:** 0 = open .. 90 = closed, as `getTilt`/`setTilt` on a Grenton roller with slats
+  (`_hasTilt`); the slider sends the angle clamped to 0-90. Tiles from `section:area` pass them
+  on by themselves.
 
 ### Cover group (several blinds on one tile)
 

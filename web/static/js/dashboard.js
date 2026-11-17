@@ -1544,6 +1544,21 @@
             row.appendChild(input);
             el.appendChild(row);
         }
+
+        // slats: hidden until the cover reports an angle
+        coversSlider(el, w, 'tilt', 'justify', T.tilt, 90, '°', 'tilt').hidden = true;
+        updateCoverTilt(el, w);
+    }
+
+    // The slat slider of a cover tile from a definition or a poll (a set's reply has no tilt)
+    function updateCoverTilt(el, d) {
+        if (!('tilt' in d)) return;
+        var row = el.querySelector('.dash-slider-row[data-role="tilt"]');
+        row.hidden = d.tilt == null;
+        var sl = row.querySelector('.dash-slider-input');
+        if (d.tilt == null || userHolds(sl)) return;
+        sl.value = d.tilt;
+        row.querySelector('.dash-slider-value').textContent = d.tilt + '°';
     }
 
     // ---- Cover group ----
@@ -1593,6 +1608,7 @@
         row.appendChild(slider);
         row.appendChild(valEl);
         el.appendChild(row);
+        return row;
     }
 
     // Sliders and the average from a definition, a poll or a reply
@@ -3795,7 +3811,7 @@
 
     // Widgets read with getValue: no value in a poll means the function gave nil
     var valueTypes = { toggle: true, slider: true, status: true, select: true };
-    var pollKeys = { cover: ['position'], dimmer: ['value', 'on'], color: ['rgb', 'brightness', 'white', 'on'] };
+    var pollKeys = { cover: ['position', 'tilt'], dimmer: ['value', 'on'], color: ['rgb', 'brightness', 'white', 'on'] };
 
     function updateWidget(wid, data, force) {
         var el = widgetEls[wid];
@@ -3882,7 +3898,7 @@
             // a poll is the whole state: what it leaves out was not reported (shown as --)
             if (!force) ['current', 'target', 'state', 'mode', 'error'].forEach(function(k) { if (!(k in d)) d[k] = null; });
         }
-        var slider = el.querySelector('.dash-slider-input');
+        var slider = el.querySelector('.dash-slider-input:not([data-role="tilt"])');
         var held = slider && userHolds(slider);
         var toggle;
 
@@ -3895,6 +3911,7 @@
                 btns[2].classList.toggle('active', d.state === 2);
             }
             if (held) { delete d.position; delete d.state; }
+            updateCoverTilt(el, d);
         } else if (type === 'covers') {
             updateCovers(el, d);
         } else if (type === 'dimmer') {

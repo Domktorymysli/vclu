@@ -1311,12 +1311,12 @@ Add a group label widget to this section.
 
 ### `SectionHandle:cover(id, label, icon, fns, opts)`
 
-Add a cover widget to this section. Buttons up/stop/down call open/stop/close. With set, a 0-100% slider is shown under them. Position 0 = closed, 100 = open, as in Grenton; nil (not reported yet) is shown as --. getState lights the button of the movement: 0 = stopped, 1 = up, 2 = down.
+Add a cover widget to this section. Buttons up/stop/down call open/stop/close. With set, a 0-100% slider is shown under them. With setTilt, a 0-90° slat slider is shown while getTilt gives a number (0 = open, 90 = closed, as in Grenton). Position 0 = closed, 100 = open, as in Grenton; nil (not reported yet) is shown as --. getState lights the button of the movement: 0 = stopped, 1 = up, 2 = down.
 
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label
 - `icon` (string) — Bootstrap icon name (e.g., "arrows-expand")
-- `fns` (table) — {getPosition=function()->number|nil, getState=function()->number|nil, open=function(), close=function(), stop=function(), set=function(position)}
+- `fns` (table) — {getPosition=function()->number|nil, getState=function()->number|nil, open=function(), close=function(), stop=function(), set=function(position), getTilt=function()->number|nil, setTilt=function(angle)}
 - `opts` (table) — Optional: {disabled=function()->bool, visible=function()->bool}
 
 ### `SectionHandle:covers(id, label, list, opts)`
@@ -1699,12 +1699,12 @@ Add a group label widget to the current section.
 
 ### `DashboardBuilder:cover(id, label, icon, fns, opts)`
 
-Add a cover widget to the current section. Buttons up/stop/down call open/stop/close. With set, a 0-100% slider is shown under them. Position 0 = closed, 100 = open, as in Grenton; nil (not reported yet) is shown as --. getState lights the button of the movement: 0 = stopped, 1 = up, 2 = down.
+Add a cover widget to the current section. Buttons up/stop/down call open/stop/close. With set, a 0-100% slider is shown under them. With setTilt, a 0-90° slat slider is shown while getTilt gives a number (0 = open, 90 = closed, as in Grenton). Position 0 = closed, 100 = open, as in Grenton; nil (not reported yet) is shown as --. getState lights the button of the movement: 0 = stopped, 1 = up, 2 = down.
 
 - `id` (string) — Unique widget identifier
 - `label` (string) — Display label
 - `icon` (string) — Bootstrap icon name (e.g., "arrows-expand")
-- `fns` (table) — {getPosition=function()->number|nil, getState=function()->number|nil, open=function(), close=function(), stop=function(), set=function(position)}
+- `fns` (table) — {getPosition=function()->number|nil, getState=function()->number|nil, open=function(), close=function(), stop=function(), set=function(position), getTilt=function()->number|nil, setTilt=function(angle)}
 - `opts` (table) — Optional: {disabled=function()->bool, visible=function()->bool}
 
 ### `DashboardBuilder:gate(id, label, opts)`
