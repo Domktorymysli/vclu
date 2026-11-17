@@ -15,7 +15,7 @@ Only public API is listed — internal/private functions are omitted.
 - [objects.VirtualObject](#objectsvirtualobject) (12 functions)
 - [objects.VirtualThermostat](#objectsvirtualthermostat) (12 functions)
 - [objects.VirtualPresence](#objectsvirtualpresence) (8 functions)
-- [ExposedObjects](#exposedobjects) (25 functions)
+- [ExposedObjects](#exposedobjects) (26 functions)
 - [core.Registry](#coreregistry) (10 functions)
 - [core.Metrics](#coremetrics) (1 functions)
 - [core.Calendar](#corecalendar) (39 functions)
@@ -914,6 +914,17 @@ All exposed objects: the live map, read it and never change it
 
 **Returns:** table path -> handle; stable fields: type, options.name, options.area, options.tags, getValue()
 
+### `ExposedObjects:defaults(path, opts)`
+
+The filter, name or area exposeRegistry() gives the registry object at path: a module sets them before the object is exposed (filter = false: no default filter); after that they change it at once.
+
+- `path` (string) — Registry path, e.g. "CLU220000592.PAN9127"
+- `opts` (table) — { filter, name, area }
+
+```lua
+ExposedObjects:defaults("CLU220000592.PAN9127", { filter = { delta = 20, heartbeat = 900 } })
+```
+
 ### `expose(obj, objType, options) → ExposedHandle`
 
 Global function to expose an object. A custom object's onChange(cb) must return a function that removes cb: unexpose() calls it, otherwise the callback stays registered and expose() logs a warning. Options include pulse = ms for a switch that must only pulse, a gate or an intercom's door release: expose(DOMOFON, "switch", { id = "domofon", name = "Domofon", pulse = 1000 }). "on" from Home Assistant, HomeKit, the cloud app, voice, bots or API clients switches it on for that long, then it goes off by itself (a Grenton DOUT is timed on the CLU); "off" does nothing, and through the cloud "open" and "close" pulse too. A pulse asked while one runs is ignored. Lua calling the object itself (DOMOFON:switchOn()) is not limited.
@@ -926,7 +937,7 @@ Global function to expose an object. A custom object's onChange(cb) must return 
 
 ### `exposeRegistry(options) → number Count of exposed objects`
 
-Global function to auto-expose all registry objects Call this after om.lua is loaded to expose all objects to MQTT/HomeKit. Objects can then be modified via their handles.
+Global function to auto-expose all registry objects Call this after om.lua is loaded to expose all objects to MQTT/HomeKit. Objects can then be modified via their handles. Sensors get a filter: temperature { delta = 0.2, heartbeat = 600 }, humidity { delta = 1, ... }, illuminance { delta = 5, ... }; ExposedObjects:defaults(path, opts) sets one object's options, filter = false for none.
 
 - `options` (table) — Optional default options
 

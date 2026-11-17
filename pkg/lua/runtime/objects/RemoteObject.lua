@@ -300,6 +300,8 @@ function RemoteObject:updateState(newState)
     local oldState = self._lastState
     local mark = StateChange and StateChange.mark(self)
     self._lastState = newState
+    -- counts raw changes, also those the expose filter swallows (VirtualThermostat's staleness)
+    if newState ~= oldState then self._rawChanges = (self._rawChanges or 0) + 1 end
     if StateChange and newState ~= oldState then
         local report
         report, oldState = StateChange.filter(self, oldState, newState)

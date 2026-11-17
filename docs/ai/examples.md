@@ -169,6 +169,18 @@ expose(_:get("CLU220000592.ONE3544"), "temperature", {
 })
 ```
 
+Sensors from the Object Manager import that no module exposes get a filter
+from `exposeRegistry()`: temperature `{ delta = 0.2, heartbeat = 600 }`,
+humidity `{ delta = 1, heartbeat = 600 }`, light `{ delta = 5, heartbeat = 600 }`.
+A sensor exposed by hand has only the filter you write. To change the filter
+(or the name, area) of one imported sensor, set it in a module (it runs before
+`exposeRegistry()`; later it changes the exposed object at once):
+
+```lua
+ExposedObjects:defaults("CLU220000592.PAN9127", { filter = { delta = 20, heartbeat = 900 } })
+ExposedObjects:defaults("CLU220000592.PAN9128", { filter = false })  -- every change
+```
+
 ## Object without history
 
 Computed or technical values you do not want in history. Events
