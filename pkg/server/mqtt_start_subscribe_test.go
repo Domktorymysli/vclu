@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -175,4 +176,22 @@ func TestReloadDropsTopicsNoLongerSubscribed(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+}
+
+// A module's own client that subscribes in onConnect gets its "connect" again after a reload,
+// although Go keeps the connection (#181 review).
+func TestReloadOwnClientSubscribesOnConnect(t *testing.T) {
+	b, port := startBroker(t)
+	module := fmt.Sprintf(`
+		GOT = { n = 0 }
+		local c = MQTT:new("own"):setHost("127.0.0.1"):setPort(%d):setClientId("vclu_own")
+		c:onConnect(function() c:subscribe("test/own", function() GOT.n = GOT.n + 1 end) end)
+		c:connect()
+	`, port)
+	s, engine := startServer(t, port, module)
+	waitFor(t, b, engine, "test/own", `tostring(GOT.n > 0)`)
+	if err := s.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, b, engine, "test/own", `tostring(GOT.n > 0)`)
 }

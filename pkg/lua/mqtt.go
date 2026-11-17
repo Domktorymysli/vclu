@@ -266,6 +266,15 @@ func (mm *MQTTManager) Connect(instanceID, url string, port int, clientID, usern
 // On error, this method sends the "connect_result" event with the error.
 func (mm *MQTTManager) ConnectAsync(instanceID, url string, port int, clientID, username, password string, keepAlive int, cleanSession bool) {
 	go func() {
+		mm.mu.RLock()
+		w, ok := mm.clients[instanceID]
+		ready := ok && w.client != nil && w.connected
+		mm.mu.RUnlock()
+		if ready {
+			// Kept across a Lua reload: the new Lua still needs its "connect"
+			mm.events <- &mqttEvent{Type: "connect_result", InstanceID: instanceID, Error: ""}
+			return
+		}
 		err := mm.Connect(instanceID, url, port, clientID, username, password, keepAlive, cleanSession)
 		if err != nil {
 			// Only send on error — success event is sent by OnConnectHandler inside Connect()
@@ -490,9 +499,7 @@ func (mm *MQTTManager) EndReload() {
 		}
 		log.Printf("[MQTT] %s after reload unsubscribes %d unused topics", instanceID, len(list))
 		go func() {
-			if t := c.Unsubscribe(list...); !t.WaitTimeout(5 * time.Second) {
-				return
-			}
+			c.Unsubscribe(list...).Wait()
 			// Subscribed again while the unsubscribe was on its way: subscribe it back
 			mm.mu.Lock()
 			again := make(map[string]byte)
