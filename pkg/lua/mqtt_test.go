@@ -63,19 +63,26 @@ func TestMQTTPublishNonExistent(t *testing.T) {
 	}
 }
 
-func TestMQTTSubscribeNonExistent(t *testing.T) {
+// A subscribe before the client exists is kept for its first connect (#177).
+func TestMQTTSubscribeNonExistentIsKept(t *testing.T) {
 	mm := NewMQTTManager()
-	err := mm.Subscribe("non-existent", "topic", 0)
-	if err == nil {
-		t.Error("Expected error when subscribing with non-existent client")
+	if err := mm.Subscribe("non-existent", "topic", 0); err != nil {
+		t.Errorf("subscribe without a client: %v, want it kept", err)
+	}
+	if got := mm.topicList("non-existent"); len(got) != 1 || got[0] != "topic" {
+		t.Errorf("kept topics = %v, want [topic]", got)
 	}
 }
 
 func TestMQTTUnsubscribeNonExistent(t *testing.T) {
 	mm := NewMQTTManager()
+	_ = mm.Subscribe("non-existent", "topic", 0)
 	err := mm.Unsubscribe("non-existent", "topic")
 	if err == nil {
 		t.Error("Expected error when unsubscribing from non-existent client")
+	}
+	if got := mm.topicList("non-existent"); len(got) != 0 {
+		t.Errorf("topics after unsubscribe = %v, want none", got)
 	}
 }
 
@@ -133,8 +140,7 @@ func TestMQTTPublishWhenDisconnected(t *testing.T) {
 	// Register a wrapper without connecting (simulate disconnected state)
 	mm.mu.Lock()
 	mm.clients["test"] = &mqttClientWrapper{
-		instanceID:    "test",
-		subscriptions: make([]string, 0),
+		instanceID: "test",
 		// client is nil — not connected
 	}
 	mm.mu.Unlock()
@@ -174,7 +180,7 @@ func TestMQTTSubscribeAsync(t *testing.T) {
 	mm := NewMQTTManager()
 	defer mm.Close()
 
-	// SubscribeAsync to non-existent client — event with error
+	// SubscribeAsync to non-existent client — kept for its connect, event without error
 	mm.SubscribeAsync("non-existent", "test/topic", 0)
 
 	select {
@@ -188,8 +194,8 @@ func TestMQTTSubscribeAsync(t *testing.T) {
 		if ev.Topic != "test/topic" {
 			t.Errorf("Expected topic test/topic, got %s", ev.Topic)
 		}
-		if ev.Error == "" {
-			t.Error("Expected error for non-existent client")
+		if ev.Error != "" {
+			t.Errorf("subscribe kept for the connect reported %q", ev.Error)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("Timed out waiting for subscribe_result event")
@@ -322,5 +328,40 @@ func TestMQTTBuiltInClientIsProtected(t *testing.T) {
 	}
 	if got != "false|false|nil" {
 		t.Errorf("destroy/new of the built-in client = %s, want false|false|nil", got)
+	}
+}
+
+// A filter MQTT does not allow is refused and not kept, so it cannot break a restore (#181 review).
+func TestMQTTSubscribeInvalidFilter(t *testing.T) {
+	mm := NewMQTTManager()
+	for _, topic := range []string{"", "a/#/b", "a/b#", "a/+b", "a\x00"} {
+		if err := mm.Subscribe("i", topic, 0); err == nil {
+			t.Errorf("filter %q accepted", topic)
+		}
+	}
+	for _, topic := range []string{"#", "a/#", "+/b/+", "a//b", "/a"} {
+		if err := validTopicFilter(topic); err != nil {
+			t.Errorf("filter %q refused: %v", topic, err)
+		}
+	}
+	if got := mm.topicList("i"); len(got) != 0 {
+		t.Errorf("kept %v", got)
+	}
+}
+
+// After a reload only the topics the new Lua subscribed again stay (#181 review).
+func TestMQTTReloadKeepsOnlySubscribedAgain(t *testing.T) {
+	mm := NewMQTTManager()
+	_ = mm.Subscribe("i", "a", 0)
+	_ = mm.Subscribe("i", "b", 1)
+	mm.BeginReload()
+	mm.SubscribeAsync("i", "b", 1)
+	mm.EndReload()
+	<-mm.events
+	if got := mm.topicList("i"); len(got) != 1 || got[0] != "b" {
+		t.Errorf("topics after reload = %v, want [b]", got)
+	}
+	if mm.reloaded != nil {
+		t.Errorf("reload state left: %v", mm.reloaded)
 	}
 }

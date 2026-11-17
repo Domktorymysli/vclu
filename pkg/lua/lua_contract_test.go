@@ -353,6 +353,93 @@ func TestContract_MQTT_NewWithIdInUse(t *testing.T) {
 	}
 }
 
+// waitPending waits up to 20 s for a message on topic from the Go side, publishing it meanwhile.
+func waitPending(t *testing.T, mm *MQTTManager, b func() *broker.Broker, topic string) {
+	t.Helper()
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		if br := b(); br != nil {
+			_ = br.Publish(topic, []byte("1"), false)
+		}
+		time.Sleep(50 * time.Millisecond)
+		for msg := mm.GetPendingMessage(); msg != nil; msg = mm.GetPendingMessage() {
+			if msg.Topic == topic {
+				return
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no message on %s", topic)
+		}
+	}
+}
+
+// Contract: a subscribe made before the client exists (modules load before the MQTT client
+// connects) is subscribed when the client connects, and listed in the stats (#177).
+func TestContract_MQTT_SubscribeBeforeClientExists(t *testing.T) {
+	b, port := startTestBroker(t)
+	mm := NewMQTTManager()
+	defer mm.Close()
+
+	if err := mm.Subscribe("early", "t/early", 0); err != nil {
+		t.Fatalf("subscribe before the client: %v", err)
+	}
+	if err := mm.Reconnect("early", "127.0.0.1", port, "vclu_early", "", ""); err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	waitPending(t, mm, func() *broker.Broker { return b }, "t/early")
+	if subs := mm.Stats().Clients[0].Subscriptions; !slices.Equal(subs, []string{"t/early"}) {
+		t.Errorf("stats subscriptions = %v, want [t/early]", subs)
+	}
+}
+
+// Contract: a subscribe while the client is still connecting (broker not up yet) is subscribed
+// once the connection comes up, not dropped (#177).
+func TestContract_MQTT_SubscribeWhileConnecting(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := l.Addr().(*net.TCPAddr).Port
+	_ = l.Close()
+	mm := NewMQTTManager()
+	defer mm.Close()
+
+	mm.ConnectAsync("late", "127.0.0.1", port, "vclu_late", "", "", 60, true)
+	if err := mm.Subscribe("late", "t/late", 0); err != nil {
+		t.Fatalf("subscribe while connecting: %v", err)
+	}
+	br := broker.New(&broker.Config{Enabled: true, Port: port})
+	if err := br.Start(); err != nil {
+		t.Fatalf("broker start: %v", err)
+	}
+	t.Cleanup(func() { _ = br.Stop() })
+	waitPending(t, mm, func() *broker.Broker { return br }, "t/late")
+}
+
+// Contract: Unsubscribe and Destroy forget the instance's topics, so a later connect does not
+// subscribe them again.
+func TestContract_MQTT_UnsubscribeForgetsTopic(t *testing.T) {
+	b, port := startTestBroker(t)
+	mm := NewMQTTManager()
+	defer mm.Close()
+
+	_ = mm.Subscribe("gone", "t/keep", 0)
+	_ = mm.Subscribe("gone", "t/drop", 0)
+	_ = mm.Unsubscribe("gone", "t/drop")
+	if err := mm.Reconnect("gone", "127.0.0.1", port, "vclu_gone", "", ""); err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	waitPending(t, mm, func() *broker.Broker { return b }, "t/keep")
+	if subs := brokerSubs(b, "vclu_gone"); slices.Contains(subs, "t/drop") {
+		t.Errorf("broker subscriptions %v include the unsubscribed t/drop", subs)
+	}
+
+	mm.Destroy("gone")
+	if got := mm.topicList("gone"); len(got) != 0 {
+		t.Errorf("topics after destroy = %v, want none", got)
+	}
+}
+
 // =============================================================================
 // VirtualObject Contracts
 // =============================================================================
