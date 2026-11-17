@@ -13,7 +13,8 @@
 
 ## Goal
 A plugin reaches only what its `plugin.json` declares beyond HTTP to the internet, and nothing it
-holds is a table shared with the core or with another plugin.
+holds is a table shared with the core or with another plugin. Plugins written before this keep
+running: the manifest names the plugin API it is written for, and the stricter contract is API 2.
 
 ## Context
 - A plugin runs in `PluginSandbox` (`pkg/lua/runtime/core/PluginSandbox.lua`) with a `setfenv`
@@ -24,7 +25,18 @@ holds is a table shared with the core or with another plugin.
   HTTP to local addresses, checked after DNS resolution in Go (`pkg/lua/http_lan.go`, the dialer's
   `Control`); `mqtt` the plugin's MQTT methods; `modbus` the `Modbus` table. Nothing else exists
   yet; a host allowlist for the internet is a later ticket.
-- A plugin without the field: an official plugin (`Installed.Repository` names the default
+- Plugin API versions (`pkg/plugins/permissions.go`, `PluginAPIMin`/`PluginAPIMax`): `"api"` in
+  `plugin.json`, missing = 1. API 1 is the contract from before permissions: `lan`, `mqtt` and
+  `modbus` for any plugin, events and expose paths with any name, the `HTTP`, `HttpClient` and
+  `MQTT` globals (read-only facades). API 2 adds the permissions, prefixes and the plugin-API-only
+  HTTP and MQTT below. Isolation (own standard tables, read-only objects, own instance and timers)
+  holds on both. Third-party plugins on API 1 are in use (e.g. a BleBox plugin with LAN HTTP and
+  MQTT), so API 1 must run them unchanged. A plugin for an API above `PluginAPIMax` does not load
+  and says to update vCLU; `Plugin.apiVersion` is `PluginAPIMax`. `"strict": true` in the
+  `plugins` section of `.vclu.json` loads only API 2 or later.
+- A repository can be one plugin: without `plugins.json` and with `plugin.json` at its root it is
+  an index of one (`pkg/plugins/index.go`), namespace from the manifest id or the repository owner.
+- Before plugin API versions (superseded): a plugin without the field: an official plugin (`Installed.Repository` names the default
   repository with the official URL, or no repository and namespace `@vclu`) keeps all three with a
   warning in the log; any other plugin gets HTTP to the internet only (`pkg/plugins/permissions.go`).
   The official plugins declare their permissions in `vclu-plugins` (branch `plugins/permissions`);
@@ -48,24 +60,31 @@ holds is a table shared with the core or with another plugin.
 - `pkg/config/config.go`
 - Tests: `pkg/lua/plugin_sandbox_escape_test.go`, `plugin_sandbox_data_test.go`,
   `plugin_official_smoke_test.go` (opt-in, `VCLU_PLUGINS_DIR=<vclu-plugins checkout>/plugins`),
-  `http_lan_test.go`, `pkg/plugins/permissions_test.go`
+  `http_lan_test.go`, `plugin_api_version_test.go`, `pkg/plugins/permissions_test.go`,
+  `index_test.go`
+- `pkg/plugins/index.go`, `pkg/web/handle_web_plugins.go` (a repository of one plugin)
 
 ## Acceptance criteria
+- [ ] A plugin without `"api"` loads as API 1: LAN HTTP, MQTT, events and expose paths with any
+      name and the `HTTP` global work without `permissions`; the globals cannot be modified
+      (`TestPluginAPI1KeepsTheOldContract`).
+- [ ] `"api": 3` gives "update vCLU"; strict mode refuses API 1 and loads API 2.
+- [ ] A repository with only a root `plugin.json` lists one plugin and downloads it.
 - [ ] A plugin with `"permissions": {}` gets `a local address needs "lan"` from `plugin:httpGet`
       on a LAN address and a response from an internet address; with `lan` both work.
 - [ ] A plugin without `mqtt` cannot subscribe or publish; without `modbus` `Modbus` is `nil`.
 - [ ] A plugin cannot change `string`, `table`, `math`, `Logger`, `JSON` or `Plugin` for anyone else;
-      the `HTTP`, `HttpClient` and `MQTT` globals are absent in the sandbox.
+      on API 2 the `HTTP`, `HttpClient` and `MQTT` globals are absent in the sandbox.
 - [ ] An object a plugin did not create is read-only, also through `pairs`, `next` and the keys
       they hand out; only `get`, `getX`, `isX`, `hasX` are callable on it. Another plugin shows only
       its sensors and controls. `JSON:encode`, `table.concat` and `unpack` see the full data;
       `table.insert`, `table.remove` and `table.sort` on it are refused.
 - [ ] `Plugin.getPlugin` returns the plugin's own instance; its id cannot be changed; a plugin
       clears only its own timers; a disabled plugin's pollers, HTTP retries and exposed objects go away.
-- [ ] An event a plugin emits starts with its prefix; an expose path goes under its id; an object a
+- [ ] On API 2 an event a plugin emits starts with its prefix and an expose path goes under its id; an object a
       module exposed cannot be re-exposed by a plugin; two exposed paths never share an MQTT topic.
-- [ ] An official plugin without `permissions` keeps `lan`, `mqtt` and `modbus` with a warning;
-      any other plugin without the field gets none. `Installed.Repository` is recorded on update.
+- [ ] An API 2 plugin without `permissions` gets none of them, official or not.
+      `Installed.Repository` is recorded on update.
 - [ ] Every plugin in `vclu-plugins` loads, runs its init with a config, serves its sensors and
       unloads without leaving a timer or a registry entry, with and without `permissions` in its
       manifest (`TestOfficialPluginsSmoke`).
@@ -75,8 +94,10 @@ holds is a table shared with the core or with another plugin.
       with the vCLU version that introduces them.
 
 ## Contract impact
-Contract change in the plugin API (CONTRIBUTING.md): `permissions` is a new manifest field; the
-shared globals `HTTP`, `HttpClient` and `MQTT` leave the sandbox (`plugin:httpRequest`,
-`plugin:mqttSubscribe` replace them); objects a plugin did not create become read-only; event names
-get the plugin's prefix; ids are lower case. No official plugin needs a code change. A decision
+Contract change in the plugin API (CONTRIBUTING.md), versioned: `api` and `permissions` are new
+manifest fields. API 1 (no `api`) keeps the old contract. API 2: the shared globals `HTTP`,
+`HttpClient` and `MQTT` leave the sandbox (`plugin:httpRequest`, `plugin:mqttSubscribe` replace
+them), event names and expose paths get the plugin's prefix, and only declared permissions apply.
+On every version objects a plugin did not create become read-only and ids are lower case. No
+official plugin needs a code change; their manifests move to `"api": 2`. A decision
 record is not needed: the contract is the plugin API itself and the PR carries the migration notes.

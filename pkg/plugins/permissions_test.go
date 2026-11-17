@@ -2,8 +2,10 @@ package plugins
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Domktorymysli/vclu/pkg/config"
@@ -40,25 +42,29 @@ func TestEffectivePermissions(t *testing.T) {
 
 	cases := []struct {
 		id       string
+		api      int
 		declared *Permissions
 		want     Permissions
 		official bool
 	}{
-		{"@vclu/solax", nil, all, true},
-		{"@vclu/by-hand", nil, all, true},
-		{"@vclu/hijack", nil, Permissions{}, false},
-		{"@vclu/fake-default", nil, Permissions{}, false},
-		{"@jan/by-hand", nil, Permissions{}, false},
-		{"@vclu/gone-repo", nil, Permissions{}, false},
-		{"@vclu/not-installed", nil, Permissions{}, false},
-		// a declaration is followed as written, also for official plugins
-		{"@vclu/solax", &Permissions{LAN: true}, Permissions{LAN: true}, true},
-		{"@jan/by-hand", &Permissions{MQTT: true}, Permissions{MQTT: true}, false},
+		// API 1 (no "api"): everything, for any plugin, as before permissions existed
+		{"@vclu/solax", 0, nil, all, true},
+		{"@vclu/by-hand", 0, nil, all, true},
+		{"@jan/by-hand", 1, nil, all, false},
+		{"@vclu/hijack", 0, &Permissions{}, all, false},
+		// API 2: the declaration as written; without it the internet only
+		{"@vclu/solax", 2, nil, Permissions{}, true},
+		{"@vclu/solax", 2, &Permissions{LAN: true}, Permissions{LAN: true}, true},
+		{"@jan/by-hand", 2, &Permissions{MQTT: true}, Permissions{MQTT: true}, false},
+		// official only by where it was installed from
+		{"@vclu/fake-default", 2, nil, Permissions{}, false},
+		{"@vclu/gone-repo", 2, nil, Permissions{}, false},
+		{"@vclu/not-installed", 2, nil, Permissions{}, false},
 	}
 	for _, c := range cases {
-		got, official := l.effectivePermissions(c.id, PluginManifest{Permissions: c.declared})
+		got, official := l.effectivePermissions(c.id, PluginManifest{API: c.api, Permissions: c.declared})
 		if got != c.want || official != c.official {
-			t.Errorf("%s (declared %v): got %+v official=%v, want %+v official=%v", c.id, c.declared, got, official, c.want, c.official)
+			t.Errorf("%s (api %d, declared %v): got %+v official=%v, want %+v official=%v", c.id, c.api, c.declared, got, official, c.want, c.official)
 		}
 	}
 }
@@ -100,5 +106,17 @@ func TestPluginIDsKeepTheirNames(t *testing.T) {
 		if _, ok := NewKVStoreManager(dir).GetStore(other).Get("token"); ok {
 			t.Errorf("%s reads @vclu/weather's KV", other)
 		}
+	}
+}
+
+// Plugin.apiVersion tells a plugin which contract the runtime speaks
+func TestPluginAPIMaxMatchesRuntime(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("..", "lua", "runtime", "core", "PluginAPI.lua"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := fmt.Sprintf("Plugin.apiVersion = %d ", PluginAPIMax)
+	if !strings.Contains(string(src), want) {
+		t.Errorf("PluginAPI.lua does not set %q", want)
 	}
 }

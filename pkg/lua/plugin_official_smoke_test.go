@@ -68,6 +68,7 @@ func TestOfficialPluginsSmoke(t *testing.T) {
 				}
 				if mode == "old-manifests" {
 					delete(m, "permissions")
+					delete(m, "api")
 					raw, _ = json.Marshal(m)
 				}
 				dst := filepath.Join(dir, "plugins", strings.TrimPrefix(strings.ReplaceAll(id, "/", "--"), "@"), version)

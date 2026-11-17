@@ -1,10 +1,25 @@
 package plugins
 
 import (
+	"fmt"
 	"log"
 	"strings"
 
 	"github.com/Domktorymysli/vclu/pkg/config"
+)
+
+// Plugin API versions this vCLU runs. "api" in plugin.json names the contract a plugin
+// was written for; a manifest without it is API 1, the sandbox before permissions.
+//   - 1: lan, mqtt and modbus for every plugin, events and expose paths with any name,
+//     the HTTP, HttpClient and MQTT globals.
+//   - 2: only the permissions plugin.json declares, events and expose paths under the
+//     plugin's prefix, HTTP and MQTT only through the plugin API.
+//
+// Isolation (own standard tables, read-only objects, own instance and timers) holds on
+// every version.
+const (
+	PluginAPIMin = 1
+	PluginAPIMax = 2
 )
 
 // Permissions are what a plugin may reach beyond HTTP to the internet, declared in
@@ -15,21 +30,46 @@ type Permissions struct {
 	Modbus bool `json:"modbus,omitempty"` // Modbus requests, reads and writes
 }
 
-// effectivePermissions: what the manifest declares, and whether the plugin is
-// official (that also names its events). A plugin without the field keeps everything
-// only when it is official (installed from the official repository, or by hand in the
-// @vclu namespace), until the official manifests declare it.
+func manifestAPI(m PluginManifest) int {
+	if m.API == 0 {
+		return 1
+	}
+	return m.API
+}
+
+// checkAPI: the version the plugin runs on, or why it does not load here.
+func (l *Loader) checkAPI(pluginID string, m PluginManifest) (int, error) {
+	api := manifestAPI(m)
+	if api < PluginAPIMin {
+		return 0, fmt.Errorf("plugin %s: plugin API %d is not supported (this vCLU runs %d to %d)", pluginID, api, PluginAPIMin, PluginAPIMax)
+	}
+	if api > PluginAPIMax {
+		return 0, fmt.Errorf("plugin %s needs plugin API %d; this vCLU runs up to %d, update vCLU", pluginID, api, PluginAPIMax)
+	}
+	if api < 2 && l.strict() {
+		return 0, fmt.Errorf("plugin %s is on plugin API %d; strict mode loads only API 2 or later (\"api\": 2 and \"permissions\" in plugin.json)", pluginID, api)
+	}
+	return api, nil
+}
+
+func (l *Loader) strict() bool {
+	mc, err := config.ReadMasterConfig(l.serverDir)
+	return err == nil && mc != nil && mc.Plugins != nil && mc.Plugins.Strict
+}
+
+// effectivePermissions: what the plugin may reach, and whether it is official (that
+// names its events). API 1 keeps everything, as before permissions existed; API 2
+// gets what it declares, and nothing beyond the internet without the field.
 func (l *Loader) effectivePermissions(pluginID string, manifest PluginManifest) (Permissions, bool) {
 	official := l.isOfficial(pluginID)
+	if manifestAPI(manifest) < 2 {
+		log.Printf("[PLUGINS] %s is on plugin API 1: lan, mqtt and modbus without a declaration (\"api\": 2 in plugin.json limits it to its permissions)", pluginID)
+		return Permissions{LAN: true, MQTT: true, Modbus: true}, official
+	}
 	if manifest.Permissions != nil {
 		return *manifest.Permissions, official
 	}
-	if official {
-		log.Printf("[PLUGINS] WARNING: %s declares no permissions in plugin.json; as an official plugin it keeps lan, mqtt and modbus", pluginID)
-		return Permissions{LAN: true, MQTT: true, Modbus: true}, true
-	}
-	log.Printf("[PLUGINS] %s declares no permissions in plugin.json: HTTP to the internet only", pluginID)
-	return Permissions{}, false
+	return Permissions{}, official
 }
 
 // isOfficial: the configuration says where the plugin came from; its id alone does
