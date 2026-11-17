@@ -250,7 +250,8 @@ method called. Map the command to the method when the object has one.
 Modules subscribe before the MQTT client exists (start) or while it connects. `MQTTManager.topics`
 holds every instance's topics and `onConnected` subscribes them on each connect; Lua does not
 subscribe again. paho's `IsConnected()` is true while it is still connecting with ConnectRetry,
-so check `wrapper.connected`. Contract: `TestContract_MQTT_Subscribe*`, `pkg/server/mqtt_start_subscribe_test.go`.
+so check `wrapper.connected`. A Lua reload wraps `BeginReload`/`EndReload` (`pkg/server`): topics
+the new Lua does not subscribe again are dropped. Contract: `TestContract_MQTT_Subscribe*`, `pkg/server/mqtt_start_subscribe_test.go`.
 
 ### Scales
 Home Assistant sends brightness 0..100 (`brightness_scale`); a dimmer's value is 0..1; an on/off

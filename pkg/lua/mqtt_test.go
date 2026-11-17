@@ -330,3 +330,38 @@ func TestMQTTBuiltInClientIsProtected(t *testing.T) {
 		t.Errorf("destroy/new of the built-in client = %s, want false|false|nil", got)
 	}
 }
+
+// A filter MQTT does not allow is refused and not kept, so it cannot break a restore (#181 review).
+func TestMQTTSubscribeInvalidFilter(t *testing.T) {
+	mm := NewMQTTManager()
+	for _, topic := range []string{"", "a/#/b", "a/b#", "a/+b", "a\x00"} {
+		if err := mm.Subscribe("i", topic, 0); err == nil {
+			t.Errorf("filter %q accepted", topic)
+		}
+	}
+	for _, topic := range []string{"#", "a/#", "+/b/+", "a//b", "/a"} {
+		if err := validTopicFilter(topic); err != nil {
+			t.Errorf("filter %q refused: %v", topic, err)
+		}
+	}
+	if got := mm.topicList("i"); len(got) != 0 {
+		t.Errorf("kept %v", got)
+	}
+}
+
+// After a reload only the topics the new Lua subscribed again stay (#181 review).
+func TestMQTTReloadKeepsOnlySubscribedAgain(t *testing.T) {
+	mm := NewMQTTManager()
+	_ = mm.Subscribe("i", "a", 0)
+	_ = mm.Subscribe("i", "b", 1)
+	mm.BeginReload()
+	mm.SubscribeAsync("i", "b", 1)
+	mm.EndReload()
+	<-mm.events
+	if got := mm.topicList("i"); len(got) != 1 || got[0] != "b" {
+		t.Errorf("topics after reload = %v, want [b]", got)
+	}
+	if mm.reloaded != nil {
+		t.Errorf("reload state left: %v", mm.reloaded)
+	}
+}

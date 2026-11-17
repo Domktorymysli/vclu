@@ -20,6 +20,7 @@ type MQTTManager struct {
 	mu              sync.RWMutex
 	clients         map[string]*mqttClientWrapper
 	topics          map[string]map[string]byte // instance -> topic -> QoS, kept without a client and across reconnects
+	reloaded        map[string]map[string]byte // topics from before a Lua reload not subscribed again yet
 	incoming        chan *mqttMessage          // channel for incoming messages
 	events          chan *mqttEvent            // channel for async lifecycle events (connect/subscribe results)
 	maxBuffer       int
@@ -294,6 +295,7 @@ func (mm *MQTTManager) Destroy(instanceID string) {
 	mm.mu.Lock()
 	subs := mm.topicList(instanceID)
 	delete(mm.topics, instanceID)
+	delete(mm.reloaded, instanceID)
 	wrapper, ok := mm.clients[instanceID]
 	if !ok || wrapper.client == nil {
 		mm.mu.Unlock()
@@ -357,16 +359,11 @@ func (mm *MQTTManager) Publish(instanceID, topic, payload string, qos int, retai
 // Subscribe subscribes to a topic. The topic is kept for the instance first, so a client that
 // does not exist or is not connected yet subscribes it on its next connect.
 func (mm *MQTTManager) Subscribe(instanceID, topic string, qos int) error {
-	// Validate QoS
-	if qos < 0 || qos > 2 {
-		return fmt.Errorf("invalid QoS level %d (must be 0, 1, or 2)", qos)
+	if err := mm.keep(instanceID, topic, qos); err != nil {
+		return err
 	}
 
 	mm.mu.Lock()
-	if mm.topics[instanceID] == nil {
-		mm.topics[instanceID] = make(map[string]byte)
-	}
-	mm.topics[instanceID][topic] = byte(qos)
 	wrapper, ok := mm.clients[instanceID]
 	connected := ok && wrapper.client != nil && wrapper.connected
 	mm.mu.Unlock()
@@ -409,17 +406,107 @@ func (mm *MQTTManager) onConnected(wrapper *mqttClientWrapper, c mqtt.Client) bo
 	if mm.metrics != nil {
 		mm.metrics.SetMQTTConnected(true)
 	}
-	if len(filters) > 0 {
-		token := c.SubscribeMultiple(filters, nil)
+	// One topic at a time: a filter the broker refuses does not take the others with it
+	for topic, qos := range filters {
+		token := c.Subscribe(topic, qos, nil)
 		go func() {
 			if !token.WaitTimeout(10 * time.Second) {
-				log.Printf("[MQTT] %s restoring %d subscriptions timed out", wrapper.instanceID, len(filters))
+				log.Printf("[MQTT] %s restoring subscription %s timed out", wrapper.instanceID, topic)
 			} else if err := token.Error(); err != nil {
-				log.Printf("[MQTT] %s restoring %d subscriptions failed: %v", wrapper.instanceID, len(filters), err)
+				log.Printf("[MQTT] %s restoring subscription %s failed: %v", wrapper.instanceID, topic, err)
 			}
 		}()
 	}
 	return true
+}
+
+// keep records a topic for the instance, so every connect subscribes it.
+func (mm *MQTTManager) keep(instanceID, topic string, qos int) error {
+	if qos < 0 || qos > 2 {
+		return fmt.Errorf("invalid QoS level %d (must be 0, 1, or 2)", qos)
+	}
+	if err := validTopicFilter(topic); err != nil {
+		return err
+	}
+	mm.mu.Lock()
+	defer mm.mu.Unlock()
+	if mm.topics[instanceID] == nil {
+		mm.topics[instanceID] = make(map[string]byte)
+	}
+	mm.topics[instanceID][topic] = byte(qos)
+	if mm.reloaded != nil {
+		delete(mm.reloaded[instanceID], topic)
+	}
+	return nil
+}
+
+// validTopicFilter checks a subscription filter as MQTT 3.1.1 (4.7) defines it.
+func validTopicFilter(topic string) error {
+	if topic == "" || len(topic) > 65535 || strings.ContainsRune(topic, 0) {
+		return fmt.Errorf("invalid topic filter %q", topic)
+	}
+	levels := strings.Split(topic, "/")
+	for i, level := range levels {
+		if strings.Contains(level, "#") && (level != "#" || i != len(levels)-1) {
+			return fmt.Errorf("invalid topic filter %q: # must be the whole last level", topic)
+		}
+		if strings.Contains(level, "+") && level != "+" {
+			return fmt.Errorf("invalid topic filter %q: + must be a whole level", topic)
+		}
+	}
+	return nil
+}
+
+// BeginReload starts a Lua reload: the new Lua subscribes what it needs again, and
+// EndReload drops the topics it did not.
+func (mm *MQTTManager) BeginReload() {
+	mm.mu.Lock()
+	defer mm.mu.Unlock()
+	mm.reloaded = mm.topics
+	mm.topics = make(map[string]map[string]byte)
+}
+
+// EndReload unsubscribes on the broker the topics from before the reload that the new Lua
+// did not subscribe again.
+func (mm *MQTTManager) EndReload() {
+	mm.mu.Lock()
+	stale := mm.reloaded
+	mm.reloaded = nil
+	clients := make(map[string]mqtt.Client, len(stale))
+	for instanceID := range stale {
+		if w, ok := mm.clients[instanceID]; ok && w.client != nil && w.connected {
+			clients[instanceID] = w.client
+		}
+	}
+	mm.mu.Unlock()
+	for instanceID, topics := range stale {
+		c := clients[instanceID]
+		if c == nil || len(topics) == 0 {
+			continue
+		}
+		list := make([]string, 0, len(topics))
+		for topic := range topics {
+			list = append(list, topic)
+		}
+		log.Printf("[MQTT] %s after reload unsubscribes %d unused topics", instanceID, len(list))
+		go func() {
+			if t := c.Unsubscribe(list...); !t.WaitTimeout(5 * time.Second) {
+				return
+			}
+			// Subscribed again while the unsubscribe was on its way: subscribe it back
+			mm.mu.Lock()
+			again := make(map[string]byte)
+			for _, topic := range list {
+				if qos, ok := mm.topics[instanceID][topic]; ok {
+					again[topic] = qos
+				}
+			}
+			mm.mu.Unlock()
+			for topic, qos := range again {
+				c.Subscribe(topic, qos, nil)
+			}
+		}()
+	}
 }
 
 // topicList returns the instance's topics, sorted. Caller holds mm.mu.
@@ -435,6 +522,7 @@ func (mm *MQTTManager) topicList(instanceID string) []string {
 // SubscribeAsync starts a subscription in a background goroutine.
 // The result is delivered via the events channel as a "subscribe_result" event.
 func (mm *MQTTManager) SubscribeAsync(instanceID, topic string, qos int) {
+	_ = mm.keep(instanceID, topic, qos) // now, not in the goroutine: EndReload must see it
 	go func() {
 		err := mm.Subscribe(instanceID, topic, qos)
 		errStr := ""
@@ -758,6 +846,7 @@ func (mm *MQTTManager) Close() {
 	}
 	mm.clients = make(map[string]*mqttClientWrapper)
 	mm.topics = make(map[string]map[string]byte)
+	mm.reloaded = nil
 }
 
 // registerMQTTFunctions registers Go MQTT functions in Lua

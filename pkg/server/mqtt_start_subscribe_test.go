@@ -34,6 +34,13 @@ func startBroker(t *testing.T) (*broker.Broker, int) {
 // that subscribes in its init, and an MQTT client configured for the broker on port.
 func startServerWithModule(t *testing.T, port int, module string) *lua.LuaEngine {
 	t.Helper()
+	_, engine := startServer(t, port, module)
+	return engine
+}
+
+// startServer is startServerWithModule that also gives the server, for a reload.
+func startServer(t *testing.T, port int, module string) (*Server, *lua.LuaEngine) {
+	t.Helper()
 	dir := t.TempDir()
 	for _, sub := range []string{"a", "modules"} {
 		if err := os.MkdirAll(filepath.Join(dir, sub), 0o755); err != nil {
@@ -62,7 +69,7 @@ func startServerWithModule(t *testing.T, port int, module string) *lua.LuaEngine
 		engine.Close()
 	})
 	s.LoadInitialData()
-	return engine
+	return s, engine
 }
 
 // waitFor publishes on topic until the Lua expression check is "true".
@@ -123,5 +130,49 @@ func TestModuleSubscribeSurvivesBrokerRestartOnce(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 	if got, _ := engine.Execute(`tostring(GOT.n)`); got != "1" {
 		t.Errorf("one message gave %s callbacks, want 1", got)
+	}
+}
+
+// A topic the module no longer subscribes after a reload is dropped in Go and on the broker (#181 review).
+func TestReloadDropsTopicsNoLongerSubscribed(t *testing.T) {
+	b, port := startBroker(t)
+	s, engine := startServer(t, port, `
+		GOT = { n = 0 }
+		MQTT:subscribe("test/old", function() GOT.n = GOT.n + 1 end)
+	`)
+	waitFor(t, b, engine, "test/old", `tostring(GOT.n > 0)`)
+
+	module := filepath.Join(s.serverDir, "modules", "sub.lua")
+	if err := os.WriteFile(module, []byte(`
+		GOT = { n = 0 }
+		MQTT:subscribe("test/new", function() GOT.n = GOT.n + 1 end)
+	`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, b, engine, "test/new", `tostring(GOT.n > 0)`)
+
+	mm := engine.GetMQTTManager()
+	if subs := mm.Stats().Clients[0].Subscriptions; !slices.Contains(subs, "test/new") || slices.Contains(subs, "test/old") {
+		t.Errorf("subscriptions after reload = %v, want test/new without test/old", subs)
+	}
+	// The broker no longer has the old topic for vclu's client
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		var subs []string
+		for _, c := range b.GetClients() {
+			if c.ID == "vclu_start_test" {
+				subs = c.Subscriptions
+			}
+		}
+		if slices.Contains(subs, "test/new") && !slices.Contains(subs, "test/old") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("broker subscriptions after reload = %v, want test/new without test/old", subs)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
