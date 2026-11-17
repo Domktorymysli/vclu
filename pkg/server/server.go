@@ -403,10 +403,14 @@ func (s *Server) LoadInitialData() {
 // reapplyMQTT gives the reloaded Lua the MQTT config and the HA integration (Go connection survives reload).
 func (s *Server) reapplyMQTT() {
 	if clientConfig := config.GetMQTTClientConfig(s.serverDir); clientConfig != nil && clientConfig.Enabled {
-		s.luaEngine.Execute(fmt.Sprintf(`MQTT:setHost(%q):setPort(%d):setClientId(%q):setCredentials(%q, %q)`,
-			clientConfig.Host, clientConfig.Port, clientConfig.ClientID, clientConfig.Username, clientConfig.Password))
+		if _, err := s.luaEngine.Execute(fmt.Sprintf(`MQTT:setHost(%q):setPort(%d):setClientId(%q):setCredentials(%q, %q)`,
+			clientConfig.Host, clientConfig.Port, clientConfig.ClientID, clientConfig.Username, clientConfig.Password)); err != nil {
+			log.Printf("WARNING: MQTT config after reload: %v", err)
+		}
 		if clientConfig.HAIntegration {
-			s.luaEngine.Execute("HAIntegration.setup(MQTT)")
+			if _, err := s.luaEngine.Execute("HAIntegration.setup(MQTT)"); err != nil {
+				log.Printf("WARNING: HA integration setup after reload: %v", err)
+			}
 		}
 	}
 }
