@@ -19,7 +19,7 @@ const dashCoverTiltSetup = `
 	slats.setTilt = function(a) T.sent[#T.sent + 1] = a end
 	local unread = moves()
 	unread.getTilt = function() return nil end
-	unread.setTilt = function() end
+	unread.setTilt = function(a) T.sent[#T.sent + 1] = a end
 	local readOnly = moves()
 	readOnly.getTilt = function() return 30 end
 	local locked = moves()
