@@ -257,12 +257,25 @@ end
 function SYSTEM:clientRegister(clientIP, destPort, sessionID, subscriptions)
     -- Clients call it on the class (SYSTEM:clientRegister); the reporter reads the shared instance
     self = shared or self
+    -- A bad entry kept here would break the reports of every client
+    clientIP, destPort, sessionID = tostring(clientIP), tonumber(destPort), tonumber(sessionID)
+    if not clientIP:match("^[%x%.:]+$") or not destPort or not sessionID or type(subscriptions) ~= "table" then
+        error("SYSTEM:clientRegister: bad address, port, session or subscription list", 0)
+    end
+    for _, sub in ipairs(subscriptions) do
+        if type(sub) ~= "table" or (sub[1] ~= nil and type(sub[1]) ~= "table") then
+            error("SYSTEM:clientRegister: each subscription is {object, feature}", 0)
+        end
+    end
     Logger:getShared():info("SYSTEM:clientRegister(" .. clientIP .. ", " .. destPort .. ", " .. sessionID .. ", [" .. #subscriptions .. " features])")
 
     -- Ensure clientSubscriptions table exists (for hot-reload compatibility)
     if self.clientSubscriptions == nil then
         self.clientSubscriptions = {}
     end
+
+    -- Collect current values
+    local valuesStr = self:collectFeatureValues(subscriptions)
 
     -- Store the subscription
     local key = clientIP .. ":" .. destPort .. ":" .. sessionID
@@ -275,9 +288,6 @@ function SYSTEM:clientRegister(clientIP, destPort, sessionID, subscriptions)
         registeredAt = now,
         lastActivityAt = now,
     }
-
-    -- Collect current values
-    local valuesStr = self:collectFeatureValues(subscriptions)
 
     -- Return immediate response with current values
     -- Format: clientReport:sessionID:{values}
@@ -311,6 +321,53 @@ function SYSTEM:clientDestroy(clientIP, destPort, sessionID)
     return tostring(sessionID)
 end
 
+--- Report of one subscription when its values changed (or on the first call), else nil
+local function pendingReport(sub)
+    local subs = sub.subscriptions
+    local cache = sub._valueCache
+
+    -- First call: no cache yet — always report
+    if not cache then
+        cache = {}
+        sub._valueCache = cache
+    end
+
+    -- Read current values and detect changes (no string allocation)
+    local changed = false
+    local n = #subs
+    for i = 1, n do
+        local s = subs[i]
+        local obj = s[1]
+        local featureIndex = s[2]
+        local value = nil
+        if obj ~= nil and type(obj.get) == "function" then
+            local ok, result = pcall(obj.get, obj, featureIndex)
+            if ok then value = result end
+        end
+        -- Compare raw values — no string conversion
+        if cache[i] ~= value then
+            changed = true
+            cache[i] = value
+        end
+    end
+
+    -- First report (cache was empty) always sends
+    if not changed and n > 0 and cache._sent then
+        -- Values unchanged since last report — skip
+    else
+        cache._sent = true
+        -- Build values string only when changed
+        local values = {}
+        for i = 1, n do
+            values[i] = formatValue(cache[i])
+        end
+        local valuesStr = "{" .. table.concat(values, ",") .. "}"
+        local escapedValues = valuesStr:gsub('"', '\\"')
+        return string.format('{"ip":"%s","port":%d,"sessionID":%d,"values":"%s"}',
+            sub.ip, sub.port, sub.sessionID, escapedValues)
+    end
+end
+
 --- Get all pending client reports for push notifications (diff-based)
 -- Called periodically by Go to collect and send updates to subscribed clients.
 -- Only includes subscriptions whose values actually changed since last call,
@@ -324,48 +381,13 @@ function SYSTEM:getPendingClientReports()
     local reports = {}
 
     for key, sub in pairs(self.clientSubscriptions) do
-        local subs = sub.subscriptions
-        local cache = sub._valueCache
-
-        -- First call: no cache yet — always report
-        if not cache then
-            cache = {}
-            sub._valueCache = cache
-        end
-
-        -- Read current values and detect changes (no string allocation)
-        local changed = false
-        local n = #subs
-        for i = 1, n do
-            local s = subs[i]
-            local obj = s[1]
-            local featureIndex = s[2]
-            local value = nil
-            if obj ~= nil and type(obj.get) == "function" then
-                local ok, result = pcall(obj.get, obj, featureIndex)
-                if ok then value = result end
-            end
-            -- Compare raw values — no string conversion
-            if cache[i] ~= value then
-                changed = true
-                cache[i] = value
-            end
-        end
-
-        -- First report (cache was empty) always sends
-        if not changed and n > 0 and cache._sent then
-            -- Values unchanged since last report — skip
-        else
-            cache._sent = true
-            -- Build values string only when changed
-            local values = {}
-            for i = 1, n do
-                values[i] = formatValue(cache[i])
-            end
-            local valuesStr = "{" .. table.concat(values, ",") .. "}"
-            local escapedValues = valuesStr:gsub('"', '\\"')
-            reports[#reports + 1] = string.format('{"ip":"%s","port":%d,"sessionID":%d,"values":"%s"}',
-                sub.ip, sub.port, sub.sessionID, escapedValues)
+        -- One broken entry must not stop the reports of the others
+        local ok, report = pcall(pendingReport, sub)
+        if not ok then
+            Logger:getShared():warn("SYSTEM:getPendingClientReports - dropped " .. key .. ": " .. tostring(report))
+            self.clientSubscriptions[key] = nil
+        elseif report then
+            reports[#reports + 1] = report
         end
     end
 
