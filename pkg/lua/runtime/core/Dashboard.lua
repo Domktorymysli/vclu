@@ -4517,6 +4517,8 @@ function DashboardAPI.executeAction(id, widgetId, action, value, ctx)
             return JSON.encode({ success = true, value = numVal })
         elseif action == 'tilt' then
             if type(fns.setTilt) ~= 'function' then return JSON.encode({ error = 'No setTilt function' }) end
+            -- as the group tile: only a cover reporting an angle has slats
+            if coverWidgetTilt(fns) == nil then return JSON.encode({ error = 'No tilt' }) end
             local numVal = tonumber(value)
             if not numVal or numVal - numVal ~= 0 then return JSON.encode({ error = 'Value must be a number' }) end
             numVal = math.max(0, math.min(90, numVal))
