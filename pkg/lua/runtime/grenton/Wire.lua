@@ -1,36 +1,36 @@
---- MyGrenton: reads and commands for dashboards made from the myGrenton interface.
+--- Wire: reads and commands for dashboards made from the myGrenton interface.
 -- The Grenton page writes the dashboards as plain Dashboard code (#220); what reads a CLU or
 -- sends it a command goes through these helpers, so it never waits for the CLU and is checked:
 --
---   s:toggle("mg2", "Hall light", nil,
---       MyGrenton.isOn(MyGrenton.value("CLU221000002.DOU0001")),
---       MyGrenton.onOff(MyGrenton.set("CLU221000002.DOU0001", 0, 1), MyGrenton.set("CLU221000002.DOU0001", 0, 0)))
---   s:status("mg4", "Setpoint", nil, MyGrenton.variable("CLU221000002", "setpoint"), "°C")
---   s:slider("mg9", "Dimmer", 0, 100, MyGrenton.value("CLU221000002.DOU0001"),
---       MyGrenton.set("CLU221000002.DOU0001", 0, MyGrenton.INPUT))
---   s:button("mg7", "Evening", nil, MyGrenton.script("CLU221000002", "setup", "evening", 2))
+--   s:toggle("w2", "Hall light", nil,
+--       Wire.isOn(Wire.value("CLU221000002.DOU0001")),
+--       Wire.onOff(Wire.set("CLU221000002.DOU0001", 0, 1), Wire.set("CLU221000002.DOU0001", 0, 0)))
+--   s:status("w4", "Setpoint", nil, Wire.variable("CLU221000002", "setpoint"), "°C")
+--   s:slider("w9", "Dimmer", 0, 100, Wire.value("CLU221000002.DOU0001"),
+--       Wire.set("CLU221000002.DOU0001", 0, Wire.INPUT))
+--   s:button("w7", "Evening", nil, Wire.script("CLU221000002", "setup", "evening", 2))
 --
 -- A path is "<CLU>.<object>" as the registry has it, or "<CLU>" for the CLU's own features.
 -- What the registry follows (an object's value) is read from it; anything else is asked in
 -- the background and the widget shows the last answer.
--- @module MyGrenton
+-- @module Wire
 
-local MyGrenton = {}
+local Wire = {}
 
 -- seconds between two background reads of one value
-MyGrenton.refresh = 5
+Wire.refresh = 5
 -- seconds after which a read whose answer never came is asked again
-MyGrenton.lost = 60
+Wire.lost = 60
 
 --- The value the user enters (a slider, a thermostat's set point), as set's or execute's value.
 -- @api public
-MyGrenton.INPUT = setmetatable({}, { __tostring = function() return "MyGrenton.INPUT" end })
+Wire.INPUT = setmetatable({}, { __tostring = function() return "Wire.INPUT" end })
 
--- Pages that failed to load: { { module = "dashboards/grenton/page_1", error = "..." } }
-MyGrenton.errors = {}
+-- Pages that failed to load: { { module = "dashboards/imported/page_1", error = "..." } }
+Wire.errors = {}
 
 local function warn(fmt, ...)
-    Logger:getShared():warn("[MyGrenton] " .. fmt, ...)
+    Logger:getShared():warn("[Wire] " .. fmt, ...)
 end
 
 -- ==========================================================================
@@ -53,7 +53,7 @@ local function isIndex(n)
 end
 
 local function check(ok, fn, what)
-    if not ok then error("MyGrenton." .. fn .. ": " .. what, 3) end
+    if not ok then error("Wire." .. fn .. ": " .. what, 3) end
 end
 
 -- clu, object from "CLU….OBJ" or "CLU…"; object nil for the CLU itself
@@ -70,7 +70,7 @@ local function split(fn, path, needObject)
 end
 
 local function isValue(v)
-    return v == nil or v == MyGrenton.INPUT or type(v) == "number" or type(v) == "string"
+    return v == nil or v == Wire.INPUT or type(v) == "number" or type(v) == "string"
 end
 
 -- The CLU proxy, nil while it is not imported
@@ -115,8 +115,8 @@ local function background(key, ask)
         end
         local now = os.time()
         -- an answer that never came (a reply lost on the way) does not stop the next ask
-        local waiting = e.sentAt and now - e.sentAt < MyGrenton.lost
-        if not waiting and (e.at == nil or now - e.at >= MyGrenton.refresh) then
+        local waiting = e.sentAt and now - e.sentAt < Wire.lost
+        if not waiting and (e.at == nil or now - e.at >= Wire.refresh) then
             e.sentAt = now
             local ok, err = pcall(ask, function(v, aerr)
                 e.sentAt, e.at = nil, os.time()
@@ -157,7 +157,7 @@ end
 -- @api public
 -- @param path string "CLU221000002.DOU0001", or "CLU221000002" for the CLU's own
 -- @return function A read for a widget
-function MyGrenton.value(path)
+function Wire.value(path)
     return feature("value", path, 0)
 end
 
@@ -166,7 +166,7 @@ end
 -- @param path string "CLU221000002.DIN0001", or "CLU221000002"
 -- @param index number Feature number
 -- @return function A read for a widget
-function MyGrenton.feature(path, index)
+function Wire.feature(path, index)
     return feature("feature", path, index)
 end
 
@@ -175,7 +175,7 @@ end
 -- @param clu string "CLU221000002"
 -- @param name string The user feature, e.g. "setpoint"
 -- @return function A read for a widget
-function MyGrenton.variable(clu, name)
+function Wire.variable(clu, name)
     check(type(clu) == "string" and clu:match("^CLU%d+$"), "variable", "clu must be like \"CLU221000002\"")
     check(isName(name), "variable", "user feature " .. tostring(name) .. " is no Lua name")
     return background(clu .. ":" .. name, function(done)
@@ -197,9 +197,9 @@ end
 
 --- A read as on or off: 0, "", "0", false and nothing are off.
 -- @api public
--- @param read function A read (MyGrenton.value, ...)
+-- @param read function A read (Wire.value, ...)
 -- @return function A read of true or false
-function MyGrenton.isOn(read)
+function Wire.isOn(read)
     check(type(read) == "function", "isOn", "takes a read")
     return function() return on(read()) end
 end
@@ -210,7 +210,7 @@ end
 -- @param onText string Shown when on
 -- @param offText string Shown when off
 -- @return function A read of the text
-function MyGrenton.text(read, onText, offText)
+function Wire.text(read, onText, offText)
     check(type(read) == "function", "text", "takes a read")
     check(type(onText) == "string" and type(offText) == "string", "text", "takes two texts")
     return function()
@@ -227,10 +227,10 @@ end
 local function command(fn, path, index, value, send)
     local clu, object = split(fn, path, true)
     check(isIndex(index), fn, "index must be a number 0-9999, got " .. tostring(index))
-    check(isValue(value), fn, "value must be a number, a string or MyGrenton.INPUT")
+    check(isValue(value), fn, "value must be a number, a string or Wire.INPUT")
     return function(input)
         local v = value
-        if v == MyGrenton.INPUT then
+        if v == Wire.INPUT then
             if type(input) ~= "number" and type(input) ~= "string" then return "no value entered" end
             v = input
         end
@@ -247,9 +247,9 @@ end
 -- @api public
 -- @param path string "CLU221000002.DOU0001"
 -- @param index number Feature number
--- @param value any A number, a string, or MyGrenton.INPUT for what the user enters
+-- @param value any A number, a string, or Wire.INPUT for what the user enters
 -- @return function An action for a widget
-function MyGrenton.set(path, index, value)
+function Wire.set(path, index, value)
     check(value ~= nil, "set", "takes a value")
     return command("set", path, index, value, function(obj, i, v) obj:set(i, v) end)
 end
@@ -258,9 +258,9 @@ end
 -- @api public
 -- @param path string "CLU221000002.DOU0001"
 -- @param index number Method number
--- @param value any Optional: a number, a string, or MyGrenton.INPUT
+-- @param value any Optional: a number, a string, or Wire.INPUT
 -- @return function An action for a widget
-function MyGrenton.execute(path, index, value)
+function Wire.execute(path, index, value)
     return command("execute", path, index, value, function(obj, i, v)
         if v == nil then obj:execute(i) else obj:execute(i, v) end
     end)
@@ -272,7 +272,7 @@ end
 -- @param name string The script
 -- @param ... any Numbers and strings
 -- @return function An action for a widget
-function MyGrenton.script(clu, name, ...)
+function Wire.script(clu, name, ...)
     check(type(clu) == "string" and clu:match("^CLU%d+$"), "script", "clu must be like \"CLU221000002\"")
     check(isName(name), "script", "script " .. tostring(name) .. " is no Lua name")
     local args = {}
@@ -297,7 +297,7 @@ end
 -- @param onAction function|nil Run to switch on
 -- @param offAction function|nil Run to switch off
 -- @return function The toggle's action
-function MyGrenton.onOff(onAction, offAction)
+function Wire.onOff(onAction, offAction)
     check(onAction == nil or type(onAction) == "function", "onOff", "takes actions")
     check(offAction == nil or type(offAction) == "function", "onOff", "takes actions")
     return function(want)
@@ -307,15 +307,15 @@ function MyGrenton.onOff(onAction, offAction)
 end
 
 --- Loads a dashboard page on its own: one that fails is logged and listed in
--- MyGrenton.errors, and the others still load.
+-- Wire.errors, and the others still load.
 -- @api public
--- @param module string The page's module, e.g. "dashboards/grenton/page_1700000000001"
+-- @param module string The page's module, e.g. "dashboards/imported/page_1700000000001"
 -- @return boolean Whether it loaded
-function MyGrenton.load(module)
+function Wire.load(module)
     check(type(module) == "string", "load", "takes a module name")
     local ok, err = pcall(require, module)
     if not ok then
-        MyGrenton.errors[#MyGrenton.errors + 1] = { module = module, error = tostring(err) }
+        Wire.errors[#Wire.errors + 1] = { module = module, error = tostring(err) }
         warn("%s failed: %s", module, tostring(err))
     end
     return ok
@@ -323,10 +323,10 @@ end
 
 --- The pages that failed to load since the last reload, as "module: error" lines in JSON.
 -- @return string A JSON list
-function MyGrenton.errorsJSON()
+function Wire.errorsJSON()
     local out = {}
-    for _, e in ipairs(MyGrenton.errors) do out[#out + 1] = e.module .. ": " .. e.error end
+    for _, e in ipairs(Wire.errors) do out[#out + 1] = e.module .. ": " .. e.error end
     return JSON.encode(out)
 end
 
-return MyGrenton
+return Wire

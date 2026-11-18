@@ -56,39 +56,39 @@ func TestReadInterface(t *testing.T) {
 	if hall.Widgets[0].Kind != dashspec.Group || hall.Widgets[0].Label != "Lights" {
 		t.Errorf("header %+v", hall.Widgets[0])
 	}
-	if w := h["mg2"]; w.Kind != dashspec.Toggle || *w.Read.Feature != 0 || w.Read.Object != "DOU0001" ||
+	if w := h["w2"]; w.Kind != dashspec.Toggle || *w.Read.Feature != 0 || w.Read.Object != "DOU0001" ||
 		w.On.Op != dashspec.SetFeature || w.On.Value != 1.0 || w.Off.Value != 0.0 {
 		t.Errorf("toggle %+v", w)
 	}
-	if w := h["mg4"]; w.Kind != dashspec.Status || w.Read.Variable != "setpoint" || *w.Decimals != 1 || w.Unit != "°C" {
+	if w := h["w4"]; w.Kind != dashspec.Status || w.Read.Variable != "setpoint" || *w.Decimals != 1 || w.Unit != "°C" {
 		t.Errorf("variable %+v", w)
 	}
-	if w := h["mg6"]; w.OnText != "Open" || w.OffText != "Closed" || h["mg6_click"].Do.Op != dashspec.Execute || h["mg6_click"].Do.Value != 3000.0 {
-		t.Errorf("contact %+v %+v", w, h["mg6_click"])
+	if w := h["w6"]; w.OnText != "Open" || w.OffText != "Closed" || h["w6_click"].Do.Op != dashspec.Execute || h["w6_click"].Do.Value != 3000.0 {
+		t.Errorf("contact %+v %+v", w, h["w6_click"])
 	}
-	if w := h["mg7"]; w.Kind != dashspec.Button || w.Do.Script != "setup" || len(w.Do.Args) != 2 || w.Do.Args[0] != "evening" || w.Do.Args[1] != 2.0 {
+	if w := h["w7"]; w.Kind != dashspec.Button || w.Do.Script != "setup" || len(w.Do.Args) != 2 || w.Do.Args[0] != "evening" || w.Do.Args[1] != 2.0 {
 		t.Errorf("scene %+v", w.Do)
 	}
-	if a := h["mg8_1"].Do.Args; len(a) != 2 || a[1] != -1.0 || h["mg8_2"].Label != "Down" || len(h["mg8_2"].Do.Args) != 0 {
-		t.Errorf("double %+v %+v", h["mg8_1"], h["mg8_2"])
+	if a := h["w8_1"].Do.Args; len(a) != 2 || a[1] != -1.0 || h["w8_2"].Label != "Down" || len(h["w8_2"].Do.Args) != 0 {
+		t.Errorf("double %+v %+v", h["w8_1"], h["w8_2"])
 	}
-	if w := h["mg9"]; w.Kind != dashspec.Slider || !w.Set.Input || *w.Min != 0 || *w.Max != 100 {
+	if w := h["w9"]; w.Kind != dashspec.Slider || !w.Set.Input || *w.Min != 0 || *w.Max != 100 {
 		t.Errorf("slider %+v", w)
 	}
 
 	c := byID(climate.Widgets)
-	if w := c["mg20"]; w.Kind != dashspec.Thermostat || *w.Current.Feature != 14 || !w.Set.Input || w.State == nil || *w.Max != 30 {
+	if w := c["w20"]; w.Kind != dashspec.Thermostat || *w.Current.Feature != 14 || !w.Set.Input || w.State == nil || *w.Max != 30 {
 		t.Errorf("thermostat %+v", w)
 	}
 	// numbers where OM writes strings
-	if w := c["mg28"]; w.Kind != dashspec.Toggle || w.On.Value != 1.0 || *w.Read.Feature != 0 {
+	if w := c["w28"]; w.Kind != dashspec.Toggle || w.On.Value != 1.0 || *w.Read.Feature != 0 {
 		t.Errorf("numbers %+v", w)
 	}
 	// a second widget with the same id gets one of its own; a read of the CLU itself is kept
-	if w := c["mg28_2"]; w.Read == nil || w.Read.Object != "" || *w.Read.Feature != 9 {
+	if w := c["w28_2"]; w.Read == nil || w.Read.Object != "" || *w.Read.Feature != 9 {
 		t.Errorf("same id %+v", w)
 	}
-	if w := c["mg27"]; w.Label != "\"); os.exit(1) --]] \\ \x01" {
+	if w := c["w27"]; w.Label != "\"); os.exit(1) --]] \\ \x01" {
 		t.Errorf("label %q", w.Label)
 	}
 	if len(climate.Widgets) != 4 {

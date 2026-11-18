@@ -16,7 +16,7 @@ import (
 // The myGrenton interfaces of the imported project (#219) in vclu's own model
 // (dashspec, translated by omproject), one <id>.json each, next to the om.lua
 // files and not among the user's. The dashboards are generated from these alone.
-const myGrentonDir = "mygrenton"
+const myGrentonDir = "panels"
 
 func (s *Server) myGrentonPath() string {
 	return filepath.Join(config.GetOMFilesDir(s.serverDir), myGrentonDir)

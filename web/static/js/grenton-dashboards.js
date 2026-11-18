@@ -64,7 +64,7 @@
                 html += '</td><td>' + widgets(p) + '</td>';
                 html += '<td>' + badge(p.state) + ' <code class="small">' + esc(p.file) + '</code>';
                 if (p.state !== 'none') {
-                    html += ' <a class="small" href="/d/grenton_page_' + encodeURIComponent(p.id) + '">' + esc(t('open')) + '</a>';
+                    html += ' <a class="small" href="/d/imported_' + encodeURIComponent(p.id) + '">' + esc(t('open')) + '</a>';
                 }
                 html += '</td></tr>';
             });

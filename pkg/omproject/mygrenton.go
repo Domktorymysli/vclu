@@ -183,9 +183,9 @@ func (t *translation) leave(why string) { t.left = append(t.left, t.name+": "+wh
 
 // id is a unique widget id on the page, from the interface's id.
 func (t *translation) id(g gWidget, n int, suffix string) string {
-	base := "mg" + strconv.Itoa(n+1)
+	base := "w" + strconv.Itoa(n+1)
 	if v, err := g.ID.Int64(); err == nil && v >= 0 && v < 1e12 {
-		base = "mg" + strconv.FormatInt(v, 10)
+		base = "w" + strconv.FormatInt(v, 10)
 	}
 	id := base + suffix
 	for i := 2; t.ids[id]; i++ {

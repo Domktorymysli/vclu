@@ -131,7 +131,7 @@ end
 require("Helpers")
 
 -- LAYER 11b: myGrenton interface widgets on dashboards (needs Dashboard, RemoteObject, Registry)
-MyGrenton = require("MyGrenton")
+Wire = require("Wire")
 
 -- Load system
 SYSTEM = require("System")

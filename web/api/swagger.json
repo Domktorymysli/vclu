@@ -1180,7 +1180,7 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Writes modules/dashboards/grenton/page_\u003cid\u003e.lua for each chosen page and init.lua loading every page file there. A file vclu did not write, or wrote and someone changed, is never replaced (kept); a file vclu wrote is replaced only with replace (ask). When init.lua is the user's, the pages are written and the lines to add are returned (initLines). With addRequire, require(\"dashboards/grenton\") is added to modules/init.lua when missing. Lua reloads when the dashboards are required; pages that failed to load are in pageErrors.",
+                "description": "Writes modules/dashboards/imported/page_\u003cid\u003e.lua for each chosen page and init.lua loading every page file there. A file vclu did not write, or wrote and someone changed, is never replaced (kept); a file vclu wrote is replaced only with replace (ask). When init.lua is the user's, the pages are written and the lines to add are returned (initLines). With addRequire, require(\"dashboards/imported\") is added to modules/init.lua when missing. Lua reloads when the dashboards are required; pages that failed to load are in pageErrors.",
                 "consumes": [
                     "application/json"
                 ],

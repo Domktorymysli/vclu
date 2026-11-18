@@ -19,21 +19,21 @@ import (
 )
 
 // Dashboards from the myGrenton interface (#220): generated from vclu's model of
-// it (dashspec), one file per page in modules/dashboards/grenton/, written only
+// it (dashspec), one file per page in modules/dashboards/imported/, written only
 // when the user asks, theirs from then on.
 
 const (
-	grentonDashDir = "dashboards/grenton" // under modules/
-	grentonRequire = `require("dashboards/grenton")`
+	grentonDashDir = "dashboards/imported" // under modules/
+	grentonRequire = `require("dashboards/imported")`
 	// headerPrefix starts a file vclu wrote; the hash is of what follows the header line
-	headerPrefix = "-- vclu: written from the myGrenton interface, sha256:"
+	headerPrefix = "-- vclu: generated, sha256:"
 )
 
 var (
-	reHeader   = regexp.MustCompile(`^-- vclu: written from the myGrenton interface, sha256:([0-9a-f]{64})\n`)
+	reHeader   = regexp.MustCompile(`^-- vclu: generated, sha256:([0-9a-f]{64})\n`)
 	rePageFile = regexp.MustCompile(`^page_([0-9]{1,19})\.lua$`)
 	// the require line at the start of a line, comments taken out first
-	reRequire      = regexp.MustCompile(`(?m)^[ \t]*require[ \t]*\(?[ \t]*["']dashboards[/.]grenton["'][ \t]*\)?`)
+	reRequire      = regexp.MustCompile(`(?m)^[ \t]*require[ \t]*\(?[ \t]*["']dashboards[/.]imported["'][ \t]*\)?`)
 	reBlockComment = regexp.MustCompile(`(?s)--\[(=*)\[.*?\]`)
 )
 
@@ -119,11 +119,11 @@ func blockComments(code string) string {
 	}
 }
 
-// flatGrenton is modules/dashboards/grenton.lua, which require would load instead of the directory.
+// flatGrenton is modules/dashboards/imported.lua, which require would load instead of the directory.
 func (s *Server) flatGrenton() string {
-	p := filepath.Join(s.serverDir, modulesDirName, "dashboards", "grenton.lua")
+	p := filepath.Join(s.serverDir, modulesDirName, "dashboards", "imported.lua")
 	if _, err := os.Stat(p); err == nil {
-		return modulesDirName + "/dashboards/grenton.lua"
+		return modulesDirName + "/dashboards/imported.lua"
 	}
 	return ""
 }
@@ -256,7 +256,7 @@ type dashCreate struct {
 // handleAPIGrentonDashboardsCreate writes the dashboard files of the chosen pages.
 //
 //	@Summary		Create dashboards from myGrenton pages
-//	@Description	Writes modules/dashboards/grenton/page_<id>.lua for each chosen page and init.lua loading every page file there. A file vclu did not write, or wrote and someone changed, is never replaced (kept); a file vclu wrote is replaced only with replace (ask). When init.lua is the user's, the pages are written and the lines to add are returned (initLines). With addRequire, require("dashboards/grenton") is added to modules/init.lua when missing. Lua reloads when the dashboards are required; pages that failed to load are in pageErrors.
+//	@Description	Writes modules/dashboards/imported/page_<id>.lua for each chosen page and init.lua loading every page file there. A file vclu did not write, or wrote and someone changed, is never replaced (kept); a file vclu wrote is replaced only with replace (ask). When init.lua is the user's, the pages are written and the lines to add are returned (initLines). With addRequire, require("dashboards/imported") is added to modules/init.lua when missing. Lua reloads when the dashboards are required; pages that failed to load are in pageErrors.
 //	@Tags			grenton
 //	@Accept			json
 //	@Produce		json
@@ -275,7 +275,7 @@ func (s *Server) handleAPIGrentonDashboardsCreate(c *gin.Context) {
 	defer s.omImport.Unlock()
 
 	if f := s.flatGrenton(); f != "" {
-		c.JSON(http.StatusConflict, gin.H{"error": f + " exists: require(\"dashboards/grenton\") would load it instead of the directory. Rename or remove it first.", "flatFile": f})
+		c.JSON(http.StatusConflict, gin.H{"error": f + " exists: require(\"dashboards/imported\") would load it instead of the directory. Rename or remove it first.", "flatFile": f})
 		return
 	}
 	list, err := s.interfaces()
@@ -308,7 +308,10 @@ func (s *Server) handleAPIGrentonDashboardsCreate(c *gin.Context) {
 		pages = append(pages, p)
 		switch fileState(filepath.Join(dir, pageFile(p.ID))) {
 		case fileVCLU:
-			ask = append(ask, pageFile(p.ID))
+			// the same file again is no change to ask about
+			if b, err := os.ReadFile(filepath.Join(dir, pageFile(p.ID))); err != nil || string(b) != withHeader(dashspec.PageLua(*in, p)) {
+				ask = append(ask, pageFile(p.ID))
+			}
 		case fileEdited, fileUser:
 			kept = append(kept, pageFile(p.ID))
 		}
@@ -402,12 +405,12 @@ func (s *Server) handleAPIGrentonDashboardsCreate(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-// pageErrors are the pages MyGrenton.load could not load after the reload.
+// pageErrors are the pages Wire.load could not load after the reload.
 func (s *Server) pageErrors() []string {
 	if s.luaExecutor == nil {
 		return nil
 	}
-	out, err := s.luaExecutor.Execute(`return MyGrenton.errorsJSON()`)
+	out, err := s.luaExecutor.Execute(`return Wire.errorsJSON()`)
 	if err != nil {
 		return nil
 	}

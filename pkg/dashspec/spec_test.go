@@ -33,7 +33,7 @@ func TestCheck(t *testing.T) {
 			t.Errorf("%s: taken", name)
 		}
 	}
-	if err := (&Widget{Kind: Toggle, ID: "mg2_1", Read: read, On: set}).Check(); err != nil {
+	if err := (&Widget{Kind: Toggle, ID: "w2_1", Read: read, On: set}).Check(); err != nil {
 		t.Error(err)
 	}
 }
@@ -57,7 +57,7 @@ func TestPageLua(t *testing.T) {
 	// the labels read back as they were
 	L := lua.NewState()
 	if err := L.DoString(`LABELS = {}
-		MyGrenton = setmetatable({}, { __index = function() return function() return function() end end end })
+		Wire = setmetatable({}, { __index = function() return function() return function() end end end })
 		local b = {}
 		function b:name() return self end
 		function b:tabGroup() return self end

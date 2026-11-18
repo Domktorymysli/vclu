@@ -60,14 +60,14 @@ and the mapping that the "Dashboards" section on the Grenton page (#220) builds 
 - Decided: an anti-corruption layer. Only `pkg/omproject` knows Grenton's format: it translates the
   interface into vclu's own model (`pkg/dashspec`: interfaces, pages, widgets of the kinds group,
   toggle, status, slider, button and thermostat, each with what it reads and what it does), and a
-  change in Grenton's format stops there. The model is what is stored in `imports/mygrenton/<id>.json`,
+  change in Grenton's format stops there. The model is what is stored in `imports/panels/<id>.json`,
   next to the imported om.lua files, not among the user's files; Grenton's JSON is not kept. #220
   generates the dashboards from the model alone.
 - The generated files are plain Dashboard code; what reads a CLU or commands it goes through small
-  helpers of a runtime module (`pkg/lua/runtime/grenton/MyGrenton.lua`): `MyGrenton.value(path)`,
+  helpers of a runtime module (`pkg/lua/runtime/grenton/Wire.lua`): `Wire.value(path)`,
   `feature(path, n)`, `variable(clu, name)`, `isOn(read)`, `text(read, on, off)`,
   `set(path, n, value)`, `execute(path, n[, value])`, `script(clu, name, ...)`, `onOff(on, off)`,
-  `MyGrenton.INPUT` for what the user enters, and `MyGrenton.load(module)` to load a page on its own.
+  `Wire.INPUT` for what the user enters, and `Wire.load(module)` to load a page on its own.
   The helpers check their arguments again, as users edit the files. Commands go only to objects,
   through their proxies; the CLU itself is only read.
 - The JSON comes from an upload. As in #178, every value that reaches Lua is checked, never escaped
@@ -77,12 +77,12 @@ and the mapping that the "Dashboards" section on the Grenton page (#220) builds 
 
 ## Files
 - `pkg/omproject/` (read `nodes/*/data.json`)
-- `pkg/web/handle_web_om.go` (store it in `imports/mygrenton/`, remove it when a new project has none)
+- `pkg/web/handle_web_om.go` (store it in `imports/panels/`, remove it when a new project has none)
 - `pkg/dashspec/` (new: the model, its checks, the Lua generator)
-- `pkg/lua/runtime/grenton/MyGrenton.lua` (new: the helpers)
+- `pkg/lua/runtime/grenton/Wire.lua` (new: the helpers)
 
 ## Acceptance criteria
-- [ ] Importing a project or a diagnostic pack with an interface stores it in `imports/mygrenton/`;
+- [ ] Importing a project or a diagnostic pack with an interface stores it in `imports/panels/`;
       a new import replaces it, and an import of a project or pack without one removes it. Uploading
       a single om.lua leaves it alone.
 - [ ] The model lists the pages and, per widget, the vclu widget, its label, what it reads and what
@@ -98,6 +98,6 @@ and the mapping that the "Dashboards" section on the Grenton page (#220) builds 
 - [ ] `go test ./...` and `go test -race ./...` pass; a changelog entry in `changelog.d/`.
 
 ## Contract impact
-The `MyGrenton` helpers become a public Lua API: the files #220 writes call them, and users edit
-them. The stored model (`imports/mygrenton/`) is vclu's own and may change with a new import. No
+The `Wire` helpers become a public Lua API: the files #220 writes call them, and users edit
+them. The stored model (`imports/panels/`) is vclu's own and may change with a new import. No
 dashboard changes until the user creates them (#220).

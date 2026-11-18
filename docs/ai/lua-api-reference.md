@@ -25,7 +25,7 @@ Only public API is listed — internal/private functions are omitted.
 - [GPIO_DOUT](#gpio_dout) (1 functions)
 - [GPIO_DIN](#gpio_din) (1 functions)
 - [integrations.mqtt.MqttClient](#integrationsmqttmqttclient) (30 functions)
-- [MyGrenton](#mygrenton) (10 functions)
+- [Wire](#wire) (10 functions)
 - [core.Cloud](#corecloud) (9 functions)
 - [grenton.CLU_REMOTE](#grentonclu_remote) (4 functions)
 - [lib.cct](#libcct) (1 functions)
@@ -2446,9 +2446,9 @@ Publish state update for object
 
 ---
 
-## MyGrenton
+## Wire
 
-### `MyGrenton.value(path) → function A read for a widget`
+### `Wire.value(path) → function A read for a widget`
 
 An object's value, as the registry follows it (feature 0).
 
@@ -2456,7 +2456,7 @@ An object's value, as the registry follows it (feature 0).
 
 **Returns:** function A read for a widget
 
-### `MyGrenton.feature(path, index) → function A read for a widget`
+### `Wire.feature(path, index) → function A read for a widget`
 
 A feature of an object (or of the CLU) by its number, asked in the background.
 
@@ -2465,7 +2465,7 @@ A feature of an object (or of the CLU) by its number, asked in the background.
 
 **Returns:** function A read for a widget
 
-### `MyGrenton.variable(clu, name) → function A read for a widget`
+### `Wire.variable(clu, name) → function A read for a widget`
 
 A user feature of the CLU (a variable defined in Object Manager), asked in the background.
 
@@ -2474,15 +2474,15 @@ A user feature of the CLU (a variable defined in Object Manager), asked in the b
 
 **Returns:** function A read for a widget
 
-### `MyGrenton.isOn(read) → function A read of true or false`
+### `Wire.isOn(read) → function A read of true or false`
 
 A read as on or off: 0, "", "0", false and nothing are off.
 
-- `read` (function) — A read (MyGrenton.value, ...)
+- `read` (function) — A read (Wire.value, ...)
 
 **Returns:** function A read of true or false
 
-### `MyGrenton.text(read, onText, offText) → function A read of the text`
+### `Wire.text(read, onText, offText) → function A read of the text`
 
 A read shown as one of two texts, as myGrenton's indications.
 
@@ -2492,27 +2492,27 @@ A read shown as one of two texts, as myGrenton's indications.
 
 **Returns:** function A read of the text
 
-### `MyGrenton.set(path, index, value) → function An action for a widget`
+### `Wire.set(path, index, value) → function An action for a widget`
 
 Sets a feature of an object: obj:set(index, value).
 
 - `path` (string) — "CLU221000002.DOU0001"
 - `index` (number) — Feature number
-- `value` (any) — A number, a string, or MyGrenton.INPUT for what the user enters
+- `value` (any) — A number, a string, or Wire.INPUT for what the user enters
 
 **Returns:** function An action for a widget
 
-### `MyGrenton.execute(path, index, value) → function An action for a widget`
+### `Wire.execute(path, index, value) → function An action for a widget`
 
 Runs a method of an object: obj:execute(index[, value]).
 
 - `path` (string) — "CLU221000002.DOU0001"
 - `index` (number) — Method number
-- `value` (any) — Optional: a number, a string, or MyGrenton.INPUT
+- `value` (any) — Optional: a number, a string, or Wire.INPUT
 
 **Returns:** function An action for a widget
 
-### `MyGrenton.script(clu, name) → function An action for a widget`
+### `Wire.script(clu, name) → function An action for a widget`
 
 Runs a script of the CLU with the given arguments.
 
@@ -2521,7 +2521,7 @@ Runs a script of the CLU with the given arguments.
 
 **Returns:** function An action for a widget
 
-### `MyGrenton.onOff(onAction, offAction) → function The toggle's action`
+### `Wire.onOff(onAction, offAction) → function The toggle's action`
 
 A toggle's action from the actions for on and for off (either may be nil).
 
@@ -2530,11 +2530,11 @@ A toggle's action from the actions for on and for off (either may be nil).
 
 **Returns:** function The toggle's action
 
-### `MyGrenton.load(module) → boolean Whether it loaded`
+### `Wire.load(module) → boolean Whether it loaded`
 
-Loads a dashboard page on its own: one that fails is logged and listed in MyGrenton.errors, and the others still load.
+Loads a dashboard page on its own: one that fails is logged and listed in Wire.errors, and the others still load.
 
-- `module` (string) — The page's module, e.g. "dashboards/grenton/page_1700000000001"
+- `module` (string) — The page's module, e.g. "dashboards/imported/page_1700000000001"
 
 **Returns:** boolean Whether it loaded
 

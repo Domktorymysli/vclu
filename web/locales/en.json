@@ -937,7 +937,7 @@
   "mygrenton": {
     "tab": "Dashboards",
     "title": "Dashboards from the myGrenton interface",
-    "intro": "The pages of the myGrenton interface designed in Object Manager. Pick pages and vclu writes them as dashboards in modules/dashboards/grenton/. From then on they are your files: change them as you like; vclu does not replace a file you changed.",
+    "intro": "The pages of the myGrenton interface designed in Object Manager. Pick pages and vclu writes them as dashboards in modules/dashboards/imported/. From then on they are your files: change them as you like; vclu does not replace a file you changed.",
     "none": "No myGrenton interface imported. Upload the Object Manager project (.omp) or a diagnostic pack in the OM Files tab.",
     "page": "Page",
     "widgets": "Widgets",
@@ -949,7 +949,7 @@
     "st_vclu": "created",
     "st_edited": "changed by you",
     "st_user": "your file",
-    "add_require": "Load the dashboards: add require(\"dashboards/grenton\") to modules/init.lua",
+    "add_require": "Load the dashboards: add require(\"dashboards/imported\") to modules/init.lua",
     "required": "modules/init.lua already loads these dashboards.",
     "create": "Create dashboards",
     "choose": "Pick at least one page.",
@@ -964,9 +964,9 @@
     "module_errors": "Module errors",
     "page_errors": "These pages did not load",
     "open": "Open",
-    "init_kept": "init.lua in modules/dashboards/grenton/ is yours, so vclu left it as it is. Add to it:",
+    "init_kept": "init.lua in modules/dashboards/imported/ is yours, so vclu left it as it is. Add to it:",
     "orphans": "Page files of pages no longer in the imported interface (vclu does not remove them):",
     "flat": "There is a file",
-    "flat_tail": "require(\"dashboards/grenton\") would load it instead of the directory. Rename or remove it."
+    "flat_tail": "require(\"dashboards/imported\") would load it instead of the directory. Rename or remove it."
   }
 }

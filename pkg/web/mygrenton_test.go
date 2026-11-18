@@ -236,11 +236,30 @@ func TestDashboardsCreated(t *testing.T) {
 		}
 	}
 
-	// asked again with the require: it is added once, Lua reloads and the dashboards work
+	// the same page again is no change: written without asking
+	before, _ := os.ReadFile(filepath.Join(dir, "page_1700000000001.lua"))
+	if code, ans := dashCall(t, s, http.MethodPost, `{"interface":"if-1","pages":["1700000000001"]}`); code != http.StatusOK {
+		t.Fatalf("the same page asked about: %d %v", code, ans)
+	}
+	if after, _ := os.ReadFile(filepath.Join(dir, "page_1700000000001.lua")); string(after) != string(before) {
+		t.Errorf("the same page written differently:\n%s\n%s", before, after)
+	}
+
+	// the interface changed: asked before it is replaced
+	stored := filepath.Join(s.myGrentonPath(), "if-1.json")
+	b, err := os.ReadFile(stored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stored, []byte(strings.Replace(string(b), `"Hall"`, `"Hallway"`, 1)), 0644); err != nil {
+		t.Fatal(err)
+	}
 	code, ans = dashCall(t, s, http.MethodPost, `{"interface":"if-1","pages":["1700000000001"],"addRequire":true}`)
 	if code != http.StatusConflict || len(ans["ask"].([]any)) != 1 {
 		t.Fatalf("written again without asking: %d %v", code, ans)
 	}
+
+	// replaced with the require: it is added once, Lua reloads and the dashboards work
 	code, ans = dashCall(t, s, http.MethodPost, `{"interface":"if-1","pages":["1700000000001"],"addRequire":true,"replace":true}`)
 	if code != http.StatusOK || ans["requireAdded"] != true || ans["reloaded"] != true || ans["moduleErrors"] != nil || ans["pageErrors"] != nil {
 		t.Fatalf("%d %v", code, ans)
@@ -259,7 +278,7 @@ func TestDashboardsCreated(t *testing.T) {
 
 	// both pages, one tab group; the label reads back unchanged, nothing ran
 	res, err := s.luaExecutor.Execute(`EXITED = false; os.exit = function() EXITED = true end
-		local d = Dashboard.API.getDefinition("grenton_page_1700000000002")
+		local d = Dashboard.API.getDefinition("imported_1700000000002")
 		return d`)
 	if err != nil {
 		t.Fatal(err)
@@ -284,11 +303,11 @@ func TestDashboardsCreated(t *testing.T) {
 
 	// the toggle switches, the slider sets, the scene runs its script
 	for _, tc := range []struct{ action, want string }{
-		{`"mg2", "toggle", true`, out + `:set(0, 1)`},
-		{`"mg4", "set", 40`, out + `:set(0, 40)`},
-		{`"mg3", "tap"`, `("a", 1)`},
+		{`"w2", "toggle", true`, out + `:set(0, 1)`},
+		{`"w4", "set", 40`, out + `:set(0, 40)`},
+		{`"w3", "tap"`, `("a", 1)`},
 	} {
-		if _, err := s.luaExecutor.Execute(`return Dashboard.API.executeAction("grenton_page_1700000000001", ` + tc.action + `)`); err != nil {
+		if _, err := s.luaExecutor.Execute(`return Dashboard.API.executeAction("imported_1700000000001", ` + tc.action + `)`); err != nil {
 			t.Fatal(err)
 		}
 		if got := sent.take(); !strings.Contains(got, tc.want) {
@@ -336,15 +355,15 @@ func TestDashboardsKeepTheUsersFiles(t *testing.T) {
 		t.Error("the user's file was replaced")
 	}
 
-	// a flat dashboards/grenton.lua would be loaded instead of the directory
-	flat := filepath.Join(s.serverDir, "modules", "dashboards", "grenton.lua")
+	// a flat dashboards/imported.lua would be loaded instead of the directory
+	flat := filepath.Join(s.serverDir, "modules", "dashboards", "imported.lua")
 	if err := os.WriteFile(flat, []byte("-- mine\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	if code, ans := dashCall(t, s, http.MethodPost, `{"interface":"if-1","pages":["1700000000001"],"replace":true}`); code != http.StatusConflict || ans["flatFile"] == nil {
 		t.Errorf("%d %v", code, ans)
 	}
-	if _, list := dashCall(t, s, http.MethodGet, ""); list["flatFile"] != "modules/dashboards/grenton.lua" {
+	if _, list := dashCall(t, s, http.MethodGet, ""); list["flatFile"] != "modules/dashboards/imported.lua" {
 		t.Errorf("list %v", list)
 	}
 }
@@ -384,13 +403,13 @@ func TestDashboardsInitAndOrphans(t *testing.T) {
 	}
 
 	// the user drops a line from init.lua: it is theirs now, creating still works
-	edited := strings.Replace(string(b), `MyGrenton.load("dashboards/grenton/page_1700000000001")`+"\n", "", 1)
+	edited := strings.Replace(string(b), `Wire.load("dashboards/imported/page_1700000000001")`+"\n", "", 1)
 	if err := os.WriteFile(initPath, []byte(edited), 0644); err != nil {
 		t.Fatal(err)
 	}
 	code, ans := dashCall(t, s, http.MethodPost, `{"interface":"if-1","pages":["1700000000002"]}`)
 	lines, _ := ans["initLines"].([]any)
-	if code != http.StatusOK || ans["initKept"] != true || len(lines) != 1 || lines[0] != `MyGrenton.load("dashboards/grenton/page_1700000000002")` {
+	if code != http.StatusOK || ans["initKept"] != true || len(lines) != 1 || lines[0] != `Wire.load("dashboards/imported/page_1700000000002")` {
 		t.Fatalf("%d %v", code, ans)
 	}
 	if b, _ := os.ReadFile(initPath); string(b) != edited {
@@ -413,12 +432,12 @@ func TestRequireStateIgnoresComments(t *testing.T) {
 		t.Fatal(err)
 	}
 	for code, want := range map[string]bool{
-		grentonRequire + "\n":                           true,
-		"local x = 1\n  require 'dashboards.grenton'\n": true,
-		"-- " + grentonRequire + "\n":                   false,
-		"--[[\n" + grentonRequire + "\n]]\n":            false,
-		"--[==[\n" + grentonRequire + "\n]] ]==]\n":     false,
-		"--[[ a ]]\n" + grentonRequire + "\n":           true,
+		grentonRequire + "\n":                            true,
+		"local x = 1\n  require 'dashboards.imported'\n": true,
+		"-- " + grentonRequire + "\n":                    false,
+		"--[[\n" + grentonRequire + "\n]]\n":             false,
+		"--[==[\n" + grentonRequire + "\n]] ]==]\n":      false,
+		"--[[ a ]]\n" + grentonRequire + "\n":            true,
 	} {
 		if err := os.WriteFile(path, []byte(code), 0644); err != nil {
 			t.Fatal(err)
@@ -449,7 +468,7 @@ func TestDashboardsReportBrokenPage(t *testing.T) {
 		!strings.Contains(errs[0].(string), "my edit") || ans["moduleErrors"] != nil {
 		t.Fatalf("%d %v", code, ans)
 	}
-	if out, err := s.luaExecutor.Execute(`return tostring(_dashboards["grenton_page_1700000000002"] ~= nil)`); err != nil || out != "true" {
+	if out, err := s.luaExecutor.Execute(`return tostring(_dashboards["imported_1700000000002"] ~= nil)`); err != nil || out != "true" {
 		t.Errorf("the other page: %s %v", out, err)
 	}
 }

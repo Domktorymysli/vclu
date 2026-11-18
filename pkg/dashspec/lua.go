@@ -9,10 +9,10 @@ import (
 )
 
 // DashboardID is the dashboard a page becomes.
-func DashboardID(p Page) string { return "grenton_page_" + p.ID }
+func DashboardID(p Page) string { return "imported_" + p.ID }
 
 // PageLua is the dashboard code of a page: plain Dashboard calls, the reads and
-// commands through MyGrenton's helpers. Widgets that fail Check are left out.
+// commands through Wire's helpers. Widgets that fail Check are left out.
 // Strings go through luastr.Quote, IDs and names are checked before they are written.
 func PageLua(in Interface, p Page) string {
 	var b strings.Builder
@@ -39,12 +39,12 @@ func widgetLua(w Widget) string {
 	case Group:
 		return "s:group(" + label + ")\n"
 	case Toggle:
-		return fmt.Sprintf("s:toggle(%s, %s, nil,\n    MyGrenton.isOn(%s),\n    MyGrenton.onOff(%s, %s))\n",
+		return fmt.Sprintf("s:toggle(%s, %s, nil,\n    Wire.isOn(%s),\n    Wire.onOff(%s, %s))\n",
 			id, label, readLua(w.Read), actionOrNil(w.On), actionOrNil(w.Off))
 	case Status:
 		read := readLua(w.Read)
 		if w.OnText != "" || w.OffText != "" {
-			read = fmt.Sprintf("MyGrenton.text(%s, %s, %s)", read, luastr.Quote(w.OnText), luastr.Quote(w.OffText))
+			read = fmt.Sprintf("Wire.text(%s, %s, %s)", read, luastr.Quote(w.OnText), luastr.Quote(w.OffText))
 		}
 		args := []string{id, label, "nil", read}
 		var opts []string
@@ -73,7 +73,7 @@ func widgetLua(w Widget) string {
 			fns = append(fns, "setTarget = "+actionLua(w.Set))
 		}
 		if w.State != nil {
-			fns = append(fns, "getState = MyGrenton.isOn("+readLua(w.State)+")")
+			fns = append(fns, "getState = Wire.isOn("+readLua(w.State)+")")
 		}
 		opts := ""
 		if w.Min != nil && w.Max != nil {
@@ -97,11 +97,11 @@ func path(clu, object string) string {
 func readLua(r *Read) string {
 	switch {
 	case r.Variable != "":
-		return fmt.Sprintf("MyGrenton.variable(%s, %s)", luastr.Quote(r.CLU), luastr.Quote(r.Variable))
+		return fmt.Sprintf("Wire.variable(%s, %s)", luastr.Quote(r.CLU), luastr.Quote(r.Variable))
 	case *r.Feature == 0:
-		return fmt.Sprintf("MyGrenton.value(%s)", path(r.CLU, r.Object))
+		return fmt.Sprintf("Wire.value(%s)", path(r.CLU, r.Object))
 	}
-	return fmt.Sprintf("MyGrenton.feature(%s, %d)", path(r.CLU, r.Object), *r.Feature)
+	return fmt.Sprintf("Wire.feature(%s, %d)", path(r.CLU, r.Object), *r.Feature)
 }
 
 func valueLua(v any) string {
@@ -117,22 +117,22 @@ func valueLua(v any) string {
 func actionLua(a *Action) string {
 	value := valueLua(a.Value)
 	if a.Input {
-		value = "MyGrenton.INPUT"
+		value = "Wire.INPUT"
 	}
 	switch a.Op {
 	case SetFeature:
-		return fmt.Sprintf("MyGrenton.set(%s, %d, %s)", path(a.CLU, a.Object), a.Index, value)
+		return fmt.Sprintf("Wire.set(%s, %d, %s)", path(a.CLU, a.Object), a.Index, value)
 	case Execute:
 		if a.Value == nil && !a.Input {
-			return fmt.Sprintf("MyGrenton.execute(%s, %d)", path(a.CLU, a.Object), a.Index)
+			return fmt.Sprintf("Wire.execute(%s, %d)", path(a.CLU, a.Object), a.Index)
 		}
-		return fmt.Sprintf("MyGrenton.execute(%s, %d, %s)", path(a.CLU, a.Object), a.Index, value)
+		return fmt.Sprintf("Wire.execute(%s, %d, %s)", path(a.CLU, a.Object), a.Index, value)
 	case Script:
 		args := []string{luastr.Quote(a.CLU), luastr.Quote(a.Script)}
 		for _, x := range a.Args {
 			args = append(args, valueLua(x))
 		}
-		return "MyGrenton.script(" + strings.Join(args, ", ") + ")"
+		return "Wire.script(" + strings.Join(args, ", ") + ")"
 	}
 	return "nil"
 }
@@ -156,7 +156,7 @@ func InitLua(modules []string) string {
 }
 
 // LoadLine is the line of InitLua that loads one page.
-func LoadLine(module string) string { return "MyGrenton.load(" + luastr.Quote(module) + ")" }
+func LoadLine(module string) string { return "Wire.load(" + luastr.Quote(module) + ")" }
 
 // Describe says what a widget shows, reads and does, for the page list.
 func Describe(w Widget) (reads, does []string) {
