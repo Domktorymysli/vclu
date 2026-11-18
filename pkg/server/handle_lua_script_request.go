@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,7 +21,8 @@ func (s *Server) handleLuaScriptRequest(req *commands.LuaScriptRequest, requestK
 	var hasError bool
 	if s.luaEngine != nil {
 		// A script from a CLU or Object Manager: its changes come from that device
-		result, err := s.luaEngine.ExecuteAs("grenton", s.senderActor(remoteAddr), "", req.Script)
+		script := withSenderAddress(req.Script, remoteAddr)
+		result, err := s.luaEngine.ExecuteAs("grenton", s.senderActor(remoteAddr), "", script)
 		if err != nil {
 			log.Printf("[LUA] %s -> error: %v", req.Script, err)
 			returnValue = fmt.Sprintf("error: %v", err)
@@ -61,6 +63,18 @@ func (s *Server) handleLuaScriptRequest(req *commands.LuaScriptRequest, requestK
 		log.Printf("[LUA] failed to send response to %s: %v", remoteAddr, err)
 		return
 	}
+}
+
+// clientZeroAddress matches a subscription call that gives address 0 and port 0.
+var clientZeroAddress = regexp.MustCompile(`^\s*SYSTEM:(client(?:Register|Destroy))\(\s*0\s*,\s*0\s*,`)
+
+// withSenderAddress puts the sender's address and port in place of 0,0: as on a CLU, such a
+// client gets its reports where it sent the request from.
+func withSenderAddress(script string, addr *net.UDPAddr) string {
+	if addr == nil {
+		return script
+	}
+	return clientZeroAddress.ReplaceAllString(script, fmt.Sprintf(`SYSTEM:${1}(%q,%d,`, addr.IP.String(), addr.Port))
 }
 
 // senderActor names the device that sent a script: device:<CLU name> as in
