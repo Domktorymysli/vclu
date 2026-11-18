@@ -211,7 +211,11 @@ func TestDashboardsCreated(t *testing.T) {
 	}
 	pages := ifs[0].(map[string]any)["pages"].([]any)
 	hall := pages[0].(map[string]any)
-	if hall["widgets"] != 3.0 || hall["state"] != "none" || len(hall["leftOut"].([]any)) != 1 {
+	kinds := []string{}
+	for _, w := range hall["widgets"].([]any) {
+		kinds = append(kinds, w.(map[string]any)["kind"].(string))
+	}
+	if strings.Join(kinds, ",") != "toggle,button,slider" || hall["state"] != "none" || len(hall["leftOut"].([]any)) != 1 {
 		t.Errorf("hall %v", hall)
 	}
 
@@ -238,7 +242,7 @@ func TestDashboardsCreated(t *testing.T) {
 		t.Fatalf("written again without asking: %d %v", code, ans)
 	}
 	code, ans = dashCall(t, s, http.MethodPost, `{"interface":"if-1","pages":["1700000000001"],"addRequire":true,"replace":true}`)
-	if code != http.StatusOK || ans["requireAdded"] != true || ans["reloaded"] != true || ans["moduleErrors"] != nil {
+	if code != http.StatusOK || ans["requireAdded"] != true || ans["reloaded"] != true || ans["moduleErrors"] != nil || ans["pageErrors"] != nil {
 		t.Fatalf("%d %v", code, ans)
 	}
 	code, ans = dashCall(t, s, http.MethodPost, `{"interface":"if-1","pages":["1700000000001"],"addRequire":true,"replace":true}`)
@@ -342,5 +346,110 @@ func TestDashboardsKeepTheUsersFiles(t *testing.T) {
 	}
 	if _, list := dashCall(t, s, http.MethodGet, ""); list["flatFile"] != "modules/dashboards/grenton.lua" {
 		t.Errorf("list %v", list)
+	}
+}
+
+// init.lua loads the pages of every interface; a user's init.lua is left alone and the
+// lines to add are given; page files of pages no longer imported are listed.
+func TestDashboardsInitAndOrphans(t *testing.T) {
+	files, _, _ := mgProject(t)
+	second := strings.NewReplacer(`"id":"if-1"`, `"id":"if-2"`, "17000000000", "18000000000").Replace(string(files["nodes/173/data.json"]))
+	files["nodes/174/data.json"] = []byte(second)
+	s, _, _ := mgServer(t)
+	if code, body := uploadFile(t, s, "house.omp", zipBytes(t, files)); code != http.StatusOK {
+		t.Fatalf("%d %s", code, body)
+	}
+	if code, ans := dashCall(t, s, http.MethodPost, `{"interface":"if-1","pages":["1700000000001"]}`); code != http.StatusOK {
+		t.Fatalf("%d %v", code, ans)
+	}
+	if code, ans := dashCall(t, s, http.MethodPost, `{"interface":"if-2","pages":["1800000000002"]}`); code != http.StatusOK {
+		t.Fatalf("%d %v", code, ans)
+	}
+	initPath := filepath.Join(s.grentonDashPath(), "init.lua")
+	b, _ := os.ReadFile(initPath)
+	if !strings.Contains(string(b), "page_1700000000001") || !strings.Contains(string(b), "page_1800000000002") {
+		t.Errorf("init.lua lost a page:\n%s", b)
+	}
+
+	// a page file vclu does not know is loaded too
+	if err := os.WriteFile(filepath.Join(s.grentonDashPath(), "page_42.lua"), []byte("-- old\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if code, ans := dashCall(t, s, http.MethodPost, `{"interface":"if-2","pages":["1800000000002"],"replace":true}`); code != http.StatusOK {
+		t.Fatalf("%d %v", code, ans)
+	}
+	b, _ = os.ReadFile(initPath)
+	if !strings.Contains(string(b), "page_42") || !strings.Contains(string(b), "page_1700000000001") {
+		t.Errorf("init.lua:\n%s", b)
+	}
+
+	// the user drops a line from init.lua: it is theirs now, creating still works
+	edited := strings.Replace(string(b), `MyGrenton.load("dashboards/grenton/page_1700000000001")`+"\n", "", 1)
+	if err := os.WriteFile(initPath, []byte(edited), 0644); err != nil {
+		t.Fatal(err)
+	}
+	code, ans := dashCall(t, s, http.MethodPost, `{"interface":"if-1","pages":["1700000000002"]}`)
+	lines, _ := ans["initLines"].([]any)
+	if code != http.StatusOK || ans["initKept"] != true || len(lines) != 1 || lines[0] != `MyGrenton.load("dashboards/grenton/page_1700000000002")` {
+		t.Fatalf("%d %v", code, ans)
+	}
+	if b, _ := os.ReadFile(initPath); string(b) != edited {
+		t.Error("the user's init.lua was replaced")
+	}
+
+	// a page no longer imported is listed
+	_, list := dashCall(t, s, http.MethodGet, "")
+	orphans, _ := list["orphans"].([]any)
+	if len(orphans) != 1 || orphans[0].(map[string]any)["file"] != "page_42.lua" {
+		t.Errorf("orphans %v", list["orphans"])
+	}
+}
+
+// A require inside a block comment does not load the dashboards.
+func TestRequireStateIgnoresComments(t *testing.T) {
+	s := &Server{serverDir: t.TempDir()}
+	path := filepath.Join(s.serverDir, "modules", "init.lua")
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	for code, want := range map[string]bool{
+		grentonRequire + "\n":                           true,
+		"local x = 1\n  require 'dashboards.grenton'\n": true,
+		"-- " + grentonRequire + "\n":                   false,
+		"--[[\n" + grentonRequire + "\n]]\n":            false,
+		"--[==[\n" + grentonRequire + "\n]] ]==]\n":     false,
+		"--[[ a ]]\n" + grentonRequire + "\n":           true,
+	} {
+		if err := os.WriteFile(path, []byte(code), 0644); err != nil {
+			t.Fatal(err)
+		}
+		if got := s.requireState(); got != want {
+			t.Errorf("%q: %v", code, got)
+		}
+	}
+}
+
+// A page the user broke is reported after the reload; the other pages still load.
+func TestDashboardsReportBrokenPage(t *testing.T) {
+	files, _, _ := mgProject(t)
+	s, _, _ := mgServer(t)
+	if code, body := uploadFile(t, s, "house.omp", zipBytes(t, files)); code != http.StatusOK {
+		t.Fatalf("%d %s", code, body)
+	}
+	if code, ans := dashCall(t, s, http.MethodPost, `{"interface":"if-1","pages":["1700000000001"],"addRequire":true}`); code != http.StatusOK {
+		t.Fatalf("%d %v", code, ans)
+	}
+	page := filepath.Join(s.grentonDashPath(), "page_1700000000001.lua")
+	if err := os.WriteFile(page, []byte(`error("my edit")`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	code, ans := dashCall(t, s, http.MethodPost, `{"interface":"if-1","pages":["1700000000002"]}`)
+	errs, _ := ans["pageErrors"].([]any)
+	if code != http.StatusOK || len(errs) != 1 || !strings.Contains(errs[0].(string), "page_1700000000001: ") ||
+		!strings.Contains(errs[0].(string), "my edit") || ans["moduleErrors"] != nil {
+		t.Fatalf("%d %v", code, ans)
+	}
+	if out, err := s.luaExecutor.Execute(`return tostring(_dashboards["grenton_page_1700000000002"] ~= nil)`); err != nil || out != "true" {
+		t.Errorf("the other page: %s %v", out, err)
 	}
 }

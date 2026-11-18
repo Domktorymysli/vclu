@@ -21,6 +21,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/Domktorymysli/vclu/pkg/dashspec"
 )
 
 // Limits on what is unpacked from the archive.
@@ -40,11 +42,12 @@ type Project struct {
 	CLUs     []CLU
 	Warnings []string
 	// Interfaces are the myGrenton interfaces designed in OM (nodes/<id>/data.json).
-	Interfaces []Interface
+	Interfaces []dashspec.Interface
 
 	commands int // bytes of event commands read so far, up to maxCommands
 	overCmds bool
 	known    map[string]bool // what calls of an interface may name (inProject)
+	taken    map[string]bool // interface and page IDs already read
 }
 
 // CLU is one CLU of the project.

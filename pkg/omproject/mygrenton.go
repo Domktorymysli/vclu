@@ -10,12 +10,14 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/Domktorymysli/vclu/pkg/dashspec"
 )
 
 // The myGrenton interface the user designed in Object Manager: nodes/<id>/data.json.
-// Everything in it reaches Lua (#219, #220), so it is checked here and kept in a
-// form of its own: only the keys MyGrenton reads, calls with checked IDs, indexes
-// as numbers and script arguments as a list of numbers and strings.
+// This is the only place that knows its format: it is translated into vclu's own
+// model (dashspec), from which the dashboards are generated (#219, #220). Every
+// value is checked here, and what names an object is looked up in the project.
 
 const (
 	maxInterface  = 4 << 20 // one data.json; a house of 12 pages has 135 KB
@@ -24,71 +26,60 @@ const (
 )
 
 var (
-	reInterfaceID = regexp.MustCompile(`^[A-Za-z0-9-]{1,64}$`)
-	reIdent       = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,63}$`)
-	reIndex       = regexp.MustCompile(`^\d{1,4}$`)
-	rePageID      = regexp.MustCompile(`^\d{1,19}$`)
+	reIndex = regexp.MustCompile(`^\d{1,4}$`)
 	// a script's arguments as OM writes them: numbers and "strings", comma separated
 	reArg = regexp.MustCompile(`^\s*(?:(-?\d+(?:\.\d+)?)|"([^"\\\x00-\x1f]*)")\s*(?:,|$)`)
 )
 
-// keywords are Lua 5.1's reserved words, which are no identifiers.
-var keywords = map[string]bool{
-	"and": true, "break": true, "do": true, "else": true, "elseif": true, "end": true,
-	"false": true, "for": true, "function": true, "if": true, "in": true, "local": true,
-	"nil": true, "not": true, "or": true, "repeat": true, "return": true, "then": true,
-	"true": true, "until": true, "while": true,
+// gCall is a call as the interface writes it.
+type gCall struct {
+	CallType   string
+	CluID      string
+	ObjectName string
+	Index      string // a number as text, or a user feature's name
+	Type       string
+	Value      string // a number as text, a string, "$value$" or ""
 }
 
-func isIdent(s string) bool { return reIdent.MatchString(s) && !keywords[s] }
-
-// Interface is one myGrenton interface of the project.
-type Interface struct {
-	ID    string `json:"id"`
-	Label string `json:"label"`
-	Pages []Page `json:"pages"`
+// gPart is a part of a widget: a button, a value, a thermostat row.
+type gPart struct {
+	Label         string          `json:"label"`
+	Unit          string          `json:"unit"`
+	Min           *float64        `json:"min"`
+	Max           *float64        `json:"max"`
+	OnIndication  string          `json:"onIndication"`
+	OffIndication string          `json:"offIndication"`
+	State         json.RawMessage `json:"state"`
+	Value         json.RawMessage `json:"value"`
+	ActionOn      json.RawMessage `json:"actionOn"`
+	ActionOff     json.RawMessage `json:"actionOff"`
+	ActionClick   json.RawMessage `json:"actionClick"`
+	ClickAction   json.RawMessage `json:"clickAction"`
 }
 
-// Page is one page of an interface: a vclu dashboard.
-type Page struct {
-	ID      string   `json:"id"` // digits, as OM gives it
-	Label   string   `json:"label"`
-	Widgets []Widget `json:"widgets"`
-	// LeftOut says, per widget or call, what was not taken and why.
-	LeftOut []string `json:"leftOut,omitempty"`
-}
+// gWidget is a widget as the interface writes it; parts by their keys.
+type gWidget struct {
+	ID            json.Number `json:"id"`
+	Type          string      `json:"type"`
+	Label         string      `json:"label"`
+	Unit          string      `json:"unit"`
+	Precision     *int        `json:"precision"`
+	ValueType     string      `json:"valueType"`
+	OnIndication  string      `json:"onIndication"`
+	OffIndication string      `json:"offIndication"`
 
-// Widget is one widget, its keys as in the interface: a string, a number, a
-// call (Call) or a part (a map of these). MyGrenton.widget takes it as a table.
-type Widget map[string]any
-
-// Call is a call of the interface, checked.
-type Call struct {
-	CallType   string `json:"callType"`
-	CluID      string `json:"cluId"`
-	ObjectName string `json:"objectName"`
-	// Index is the feature or method number, or for VARIABLE the user feature's name.
-	Index any    `json:"index,omitempty"`
-	Type  string `json:"type,omitempty"` // ON, OFF or CLICK
-	// Value is a number, a string or "$value$" (what the user enters).
-	Value any `json:"value,omitempty"`
-	// Args are a SCRIPT's arguments.
-	Args []any `json:"args,omitempty"`
-}
-
-// widgetTypes are the widget types MyGrenton maps; SCHEDULER and anything else are left out.
-var widgetTypes = map[string]bool{
-	"ON_OFF": true, "VALUE": true, "VALUE_V2": true, "TEXT": true, "CONTACT_SENSOR": true,
-	"SCENE": true, "SCENE_DOUBLE": true, "HEADER": true, "THERMOSTAT": true,
-}
-
-// dropKeys are what the panel draws differently anyway.
-var dropKeys = map[string]bool{"image": true, "icon": true, "background": true, "rowId": true, "iconVisible": true}
-
-// textKeys are free text: kept as strings, shown as text.
-var textKeys = map[string]bool{
-	"label": true, "unit": true, "onIndication": true, "offIndication": true, "indication": true,
-	"valueType": true, "type": true,
+	Text                  json.RawMessage `json:"text"`
+	Value                 json.RawMessage `json:"value"`
+	ButtonBistable        *gPart          `json:"buttonBistable"`
+	ButtonMonostable      *gPart          `json:"buttonMonostable"`
+	ButtonMonostableFirst *gPart          `json:"buttonMonostableFirst"`
+	ButtonMonostableSec   *gPart          `json:"buttonMonostableSecond"`
+	Object                *gPart          `json:"object"`
+	ThermostatCurrentTemp *gPart          `json:"thermostatCurrentTemp"`
+	ThermostatTargetTemp  *gPart          `json:"thermostatTargetTemp"`
+	ThermostatState       *gPart          `json:"thermostatState"`
+	ThermostatMode        *gPart          `json:"thermostatMode"`
+	ThermostatSchedule    *gPart          `json:"thermostatSchedule"`
 }
 
 // readInterfaces reads nodes/<id>/data.json of the project.
@@ -125,188 +116,328 @@ func (p *Project) readInterfaces(files map[string]*zip.File) {
 	}
 }
 
-// ReadInterface checks one interface's data.json.
-func (p *Project) ReadInterface(data []byte) (*Interface, error) {
+// ReadInterface translates one interface's data.json. Interface and page IDs
+// already taken by an earlier interface of the project are left out.
+func (p *Project) ReadInterface(data []byte) (*dashspec.Interface, error) {
 	var raw struct {
 		ID    string `json:"id"`
 		Label string `json:"label"`
 		Pages []struct {
-			ID      json.Number      `json:"id"`
-			Label   string           `json:"label"`
-			Widgets []map[string]any `json:"widgets"`
+			ID      json.Number       `json:"id"`
+			Label   string            `json:"label"`
+			Widgets []json.RawMessage `json:"widgets"`
 		} `json:"pages"`
 	}
-	dec := json.NewDecoder(strings.NewReader(string(data)))
-	dec.UseNumber()
-	if err := dec.Decode(&raw); err != nil {
+	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("not a myGrenton interface: %w", err)
 	}
-	if !reInterfaceID.MatchString(raw.ID) {
-		return nil, fmt.Errorf("interface id %q is no id, left out", raw.ID)
+	if !dashspec.ValidID(raw.ID) {
+		return nil, fmt.Errorf("interface id %q is no id, left out", text(raw.ID))
 	}
-	in := &Interface{ID: raw.ID, Label: text(raw.Label), Pages: []Page{}}
-	seen := map[string]bool{}
+	if p.taken == nil {
+		p.taken = map[string]bool{}
+	}
+	// file names: one case-insensitive file system holds them all
+	if key := "if:" + strings.ToLower(raw.ID); p.taken[key] {
+		return nil, fmt.Errorf("interface id %s is used twice, left out the second time", raw.ID)
+	} else {
+		p.taken[key] = true
+	}
+	in := &dashspec.Interface{ID: raw.ID, Label: text(raw.Label), Source: "myGrenton", Pages: []dashspec.Page{}}
 	for i, rp := range raw.Pages {
 		id := rp.ID.String()
-		if !rePageID.MatchString(id) || seen[id] {
+		if !dashspec.ValidPageID(id) || p.taken["page:"+id] {
 			p.warn(fmt.Sprintf("interface %s: page %d has no id or one already used, left out", in.Label, i+1))
 			continue
 		}
-		seen[id] = true
-		pg := Page{ID: id, Label: text(rp.Label), Widgets: []Widget{}}
-		for _, rw := range rp.Widgets {
-			w, why := p.widget(rw)
-			if why != nil {
-				pg.LeftOut = append(pg.LeftOut, why...)
+		p.taken["page:"+id] = true
+		pg := dashspec.Page{ID: id, Label: text(rp.Label), Widgets: []dashspec.Widget{}}
+		t := &translation{p: p, ids: map[string]bool{}}
+		for n, rw := range rp.Widgets {
+			var gw gWidget
+			if err := json.Unmarshal(rw, &gw); err != nil {
+				t.left = append(t.left, fmt.Sprintf("widget %d: not a widget", n+1))
+				continue
 			}
-			if w != nil {
-				pg.Widgets = append(pg.Widgets, w)
-			}
+			t.widget(gw, n)
+		}
+		pg.Widgets, pg.LeftOut = t.out, t.left
+		if pg.Widgets == nil {
+			pg.Widgets = []dashspec.Widget{}
 		}
 		in.Pages = append(in.Pages, pg)
 	}
 	return in, nil
 }
 
-// widget checks one widget. A call that fails is dropped with the reason; the
-// widget is kept when anything of it is left.
-func (p *Project) widget(raw map[string]any) (Widget, []string) {
-	typ, _ := raw["type"].(string)
-	label := widgetLabel(raw)
-	name := strings.TrimSpace(typ + " " + strconv.Quote(label))
-	if !widgetTypes[typ] {
-		if typ == "SCHEDULER" {
-			return nil, []string{name + ": schedulers have no vclu widget yet"}
-		}
-		return nil, []string{name + ": widget type not supported"}
-	}
-	var why []string
-	w := Widget{}
-	for k, v := range raw {
-		if dropKeys[k] || !isIdent(k) {
-			continue
-		}
-		if v := p.value(k, v, name, &why); v != nil {
-			w[k] = v
-		}
-	}
-	if typ != "HEADER" && !hasCall(w) {
-		return nil, append(why, name+": no call left, left out")
-	}
-	w["type"] = typ
-	if id, ok := raw["id"].(json.Number); ok {
-		if n, err := id.Int64(); err == nil {
-			w["id"] = n
-		}
-	}
-	return w, why
+// translation collects one page's widgets.
+type translation struct {
+	p    *Project
+	out  []dashspec.Widget
+	left []string
+	ids  map[string]bool
+	name string // the widget being translated, for messages
 }
 
-// value checks one value of a widget or part; nil leaves it out.
-func (p *Project) value(key string, v any, widget string, why *[]string) any {
+func (t *translation) leave(why string) { t.left = append(t.left, t.name+": "+why) }
+
+// id is a unique widget id on the page, from the interface's id.
+func (t *translation) id(g gWidget, n int, suffix string) string {
+	base := "mg" + strconv.Itoa(n+1)
+	if v, err := g.ID.Int64(); err == nil && v >= 0 && v < 1e12 {
+		base = "mg" + strconv.FormatInt(v, 10)
+	}
+	id := base + suffix
+	for i := 2; t.ids[id]; i++ {
+		id = base + suffix + "_" + strconv.Itoa(i)
+	}
+	t.ids[id] = true
+	return id
+}
+
+// add keeps a widget that passes the model's check.
+func (t *translation) add(w dashspec.Widget) bool {
+	if err := w.Check(); err != nil {
+		t.leave(err.Error())
+		return false
+	}
+	t.out = append(t.out, w)
+	return true
+}
+
+func (t *translation) widget(g gWidget, n int) {
+	label := text(g.Label)
+	if label == "" {
+		for _, x := range []*gPart{g.ButtonBistable, g.ButtonMonostable, g.ButtonMonostableFirst, g.ThermostatState} {
+			if x != nil && x.Label != "" {
+				label = text(x.Label)
+				break
+			}
+		}
+	}
+	t.name = strings.TrimSpace(g.Type + " " + strconv.Quote(label))
+	switch g.Type {
+	case "HEADER":
+		var tx gPart
+		_ = json.Unmarshal(g.Text, &tx)
+		if label == "" {
+			label = text(tx.Label)
+		}
+		t.add(dashspec.Widget{Kind: dashspec.Group, Label: label})
+	case "ON_OFF":
+		b := orEmpty(g.ButtonBistable)
+		read := t.read(b.State, "state")
+		on, off := t.action(b.ActionOn, "actionOn"), t.action(b.ActionOff, "actionOff")
+		if on == nil && off == nil {
+			// shows its state only
+			t.add(dashspec.Widget{Kind: dashspec.Status, ID: t.id(g, n, ""), Label: label, Read: read,
+				OnText: text(b.OnIndication), OffText: text(b.OffIndication)})
+			return
+		}
+		t.add(dashspec.Widget{Kind: dashspec.Toggle, ID: t.id(g, n, ""), Label: label, Read: read, On: on, Off: off})
+	case "VALUE":
+		var v gPart
+		_ = json.Unmarshal(g.Value, &v)
+		if label == "" {
+			label = text(v.Label)
+		}
+		read := t.read(v.State, "state")
+		set := t.action(v.ActionClick, "actionClick")
+		if set != nil && set.Input && v.Min != nil && v.Max != nil && *v.Min < *v.Max {
+			t.add(dashspec.Widget{Kind: dashspec.Slider, ID: t.id(g, n, ""), Label: label, Read: read, Set: set,
+				Min: v.Min, Max: v.Max, Unit: text(v.Unit)})
+			return
+		}
+		if set != nil {
+			t.leave("actionClick: only a value to enter, with min and max, is shown")
+		}
+		t.add(dashspec.Widget{Kind: dashspec.Status, ID: t.id(g, n, ""), Label: label, Read: read, Unit: text(v.Unit)})
+	case "VALUE_V2":
+		w := dashspec.Widget{Kind: dashspec.Status, ID: t.id(g, n, ""), Label: label, Read: t.read(g.Value, "value"), Unit: text(g.Unit)}
+		if g.Precision != nil && g.ValueType != "STRING" {
+			d := min(max(*g.Precision, 0), 6)
+			w.Decimals = &d
+		}
+		t.add(w)
+	case "TEXT":
+		t.add(dashspec.Widget{Kind: dashspec.Status, ID: t.id(g, n, ""), Label: label, Read: t.read(g.Text, "text")})
+	case "CONTACT_SENSOR":
+		o := orEmpty(g.Object)
+		if t.add(dashspec.Widget{Kind: dashspec.Status, ID: t.id(g, n, ""), Label: label, Read: t.read(o.Value, "value"),
+			OnText: text(g.OnIndication), OffText: text(g.OffIndication)}) {
+			if do := t.action(o.ClickAction, "clickAction"); do != nil {
+				t.add(dashspec.Widget{Kind: dashspec.Button, ID: t.id(g, n, "_click"), Label: label, Do: do})
+			}
+		}
+	case "SCENE":
+		b := orEmpty(g.ButtonMonostable)
+		t.add(dashspec.Widget{Kind: dashspec.Button, ID: t.id(g, n, ""), Label: label, Do: t.action(b.ActionClick, "actionClick")})
+	case "SCENE_DOUBLE":
+		for i, b := range []*gPart{g.ButtonMonostableFirst, g.ButtonMonostableSec} {
+			b = orEmpty(b)
+			l := text(b.Label)
+			if l == "" {
+				l = label
+			}
+			t.add(dashspec.Widget{Kind: dashspec.Button, ID: t.id(g, n, "_"+strconv.Itoa(i+1)), Label: l,
+				Do: t.action(b.ActionClick, "actionClick")})
+		}
+	case "THERMOSTAT":
+		cur, target, state := orEmpty(g.ThermostatCurrentTemp), orEmpty(g.ThermostatTargetTemp), orEmpty(g.ThermostatState)
+		if label == "" {
+			label = "Thermostat"
+		}
+		w := dashspec.Widget{Kind: dashspec.Thermostat, ID: t.id(g, n, ""), Label: label,
+			Current: t.read(cur.State, "current"), Target: t.read(target.State, "target"),
+			Set: t.action(target.ActionClick, "set")}
+		if len(state.State) > 0 {
+			w.State = t.read(state.State, "state")
+		}
+		if target.Min != nil && target.Max != nil && *target.Min < *target.Max {
+			w.Min, w.Max = target.Min, target.Max
+		}
+		if t.add(w) && (g.ThermostatMode != nil || g.ThermostatSchedule != nil) {
+			t.leave("mode and schedule are not shown")
+		}
+	case "SCHEDULER":
+		t.leave("schedulers have no vclu widget yet")
+	default:
+		t.leave("widget type not supported")
+	}
+}
+
+func orEmpty(p *gPart) *gPart {
+	if p == nil {
+		return &gPart{}
+	}
+	return p
+}
+
+// call reads a call; nil when there is none or its CLU is no CLU ID. Index and
+// value may be JSON strings or numbers.
+func (t *translation) call(raw json.RawMessage, key string) *gCall {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.leave(key + ": not a call")
+		return nil
+	}
+	str := func(k string) string { s, _ := m[k].(string); return s }
+	c := &gCall{CallType: str("callType"), CluID: str("cluId"), ObjectName: str("objectName"), Type: str("type"),
+		Index: scalar(m["index"]), Value: scalar(m["value"])}
+	if !reCLUID.MatchString(c.CluID) {
+		t.leave(fmt.Sprintf("%s: CLU %q is no CLU ID", key, text(c.CluID)))
+		return nil
+	}
+	return c
+}
+
+// scalar is a JSON string or number as text, "" for anything else.
+func scalar(v any) string {
 	switch v := v.(type) {
 	case string:
-		if textKeys[key] {
-			return text(v)
-		}
-		return nil
-	case json.Number:
-		if f, err := v.Float64(); err == nil {
-			return f
-		}
-		return nil
-	case bool:
 		return v
-	case map[string]any:
-		if _, isCall := v["callType"]; isCall {
-			c, err := call(v)
-			if err == nil {
-				err = p.inProject(c)
-			}
-			if err != nil {
-				*why = append(*why, fmt.Sprintf("%s: %s: %v", widget, key, err))
-				return nil
-			}
-			return c
-		}
-		part := map[string]any{}
-		for k, pv := range v {
-			if dropKeys[k] || !isIdent(k) {
-				continue
-			}
-			if pv := p.value(k, pv, widget, why); pv != nil {
-				part[k] = pv
-			}
-		}
-		if len(part) == 0 {
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, 64)
+	}
+	return ""
+}
+
+// read translates an ATTRIBUTE or VARIABLE call.
+func (t *translation) read(raw json.RawMessage, key string) *dashspec.Read {
+	c := t.call(raw, key)
+	if c == nil {
+		return nil
+	}
+	r := &dashspec.Read{CLU: c.CluID}
+	switch c.CallType {
+	case "ATTRIBUTE":
+		if !reIndex.MatchString(c.Index) {
+			t.leave(fmt.Sprintf("%s: index %q is no number", key, text(c.Index)))
 			return nil
 		}
-		return part
-	}
-	return nil
-}
-
-// call checks a call: IDs against the patterns om.lua uses, names as identifiers,
-// indexes and values as numbers.
-func call(v map[string]any) (*Call, error) {
-	s := func(k string) string { x, _ := v[k].(string); return x }
-	c := &Call{CallType: s("callType"), CluID: s("cluId"), ObjectName: s("objectName"), Type: s("type")}
-	if !reCLUID.MatchString(c.CluID) {
-		return nil, fmt.Errorf("CLU %q is no CLU ID", c.CluID)
-	}
-	switch c.Type {
-	case "", "ON", "OFF", "CLICK":
-	default:
-		return nil, fmt.Errorf("action type %q unknown", c.Type)
-	}
-	index := s("index")
-	value := s("value")
-	switch c.CallType {
-	case "ATTRIBUTE", "PSEUDO_METHOD", "METHOD":
-		if !reObjID.MatchString(c.ObjectName) || len(c.ObjectName) > 64 {
-			return nil, fmt.Errorf("object %q is no object ID", c.ObjectName)
+		n, _ := strconv.Atoi(c.Index)
+		r.Feature = &n
+		if c.ObjectName != c.CluID {
+			r.Object = c.ObjectName
 		}
-		if !reIndex.MatchString(index) {
-			return nil, fmt.Errorf("%s.%s: index %q is no number", c.CluID, c.ObjectName, index)
-		}
-		n, _ := strconv.Atoi(index)
-		c.Index = n
-		if c.CallType != "ATTRIBUTE" {
-			c.Value = callValue(value)
-		}
-	case "SCRIPT":
-		if !isIdent(c.ObjectName) {
-			return nil, fmt.Errorf("script %q is no Lua name", c.ObjectName)
-		}
-		args, err := scriptArgs(value)
-		if err != nil {
-			return nil, fmt.Errorf("script %s: %v", c.ObjectName, err)
-		}
-		c.Args = args
 	case "VARIABLE":
 		if c.ObjectName != c.CluID {
-			return nil, fmt.Errorf("user feature of %q, not of its CLU %s", c.ObjectName, c.CluID)
+			t.leave(fmt.Sprintf("%s: user feature of %q, not of its CLU", key, text(c.ObjectName)))
+			return nil
 		}
-		if !isIdent(index) {
-			return nil, fmt.Errorf("user feature %q is no Lua name", index)
-		}
-		c.Index = index
+		r.Variable = c.Index
 	default:
-		return nil, fmt.Errorf("call type %q unknown", c.CallType)
-	}
-	return c, nil
-}
-
-// callValue is what a set or a method takes: nothing, a number, what the user
-// enters ("$value$") or a string.
-func callValue(v string) any {
-	if v == "" {
+		t.leave(fmt.Sprintf("%s: %q is no read", key, text(c.CallType)))
 		return nil
 	}
-	if f, err := strconv.ParseFloat(v, 64); err == nil && !strings.ContainsAny(v, "xXnN") {
-		return f
+	if err := r.Check(); err != nil {
+		t.leave(key + ": " + err.Error())
+		return nil
 	}
-	return text(v)
+	if err := t.p.inProject(c.CluID, r.Object, ""); err != nil {
+		t.leave(key + ": " + err.Error())
+		return nil
+	}
+	return r
+}
+
+// action translates a PSEUDO_METHOD, METHOD or SCRIPT call.
+func (t *translation) action(raw json.RawMessage, key string) *dashspec.Action {
+	c := t.call(raw, key)
+	if c == nil {
+		return nil
+	}
+	a := &dashspec.Action{CLU: c.CluID}
+	switch c.CallType {
+	case "PSEUDO_METHOD", "METHOD":
+		a.Op, a.Object = dashspec.SetFeature, c.ObjectName
+		if c.CallType == "METHOD" {
+			a.Op = dashspec.Execute
+		}
+		if c.ObjectName == c.CluID {
+			t.leave(key + ": commands to the CLU itself are left out")
+			return nil
+		}
+		if !reIndex.MatchString(c.Index) {
+			t.leave(fmt.Sprintf("%s: index %q is no number", key, text(c.Index)))
+			return nil
+		}
+		a.Index, _ = strconv.Atoi(c.Index)
+		switch v := c.Value; {
+		case v == "$value$":
+			a.Input = true
+		case v == "":
+		default:
+			if f, err := strconv.ParseFloat(v, 64); err == nil && !strings.ContainsAny(v, "xXnN") {
+				a.Value = f
+			} else {
+				a.Value = text(v)
+			}
+		}
+	case "SCRIPT":
+		a.Op, a.Script = dashspec.Script, c.ObjectName
+		args, err := scriptArgs(c.Value)
+		if err != nil {
+			t.leave(fmt.Sprintf("%s: script %s: %v", key, text(c.ObjectName), err))
+			return nil
+		}
+		a.Args = args
+	default:
+		t.leave(fmt.Sprintf("%s: %q is no command", key, text(c.CallType)))
+		return nil
+	}
+	if err := a.Check(); err != nil {
+		t.leave(key + ": " + err.Error())
+		return nil
+	}
+	if err := t.p.inProject(c.CluID, a.Object, a.Script); err != nil {
+		t.leave(key + ": " + err.Error())
+		return nil
+	}
+	return a
 }
 
 // scriptArgs reads a script's arguments, which OM keeps as Lua source: `1,-1`,
@@ -345,70 +476,35 @@ func text(s string) string {
 	return s
 }
 
-// widgetLabel is the label a widget shows: its own or its first part's.
-func widgetLabel(w map[string]any) string {
-	if l, ok := w["label"].(string); ok && l != "" {
-		return text(l)
-	}
-	keys := make([]string, 0, len(w))
-	for k := range w {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		if part, ok := w[k].(map[string]any); ok {
-			if l, ok := part["label"].(string); ok && l != "" {
-				return text(l)
-			}
-		}
-	}
-	return ""
-}
-
 // inProject says whether what a call names is in the project, as the proxies
 // register it: the CLU, its object or peripheral, its script.
-func (p *Project) inProject(c *Call) error {
+func (p *Project) inProject(clu, object, script string) error {
 	if p.known == nil {
 		p.known = map[string]bool{}
-		for _, clu := range p.CLUs {
-			p.known[clu.ID] = true
-			for _, o := range clu.Objects {
-				p.known[clu.ID+"."+o.ID] = true
+		for _, c := range p.CLUs {
+			p.known[c.ID] = true
+			for _, o := range c.Objects {
+				p.known[c.ID+"."+o.ID] = true
 			}
-			for _, o := range clu.Peripherals {
+			for _, o := range c.Peripherals {
 				if o.Class != 0 {
-					p.known[clu.ID+"."+o.ID] = true
+					p.known[c.ID+"."+o.ID] = true
 				}
 			}
-			for _, sc := range clu.Scripts {
-				p.known[clu.ID+":"+sc.Name] = true
+			for _, sc := range c.Scripts {
+				p.known[c.ID+":"+sc.Name] = true
 			}
 		}
 	}
 	switch {
-	case !p.known[c.CluID]:
-		return fmt.Errorf("CLU %s is not in the project", c.CluID)
-	case c.CallType == "SCRIPT":
-		if !p.known[c.CluID+":"+c.ObjectName] {
-			return fmt.Errorf("script %s is not on %s", c.ObjectName, c.CluID)
+	case !p.known[clu]:
+		return fmt.Errorf("CLU %s is not in the project", clu)
+	case script != "":
+		if !p.known[clu+":"+script] {
+			return fmt.Errorf("script %s is not on %s", script, clu)
 		}
-	case c.CallType != "VARIABLE" && c.ObjectName != c.CluID && !p.known[c.CluID+"."+c.ObjectName]:
-		return fmt.Errorf("%s.%s is not in the project, or vclu does not know its type", c.CluID, c.ObjectName)
+	case object != "" && !p.known[clu+"."+object]:
+		return fmt.Errorf("%s.%s is not in the project, or vclu does not know its type", clu, object)
 	}
 	return nil
-}
-
-// hasCall says whether a widget or part has a call.
-func hasCall(m map[string]any) bool {
-	for _, v := range m {
-		switch v := v.(type) {
-		case *Call:
-			return true
-		case map[string]any:
-			if hasCall(v) {
-				return true
-			}
-		}
-	}
-	return false
 }

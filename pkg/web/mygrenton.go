@@ -9,11 +9,13 @@ import (
 	"sort"
 
 	"github.com/Domktorymysli/vclu/pkg/config"
+	"github.com/Domktorymysli/vclu/pkg/dashspec"
 	"github.com/Domktorymysli/vclu/pkg/omproject"
 )
 
-// The myGrenton interfaces of the imported project (#219), checked by omproject,
-// one <id>.json each, next to the om.lua files and not among the user's.
+// The myGrenton interfaces of the imported project (#219) in vclu's own model
+// (dashspec, translated by omproject), one <id>.json each, next to the om.lua
+// files and not among the user's. The dashboards are generated from these alone.
 const myGrentonDir = "mygrenton"
 
 func (s *Server) myGrentonPath() string {
@@ -29,6 +31,12 @@ func (s *Server) writeInterfaces(p *omproject.Project) error {
 	}
 	if err := os.MkdirAll(filepath.Dir(dir), 0755); err != nil {
 		return fmt.Errorf("failed to store the myGrenton interface: %v", err)
+	}
+	// what an import cut short left behind
+	if left, _ := filepath.Glob(filepath.Join(filepath.Dir(dir), ".mygrenton-*")); len(left) > 0 {
+		for _, l := range left {
+			_ = os.RemoveAll(l)
+		}
 	}
 	tmp, err := os.MkdirTemp(filepath.Dir(dir), ".mygrenton-")
 	if err != nil {
@@ -48,12 +56,17 @@ func (s *Server) writeInterfaces(p *omproject.Project) error {
 			return fmt.Errorf("failed to store the myGrenton interface: %v", err)
 		}
 	}
-	if err := s.removeInterfaces(); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, dir); err != nil {
+	// the old ones step aside until the new ones are in place
+	old := dir + ".old"
+	_ = os.RemoveAll(old)
+	if err := os.Rename(dir, old); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("failed to store the myGrenton interface: %v", err)
 	}
+	if err := os.Rename(tmp, dir); err != nil {
+		_ = os.Rename(old, dir)
+		return fmt.Errorf("failed to store the myGrenton interface: %v", err)
+	}
+	_ = os.RemoveAll(old)
 	return nil
 }
 
@@ -66,12 +79,12 @@ func (s *Server) removeInterfaces() error {
 }
 
 // readInterfaces reads the stored interfaces, by label.
-func (s *Server) readInterfaces() ([]omproject.Interface, error) {
+func (s *Server) readInterfaces() ([]dashspec.Interface, error) {
 	files, err := filepath.Glob(filepath.Join(s.myGrentonPath(), "*.json"))
 	if err != nil {
 		return nil, err
 	}
-	list := []omproject.Interface{}
+	list := []dashspec.Interface{}
 	for _, f := range files {
 		b, err := os.ReadFile(f)
 		if err != nil {
@@ -80,7 +93,7 @@ func (s *Server) readInterfaces() ([]omproject.Interface, error) {
 			}
 			return nil, err
 		}
-		var in omproject.Interface
+		var in dashspec.Interface
 		if err := json.Unmarshal(b, &in); err != nil {
 			return nil, fmt.Errorf("%s: %v", filepath.Base(f), err)
 		}

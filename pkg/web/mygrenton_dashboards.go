@@ -3,6 +3,7 @@ package web
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -10,17 +11,16 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/Domktorymysli/vclu/pkg/luastr"
-	"github.com/Domktorymysli/vclu/pkg/omproject"
+	"github.com/Domktorymysli/vclu/pkg/dashspec"
 )
 
-// Dashboards from the myGrenton interface (#220): one file per page in
-// modules/dashboards/grenton/, written only when the user asks, theirs from then on.
+// Dashboards from the myGrenton interface (#220): generated from vclu's model of
+// it (dashspec), one file per page in modules/dashboards/grenton/, written only
+// when the user asks, theirs from then on.
 
 const (
 	grentonDashDir = "dashboards/grenton" // under modules/
@@ -30,11 +30,11 @@ const (
 )
 
 var (
-	reHeader = regexp.MustCompile(`^-- vclu: written from the myGrenton interface, sha256:([0-9a-f]{64})\n`)
-	reIdentK = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
-	rePageID = regexp.MustCompile(`^[0-9]{1,19}$`)
-	// the require line, not commented out
-	reRequire = regexp.MustCompile(`(?m)^[ \t]*require[ \t]*\(?[ \t]*["']dashboards[/.]grenton["'][ \t]*\)?`)
+	reHeader   = regexp.MustCompile(`^-- vclu: written from the myGrenton interface, sha256:([0-9a-f]{64})\n`)
+	rePageFile = regexp.MustCompile(`^page_([0-9]{1,19})\.lua$`)
+	// the require line at the start of a line, comments taken out first
+	reRequire      = regexp.MustCompile(`(?m)^[ \t]*require[ \t]*\(?[ \t]*["']dashboards[/.]grenton["'][ \t]*\)?`)
+	reBlockComment = regexp.MustCompile(`(?s)--\[(=*)\[.*?\]`)
 )
 
 // File states of a page.
@@ -51,7 +51,9 @@ func (s *Server) grentonDashPath() string {
 
 func pageFile(id string) string { return "page_" + id + ".lua" }
 
-// fileState says who a file is: none, vclu, edited or user.
+func pageModule(file string) string { return grentonDashDir + "/" + strings.TrimSuffix(file, ".lua") }
+
+// fileState says whose a file is: none, vclu, edited or user.
 func fileState(path string) string {
 	b, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -77,114 +79,44 @@ func withHeader(content string) string {
 	return headerPrefix + hex.EncodeToString(sum[:]) + "\n" + content
 }
 
-// luaValue writes a checked interface value as a Lua literal: strings through
-// luastr.Quote, numbers as numbers, tables with identifier keys.
-func luaValue(b *strings.Builder, v any) {
-	switch v := v.(type) {
-	case string:
-		b.WriteString(luastr.Quote(v))
-	case float64:
-		b.WriteString(strconv.FormatFloat(v, 'g', -1, 64))
-	case bool:
-		b.WriteString(strconv.FormatBool(v))
-	case []any:
-		b.WriteString("{")
-		for i, x := range v {
-			if i > 0 {
-				b.WriteString(", ")
-			}
-			luaValue(b, x)
-		}
-		b.WriteString("}")
-	case map[string]any:
-		keys := make([]string, 0, len(v))
-		for k := range v {
-			if reIdentK.MatchString(k) {
-				keys = append(keys, k)
-			}
-		}
-		// type and id first, as one reads a widget; then A-Z
-		rank := func(k string) int {
-			switch k {
-			case "type":
-				return 0
-			case "id":
-				return 1
-			case "callType":
-				return 2
-			}
-			return 3
-		}
-		sort.Slice(keys, func(i, j int) bool {
-			if rank(keys[i]) != rank(keys[j]) {
-				return rank(keys[i]) < rank(keys[j])
-			}
-			return keys[i] < keys[j]
-		})
-		b.WriteString("{ ")
-		for i, k := range keys {
-			if i > 0 {
-				b.WriteString(", ")
-			}
-			b.WriteString(k)
-			b.WriteString(" = ")
-			luaValue(b, v[k])
-		}
-		b.WriteString(" }")
-	default:
-		b.WriteString("nil")
+// writeFile writes next to the file and renames, so a failed write leaves the old one.
+func writeFile(path, content string) error {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(content), 0644); err != nil {
+		_ = os.Remove(tmp)
+		return err
 	}
-}
-
-// pageLua is the dashboard file of one page.
-func pageLua(in omproject.Interface, p omproject.Page) string {
-	var b strings.Builder
-	b.WriteString("-- Dashboard from the myGrenton page " + strconv.Quote(p.Label) + " of " + strconv.Quote(in.Label) + ".\n")
-	b.WriteString("-- This file is yours: change, reorder or remove widgets, add your own. vclu does not\n")
-	b.WriteString("-- replace it once it is changed. MyGrenton.widget: docs.vclu.pl, Grenton > myGrenton.\n")
-	b.WriteString("local s = Dashboard.new(" + luastr.Quote("grenton_page_"+p.ID) + ")\n")
-	b.WriteString("    :name(" + luastr.Quote(p.Label) + ")\n")
-	b.WriteString("    :tabGroup(" + luastr.Quote(in.Label) + ")\n")
-	b.WriteString("    :section(" + luastr.Quote(p.Label) + ")\n")
-	for _, w := range p.Widgets {
-		b.WriteString("MyGrenton.widget(s, ")
-		luaValue(&b, map[string]any(w))
-		b.WriteString(")\n")
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
 	}
-	b.WriteString("s:build()\n")
-	return b.String()
-}
-
-// initLua requires the pages, in the interface's order.
-func initLua(pages []string) string {
-	var b strings.Builder
-	b.WriteString("-- The myGrenton dashboards; remove a line to drop a page.\n")
-	for _, f := range pages {
-		b.WriteString("require(" + luastr.Quote(grentonDashDir+"/"+strings.TrimSuffix(f, ".lua")) + ")\n")
-	}
-	return b.String()
-}
-
-// The tab's view of one page.
-type dashPage struct {
-	ID      string   `json:"id"`
-	Label   string   `json:"label"`
-	Widgets int      `json:"widgets"`
-	LeftOut []string `json:"leftOut"`
-	File    string   `json:"file"`
-	State   string   `json:"state"`
-}
-
-type dashInterface struct {
-	ID    string     `json:"id"`
-	Label string     `json:"label"`
-	Pages []dashPage `json:"pages"`
+	return nil
 }
 
 // requireState says whether modules/init.lua loads the dashboards.
 func (s *Server) requireState() bool {
 	b, err := os.ReadFile(filepath.Join(s.serverDir, modulesDirName, "init.lua"))
-	return err == nil && reRequire.Match(b)
+	if err != nil {
+		return false
+	}
+	code := blockComments(string(b))
+	return reRequire.MatchString(code)
+}
+
+// blockComments takes out --[[ ]] and --[==[ ]==] comments.
+func blockComments(code string) string {
+	for {
+		m := reBlockComment.FindStringSubmatchIndex(code)
+		if m == nil {
+			return code
+		}
+		closing := "]" + code[m[2]:m[3]] + "]"
+		end := strings.Index(code[m[1]-1:], closing)
+		if end < 0 {
+			return code[:m[0]]
+		}
+		code = code[:m[0]] + code[m[1]-1+end+len(closing):]
+	}
 }
 
 // flatGrenton is modules/dashboards/grenton.lua, which require would load instead of the directory.
@@ -196,22 +128,84 @@ func (s *Server) flatGrenton() string {
 	return ""
 }
 
+// The tab's view.
+type dashWidget struct {
+	Kind  string   `json:"kind"`
+	Label string   `json:"label"`
+	Reads []string `json:"reads"`
+	Does  []string `json:"does"`
+}
+
+type dashPage struct {
+	ID      string       `json:"id"`
+	Label   string       `json:"label"`
+	Widgets []dashWidget `json:"widgets"`
+	LeftOut []string     `json:"leftOut"`
+	File    string       `json:"file"`
+	State   string       `json:"state"`
+}
+
+type dashInterface struct {
+	ID    string     `json:"id"`
+	Label string     `json:"label"`
+	Pages []dashPage `json:"pages"`
+}
+
+// interfaces reads the stored interfaces, those whose IDs may name files.
+func (s *Server) interfaces() ([]dashspec.Interface, error) {
+	list, err := s.readInterfaces()
+	if err != nil {
+		return nil, err
+	}
+	out := list[:0]
+	for _, in := range list {
+		if !dashspec.ValidID(in.ID) {
+			continue
+		}
+		pages := in.Pages[:0]
+		for _, p := range in.Pages {
+			if dashspec.ValidPageID(p.ID) {
+				pages = append(pages, p)
+			}
+		}
+		in.Pages = pages
+		out = append(out, in)
+	}
+	return out, nil
+}
+
+// pageFiles are the page files in the directory, by name.
+func (s *Server) pageFiles() []string {
+	entries, _ := os.ReadDir(s.grentonDashPath())
+	var files []string
+	for _, e := range entries {
+		if !e.IsDir() && rePageFile.MatchString(e.Name()) {
+			files = append(files, e.Name())
+		}
+	}
+	sort.Strings(files)
+	return files
+}
+
 // handleAPIGrentonDashboards lists the imported interfaces' pages and their files.
 //
 //	@Summary		myGrenton pages
-//	@Description	The pages of the myGrenton interfaces from the imported Object Manager project, with their widget counts, what was left out and the state of their dashboard file (none, vclu, edited, user).
+//	@Description	The pages of the myGrenton interfaces from the imported Object Manager project: per page its widgets (kind, label, what they read and do), what was left out and the state of its dashboard file (none, vclu, edited, user); page files of pages no longer imported (orphans); whether modules/init.lua loads the dashboards.
 //	@Tags			grenton
 //	@Produce		json
 //	@Success		200	{object}	map[string]interface{}
 //	@Security		ApiKeyAuth
 //	@Router			/api/grenton/dashboards [get]
 func (s *Server) handleAPIGrentonDashboards(c *gin.Context) {
-	list, err := s.readInterfaces()
+	s.omImport.Lock()
+	defer s.omImport.Unlock()
+	list, err := s.interfaces()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	dir := s.grentonDashPath()
+	known := map[string]bool{}
 	out := []dashInterface{}
 	for _, in := range list {
 		di := dashInterface{ID: in.ID, Label: in.Label, Pages: []dashPage{}}
@@ -220,13 +214,29 @@ func (s *Server) handleAPIGrentonDashboards(c *gin.Context) {
 			if left == nil {
 				left = []string{}
 			}
-			di.Pages = append(di.Pages, dashPage{ID: p.ID, Label: p.Label, Widgets: len(p.Widgets), LeftOut: left,
-				File: pageFile(p.ID), State: fileState(filepath.Join(dir, pageFile(p.ID)))})
+			dp := dashPage{ID: p.ID, Label: p.Label, Widgets: []dashWidget{}, LeftOut: left,
+				File: pageFile(p.ID), State: fileState(filepath.Join(dir, pageFile(p.ID)))}
+			for _, w := range p.Widgets {
+				if w.Check() != nil {
+					continue
+				}
+				reads, does := dashspec.Describe(w)
+				dp.Widgets = append(dp.Widgets, dashWidget{Kind: w.Kind, Label: w.Label, Reads: nonNil(reads), Does: nonNil(does)})
+			}
+			known[dp.File] = true
+			di.Pages = append(di.Pages, dp)
 		}
 		out = append(out, di)
 	}
+	orphans := []gin.H{}
+	for _, f := range s.pageFiles() {
+		if !known[f] {
+			orphans = append(orphans, gin.H{"file": f, "state": fileState(filepath.Join(dir, f))})
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"interfaces": out,
+		"orphans":    orphans,
 		"dir":        modulesDirName + "/" + grentonDashDir,
 		"required":   s.requireState(),
 		"initState":  fileState(filepath.Join(dir, "init.lua")),
@@ -246,7 +256,7 @@ type dashCreate struct {
 // handleAPIGrentonDashboardsCreate writes the dashboard files of the chosen pages.
 //
 //	@Summary		Create dashboards from myGrenton pages
-//	@Description	Writes modules/dashboards/grenton/page_<id>.lua for each chosen page and init.lua requiring them. A file vclu did not write, or wrote and someone changed, is never replaced; a file vclu wrote is replaced only with replace. With addRequire, require("dashboards/grenton") is added to modules/init.lua when missing. Lua reloads when the dashboards are required.
+//	@Description	Writes modules/dashboards/grenton/page_<id>.lua for each chosen page and init.lua loading every page file there. A file vclu did not write, or wrote and someone changed, is never replaced (kept); a file vclu wrote is replaced only with replace (ask). When init.lua is the user's, the pages are written and the lines to add are returned (initLines). With addRequire, require("dashboards/grenton") is added to modules/init.lua when missing. Lua reloads when the dashboards are required; pages that failed to load are in pageErrors.
 //	@Tags			grenton
 //	@Accept			json
 //	@Produce		json
@@ -268,12 +278,12 @@ func (s *Server) handleAPIGrentonDashboardsCreate(c *gin.Context) {
 		c.JSON(http.StatusConflict, gin.H{"error": f + " exists: require(\"dashboards/grenton\") would load it instead of the directory. Rename or remove it first.", "flatFile": f})
 		return
 	}
-	list, err := s.readInterfaces()
+	list, err := s.interfaces()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	var in *omproject.Interface
+	var in *dashspec.Interface
 	for i := range list {
 		if list[i].ID == req.Interface {
 			in = &list[i]
@@ -285,15 +295,11 @@ func (s *Server) handleAPIGrentonDashboardsCreate(c *gin.Context) {
 	}
 	chosen := map[string]bool{}
 	for _, id := range req.Pages {
-		if !rePageID.MatchString(id) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "bad page id"})
-			return
-		}
 		chosen[id] = true
 	}
 
 	dir := s.grentonDashPath()
-	var pages []omproject.Page
+	var pages []dashspec.Page
 	var ask, kept []string
 	for _, p := range in.Pages {
 		if !chosen[p.ID] {
@@ -311,11 +317,6 @@ func (s *Server) handleAPIGrentonDashboardsCreate(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "a chosen page is not in the interface"})
 		return
 	}
-	initPath := filepath.Join(dir, "init.lua")
-	initState := fileState(initPath)
-	if initState == fileEdited || initState == fileUser {
-		kept = append(kept, "init.lua")
-	}
 	if len(kept) > 0 {
 		c.JSON(http.StatusConflict, gin.H{"error": "these files are yours (not written by vclu, or changed since): they are not replaced", "kept": kept})
 		return
@@ -331,24 +332,56 @@ func (s *Server) handleAPIGrentonDashboardsCreate(c *gin.Context) {
 	}
 	var written []string
 	for _, p := range pages {
-		if err := os.WriteFile(filepath.Join(dir, pageFile(p.ID)), []byte(withHeader(pageLua(*in, p))), 0644); err != nil {
+		if err := writeFile(filepath.Join(dir, pageFile(p.ID)), withHeader(dashspec.PageLua(*in, p))); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "written": written})
 			return
 		}
 		written = append(written, pageFile(p.ID))
 	}
-	// init.lua requires every page vclu has a file for, not only the ones written now
-	var all []string
-	for _, p := range in.Pages {
-		if st := fileState(filepath.Join(dir, pageFile(p.ID))); st != fileNone {
-			all = append(all, pageFile(p.ID))
+
+	// init.lua loads every page file there, of every interface: the interfaces' order, then the rest
+	var modules []string
+	seen := map[string]bool{}
+	files := s.pageFiles()
+	present := map[string]bool{}
+	for _, f := range files {
+		present[f] = true
+	}
+	for _, i := range list {
+		for _, p := range i.Pages {
+			if f := pageFile(p.ID); present[f] && !seen[f] {
+				seen[f] = true
+				modules = append(modules, pageModule(f))
+			}
 		}
 	}
-	if err := os.WriteFile(initPath, []byte(withHeader(initLua(all))), 0644); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "written": written})
-		return
+	for _, f := range files {
+		if !seen[f] {
+			modules = append(modules, pageModule(f))
+		}
 	}
-	written = append(written, "init.lua")
+	resp := gin.H{"success": true, "dir": modulesDirName + "/" + grentonDashDir, "dashboardIds": dashIDs(pages)}
+	initPath := filepath.Join(dir, "init.lua")
+	switch fileState(initPath) {
+	case fileNone, fileVCLU:
+		if err := writeFile(initPath, withHeader(dashspec.InitLua(modules))); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "written": written})
+			return
+		}
+		written = append(written, "init.lua")
+	default:
+		// the user's: they add what is missing
+		b, _ := os.ReadFile(initPath)
+		var lines []string
+		for _, p := range pages {
+			if m := pageModule(pageFile(p.ID)); !strings.Contains(string(b), m) {
+				lines = append(lines, dashspec.LoadLine(m))
+			}
+		}
+		resp["initKept"] = true
+		resp["initLines"] = nonNil(lines)
+	}
+	resp["written"] = written
 
 	added := false
 	if req.AddRequire && !s.requireState() {
@@ -358,24 +391,35 @@ func (s *Server) handleAPIGrentonDashboardsCreate(c *gin.Context) {
 		}
 		added = true
 	}
-	resp := gin.H{
-		"success":       true,
-		"written":       written,
-		"dir":           modulesDirName + "/" + grentonDashDir,
-		"requireAdded":  added,
-		"required":      s.requireState(),
-		"dashboardsIds": dashIDs(pages),
-	}
+	resp["requireAdded"] = added
+	resp["required"] = s.requireState()
 	if s.requireState() {
 		s.reloadForOM(resp)
+		if errs := s.pageErrors(); len(errs) > 0 {
+			resp["pageErrors"] = errs
+		}
 	}
 	c.JSON(http.StatusOK, resp)
 }
 
-func dashIDs(pages []omproject.Page) []string {
+// pageErrors are the pages MyGrenton.load could not load after the reload.
+func (s *Server) pageErrors() []string {
+	if s.luaExecutor == nil {
+		return nil
+	}
+	out, err := s.luaExecutor.Execute(`return MyGrenton.errorsJSON()`)
+	if err != nil {
+		return nil
+	}
+	var errs []string
+	_ = json.Unmarshal([]byte(out), &errs)
+	return errs
+}
+
+func dashIDs(pages []dashspec.Page) []string {
 	ids := make([]string, len(pages))
 	for i, p := range pages {
-		ids[i] = "grenton_page_" + p.ID
+		ids[i] = dashspec.DashboardID(p)
 	}
 	return ids
 }
@@ -394,7 +438,7 @@ func (s *Server) addRequire() error {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return fmt.Errorf("modules/init.lua: %v", err)
 	}
-	if err := os.WriteFile(path, b, 0644); err != nil {
+	if err := writeFile(path, string(b)); err != nil {
 		return fmt.Errorf("modules/init.lua: %v", err)
 	}
 	return nil

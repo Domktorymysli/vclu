@@ -70,6 +70,15 @@
         {"id": 25, "type": "SCENE", "buttonMonostable": {"label": "Bad id",
           "actionClick": {"callType": "METHOD", "cluId": "CLU221000002", "objectName": "DOU0001\"..os.exit(1)..\"", "index": "0", "type": "CLICK", "value": "1"}}},
         {"id": 26, "type": "GAUGE_3D", "label": "Future"},
+        {"id": 28, "type": "ON_OFF", "buttonBistable": {"label": "Numbers",
+          "state": {"callType": "ATTRIBUTE", "cluId": "CLU221000002", "objectName": "DOU0001", "index": 0},
+          "actionOn": {"callType": "PSEUDO_METHOD", "cluId": "CLU221000002", "objectName": "DOU0001", "index": 0, "type": "ON", "value": 1}}},
+        {"id": 29, "type": "SCENE", "buttonMonostable": {"label": "Reset CLU",
+          "actionClick": {"callType": "METHOD", "cluId": "CLU221000002", "objectName": "CLU221000002", "index": "0", "type": "CLICK", "value": ""}}},
+        {"id": 28, "type": "TEXT", "label": "Same id",
+          "text": {"callType": "ATTRIBUTE", "cluId": "CLU221000002", "objectName": "CLU221000002", "index": "9"}},
+        {"id": 30, "type": "SCENE", "buttonMonostable": {"label": "No such script",
+          "actionClick": {"callType": "SCRIPT", "cluId": "CLU221000002", "objectName": "nosuch", "index": null, "type": "CLICK", "value": ""}}},
         {"id": 27, "type": "TEXT", "label": "\"); os.exit(1) --]] \\ \u0001",
           "text": {"callType": "ATTRIBUTE", "cluId": "CLU221000002", "objectName": "DIN0001", "index": "0"}}
       ]

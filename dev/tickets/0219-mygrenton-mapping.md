@@ -57,12 +57,19 @@ and the mapping that the "Dashboards" section on the Grenton page (#220) builds 
   the last value read.
 - Commands go through the proxies, so their guards apply: a METHOD call that disarms a SatelZone
   (#214) is refused unless disarming is allowed.
-- Decided: the mapping lives in a runtime Lua module (e.g. `pkg/lua/runtime/grenton/MyGrenton.lua`),
-  so a change in Grenton's format is a change there only. Its entry point takes a dashboard section
-  and one widget as a Lua table (the checked JSON of that widget) and adds the vclu widget:
-  `MyGrenton.widget(section, {type = "ON_OFF", ...})`. The files #220 writes are lines of such calls,
-  so they need only the runtime, not the stored import. The raw JSON is kept in `imports/mygrenton/`,
-  next to the imported om.lua files, not among the user's files.
+- Decided: an anti-corruption layer. Only `pkg/omproject` knows Grenton's format: it translates the
+  interface into vclu's own model (`pkg/dashspec`: interfaces, pages, widgets of the kinds group,
+  toggle, status, slider, button and thermostat, each with what it reads and what it does), and a
+  change in Grenton's format stops there. The model is what is stored in `imports/mygrenton/<id>.json`,
+  next to the imported om.lua files, not among the user's files; Grenton's JSON is not kept. #220
+  generates the dashboards from the model alone.
+- The generated files are plain Dashboard code; what reads a CLU or commands it goes through small
+  helpers of a runtime module (`pkg/lua/runtime/grenton/MyGrenton.lua`): `MyGrenton.value(path)`,
+  `feature(path, n)`, `variable(clu, name)`, `isOn(read)`, `text(read, on, off)`,
+  `set(path, n, value)`, `execute(path, n[, value])`, `script(clu, name, ...)`, `onOff(on, off)`,
+  `MyGrenton.INPUT` for what the user enters, and `MyGrenton.load(module)` to load a page on its own.
+  The helpers check their arguments again, as users edit the files. Commands go only to objects,
+  through their proxies; the CLU itself is only read.
 - The JSON comes from an upload. As in #178, every value that reaches Lua is checked, never escaped
   into code: `cluId` and object IDs against the patterns #178 uses, script and user feature names as
   Lua identifiers, `index` as a number (or an identifier for `VARIABLE`). Labels are data (strings),
@@ -71,15 +78,15 @@ and the mapping that the "Dashboards" section on the Grenton page (#220) builds 
 ## Files
 - `pkg/omproject/` (read `nodes/*/data.json`)
 - `pkg/web/handle_web_om.go` (store it in `imports/mygrenton/`, remove it when a new project has none)
-- `pkg/lua/runtime/grenton/MyGrenton.lua` (new)
+- `pkg/dashspec/` (new: the model, its checks, the Lua generator)
+- `pkg/lua/runtime/grenton/MyGrenton.lua` (new: the helpers)
 
 ## Acceptance criteria
 - [ ] Importing a project or a diagnostic pack with an interface stores it in `imports/mygrenton/`;
       a new import replaces it, and an import of a project or pack without one removes it. Uploading
       a single om.lua leaves it alone.
-- [ ] `MyGrenton` lists the pages and, per widget, the vclu widget, its label, what it reads and what
-      it does; `MyGrenton.widget(section, w)` adds it. A test with a fixture interface that has every
-      widget type and call type above.
+- [ ] The model lists the pages and, per widget, the vclu widget, its label, what it reads and what
+      it does. A test with a fixture interface that has every widget type and call type above.
 - [ ] No read blocks the run loop: a test with a CLU that does not answer shows the dashboard still
       answers, with the last value or none.
 - [ ] Each call type reads or commands the right object (tested against registry objects): ATTRIBUTE,
@@ -91,6 +98,6 @@ and the mapping that the "Dashboards" section on the Grenton page (#220) builds 
 - [ ] `go test ./...` and `go test -race ./...` pass; a changelog entry in `changelog.d/`.
 
 ## Contract impact
-`MyGrenton.widget` becomes a public Lua API: the files #220 writes call it, and users edit them.
-Its table format (the widget as in the interface) changes only with a compatible reading of older
-tables. No dashboard changes until the user creates them (#220).
+The `MyGrenton` helpers become a public Lua API: the files #220 writes call them, and users edit
+them. The stored model (`imports/mygrenton/`) is vclu's own and may change with a new import. No
+dashboard changes until the user creates them (#220).
