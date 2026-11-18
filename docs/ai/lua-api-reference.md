@@ -26,7 +26,7 @@ Only public API is listed — internal/private functions are omitted.
 - [GPIO_DIN](#gpio_din) (1 functions)
 - [integrations.mqtt.MqttClient](#integrationsmqttmqttclient) (30 functions)
 - [core.Cloud](#corecloud) (9 functions)
-- [grenton.CLU_REMOTE](#grentonclu_remote) (3 functions)
+- [grenton.CLU_REMOTE](#grentonclu_remote) (4 functions)
 - [lib.cct](#libcct) (1 functions)
 - [lib.tasmota](#libtasmota) (5 functions)
 
@@ -2530,6 +2530,16 @@ Sets a user feature on the CLU. Blocks until the CLU answers, like execute.
 - `value` (any) — Number, string, boolean or nil
 
 **Returns:** boolean true when the CLU answered, or nil and an error
+
+### `CLU_REMOTE:bind(name, obj, opts) → function Call it to remove the binding`
+
+Keeps a user feature equal to an object's value. Writes it when the value changes (without waiting for the CLU), and all bound features again when the CLU comes back (a restart, a configuration from OM). nil is not written.
+
+- `name` (string) — Feature name, e.g. "ha_temp_balkon"
+- `obj` (table) — Object with onChange (Remote*, Virtual*, a plugin sensor)
+- `opts` (table) — Optional: {script = "HaZmiana"} an OM script run on the CLU after a write caused by a change
+
+**Returns:** function Call it to remove the binding
 
 ### `CLU_REMOTE:firmware() → string|nil Firmware version`
 

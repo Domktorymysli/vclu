@@ -459,6 +459,21 @@ CLU220000592:set("temp_zadana", 21)                    -- true, or nil, err
 - In `vclu_draft_test` the script is recorded in `clu_calls` instead of being sent; `execute` returns no reply there, `get` and `set` return `nil, "no answer"`.
 - Check the script name and arguments in OM first; a typo only shows up as an error reply from the CLU.
 
+To keep a feature equal to an object (Home Assistant, Satel, Modbus, a virtual object), bind it instead of calling `set` from `onChange`:
+
+```lua
+CLU220000592:bind("temp_balkon", _:get("z2m.balkon_temp"))
+-- the OM script PralkaZmiana runs on the CLU after each write caused by a change
+local pralka = VirtualText:new("pralka", { initial = "off" })
+local stop = CLU220000592:bind("pralka", pralka, { script = "PralkaZmiana" })
+-- stop() removes the binding
+```
+
+- `bind` writes the value at once, then on each change (the same value again is not written, `nil` never), without waiting for the CLU; changes during a write go in the next one.
+- vclu asks the CLU for its uptime every 30 s; after a restart, a configuration sent from OM or when the CLU answers again, it writes every bound feature again, without the script.
+- The script runs as its own command after the write; one that fails on the CLU (a typo) is logged and not repeated. A Grenton object not reported yet when bound is written at the next uptime check.
+- The feature and the script must be Lua identifiers defined in OM; a binding lasts until the module is reloaded. In `vclu_draft_test` the writes show in `clu_calls`.
+
 ## Dashboard (Lua-defined)
 
 Public dashboard for a tablet/wall. Defined in Lua, available at `/d/:id`.

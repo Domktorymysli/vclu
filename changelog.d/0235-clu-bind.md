@@ -1,0 +1,3 @@
+### Lua runtime
+
+- **An object bound to a CLU user feature** - `CLU:bind("feature", obj [, { script = "Name" }])` keeps a CLU user feature equal to an object's value: it writes the value when it changes (not the same value again, never `nil`) without blocking the run loop, and every bound feature again when the CLU comes back after a restart, a configuration sent from Object Manager or a time without answers (vclu reads the CLU's uptime every 30 s). `script` runs an OM script on the CLU as its own command after a write caused by a change, not after a write again; a failing script is logged and does not hold up the writes. It returns a function that removes the binding ([#235](https://github.com/Domktorymysli/vclu/issues/235)).
