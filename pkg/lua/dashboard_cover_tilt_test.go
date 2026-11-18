@@ -19,7 +19,7 @@ const dashCoverTiltSetup = `
 	slats.setTilt = function(a) T.sent[#T.sent + 1] = a end
 	local unread = moves()
 	unread.getTilt = function() return nil end
-	unread.setTilt = function() end
+	unread.setTilt = function(a) T.sent[#T.sent + 1] = a end
 	local readOnly = moves()
 	readOnly.getTilt = function() return 30 end
 	local locked = moves()
@@ -104,8 +104,8 @@ func TestDashboardCoverTiltData(t *testing.T) {
 	}
 }
 
-// The tilt action calls setTilt with the angle clamped to 0..90; without setTilt, on a disabled
-// tile or with no number it is refused.
+// The tilt action calls setTilt with the angle clamped to 0..90; without setTilt or an angle
+// from getTilt, on a disabled tile or with no number it is refused.
 func TestDashboardCoverTiltAction(t *testing.T) {
 	engine := newCoverTiltEngine(t)
 	for _, v := range []string{"45", "120", "-5", `"30"`} {
@@ -120,6 +120,7 @@ func TestDashboardCoverTiltAction(t *testing.T) {
 	for _, c := range []struct{ widget, value, err string }{
 		{"plain", "10", "No setTilt function"},
 		{"readonly", "10", "No setTilt function"},
+		{"unread", "10", "No tilt"},
 		{"locked", "10", "Widget is disabled"},
 		{"slats", "nil", "Value must be a number"},
 		{"slats", `"abc"`, "Value must be a number"},
@@ -148,7 +149,11 @@ func TestDashboardCoverTiltArea(t *testing.T) {
 	if res := coverTiltAction(t, engine, "area:salon.ro", "60"); res["error"] == nil {
 		t.Errorf("readonly tilt: %v", res)
 	}
+	// a roller without slats refuses it, as the group tile does
+	if res := coverTiltAction(t, engine, "area:salon.roleta", "60"); res["error"] != "No tilt" {
+		t.Errorf("tilt without slats = %v, want error No tilt", res)
+	}
 	if got := mustExec(t, engine, `return #SENT`); got != "1" {
-		t.Errorf("readonly tilt sent a command: %s", got)
+		t.Errorf("refused tilt sent a command: %s", got)
 	}
 }
