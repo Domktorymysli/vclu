@@ -131,6 +131,9 @@
             if (d.initKept && d.initLines.length > 0) {
                 html += '<div class="mt-2">' + esc(t('init_kept')) + '<pre class="small mb-0">' + esc(d.initLines.join('\n')) + '</pre></div>';
             }
+            if (d.requireLine) {
+                html += '<div class="mt-2">' + esc(t('require_manual')) + '<pre class="small mb-0">' + esc(d.requireLine) + '</pre></div>';
+            }
             if (d.reloadError) {
                 html += '<div class="text-danger mt-2">' + esc(t('reload_failed')) + ': ' + esc(d.reloadError) + '</div>';
             } else if (d.reloaded) {

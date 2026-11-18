@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -14,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/yuin/gopher-lua/parse"
 
 	"github.com/Domktorymysli/vclu/pkg/dashspec"
 )
@@ -101,6 +103,17 @@ func (s *Server) requireState() bool {
 	}
 	code := blockComments(string(b))
 	return reRequire.MatchString(code)
+}
+
+// luaCode is code without its comments, near enough to look for a module name in it.
+func luaCode(code string) string {
+	lines := strings.Split(blockComments(code), "\n")
+	for i, l := range lines {
+		if j := strings.Index(l, "--"); j >= 0 {
+			lines[i] = l[:j]
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // blockComments takes out --[[ ]] and --[==[ ]==] comments.
@@ -256,7 +269,7 @@ type dashCreate struct {
 // handleAPIGrentonDashboardsCreate writes the dashboard files of the chosen pages.
 //
 //	@Summary		Create dashboards from myGrenton pages
-//	@Description	Writes modules/dashboards/imported/page_<id>.lua for each chosen page and init.lua loading every page file there. A file vclu did not write, or wrote and someone changed, is never replaced (kept); a file vclu wrote is replaced only with replace (ask). When init.lua is the user's, the pages are written and the lines to add are returned (initLines). With addRequire, require("dashboards/imported") is added to modules/init.lua when missing. Lua reloads when the dashboards are required; pages that failed to load are in pageErrors.
+//	@Description	Writes modules/dashboards/imported/page_<id>.lua for each chosen page and init.lua loading every page file there. A file vclu did not write, or wrote and someone changed, is never replaced (kept); a file vclu wrote is replaced only with replace (ask). When init.lua is the user's, the pages are written and the lines to add are returned (initLines). With addRequire, require("dashboards/imported") is added to modules/init.lua when missing, or returned as requireLine when it would not compile there. Lua reloads when the dashboards are required; pages that failed to load are in pageErrors.
 //	@Tags			grenton
 //	@Accept			json
 //	@Produce		json
@@ -375,9 +388,11 @@ func (s *Server) handleAPIGrentonDashboardsCreate(c *gin.Context) {
 	default:
 		// the user's: they add what is missing
 		b, _ := os.ReadFile(initPath)
+		code := luaCode(string(b))
 		var lines []string
 		for _, p := range pages {
-			if m := pageModule(pageFile(p.ID)); !strings.Contains(string(b), m) {
+			// the quoted name, so page_1 is not found in page_12
+			if m := pageModule(pageFile(p.ID)); !strings.Contains(code, `"`+m+`"`) && !strings.Contains(code, `'`+m+`'`) {
 				lines = append(lines, dashspec.LoadLine(m))
 			}
 		}
@@ -388,11 +403,16 @@ func (s *Server) handleAPIGrentonDashboardsCreate(c *gin.Context) {
 
 	added := false
 	if req.AddRequire && !s.requireState() {
-		if err := s.addRequire(); err != nil {
+		ok, err := s.addRequire()
+		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "written": written})
 			return
 		}
-		added = true
+		if !ok {
+			// it would not compile there (a return at the end): the user adds it
+			resp["requireLine"] = grentonRequire
+		}
+		added = ok
 	}
 	resp["requireAdded"] = added
 	resp["required"] = s.requireState()
@@ -428,21 +448,25 @@ func dashIDs(pages []dashspec.Page) []string {
 }
 
 // addRequire appends the require line to modules/init.lua, creating it when missing.
-func (s *Server) addRequire() error {
+// It leaves the file as it is (false) when the line would not compile there.
+func (s *Server) addRequire() (bool, error) {
 	path := filepath.Join(s.serverDir, modulesDirName, "init.lua")
 	b, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("modules/init.lua: %v", err)
+		return false, fmt.Errorf("modules/init.lua: %v", err)
 	}
 	if len(b) > 0 && b[len(b)-1] != '\n' {
 		b = append(b, '\n')
 	}
-	b = append(b, []byte("\n-- myGrenton dashboards (Grenton page > Dashboards)\n"+grentonRequire+"\n")...)
+	b = append(b, []byte("\n-- Imported dashboards (Grenton page > Dashboards)\n"+grentonRequire+"\n")...)
+	if _, err := parse.Parse(bytes.NewReader(b), "init.lua"); err != nil {
+		return false, nil
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return fmt.Errorf("modules/init.lua: %v", err)
+		return false, fmt.Errorf("modules/init.lua: %v", err)
 	}
 	if err := writeFile(path, string(b)); err != nil {
-		return fmt.Errorf("modules/init.lua: %v", err)
+		return false, fmt.Errorf("modules/init.lua: %v", err)
 	}
-	return nil
+	return true, nil
 }

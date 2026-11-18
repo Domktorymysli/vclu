@@ -16,7 +16,7 @@ func DashboardID(p Page) string { return "imported_" + p.ID }
 // Strings go through luastr.Quote, IDs and names are checked before they are written.
 func PageLua(in Interface, p Page) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "-- Dashboard from the %s page %s of %s.\n", in.Source, strconv.Quote(p.Label), strconv.Quote(in.Label))
+	fmt.Fprintf(&b, "-- Dashboard from the %s page %s of %s.\n", strconv.Quote(in.Source), strconv.Quote(p.Label), strconv.Quote(in.Label))
 	b.WriteString("-- This file is yours: change labels, icons and order, remove or add widgets.\n")
 	b.WriteString("-- vclu does not replace it once it is changed. Helpers: docs.vclu.pl, Grenton > myGrenton.\n")
 	b.WriteString("local s = Dashboard.new(" + luastr.Quote(DashboardID(p)) + ")\n")

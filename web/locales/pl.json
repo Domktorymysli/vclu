@@ -965,6 +965,7 @@
     "page_errors": "Te strony się nie załadowały",
     "open": "Otwórz",
     "init_kept": "Plik init.lua w modules/dashboards/imported/ jest Twój, więc vclu go nie zmienił. Dopisz do niego:",
+    "require_manual": "vclu nie mógł dopisać linii na końcu modules/init.lua (nie skompilowałaby się tam, np. po return). Dopisz ją sam:",
     "orphans": "Pliki stron, których nie ma już w zaimportowanym interfejsie (vclu ich nie usuwa):",
     "flat": "Istnieje plik",
     "flat_tail": "require(\"dashboards/imported\") wczytałby go zamiast katalogu. Zmień jego nazwę albo go usuń."

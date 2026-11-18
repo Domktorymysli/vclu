@@ -214,8 +214,14 @@ func TestWireChecksAndLoad(t *testing.T) {
 		`Wire.script("CLU221000002", "setup", {})`,
 		`Wire.feature("CLU221000002.DIN0001", -1)`,
 	} {
-		if _, err := engine.Execute(bad); err == nil {
+		_, err := engine.Execute(bad)
+		if err == nil {
 			t.Errorf("%s was taken", bad)
+			continue
+		}
+		// the error names the line that called Wire, not Wire's own
+		if first, _, _ := strings.Cut(err.Error(), "\n"); strings.Contains(first, "Wire.lua") || !strings.Contains(first, "<string>:1:") {
+			t.Errorf("%s: %s", bad, first)
 		}
 	}
 	// a quote in a script argument stays inside its string

@@ -403,7 +403,9 @@ func TestDashboardsInitAndOrphans(t *testing.T) {
 	}
 
 	// the user drops a line from init.lua: it is theirs now, creating still works
-	edited := strings.Replace(string(b), `Wire.load("dashboards/imported/page_1700000000001")`+"\n", "", 1)
+	// a line that only starts like page 2, and page 2 in a comment, do not load page 2
+	edited := strings.Replace(string(b), `Wire.load("dashboards/imported/page_1700000000001")`+"\n",
+		`Wire.load("dashboards/imported/page_17000000000021")`+"\n"+`-- Wire.load("dashboards/imported/page_1700000000002")`+"\n", 1)
 	if err := os.WriteFile(initPath, []byte(edited), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -470,5 +472,46 @@ func TestDashboardsReportBrokenPage(t *testing.T) {
 	}
 	if out, err := s.luaExecutor.Execute(`return tostring(_dashboards["imported_1700000000002"] ~= nil)`); err != nil || out != "true" {
 		t.Errorf("the other page: %s %v", out, err)
+	}
+}
+
+// A require that would not compile at the end of modules/init.lua is left for the user to add.
+func TestAddRequireAfterReturn(t *testing.T) {
+	s := &Server{serverDir: t.TempDir()}
+	path := filepath.Join(s.serverDir, "modules", "init.lua")
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	const code = "local M = {}\nreturn M\n"
+	if err := os.WriteFile(path, []byte(code), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.addRequire(); ok || err != nil {
+		t.Fatalf("added after a return: %v %v", ok, err)
+	}
+	if b, _ := os.ReadFile(path); string(b) != code {
+		t.Errorf("init.lua changed:\n%s", b)
+	}
+	if err := os.WriteFile(path, []byte("local x = 1\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.addRequire(); !ok || err != nil || !s.requireState() {
+		t.Fatalf("not added: %v %v", ok, err)
+	}
+}
+
+// A stored interface that does not read is left out, the others are listed.
+func TestBrokenInterfaceFileLeftOut(t *testing.T) {
+	files, _, _ := mgProject(t)
+	s, _, _ := mgServer(t)
+	if code, body := uploadFile(t, s, "house.omp", zipBytes(t, files)); code != http.StatusOK {
+		t.Fatalf("%d %s", code, body)
+	}
+	if err := os.WriteFile(filepath.Join(s.myGrentonPath(), "broken.json"), []byte("{"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	code, list := dashCall(t, s, http.MethodGet, "")
+	if in, _ := list["interfaces"].([]any); code != http.StatusOK || len(in) != 1 {
+		t.Fatalf("%d %v", code, list)
 	}
 }

@@ -52,20 +52,21 @@ local function isIndex(n)
     return type(n) == "number" and n >= 0 and n < 10000 and n == math.floor(n)
 end
 
-local function check(ok, fn, what)
-    if not ok then error("Wire." .. fn .. ": " .. what, 3) end
+-- up: the frames between check's caller and the public function, so the error names the page's line
+local function check(ok, fn, what, up)
+    if not ok then error("Wire." .. fn .. ": " .. what, 3 + (up or 0)) end
 end
 
 -- clu, object from "CLU….OBJ" or "CLU…"; object nil for the CLU itself
 local function split(fn, path, needObject)
-    check(type(path) == "string", fn, "path must be a string like \"CLU221000002.DOU0001\"")
+    check(type(path) == "string", fn, "path must be a string like \"CLU221000002.DOU0001\"", 2)
     local clu, object = path:match("^(CLU%d+)%.([%a][%w_]*)$")
     if not clu then
         clu = path:match("^(CLU%d+)$")
-        check(clu ~= nil, fn, "path " .. path .. " is no \"CLU….object\"")
-        check(not needObject, fn, "commands go to an object, not to the CLU itself: " .. path)
+        check(clu ~= nil, fn, "path " .. path .. " is no \"CLU….object\"", 2)
+        check(not needObject, fn, "commands go to an object, not to the CLU itself: " .. path, 2)
     end
-    check(object == nil or not KEYWORDS[object], fn, "object " .. tostring(object) .. " is no object ID")
+    check(object == nil or not KEYWORDS[object], fn, "object " .. tostring(object) .. " is no object ID", 2)
     return clu, object
 end
 
@@ -133,7 +134,7 @@ end
 
 local function feature(fn, path, index)
     local clu, object = split(fn, path, false)
-    check(isIndex(index), fn, "feature must be a number 0-9999, got " .. tostring(index))
+    check(isIndex(index), fn, "feature must be a number 0-9999, got " .. tostring(index), 1)
     local target = object or clu
     local script = target .. ":get(" .. index .. ")"
     local ask = background(path .. "[" .. index .. "]", function(done)
@@ -158,7 +159,8 @@ end
 -- @param path string "CLU221000002.DOU0001", or "CLU221000002" for the CLU's own
 -- @return function A read for a widget
 function Wire.value(path)
-    return feature("value", path, 0)
+    local read = feature("value", path, 0)
+    return read
 end
 
 --- A feature of an object (or of the CLU) by its number, asked in the background.
@@ -167,7 +169,8 @@ end
 -- @param index number Feature number
 -- @return function A read for a widget
 function Wire.feature(path, index)
-    return feature("feature", path, index)
+    local read = feature("feature", path, index)
+    return read
 end
 
 --- A user feature of the CLU (a variable defined in Object Manager), asked in the background.
@@ -226,8 +229,8 @@ end
 
 local function command(fn, path, index, value, send)
     local clu, object = split(fn, path, true)
-    check(isIndex(index), fn, "index must be a number 0-9999, got " .. tostring(index))
-    check(isValue(value), fn, "value must be a number, a string or Wire.INPUT")
+    check(isIndex(index), fn, "index must be a number 0-9999, got " .. tostring(index), 1)
+    check(isValue(value), fn, "value must be a number, a string or Wire.INPUT", 1)
     return function(input)
         local v = value
         if v == Wire.INPUT then
@@ -251,7 +254,8 @@ end
 -- @return function An action for a widget
 function Wire.set(path, index, value)
     check(value ~= nil, "set", "takes a value")
-    return command("set", path, index, value, function(obj, i, v) obj:set(i, v) end)
+    local action = command("set", path, index, value, function(obj, i, v) obj:set(i, v) end)
+    return action
 end
 
 --- Runs a method of an object: obj:execute(index[, value]).
@@ -261,9 +265,10 @@ end
 -- @param value any Optional: a number, a string, or Wire.INPUT
 -- @return function An action for a widget
 function Wire.execute(path, index, value)
-    return command("execute", path, index, value, function(obj, i, v)
+    local action = command("execute", path, index, value, function(obj, i, v)
         if v == nil then obj:execute(i) else obj:execute(i, v) end
     end)
+    return action
 end
 
 --- Runs a script of the CLU with the given arguments.

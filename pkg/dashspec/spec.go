@@ -234,7 +234,14 @@ func (w *Widget) Check() error {
 		if err := may(w.On, "on"); err != nil {
 			return err
 		}
-		return may(w.Off, "off")
+		if err := may(w.Off, "off"); err != nil {
+			return err
+		}
+		// a toggle has no value to enter
+		if (w.On != nil && w.On.Input) || (w.Off != nil && w.Off.Input) {
+			return fmt.Errorf("toggle with an entered value")
+		}
+		return nil
 	case Status:
 		return need(w.Read, "read")
 	case Slider:

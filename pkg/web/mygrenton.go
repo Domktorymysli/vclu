@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -95,7 +96,9 @@ func (s *Server) readInterfaces() ([]dashspec.Interface, error) {
 		}
 		var in dashspec.Interface
 		if err := json.Unmarshal(b, &in); err != nil {
-			return nil, fmt.Errorf("%s: %v", filepath.Base(f), err)
+			// one broken file does not hide the others
+			log.Printf("[OM] %s: %v, left out", filepath.Base(f), err)
+			continue
 		}
 		list = append(list, in)
 	}
