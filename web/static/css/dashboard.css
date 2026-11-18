@@ -916,6 +916,7 @@ body {
 }
 
 /* ---- Cover group: a slider row shows while a cover can take it ---- */
+.dash-widget-cover .dash-slider-row[hidden],
 .dash-widget-covers .dash-slider-row[hidden] {
     display: none;
 }

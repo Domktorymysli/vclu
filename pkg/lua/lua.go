@@ -135,6 +135,7 @@ type LuaEngine struct {
 	// Outcome of the last LoadUserModules call, so reload/promote can report
 	// modules that failed to load instead of reporting a blanket success.
 	lastModuleLoad []ModuleLoadResult
+	lastProxyLoad  []string // proxy files that failed in the last LoadProxyFiles
 	moduleLoadMu   sync.RWMutex
 
 	// Work queue channels — used in stateRunning for serialized LState access
@@ -683,6 +684,9 @@ func (le *LuaEngine) LoadProxyFiles(importsDir string) error {
 	if le.state == nil {
 		return fmt.Errorf("Lua engine not initialized")
 	}
+	le.moduleLoadMu.Lock()
+	le.lastProxyLoad = nil
+	le.moduleLoadMu.Unlock()
 	// Check if imports directory exists
 	if _, err := os.Stat(importsDir); os.IsNotExist(err) {
 		return nil
@@ -699,13 +703,26 @@ func (le *LuaEngine) LoadProxyFiles(importsDir string) error {
 		return nil
 	}
 
+	var failed []string
 	for _, file := range files {
 		if err := le.doFileAs("system", "system:vclu", file); err != nil {
 			log.Printf("[LUA] failed to load %s: %v", filepath.Base(file), err)
+			failed = append(failed, fmt.Sprintf("%s: %v", filepath.Base(file), err))
 			// Continue loading other files
 		}
 	}
+	le.moduleLoadMu.Lock()
+	le.lastProxyLoad = failed
+	le.moduleLoadMu.Unlock()
 	return nil
+}
+
+// LastProxyLoad returns the proxy files that failed in the most recent LoadProxyFiles,
+// as "proxy_<serial>.lua: error".
+func (le *LuaEngine) LastProxyLoad() []string {
+	le.moduleLoadMu.RLock()
+	defer le.moduleLoadMu.RUnlock()
+	return append([]string(nil), le.lastProxyLoad...)
 }
 
 // formatLuaError formats a Lua error with better readability

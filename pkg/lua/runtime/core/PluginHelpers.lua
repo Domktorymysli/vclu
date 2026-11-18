@@ -615,6 +615,12 @@ function PluginHelpers.httpRequest(pluginId, opts, callback)
     -- TLS options
     local insecure = opts.tls and opts.tls.insecure or false
 
+    -- Digest auth: { user = ..., password = ... }, answered in Go on a 401 challenge
+    local digest = opts.digest
+    if digest ~= nil and (type(digest) ~= "table" or type(digest.user) ~= "string" or digest.user == "") then
+        error("httpRequest: 'digest' must be { user = ..., password = ... }")
+    end
+
     -- Retry options
     local retryAttempts = opts.retry and opts.retry.attempts or 1
     local retryBackoff = opts.retry and opts.retry.backoff or 1000
@@ -776,7 +782,9 @@ function PluginHelpers.httpRequest(pluginId, opts, callback)
             body,
             timeout,
             not insecure,  -- verifySSL
-            true           -- followRedirects
+            true,          -- followRedirects
+            digest and digest.user,
+            digest and digest.password
         )
 
         -- Poll for response

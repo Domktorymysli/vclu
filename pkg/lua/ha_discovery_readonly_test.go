@@ -311,3 +311,39 @@ func TestHADiscoveryEnergyClasses(t *testing.T) {
 		t.Errorf("readonly energy meter should be a sensor component, got topic %q", topic)
 	}
 }
+
+// A device_class HA does not know for the component (a pulse switch classed "gate" for the
+// cloud) stays out of the discovery payload, or HA would refuse the entity; a cover's is kept.
+func TestHADiscoveryClassFitsComponent(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+	if _, err := engine.Execute(`
+		_pub = {}
+		HAStatePublisher.setup({
+			publish = function(self, topic, payload) table.insert(_pub, { topic = topic, payload = payload }) end,
+			subscribe = function() end, unsubscribe = function() end,
+		})
+		expose(VirtualSwitch:new("furtka"), "switch", { path = "t:furtka", pulse = 1000, device_class = "gate" })
+		expose(VirtualSwitch:new("gniazdko"), "switch", { path = "t:gniazdko", device_class = "outlet" })
+		expose(VirtualSwitch:new("brama"), "cover", { path = "t:brama", device_class = "gate" })
+	`); err != nil {
+		t.Fatal(err)
+	}
+	config := func(name string) string {
+		return mustExec(t, engine, `(function()
+			for _, p in ipairs(_pub) do
+				if p.topic:find("`+name+`", 1, true) and p.topic:find("/config", 1, true) then return p.payload end
+			end
+			return ""
+		end)()`)
+	}
+	if c := config("furtka"); c == "" || strings.Contains(c, "device_class") {
+		t.Errorf("switch classed gate: %s", c)
+	}
+	if c := config("gniazdko"); !strings.Contains(c, `"device_class":"outlet"`) {
+		t.Errorf("switch classed outlet: %s", c)
+	}
+	if c := config("brama"); !strings.Contains(c, `"device_class":"gate"`) {
+		t.Errorf("cover classed gate: %s", c)
+	}
+}

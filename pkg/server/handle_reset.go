@@ -19,6 +19,8 @@ func (s *Server) reloadLuaEngine() {
 		log.Printf("[RESET] no Lua engine to restart")
 		return
 	}
+	s.reloadMu.Lock()
+	defer s.reloadMu.Unlock()
 
 	// Pause HomeKit writes during the reload, as a manual reload does
 	s.callOnLuaPreReset()

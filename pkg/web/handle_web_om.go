@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/Domktorymysli/vclu/pkg/config"
+	"github.com/Domktorymysli/vclu/pkg/lua"
 	"github.com/Domktorymysli/vclu/pkg/omparser"
 	"github.com/Domktorymysli/vclu/pkg/omproject"
 	"github.com/gin-gonic/gin"
@@ -23,7 +24,7 @@ import (
 // handleAPIOMUpload handles OM file upload via API (.lua, diagnostic pack .zip, project .omp)
 //
 //	@Summary		Upload OM file
-//	@Description	Accepts a single om.lua file, a diagnostic-pack ZIP containing CLU*/om.lua entries, or an Object Manager project (.omp, or a project ZIP with system.xml); the vCLU's own serial is skipped. Each CLU is parsed, stored as om_<serial>.lua, a proxy_<serial>.lua is generated and executed in the Lua runtime to register the remote devices, and an entry is added to .vclu.json. A project, also the one inside a diagnostic pack, is written for the agent to ai/om/ (event bindings, scripts); what could not be read is listed in warnings. The upload itself is not kept.
+//	@Description	Accepts a single om.lua file, a diagnostic-pack ZIP containing CLU*/om.lua entries, or an Object Manager project (.omp, or a project ZIP with system.xml); the vCLU's own serial is skipped. Each CLU is parsed, stored as om_<serial>.lua, a proxy_<serial>.lua is generated and an entry is added to .vclu.json; then the Lua runtime reloads once (reloaded, reloadError, moduleErrors in the response). A project, also the one inside a diagnostic pack, is written for the agent to ai/om/ (event bindings, scripts); what could not be read is listed in warnings. The upload itself is not kept.
 //	@Tags			grenton
 //	@Accept			mpfd
 //	@Produce		json
@@ -84,6 +85,7 @@ func (s *Server) handleAPIOMUpload(c *gin.Context) {
 		return
 	}
 
+	s.reloadForOM(result)
 	c.JSON(http.StatusOK, result)
 }
 
@@ -171,7 +173,7 @@ func (s *Server) handleZipUpload(c *gin.Context, content []byte, filename string
 		errors = append(errors, err.Error())
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	resp := gin.H{
 		"success":      len(errors) == 0,
 		"isZip":        true,
 		"originalName": filename,
@@ -183,7 +185,12 @@ func (s *Server) handleZipUpload(c *gin.Context, content []byte, filename string
 		"omVersion":    omVersion,
 		"agentDocs":    agentDocs,
 		"warnings":     warnings,
-	})
+	}
+	// Once for the whole pack
+	if len(results) > 0 {
+		s.reloadForOM(resp)
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 // handleProjectUpload registers every CLU of an Object Manager project, as the
@@ -223,7 +230,7 @@ func (s *Server) handleProjectUpload(c *gin.Context, zr *zip.Reader, filename st
 	if warnings == nil {
 		warnings = []string{}
 	}
-	c.JSON(http.StatusOK, gin.H{
+	resp := gin.H{
 		"success":      len(errors) == 0,
 		"isProject":    true,
 		"originalName": filename,
@@ -235,7 +242,12 @@ func (s *Server) handleProjectUpload(c *gin.Context, zr *zip.Reader, filename st
 		"errors":       errors,
 		"agentDocs":    agentDocs,
 		"warnings":     warnings,
-	})
+	}
+	// Once for the whole project
+	if len(results) > 0 {
+		s.reloadForOM(resp)
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 // projectFromPack reads the Object Manager project a diagnostic pack carries.
@@ -392,9 +404,9 @@ func (s *Server) processOMFile(content []byte, originalName string) (gin.H, erro
 		return nil, fmt.Errorf("failed to save proxy file")
 	}
 
-	// Execute proxy in Lua runtime to register devices
+	// Without a reloader only the proxy runs; the caller reloads otherwise
 	var luaErr string
-	if s.luaExecutor != nil {
+	if s.luaReloader == nil && s.luaExecutor != nil {
 		if _, err := s.luaExecutor.Execute(proxyCode); err != nil {
 			// The files stay: the next start runs the proxy again
 			log.Printf("[OM] %s: proxy failed in Lua: %v", parsed.CLU.ID, err)
@@ -449,7 +461,7 @@ func (s *Server) handleAPIOMList(c *gin.Context) {
 // handleAPIOMDelete deletes an OM file
 //
 //	@Summary		Delete OM file
-//	@Description	Deletes the stored OM file and its generated proxy file, removes the entry (and any stale sync object paths) from .vclu.json, and unregisters the CLU's objects from the Lua registry.
+//	@Description	Deletes the stored OM file and its generated proxy file, removes the entry (and any stale sync object paths) from .vclu.json, and reloads the Lua runtime without the CLU's objects.
 //	@Tags			grenton
 //	@Produce		json
 //	@Param			serial	path		integer	true	"CLU serial number"
@@ -500,15 +512,13 @@ func (s *Server) handleAPIOMDelete(c *gin.Context) {
 		return
 	}
 
-	// Remove objects from Lua registry
-	if s.luaExecutor != nil {
+	resp := gin.H{"success": true}
+	if s.luaReloader == nil && s.luaExecutor != nil {
 		script := fmt.Sprintf(`removeByPrefix("CLU%d.")`, serial)
 		s.luaExecutor.Execute(script)
 	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-	})
+	s.reloadForOM(resp)
+	c.JSON(http.StatusOK, resp)
 }
 
 // handleAPIOMDetails returns details of a specific OM file
@@ -573,7 +583,7 @@ func (s *Server) handleAPIOMDetails(c *gin.Context) {
 // handleAPIOMRegenerate regenerates proxy files for all OM files
 //
 //	@Summary		Regenerate proxy files
-//	@Description	Re-parses every imported OM file, rewrites its proxy_<serial>.lua and executes the proxy in the Lua runtime to re-register the remote devices. Per-file failures are collected and reported; the call always returns 200.
+//	@Description	Re-parses every imported OM file, rewrites its proxy_<serial>.lua and reloads the Lua runtime once (reloaded, reloadError, moduleErrors in the response). Per-file failures are collected and reported; the call always returns 200.
 //	@Tags			grenton
 //	@Produce		json
 //	@Success		200	{object}	map[string]interface{}	"success, regenerated, errors"
@@ -611,8 +621,7 @@ func (s *Server) handleAPIOMRegenerate(c *gin.Context) {
 			continue
 		}
 
-		// Execute in Lua runtime
-		if s.luaExecutor != nil {
+		if s.luaReloader == nil && s.luaExecutor != nil {
 			if _, err := s.luaExecutor.Execute(proxyCode); err != nil {
 				errors = append(errors, fmt.Sprintf("%s: lua error: %v", proxyFilename, err))
 				// Continue anyway - file is saved
@@ -622,11 +631,58 @@ func (s *Server) handleAPIOMRegenerate(c *gin.Context) {
 		regenerated++
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	resp := gin.H{
 		"success":     len(errors) == 0,
 		"regenerated": regenerated,
 		"errors":      errors,
-	})
+	}
+	if regenerated > 0 {
+		s.reloadForOM(resp)
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+// moduleLoadReporter reports the user modules the last reload loaded.
+type moduleLoadReporter interface {
+	LastModuleLoad() []lua.ModuleLoadResult
+}
+
+// proxyLoadReporter reports the OM proxy files that failed in the last reload.
+type proxyLoadReporter interface {
+	LastProxyLoad() []string
+}
+
+// reloadForOM reloads the Lua runtime after an OM change, so subscriptions, expose() and
+// dashboards take the new proxies (#226), and adds the outcome to resp: "reloaded", and
+// "reloadError", "proxyErrors" (success false: the CLU's objects are missing) or
+// "moduleErrors" when it went wrong.
+func (s *Server) reloadForOM(resp gin.H) {
+	if s.luaReloader == nil {
+		return
+	}
+	if err := s.luaReloader.Reload(); err != nil {
+		resp["reloaded"] = false
+		resp["reloadError"] = err.Error()
+		return
+	}
+	resp["reloaded"] = true
+	if r, ok := s.luaReloader.(proxyLoadReporter); ok {
+		if errs := r.LastProxyLoad(); len(errs) > 0 {
+			resp["proxyErrors"] = errs
+			resp["success"] = false
+		}
+	}
+	if r, ok := s.luaReloader.(moduleLoadReporter); ok {
+		var errs []string
+		for _, m := range r.LastModuleLoad() {
+			if !m.OK {
+				errs = append(errs, fmt.Sprintf("modules/%s: %s", m.Name, m.Error))
+			}
+		}
+		if len(errs) > 0 {
+			resp["moduleErrors"] = errs
+		}
+	}
 }
 
 // extractSerialFromCLUID extracts the numeric serial from a CLU ID like "CLU212345678"

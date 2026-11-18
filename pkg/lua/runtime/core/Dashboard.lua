@@ -1010,7 +1010,8 @@ local function areaWidget(h, id, off)
         w.type, w.icon = 'cover', 'window'
         -- a Grenton roller keeps its movement aside; without a position the state is the movement
         w.fns = { getPosition = m('getPosition'), getState = o._hasPosition and m('getState') or nil,
-            open = m('open'), close = m('close'), stop = m('stop'), set = m('setPosition') }
+            open = m('open'), close = m('close'), stop = m('stop'), set = m('setPosition'),
+            getTilt = m('getTilt'), setTilt = m('setTilt') }
     elseif kind == 'temperature' or kind == 'humidity' then
         w.type = 'status'
         w.icon = kind == 'temperature' and 'thermometer-half' or 'droplet'
@@ -1907,8 +1908,9 @@ end
 -- @param id string Unique widget identifier
 -- @param label string Display label
 -- @param icon string Bootstrap icon name (e.g., "arrows-expand")
--- @param fns table {getPosition=function()->number|nil, getState=function()->number|nil, open=function(), close=function(), stop=function(), set=function(position)}
+-- @param fns table {getPosition=function()->number|nil, getState=function()->number|nil, open=function(), close=function(), stop=function(), set=function(position), getTilt=function()->number|nil, setTilt=function(angle)}
 --   Buttons up/stop/down call open/stop/close. With set, a 0-100% slider is shown under them.
+--   With setTilt, a 0-90° slat slider is shown while getTilt gives a number (0 = open, 90 = closed, as in Grenton).
 --   Position 0 = closed, 100 = open, as in Grenton; nil (not reported yet) is shown as --.
 --   getState lights the button of the movement: 0 = stopped, 1 = up, 2 = down.
 -- @param opts table Optional: {disabled=function()->bool, visible=function()->bool}
@@ -2792,8 +2794,9 @@ end
 -- @param id string Unique widget identifier
 -- @param label string Display label
 -- @param icon string Bootstrap icon name (e.g., "arrows-expand")
--- @param fns table {getPosition=function()->number|nil, getState=function()->number|nil, open=function(), close=function(), stop=function(), set=function(position)}
+-- @param fns table {getPosition=function()->number|nil, getState=function()->number|nil, open=function(), close=function(), stop=function(), set=function(position), getTilt=function()->number|nil, setTilt=function(angle)}
 --   Buttons up/stop/down call open/stop/close. With set, a 0-100% slider is shown under them.
+--   With setTilt, a 0-90° slat slider is shown while getTilt gives a number (0 = open, 90 = closed, as in Grenton).
 --   Position 0 = closed, 100 = open, as in Grenton; nil (not reported yet) is shown as --.
 --   getState lights the button of the movement: 0 = stopped, 1 = up, 2 = down.
 -- @param opts table Optional: {disabled=function()->bool, visible=function()->bool}
@@ -3088,6 +3091,13 @@ local function safeGetValue(fn)
     else
         return nil, tostring(val)
     end
+end
+
+-- A cover tile's slat angle: with setTilt, while getTilt gives a number
+local function coverWidgetTilt(fns)
+    if type(fns.setTilt) ~= 'function' then return nil end
+    local v = tonumber((safeGetValue(fns.getTilt)))
+    if v and v - v == 0 then return math.floor(math.max(0, math.min(90, v)) + 0.5) end
 end
 
 -- A group's covers and what its tile shows, read once per request
@@ -3936,6 +3946,7 @@ function DashboardAPI.getDefinition(id, role)
                     widget.position = safeGetValue(fns.getPosition)
                     local state = safeGetValue(fns.getState)
                     widget.state = (state ~= nil) and state or 0
+                    widget.tilt = coverWidgetTilt(fns)
                 end
                 widget.capabilities = {
                     set = type(fns.set) == 'function'
@@ -4278,6 +4289,7 @@ function DashboardAPI.getValues(id, role)
                 entry.position = safeGetValue(fns.getPosition)
                 local state = safeGetValue(fns.getState)
                 entry.state = (state ~= nil) and state or 0
+                entry.tilt = coverWidgetTilt(fns)
                 result[w.id] = entry
             elseif w.type == 'dimmer' then
                 local fns = w.fns or {}
@@ -4503,6 +4515,14 @@ function DashboardAPI.executeAction(id, widgetId, action, value, ctx)
             local ok, ret = pcall(fns.set, numVal)
             if not ok then return JSON.encode({ error = tostring(ret) }) end
             return JSON.encode({ success = true, value = numVal })
+        elseif action == 'tilt' then
+            if type(fns.setTilt) ~= 'function' then return JSON.encode({ error = 'No setTilt function' }) end
+            local numVal = tonumber(value)
+            if not numVal or numVal - numVal ~= 0 then return JSON.encode({ error = 'Value must be a number' }) end
+            numVal = math.max(0, math.min(90, numVal))
+            local ok, ret = pcall(fns.setTilt, numVal)
+            if not ok then return JSON.encode({ error = tostring(ret) }) end
+            return JSON.encode({ success = true })
         else
             return JSON.encode({ error = 'Invalid action for cover' })
         end

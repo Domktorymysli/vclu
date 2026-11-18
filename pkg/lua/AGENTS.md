@@ -105,8 +105,9 @@ index, parameters) and events of an object class. Take indexes and scales from t
 memory; when the English and Polish hints disagree, the feature's own description decides.
 `ROLLER_SHUTTER` (class 24): feature 0 State, 7 Position, 8 LamelPosition; methods 0 MoveUp,
 1 MoveDown, 3 Stop, 9 SetLamelPosition, 10 SetPosition; feature 13 ReversePosition flips the
-scale in the installation. The first firmware (fv01) has no Position, and om.lua does not say
-which firmware a module runs, so the OM import only marks class 24 with `_hasPosition = true`.
+scale in the installation. The first firmware (fv01) has no Position. om.lua tells it apart by
+the settable feature 1 MaxTime (`ROL…:set(1, ms)`; fv02+ has MaxTime as feature 9), so the OM
+import marks class 24 with `_hasPosition = true` unless that line is there (#186).
 Slats: feature 8 LamelPosition is degrees, 0 = open .. 90 = closed (HA tilt the other way,
 converted in `HAStatePublisher.coverTiltToHA`/`FromHA`); feature 10 LamelMoveTimeout is 0 without
 slats, and om.lua writes it (`ROL…:set(10, ms)`), so the import marks `_hasTilt` when it is above 0.
@@ -185,7 +186,8 @@ Contract: `ha_exposed_climate_test.go`, `ha_climate_readonly_test.go`.
 `onChange` fires on a change only, and a Remote object's first report (old value nil) fires
 nothing. `VirtualThermostat` counts a change as a reading (`staleAfter` is time without one) and
 picks the first report up on its tick; a value present when it is created (VirtualNumber's
-default 0, a value kept over a reload) does not count. Contract: `virtual_thermostat_test.go`.
+default 0, a value kept over a reload) does not count. A change the source's expose `filter` swallows
+fires no `onChange`, so the tick also takes `_rawChanges` (counted in `updateState` before the filter). Contract: `virtual_thermostat_test.go`.
 Before a Lua state goes away (reload, `RunLoop` stop, `Close` before the loop ran) Go calls
 the internal `__vclu_release_thermostats()` (`releaseOutputs` in `history.go`), before MQTT and the other
 managers close; a Grenton command opens its own UDP socket, so `Server.Stop` closing

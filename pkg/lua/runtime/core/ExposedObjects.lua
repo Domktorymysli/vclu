@@ -1009,7 +1009,9 @@ local function deviceEntry(path, h, access, roles)
     local name = plainString(o.name) or (type(obj) == 'table' and plainString(obj._name)) or tostring(path)
     local e = { path = tostring(path), type = tostring(h.type), name = name,
         area = plainString(o.area), floor = plainString(o.floor), access = access,
-        pulse = (o.pulse and h.type == 'switch') and true or nil }
+        pulse = (o.pulse and h.type == 'switch') and true or nil,
+        -- what the device is, in Home Assistant's words (gate, garage, shutter, ...)
+        class = plainString(o.device_class) }
     if roles and #roles > 0 then
         local copy = {}
         for i = 1, #roles do copy[i] = roles[i] end
@@ -1019,7 +1021,7 @@ local function deviceEntry(path, h, access, roles)
 end
 
 --- The devices the cloud gets (exposed with :remote(), or opened on the panel's Access page), for
--- its snapshot: sorted by path, each {path, type, name, area, floor, access, roles}, never the PIN
+-- its snapshot: sorted by path, each {path, type, name, area, floor, access, roles, class}, never the PIN
 -- @return table Array of plain tables
 function ExposedObjects:remoteList()
     local out = {}
@@ -1349,12 +1351,58 @@ local function registryType(obj)
     return TypeMap.getExposeType(obj._type or "switch", "switch")
 end
 
+-- exposeRegistry() gives these sensors a filter: a reading flipping by one step is no change
+local REGISTRY_FILTERS = {
+    temperature = { delta = 0.2, heartbeat = 600 },
+    humidity = { delta = 1, heartbeat = 600 },
+    illuminance = { delta = 5, heartbeat = 600 },
+}
+
+ExposedObjects._defaults = {} -- registry path -> options from ExposedObjects:defaults()
+local DEFAULT_KEYS = { filter = true, name = true, area = true }
+
+--- The filter, name or area exposeRegistry() gives the registry object at path: a module sets
+-- them before the object is exposed (filter = false: no default filter); after that they change it at once.
+-- @api public
+-- @param path string Registry path, e.g. "CLU220000592.PAN9127"
+-- @param opts table { filter, name, area }
+-- @usage ExposedObjects:defaults("CLU220000592.PAN9127", { filter = { delta = 20, heartbeat = 900 } })
+function ExposedObjects:defaults(path, opts)
+    if type(path) ~= "string" or type(opts) ~= "table" then
+        error("ExposedObjects:defaults(path, opts) - path must be a string and opts a table", 2)
+    end
+    for k in pairs(opts) do
+        if not DEFAULT_KEYS[k] then
+            error("ExposedObjects:defaults() - unknown option '" .. tostring(k) .. "' (filter, name, area); "
+                .. "use expose() or the panel's access for others", 2)
+        end
+    end
+    local obj = _registry and _registry[path]
+    if type(obj) ~= "table" then
+        error("ExposedObjects:defaults() - no object at '" .. path .. "' in the registry", 2)
+    end
+    local objType = registryType(obj)
+    if obj._isPlugin or objType == nil or (capabilities[objType] or {}).explicitOnly then
+        error("ExposedObjects:defaults() - exposeRegistry() does not expose '" .. path .. "'; use expose()", 2)
+    end
+    checkOptions(objType, opts)
+    -- the handle first: one exposed by hand under another type can refuse the filter
+    local h = self:_handleOf(obj)
+    if h then h:update(opts) end
+    -- kept also after start: accessChanged() may expose it again
+    local merged = self._defaults[path] or {}
+    for k, v in pairs(opts) do merged[k] = v end
+    self._defaults[path] = merged
+end
+
 --- Auto-expose all objects from _registry, respecting AccessControl.
 -- Objects already exposed via manual expose() are skipped (user overrides win).
 -- AccessControl determines per-integration visibility for remaining objects:
 --   "hidden" from both mqtt+homekit → skipped entirely
 --   "hidden" from one → that integration disabled (mqtt=false or homekit=false)
 --   "readonly" → exposed as readonly
+-- Temperature, humidity and illuminance sensors get REGISTRY_FILTERS; ExposedObjects:defaults()
+-- sets an object's own options.
 -- @param options table Optional default options for all objects
 -- @param newOnly boolean Only expose objects without a handle (accessChanged)
 -- @return number Count of newly exposed objects
@@ -1424,6 +1472,11 @@ function ExposedObjects:exposeRegistry(options, newOnly)
                 -- could only go stale and give a false sense of protection.
                 local objOptions = {}
                 for k, v in pairs(options) do objOptions[k] = v end
+                local f = REGISTRY_FILTERS[registryType(obj)]
+                if objOptions.filter == nil and f then
+                    objOptions.filter = { delta = f.delta, heartbeat = f.heartbeat }
+                end
+                for k, v in pairs(self._defaults[path] or {}) do objOptions[k] = v end
                 objOptions.path = path
                 objOptions.name = objOptions.name or obj._name or path
                 if mqttHidden then objOptions.mqtt = false end
@@ -1518,7 +1571,9 @@ end
 
 --- Global function to auto-expose all registry objects
 -- Call this after om.lua is loaded to expose all objects to MQTT/HomeKit.
--- Objects can then be modified via their handles.
+-- Objects can then be modified via their handles. Sensors get a filter: temperature
+-- { delta = 0.2, heartbeat = 600 }, humidity { delta = 1, ... }, illuminance { delta = 5, ... };
+-- ExposedObjects:defaults(path, opts) sets one object's options, filter = false for none.
 -- @api public
 -- @param options table Optional default options
 -- @return number Count of exposed objects

@@ -1533,6 +1533,14 @@
         "insertTextRules": 4
       },
       {
+        "label": "setDigestAuth",
+        "kind": "method",
+        "detail": "(username: string, password: string): self",
+        "documentation": "Set Digest auth: a server that answers 401 with a Digest challenge gets the request again with the answer (any method, same body). The password is not put in the headers.",
+        "insertText": "setDigestAuth(${1:username}, ${2:password})",
+        "insertTextRules": 4
+      },
+      {
         "label": "setVerifySSL",
         "kind": "method",
         "detail": "(verify: boolean): self",
