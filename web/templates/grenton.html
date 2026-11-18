@@ -106,6 +106,9 @@
                             <i class="bi bi-puzzle"></i> Modules
                         </button>
                         {{end}}
+                        <button class="nav-link {{if eq .activeTab "dashboards"}}active{{end}}" id="tab-dashboards" data-bs-toggle="tab" data-bs-target="#pane-dashboards" type="button" role="tab">
+                            <i class="bi bi-grid-1x2"></i> {{if eq .lang "pl"}}Dashboardy{{else}}Dashboards{{end}}
+                        </button>
                         <button class="nav-link {{if eq .activeTab "sync"}}active{{end}}" id="tab-sync" data-bs-toggle="tab" data-bs-target="#pane-sync" type="button" role="tab">
                             <i class="bi bi-arrow-repeat"></i> Sync
                         </button>
@@ -301,6 +304,20 @@
                             </div>
                         </div>
                         {{end}}
+
+                        <!-- ==================== DASHBOARDS TAB ==================== -->
+                        <div class="tab-pane fade {{if eq .activeTab "dashboards"}}show active{{end}}" id="pane-dashboards" role="tabpanel">
+                            <div class="card mb-3">
+                                <div class="card-header">
+                                    <i class="bi bi-grid-1x2"></i> {{if eq .lang "pl"}}Dashboardy z interfejsu myGrenton{{else}}Dashboards from the myGrenton interface{{end}}
+                                </div>
+                                <div class="card-body">
+                                    <p class="text-muted small mb-3">{{if eq .lang "pl"}}Strony interfejsu myGrenton zaprojektowanego w Object Managerze. Zaznacz strony, a vclu zapisze je jako dashboardy w modules/dashboards/grenton/. Od tej chwili to Twoje pliki: możesz je zmieniać, a zmienionych vclu już nie nadpisze.{{else}}The pages of the myGrenton interface designed in Object Manager. Pick pages and vclu writes them as dashboards in modules/dashboards/grenton/. From then on they are your files: change them as you like; vclu does not replace a file you changed.{{end}}</p>
+                                    <div id="mgDashboards"><div class="text-muted"><span class="spinner-border spinner-border-sm"></span></div></div>
+                                    <div id="mgResult" class="mt-3"></div>
+                                </div>
+                            </div>
+                        </div>
 
                         <!-- ==================== SYNC TAB ==================== -->
                         <div class="tab-pane fade {{if eq .activeTab "sync"}}show active{{end}}" id="pane-sync" role="tabpanel">
@@ -523,6 +540,7 @@
     <script src="/static/js/utils.js"></script>
     <script src="/static/js/csrf.js"></script>
     <script src="/static/js/om-files.js"></script>
+    <script src="/static/js/grenton-dashboards.js"></script>
     {{if .hasModules}}
     <script>
         const MODULES_STATE = {

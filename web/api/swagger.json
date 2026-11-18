@@ -1149,6 +1149,72 @@
                 }
             }
         },
+        "/api/grenton/dashboards": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "The pages of the myGrenton interfaces from the imported Object Manager project, with their widget counts, what was left out and the state of their dashboard file (none, vclu, edited, user).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "grenton"
+                ],
+                "summary": "myGrenton pages",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Writes modules/dashboards/grenton/page_\u003cid\u003e.lua for each chosen page and init.lua requiring them. A file vclu did not write, or wrote and someone changed, is never replaced; a file vclu wrote is replaced only with replace. With addRequire, require(\"dashboards/grenton\") is added to modules/init.lua when missing. Lua reloads when the dashboards are required.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "grenton"
+                ],
+                "summary": "Create dashboards from myGrenton pages",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "409": {
+                        "description": "files to ask about (ask) or that stay the user's (kept)",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/grenton/save": {
             "post": {
                 "security": [

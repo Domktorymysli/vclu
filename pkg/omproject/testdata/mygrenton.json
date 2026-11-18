@@ -1,0 +1,78 @@
+{
+  "id": "0a1b2c3d-0000-4000-8000-000000000001",
+  "label": "Home \"panel\"",
+  "icon": "home_1",
+  "theme": "dark",
+  "blockCloud": "False",
+  "pages": [
+    {
+      "id": 1700000000001,
+      "label": "Hall",
+      "icon": "hall",
+      "widgets": [
+        {"id": 1, "type": "HEADER", "text": {"label": "Lights", "type": "TEXT", "rowId": 0, "image": null}},
+        {"id": 2, "type": "ON_OFF", "buttonBistable": {
+          "label": "Hall light", "image": "bulb", "rowId": 1, "type": "BUTTON_BISTABLE",
+          "indication": "ON_OFF", "onIndication": "On", "offIndication": "Off",
+          "state": {"callType": "ATTRIBUTE", "cluId": "CLU221000002", "objectName": "DOU0001", "index": "0"},
+          "actionOn": {"callType": "PSEUDO_METHOD", "cluId": "CLU221000002", "objectName": "DOU0001", "index": "0", "type": "ON", "value": "1"},
+          "actionOff": {"callType": "PSEUDO_METHOD", "cluId": "CLU221000002", "objectName": "DOU0001", "index": "0", "type": "OFF", "value": "0"}}},
+        {"id": 3, "type": "VALUE", "value": {
+          "label": "Brightness", "unit": "%", "min": 0, "max": 100, "rowId": 2, "type": "DESCRIBED_STATUS",
+          "state": {"callType": "ATTRIBUTE", "cluId": "CLU221000002", "objectName": "DOU0001", "index": "0"}}},
+        {"id": 4, "type": "VALUE_V2", "label": "Setpoint", "unit": "°C", "precision": 1, "valueType": "INTEGER", "icon": "temp",
+          "value": {"callType": "VARIABLE", "cluId": "CLU221000002", "objectName": "CLU221000002", "index": "setpoint"}},
+        {"id": 5, "type": "TEXT", "label": "Status", "icon": "info", "iconVisible": true,
+          "text": {"callType": "ATTRIBUTE", "cluId": "CLU221000002", "objectName": "DIN0001", "index": "3"}},
+        {"id": 6, "type": "CONTACT_SENSOR", "label": "Door", "icon": "door", "onIndication": "Open", "offIndication": "Closed",
+          "object": {
+            "value": {"callType": "ATTRIBUTE", "cluId": "CLU221000002", "objectName": "DIN0001", "index": "0"},
+            "clickAction": {"callType": "METHOD", "cluId": "CLU221000002", "objectName": "DOU0001", "index": "2", "type": "CLICK", "value": "3000"}}},
+        {"id": 7, "type": "SCENE", "background": {"image": "x", "color": "#fff"},
+          "buttonMonostable": {"label": "Evening", "type": "BUTTON_MONOSTABLE", "rowId": 3,
+            "actionClick": {"callType": "SCRIPT", "cluId": "CLU221000002", "objectName": "setup", "index": null, "type": "CLICK", "value": "\"evening\",2"}}},
+        {"id": 8, "type": "SCENE_DOUBLE", "background": {"image": "x", "color": "#000"},
+          "buttonMonostableFirst": {"label": "Up", "type": "BUTTON_MONOSTABLE", "rowId": 4,
+            "actionClick": {"callType": "SCRIPT", "cluId": "CLU221000002", "objectName": "setup", "index": null, "type": "ON", "value": "1,-1"}},
+          "buttonMonostableSecond": {"label": "Down", "type": "BUTTON_MONOSTABLE", "rowId": 4,
+            "actionClick": {"callType": "SCRIPT", "cluId": "CLU221000002", "objectName": "setup", "index": null, "type": "OFF", "value": ""}}},
+        {"id": 9, "type": "VALUE", "value": {"label": "Dimmer", "unit": "%", "min": 0, "max": 100, "type": "SLIDER",
+          "state": {"callType": "ATTRIBUTE", "cluId": "CLU221000002", "objectName": "DOU0001", "index": "0"},
+          "actionClick": {"callType": "PSEUDO_METHOD", "cluId": "CLU221000002", "objectName": "DOU0001", "index": "0", "type": "CLICK", "value": "$value$"}}}
+      ]
+    },
+    {
+      "id": 1700000000002,
+      "label": "Climate",
+      "icon": "temp",
+      "widgets": [
+        {"id": 20, "type": "THERMOSTAT",
+          "thermostatCurrentTemp": {"type": "THERMOSTAT_CURRENT_TEMP", "rowId": 0,
+            "state": {"callType": "ATTRIBUTE", "cluId": "CLU221000002", "objectName": "THE0001", "index": "14"}},
+          "thermostatTargetTemp": {"type": "THERMOSTAT_TARGET_TEMP", "rowId": 1, "min": 5, "max": 30,
+            "state": {"callType": "ATTRIBUTE", "cluId": "CLU221000002", "objectName": "THE0001", "index": "12"},
+            "actionClick": {"callType": "PSEUDO_METHOD", "cluId": "CLU221000002", "objectName": "THE0001", "index": "3", "type": "CLICK", "value": "$value$"}},
+          "thermostatState": {"type": "THERMOSTAT_STATE", "label": "Heating", "image": "x", "rowId": 2,
+            "state": {"callType": "ATTRIBUTE", "cluId": "CLU221000002", "objectName": "THE0001", "index": "6"},
+            "actionClick": {"callType": "METHOD", "cluId": "CLU221000002", "objectName": "THE0001", "index": "2", "type": "CLICK", "value": ""}},
+          "thermostatMode": {"type": "THERMOSTAT_MODE", "rowId": 3,
+            "state": {"callType": "ATTRIBUTE", "cluId": "CLU221000002", "objectName": "THE0001", "index": "8"},
+            "actionClick": {"callType": "PSEUDO_METHOD", "cluId": "CLU221000002", "objectName": "THE0001", "index": "8", "type": "CLICK", "value": "$value$"}}},
+        {"id": 21, "type": "SCHEDULER", "label": "Week",
+          "state": {"callType": "ATTRIBUTE", "cluId": "CLU221000002", "objectName": "THE0001", "index": "0"}},
+        {"id": 22, "type": "ON_OFF", "buttonBistable": {"label": "Gone",
+          "state": {"callType": "ATTRIBUTE", "cluId": "CLU221000002", "objectName": "DOU0009", "index": "0"},
+          "actionOn": {"callType": "PSEUDO_METHOD", "cluId": "CLU221000002", "objectName": "DOU0009", "index": "0", "type": "ON", "value": "1"}}},
+        {"id": 23, "type": "SCENE", "buttonMonostable": {"label": "\"); os.exit(1) --",
+          "actionClick": {"callType": "SCRIPT", "cluId": "CLU221000002", "objectName": "setup", "index": null, "type": "CLICK", "value": "1); os.exit(1"}}},
+        {"id": 24, "type": "VALUE_V2", "label": "]] os.exit(1) --[[",
+          "value": {"callType": "VARIABLE", "cluId": "CLU221000002", "objectName": "CLU221000002", "index": "x;os.exit(1)"}},
+        {"id": 25, "type": "SCENE", "buttonMonostable": {"label": "Bad id",
+          "actionClick": {"callType": "METHOD", "cluId": "CLU221000002", "objectName": "DOU0001\"..os.exit(1)..\"", "index": "0", "type": "CLICK", "value": "1"}}},
+        {"id": 26, "type": "GAUGE_3D", "label": "Future"},
+        {"id": 27, "type": "TEXT", "label": "\"); os.exit(1) --]] \\ \u0001",
+          "text": {"callType": "ATTRIBUTE", "cluId": "CLU221000002", "objectName": "DIN0001", "index": "0"}}
+      ]
+    }
+  ]
+}

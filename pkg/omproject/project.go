@@ -39,9 +39,12 @@ type Project struct {
 	Version  string // OM version from properties.xml, e.g. "1.8.0_2301"
 	CLUs     []CLU
 	Warnings []string
+	// Interfaces are the myGrenton interfaces designed in OM (nodes/<id>/data.json).
+	Interfaces []Interface
 
 	commands int // bytes of event commands read so far, up to maxCommands
 	overCmds bool
+	known    map[string]bool // what calls of an interface may name (inProject)
 }
 
 // CLU is one CLU of the project.
@@ -207,6 +210,7 @@ func ReadZip(z *zip.Reader) (*Project, error) {
 		p.warn(fmt.Sprintf("system.xml: %d references to objects it does not contain, left out", s.dangling))
 	}
 	p.readScripts(files)
+	p.readInterfaces(files)
 	return p, nil
 }
 

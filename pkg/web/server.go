@@ -1020,6 +1020,8 @@ func (s *Server) setupRoutes() {
 		api.GET("/om/list", s.handleAPIOMList)
 		api.GET("/om/:serial", s.handleAPIOMDetails)
 		api.DELETE("/om/:serial", s.handleAPIOMDelete)
+		api.GET("/grenton/dashboards", s.handleAPIGrentonDashboards)
+		api.POST("/grenton/dashboards", s.handleAPIGrentonDashboardsCreate)
 
 		// Registry endpoints
 		api.GET("/registry/list", s.handleAPIRegistryList)

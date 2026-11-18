@@ -30,8 +30,8 @@ dashboard files they can edit afterwards.
   (#219), so the user can remove, reorder, rename or add to them. The files need only the runtime,
   not the stored import: a later import without an interface does not break them.
 - Go (`pkg/web`) writes the files from the checked interface #219 stores: keys as identifiers,
-  numbers as numbers, strings through `luaEscape` (`pkg/omparser`, added by #178; `\ddd` for
-  control bytes, as Lua 5.1 has no `\x`).
+  numbers as numbers, strings through `luastr.Quote` (`pkg/luastr`, tested to read back every string
+  unchanged in gopher-lua).
 - Loading is explicit: vclu adds `require("dashboards/grenton")` to `modules/init.lua` only when the
   user agrees and only if the line is missing. Nothing is loaded by itself.
 - A user may already have a `modules/dashboards/grenton/` directory, or a

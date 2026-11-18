@@ -160,17 +160,13 @@ function CLU_REMOTE:_ask(what, script)
     return result
 end
 
---- Reads a user feature (a variable defined in Object Manager) from the CLU.
--- Blocks until the CLU answers, like execute.
--- @api public
--- @param name string Feature name, e.g. "temp_zadana"
--- @return any Number, string or boolean; nil when not set, or nil and an error when the CLU did not answer
-function CLU_REMOTE:get(name)
-    featureName(name)
-    -- The CLU answers with plain text, so the type is sent along with the value
-    local result, err = self:_ask("get(" .. name .. ")", '(function() local v = getVar("' .. name ..
-        '") return type(v) .. ":" .. tostring(v) end)()')
-    if err then return nil, err end
+-- The CLU answers with plain text, so the type is sent along with the value
+local function featureScript(name)
+    return '(function() local v = getVar("' .. name .. '") return type(v) .. ":" .. tostring(v) end)()'
+end
+
+-- A feature's value from the CLU's answer to featureScript
+local function featureValue(result)
     -- A CLU answers at most 2047 characters; with a longer value it answers nothing
     if result == "" then return nil, "empty answer (a value longer than about 2000 characters?)" end
     local t, text = result:match("^(%a+):(.*)$")
@@ -181,6 +177,32 @@ function CLU_REMOTE:get(name)
     local n = t == "number" and (tonumber(text) or tonumber((text:gsub("^([+-]?%d+)([eE])", "%1.0%2"))))
     if n then return n end
     return nil, "unexpected answer: " .. result
+end
+
+--- Reads a user feature (a variable defined in Object Manager) from the CLU.
+-- Blocks until the CLU answers, like execute.
+-- @api public
+-- @param name string Feature name, e.g. "temp_zadana"
+-- @return any Number, string or boolean; nil when not set, or nil and an error when the CLU did not answer
+function CLU_REMOTE:get(name)
+    featureName(name)
+    local result, err = self:_ask("get(" .. name .. ")", featureScript(name))
+    if err then return nil, err end
+    return featureValue(result)
+end
+
+--- Reads a user feature without blocking: done(value, err) is called when the CLU answers,
+-- with the value as get returns it.
+-- @api public
+-- @param name string Feature name, e.g. "temp_zadana"
+-- @param done function Called with the value, or nil and an error
+function CLU_REMOTE:getAsync(name, done)
+    featureName(name)
+    self:executeAsync(featureScript(name), function(result, err)
+        if err then return done(nil, err) end
+        if result == nil then return done(nil, "no answer") end
+        done(featureValue(result))
+    end)
 end
 
 --- Sets a user feature on the CLU. Blocks until the CLU answers, like execute.

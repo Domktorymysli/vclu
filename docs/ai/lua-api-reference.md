@@ -25,8 +25,9 @@ Only public API is listed — internal/private functions are omitted.
 - [GPIO_DOUT](#gpio_dout) (1 functions)
 - [GPIO_DIN](#gpio_din) (1 functions)
 - [integrations.mqtt.MqttClient](#integrationsmqttmqttclient) (30 functions)
+- [MyGrenton](#mygrenton) (2 functions)
 - [core.Cloud](#corecloud) (9 functions)
-- [grenton.CLU_REMOTE](#grentonclu_remote) (3 functions)
+- [grenton.CLU_REMOTE](#grentonclu_remote) (4 functions)
 - [lib.cct](#libcct) (1 functions)
 - [lib.tasmota](#libtasmota) (5 functions)
 
@@ -2445,6 +2446,27 @@ Publish state update for object
 
 ---
 
+## MyGrenton
+
+### `MyGrenton.widget(section, w) → table The section, so calls chain`
+
+Adds a myGrenton widget to a dashboard section. A widget vclu cannot show (a type it has no widget for, calls that fail their checks or name objects not imported) adds nothing and is listed in MyGrenton.leftOut.
+
+- `section` (table) — A section of a dashboard (Dashboard.new(...):section(...))
+- `w` (table) — The widget as in the interface
+
+**Returns:** table The section, so calls chain
+
+### `MyGrenton.describe(w) → table { { kind = "toggle", id = "mg2", label = "Hall light" }, ... }, and the reads and the calls`
+
+What MyGrenton.widget would add for a widget, without a dashboard: the vclu widgets with their labels, what they read and what they do.
+
+- `w` (table) — The widget as in the interface
+
+**Returns:** table { { kind = "toggle", id = "mg2", label = "Hall light" }, ... }, and the reads and the calls
+
+---
+
 ## core.Cloud
 
 ### `Cloud.notify(opts, body) → string|nil The notification's id; nil and the reason when not sent`
@@ -2521,6 +2543,13 @@ Reads a user feature (a variable defined in Object Manager) from the CLU. Blocks
 - `name` (string) — Feature name, e.g. "temp_zadana"
 
 **Returns:** any Number, string or boolean; nil when not set, or nil and an error when the CLU did not answer
+
+### `CLU_REMOTE:getAsync(name, done)`
+
+Reads a user feature without blocking: done(value, err) is called when the CLU answers, with the value as get returns it.
+
+- `name` (string) — Feature name, e.g. "temp_zadana"
+- `done` (function) — Called with the value, or nil and an error
 
 ### `CLU_REMOTE:set(name, value) → boolean true when the CLU answered, or nil and an error`
 

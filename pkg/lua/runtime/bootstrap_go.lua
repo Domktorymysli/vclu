@@ -130,6 +130,9 @@ end
 -- LAYER 11: Helpers (requires RemoteObject, RemoteGroup)
 require("Helpers")
 
+-- LAYER 11b: myGrenton interface widgets on dashboards (needs Dashboard, RemoteObject, Registry)
+MyGrenton = require("MyGrenton")
+
 -- Load system
 SYSTEM = require("System")
 system = SYSTEM:getShared()

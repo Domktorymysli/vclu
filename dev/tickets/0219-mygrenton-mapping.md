@@ -45,7 +45,7 @@ and the mapping that the "Dashboards" section on the Grenton page (#220) builds 
   | `ATTRIBUTE` | feature `index` of object `objectName` on `cluId` | the object's value from the registry, `<cluId>.<objectName>` |
   | `PSEUDO_METHOD` | set feature `index` to `value` | `obj:set(index, value)` |
   | `METHOD` | execute method `index` with `value` | `obj:execute(index, value)` |
-  | `SCRIPT` | run the CLU script `objectName` with `value`; `index` is null | `clu:executeNoReply(0, name .. "(" .. RemoteObject.literal(value) .. ")")`, the name checked as an identifier |
+  | `SCRIPT` | run the CLU script `objectName` with `value`, its arguments as Lua source (`1,-1`, `"on","2"`); `index` is null | the arguments read on import as a list of numbers and plain strings (`args`), anything else left out; `clu:executeNoReply(0, name .. "(" .. literals .. ")")` with each through `RemoteObject.literal`, the name checked as an identifier |
   | `VARIABLE` | the user feature `index` of the CLU (`objectName` is the CLU) | the user feature, as `clu:get(index)` (#217) reads it |
 
   `value` `"$value$"` is what the user enters: a number for a slider or a thermostat target,

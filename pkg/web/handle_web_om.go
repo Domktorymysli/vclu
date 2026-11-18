@@ -168,9 +168,17 @@ func (s *Server) handleZipUpload(c *gin.Context, content []byte, filename string
 		} else {
 			agentDocs = omproject.DocsDir
 		}
-	} else if err := s.removeProjectDocs(); err != nil {
+		if err := s.writeInterfaces(project); err != nil {
+			errors = append(errors, err.Error())
+		}
+	} else {
 		// The files would describe an earlier project, not the one these CLUs run.
-		errors = append(errors, err.Error())
+		if err := s.removeProjectDocs(); err != nil {
+			errors = append(errors, err.Error())
+		}
+		if err := s.removeInterfaces(); err != nil {
+			errors = append(errors, err.Error())
+		}
 	}
 
 	resp := gin.H{
@@ -225,6 +233,9 @@ func (s *Server) handleProjectUpload(c *gin.Context, zr *zip.Reader, filename st
 	if err := s.writeProjectDocs(project); err != nil {
 		errors = append(errors, err.Error())
 		agentDocs = ""
+	}
+	if err := s.writeInterfaces(project); err != nil {
+		errors = append(errors, err.Error())
 	}
 	warnings := project.Warnings
 	if warnings == nil {
