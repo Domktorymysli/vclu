@@ -255,6 +255,8 @@ end
 -- @param subscriptions table Array of {object, featureIndex} pairs to monitor
 -- @return string Response format: clientReport:sessionID:{current values}
 function SYSTEM:clientRegister(clientIP, destPort, sessionID, subscriptions)
+    -- Clients call it on the class (SYSTEM:clientRegister); the reporter reads the shared instance
+    self = shared or self
     Logger:getShared():info("SYSTEM:clientRegister(" .. clientIP .. ", " .. destPort .. ", " .. sessionID .. ", [" .. #subscriptions .. " features])")
 
     -- Ensure clientSubscriptions table exists (for hot-reload compatibility)
@@ -289,6 +291,8 @@ end
 -- @param sessionID number Session identifier to remove
 -- @return string The sessionID as string
 function SYSTEM:clientDestroy(clientIP, destPort, sessionID)
+    -- Clients call it on the class (SYSTEM:clientRegister); the reporter reads the shared instance
+    self = shared or self
     Logger:getShared():info("SYSTEM:clientDestroy(" .. clientIP .. ", " .. destPort .. ", " .. sessionID .. ")")
 
     if self.clientSubscriptions == nil then
