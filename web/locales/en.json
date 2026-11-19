@@ -965,6 +965,8 @@
     "page_errors": "These pages did not load",
     "open": "Open",
     "init_kept": "init.lua in modules/dashboards/imported/ is yours, so vclu left it as it is. Add to it:",
+    "select_all": "Select / clear all",
+    "missing": "CLU not imported",
     "require_manual": "vclu could not add the line to the end of modules/init.lua (it would not compile there, e.g. after a return). Add it yourself:",
     "orphans": "Page files of pages no longer in the imported interface (vclu does not remove them):",
     "flat": "There is a file",

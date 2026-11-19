@@ -550,6 +550,49 @@ Dashboard.new('home')
 -- { visible = function() return true end }   -- the whole section, header included
 ```
 
+### Grenton reads and commands with Wire (optional)
+
+`Wire.*` builds a widget's read or action from a Grenton path (reference: `## Wire`). The pages the
+Grenton page imports from myGrenton use it; you may use it on any dashboard, nothing requires it.
+Each helper checks its arguments when the page loads (the error names the page's line), never
+waits for the CLU, and logs a missing object once instead of failing on every refresh.
+
+Use it when:
+- the widget reads something the registry does not follow: another feature
+  (`Wire.feature("CLU221000002.DIN0001", 3)`), a CLU user feature from Object Manager
+  (`Wire.variable("CLU221000002", "setpoint")`), or an object with no proxy. Never call a blocking
+  read (`clu:get(...)`, `obj:get(n)`) in a widget function: every refresh would stop the Lua loop
+  until the CLU answers. Wire asks in the background and shows the last answer (asked again
+  every `Wire.refresh` = 5 s).
+- the action is a raw feature or method number (`Wire.set(path, 0, Wire.INPUT)`,
+  `Wire.execute(path, 1)`) or a CLU script (`Wire.script("CLU221000002", "evening", 2)`): the way
+  for objects without proxy methods, and it still goes through the proxy's guards.
+- you edit an imported page (`modules/dashboards/imported/`): keep its style.
+- a plain toggle or status of a Grenton output: `Wire.isOn(Wire.value(path))` with
+  `Wire.onOff(Wire.set(path, 0, 1), Wire.set(path, 0, 0))` does what the hand-written
+  `r:value` / `r:get(...):switchOn()` pair does, in two lines.
+
+Keep `r:value` / `r:get(...)` when:
+- the object has a proxy with named methods and you need them (`switchOn(ms)`, `setSetpoint`,
+  `setPosition`), as the cover and thermostat widgets do;
+- the value is not a Grenton path: `Virtual*` objects, `scene:`, exposed devices, plugins;
+- the function computes something from several values. Wire's reads are functions: make them once
+  when the page loads (`local t = Wire.value(p)`) and call `t()` inside the widget function.
+
+```lua
+local W = Wire
+Dashboard.new('kotlownia')
+  :section('Kotłownia', 'fire')
+    :toggle('pompa', 'Pompa', 'droplet',
+      W.isOn(W.value("CLU221000002.DOU0001")),
+      W.onOff(W.set("CLU221000002.DOU0001", 0, 1), W.set("CLU221000002.DOU0001", 0, 0)))
+    :status('zadana', 'Zadana', 'thermometer', W.variable("CLU221000002", "setpoint"), '°C')
+    :status('podlewanie', 'Podlewanie', 'flower1',
+      W.text(W.variable("CLU221000002", "wateringOn"), 'trwa', 'stop'))
+    :button('wieczor', 'Wieczór', 'moon', W.script("CLU221000002", "setup", "evening"))
+  :build()
+```
+
 ### Shown by state (visible)
 
 `opts.visible` is read on every poll: while it returns `false` or `nil` the widget is hidden and

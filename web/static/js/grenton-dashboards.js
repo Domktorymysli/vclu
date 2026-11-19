@@ -30,6 +30,9 @@
         var html = '<details class="small"><summary>' + esc(t('widgets')) + ': ' + p.widgets.length + '</summary><ul class="mb-0">';
         p.widgets.forEach(function(w) {
             html += '<li><code>' + esc(w.kind) + '</code> ' + esc(w.label);
+            if (w.missing && w.missing.length) {
+                html += ' <span class="badge bg-warning text-dark">' + esc(t('missing')) + ': ' + esc(w.missing.join(', ')) + '</span>';
+            }
             if (w.reads.length) html += ' <span class="text-muted">' + esc(t('reads')) + ' ' + esc(w.reads.join(', ')) + '</span>';
             if (w.does.length) html += ' <span class="text-muted">' + esc(t('does')) + ' ' + esc(w.does.join(', ')) + '</span>';
             html += '</li>';
@@ -51,11 +54,12 @@
             html += '<form class="mg-interface mb-3" data-id="' + attr(inf.id) + '">';
             html += '<h6 class="mb-2"><i class="bi bi-phone"></i> ' + esc(inf.label) + '</h6>';
             html += '<div class="table-responsive"><table class="table table-sm align-middle mb-2"><thead><tr>' +
-                    '<th></th><th>' + esc(t('page')) + '</th><th>' + esc(t('widgets')) + '</th><th>' + esc(t('file')) + '</th></tr></thead><tbody>';
+                    '<th><input class="form-check-input mg-all" type="checkbox" title="' + attr(t('select_all')) +
+                    '" aria-label="' + attr(t('select_all')) + '"></th><th>' + esc(t('page')) + '</th><th>' + esc(t('widgets')) + '</th><th>' + esc(t('file')) + '</th></tr></thead><tbody>';
             inf.pages.forEach(function(p) {
                 var mine = p.state === 'edited' || p.state === 'user';
                 html += '<tr><td><input class="form-check-input" type="checkbox" value="' + attr(p.id) + '"' +
-                        (mine ? ' disabled' : (p.state === 'none' ? ' checked' : '')) + '></td>';
+                        (mine ? ' disabled' : '') + '></td>';
                 html += '<td>' + esc(p.label);
                 if (p.leftOut.length > 0) {
                     html += '<details class="small text-warning"><summary>' + esc(t('left_out')) + ': ' + p.leftOut.length +
@@ -85,6 +89,19 @@
         }
         root.innerHTML = html;
         root.querySelectorAll('form.mg-interface').forEach(function(f) {
+            var all = f.querySelector('input.mg-all');
+            var boxes = f.querySelectorAll('tbody input[type="checkbox"]:not([disabled])');
+            all.disabled = boxes.length === 0;
+            all.addEventListener('change', function() {
+                boxes.forEach(function(b) { b.checked = all.checked; });
+            });
+            boxes.forEach(function(b) {
+                b.addEventListener('change', function() {
+                    var on = Array.prototype.filter.call(boxes, function(x) { return x.checked; }).length;
+                    all.checked = on === boxes.length;
+                    all.indeterminate = on > 0 && on < boxes.length;
+                });
+            });
             f.addEventListener('submit', function(e) {
                 e.preventDefault();
                 create(f, false);
