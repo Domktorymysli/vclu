@@ -41,6 +41,10 @@ var (
 	// but not auto-exposed — a thermostat is a climate, exposed only by expose().
 	rePeripheryObject = regexp.MustCompile(`^\s*(THE\w*)\s*=\s*OBJECT:new\s*\(\s*(\d+)\s*,\s*"[^"]*"\s*\)`)
 
+	// GATE object: SAT0001 = GATE:new(100, "SAT0001"). A GATE's own objects, without a
+	// module; which ones vCLU reads depends on the GATE (gateAlarmClasses on a GATE Alarm).
+	reGateObject = regexp.MustCompile(`^\s*([A-Za-z][A-Za-z0-9_]*)\s*=\s*GATE:new\s*\(\s*(\d+)\s*,\s*"[^"]*"\s*\)`)
+
 	// IO name comment: -- NAME_IO P1_DACHOWE_BOK=DOU5048
 	reIOName = regexp.MustCompile(`^-- NAME_IO\s+(\S+)=(\w+)`)
 
@@ -64,6 +68,8 @@ func Parse(content string) (*ParsedOM, error) {
 	ioNames := make(map[string]string)
 	lamelTimeouts := make(map[string]float64)
 	fv01 := make(map[string]bool)
+	// GATE objects, kept once the header says which GATE this is
+	var gateObjects []GrentonObject
 
 	for i, line := range lines {
 		line = strings.TrimSpace(line)
@@ -189,6 +195,16 @@ func Parse(content string) (*ParsedOM, error) {
 			continue
 		}
 
+		// A GATE's own object: its class means something only on a known GATE
+		if matches := reGateObject.FindStringSubmatch(line); matches != nil {
+			classInt, err := strconv.Atoi(matches[2])
+			if err != nil {
+				return nil, fmt.Errorf("line %d: invalid class: %s", i+1, matches[2])
+			}
+			gateObjects = append(gateObjects, GrentonObject{ID: matches[1], Class: ObjectClass(classInt)})
+			continue
+		}
+
 		if matches := reRollerSetting.FindStringSubmatch(line); matches != nil {
 			if matches[2] == "1" {
 				fv01[matches[1]] = true
@@ -208,6 +224,25 @@ func Parse(content string) (*ParsedOM, error) {
 			})
 			continue
 		}
+	}
+
+	// A GATE Alarm's alarm objects; the same classes on another CLU are something else
+	alarm := result.CLU.IsGateAlarm()
+	for _, obj := range gateObjects {
+		if !obj.Class.IsGateAlarm() {
+			continue // other GATE objects (HTTP requests, timers...) vCLU does not read
+		}
+		if !alarm {
+			result.Warnings = append(result.Warnings, fmt.Sprintf(
+				"%s: class %d is an alarm object only on a GATE Alarm (FwType 00000002, HwType 00000012); this CLU has FwType %q, HwType %q, left out",
+				obj.ID, obj.Class, result.CLU.FwType, result.CLU.HwType))
+			continue
+		}
+		if _, dup := result.ObjectMap[obj.ID]; dup {
+			continue
+		}
+		result.Objects = append(result.Objects, obj)
+		result.ObjectMap[obj.ID] = obj
 	}
 
 	// Apply collected IO names to objects

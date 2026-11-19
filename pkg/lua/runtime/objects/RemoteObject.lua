@@ -201,10 +201,21 @@ function RemoteObject.literal(v)
     end) .. '"'
 end
 
+--- Raises the error when the object refuses a read, write or method (its _refused, e.g. a
+-- GATE Alarm's disarm and its secret features). Every command and read of a remote object
+-- goes through get, set or execute, so a guard here holds for every way in.
+-- @param kind string "get", "set" or "execute"
+-- @param index number The feature or method number
+function RemoteObject._guard(self, kind, index)
+    local refused = self._refused and self:_refused(kind, index)
+    if refused then error(refused, 3) end
+end
+
 --- Gets a value from the remote object by index.
 -- @param index number The property index to retrieve
 -- @return any The value from the remote object
 function RemoteObject:get(index)
+    RemoteObject._guard(self, "get", index)
     return self._clu:execute(0, self._objId .. ":get(" .. index .. ")")
 end
 
@@ -213,6 +224,7 @@ end
 -- @param index number The property index to set
 -- @param value any The value to set
 function RemoteObject:set(index, value)
+    RemoteObject._guard(self, "set", index)
     -- a new command overrides what an earlier timed one would do
     if StateChange then StateChange.forgetExpected(self) end
     self._clu:executeNoReply(0, self._objId .. ":set(" .. index .. ", " .. RemoteObject.literal(value) .. ")")
@@ -225,6 +237,7 @@ end
 -- @param index number The method index to execute
 -- @param ... any Arguments to pass to the remote method
 function RemoteObject:execute(index, ...)
+    RemoteObject._guard(self, "execute", index)
     if StateChange then StateChange.forgetExpected(self) end
     local args = {...}
     local argsStr = ""

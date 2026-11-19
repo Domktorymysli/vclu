@@ -114,13 +114,23 @@ func GenerateProxy(parsed *ParsedOM, config GeneratorConfig) string {
 	generateObjectsForClass(&sb, parsed, namespace, names, ClassPanel, "RemotePanel")
 	generateObjectsForClass(&sb, parsed, namespace, names, ClassThermostat, "RemoteThermostat")
 	generatePanelButtons(&sb, parsed, namespace, names)
+	// A GATE Alarm's objects (Parse keeps them only on a GATE Alarm)
+	for _, g := range gateAlarmProxies {
+		generateObjectsForClass(&sb, parsed, namespace, names, g.class, g.proxy)
+	}
 
 	// Register objects in _registry for lookup (use registerObject for name indexing)
 	if config.RegisterObjects {
 		sb.WriteString("-- Register objects for event forwarding\n")
 		// Thermostats too: not auto-exposed (a climate, by expose() only), but the Sync list
-		// and the subscriptions find objects in the registry
+		// and the subscriptions find objects in the registry. So are a GATE Alarm's zones,
+		// sections and connections.
 		objects := append(parsed.GetExposableObjects(), parsed.GetObjectsByClass(ClassThermostat)...)
+		for _, g := range gateAlarmProxies {
+			if !g.class.IsExposable() {
+				objects = append(objects, parsed.GetObjectsByClass(g.class)...)
+			}
+		}
 		for _, obj := range objects {
 			objName := names[obj.ID]
 			path := fmt.Sprintf("%s.%s", parsed.CLU.ID, obj.ID)
@@ -130,6 +140,22 @@ func GenerateProxy(parsed *ParsedOM, config GeneratorConfig) string {
 	}
 
 	return sb.String()
+}
+
+// gateAlarmProxies are the Lua classes of a GATE Alarm's objects
+// (pkg/lua/runtime/objects/RemoteGateAlarm.lua), in the order they are written.
+var gateAlarmProxies = []struct {
+	class ObjectClass
+	proxy string
+}{
+	{ClassGateSatel, "RemoteGateSatel"},
+	{ClassGateSatelZone, "RemoteGateSatelZone"},
+	{ClassGateSatelInput, "RemoteGateSatelInput"},
+	{ClassGateSatelOutput, "RemoteGateSatelOutput"},
+	{ClassGateJablotron, "RemoteGateJablotron"},
+	{ClassGateJablotronSection, "RemoteGateJablotronSection"},
+	{ClassGateJablotronOutput, "RemoteGateJablotronOutput"},
+	{ClassGateJablotronDevice, "RemoteGateJablotronDevice"},
 }
 
 func generateObjectsForClass(sb *strings.Builder, parsed *ParsedOM, namespace string, names map[string]string, class ObjectClass, proxyClass string) {
@@ -312,6 +338,24 @@ func namespaceOf(clu CLUInfo) string {
 		return ns
 	}
 	return strings.ToLower(clu.ID)
+}
+
+// Namespace is the global table the proxy puts the CLU's objects in.
+func Namespace(parsed *ParsedOM) string { return namespaceOf(parsed.CLU) }
+
+// Paths are the names Lua code can reach the CLU's objects by: "CLU….<ID>" and
+// "CLU….<name>" (the registry), and "<namespace>.<name>" (the proxy's table).
+func Paths(parsed *ParsedOM) []string {
+	ns := namespaceOf(parsed.CLU)
+	names := luaNames(parsed)
+	paths := make([]string, 0, 3*len(parsed.Objects))
+	for _, obj := range parsed.Objects {
+		paths = append(paths, parsed.CLU.ID+"."+obj.ID, ns+"."+names[obj.ID])
+		if obj.Name != "" {
+			paths = append(paths, parsed.CLU.ID+"."+obj.Name)
+		}
+	}
+	return paths
 }
 
 // luaNames are the objects' names in their namespace, by ID: the name from

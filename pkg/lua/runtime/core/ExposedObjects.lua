@@ -1351,6 +1351,12 @@ local function registryType(obj)
     return TypeMap.getExposeType(obj._type or "switch", "switch")
 end
 
+-- Exposed by expose() only, never by exposeRegistry(): a type (climate) or an object that
+-- says so (_explicitOnly: a GATE Alarm's zone or section, which arms and disarms)
+local function explicitOnly(obj)
+    return obj._explicitOnly == true or (capabilities[registryType(obj)] or {}).explicitOnly == true
+end
+
 -- exposeRegistry() gives these sensors a filter: a reading flipping by one step is no change
 local REGISTRY_FILTERS = {
     temperature = { delta = 0.2, heartbeat = 600 },
@@ -1382,7 +1388,7 @@ function ExposedObjects:defaults(path, opts)
         error("ExposedObjects:defaults() - no object at '" .. path .. "' in the registry", 2)
     end
     local objType = registryType(obj)
-    if obj._isPlugin or objType == nil or (capabilities[objType] or {}).explicitOnly then
+    if obj._isPlugin or objType == nil or explicitOnly(obj) then
         error("ExposedObjects:defaults() - exposeRegistry() does not expose '" .. path .. "'; use expose()", 2)
     end
     checkOptions(objType, opts)
@@ -1426,8 +1432,8 @@ function ExposedObjects:exposeRegistry(options, newOnly)
             -- noop
         elseif registryType(obj) == nil then
             -- nothing to expose it as: no switch fallback
-        elseif (capabilities[registryType(obj)] or {}).explicitOnly then
-            -- a thermostat is exposed by expose() only
+        elseif explicitOnly(obj) then
+            -- a thermostat, a GATE Alarm's zone or section: exposed by expose() only
         elseif self._hidden[obj] then
             -- a module exposed it with hidden = true
             skipped = skipped + 1

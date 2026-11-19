@@ -143,6 +143,13 @@ local function feature(fn, path, index)
             gone(clu, "is not imported")
             return done(nil, "not imported")
         end
+        -- asked past the proxy, so its guard is asked here (a GATE Alarm's secret features)
+        local obj = object and objectOf(clu, object)
+        local refused = type(obj) == "table" and obj._refused and obj:_refused("get", index)
+        if refused then
+            gone(path .. "[" .. index .. "]", refused)
+            return done(nil, refused)
+        end
         c:executeAsync(script, done)
     end)
     if index ~= 0 or not object then return ask end

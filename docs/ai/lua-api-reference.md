@@ -30,6 +30,7 @@ Only public API is listed — internal/private functions are omitted.
 - [grenton.CLU_REMOTE](#grentonclu_remote) (4 functions)
 - [lib.cct](#libcct) (1 functions)
 - [lib.tasmota](#libtasmota) (5 functions)
+- [objects.RemoteGateAlarm](#objectsremotegatealarm) (23 functions)
 
 ---
 
@@ -2698,6 +2699,112 @@ Whether the device is online (its LWT is Online).
 Tasmota devices seen on MQTT discovery (tasmota/discovery/<mac>/config), sorted by topic. Nothing is created from them; add a device with a line in a module.
 
 **Returns:** table list of { topic, name, device, relays, lights, ip, mac }
+
+---
+
+## objects.RemoteGateAlarm
+
+### `RemoteGateAlarm.disarmAllowed() → boolean`
+
+Whether the configuration allows disarming a GATE Alarm's zones and sections (grenton.gateAlarm.allowDisarm in .vclu.json, default false).
+
+**Returns:** boolean
+
+### `RemoteGateAlarm:getValue() → number|nil`
+
+The value the GATE reported (feature 0).
+
+**Returns:** number|nil
+
+### `RemoteGateSatelZone:armZone()`
+
+Arms the partition (execute 0 ArmZone); the GATE reports the state.
+
+### `RemoteGateSatelZone:disarmZone()`
+
+Disarms the partition (execute 1 DisarmZone). Refused unless grenton.gateAlarm.allowDisarm is true in .vclu.json.
+
+### `RemoteGateSatelZone:isArmed() → boolean|nil`
+
+Whether the partition is armed (nil while the GATE has not reported it).
+
+**Returns:** boolean|nil
+
+### `RemoteGateSatelZone:onArm(callback)`
+
+Registers a callback for when the partition is armed.
+
+### `RemoteGateSatelZone:onDisarm(callback)`
+
+Registers a callback for when the partition is disarmed.
+
+### `RemoteGateSatelInput:onSwitchOn(callback)`
+
+Registers a callback for when the input is violated.
+
+### `RemoteGateSatelInput:onSwitchOff(callback)`
+
+Registers a callback for when the input is back to normal.
+
+### `RemoteGateSatelOutput:switchOn()`
+
+Switches the output on (execute 0); the GATE reports the state.
+
+### `RemoteGateSatelOutput:switchOff()`
+
+Switches the output off (execute 1).
+
+### `RemoteGateSatelOutput:toggle()`
+
+Switches the output off when it is on, else on.
+
+### `RemoteGateSatelOutput:setValue(value)`
+
+1 (or true) switches on, anything else off.
+
+- `value` (number) — 0 or 1
+
+### `RemoteGateSatelOutput:onSwitchOn(callback)`
+
+Registers a callback for when the output switches on.
+
+### `RemoteGateSatelOutput:onSwitchOff(callback)`
+
+Registers a callback for when the output switches off.
+
+### `RemoteGateSatel:isConnected() → boolean|nil`
+
+Whether the GATE is connected to the panel (nil while not reported).
+
+**Returns:** boolean|nil
+
+### `RemoteGateSatel:onConnected(callback)`
+
+Registers a callback for when the GATE connects to the panel.
+
+### `RemoteGateSatel:onDisconnected(callback)`
+
+Registers a callback for when the GATE loses the panel.
+
+### `RemoteGateJablotronSection:arm()`
+
+Arms the section (execute 0).
+
+### `RemoteGateJablotronSection:armPartially()`
+
+Arms the section partially (execute 1).
+
+### `RemoteGateJablotronSection:disarm()`
+
+Disarms the section (execute 2). Refused unless grenton.gateAlarm.allowDisarm is true in .vclu.json.
+
+### `RemoteGateJablotronSection:onArm(callback)`
+
+Registers a callback for when the section is armed.
+
+### `RemoteGateJablotronSection:onDisarm(callback)`
+
+Registers a callback for when the section is disarmed.
 
 ---
 

@@ -2,6 +2,8 @@
 // It extracts object definitions, modules, and event handlers from the generated Lua code.
 package omparser
 
+import "strconv"
+
 // ObjectClass represents the type of Grenton object
 type ObjectClass int
 
@@ -25,7 +27,40 @@ const (
 	ClassPanel      ObjectClass = 29 // Smart Panel screen (PANEL)
 	ClassPanelBtn   ObjectClass = 30 // Smart Panel button (PANEL_BUTTON)
 	ClassLEDChannel ObjectClass = 49 // One channel (R, G, B, W) of an LED RGBW 2.0 module
+
+	// Alarm objects of a GATE Alarm (FwType 00000002, HwType 00000012), declared in its
+	// om.lua as GATE objects: SAT0001 = GATE:new(100, "SAT0001"). The numbers are Object
+	// Manager's (clu_GATE_ALARM_ft00000002_*); another GATE may use them for other objects.
+	// Grenton's SatelZone is a Satel partition and its SatelInput a Satel zone, so vCLU names
+	// them apart from its own Satel integration (pkg/satel): GATE_SATEL_*.
+	ClassGateSatelZone        ObjectClass = 100 // SatelZone: a Satel partition, armed 1 / disarmed 0 / -1 unknown
+	ClassGateSatelInput       ObjectClass = 101 // SatelInput: a Satel zone (input), 1 violated
+	ClassGateSatelOutput      ObjectClass = 102 // SatelOutput: a Satel output, 1 on
+	ClassGateSatel            ObjectClass = 103 // Satel: the GATE's connection to the panel, 1 connected
+	ClassGateJablotron        ObjectClass = 150 // Jablotron: the connection's settings only
+	ClassGateJablotronSection ObjectClass = 151 // JablotronSection: a Jablotron section (State)
+	ClassGateJablotronOutput  ObjectClass = 152 // JablotronOutput: a Jablotron PG output, 1 on
+	ClassGateJablotronDevice  ObjectClass = 153 // JablotronDevice: a Jablotron device (detector), 1 active
 )
+
+// gateAlarmClasses are the classes of a GATE Alarm's alarm objects.
+var gateAlarmClasses = map[ObjectClass]bool{
+	ClassGateSatelZone: true, ClassGateSatelInput: true, ClassGateSatelOutput: true, ClassGateSatel: true,
+	ClassGateJablotron: true, ClassGateJablotronSection: true, ClassGateJablotronOutput: true, ClassGateJablotronDevice: true,
+}
+
+// IsGateAlarm tells whether a class is one of a GATE Alarm's alarm objects.
+func (c ObjectClass) IsGateAlarm() bool {
+	return gateAlarmClasses[c]
+}
+
+// IsGateAlarm tells whether the CLU is a GATE Alarm: FwType 00000002 and HwType 00000012
+// in its om.lua. An HTTP GATE has the same HwType with FwType 00000003.
+func (c CLUInfo) IsGateAlarm() bool {
+	fw, errF := strconv.ParseUint(c.FwType, 16, 32)
+	hw, errH := strconv.ParseUint(c.HwType, 16, 32)
+	return errF == nil && errH == nil && fw == 0x02 && hw == 0x12
+}
 
 // String returns the human-readable name of the object class
 func (c ObjectClass) String() string {
@@ -68,6 +103,22 @@ func (c ObjectClass) String() string {
 		return "PANEL_BUTTON"
 	case ClassLEDChannel:
 		return "LED_CHANNEL"
+	case ClassGateSatelZone:
+		return "GATE_SATEL_ZONE"
+	case ClassGateSatelInput:
+		return "GATE_SATEL_INPUT"
+	case ClassGateSatelOutput:
+		return "GATE_SATEL_OUTPUT"
+	case ClassGateSatel:
+		return "GATE_SATEL"
+	case ClassGateJablotron:
+		return "GATE_JABLOTRON"
+	case ClassGateJablotronSection:
+		return "GATE_JABLOTRON_SECTION"
+	case ClassGateJablotronOutput:
+		return "GATE_JABLOTRON_OUTPUT"
+	case ClassGateJablotronDevice:
+		return "GATE_JABLOTRON_DEVICE"
 	default:
 		return "UNKNOWN"
 	}
@@ -92,7 +143,14 @@ func (c ObjectClass) MQTTType() string {
 		return "number"
 	case ClassONE_WIRE, ClassPanelTemp, ClassPanelLight, ClassHumidity:
 		return "sensor"
+	// A GATE Alarm's inputs and devices as binary sensors, its outputs as switches (HomeKit
+	// shows them read-only, as the Satel integration's).
+	case ClassGateSatelInput, ClassGateJablotronDevice:
+		return "binary_sensor"
+	case ClassGateSatelOutput, ClassGateJablotronOutput:
+		return "switch"
 	// ClassThermostat (18) is a climate: registered apart, exposed only by expose() in Lua.
+	// So are a GATE Alarm's zones and sections (arming), and its connection objects.
 	default:
 		return ""
 	}
@@ -155,6 +213,7 @@ type ParsedOM struct {
 	Objects    []GrentonObject          // I/O objects (DOUT, DIN, etc.)
 	Events     []EventHandler           // Event handlers
 	ObjectMap  map[string]GrentonObject // Quick lookup by ID
+	Warnings   []string                 // What was left out and why (never a value of the file)
 }
 
 // NewParsedOM creates a new ParsedOM with initialized maps

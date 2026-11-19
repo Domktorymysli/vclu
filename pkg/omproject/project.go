@@ -127,12 +127,18 @@ var peripheralClasses = map[string]int{
 	"MultiFanACThermostat":  46,
 	"Statistics":            47,
 	"StatisticsPulse":       48,
-	"SatelZone":             100,
-	"SatelInput":            101,
-	"SatelOutput":           102,
-	"Satel":                 103,
-	"HttpListener":          120,
-	"HttpRequest":           121,
+	// A GATE Alarm's alarm objects (clu_GATE_ALARM_ft00000002_*)
+	"SatelZone":        100,
+	"SatelInput":       101,
+	"SatelOutput":      102,
+	"Satel":            103,
+	"Jablotron":        150,
+	"JablotronSection": 151,
+	"JablotronOutput":  152,
+	"JablotronDevice":  153,
+	// an HTTP GATE's
+	"HttpListener": 120,
+	"HttpRequest":  121,
 }
 
 // Patterns of what goes into om.lua: anything else is left out, so a value from

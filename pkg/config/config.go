@@ -52,6 +52,9 @@ type VCLUConfig struct {
 	// Grenton integration toggle (nil = auto: enabled for CLU/Gate, disabled for standalone)
 	GrentonEnabled *bool `json:"grentonEnabled,omitempty"`
 
+	// Settings for the Grenton CLUs vCLU talks to (a GATE Alarm's disarm)
+	Grenton *VCLUGrentonConfig `json:"grenton,omitempty"`
+
 	// MCP (Model Context Protocol) server configuration
 	MCP *VCLUMCPConfig `json:"mcp,omitempty"`
 

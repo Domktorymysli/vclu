@@ -41,6 +41,15 @@ TypeMap.grentonToExpose = {
     LIGHT_SENSOR_LUX = "illuminance",
     -- Thermostats (feature 0 is the sensor binding, never a switch)
     THERMOSTAT = "climate",
+    -- A GATE Alarm's objects (RemoteGateAlarm.lua): inputs and devices as a DIN, outputs as
+    -- a DOUT; a zone or section is a switch only by expose() (_explicitOnly), the
+    -- connections have no expose type (their _getExposeType)
+    GATE_SATEL_INPUT = "sensor",
+    GATE_JABLOTRON_DEVICE = "sensor",
+    GATE_SATEL_OUTPUT = "switch",
+    GATE_JABLOTRON_OUTPUT = "switch",
+    GATE_SATEL_ZONE = "switch",
+    GATE_JABLOTRON_SECTION = "switch",
 }
 
 -- Expose type to Home Assistant component mapping
