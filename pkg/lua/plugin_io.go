@@ -34,8 +34,9 @@ type PluginIO struct {
 	grants   map[string]pluginIOGrant
 	handles  map[int]*ioHandle
 	nextID   int
-	serial   map[string]int // resolved path -> handle holding it
-	reserved map[int]bool   // UDP ports vCLU listens on
+	serial   map[string]int    // resolved path -> handle holding it
+	reserved map[int]bool      // UDP ports vCLU listens on
+	sent     map[int]time.Time // local ports of plugin sockets, kept a while after they close
 	deliver  func(name string, fn func(L *lua.LState) (string, error)) (string, error)
 	own      func(netip.Addr) bool // an address of this machine; tests replace it
 }
@@ -78,9 +79,14 @@ type ioQueue struct {
 	wake    chan struct{}
 }
 
+// push queues e; past pluginIOQueueBytes data is dropped, unless whole (a transfer's answer).
 func (q *ioQueue) push(e ioEvent, merge bool) {
+	q.push2(e, merge, false)
+}
+
+func (q *ioQueue) push2(e ioEvent, merge, whole bool) {
 	q.mu.Lock()
-	if q.size+len(e.data) > pluginIOQueueBytes {
+	if !whole && q.size+len(e.data) > pluginIOQueueBytes {
 		q.dropped += len(e.data)
 	} else {
 		q.size += len(e.data)
@@ -112,6 +118,7 @@ func NewPluginIO() *PluginIO {
 		handles:  map[int]*ioHandle{},
 		serial:   map[string]int{},
 		reserved: map[int]bool{},
+		sent:     map[int]time.Time{},
 		own:      ownAddr,
 	}
 }
@@ -125,24 +132,36 @@ func (p *PluginIO) ReserveUDPPorts(ports ...int) {
 	}
 }
 
-// FromPlugin: a datagram sent by a plugin's socket on this machine; vCLU's own listeners
-// drop those, so a plugin's broadcast does not reach the vCLU it runs in.
+// sentTTL: how long a closed plugin socket's port still marks datagrams as the plugin's;
+// they may wait in vCLU's socket after the plugin closed its own.
+const sentTTL = 5 * time.Minute
+
+// FromPlugin: a datagram sent by a plugin's socket on this machine, open or closed in the
+// last minutes; vCLU's own listeners drop those, so a plugin's broadcast does not reach
+// the vCLU it runs in.
 func (p *PluginIO) FromPlugin(addr *net.UDPAddr) bool {
 	if p == nil || addr == nil {
 		return false
 	}
-	ip, ok := netip.AddrFromSlice(addr.IP)
-	if !ok || !p.own(ip.Unmap()) {
+	p.mu.Lock()
+	at, ok := p.sent[addr.Port]
+	p.mu.Unlock()
+	if !ok || time.Since(at) > sentTTL {
 		return false
 	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	for _, h := range p.handles {
-		if h.conn != nil && h.conn.LocalAddr().(*net.UDPAddr).Port == addr.Port {
-			return true
+	ip, ok := netip.AddrFromSlice(addr.IP)
+	return ok && p.own(ip.Unmap())
+}
+
+// markSent records a plugin socket's port as in use now; old marks go. Caller holds p.mu.
+func (p *PluginIO) markSent(port int) {
+	now := time.Now()
+	for k, at := range p.sent {
+		if now.Sub(at) > sentTTL {
+			delete(p.sent, k)
 		}
 	}
-	return false
+	p.sent[port] = now
 }
 
 // ownAddr: an address of this machine, where vCLU itself listens.
@@ -229,19 +248,23 @@ func (p *PluginIO) CloseAll() {
 
 func (p *PluginIO) close(h *ioHandle) {
 	h.once.Do(func() {
-		close(h.done)
-		if h.conn != nil {
-			_ = h.conn.Close()
-		}
-		if h.port != nil {
-			_ = h.port.Close()
-		}
 		p.mu.Lock()
+		close(h.done)
+		conn, port := h.conn, h.port
+		if conn != nil {
+			p.markSent(conn.LocalAddr().(*net.UDPAddr).Port)
+		}
 		delete(p.handles, h.id)
 		if h.path != "" && p.serial[h.path] == h.id {
 			delete(p.serial, h.path)
 		}
 		p.mu.Unlock()
+		if conn != nil {
+			_ = conn.Close()
+		}
+		if port != nil {
+			_ = port.Close()
+		}
 	})
 }
 
@@ -301,8 +324,14 @@ func needs(allowed bool, plugin, name string) error {
 // checkTarget: a host on the house's network, not this machine, among the allowed ones.
 func (p *PluginIO) checkTarget(ip netip.Addr, hosts []netip.Prefix) error {
 	ip = ip.Unmap()
+	if !ip.Is4() {
+		return fmt.Errorf("refused %s: only IPv4 addresses", ip)
+	}
 	if p.own(ip) {
 		return fmt.Errorf("refused %s: an address of this vCLU", ip)
+	}
+	if isBroadcast(ip) {
+		return fmt.Errorf("refused %s: a broadcast address", ip)
 	}
 	if ip.IsMulticast() {
 		return fmt.Errorf("refused %s: multicast", ip)
@@ -401,7 +430,13 @@ func (p *PluginIO) OpenUDP(plugin string, port int) (int, error) {
 		return 0, err
 	}
 	p.mu.Lock()
+	if h.closed() { // closed while opening (shutdown)
+		p.mu.Unlock()
+		_ = conn.Close()
+		return 0, fmt.Errorf("closed")
+	}
 	h.conn = conn
+	p.markSent(conn.LocalAddr().(*net.UDPAddr).Port)
 	p.mu.Unlock()
 	go p.pump(h)
 	go func() {
@@ -411,7 +446,7 @@ func (p *PluginIO) OpenUDP(plugin string, port int) (int, error) {
 			if err != nil {
 				if !h.closed() {
 					log.Printf("[PLUGINS] %s: UDP socket: %v", plugin, err)
-					p.close(h)
+					h.q.push(ioEvent{err: err.Error()}, false)
 				}
 				return
 			}
@@ -491,15 +526,39 @@ func GrentonCipher(encrypt bool, key, iv string, data []byte) ([]byte, error) {
 
 // --- TFTP ---
 
+var errTransferClosed = fmt.Errorf("closed")
+
+// limitedBuffer takes a received file up to pluginTFTPMaxBytes; closing the handle stops it.
 type limitedBuffer struct {
 	bytes.Buffer
+	done <-chan struct{}
 }
 
 func (b *limitedBuffer) Write(p []byte) (int, error) {
+	select {
+	case <-b.done:
+		return 0, errTransferClosed
+	default:
+	}
 	if b.Len()+len(p) > pluginTFTPMaxBytes {
 		return 0, fmt.Errorf("file larger than %d bytes", pluginTFTPMaxBytes)
 	}
 	return b.Buffer.Write(p)
+}
+
+// stoppableReader gives a file to send until the handle closes.
+type stoppableReader struct {
+	r    io.Reader
+	done <-chan struct{}
+}
+
+func (s stoppableReader) Read(p []byte) (int, error) {
+	select {
+	case <-s.done:
+		return 0, errTransferClosed
+	default:
+	}
+	return s.r.Read(p)
 }
 
 // TFTP gets (data nil) or puts a file on a device off the run loop; the answer comes
@@ -526,19 +585,19 @@ func (p *PluginIO) TFTP(plugin, host string, port int, name string, data []byte,
 	}
 	go p.pump(h)
 	go func() {
-		got, err := tftpTransfer(netip.AddrPortFrom(ip.Unmap(), uint16(port)).String(), name, data, put)
+		got, err := tftpTransfer(netip.AddrPortFrom(ip.Unmap(), uint16(port)).String(), name, data, put, h.done)
 		e := ioEvent{data: got}
 		if err != nil {
 			e = ioEvent{err: err.Error()}
-		} else if put {
-			e.data = []byte{}
+		} else if got == nil {
+			e.data = []byte{} // put, or an empty file
 		}
-		h.q.push(e, false)
+		h.q.push2(e, false, true)
 	}()
 	return h.id, nil
 }
 
-func tftpTransfer(addr, name string, data []byte, put bool) ([]byte, error) {
+func tftpTransfer(addr, name string, data []byte, put bool, done <-chan struct{}) ([]byte, error) {
 	c, err := tftp.NewClient(addr)
 	if err != nil {
 		return nil, err
@@ -550,14 +609,14 @@ func tftpTransfer(addr, name string, data []byte, put bool) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		_, err = rf.ReadFrom(bytes.NewReader(data))
+		_, err = rf.ReadFrom(stoppableReader{bytes.NewReader(data), done})
 		return nil, err
 	}
 	wt, err := c.Receive(name, "octet")
 	if err != nil {
 		return nil, err
 	}
-	var buf limitedBuffer
+	buf := limitedBuffer{done: done}
 	if _, err := wt.WriteTo(&buf); err != nil {
 		return nil, err
 	}

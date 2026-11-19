@@ -44,8 +44,31 @@ func validTopicFilter(f string) bool {
 	return true
 }
 
+// maxGrantList: entries in one list of a grant.
+const maxGrantList = 256
+
 // ValidateGrants checks the hosts and topic filters the user narrowed a plugin to.
 func ValidateGrants(g config.PluginGrants) error {
+	var lists [][]string
+	if g.LAN != nil {
+		lists = append(lists, g.LAN.Hosts)
+	}
+	if g.MQTT != nil {
+		lists = append(lists, g.MQTT.Subscribe, g.MQTT.Publish)
+	}
+	for _, h := range []*config.HostsGrant{g.GrentonRaw, g.TFTP} {
+		if h != nil {
+			lists = append(lists, h.Hosts)
+		}
+	}
+	if g.Serial != nil {
+		lists = append(lists, g.Serial.Ports)
+	}
+	for _, l := range lists {
+		if len(l) > maxGrantList {
+			return fmt.Errorf("a list of %d entries, at most %d", len(l), maxGrantList)
+		}
+	}
 	if g.LAN != nil {
 		if _, err := ParseHosts(g.LAN.Hosts); err != nil {
 			return fmt.Errorf("lan hosts: %w", err)

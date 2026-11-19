@@ -10,11 +10,11 @@ PluginSandbox.sandboxes = {}  -- pluginId -> sandbox data
 PluginSandbox.ioHandles = {}  -- Go handle id -> {call} of a plugin's socket, port or transfer
 
 -- Data for plugins' sockets, ports and transfers (pkg/lua/plugin_io.go): udp (bytes, ip,
--- port), serial (bytes) or (nil, err) once the port fails, tftp (bytes, err) once.
+-- port), serial (bytes), either (nil, err) once when it fails; tftp (bytes, err) once.
 function __vclu_plugin_io(id, kind, data, second, port)
     local h = PluginSandbox.ioHandles[id]
     if not h then return end
-    if kind == "tftp" or (kind == "serial" and data == nil) then
+    if kind == "tftp" or data == nil then -- a transfer's answer, or a socket or port that failed
         PluginSandbox.ioHandles[id] = nil
         h.sandbox.ioHandles[id] = nil
     end
@@ -947,6 +947,19 @@ function PluginSandbox:buildEnvironment(sandbox)
         end
     end
 
+    -- API 1 globals pick their own HTTP instance and share the MQTT client, so no grant
+    -- reaches them: only for a plugin allowed lan or mqtt in full
+    local limits = sandbox.limits
+    local legacyHTTP, legacyMQTT
+    if sandbox.apiVersion < 2 then
+        if sandbox.permissions.lan and limits.lanHosts == nil then
+            legacyHTTP = classFacade(HTTP)
+        end
+        if sandbox.permissions.mqtt and limits.mqttSubscribe == nil and limits.mqttPublish == nil then
+            legacyMQTT = classFacade(MQTT)
+        end
+    end
+
     -- Modbus only with the permission; without it a clear error instead of nil
     local modbus
     if sandbox.permissions.modbus and Modbus then
@@ -1066,9 +1079,9 @@ function PluginSandbox:buildEnvironment(sandbox)
         Modbus = modbus,
 
         Plugin = pluginClass,
-        HTTP = sandbox.apiVersion < 2 and classFacade(HTTP) or nil,
-        HttpClient = sandbox.apiVersion < 2 and classFacade(HTTP) or nil,
-        MQTT = sandbox.apiVersion < 2 and classFacade(MQTT) or nil,
+        HTTP = legacyHTTP,
+        HttpClient = legacyHTTP,
+        MQTT = legacyMQTT,
         EventBus = setmetatable({}, {
             __index = function(_, key)
                 if key == "on" then return api.on end

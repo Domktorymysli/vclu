@@ -54,7 +54,10 @@ No list allows any host or topic, an empty list none. Hosts are checked in the d
 (`lanHostsDialer`), topics in the sandbox's `plugin:mqttSubscribe`/`mqttPublish` (a subscription
 must lie inside an allowed filter: `shelly/#` covers `shelly/+/status`, `+` does not cover `#`).
 `ValidateGrants` refuses a host that is not an IP or prefix and a malformed filter. On API 1 the
-`HTTP` and `MQTT` globals are outside this: grants limit only the plugin API there (logged).
+`HTTP`/`HttpClient`/`MQTT` globals pick their own instance, so grants cannot reach them: the
+sandbox gives them only while `lan` (`mqtt`) is allowed in full, without lists. An update from
+another repository resets grants to what installing gives; without the old files nothing is
+allowed until the user does. `POST .../permissions` refuses unknown keys.
 
 `grenton_raw`, `tftp` and `serial` (#240) reach a CLU's commands, files on devices and the device
 on a port: `Grants()` leaves them out, so neither installing nor recording grants from the files

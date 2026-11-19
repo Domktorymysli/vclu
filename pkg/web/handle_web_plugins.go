@@ -379,6 +379,27 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 	// keeps that, and an update asking for more waits for the user
 	loader := plugins.NewLoader(s.serverDir)
 	previous, previousErr := loader.RequestedPermissions(fullId)
+	// Recorded before the download, so a reload meanwhile cannot take the new files' request;
+	// without the old files nothing is known and everything waits for the user
+	err = config.UpdateMasterConfig(s.serverDir, func(masterConfig *config.VCLUConfig) error {
+		if masterConfig.Plugins == nil {
+			return nil
+		}
+		for i := range masterConfig.Plugins.Installed {
+			if inst := &masterConfig.Plugins.Installed[i]; inst.ID == fullId && inst.Grants == nil {
+				if previousErr == nil {
+					inst.Grants = previous.Grants()
+				} else {
+					inst.Grants = &config.PluginGrants{}
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save config"})
+		return
+	}
 
 	// The files first: the config then never names a version that is not on disk (#112)
 	if err := loader.DownloadPlugin(*targetRepo, fullId); err != nil {
@@ -399,12 +420,14 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 			if inst.ID == fullId {
 				// Update version; the repository is the one the files now come from
 				// (the plugin's permissions depend on it)
+				// From another repository it is another publisher's plugin: it gets what
+				// installing gives, not what the user allowed the first one
+				if inst.Repository != "" && inst.Repository != targetRepo.Name {
+					masterConfig.Plugins.Installed[i].Grants = requested.Grants()
+				}
 				masterConfig.Plugins.Installed[i].Version = pluginMeta.Version
 				masterConfig.Plugins.Installed[i].Repository = targetRepo.Name
 				masterConfig.Plugins.Installed[i].InstalledAt = time.Now().Format(time.RFC3339)
-				if masterConfig.Plugins.Installed[i].Grants == nil && previousErr == nil {
-					masterConfig.Plugins.Installed[i].Grants = previous.Grants()
-				}
 				action = "updated"
 				return nil
 			}
@@ -554,9 +577,12 @@ func (s *Server) handlePluginsAPISerialPorts(c *gin.Context) {
 func (s *Server) handlePluginsAPIPermissions(c *gin.Context) {
 	pluginID := c.Param("id")
 
+	// Unknown keys refused: {"lan": {"host": [...]}} would otherwise allow any host
 	var req config.PluginGrants
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+	dec := json.NewDecoder(c.Request.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request: " + err.Error()})
 		return
 	}
 	if err := plugins.ValidateGrants(req); err != nil {

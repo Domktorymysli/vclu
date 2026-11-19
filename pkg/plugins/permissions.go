@@ -180,7 +180,7 @@ func (l *Loader) effectivePermissions(pluginID string, manifest PluginManifest) 
 	if manifestAPI(manifest) < 2 {
 		log.Printf("[PLUGINS] %s is on plugin API 1: lan, mqtt and modbus without a declaration (\"api\": 2 in plugin.json limits it to its permissions)", pluginID)
 		if allowed, _ := requested.allowedBy(grants); allowed != requested || limitsOf(grants).narrows() {
-			log.Printf("[PLUGINS] WARNING: %s is on plugin API 1: its HTTP and MQTT globals are not limited by the permissions allowed in its settings", pluginID)
+			log.Printf("[PLUGINS] WARNING: %s is on plugin API 1: without lan or mqtt allowed in full in its settings it has no HTTP, HttpClient or MQTT global", pluginID)
 		}
 	}
 	allowed, pending := requested.allowedBy(grants)

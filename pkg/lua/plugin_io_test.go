@@ -171,9 +171,16 @@ func TestPluginUDPReservedPortsAndFromPlugin(t *testing.T) {
 	if io.FromPlugin(&net.UDPAddr{IP: net.IPv4(192, 0, 2, 9), Port: port}) {
 		t.Error("another machine's datagram taken for the plugin's")
 	}
+	// a broadcast sent just before closing may still wait in vCLU's socket
 	io.Release("@t/a")
+	if !io.FromPlugin(&net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port}) {
+		t.Error("a datagram from a socket closed a moment ago not recognised")
+	}
+	io.mu.Lock()
+	io.sent[port] = time.Now().Add(-sentTTL - time.Second)
+	io.mu.Unlock()
 	if io.FromPlugin(&net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port}) {
-		t.Error("closed socket still recognised")
+		t.Error("a socket closed long ago still recognised")
 	}
 }
 
@@ -353,5 +360,77 @@ func TestPluginIOClosedOnCleanup(t *testing.T) {
 	// The grant went with the sandbox: nothing opens under that id any more
 	if _, err := engine.PluginIO().OpenUDP("@t/gone", 0); err == nil {
 		t.Error("socket opened after cleanup")
+	}
+}
+
+// The TFTP client refuses broadcasts, IPv6 and this machine (also under another name).
+func TestPluginTFTPTargets(t *testing.T) {
+	io := NewPluginIO()
+	io.SetGrant("@t/f", pluginIOGrant{tftp: true})
+	for _, host := range []string{"255.255.255.255", "::1", "fe80::1%lo0", "::7f00:1", "64:ff9b::7f00:1", "127.0.0.1", "8.8.8.8"} {
+		if _, err := io.TFTP("@t/f", host, 69, "a", nil, false); err == nil {
+			t.Errorf("%s: not refused", host)
+		}
+	}
+	if n := openHandles(io); n != 0 {
+		t.Errorf("%d handles after refusals", n)
+	}
+}
+
+// A file larger than the queue arrives whole, an empty one as "", not as an error.
+func TestPluginTFTPLargeAndEmptyFiles(t *testing.T) {
+	dir := t.TempDir()
+	port := freeUDPPort(t)
+	srv := vtftp.NewServer(dir, "127.0.0.1", port, vtftp.GetAndReplace)
+	if err := srv.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Stop()
+	big := bytes.Repeat([]byte("0123456789abcdef"), (2<<20)/16)
+	if err := os.WriteFile(filepath.Join(dir, "big"), big, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "empty"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	engine := sandboxEngine(t, "@t/files", `{api = 2, tftp = true}`)
+	loopbackAllowed(engine)
+	if _, e := runPlugin(t, engine, "@t/files", `
+		local p = Plugin:new("files")
+		local c = p:tftp("127.0.0.1", {port = `+strconv.Itoa(port)+`})
+		c:get("big", function(bytes, err) p.big = tostring(bytes and #bytes) .. "|" .. tostring(err) end)
+		c:get("empty", function(bytes, err) p.empty = "[" .. tostring(bytes) .. "]|" .. tostring(err) end)
+	`); e != "nil" {
+		t.Fatal(e)
+	}
+	waitPlugin(t, engine, `tostring(Plugin.getPlugin("@t/files").empty)`, "[]|nil")
+	waitPlugin(t, engine, `tostring(Plugin.getPlugin("@t/files").big)`, strconv.Itoa(len(big))+"|nil")
+	for deadline := time.Now().Add(2 * time.Second); openHandles(engine.PluginIO()) != 0; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("%d handles left", openHandles(engine.PluginIO()))
+		}
+	}
+}
+
+// A port that goes away: onData gets (nil, err) once and the handle is gone.
+func TestPluginSerialPortGone(t *testing.T) {
+	master, path := openPty(t)
+	engine := sandboxEngine(t, "@t/rs", `{api = 2, serial = true, limits = {serialPorts = {"`+path+`"}}}`)
+	if _, e := runPlugin(t, engine, "@t/rs", `
+		local p = Plugin:new("rs")
+		local port = assert(p:serialOpen("`+path+`"))
+		p.calls = 0
+		port:onData(function(bytes, err)
+			if bytes == nil then p.calls = p.calls + 1; p.err = err end
+		end)
+	`); e != "nil" {
+		t.Fatal(e)
+	}
+	_ = master.Close()
+	waitPlugin(t, engine, `tostring(Plugin.getPlugin("@t/rs").calls)`, "1")
+	for deadline := time.Now().Add(2 * time.Second); openHandles(engine.PluginIO()) != 0; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("%d handles left after the port went", openHandles(engine.PluginIO()))
+		}
 	}
 }

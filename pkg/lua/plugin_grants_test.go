@@ -110,3 +110,41 @@ func TestPluginSandboxMQTTTopics(t *testing.T) {
 			"home/kitchen/hum=false home/#=false #=false other/x=false publish=false")
 	mustLua(t, engine, `table.concat(__mqtt, ",")`, "sub shelly/+/status,sub shelly,sub shelly/#,sub home/kitchen/temp,sub home/+/temp")
 }
+
+// On API 1 the HTTP and MQTT globals bypass grants, so a plugin has them only when lan
+// or mqtt is allowed in full: an update that drops to API 1 gets nothing new.
+func TestPluginAPI1GlobalsFollowGrants(t *testing.T) {
+	for _, c := range []struct {
+		perms, want string
+	}{
+		{`{api = 1, lan = true, mqtt = true}`, "true true true"},
+		{`{api = 1}`, "false false false"},
+		{`{api = 1, lan = true, mqtt = true, limits = {lanHosts = {"192.168.1.20"}, mqttPublish = {}}}`, "false false false"},
+		{`{api = 1, lan = true, limits = {mqttSubscribe = {"a/#"}}}`, "true true false"},
+	} {
+		engine := sandboxEngine(t, "@t/old", c.perms)
+		r, e := runPlugin(t, engine, "@t/old", `return tostring(HTTP ~= nil) .. " " .. tostring(HttpClient ~= nil) .. " " .. tostring(MQTT ~= nil)`)
+		if e != "nil" || r != c.want {
+			t.Errorf("%s: %s (%s), want %s", c.perms, r, e, c.want)
+		}
+	}
+}
+
+// An empty topic level is a level: a filter does not match a topic with more or fewer.
+func TestMQTTTopicMatchesEmptyLevels(t *testing.T) {
+	engine := NewLuaEngine()
+	t.Cleanup(engine.Close)
+	for _, c := range []struct{ topic, pattern, want string }{
+		{"/a/x/c", "a/+/c", "false"},
+		{"home//temp", "home/temp", "false"},
+		{"home/temp/", "home/temp", "false"},
+		{"home//temp", "home/+/temp", "true"},
+		{"/a", "+/a", "true"},
+		{"a/b/c", "a/#", "true"},
+		{"a", "a/#", "true"},
+		{"a/b", "a/+", "true"},
+		{"a/b/c", "a/+", "false"},
+	} {
+		mustLua(t, engine, `tostring(MQTT:_topicMatches("`+c.topic+`", "`+c.pattern+`"))`, c.want)
+	}
+}

@@ -230,3 +230,66 @@ func TestPluginsAPIPermissionsRefusesBadLists(t *testing.T) {
 		t.Errorf("grants after refused changes: %+v", got[0].Grants)
 	}
 }
+
+// updateFrom installs plugin shelly from the "test" repository over the given entry.
+func updateFrom(t *testing.T, manifest string, entry config.InstalledPlugin) config.InstalledPlugin {
+	t.Helper()
+	repo := manifestRepo(t, "shelly", "1.1.0", manifest)
+	dir := t.TempDir()
+	if err := writeTestConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
+		Repositories: []config.PluginRepository{{Name: "test", URL: repo.URL, Enabled: true}},
+		Installed:    []config.InstalledPlugin{entry},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if resp := postInstall(t, &Server{serverDir: dir}, "shelly"); resp.Action != "updated" {
+		t.Fatalf("answer %+v", resp)
+	}
+	mc, err := config.ReadMasterConfig(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return mc.Plugins.Installed[0]
+}
+
+// The same id from another repository is another publisher's plugin: what the user allowed
+// the first one does not carry over.
+func TestPluginsAPIUpdateFromAnotherRepositoryResetsGrants(t *testing.T) {
+	got := updateFrom(t, `{"id":"shelly","version":"1.1.0","api":2,"permissions":{"lan":true},"files":["init.lua"]}`,
+		config.InstalledPlugin{ID: "@jan/shelly", Version: "1.0.0", Enabled: true, Repository: "other",
+			Grants: &config.PluginGrants{LAN: &config.LANGrant{Hosts: []string{"192.168.1.20"}}, MQTT: &config.MQTTGrant{}}})
+	if !lanOnly(got.Grants) || got.Repository != "test" {
+		t.Errorf("grants after a change of repository: %+v", got.Grants)
+	}
+}
+
+// Without the old files nothing says what the user allowed: everything waits for them.
+func TestPluginsAPIUpdateWithoutOldFilesWaits(t *testing.T) {
+	got := updateFrom(t, `{"id":"shelly","version":"1.1.0","api":2,"permissions":{"lan":true},"files":["init.lua"]}`,
+		config.InstalledPlugin{ID: "@jan/shelly", Version: "1.0.0", Enabled: true, Repository: "test"})
+	if g := got.Grants; g == nil || g.LAN != nil || g.MQTT != nil || g.Modbus != nil {
+		t.Errorf("grants without the old files: %+v, want none", g)
+	}
+}
+
+// An unknown key is refused, not read as a grant without its list.
+func TestPluginsAPIPermissionsRefusesUnknownKeys(t *testing.T) {
+	dir := t.TempDir()
+	if err := writeTestConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
+		Installed: []config.InstalledPlugin{{ID: "@jan/shelly", Version: "1.0.0", Enabled: true}},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, body := range []string{`{"lan":{"host":["192.168.1.5"]}}`, `{"lna":{}}`} {
+		gin.SetMode(gin.TestMode)
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Params = gin.Params{{Key: "id", Value: "@jan/shelly"}}
+		c.Request = httptest.NewRequest(http.MethodPost, "/api/plugins/@jan/shelly/permissions", strings.NewReader(body))
+		c.Request.Header.Set("Content-Type", "application/json")
+		(&Server{serverDir: dir}).handlePluginsAPIPermissions(c)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("%s: status %d", body, w.Code)
+		}
+	}
+}

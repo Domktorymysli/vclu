@@ -90,7 +90,14 @@ func (p *PluginIO) OpenSerial(plugin, path string, s serialSettings) (int, error
 		p.close(h)
 		return 0, fmt.Errorf("open %s: %w", path, err)
 	}
+	p.mu.Lock()
+	if h.closed() { // closed while opening (shutdown)
+		p.mu.Unlock()
+		_ = port.Close()
+		return 0, fmt.Errorf("closed")
+	}
 	h.port = port
+	p.mu.Unlock()
 	go p.pump(h)
 	go func() {
 		buf := make([]byte, 4096)
