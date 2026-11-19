@@ -6,11 +6,12 @@
 --       Wire.isOn(Wire.value("CLU221000002.DOU0001")),
 --       Wire.onOff(Wire.set("CLU221000002.DOU0001", 0, 1), Wire.set("CLU221000002.DOU0001", 0, 0)))
 --   s:status("w4", "Setpoint", nil, Wire.variable("CLU221000002", "setpoint"), "°C")
---   s:slider("w9", "Dimmer", 0, 100, Wire.value("CLU221000002.DOU0001"),
---       Wire.set("CLU221000002.DOU0001", 0, Wire.INPUT))
+--   s:slider("w9", "Dimmer", 0, 100, Wire.percent(Wire.value("CLU221000002.DIM0001")),
+--       Wire.fromPercent(Wire.set("CLU221000002.DIM0001", 0, Wire.INPUT)))
 --   s:button("w7", "Evening", nil, Wire.script("CLU221000002", "setup", "evening", 2))
 --
--- A path is "<CLU>.<object>" as the registry has it, or "<CLU>" for the CLU's own features.
+-- A path is "<CLU>.<object>" as the registry has it, or "<CLU>" for the CLU's own features; an
+-- object the registry does not have is neither read nor commanded.
 -- What the registry follows (an object's value) is read from it; anything else is asked in
 -- the background and the widget shows the last answer.
 -- @module Wire
@@ -143,8 +144,13 @@ local function feature(fn, path, index)
             gone(clu, "is not imported")
             return done(nil, "not imported")
         end
-        -- asked past the proxy, so its guard is asked here (a GATE Alarm's secret features)
+        -- only objects in the registry: asked past the proxy, so its guard is asked here (a
+        -- GATE Alarm's secret features), and one with no proxy has no guard to ask
         local obj = object and objectOf(clu, object)
+        if object and not obj then
+            gone(path, "is not in the registry")
+            return done(nil, "not imported")
+        end
         local refused = type(obj) == "table" and obj._refused and obj:_refused("get", index)
         if refused then
             gone(path .. "[" .. index .. "]", refused)
@@ -227,6 +233,32 @@ function Wire.text(read, onText, offText)
         local v = read()
         if v == nil then return nil end
         return on(v) and onText or offText
+    end
+end
+
+--- A read of 0-1 shown as 0-100: a dimmer's or an LED's level, which myGrenton shows in %.
+-- @api public
+-- @param read function A read (Wire.value, ...)
+-- @return function A read of the value times 100; what is no number passes as it is
+function Wire.percent(read)
+    check(type(read) == "function", "percent", "takes a read")
+    return function()
+        local v = read()
+        if type(v) ~= "number" then return v end
+        return math.floor(v * 1000 + 0.5) / 10
+    end
+end
+
+--- An action that takes 0-100 and sends 0-1: Wire.percent's other half, for a slider.
+-- @api public
+-- @param action function An action with Wire.INPUT (Wire.set(..., Wire.INPUT))
+-- @return function The action for a 0-100 slider
+function Wire.fromPercent(action)
+    check(type(action) == "function", "fromPercent", "takes an action")
+    return function(input)
+        local n = tonumber(input)
+        if not n then return "no value entered" end
+        return action(n / 100)
     end
 end
 

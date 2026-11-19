@@ -126,7 +126,7 @@ func TestScriptArgs(t *testing.T) {
 			t.Errorf("%q: %v %v", in, a, err)
 		}
 	}
-	for _, in := range []string{`1,`, `x`, `"a\"b"`, `"a",os.exit(1)`, `1 2`, `"a"..b`, "\"a\nb\"", `{}`} {
+	for _, in := range []string{`1,`, `x`, `"a\"b"`, `"a",os.exit(1)`, `1 2`, `"a"..b`, "\"a\nb\"", `{}`, "1" + strings.Repeat("0", 400)} {
 		if a, err := scriptArgs(in); err == nil {
 			t.Errorf("%q taken: %v", in, a)
 		}
@@ -171,6 +171,7 @@ func TestReadInterfaceDimmersAndShutters(t *testing.T) {
 		"w41": dashspec.Toggle, "w41_brightness": dashspec.Slider, "w41_hue": dashspec.Slider, "w41_saturation": dashspec.Slider,
 		"w42": dashspec.Button, "w42_position": dashspec.Status,
 		"w43": dashspec.Button, "w43_up": dashspec.Button, "w43_down": dashspec.Button, "w43_position": dashspec.Slider, "w43_slats": dashspec.Slider,
+		"w44": dashspec.Toggle, "w44_level": dashspec.Slider,
 	}
 	if len(kinds) != len(want) {
 		t.Errorf("widgets %v", kinds)
@@ -180,8 +181,25 @@ func TestReadInterfaceDimmersAndShutters(t *testing.T) {
 			t.Errorf("%s is %q, want %q", id, kinds[id], k)
 		}
 	}
-	if w := h["w40_level"]; w.Label != "Lamp" || *w.Max != 1 || w.Unit != "%" || !w.Set.Input || w.Set.Op != dashspec.Execute {
+	// 0-1 in %, as OM writes a dimmer's level: a slider of 0-100 that sends 0-1
+	if w := h["w40_level"]; w.Label != "Lamp" || *w.Min != 0 || *w.Max != 100 || !w.Percent || w.Unit != "%" || !w.Set.Input || w.Set.Op != dashspec.Execute {
 		t.Errorf("dimmer level %+v", w)
+	}
+	if w := h["w41_brightness"]; *w.Max != 100 || !w.Percent {
+		t.Errorf("brightness %+v", w)
+	}
+	if w := h["w41_hue"]; w.Percent || *w.Max != 360 || w.Unit != "°" {
+		t.Errorf("hue %+v", w)
+	}
+	if w := h["w43_position"]; w.Percent || *w.Max != 100 {
+		t.Errorf("position %+v", w)
+	}
+	// DIMMER_V2 as Object Manager 1.8 writes it: one object, set by feature
+	if w := h["w44"]; w.Kind != dashspec.Toggle || w.On.Op != dashspec.SetFeature || w.On.Value != 1.0 || w.Off.Value != 0.0 {
+		t.Errorf("dimmer v2 %+v", w)
+	}
+	if w := h["w44_level"]; w.Label != "Hall" || !w.Percent || *w.Max != 100 || w.Set.Op != dashspec.SetFeature || !w.Set.Input || *w.Read.Feature != 0 {
+		t.Errorf("dimmer v2 level %+v", w)
 	}
 	if w := h["w41_hue"]; w.Label != "Strip (hue)" || *w.Max != 360 || w.Set.Index != 10 {
 		t.Errorf("hue %+v", w)
@@ -189,10 +207,31 @@ func TestReadInterfaceDimmersAndShutters(t *testing.T) {
 	if w := h["w43_up"]; w.Label != "Terrace ▲" || w.Do.Index != 3 {
 		t.Errorf("up %+v", w)
 	}
-	if len(pg.LeftOut) != 1 || !strings.Contains(pg.LeftOut[0], "DIMMER_V2") {
+	if len(pg.LeftOut) != 1 || !strings.Contains(pg.LeftOut[0], "LED_CCT") {
 		t.Errorf("left out %q", pg.LeftOut)
 	}
 	if w := byID(p.Interfaces[0].Pages[0].Widgets)["w9"]; w.Unit != "%" {
 		t.Errorf("PERCENT reads as %q", w.Unit)
+	}
+}
+
+// A GATE Alarm's objects only on a GATE Alarm: on another CLU their features are not
+// guarded (the panel's passwords), so a widget reading one is left out.
+func TestReadInterfaceAlarmObjectOnlyOnGateAlarm(t *testing.T) {
+	page := `{"id":"if-1","label":"Home","pages":[{"id":1,"label":"Alarm","widgets":[
+		{"id":1,"type":"VALUE_V2","label":"Zone","value":{"callType":"ATTRIBUTE","cluId":"CLU511000001","objectName":"SAT0001","index":"4"}}]}]}`
+	for _, tc := range []struct {
+		name, hw string
+		kept     bool
+	}{{"GATE Alarm", "00000012", true}, {"another GATE", "00000013", false}} {
+		sys := strings.Replace(twoCLUs, "<hardwareType>00000012</hardwareType>", "<hardwareType>"+tc.hw+"</hardwareType>", 1)
+		p, err := Read(projectZip(t, map[string]string{"system.xml": sys, "properties.xml": properties, "nodes/1/data.json": page}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		pg := p.Interfaces[0].Pages[0]
+		if kept := len(pg.Widgets) == 1; kept != tc.kept {
+			t.Errorf("%s: widgets %+v left out %q", tc.name, pg.Widgets, pg.LeftOut)
+		}
 	}
 }

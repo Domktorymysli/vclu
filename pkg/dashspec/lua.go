@@ -43,6 +43,9 @@ func widgetLua(w Widget) string {
 			id, label, readLua(w.Read), actionOrNil(w.On), actionOrNil(w.Off))
 	case Status:
 		read := readLua(w.Read)
+		if w.Percent {
+			read = "Wire.percent(" + read + ")"
+		}
 		if w.OnText != "" || w.OffText != "" {
 			read = fmt.Sprintf("Wire.text(%s, %s, %s)", read, luastr.Quote(w.OnText), luastr.Quote(w.OffText))
 		}
@@ -63,8 +66,12 @@ func widgetLua(w Widget) string {
 		if w.Unit != "" {
 			opts = ", { unit = " + luastr.Quote(w.Unit) + " }"
 		}
+		read, set := readLua(w.Read), actionLua(w.Set)
+		if w.Percent {
+			read, set = "Wire.percent("+read+")", "Wire.fromPercent("+set+")"
+		}
 		return fmt.Sprintf("s:slider(%s, %s, %s, %s,\n    %s,\n    %s%s)\n",
-			id, label, num(*w.Min), num(*w.Max), readLua(w.Read), actionLua(w.Set), opts)
+			id, label, num(*w.Min), num(*w.Max), read, set, opts)
 	case Button:
 		return fmt.Sprintf("s:button(%s, %s, nil, %s)\n", id, label, actionLua(w.Do))
 	case Thermostat:

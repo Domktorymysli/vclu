@@ -560,13 +560,18 @@ waits for the CLU, and logs a missing object once instead of failing on every re
 Use it when:
 - the widget reads something the registry does not follow: another feature
   (`Wire.feature("CLU221000002.DIN0001", 3)`), a CLU user feature from Object Manager
-  (`Wire.variable("CLU221000002", "setpoint")`), or an object with no proxy. Never call a blocking
+  (`Wire.variable("CLU221000002", "setpoint")`). Never call a blocking
   read (`clu:get(...)`, `obj:get(n)`) in a widget function: every refresh would stop the Lua loop
   until the CLU answers. Wire asks in the background and shows the last answer (asked again
   every `Wire.refresh` = 5 s).
 - the action is a raw feature or method number (`Wire.set(path, 0, Wire.INPUT)`,
   `Wire.execute(path, 1)`) or a CLU script (`Wire.script("CLU221000002", "evening", 2)`): the way
-  for objects without proxy methods, and it still goes through the proxy's guards.
+  for what a proxy has no named method for, and it still goes through the proxy's guards.
+- a level of 0-1 shown in % (a dimmer, an LED's brightness): `Wire.percent(read)` and
+  `Wire.fromPercent(Wire.set(path, 0, Wire.INPUT))` on a 0-100 slider.
+
+Wire reads and commands only objects in the registry (and a CLU's own features): one with no
+proxy shows "not imported". For a module vCLU has no proxy for, call a script on the CLU.
 - you edit an imported page (`modules/dashboards/imported/`): keep its style.
 - a plain toggle or status of a Grenton output: `Wire.isOn(Wire.value(path))` with
   `Wire.onOff(Wire.set(path, 0, 1), Wire.set(path, 0, 0))` does what the hand-written

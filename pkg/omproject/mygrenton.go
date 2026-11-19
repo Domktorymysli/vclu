@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Domktorymysli/vclu/pkg/dashspec"
+	"github.com/Domktorymysli/vclu/pkg/omparser"
 )
 
 // The myGrenton interface the user designed in Object Manager: nodes/<id>/data.json.
@@ -55,6 +56,10 @@ type gPart struct {
 	ActionOff     json.RawMessage `json:"actionOff"`
 	ActionClick   json.RawMessage `json:"actionClick"`
 	ClickAction   json.RawMessage `json:"clickAction"`
+	// DIMMER_V2's object
+	OnAction       json.RawMessage `json:"onAction"`
+	OffAction      json.RawMessage `json:"offAction"`
+	SetValueAction json.RawMessage `json:"setValueAction"`
 }
 
 // gWidget is a widget as the interface writes it; parts by their keys.
@@ -64,6 +69,8 @@ type gWidget struct {
 	Label         string      `json:"label"`
 	Unit          string      `json:"unit"`
 	Precision     *int        `json:"precision"`
+	Min           *float64    `json:"min"`
+	Max           *float64    `json:"max"`
 	ValueType     string      `json:"valueType"`
 	OnIndication  string      `json:"onIndication"`
 	OffIndication string      `json:"offIndication"`
@@ -272,7 +279,11 @@ func (t *translation) widget(g gWidget, n int) {
 			suffix string
 		}{{g.SliderBrightness, "brightness"}, {g.SliderHue, "hue"}, {g.SliderSaturation, "saturation"}} {
 			if s.part != nil {
-				t.level(g, n, "_"+s.suffix, label+" ("+s.suffix+")", s.part)
+				part := *s.part
+				if part.Unit == "DEGREE" {
+					part.Unit = "°" // a hue's angle, not a temperature
+				}
+				t.level(g, n, "_"+s.suffix, label+" ("+s.suffix+")", &part)
 			}
 		}
 	case "ROLLER_SHUTTER", "ROLLER_SHUTTER_V2":
@@ -362,7 +373,16 @@ func (t *translation) widget(g gWidget, n int) {
 		}
 	case "SCHEDULER":
 		t.leave("schedulers have no vclu widget yet")
-	case "DIMMER_V2", "LED_CCT", "ROLLER_SHUTTER_V3":
+	case "DIMMER_V2":
+		// one object: on, off, the level to set and the value; the range is the widget's
+		o := orEmpty(g.Object)
+		read := t.read(o.Value, "value")
+		on, off := t.action(o.OnAction, "onAction"), t.action(o.OffAction, "offAction")
+		if on != nil || off != nil {
+			t.add(dashspec.Widget{Kind: dashspec.Toggle, ID: t.id(g, n, ""), Label: label, Read: read, On: on, Off: off})
+		}
+		t.level(g, n, "_level", label, &gPart{Unit: "PERCENT", Min: g.Min, Max: g.Max, State: o.Value, ActionClick: o.SetValueAction})
+	case "LED_CCT", "ROLLER_SHUTTER_V3":
 		t.leave("this version of the widget is not supported yet")
 	default:
 		t.leave("widget type not supported")
@@ -388,15 +408,23 @@ func (t *translation) level(g gWidget, n int, suffix, label string, v *gPart) {
 	}
 	read := t.read(v.State, "state")
 	set := t.action(v.ActionClick, "actionClick")
+	// a level of 0-1 in % (a dimmer's, an LED's brightness and saturation) is shown as 0-100,
+	// as myGrenton shows it: a slider of 0-1 would only take 0 and 1
+	percent := v.Unit == "PERCENT" && v.Min != nil && v.Max != nil && *v.Min == 0 && *v.Max == 1
 	if set != nil && set.Input && v.Min != nil && v.Max != nil && *v.Min < *v.Max {
-		t.add(dashspec.Widget{Kind: dashspec.Slider, ID: t.id(g, n, suffix), Label: label, Read: read, Set: set,
-			Min: v.Min, Max: v.Max, Unit: unit(v.Unit)})
+		w := dashspec.Widget{Kind: dashspec.Slider, ID: t.id(g, n, suffix), Label: label, Read: read, Set: set,
+			Min: v.Min, Max: v.Max, Unit: unit(v.Unit)}
+		if percent {
+			lo, hi := 0.0, 100.0
+			w.Min, w.Max, w.Percent = &lo, &hi, true
+		}
+		t.add(w)
 		return
 	}
 	if set != nil {
 		t.leave("actionClick: only a value to enter, with min and max, is shown")
 	}
-	t.add(dashspec.Widget{Kind: dashspec.Status, ID: t.id(g, n, suffix), Label: label, Read: read, Unit: unit(v.Unit)})
+	t.add(dashspec.Widget{Kind: dashspec.Status, ID: t.id(g, n, suffix), Label: label, Read: read, Unit: unit(v.Unit), Percent: percent})
 }
 
 func orEmpty(p *gPart) *gPart {
@@ -544,7 +572,10 @@ func scriptArgs(v string) ([]any, error) {
 			return nil, fmt.Errorf("arguments %q are not numbers and plain strings", text(v))
 		}
 		if m[2] >= 0 {
-			f, _ := strconv.ParseFloat(rest[m[2]:m[3]], 64)
+			f, err := strconv.ParseFloat(rest[m[2]:m[3]], 64)
+			if err != nil {
+				return nil, fmt.Errorf("argument %s is no number vclu can send", text(rest[m[2]:m[3]]))
+			}
 			args = append(args, f)
 		} else {
 			args = append(args, rest[m[4]:m[5]])
@@ -579,8 +610,11 @@ func (p *Project) inProject(clu, object, script string) error {
 			for _, o := range c.Objects {
 				p.known[c.ID+"."+o.ID] = true
 			}
+			// a GATE Alarm's objects only on a GATE Alarm, as om.lua's parser takes them: on
+			// another CLU their features are not guarded (the panel's passwords)
+			alarm := omparser.CLUInfo{FwType: c.FwType, HwType: c.HwType}.IsGateAlarm()
 			for _, o := range c.Peripherals {
-				if o.Class != 0 {
+				if o.Class != 0 && (alarm || !omparser.ObjectClass(o.Class).IsGateAlarm()) {
 					p.known[c.ID+"."+o.ID] = true
 				}
 			}

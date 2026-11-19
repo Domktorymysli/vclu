@@ -38,11 +38,14 @@ and the mapping that the "Dashboards" section on the Grenton page (#220) builds 
   | `THERMOSTAT` | `thermostatCurrentTemp`, `thermostatTargetTemp` (`min`, `max`), `thermostatState`, `thermostatMode`, `thermostatSchedule`, ... | `thermostat` |
   | `SCHEDULER` | `state`, `value`, `schedule`, `min`, `max`, `start`, `stop`, `setMin`, `setMax`, `setSchedule` | none for now: listed as left out |
   | `DIMMER` | `buttonBistable`, `slider` (or `status`) | `toggle` + `slider` (`_level`) |
+  | `DIMMER_V2` (OM 1.8) | `min`, `max`, `object`: `onAction`, `offAction`, `setValueAction` (`PSEUDO_METHOD`, feature 0), `value` | `toggle` + `slider` (`_level`) |
   | `LED` | `buttonBistable`, `sliderBrightness`, `sliderHue`, `sliderSaturation` | `toggle` + a `slider` each |
   | `ROLLER_SHUTTER`, `ROLLER_SHUTTER_V2` | `buttonBistableClick` / `buttonBistableShorter`, `upButton`, `downButton`, `status`, `sliderOpenLevel`, `sliderSlatsLevel` | `button`s (`_up`, `_down`), position and slats as `slider` or `status` |
-  | `DIMMER_V2`, `LED_CCT`, `ROLLER_SHUTTER_V3` | one `object` | none for now: listed as left out |
+  | `LED_CCT`, `ROLLER_SHUTTER_V3` | one `object` | none for now (no real file seen): listed as left out |
 
-  A unit is OM's enum: `DEGREE` is °C, `PERCENT` is %, `UNKNOWN` none.
+  A unit is OM's enum: `DEGREE` is °C (° for an LED's hue), `PERCENT` is %, `UNKNOWN` none. A level of 0-1 in
+  `PERCENT` (a dimmer's, an LED's brightness and saturation, as OM 1.8 writes them) becomes a 0-100 slider
+  (`percent`: `Wire.percent` / `Wire.fromPercent`); a slider of 0-1 would only take 0 and 1.
 
 - A call is `{callType, cluId, objectName, index, type?, value?}`. Every call seen:
 

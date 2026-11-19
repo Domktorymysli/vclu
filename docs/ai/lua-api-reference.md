@@ -25,7 +25,7 @@ Only public API is listed — internal/private functions are omitted.
 - [GPIO_DOUT](#gpio_dout) (1 functions)
 - [GPIO_DIN](#gpio_din) (1 functions)
 - [integrations.mqtt.MqttClient](#integrationsmqttmqttclient) (30 functions)
-- [Wire](#wire) (10 functions)
+- [Wire](#wire) (12 functions)
 - [core.Cloud](#corecloud) (9 functions)
 - [grenton.CLU_REMOTE](#grentonclu_remote) (4 functions)
 - [lib.cct](#libcct) (1 functions)
@@ -2492,6 +2492,22 @@ A read shown as one of two texts, as myGrenton's indications.
 - `offText` (string) — Shown when off
 
 **Returns:** function A read of the text
+
+### `Wire.percent(read) → function A read of the value times 100; what is no number passes as it is`
+
+A read of 0-1 shown as 0-100: a dimmer's or an LED's level, which myGrenton shows in %.
+
+- `read` (function) — A read (Wire.value, ...)
+
+**Returns:** function A read of the value times 100; what is no number passes as it is
+
+### `Wire.fromPercent(action) → function The action for a 0-100 slider`
+
+An action that takes 0-100 and sends 0-1: Wire.percent's other half, for a slider.
+
+- `action` (function) — An action with Wire.INPUT (Wire.set(..., Wire.INPUT))
+
+**Returns:** function The action for a 0-100 slider
 
 ### `Wire.set(path, index, value) → function An action for a widget`
 

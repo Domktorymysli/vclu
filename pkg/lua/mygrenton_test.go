@@ -43,6 +43,11 @@ var mgInterface = dashspec.Interface{ID: "if-1", Label: "Home", Source: "myGrent
 		{Kind: dashspec.Status, ID: "w11", Label: codeLabel, Read: feat("DIN0001", 0)},
 		// written as the user might have left it: an object vclu has not imported
 		{Kind: dashspec.Toggle, ID: "w12", Label: "Gone", Read: feat("DOU0009", 0), On: setA("DOU0009", 0, 1.0)},
+		// a dimmer's 0-1 as 0-100
+		{Kind: dashspec.Slider, ID: "w13", Label: "Lamp", Read: feat("DOU0001", 0), Min: fp(0), Max: fp(100), Unit: "%", Percent: true,
+			Set: &dashspec.Action{Op: dashspec.SetFeature, CLU: "CLU221000002", Object: "DOU0001", Input: true}},
+		// another feature of an object the registry does not have: not asked past the registry
+		{Kind: dashspec.Status, ID: "w14", Label: "Secret", Read: feat("SAT0001", 4)},
 	}},
 	{ID: "2", Label: "Climate", Widgets: []dashspec.Widget{
 		{Kind: dashspec.Thermostat, ID: "w20", Label: "Heating", Current: feat("THE0001", 14), Target: feat("THE0001", 12),
@@ -76,6 +81,7 @@ os.exit = function() EXITED = true end
 CLU221000002 = CLU_REMOTE:new(221000002, 0xC0A80003, EventBus:getShared())
 registerObject("CLU221000002.DOU0001", RemoteSwitch:new(CLU221000002, "DOU0001", "hall_light"))
 registerObject("CLU221000002.THE0001", RemoteObject:new(CLU221000002, "THE0001", "living"))
+registerObject("CLU221000002.DIN0001", RemoteObject:new(CLU221000002, "DIN0001", "door"))
 Wire.refresh = 0`)
 	for _, p := range mgInterface.Pages {
 		mustExec(t, engine, dashspec.PageLua(mgInterface, p))
@@ -105,6 +111,7 @@ func TestWireWidgets(t *testing.T) {
 	for id, kind := range map[string]string{
 		"w2": "toggle", "w3": "status", "w4": "status", "w5": "status", "w6": "status",
 		"w6_click": "button", "w7": "button", "w8": "button", "w9": "slider", "w10": "status", "w11": "status",
+		"w13": "slider", "w14": "status",
 	} {
 		if w := def.widget(id); w == nil || w["type"] != kind {
 			t.Errorf("%s is %v, want %s", id, w, kind)
@@ -126,18 +133,28 @@ func TestWireWidgets(t *testing.T) {
 
 func TestWireReads(t *testing.T) {
 	engine, _, _ := myGrentonEngine(t)
-	mustExec(t, engine, `_:get("CLU221000002.DOU0001"):updateState(1)`)
+	mustExec(t, engine, `_:get("CLU221000002.DOU0001"):updateState(0.25)
+		_:get("CLU221000002.DIN0001"):updateState(1)
+		ASKED = {}
+		local send = __go_send_command_async
+		__go_send_command_async = function(ip, cmd, ...) ASKED[#ASKED + 1] = cmd return send(ip, cmd, ...) end`)
 	vals := myGrentonValues(t, engine, "imported_1", func(v map[string]map[string]any) bool {
 		return v["w4"]["value"] != nil && v["w5"]["value"] != nil && v["w10"]["value"] != nil
 	})
 	// what the registry follows, and what was asked in the background
-	if vals["w2"]["value"] != true || vals["w3"]["value"] != 1.0 || vals["w4"]["value"] != 21.5 ||
+	if vals["w2"]["value"] != true || vals["w3"]["value"] != 0.25 || vals["w4"]["value"] != 21.5 ||
 		vals["w5"]["value"] != "ready" || vals["w6"]["value"] != "Open" || vals["w10"]["value"] != 1234.0 {
 		t.Errorf("values %v", vals)
 	}
-	// an object not imported reads as nothing
-	if vals["w12"]["value"] != false {
-		t.Errorf("gone %v", vals["w12"])
+	// an object not imported reads as nothing, and is never asked of the CLU
+	if vals["w12"]["value"] != false || vals["w14"]["value"] != nil {
+		t.Errorf("gone %v %v", vals["w12"], vals["w14"])
+	}
+	if asked := mustExec(t, engine, `return table.concat(ASKED, "|")`); strings.Contains(asked, "SAT0001") {
+		t.Errorf("asked past the registry: %s", asked)
+	}
+	if vals["w13"]["value"] != 25.0 {
+		t.Errorf("percent %v", vals["w13"])
 	}
 	th := myGrentonValues(t, engine, "imported_2", func(v map[string]map[string]any) bool {
 		return v["w20"]["current"] != nil && v["w20"]["target"] != nil && v["w20"]["state"] != nil
@@ -182,6 +199,7 @@ func TestWireActions(t *testing.T) {
 		{"1", `"w2", "toggle", true`, `DOU0001:set(0, 1)`},
 		{"1", `"w2", "toggle", false`, `DOU0001:set(0, 0)`},
 		{"1", `"w9", "set", 40`, `DOU0001:set(0, 40)`},
+		{"1", `"w13", "set", 40`, `DOU0001:set(0, 0.4)`},
 		{"1", `"w6_click", "tap"`, `DOU0001:execute(2, 3000)`},
 		{"1", `"w7", "tap"`, `setup("evening", 2)`},
 		{"1", `"w8", "tap"`, `setup()`},

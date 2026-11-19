@@ -41,8 +41,8 @@ const (
 //
 //	group       Label
 //	toggle      Label, Read (on when not 0), On, Off
-//	status      Label, Read, Unit, Decimals, OnText/OffText (Read shown as one of them)
-//	slider      Label, Read, Set (with Input), Min, Max, Unit
+//	status      Label, Read, Unit, Decimals, OnText/OffText (Read shown as one of them), Percent
+//	slider      Label, Read, Set (with Input), Min, Max, Unit, Percent
 //	button      Label, Do
 //	thermostat  Label, Current, Target, Set (with Input), State, Min, Max
 type Widget struct {
@@ -63,6 +63,8 @@ type Widget struct {
 	Current  *Read    `json:"current,omitempty"`
 	Target   *Read    `json:"target,omitempty"`
 	State    *Read    `json:"state,omitempty"`
+	// Percent: the CLU's value is 0-1 and the widget shows and takes 0-100 (Min and Max too).
+	Percent bool `json:"percent,omitempty"`
 }
 
 // Read is a value of a CLU: a feature of an object (Object "" is the CLU
