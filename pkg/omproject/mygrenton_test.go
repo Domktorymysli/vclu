@@ -45,7 +45,7 @@ func TestReadInterface(t *testing.T) {
 		t.Fatalf("%d interfaces, warnings %q", len(p.Interfaces), p.Warnings)
 	}
 	in := p.Interfaces[0]
-	if in.ID != "0a1b2c3d-0000-4000-8000-000000000001" || in.Label != `Home "panel"` || in.Source != "myGrenton" || len(in.Pages) != 2 {
+	if in.ID != "0a1b2c3d-0000-4000-8000-000000000001" || in.Label != `Home "panel"` || in.Source != "myGrenton" || len(in.Pages) != 3 {
 		t.Fatalf("%+v", in)
 	}
 	hall, climate := in.Pages[0], in.Pages[1]
@@ -154,5 +154,45 @@ func TestReadInterfaceNoInterface(t *testing.T) {
 	}
 	if len(p.Interfaces) != 0 || !strings.Contains(strings.Join(p.Warnings, "\n"), `interface id "../x" is no id`) {
 		t.Errorf("%+v %q", p.Interfaces, p.Warnings)
+	}
+}
+
+// Dimmers, LEDs and roller shutters become toggles, sliders and buttons; units read as OM writes them.
+func TestReadInterfaceDimmersAndShutters(t *testing.T) {
+	p := interfaceProject(t, nil)
+	pg := p.Interfaces[0].Pages[2]
+	h := byID(pg.Widgets)
+	kinds := map[string]string{}
+	for _, w := range pg.Widgets {
+		kinds[w.ID] = w.Kind
+	}
+	want := map[string]string{
+		"w40": dashspec.Toggle, "w40_level": dashspec.Slider,
+		"w41": dashspec.Toggle, "w41_brightness": dashspec.Slider, "w41_hue": dashspec.Slider, "w41_saturation": dashspec.Slider,
+		"w42": dashspec.Button, "w42_position": dashspec.Status,
+		"w43": dashspec.Button, "w43_up": dashspec.Button, "w43_down": dashspec.Button, "w43_position": dashspec.Slider, "w43_slats": dashspec.Slider,
+	}
+	if len(kinds) != len(want) {
+		t.Errorf("widgets %v", kinds)
+	}
+	for id, k := range want {
+		if kinds[id] != k {
+			t.Errorf("%s is %q, want %q", id, kinds[id], k)
+		}
+	}
+	if w := h["w40_level"]; w.Label != "Lamp" || *w.Max != 1 || w.Unit != "%" || !w.Set.Input || w.Set.Op != dashspec.Execute {
+		t.Errorf("dimmer level %+v", w)
+	}
+	if w := h["w41_hue"]; w.Label != "Strip (hue)" || *w.Max != 360 || w.Set.Index != 10 {
+		t.Errorf("hue %+v", w)
+	}
+	if w := h["w43_up"]; w.Label != "Terrace ▲" || w.Do.Index != 3 {
+		t.Errorf("up %+v", w)
+	}
+	if len(pg.LeftOut) != 1 || !strings.Contains(pg.LeftOut[0], "DIMMER_V2") {
+		t.Errorf("left out %q", pg.LeftOut)
+	}
+	if w := byID(p.Interfaces[0].Pages[0].Widgets)["w9"]; w.Unit != "%" {
+		t.Errorf("PERCENT reads as %q", w.Unit)
 	}
 }

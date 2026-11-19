@@ -37,6 +37,12 @@ and the mapping that the "Dashboards" section on the Grenton page (#220) builds 
   | `HEADER` | `text` | `group` |
   | `THERMOSTAT` | `thermostatCurrentTemp`, `thermostatTargetTemp` (`min`, `max`), `thermostatState`, `thermostatMode`, `thermostatSchedule`, ... | `thermostat` |
   | `SCHEDULER` | `state`, `value`, `schedule`, `min`, `max`, `start`, `stop`, `setMin`, `setMax`, `setSchedule` | none for now: listed as left out |
+  | `DIMMER` | `buttonBistable`, `slider` (or `status`) | `toggle` + `slider` (`_level`) |
+  | `LED` | `buttonBistable`, `sliderBrightness`, `sliderHue`, `sliderSaturation` | `toggle` + a `slider` each |
+  | `ROLLER_SHUTTER`, `ROLLER_SHUTTER_V2` | `buttonBistableClick` / `buttonBistableShorter`, `upButton`, `downButton`, `status`, `sliderOpenLevel`, `sliderSlatsLevel` | `button`s (`_up`, `_down`), position and slats as `slider` or `status` |
+  | `DIMMER_V2`, `LED_CCT`, `ROLLER_SHUTTER_V3` | one `object` | none for now: listed as left out |
+
+  A unit is OM's enum: `DEGREE` is °C, `PERCENT` is %, `UNKNOWN` none.
 
 - A call is `{callType, cluId, objectName, index, type?, value?}`. Every call seen:
 

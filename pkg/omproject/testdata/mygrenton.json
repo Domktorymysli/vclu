@@ -20,7 +20,7 @@
         {"id": 3, "type": "VALUE", "value": {
           "label": "Brightness", "unit": "%", "min": 0, "max": 100, "rowId": 2, "type": "DESCRIBED_STATUS",
           "state": {"callType": "ATTRIBUTE", "cluId": "CLU221000002", "objectName": "DOU0001", "index": "0"}}},
-        {"id": 4, "type": "VALUE_V2", "label": "Setpoint", "unit": "°C", "precision": 1, "valueType": "INTEGER", "icon": "temp",
+        {"id": 4, "type": "VALUE_V2", "label": "Setpoint", "unit": "DEGREE", "precision": 1, "valueType": "INTEGER", "icon": "temp",
           "value": {"callType": "VARIABLE", "cluId": "CLU221000002", "objectName": "CLU221000002", "index": "setpoint"}},
         {"id": 5, "type": "TEXT", "label": "Status", "icon": "info", "iconVisible": true,
           "text": {"callType": "ATTRIBUTE", "cluId": "CLU221000002", "objectName": "DIN0001", "index": "3"}},
@@ -36,7 +36,7 @@
             "actionClick": {"callType": "SCRIPT", "cluId": "CLU221000002", "objectName": "setup", "index": null, "type": "ON", "value": "1,-1"}},
           "buttonMonostableSecond": {"label": "Down", "type": "BUTTON_MONOSTABLE", "rowId": 4,
             "actionClick": {"callType": "SCRIPT", "cluId": "CLU221000002", "objectName": "setup", "index": null, "type": "OFF", "value": ""}}},
-        {"id": 9, "type": "VALUE", "value": {"label": "Dimmer", "unit": "%", "min": 0, "max": 100, "type": "SLIDER",
+        {"id": 9, "type": "VALUE", "value": {"label": "Dimmer", "unit": "PERCENT", "min": 0, "max": 100, "type": "SLIDER",
           "state": {"callType": "ATTRIBUTE", "cluId": "CLU221000002", "objectName": "DOU0001", "index": "0"},
           "actionClick": {"callType": "PSEUDO_METHOD", "cluId": "CLU221000002", "objectName": "DOU0001", "index": "0", "type": "CLICK", "value": "$value$"}}}
       ]
@@ -81,6 +81,31 @@
           "actionClick": {"callType": "SCRIPT", "cluId": "CLU221000002", "objectName": "nosuch", "index": null, "type": "CLICK", "value": ""}}},
         {"id": 27, "type": "TEXT", "label": "\"); os.exit(1) --]] \\ \u0001",
           "text": {"callType": "ATTRIBUTE", "cluId": "CLU221000002", "objectName": "DIN0001", "index": "0"}}
+      ]
+    },
+    {
+      "id": 1700000000003,
+      "label": "Covers",
+      "widgets": [
+        {"id": 40, "type": "DIMMER",
+          "buttonBistable": {"label": "Lamp", "state": {"callType": "ATTRIBUTE", "cluId": "CLU221000002", "objectName": "DOU0001", "index": "0"}, "actionOn": {"callType": "METHOD", "cluId": "CLU221000002", "objectName": "DOU0001", "index": "0", "type": "ON", "value": "1"}, "actionOff": {"callType": "METHOD", "cluId": "CLU221000002", "objectName": "DOU0001", "index": "0", "type": "OFF", "value": "0"}},
+          "status": {"unit": "PERCENT", "min": 0, "max": 1, "state": {"callType": "ATTRIBUTE", "cluId": "CLU221000002", "objectName": "DOU0001", "index": "0"}},
+          "slider": {"label": "", "unit": "PERCENT", "min": 0, "max": 1, "state": {"callType": "ATTRIBUTE", "cluId": "CLU221000002", "objectName": "DOU0001", "index": "0"}, "actionClick": {"callType": "METHOD", "cluId": "CLU221000002", "objectName": "DOU0001", "index": "0", "type": "CLICK", "value": "$value$"}}},
+        {"id": 41, "type": "LED",
+          "buttonBistable": {"label": "Strip", "state": {"callType": "ATTRIBUTE", "cluId": "CLU221000002", "objectName": "DOU0001", "index": "0"}, "actionOn": {"callType": "METHOD", "cluId": "CLU221000002", "objectName": "DOU0001", "index": "0", "type": "ON", "value": "1"}, "actionOff": {"callType": "METHOD", "cluId": "CLU221000002", "objectName": "DOU0001", "index": "0", "type": "OFF", "value": "0"}},
+          "sliderHue": {"label": "", "min": 0, "max": 360, "state": {"callType": "ATTRIBUTE", "cluId": "CLU221000002", "objectName": "DOU0001", "index": "1"}, "actionClick": {"callType": "METHOD", "cluId": "CLU221000002", "objectName": "DOU0001", "index": "10", "type": "CLICK", "value": "$value$"}},
+          "sliderSaturation": {"label": "", "min": 0, "max": 1, "state": {"callType": "ATTRIBUTE", "cluId": "CLU221000002", "objectName": "DOU0001", "index": "2"}, "actionClick": {"callType": "METHOD", "cluId": "CLU221000002", "objectName": "DOU0001", "index": "11", "type": "CLICK", "value": "$value$"}},
+          "sliderBrightness": {"label": "", "min": 0, "max": 1, "state": {"callType": "ATTRIBUTE", "cluId": "CLU221000002", "objectName": "DOU0001", "index": "3"}, "actionClick": {"callType": "METHOD", "cluId": "CLU221000002", "objectName": "DOU0001", "index": "12", "type": "CLICK", "value": "$value$"}}},
+        {"id": 42, "type": "ROLLER_SHUTTER",
+          "buttonBistableClick": {"label": "Blind", "state": {"callType": "ATTRIBUTE", "cluId": "CLU221000002", "objectName": "DOU0001", "index": "0"}, "actionClick": {"callType": "METHOD", "cluId": "CLU221000002", "objectName": "DOU0001", "index": "2", "type": "CLICK", "value": ""}},
+          "status": {"unit": "PERCENT", "min": 0, "max": 100, "state": {"callType": "ATTRIBUTE", "cluId": "CLU221000002", "objectName": "DOU0001", "index": "4"}}},
+        {"id": 43, "type": "ROLLER_SHUTTER_V2",
+          "buttonBistableShorter": {"label": "Terrace", "state": {"callType": "ATTRIBUTE", "cluId": "CLU221000002", "objectName": "DOU0001", "index": "0"}, "actionClick": {"callType": "METHOD", "cluId": "CLU221000002", "objectName": "DOU0001", "index": "2", "type": "CLICK", "value": ""}},
+          "upButton": {"actionClick": {"callType": "METHOD", "cluId": "CLU221000002", "objectName": "DOU0001", "index": "3", "type": "CLICK", "value": ""}}, "downButton": {"actionClick": {"callType": "METHOD", "cluId": "CLU221000002", "objectName": "DOU0001", "index": "4", "type": "CLICK", "value": ""}},
+          "status": {"unit": "PERCENT", "state": {"callType": "ATTRIBUTE", "cluId": "CLU221000002", "objectName": "DOU0001", "index": "4"}},
+          "sliderOpenLevel": {"label": "", "unit": "PERCENT", "min": 0, "max": 100, "state": {"callType": "ATTRIBUTE", "cluId": "CLU221000002", "objectName": "DOU0001", "index": "4"}, "actionClick": {"callType": "METHOD", "cluId": "CLU221000002", "objectName": "DOU0001", "index": "5", "type": "CLICK", "value": "$value$"}},
+          "sliderSlatsLevel": {"label": "", "min": 0, "max": 90, "state": {"callType": "ATTRIBUTE", "cluId": "CLU221000002", "objectName": "DOU0001", "index": "5"}, "actionClick": {"callType": "METHOD", "cluId": "CLU221000002", "objectName": "DOU0001", "index": "6", "type": "CLICK", "value": "$value$"}}},
+        {"id": 44, "type": "DIMMER_V2", "label": "New dimmer", "min": 0, "max": 100, "object": {}}
       ]
     }
   ]

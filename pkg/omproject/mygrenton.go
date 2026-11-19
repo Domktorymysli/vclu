@@ -80,6 +80,32 @@ type gWidget struct {
 	ThermostatState       *gPart          `json:"thermostatState"`
 	ThermostatMode        *gPart          `json:"thermostatMode"`
 	ThermostatSchedule    *gPart          `json:"thermostatSchedule"`
+
+	// dimmer, LED and roller shutter
+	Status                *gPart `json:"status"`
+	Slider                *gPart `json:"slider"`
+	SliderBrightness      *gPart `json:"sliderBrightness"`
+	SliderHue             *gPart `json:"sliderHue"`
+	SliderSaturation      *gPart `json:"sliderSaturation"`
+	ButtonBistableClick   *gPart `json:"buttonBistableClick"`
+	ButtonBistableShorter *gPart `json:"buttonBistableShorter"`
+	UpButton              *gPart `json:"upButton"`
+	DownButton            *gPart `json:"downButton"`
+	SliderOpenLevel       *gPart `json:"sliderOpenLevel"`
+	SliderSlatsLevel      *gPart `json:"sliderSlatsLevel"`
+}
+
+// unit is a unit as OM writes it (DEGREE, PERCENT, UNKNOWN) or as text.
+func unit(u string) string {
+	switch u {
+	case "DEGREE":
+		return "°C"
+	case "PERCENT":
+		return "%"
+	case "UNKNOWN":
+		return ""
+	}
+	return text(u)
 }
 
 // readInterfaces reads nodes/<id>/data.json of the project.
@@ -208,7 +234,8 @@ func (t *translation) add(w dashspec.Widget) bool {
 func (t *translation) widget(g gWidget, n int) {
 	label := text(g.Label)
 	if label == "" {
-		for _, x := range []*gPart{g.ButtonBistable, g.ButtonMonostable, g.ButtonMonostableFirst, g.ThermostatState} {
+		for _, x := range []*gPart{g.ButtonBistable, g.ButtonMonostable, g.ButtonMonostableFirst, g.ThermostatState,
+			g.ButtonBistableClick, g.ButtonBistableShorter, g.Slider} {
 			if x != nil && x.Label != "" {
 				label = text(x.Label)
 				break
@@ -225,16 +252,50 @@ func (t *translation) widget(g gWidget, n int) {
 		}
 		t.add(dashspec.Widget{Kind: dashspec.Group, Label: label})
 	case "ON_OFF":
-		b := orEmpty(g.ButtonBistable)
-		read := t.read(b.State, "state")
-		on, off := t.action(b.ActionOn, "actionOn"), t.action(b.ActionOff, "actionOff")
-		if on == nil && off == nil {
-			// shows its state only
-			t.add(dashspec.Widget{Kind: dashspec.Status, ID: t.id(g, n, ""), Label: label, Read: read,
-				OnText: text(b.OnIndication), OffText: text(b.OffIndication)})
-			return
+		t.onOff(g, n, label, orEmpty(g.ButtonBistable))
+	case "DIMMER":
+		// on and off, and the level
+		if g.ButtonBistable != nil {
+			t.onOff(g, n, label, g.ButtonBistable)
 		}
-		t.add(dashspec.Widget{Kind: dashspec.Toggle, ID: t.id(g, n, ""), Label: label, Read: read, On: on, Off: off})
+		if g.Slider != nil {
+			t.level(g, n, "_level", label, g.Slider)
+		} else if g.Status != nil {
+			t.level(g, n, "_level", label, g.Status)
+		}
+	case "LED":
+		if g.ButtonBistable != nil {
+			t.onOff(g, n, label, g.ButtonBistable)
+		}
+		for _, s := range []struct {
+			part   *gPart
+			suffix string
+		}{{g.SliderBrightness, "brightness"}, {g.SliderHue, "hue"}, {g.SliderSaturation, "saturation"}} {
+			if s.part != nil {
+				t.level(g, n, "_"+s.suffix, label+" ("+s.suffix+")", s.part)
+			}
+		}
+	case "ROLLER_SHUTTER", "ROLLER_SHUTTER_V2":
+		// the click (one button that moves or stops), up and down, the position and the slats
+		for _, b := range []struct {
+			part   *gPart
+			suffix string
+			label  string
+		}{{g.ButtonBistableClick, "", label}, {g.ButtonBistableShorter, "", label},
+			{g.UpButton, "_up", label + " ▲"}, {g.DownButton, "_down", label + " ▼"}} {
+			if b.part != nil && len(b.part.ActionClick) > 0 {
+				t.add(dashspec.Widget{Kind: dashspec.Button, ID: t.id(g, n, b.suffix), Label: b.label,
+					Do: t.action(b.part.ActionClick, "actionClick")})
+			}
+		}
+		if g.SliderOpenLevel != nil {
+			t.level(g, n, "_position", label, g.SliderOpenLevel)
+		} else if g.Status != nil {
+			t.level(g, n, "_position", label, g.Status)
+		}
+		if g.SliderSlatsLevel != nil {
+			t.level(g, n, "_slats", label+" (slats)", g.SliderSlatsLevel)
+		}
 	case "VALUE":
 		var v gPart
 		_ = json.Unmarshal(g.Value, &v)
@@ -245,15 +306,15 @@ func (t *translation) widget(g gWidget, n int) {
 		set := t.action(v.ActionClick, "actionClick")
 		if set != nil && set.Input && v.Min != nil && v.Max != nil && *v.Min < *v.Max {
 			t.add(dashspec.Widget{Kind: dashspec.Slider, ID: t.id(g, n, ""), Label: label, Read: read, Set: set,
-				Min: v.Min, Max: v.Max, Unit: text(v.Unit)})
+				Min: v.Min, Max: v.Max, Unit: unit(v.Unit)})
 			return
 		}
 		if set != nil {
 			t.leave("actionClick: only a value to enter, with min and max, is shown")
 		}
-		t.add(dashspec.Widget{Kind: dashspec.Status, ID: t.id(g, n, ""), Label: label, Read: read, Unit: text(v.Unit)})
+		t.add(dashspec.Widget{Kind: dashspec.Status, ID: t.id(g, n, ""), Label: label, Read: read, Unit: unit(v.Unit)})
 	case "VALUE_V2":
-		w := dashspec.Widget{Kind: dashspec.Status, ID: t.id(g, n, ""), Label: label, Read: t.read(g.Value, "value"), Unit: text(g.Unit)}
+		w := dashspec.Widget{Kind: dashspec.Status, ID: t.id(g, n, ""), Label: label, Read: t.read(g.Value, "value"), Unit: unit(g.Unit)}
 		if g.Precision != nil && g.ValueType != "STRING" {
 			d := min(max(*g.Precision, 0), 6)
 			w.Decimals = &d
@@ -301,9 +362,41 @@ func (t *translation) widget(g gWidget, n int) {
 		}
 	case "SCHEDULER":
 		t.leave("schedulers have no vclu widget yet")
+	case "DIMMER_V2", "LED_CCT", "ROLLER_SHUTTER_V3":
+		t.leave("this version of the widget is not supported yet")
 	default:
 		t.leave("widget type not supported")
 	}
+}
+
+// onOff is a bistable button: a toggle, or a status when it has no actions.
+func (t *translation) onOff(g gWidget, n int, label string, b *gPart) {
+	read := t.read(b.State, "state")
+	on, off := t.action(b.ActionOn, "actionOn"), t.action(b.ActionOff, "actionOff")
+	if on == nil && off == nil {
+		t.add(dashspec.Widget{Kind: dashspec.Status, ID: t.id(g, n, ""), Label: label, Read: read,
+			OnText: text(b.OnIndication), OffText: text(b.OffIndication)})
+		return
+	}
+	t.add(dashspec.Widget{Kind: dashspec.Toggle, ID: t.id(g, n, ""), Label: label, Read: read, On: on, Off: off})
+}
+
+// level is a slider when its action takes the entered value within a range, else a status.
+func (t *translation) level(g gWidget, n int, suffix, label string, v *gPart) {
+	if l := text(v.Label); l != "" {
+		label = l
+	}
+	read := t.read(v.State, "state")
+	set := t.action(v.ActionClick, "actionClick")
+	if set != nil && set.Input && v.Min != nil && v.Max != nil && *v.Min < *v.Max {
+		t.add(dashspec.Widget{Kind: dashspec.Slider, ID: t.id(g, n, suffix), Label: label, Read: read, Set: set,
+			Min: v.Min, Max: v.Max, Unit: unit(v.Unit)})
+		return
+	}
+	if set != nil {
+		t.leave("actionClick: only a value to enter, with min and max, is shown")
+	}
+	t.add(dashspec.Widget{Kind: dashspec.Status, ID: t.id(g, n, suffix), Label: label, Read: read, Unit: unit(v.Unit)})
 }
 
 func orEmpty(p *gPart) *gPart {
