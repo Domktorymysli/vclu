@@ -332,7 +332,31 @@ type InstalledPlugin struct {
 	Repository  string                 `json:"repository,omitempty"`  // Which repo it came from
 	InstalledAt string                 `json:"installedAt,omitempty"` // ISO timestamp
 	Config      map[string]interface{} `json:"config,omitempty"`      // Plugin-specific config (simple key-value)
+	Grants      *PluginGrants          `json:"grants,omitempty"`      // What the user allowed; nil: what plugin.json asks for
 }
+
+// PluginGrants is what the user allowed a plugin beyond HTTP to the internet. A plugin gets
+// what its plugin.json asks for and this allows; an update that asks for more waits for the user.
+// A permission is allowed when its field is set; its lists narrow it.
+type PluginGrants struct {
+	LAN    *LANGrant    `json:"lan,omitempty"`
+	MQTT   *MQTTGrant   `json:"mqtt,omitempty"`
+	Modbus *ModbusGrant `json:"modbus,omitempty"`
+}
+
+// LANGrant: Hosts are IP addresses or CIDR prefixes; without the list any local address.
+type LANGrant struct {
+	Hosts []string `json:"hosts,omitzero"`
+}
+
+// MQTTGrant: topic filters (+, #) the plugin may subscribe to and publish on; without a
+// list any topic, an empty list none.
+type MQTTGrant struct {
+	Subscribe []string `json:"subscribe,omitzero"`
+	Publish   []string `json:"publish,omitzero"`
+}
+
+type ModbusGrant struct{}
 
 // Example .vclu.json plugins section:
 // {

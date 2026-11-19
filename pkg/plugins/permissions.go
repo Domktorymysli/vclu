@@ -1,8 +1,11 @@
 package plugins
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/Domktorymysli/vclu/pkg/config"
@@ -57,19 +60,161 @@ func (l *Loader) strict() bool {
 	return err == nil && mc != nil && mc.Plugins != nil && mc.Plugins.Strict
 }
 
-// effectivePermissions: what the plugin may reach, and whether it is official (that
-// names its events). API 1 keeps everything, as before permissions existed; API 2
-// gets what it declares, and nothing beyond the internet without the field.
-func (l *Loader) effectivePermissions(pluginID string, manifest PluginManifest) (Permissions, bool) {
-	official := l.isOfficial(pluginID)
+// requestedPermissions: what the plugin asks for. API 1 asks for everything, as before
+// permissions existed; API 2 for what it declares, nothing beyond the internet without the field.
+func requestedPermissions(manifest PluginManifest) Permissions {
 	if manifestAPI(manifest) < 2 {
-		log.Printf("[PLUGINS] %s is on plugin API 1: lan, mqtt and modbus without a declaration (\"api\": 2 in plugin.json limits it to its permissions)", pluginID)
-		return Permissions{LAN: true, MQTT: true, Modbus: true}, official
+		return Permissions{LAN: true, MQTT: true, Modbus: true}
 	}
 	if manifest.Permissions != nil {
-		return *manifest.Permissions, official
+		return *manifest.Permissions
 	}
-	return Permissions{}, official
+	return Permissions{}
+}
+
+// Names lists the permissions set in p, in a fixed order.
+func (p Permissions) Names() []string {
+	var out []string
+	if p.LAN {
+		out = append(out, "lan")
+	}
+	if p.MQTT {
+		out = append(out, "mqtt")
+	}
+	if p.Modbus {
+		out = append(out, "modbus")
+	}
+	return out
+}
+
+// allowedBy: the part of p the grants allow, and what p asks for beyond them. Nil grants
+// (installed by hand, or before grants existed) allow what is asked.
+func (p Permissions) allowedBy(g *config.PluginGrants) (allowed, pending Permissions) {
+	if g == nil {
+		return p, Permissions{}
+	}
+	allowed = Permissions{LAN: p.LAN && g.LAN != nil, MQTT: p.MQTT && g.MQTT != nil, Modbus: p.Modbus && g.Modbus != nil}
+	pending = Permissions{LAN: p.LAN && g.LAN == nil, MQTT: p.MQTT && g.MQTT == nil, Modbus: p.Modbus && g.Modbus == nil}
+	return allowed, pending
+}
+
+// Grants turns permissions into what the user allows when installing a plugin: each in full.
+func (p Permissions) Grants() *config.PluginGrants {
+	g := &config.PluginGrants{}
+	if p.LAN {
+		g.LAN = &config.LANGrant{}
+	}
+	if p.MQTT {
+		g.MQTT = &config.MQTTGrant{}
+	}
+	if p.Modbus {
+		g.Modbus = &config.ModbusGrant{}
+	}
+	return g
+}
+
+// Limits narrow allowed permissions: nil lists allow any host or topic, an empty one none.
+type Limits struct {
+	LANHosts      []string `json:"lanHosts,omitzero"`
+	MQTTSubscribe []string `json:"mqttSubscribe,omitzero"`
+	MQTTPublish   []string `json:"mqttPublish,omitzero"`
+}
+
+func (l Limits) narrows() bool {
+	return l.LANHosts != nil || l.MQTTSubscribe != nil || l.MQTTPublish != nil
+}
+
+func limitsOf(g *config.PluginGrants) Limits {
+	var l Limits
+	if g == nil {
+		return l
+	}
+	if g.LAN != nil {
+		l.LANHosts = g.LAN.Hosts
+	}
+	if g.MQTT != nil {
+		l.MQTTSubscribe, l.MQTTPublish = g.MQTT.Subscribe, g.MQTT.Publish
+	}
+	return l
+}
+
+// effectivePermissions: what the plugin may reach, how the user narrowed it, and whether
+// it is official (that names its events): what it asks for, as far as the user allowed it.
+func (l *Loader) effectivePermissions(pluginID string, manifest PluginManifest) (Permissions, Limits, bool) {
+	official := l.isOfficial(pluginID)
+	requested := requestedPermissions(manifest)
+	grants := l.grants(pluginID)
+	if manifestAPI(manifest) < 2 {
+		log.Printf("[PLUGINS] %s is on plugin API 1: lan, mqtt and modbus without a declaration (\"api\": 2 in plugin.json limits it to its permissions)", pluginID)
+		if allowed, _ := requested.allowedBy(grants); allowed != requested || limitsOf(grants).narrows() {
+			log.Printf("[PLUGINS] WARNING: %s is on plugin API 1: its HTTP and MQTT globals are not limited by the permissions allowed in its settings", pluginID)
+		}
+	}
+	allowed, pending := requested.allowedBy(grants)
+	if names := pending.Names(); len(names) > 0 {
+		log.Printf("[PLUGINS] %s asks for %s, not allowed yet: it runs without it until allowed in the plugin's settings", pluginID, strings.Join(names, ", "))
+	}
+	return allowed, limitsOf(grants), official
+}
+
+// grants: what the user allowed the installed plugin, nil when the config does not say.
+func (l *Loader) grants(pluginID string) *config.PluginGrants {
+	mc, err := config.ReadMasterConfig(l.serverDir)
+	if err != nil || mc == nil || mc.Plugins == nil {
+		return nil
+	}
+	for _, installed := range mc.Plugins.Installed {
+		if installed.ID == pluginID {
+			return installed.Grants
+		}
+	}
+	return nil
+}
+
+// RequestedPermissions: what the plugin's files on disk ask for.
+func (l *Loader) RequestedPermissions(pluginID string) (Permissions, error) {
+	data, err := os.ReadFile(filepath.Join(l.resolvePluginDir(pluginID), "plugin.json"))
+	if err != nil {
+		return Permissions{}, err
+	}
+	var manifest PluginManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return Permissions{}, err
+	}
+	return requestedPermissions(manifest), nil
+}
+
+// PendingPermissions: what the installed plugin asks for and the user has not allowed.
+func (l *Loader) PendingPermissions(p config.InstalledPlugin) []string {
+	requested, err := l.RequestedPermissions(p.ID)
+	if err != nil {
+		return nil
+	}
+	_, pending := requested.allowedBy(p.Grants)
+	return pending.Names()
+}
+
+// recordGrants: an installed plugin without grants keeps what its files on disk ask for, so
+// an update that asks for more does not get it without the user.
+func (l *Loader) recordGrants(pluginID string) {
+	requested, err := l.RequestedPermissions(pluginID)
+	if err != nil {
+		return
+	}
+	err = config.UpdateMasterConfig(l.serverDir, func(mc *config.VCLUConfig) error {
+		if mc.Plugins == nil {
+			return nil
+		}
+		for i := range mc.Plugins.Installed {
+			if mc.Plugins.Installed[i].ID == pluginID && mc.Plugins.Installed[i].Grants == nil {
+				mc.Plugins.Installed[i].Grants = requested.Grants()
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		log.Printf("[PLUGINS] WARNING: permissions of %s not recorded: %v", pluginID, err)
+	}
 }
 
 // isOfficial: the configuration says where the plugin came from; its id alone does

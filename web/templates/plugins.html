@@ -237,6 +237,26 @@
         </div>
     </div>
 
+    <!-- Permissions Modal -->
+    <div class="modal fade" id="permissionsModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Permissions: <span id="permissionsPluginId"></span></h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="small text-muted">HTTP to the internet is always allowed. A list narrows a permission; leave it empty for any host or topic.</p>
+                    <div id="permissionsFields"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="pluginsManager.savePermissions()">Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Documentation Modal -->
     <div class="modal fade" id="docModal" tabindex="-1">
         <div class="modal-dialog modal-lg modal-dialog-scrollable">
@@ -276,7 +296,11 @@
                 version: '{{.Version}}',
                 enabled: {{.Enabled}},
                 repository: '{{.Repository}}',
-                config: {{if .Config}}{{.Config | json}}{{else}}{}{{end}}
+                config: {{if .Config}}{{.Config | json}}{{else}}{}{{end}},
+                grants: {{if .Grants}}{{.Grants | json}}{{else}}null{{end}},
+                needsConfig: {{.NeedsConfig}},
+                requestedPermissions: {{if .RequestedPermissions}}{{.RequestedPermissions | json}}{{else}}[]{{end}},
+                pendingPermissions: {{if .PendingPermissions}}{{.PendingPermissions | json}}{{else}}[]{{end}}
             };
         }
         {{end}}

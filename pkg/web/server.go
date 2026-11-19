@@ -1045,6 +1045,7 @@ func (s *Server) setupRoutes() {
 		api.DELETE("/plugins/:id", s.handlePluginsAPIUninstall)
 		api.POST("/plugins/:id/toggle", s.handlePluginsAPIToggle)
 		api.POST("/plugins/:id/config", s.handlePluginsAPIConfig)
+		api.POST("/plugins/:id/permissions", s.handlePluginsAPIPermissions)
 		api.GET("/plugins/:id/schema", s.handlePluginsAPIGetSchema)
 		api.GET("/plugins/:id/doc", s.handlePluginsAPIGetDoc)
 

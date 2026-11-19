@@ -62,6 +62,25 @@ func onHostNetwork(ip netip.Addr) bool {
 // noLANDialer refuses local addresses after DNS resolution, so a name that
 // resolves to the LAN and a redirect to one are refused as well.
 func noLANDialer() *net.Dialer {
+	return localDialer(func(netip.Addr) bool { return false },
+		`a local address needs "lan" in the plugin's permissions`)
+}
+
+// lanHostsDialer allows of the local addresses only those in hosts, the ones the user
+// narrowed the plugin's "lan" to; internet addresses as any plugin.
+func lanHostsDialer(hosts []netip.Prefix) *net.Dialer {
+	return localDialer(func(ip netip.Addr) bool {
+		ip = ip.Unmap()
+		for _, p := range hosts {
+			if p.Contains(ip) {
+				return true
+			}
+		}
+		return false
+	}, `not among the hosts allowed in the plugin's settings`)
+}
+
+func localDialer(allowLocal func(netip.Addr) bool, why string) *net.Dialer {
 	return &net.Dialer{
 		Timeout:   30 * time.Second,
 		KeepAlive: 30 * time.Second,
@@ -74,8 +93,8 @@ func noLANDialer() *net.Dialer {
 			if err != nil {
 				return fmt.Errorf("refused %s: not an IP address", address)
 			}
-			if isLocalAddr(ip) || onHostNetwork(ip) {
-				return fmt.Errorf("refused %s: a local address needs \"lan\" in the plugin's permissions", host)
+			if (isLocalAddr(ip) || onHostNetwork(ip)) && !allowLocal(ip) {
+				return fmt.Errorf("refused %s: %s", host, why)
 			}
 			return nil
 		},

@@ -641,9 +641,10 @@ func (l *Loader) LoadPlugin(pluginID string, pluginConfig map[string]interface{}
 	}
 
 	// 1. Create sandbox for the plugin
-	perms, official := l.effectivePermissions(pluginID, manifest)
-	createSandboxScript := fmt.Sprintf(`PluginSandbox:create(%s, {api = %d, lan = %t, mqtt = %t, modbus = %t, official = %t})`,
-		luastr.Quote(pluginID), api, perms.LAN, perms.MQTT, perms.Modbus, official)
+	perms, limits, official := l.effectivePermissions(pluginID, manifest)
+	limitsJSON, _ := json.Marshal(limits)
+	createSandboxScript := fmt.Sprintf(`PluginSandbox:create(%s, {api = %d, lan = %t, mqtt = %t, modbus = %t, official = %t, limits = JSON:decode(%s)})`,
+		luastr.Quote(pluginID), api, perms.LAN, perms.MQTT, perms.Modbus, official, luastr.Quote(string(limitsJSON)))
 	if _, err := l.luaExecutor.Execute(createSandboxScript); err != nil {
 		return fmt.Errorf("failed to create sandbox: %w", err)
 	}
@@ -737,6 +738,10 @@ func (l *Loader) LoadAllEnabled() error {
 		// configuration check below, which needs the manifest.
 		localDir := l.resolvePluginDir(installed.ID)
 		manifestPath := filepath.Join(localDir, "plugin.json")
+		// Grants from the files on disk, before an update below may ask for more
+		if installed.Grants == nil {
+			l.recordGrants(installed.ID)
+		}
 		if _, err := os.Stat(manifestPath); os.IsNotExist(err) {
 			// Try to download from repository
 			repo := l.findRepository(masterConfig.Plugins.Repositories, installed.Repository)
@@ -750,6 +755,9 @@ func (l *Loader) LoadAllEnabled() error {
 				continue
 			}
 			localDir = l.resolvePluginDir(installed.ID)
+			if installed.Grants == nil {
+				l.recordGrants(installed.ID)
+			}
 		} else if local := l.localVersion(installed.ID, localDir); installed.Version != "" && local != "" && local != installed.Version {
 			// An update from the panel writes the version; the files follow here (#112). Only an
 			// update: files newer than the config (installed by hand) are kept and loaded.

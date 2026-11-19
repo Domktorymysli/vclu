@@ -58,7 +58,7 @@ func (s *Server) handlePlugins(c *gin.Context) {
 	}
 
 	data["repositories"] = pluginsConfig.Repositories
-	data["installed"] = pluginsConfig.Installed
+	data["installed"] = s.installedPluginsView(pluginsConfig.Installed)
 
 	// Add translations
 	trans := s.getTranslations(c)
@@ -280,19 +280,34 @@ func newerVersion(v, installed string) bool {
 func (s *Server) handlePluginsAPIInstalled(c *gin.Context) {
 	masterConfig, _ := config.ReadMasterConfig(s.serverDir)
 
-	type installedPlugin struct {
-		config.InstalledPlugin
-		NeedsConfig bool `json:"needsConfig"`
-	}
-	installed := []installedPlugin{}
+	var installed []config.InstalledPlugin
 	if masterConfig != nil && masterConfig.Plugins != nil {
-		loader := plugins.NewLoader(s.serverDir)
-		for _, p := range masterConfig.Plugins.Installed {
-			installed = append(installed, installedPlugin{p, loader.NeedsConfig(p)})
-		}
+		installed = masterConfig.Plugins.Installed
 	}
+	c.JSON(http.StatusOK, gin.H{"installed": s.installedPluginsView(installed)})
+}
 
-	c.JSON(http.StatusOK, gin.H{"installed": installed})
+// installedPluginView is an installed plugin as the plugins page and API show it.
+type installedPluginView struct {
+	config.InstalledPlugin
+	NeedsConfig bool `json:"needsConfig"`
+	// Permissions the plugin asks for, and of them those the user has not allowed
+	// (POST /plugins/:id/permissions)
+	RequestedPermissions []string `json:"requestedPermissions,omitempty"`
+	PendingPermissions   []string `json:"pendingPermissions,omitempty"`
+}
+
+func (s *Server) installedPluginsView(installed []config.InstalledPlugin) []installedPluginView {
+	out := []installedPluginView{}
+	loader := plugins.NewLoader(s.serverDir)
+	for _, p := range installed {
+		var requested []string
+		if perms, err := loader.RequestedPermissions(p.ID); err == nil {
+			requested = perms.Names()
+		}
+		out = append(out, installedPluginView{p, loader.NeedsConfig(p), requested, loader.PendingPermissions(p)})
+	}
+	return out
 }
 
 // handlePluginsAPIInstall installs a plugin
@@ -359,11 +374,17 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 	// Build fullId
 	fullId := fmt.Sprintf("@%s/%s", namespace, req.ID)
 
+	// What the files on disk ask for before an update: an installation from before grants
+	// keeps that, and an update asking for more waits for the user
+	loader := plugins.NewLoader(s.serverDir)
+	previous, previousErr := loader.RequestedPermissions(fullId)
+
 	// The files first: the config then never names a version that is not on disk (#112)
-	if err := plugins.NewLoader(s.serverDir).DownloadPlugin(*targetRepo, fullId); err != nil {
+	if err := loader.DownloadPlugin(*targetRepo, fullId); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to download plugin: %v", err)})
 		return
 	}
+	requested, _ := loader.RequestedPermissions(fullId)
 
 	// Fetched without the lock; the install goes into the file as it is now
 	action := "installed"
@@ -380,6 +401,9 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 				masterConfig.Plugins.Installed[i].Version = pluginMeta.Version
 				masterConfig.Plugins.Installed[i].Repository = targetRepo.Name
 				masterConfig.Plugins.Installed[i].InstalledAt = time.Now().Format(time.RFC3339)
+				if masterConfig.Plugins.Installed[i].Grants == nil && previousErr == nil {
+					masterConfig.Plugins.Installed[i].Grants = previous.Grants()
+				}
 				action = "updated"
 				return nil
 			}
@@ -393,6 +417,8 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 			Repository:  req.Repository,
 			InstalledAt: time.Now().Format(time.RFC3339),
 			Config:      make(map[string]interface{}),
+			// Installing is allowing what the plugin asks for now
+			Grants: requested.Grants(),
 		})
 		return nil
 	})
@@ -507,6 +533,59 @@ func (s *Server) handlePluginsAPIToggle(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// handlePluginsAPIPermissions sets what the user allows a plugin beyond HTTP to the internet
+// and loads the plugin again with it. The plugin still gets only what its plugin.json asks for.
+func (s *Server) handlePluginsAPIPermissions(c *gin.Context) {
+	pluginID := c.Param("id")
+
+	var req config.PluginGrants
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		return
+	}
+	if err := plugins.ValidateGrants(req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var installed config.InstalledPlugin
+	err := config.UpdateMasterConfig(s.serverDir, func(masterConfig *config.VCLUConfig) error {
+		if masterConfig.Plugins == nil {
+			return errPluginNotFound
+		}
+		for i := range masterConfig.Plugins.Installed {
+			if masterConfig.Plugins.Installed[i].ID == pluginID {
+				grants := req
+				masterConfig.Plugins.Installed[i].Grants = &grants
+				installed = masterConfig.Plugins.Installed[i]
+				return nil
+			}
+		}
+		return errPluginNotFound
+	})
+	if ce, ok := asConfigError(err); ok {
+		c.JSON(ce.status, gin.H{"error": ce.msg})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save config"})
+		return
+	}
+
+	if s.pluginController != nil && installed.Enabled && s.pluginController.IsLoaded(pluginID) {
+		s.pluginController.UnloadPlugin(pluginID)
+		if err := s.pluginController.LoadPlugin(pluginID, installed.Config); err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": true,
+				"warning": fmt.Sprintf("Permissions saved but plugin failed to load: %v", err),
+			})
+			return
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "pendingPermissions": plugins.NewLoader(s.serverDir).PendingPermissions(installed)})
 }
 
 // handlePluginsAPIConfig updates plugin configuration

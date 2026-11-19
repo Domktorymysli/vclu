@@ -34,6 +34,15 @@ running: the manifest names the plugin API it is written for, and the stricter c
   MQTT), so API 1 must run them unchanged. A plugin for an API above `PluginAPIMax` does not load
   and says to update vCLU; `Plugin.apiVersion` is `PluginAPIMax`. `"strict": true` in the
   `plugins` section of `.vclu.json` loads only API 2 or later.
+- What a plugin asks for (the manifest) and what it gets are separate: `grants` on the installed
+  entry in `.vclu.json` is what the user allowed; the plugin gets the part of its request the grants
+  allow. Installing allows what it asks for then; an entry without grants gets them from its files on
+  disk on the next load. An update asking for more runs without it until allowed
+  (`pendingPermissions`, `POST /api/plugins/:id/permissions`, "Allow" on the plugins page).
+- The user narrows a grant in the plugin's settings, not the plugin in its manifest (an author
+  does not know the hosts and topics of someone else's house): `lan.hosts` (IP or prefix, checked
+  in the dialer after DNS), `mqtt.subscribe` and `mqtt.publish` (topic filters, checked in the
+  sandbox). No list: any; an empty list: none. On API 1 the globals are outside it.
 - A repository can be one plugin: without `plugins.json` and with `plugin.json` at its root it is
   an index of one (`pkg/plugins/index.go`), namespace from the manifest id or the repository owner.
 - Before plugin API versions (superseded): a plugin without the field: an official plugin (`Installed.Repository` names the default
@@ -56,7 +65,7 @@ running: the manifest names the plugin API it is written for, and the stricter c
 - `pkg/lua/runtime/objects/RemoteObject.lua` (integer index on `get`/`set`/`execute`)
 - `pkg/lua/http.go`, `pkg/lua/http_lan.go`
 - `pkg/plugins/permissions.go`, `loader.go`, `kvstore.go`, `AGENTS.md`
-- `pkg/web/handle_web_plugins.go` (an update records its repository)
+- `pkg/web/handle_web_plugins.go` (an update records its repository; grants), `web/static/js/plugins.js`, `web/templates/plugins.html`
 - `pkg/config/config.go`
 - Tests: `pkg/lua/plugin_sandbox_escape_test.go`, `plugin_sandbox_data_test.go`,
   `plugin_official_smoke_test.go` (opt-in, `VCLU_PLUGINS_DIR=<vclu-plugins checkout>/plugins`),
@@ -69,6 +78,14 @@ running: the manifest names the plugin API it is written for, and the stricter c
       name and the `HTTP` global work without `permissions`; the globals cannot be modified
       (`TestPluginAPI1KeepsTheOldContract`).
 - [ ] `"api": 3` gives "update vCLU"; strict mode refuses API 1 and loads API 2.
+- [ ] An update whose manifest asks for a permission the user has not allowed runs without it
+      and lists it as pending; allowing it through the API gives it. A plugin installed before
+      grants keeps what its files asked for (`TestPluginsAPIUpdateAskingForMoreWaitsForTheUser`,
+      `TestRecordGrantsKeepsWhatTheFilesAskFor`).
+- [ ] A plugin narrowed to some hosts reaches them and no other local address; a subscription
+      or publication outside the allowed filters is refused; an empty publish list allows none;
+      a bad host or filter is refused by the API (`TestPluginSandboxLANHosts`,
+      `TestPluginSandboxMQTTTopics`, `TestPluginsAPIPermissionsRefusesBadLists`).
 - [ ] A repository with only a root `plugin.json` lists one plugin and downloads it.
 - [ ] A plugin with `"permissions": {}` gets `a local address needs "lan"` from `plugin:httpGet`
       on a LAN address and a response from an internet address; with `lan` both work.

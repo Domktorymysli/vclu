@@ -9,12 +9,14 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/netip"
 	"sync"
 	"time"
 
 	lua "github.com/yuin/gopher-lua"
 
 	"github.com/Domktorymysli/vclu/pkg/httpdigest"
+	"github.com/Domktorymysli/vclu/pkg/plugins"
 )
 
 // HTTPManager manages HTTP client instances for Lua
@@ -27,6 +29,8 @@ type HTTPManager struct {
 	onRequest      func(hasError bool) // callback for metrics
 	// instances (plugin ids) that may not connect to local addresses
 	noLAN map[string]bool
+	// instances that may connect only to these local addresses
+	lanHosts map[string][]netip.Prefix
 }
 
 // asyncResponseTTL bounds how long a response nobody collected (the waiter timed out or was
@@ -54,6 +58,7 @@ func NewHTTPManager() *HTTPManager {
 		asyncResponses: make(map[string]*asyncHTTPResponse),
 		asyncInFlight:  make(map[string]bool),
 		noLAN:          make(map[string]bool),
+		lanHosts:       make(map[string][]netip.Prefix),
 	}
 }
 
@@ -65,6 +70,17 @@ func (hm *HTTPManager) SetLANAllowed(instanceID string, allowed bool) {
 		delete(hm.noLAN, instanceID)
 	} else {
 		hm.noLAN[instanceID] = true
+	}
+}
+
+// SetLANHosts narrows an instance's local addresses to hosts; nil allows any.
+func (hm *HTTPManager) SetLANHosts(instanceID string, hosts []netip.Prefix) {
+	hm.mu.Lock()
+	defer hm.mu.Unlock()
+	if hosts == nil {
+		delete(hm.lanHosts, instanceID)
+	} else {
+		hm.lanHosts[instanceID] = hosts
 	}
 }
 
@@ -82,7 +98,8 @@ func (hm *HTTPManager) getOrCreateClient(instanceID string, timeout int, verifyS
 
 	// Generate cache key based on settings
 	noLAN := hm.noLAN[instanceID]
-	cacheKey := fmt.Sprintf("%s_%d_%v_%v_%v", instanceID, timeout, verifySSL, followRedirects, noLAN)
+	hosts, narrowed := hm.lanHosts[instanceID]
+	cacheKey := fmt.Sprintf("%s_%d_%v_%v_%v_%v_%v", instanceID, timeout, verifySSL, followRedirects, noLAN, narrowed, hosts)
 
 	// Return existing client if available
 	if client, ok := hm.clients[cacheKey]; ok {
@@ -100,6 +117,8 @@ func (hm *HTTPManager) getOrCreateClient(instanceID string, timeout int, verifyS
 	}
 	if noLAN {
 		transport.DialContext = noLANDialer().DialContext
+	} else if narrowed {
+		transport.DialContext = lanHostsDialer(hosts).DialContext
 	}
 
 	client := &http.Client{
@@ -308,8 +327,22 @@ func registerHTTPFunctions(L *lua.LState, hm *HTTPManager) {
 	}))
 
 	// __go_http_set_lan(instanceId, allowed): PluginSandbox sets it for each plugin
+	// and the hosts the user narrowed it to (a table of strings, nil: any local address)
 	L.SetGlobal("__go_http_set_lan", L.NewFunction(func(L *lua.LState) int {
-		hm.SetLANAllowed(L.CheckString(1), L.ToBool(2))
+		id := L.CheckString(1)
+		hm.SetLANAllowed(id, L.ToBool(2))
+		var hosts []netip.Prefix
+		if t, ok := L.Get(3).(*lua.LTable); ok {
+			var names []string
+			t.ForEach(func(_, v lua.LValue) { names = append(names, v.String()) })
+			parsed, err := plugins.ParseHosts(names)
+			if err != nil {
+				log.Printf("[HTTP] %s: %v; no local address allowed", id, err)
+				parsed = []netip.Prefix{}
+			}
+			hosts = parsed
+		}
+		hm.SetLANHosts(id, hosts)
 		return 0
 	}))
 

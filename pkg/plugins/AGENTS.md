@@ -37,6 +37,21 @@ unique_id after its normalization are refused (`ExposedObjects:expose`).
 `plugin.json` declares what a plugin reaches beyond HTTP to the internet:
 `"permissions": {"lan": true, "mqtt": true, "modbus": true}`. `lan` is HTTP to local addresses,
 checked in Go after DNS resolution, including this machine's own networks (`pkg/lua/http_lan.go`); `mqtt` and `modbus` give the plugin API
-and the `Modbus` table. A plugin without the field gets none of them, except an official one
-(installed from the official repository, or by hand in `@vclu`), which keeps all three with a
-warning in the log until its manifest declares them (`permissions.go`).
+and the `Modbus` table. A plugin on API 1 (no `"api"`) asks for all three; on API 2 for what it
+declares, nothing without the field (`permissions.go`).
+
+What it asks for is not what it gets: `grants` on the installed entry in `.vclu.json` is what the
+user allowed, and the plugin gets the part of its request the grants allow. Installing from the
+panel allows what the plugin asks for then; an entry without grants (installed by hand, or before
+grants existed) is given what its files on disk ask for on the next load, before an update.
+An update that asks for more runs without it, logs it and lists it as `pendingPermissions` in
+`GET /api/plugins/installed` until `POST /api/plugins/:id/permissions` allows it (the plugins
+page: "Allow", or the shield button for the details).
+
+A grant is set when its key is present and can be narrowed:
+`{"lan": {"hosts": ["192.168.1.20", "10.0.0.0/24"]}, "mqtt": {"subscribe": ["shelly/#"], "publish": []}, "modbus": {}}`.
+No list allows any host or topic, an empty list none. Hosts are checked in the dialer after DNS
+(`lanHostsDialer`), topics in the sandbox's `plugin:mqttSubscribe`/`mqttPublish` (a subscription
+must lie inside an allowed filter: `shelly/#` covers `shelly/+/status`, `+` does not cover `#`).
+`ValidateGrants` refuses a host that is not an IP or prefix and a malformed filter. On API 1 the
+`HTTP` and `MQTT` globals are outside this: grants limit only the plugin API there (logged).

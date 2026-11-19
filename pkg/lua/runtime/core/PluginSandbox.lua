@@ -165,6 +165,34 @@ local function boundFunctions(obj, names)
     })
 end
 
+local function topicLevels(topic)
+    local levels = {}
+    for level in (topic .. "/"):gmatch("([^/]*)/") do levels[#levels + 1] = level end
+    return levels
+end
+
+-- filterCovers: every topic the requested filter matches, the allowed one matches too
+-- (shelly/# covers shelly/+/status and shelly itself; + does not cover #)
+local function filterCovers(allowed, requested)
+    local a, r = topicLevels(allowed), topicLevels(requested)
+    for i = 1, #a do
+        if a[i] == "#" then return true end
+        local level = r[i]
+        if level == nil or level == "#" then return false end
+        if a[i] ~= "+" and a[i] ~= level then return false end
+    end
+    return #r == #a
+end
+
+-- topicAllowed: the topic (or filter) is covered by one of the allowed filters
+local function topicAllowed(allowed, topic)
+    if type(topic) ~= "string" or topic == "" then return false end
+    for _, f in ipairs(allowed) do
+        if type(f) == "string" and filterCovers(f, topic) then return true end
+    end
+    return false
+end
+
 -- A shared class (HTTP, MQTT) for plugin API 1: its constructors and functions work
 -- as on the real one, its fields cannot be replaced
 local function classFacade(class)
@@ -407,6 +435,15 @@ function PluginSandbox:create(pluginId, permissions)
         mqtt = permissions.mqtt == true,
         modbus = permissions.modbus == true,
     }
+    -- How the user narrowed them (grants in .vclu.json): lists of hosts and topic filters,
+    -- nil allows any, an empty list none
+    local limits = type(permissions.limits) == "table" and permissions.limits or {}
+    local function list(v) return type(v) == "table" and v or nil end
+    sandbox.limits = {
+        lanHosts = list(limits.lanHosts),
+        mqttSubscribe = list(limits.mqttSubscribe),
+        mqttPublish = list(limits.mqttPublish),
+    }
     -- Events a plugin emits are "<prefix>:<name>". An official plugin's prefix is its
     -- short id or the id's first word (sun-position: "sun"), any other's its full id,
     -- so it cannot pass for another integration (telegram:command, gpio.*).
@@ -417,7 +454,7 @@ function PluginSandbox:create(pluginId, permissions)
     end
     -- requests of a plugin carry its id as the HTTP instance (PluginHelpers.httpRequest)
     if type(__go_http_set_lan) == "function" then
-        __go_http_set_lan(pluginId, sandbox.permissions.lan)
+        __go_http_set_lan(pluginId, sandbox.permissions.lan, sandbox.limits.lanHosts)
     end
 
     -- Build wrapped API with automatic tracking
@@ -534,9 +571,16 @@ function PluginSandbox:buildAPI(sandbox)
         end
     end
 
+    local function requireTopic(allowed, topic, what)
+        if allowed and not topicAllowed(allowed, topic) then
+            error("MQTT " .. what .. " " .. tostring(topic) .. " is not among the topics allowed in " .. pluginId .. "'s settings", 3)
+        end
+    end
+
     -- Wrapped MQTT subscribe with tracking
     api.mqttSubscribe = function(topic, callback)
         requireMqtt()
+        requireTopic(sandbox.limits.mqttSubscribe, topic, "subscription to")
         local wrappedCallback = function(t, payload)
             local ok, err = pcall(callback, t, payload)
             if not ok then
@@ -558,6 +602,7 @@ function PluginSandbox:buildAPI(sandbox)
     -- Wrapped MQTT publish (no tracking needed)
     api.mqttPublish = function(topic, payload, retain, qos)
         requireMqtt()
+        requireTopic(sandbox.limits.mqttPublish, topic, "publishing on")
         if MQTT and MQTT.publish then
             local payloadStr = payload
             if type(payload) == "table" then

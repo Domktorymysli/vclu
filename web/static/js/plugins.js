@@ -39,6 +39,9 @@ PluginsManager.prototype.init = function() {
         addRepoModal: document.getElementById('addRepoModal'),
         configModal: document.getElementById('configModal'),
         docModal: document.getElementById('docModal'),
+        permissionsModal: document.getElementById('permissionsModal'),
+        permissionsPluginId: document.getElementById('permissionsPluginId'),
+        permissionsFields: document.getElementById('permissionsFields'),
         configPluginId: document.getElementById('configPluginId'),
         configFields: document.getElementById('configFields'),
         docTitle: document.getElementById('docTitle'),
@@ -97,6 +100,21 @@ PluginsManager.prototype._loadInstalledPluginsData = function() {
  */
 PluginsManager.prototype.setInstalledPlugins = function(plugins) {
     this.installedPlugins = plugins || {};
+};
+
+/**
+ * Reload installed plugins from the server (permissions an update asks for) and re-render
+ */
+PluginsManager.prototype.refreshInstalled = function() {
+    var self = this;
+    fetch('/api/plugins/installed')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            (data.installed || []).forEach(function(p) {
+                self.installedPlugins[p.id] = p;
+            });
+            self._renderInstalledPlugins();
+        });
 };
 
 /**
@@ -185,6 +203,10 @@ PluginsManager.prototype._renderPluginCard = function(plugin, options) {
         if (plugin.configured === false) {
             statusBadge += ' <span class="badge bg-warning text-dark">not configured</span>';
         }
+        if (plugin.pendingPermissions && plugin.pendingPermissions.length > 0) {
+            statusBadge += ' <span class="badge bg-danger" title="The update asks for this; the plugin runs without it until allowed">asks for ' +
+                           VCLU.esc(plugin.pendingPermissions.join(', ')) + '</span>';
+        }
     }
 
     // Link buttons
@@ -210,6 +232,21 @@ PluginsManager.prototype._renderPluginCard = function(plugin, options) {
                      'onclick="pluginsManager.configure(\'' + VCLU.esc(id) + '\')" ' +
                      'data-bs-toggle="tooltip" data-bs-placement="top" title="Configure">' +
                      '<i class="bi bi-gear"></i></button>';
+        // Allow what an update asks for
+        if (plugin.pendingPermissions && plugin.pendingPermissions.length > 0) {
+            actionBtns += '<button class="btn btn-sm btn-danger me-1" ' +
+                         'onclick="pluginsManager.allowPermissions(\'' + VCLU.esc(id) + '\')" ' +
+                         'data-bs-toggle="tooltip" data-bs-placement="top" title="Allow ' +
+                         VCLU.esc(plugin.pendingPermissions.join(', ')) + '">' +
+                         '<i class="bi bi-shield-check"></i> Allow</button>';
+        }
+        // Permissions (what the plugin may reach on the LAN and MQTT)
+        if (plugin.requestedPermissions && plugin.requestedPermissions.length > 0) {
+            actionBtns += '<button class="btn btn-sm btn-outline-secondary me-1" ' +
+                         'onclick="pluginsManager.editPermissions(\'' + VCLU.esc(id) + '\')" ' +
+                         'data-bs-toggle="tooltip" data-bs-placement="top" title="Permissions">' +
+                         '<i class="bi bi-shield-lock"></i></button>';
+        }
         // Enable/Disable toggle
         if (enabled) {
             actionBtns += '<button class="btn btn-sm btn-outline-warning me-1" ' +
@@ -349,6 +386,8 @@ PluginsManager.prototype._renderInstalledPlugins = function() {
             tags: available.tags || [],
             enabled: p.enabled,
             configured: !p.needsConfig,
+            requestedPermissions: p.requestedPermissions || [],
+            pendingPermissions: p.pendingPermissions || [],
             updateAvailable: available.updateAvailable,
             availableVersion: available.version
         };
@@ -459,6 +498,8 @@ PluginsManager.prototype.install = function(id, repository) {
                     config: {}
                 };
             }
+            // What the update asks for comes from the server
+            self.refreshInstalled();
             // Refresh available will also re-render installed
             self.refreshAvailable();
             self.switchTab('installed');
@@ -511,6 +552,118 @@ PluginsManager.prototype.toggle = function(id, enabled) {
             }
             self._renderInstalledPlugins();
         }
+    });
+};
+
+/**
+ * Save what the user allows a plugin and re-render
+ * @param {string} id - Plugin ID
+ * @param {Object} grants - {lan: {hosts}, mqtt: {subscribe, publish}, modbus: {}}; a missing key is not allowed
+ */
+PluginsManager.prototype._saveGrants = function(id, grants, done) {
+    var self = this;
+    fetch('/api/plugins/' + encodeURIComponent(id) + '/permissions', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(grants)
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.error) {
+            VCLU.showToast(data.error, 'danger');
+            return;
+        }
+        if (data.warning) VCLU.showToast(data.warning, 'warning');
+        var plugin = self.installedPlugins[id];
+        if (plugin) {
+            plugin.grants = grants;
+            plugin.pendingPermissions = data.pendingPermissions || [];
+        }
+        self._renderInstalledPlugins();
+        if (done) done();
+    });
+};
+
+/**
+ * Allow what the plugin asks for and the user has not allowed yet
+ * @param {string} id - Plugin ID
+ */
+PluginsManager.prototype.allowPermissions = function(id) {
+    var plugin = this.installedPlugins[id];
+    if (!plugin || !plugin.pendingPermissions || plugin.pendingPermissions.length === 0) return;
+    if (!confirm('Allow ' + id + ' to use ' + plugin.pendingPermissions.join(', ') + '?')) return;
+    var grants = Object.assign({}, plugin.grants || {});
+    plugin.pendingPermissions.forEach(function(name) { grants[name] = {}; });
+    this._saveGrants(id, grants);
+};
+
+var PERMISSION_LABELS = {
+    lan: 'Local network (HTTP to devices in the house)',
+    mqtt: 'MQTT',
+    modbus: 'Modbus'
+};
+
+/**
+ * Edit what a plugin may use: each permission it asks for, and lists that narrow it
+ * @param {string} id - Plugin ID
+ */
+PluginsManager.prototype.editPermissions = function(id) {
+    var plugin = this.installedPlugins[id];
+    if (!plugin) return;
+    this.currentPermissionsPlugin = id;
+    this.elements.permissionsPluginId.textContent = id;
+    // Without grants the plugin has what it asks for, in full
+    var grants = plugin.grants;
+    var lines = function(list) { return VCLU.esc((list || []).join('\n')); };
+    var area = function(field, label, list, placeholder) {
+        return '<label class="form-label small mb-1" for="perm-' + field + '">' + label + '</label>' +
+               '<textarea class="form-control form-control-sm mb-2" rows="2" id="perm-' + field + '" ' +
+               'placeholder="' + placeholder + '">' + lines(list) + '</textarea>';
+    };
+    var html = '';
+    (plugin.requestedPermissions || []).forEach(function(name) {
+        var grant = grants ? grants[name] : {};
+        html += '<div class="border rounded p-2 mb-2">' +
+                '<div class="form-check mb-1"><input class="form-check-input" type="checkbox" id="perm-' + name + '"' +
+                (grant ? ' checked' : '') + '><label class="form-check-label" for="perm-' + name + '">' +
+                VCLU.esc(PERMISSION_LABELS[name] || name) + '</label></div>';
+        if (name === 'lan') {
+            html += area('lan-hosts', 'Only these hosts (IP or prefix, one per line)', grant && grant.hosts, 'any local address');
+        } else if (name === 'mqtt') {
+            html += area('mqtt-subscribe', 'Subscribe only to (topic filters, + and #)', grant && grant.subscribe, 'any topic');
+            html += area('mqtt-publish', 'Publish only on', grant && grant.publish, 'any topic');
+        }
+        html += '</div>';
+    });
+    this.elements.permissionsFields.innerHTML = html;
+    new bootstrap.Modal(this.elements.permissionsModal).show();
+};
+
+PluginsManager.prototype.savePermissions = function() {
+    var self = this;
+    var id = this.currentPermissionsPlugin;
+    var plugin = this.installedPlugins[id];
+    if (!plugin) return;
+    var list = function(field) {
+        var el = document.getElementById('perm-' + field);
+        var items = el ? el.value.split('\n').map(function(s) { return s.trim(); }).filter(Boolean) : [];
+        return items.length > 0 ? items : undefined;
+    };
+    var grants = {};
+    (plugin.requestedPermissions || []).forEach(function(name) {
+        var box = document.getElementById('perm-' + name);
+        if (!box || !box.checked) return;
+        if (name === 'lan') {
+            grants.lan = {hosts: list('lan-hosts')};
+        } else if (name === 'mqtt') {
+            grants.mqtt = {subscribe: list('mqtt-subscribe'), publish: list('mqtt-publish')};
+        } else {
+            grants[name] = {};
+        }
+    });
+    this._saveGrants(id, grants, function() {
+        var modal = bootstrap.Modal.getInstance(self.elements.permissionsModal);
+        if (modal) modal.hide();
     });
 };
 
