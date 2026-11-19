@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -16,6 +17,8 @@ import (
 	glua "github.com/yuin/gopher-lua"
 
 	"github.com/Domktorymysli/vclu/pkg/config"
+	"github.com/Domktorymysli/vclu/pkg/dashfiles"
+	"github.com/Domktorymysli/vclu/pkg/dashspec"
 	"github.com/Domktorymysli/vclu/pkg/lua"
 	"github.com/Domktorymysli/vclu/pkg/omproject"
 )
@@ -224,7 +227,7 @@ func TestDashboardsCreated(t *testing.T) {
 	if code != http.StatusOK || ans["required"] != false || ans["reloaded"] != nil {
 		t.Fatalf("%d %v", code, ans)
 	}
-	dir := s.grentonDashPath()
+	dir := s.dashFiles().Path()
 	for _, f := range []string{"page_1700000000001.lua", "page_1700000000002.lua", "init.lua"} {
 		b, err := os.ReadFile(filepath.Join(dir, f))
 		if err != nil {
@@ -269,7 +272,7 @@ func TestDashboardsCreated(t *testing.T) {
 		t.Fatalf("%d %v", code, ans)
 	}
 	init, _ := os.ReadFile(filepath.Join(s.serverDir, "modules", "init.lua"))
-	if strings.Count(string(init), grentonRequire) != 1 {
+	if strings.Count(string(init), dashfiles.Require) != 1 {
 		t.Errorf("init.lua:\n%s", init)
 	}
 	if r.reloads == 0 {
@@ -326,13 +329,13 @@ func TestDashboardsKeepTheUsersFiles(t *testing.T) {
 	if code, ans := dashCall(t, s, http.MethodPost, `{"interface":"if-1","pages":["1700000000001"]}`); code != http.StatusOK {
 		t.Fatalf("%d %v", code, ans)
 	}
-	page := filepath.Join(s.grentonDashPath(), "page_1700000000001.lua")
+	page := filepath.Join(s.dashFiles().Path(), "page_1700000000001.lua")
 	b, _ := os.ReadFile(page)
 	edited := strings.Replace(string(b), "s:build()", "s:poll(5)\ns:build()", 1)
 	if err := os.WriteFile(page, []byte(edited), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if st := fileState(page); st != fileEdited {
+	if st := dashfiles.StateOf(page); st != dashfiles.Edited {
 		t.Fatalf("edited file is %s", st)
 	}
 	code, ans := dashCall(t, s, http.MethodPost, `{"interface":"if-1","pages":["1700000000001"],"replace":true}`)
@@ -344,7 +347,7 @@ func TestDashboardsKeepTheUsersFiles(t *testing.T) {
 	}
 
 	// the user's own file
-	other := filepath.Join(s.grentonDashPath(), "page_1700000000002.lua")
+	other := filepath.Join(s.dashFiles().Path(), "page_1700000000002.lua")
 	if err := os.WriteFile(other, []byte("-- mine\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -384,14 +387,14 @@ func TestDashboardsInitAndOrphans(t *testing.T) {
 	if code, ans := dashCall(t, s, http.MethodPost, `{"interface":"if-2","pages":["1800000000002"]}`); code != http.StatusOK {
 		t.Fatalf("%d %v", code, ans)
 	}
-	initPath := filepath.Join(s.grentonDashPath(), "init.lua")
+	initPath := filepath.Join(s.dashFiles().Path(), "init.lua")
 	b, _ := os.ReadFile(initPath)
 	if !strings.Contains(string(b), "page_1700000000001") || !strings.Contains(string(b), "page_1800000000002") {
 		t.Errorf("init.lua lost a page:\n%s", b)
 	}
 
 	// a page file vclu does not know is loaded too
-	if err := os.WriteFile(filepath.Join(s.grentonDashPath(), "page_42.lua"), []byte("-- old\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(s.dashFiles().Path(), "page_42.lua"), []byte("-- old\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	if code, ans := dashCall(t, s, http.MethodPost, `{"interface":"if-2","pages":["1800000000002"],"replace":true}`); code != http.StatusOK {
@@ -426,30 +429,6 @@ func TestDashboardsInitAndOrphans(t *testing.T) {
 	}
 }
 
-// A require inside a block comment does not load the dashboards.
-func TestRequireStateIgnoresComments(t *testing.T) {
-	s := &Server{serverDir: t.TempDir()}
-	path := filepath.Join(s.serverDir, "modules", "init.lua")
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		t.Fatal(err)
-	}
-	for code, want := range map[string]bool{
-		grentonRequire + "\n":                            true,
-		"local x = 1\n  require 'dashboards.imported'\n": true,
-		"-- " + grentonRequire + "\n":                    false,
-		"--[[\n" + grentonRequire + "\n]]\n":             false,
-		"--[==[\n" + grentonRequire + "\n]] ]==]\n":      false,
-		"--[[ a ]]\n" + grentonRequire + "\n":            true,
-	} {
-		if err := os.WriteFile(path, []byte(code), 0644); err != nil {
-			t.Fatal(err)
-		}
-		if got := s.requireState(); got != want {
-			t.Errorf("%q: %v", code, got)
-		}
-	}
-}
-
 // A page the user broke is reported after the reload; the other pages still load.
 func TestDashboardsReportBrokenPage(t *testing.T) {
 	files, _, _ := mgProject(t)
@@ -460,7 +439,7 @@ func TestDashboardsReportBrokenPage(t *testing.T) {
 	if code, ans := dashCall(t, s, http.MethodPost, `{"interface":"if-1","pages":["1700000000001"],"addRequire":true}`); code != http.StatusOK {
 		t.Fatalf("%d %v", code, ans)
 	}
-	page := filepath.Join(s.grentonDashPath(), "page_1700000000001.lua")
+	page := filepath.Join(s.dashFiles().Path(), "page_1700000000001.lua")
 	if err := os.WriteFile(page, []byte(`error("my edit")`), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -472,31 +451,6 @@ func TestDashboardsReportBrokenPage(t *testing.T) {
 	}
 	if out, err := s.luaExecutor.Execute(`return tostring(_dashboards["imported_1700000000002"] ~= nil)`); err != nil || out != "true" {
 		t.Errorf("the other page: %s %v", out, err)
-	}
-}
-
-// A require that would not compile at the end of modules/init.lua is left for the user to add.
-func TestAddRequireAfterReturn(t *testing.T) {
-	s := &Server{serverDir: t.TempDir()}
-	path := filepath.Join(s.serverDir, "modules", "init.lua")
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		t.Fatal(err)
-	}
-	const code = "local M = {}\nreturn M\n"
-	if err := os.WriteFile(path, []byte(code), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if ok, err := s.addRequire(); ok || err != nil {
-		t.Fatalf("added after a return: %v %v", ok, err)
-	}
-	if b, _ := os.ReadFile(path); string(b) != code {
-		t.Errorf("init.lua changed:\n%s", b)
-	}
-	if err := os.WriteFile(path, []byte("local x = 1\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if ok, err := s.addRequire(); !ok || err != nil || !s.requireState() {
-		t.Fatalf("not added: %v %v", ok, err)
 	}
 }
 
@@ -513,5 +467,105 @@ func TestBrokenInterfaceFileLeftOut(t *testing.T) {
 	code, list := dashCall(t, s, http.MethodGet, "")
 	if in, _ := list["interfaces"].([]any); code != http.StatusOK || len(in) != 1 {
 		t.Fatalf("%d %v", code, list)
+	}
+}
+
+// Deleting a CLU takes what the project import wrote about it; the last one takes the
+// project's files and interfaces. The dashboards made from them are the user's and stay.
+func TestDeleteCLUForgetsIt(t *testing.T) {
+	files, clu, _ := mgProject(t)
+	s, _, _ := mgServer(t)
+	if code, body := uploadFile(t, s, "house.omp", zipBytes(t, files)); code != http.StatusOK {
+		t.Fatalf("%d %s", code, body)
+	}
+	if code, ans := dashCall(t, s, http.MethodPost, `{"interface":"if-1","pages":["1700000000001"]}`); code != http.StatusOK {
+		t.Fatalf("%d %v", code, ans)
+	}
+	docs := filepath.Join(s.serverDir, filepath.FromSlash(omproject.DocsDir))
+	del := func(serial uint64) {
+		t.Helper()
+		r := gin.New()
+		r.DELETE("/api/om/:serial", s.handleAPIOMDelete)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/om/%d", serial), nil))
+		if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "cleanupError") {
+			t.Fatalf("delete %d: %d %s", serial, rec.Code, rec.Body)
+		}
+	}
+	serial, _ := strconv.ParseUint(strings.TrimPrefix(clu, "CLU"), 10, 64)
+	others := 0
+	for _, f := range config.GetOMFiles(s.serverDir) {
+		if f.Serial != serial {
+			others++
+		}
+	}
+	if others == 0 {
+		t.Fatal("the project has one CLU: nothing left to compare")
+	}
+
+	// a CLU whose ID starts with this one's keeps its files
+	for _, name := range []string{clu + "1.md", clu + "1-scripts.md"} {
+		if err := os.WriteFile(filepath.Join(docs, name), []byte("x"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	del(serial)
+	for _, name := range []string{clu + "1.md", clu + "1-scripts.md"} {
+		if _, err := os.Stat(filepath.Join(docs, name)); err != nil {
+			t.Errorf("%s went with %s: %v", name, clu, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(docs, clu+".md")); !os.IsNotExist(err) {
+		t.Errorf("%s.md kept: %v", clu, err)
+	}
+	idx, _ := os.ReadFile(filepath.Join(docs, "index.md"))
+	if strings.Contains(string(idx), "| "+clu+" |") || !strings.Contains(string(idx), clu+" was deleted from vCLU") {
+		t.Errorf("index.md:\n%s", idx)
+	}
+	md, _ := filepath.Glob(filepath.Join(docs, "CLU*.md"))
+	if len(md) == 0 {
+		t.Error("the other CLUs' files went too")
+	}
+	// the page's widgets name the deleted CLU
+	_, list := dashCall(t, s, http.MethodGet, "")
+	page := list["interfaces"].([]any)[0].(map[string]any)["pages"].([]any)[0].(map[string]any)
+	missing := 0
+	for _, w := range page["widgets"].([]any) {
+		if m, _ := w.(map[string]any)["missing"].([]any); len(m) == 1 && m[0] == clu {
+			missing++
+		}
+	}
+	if missing == 0 {
+		t.Errorf("no widget says %s is missing: %v", clu, page["widgets"])
+	}
+	// unless that CLU is this vCLU: its objects are local
+	if err := config.UpdateMasterConfig(s.serverDir, func(c *config.VCLUConfig) error {
+		c.Device = &config.VCLUDeviceConfig{DeviceTypeID: "clu", SerialNumber: serial}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, list = dashCall(t, s, http.MethodGet, "")
+	page = list["interfaces"].([]any)[0].(map[string]any)["pages"].([]any)[0].(map[string]any)
+	for _, w := range page["widgets"].([]any) {
+		if m, _ := w.(map[string]any)["missing"].([]any); len(m) > 0 {
+			t.Errorf("this vCLU's own CLU is missing: %v", m)
+		}
+	}
+	if err := config.UpdateMasterConfig(s.serverDir, func(c *config.VCLUConfig) error { c.Device = nil; return nil }); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, f := range config.GetOMFiles(s.serverDir) {
+		del(f.Serial)
+	}
+	if _, err := os.Stat(docs); !os.IsNotExist(err) {
+		t.Errorf("%s kept after the last CLU: %v", omproject.DocsDir, err)
+	}
+	if in, _ := dashspec.LoadInterfaces(s.myGrentonPath()); len(in) != 0 {
+		t.Errorf("interfaces kept: %d", len(in))
+	}
+	if _, err := os.Stat(filepath.Join(s.dashFiles().Path(), "page_1700000000001.lua")); err != nil {
+		t.Errorf("the user's dashboard went: %v", err)
 	}
 }

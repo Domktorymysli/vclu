@@ -73,13 +73,133 @@ OmFilesManager.prototype.upload = function() {
         return;
     }
 
-    var formData = new FormData();
-    formData.append('file', fileInput.files[0]);
-
+    var file = fileInput.files[0];
     var originalText = btn.innerHTML;
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> ' +
                     (this.translations.validating || 'Validating...');
+
+    // what the import would change first: removed or changed objects, and Lua that would break
+    var preview = new FormData();
+    preview.append('file', file);
+    fetch('/api/om/preview', { method: 'POST', body: preview })
+    .then(function(response) { return response.json(); })
+    .then(function(data) {
+        if (data.error || !self._needsConfirm(data)) {
+            self._send(file, originalText);
+            return;
+        }
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+        result.innerHTML = self._renderPreview(data);
+        result.style.display = 'block';
+        document.getElementById('omPreviewImport').onclick = function() {
+            // once: a second click would upload again
+            this.disabled = true;
+            document.getElementById('omPreviewCancel').disabled = true;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> ' +
+                            (self.translations.validating || 'Validating...');
+            self._send(file, originalText);
+        };
+        document.getElementById('omPreviewCancel').onclick = function() {
+            result.innerHTML = '';
+            result.style.display = 'none';
+        };
+    }, function() {
+        // no preview to be had (the request failed): the upload answers for itself
+        self._send(file, originalText);
+    })
+    .catch(function(error) {
+        // the preview came and could not be shown: never import without it
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+        result.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> Error: ' +
+                           VCLU.esc(error.message) + '</div>';
+        result.style.display = 'block';
+    });
+};
+
+/**
+ * Whether a preview shows something to confirm: a CLU removed or changed, or Lua that breaks
+ */
+OmFilesManager.prototype._needsConfirm = function(data) {
+    var changed = (data.clus || []).some(function(c) {
+        return c.change === 'removed' || (c.change === 'changed' && (c.removed.length > 0 || c.retyped.length > 0 || c.renamedFrom));
+    });
+    return changed || (data.breaks && data.breaks.length > 0);
+};
+
+/**
+ * Render what an import would change, with Import and Cancel
+ */
+OmFilesManager.prototype._renderPreview = function(data) {
+    var tr = this.translations;
+    var html = '<div class="alert alert-warning"><p class="mb-2"><i class="bi bi-exclamation-triangle"></i> <strong>' +
+               VCLU.esc(tr.previewTitle || 'This import changes:') + '</strong></p><ul class="small mb-2">';
+    (data.clus || []).forEach(function(c) {
+        var name = VCLU.esc((c.name || c.id) + ' (' + c.id + ')');
+        if (c.change === 'removed') {
+            html += '<li>' + name + ': ' + VCLU.esc(tr.cluRemoved || 'removed, not in the project') + '</li>';
+            return;
+        }
+        if (c.change !== 'changed') return;
+        var parts = [];
+        if (c.renamedFrom) {
+            parts.push(VCLU.esc((tr.renamed || 'renamed from') + ' ' + c.renamedFrom));
+        }
+        if (c.removed.length > 0) {
+            parts.push(VCLU.esc(tr.objectsRemoved || 'objects removed') + ': ' +
+                       c.removed.map(function(o) { return VCLU.esc(o.name ? o.id + ' ' + o.name : o.id); }).join(', '));
+        }
+        if (c.retyped.length > 0) {
+            parts.push(VCLU.esc(tr.objectsRetyped || 'other type') + ': ' +
+                       c.retyped.map(function(o) { return VCLU.esc(o.id + ' ' + o.from + ' → ' + o.to); }).join(', '));
+        }
+        if (parts.length > 0) {
+            html += '<li>' + name + ': ' + parts.join('; ') + '</li>';
+        }
+    });
+    html += '</ul>';
+    if (data.breaks && data.breaks.length > 0) {
+        html += '<p class="mb-1 small"><strong>' + VCLU.esc(tr.breaks || 'Your Lua that would name a missing object') + ':</strong></p>' +
+                this._renderRefs(data.breaks);
+    }
+    html += '<button type="button" class="btn btn-warning btn-sm" id="omPreviewImport">' + VCLU.esc(tr.importAnyway || 'Import') +
+            '</button> <button type="button" class="btn btn-secondary btn-sm" id="omPreviewCancel">' +
+            VCLU.esc(tr.cancel || 'Cancel') + '</button></div>';
+    return html;
+};
+
+/**
+ * Render places in modules/ as file:line path
+ */
+OmFilesManager.prototype._renderRefs = function(refs) {
+    return '<ul class="small mb-2">' + refs.map(function(r) {
+        return '<li><code>modules/' + VCLU.esc(r.file) + ':' + r.line + '</code> ' + VCLU.esc(r.path) + '</li>';
+    }).join('') + '</ul>';
+};
+
+/**
+ * Note after an import: places in modules/ that name an object no CLU has
+ */
+OmFilesManager.prototype._brokenNote = function(data) {
+    if (!data.brokenRefs || data.brokenRefs.length === 0) return '';
+    return '<div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i> ' +
+           VCLU.esc(this.translations.brokenRefs || 'Your Lua names objects no CLU has') + ':' +
+           this._renderRefs(data.brokenRefs) + '</div>';
+};
+
+/**
+ * Upload the file
+ */
+OmFilesManager.prototype._send = function(file, originalText) {
+    var self = this;
+    var btn = this.elements.uploadBtn;
+    var fileInput = this.elements.fileInput;
+    var result = this.elements.uploadResult;
+    var formData = new FormData();
+    formData.append('file', file);
 
     fetch('/api/om/upload', {
         method: 'POST',
@@ -93,7 +213,7 @@ OmFilesManager.prototype.upload = function() {
             result.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> ' +
                               VCLU.esc(data.error) + '</div>';
         } else if (data.isZip || data.isProject) {
-            result.innerHTML = self._renderZipResult(data);
+            result.innerHTML = self._renderZipResult(data) + self._brokenNote(data);
             fileInput.value = '';
             self.loadFiles();
         } else {
@@ -107,6 +227,12 @@ OmFilesManager.prototype.upload = function() {
                 result.innerHTML += '<div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i> ' +
                                     VCLU.esc(data.luaError) + '</div>';
             }
+            if (data.warnings && data.warnings.length > 0) {
+                result.innerHTML += '<div class="alert alert-warning"><strong>' +
+                                    VCLU.esc(self.translations.warnings || 'Left out') + ':</strong> ' +
+                                    data.warnings.map(VCLU.esc).join('; ') + '</div>';
+            }
+            result.innerHTML += self._brokenNote(data);
             fileInput.value = '';
             self.loadFiles();
         }
@@ -155,6 +281,11 @@ OmFilesManager.prototype._renderZipResult = function(data) {
     if (data.skippedList && data.skippedList.length > 0) {
         html += '<div class="text-muted small"><i class="bi bi-skip-forward"></i> ' +
                (this.translations.skipped || 'Skipped') + ': ' + data.skippedList.map(VCLU.esc).join(', ') + '</div>';
+    }
+
+    if (data.removed && data.removed.length > 0) {
+        html += '<div class="text-warning small"><i class="bi bi-trash"></i> ' +
+               (this.translations.removed || 'Removed, not in the project') + ': ' + data.removed.map(VCLU.esc).join(', ') + '</div>';
     }
 
     if (data.agentDocs) {
@@ -314,9 +445,14 @@ OmFilesManager.prototype.deleteFile = function(serial) {
             if (data.error) {
                 VCLU.showToast('Error: ' + data.error, 'danger');
             } else {
-                var problems = [].concat(data.reloadError ? [data.reloadError] : [], data.proxyErrors || [], data.moduleErrors || []);
+                var problems = [].concat(data.reloadError ? [data.reloadError] : [], data.cleanupError ? [data.cleanupError] : [], data.proxyErrors || [], data.moduleErrors || []);
                 if (problems.length > 0) {
                     VCLU.showToast(problems.join('; '), 'warning');
+                }
+                var result = self.elements.uploadResult;
+                if (result && data.brokenRefs && data.brokenRefs.length > 0) {
+                    result.innerHTML = self._brokenNote(data);
+                    result.style.display = 'block';
                 }
                 self.loadFiles();
             }

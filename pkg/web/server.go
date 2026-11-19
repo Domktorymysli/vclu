@@ -1016,6 +1016,7 @@ func (s *Server) setupRoutes() {
 
 		// OM Files endpoints
 		api.POST("/om/upload", s.handleAPIOMUpload)
+		api.POST("/om/preview", s.handleAPIOMPreview)
 		api.POST("/om/regenerate", s.handleAPIOMRegenerate)
 		api.GET("/om/list", s.handleAPIOMList)
 		api.GET("/om/:serial", s.handleAPIOMDetails)

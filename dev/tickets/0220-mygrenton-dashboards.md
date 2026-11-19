@@ -51,6 +51,7 @@ dashboard files they can edit afterwards.
 
 ## Files
 - `web/templates/grenton.html`, `web/static/js/` (new tab)
+- `pkg/dashfiles/` (the files: header and states, pages, init.lua, the `require`)
 - `pkg/web/` (API: list the imported pages, create the files, add the `require`)
 - `pkg/lua/runtime/grenton/Wire.lua` (what a created file calls)
 - `web/locales/pl.json`, `en.json`

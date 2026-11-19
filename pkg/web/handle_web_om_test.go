@@ -54,7 +54,7 @@ func uploadPack(t *testing.T, s *Server, pack []byte) zipUploadAnswer {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
-	s.handleZipUpload(c, pack, "pack.zip")
+	s.handleZipUpload(c, pack, "pack.zip", s.house())
 	var ans zipUploadAnswer
 	if err := json.Unmarshal(rec.Body.Bytes(), &ans); err != nil {
 		t.Fatalf("answer %d %s: %v", rec.Code, rec.Body, err)
@@ -252,6 +252,8 @@ func TestProjectUploadMatchesDiagnosticPack(t *testing.T) {
 			if len(got) != tc.clus {
 				t.Errorf("project registered %d CLUs, want %d", len(got), tc.clus)
 			}
+			// the GATE Alarm's om.lua in the pack sets the panel's secrets (#214)
+			noMarker(t, config.GetOMFilesDir(fromPack.serverDir))
 		})
 	}
 }

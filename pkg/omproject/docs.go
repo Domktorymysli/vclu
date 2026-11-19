@@ -59,6 +59,31 @@ func (p *Project) Docs() map[string]string {
 	return files
 }
 
+// ForgetCLU is the index without the row of a CLU deleted from vCLU after the import, with
+// a note under the title saying so: the rest of the index may still name it.
+func ForgetCLU(index, id string) string {
+	lines := strings.Split(index, "\n")
+	out := make([]string, 0, len(lines)+2)
+	removed := false
+	for _, l := range lines {
+		if strings.HasPrefix(l, "| ") && strings.Contains(l, " | "+id+" | ") {
+			removed = true
+			continue
+		}
+		out = append(out, l)
+	}
+	if !removed {
+		return index
+	}
+	note := fmt.Sprintf("> %s was deleted from vCLU after this import: its objects are gone, whatever below still names it.", id)
+	if len(out) > 0 && strings.HasPrefix(out[0], "# ") {
+		out = append([]string{out[0], "", note}, out[1:]...)
+	} else {
+		out = append([]string{note, ""}, out...)
+	}
+	return strings.Join(out, "\n")
+}
+
 // cut shortens a file over maxDoc at the end of a line, saying so.
 func cut(d string) string {
 	const note = "\n(cut by vCLU: the rest is in the Object Manager project)\n"

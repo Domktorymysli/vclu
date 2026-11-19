@@ -192,6 +192,29 @@ func (a *Action) Check() error {
 	return fmt.Errorf("action %q unknown", a.Op)
 }
 
+// CLUs are the CLUs the widget reads or commands, each once.
+func (w *Widget) CLUs() []string {
+	var out []string
+	seen := map[string]bool{}
+	add := func(clu string) {
+		if clu != "" && !seen[clu] {
+			seen[clu] = true
+			out = append(out, clu)
+		}
+	}
+	for _, r := range []*Read{w.Read, w.Current, w.Target, w.State} {
+		if r != nil {
+			add(r.CLU)
+		}
+	}
+	for _, a := range []*Action{w.On, w.Off, w.Set, w.Do} {
+		if a != nil {
+			add(a.CLU)
+		}
+	}
+	return out
+}
+
 // Check says what is wrong with a widget, nil when it may be generated.
 func (w *Widget) Check() error {
 	if w.Kind != Group && !reWidgetID.MatchString(w.ID) {
