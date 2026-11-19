@@ -558,12 +558,12 @@ func (s *Server) handleAPIOMDelete(c *gin.Context) {
 func (s *Server) removeOMFile(serial uint64, filename string) error {
 	importsDir := config.GetOMFilesDir(s.serverDir)
 	if err := os.Remove(filepath.Join(importsDir, filename)); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("Failed to delete file")
+		return fmt.Errorf("failed to delete file")
 	}
 	// the proxy may not exist
 	_ = os.Remove(filepath.Join(importsDir, fmt.Sprintf("proxy_%d.lua", serial)))
 	if err := config.DeleteOMFileAndCleanSync(s.serverDir, serial); err != nil {
-		return fmt.Errorf("Failed to update config")
+		return fmt.Errorf("failed to update config")
 	}
 	return nil
 }

@@ -527,10 +527,10 @@ func (t *translation) action(raw json.RawMessage, key string) *dashspec.Action {
 			return nil
 		}
 		a.Index, _ = strconv.Atoi(c.Index)
-		switch v := c.Value; {
-		case v == "$value$":
+		switch v := c.Value; v {
+		case "$value$":
 			a.Input = true
-		case v == "":
+		case "":
 		default:
 			if f, err := strconv.ParseFloat(v, 64); err == nil && !strings.ContainsAny(v, "xXnN") {
 				a.Value = f

@@ -58,7 +58,7 @@ func (s *Server) uploadHouse(content []byte, filename string, before omchange.Ho
 	}
 	zr, err := zip.NewReader(bytes.NewReader(content), int64(len(content)))
 	if err != nil {
-		return nil, false, fmt.Errorf("Invalid ZIP file: %v", err)
+		return nil, false, fmt.Errorf("invalid ZIP file: %v", err)
 	}
 	if omproject.IsProject(zr) {
 		project, err := omproject.ReadZip(zr)
@@ -147,7 +147,7 @@ func (s *Server) handleAPIOMPreview(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read file"})
 		return
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	content, err := io.ReadAll(file)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read file"})

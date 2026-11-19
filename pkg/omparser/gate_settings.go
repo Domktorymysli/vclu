@@ -97,7 +97,7 @@ func StripStoredGateSettings(importsDir string) (files, lines int, err error) {
 			return files, lines, err
 		}
 		if err := os.Rename(tmp, path); err != nil {
-			os.Remove(tmp)
+			_ = os.Remove(tmp)
 			return files, lines, err
 		}
 		files++
