@@ -411,6 +411,51 @@ function Plugin:mqttSubscribe(topic, callback)
 end
 
 -- ============================================
+-- grenton_raw, tftp, serial: only in a plugin's sandbox, with the permission
+-- ============================================
+
+local function sandboxAPI(self, name)
+    if not (self._sandbox and self._sandbox.api) then
+        error(name .. " is only for plugins", 3)
+    end
+    return self._sandbox.api
+end
+
+--- A UDP socket of the plugin's own (permission grenton_raw)
+-- @param opts table|nil {port = 0}: 0 for any free port
+-- @return table|nil socket:send(ip, port, bytes), socket:broadcast(port, bytes),
+--   socket:onReceive(function(bytes, ip, port) end), socket:close(); nil, err if not bound
+-- @usage local s = plugin:grentonSocket() s:onReceive(function(b, ip) end) s:broadcast(1234, frame)
+function Plugin:grentonSocket(opts)
+    return sandboxAPI(self, "grentonSocket").grentonSocket(opts)
+end
+
+--- The CLU cipher, AES-CBC (permission grenton_raw)
+-- @param key string 16 bytes raw or base64, as in the CLU's configuration
+-- @param iv string 16 bytes raw or base64
+-- @return table cipher:encrypt(bytes), cipher:decrypt(bytes): bytes or nil, err
+function Plugin:grentonCipher(key, iv)
+    return sandboxAPI(self, "grentonCipher").grentonCipher(key, iv)
+end
+
+--- A TFTP client (permission tftp)
+-- @param ip string the device
+-- @param opts table|nil {port = 69}
+-- @return table client:get(name, function(bytes, err) end), client:put(name, bytes, function(ok, err) end)
+function Plugin:tftp(ip, opts)
+    return sandboxAPI(self, "tftp").tftp(ip, opts)
+end
+
+--- A serial port the user assigned to the plugin (permission serial)
+-- @param path string e.g. "/dev/ttyUSB0"
+-- @param opts table|nil {baud = 9600, data = 8, parity = "none"|"even"|"odd", stop = 1}
+-- @return table|nil port:write(bytes), port:onData(function(bytes, err) end), port:close();
+--   nil, err if it cannot be opened. onData gets (nil, err) once when the port fails.
+function Plugin:serialOpen(path, opts)
+    return sandboxAPI(self, "serialOpen").serialOpen(path, opts)
+end
+
+-- ============================================
 -- NEW API: HTTP, URL, Auth helpers
 -- ============================================
 

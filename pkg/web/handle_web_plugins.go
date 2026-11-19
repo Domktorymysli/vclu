@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -533,6 +534,19 @@ func (s *Server) handlePluginsAPIToggle(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// serialPortPatterns: where serial ports show up on Linux; by-id names survive replugging.
+var serialPortPatterns = []string{"/dev/serial/by-id/*", "/dev/ttyUSB*", "/dev/ttyACM*", "/dev/ttyAMA*", "/dev/ttyS0"}
+
+// handlePluginsAPISerialPorts lists the serial ports on this machine, to assign one to a plugin.
+func (s *Server) handlePluginsAPISerialPorts(c *gin.Context) {
+	ports := []string{}
+	for _, pattern := range serialPortPatterns {
+		matches, _ := filepath.Glob(pattern)
+		ports = append(ports, matches...)
+	}
+	c.JSON(http.StatusOK, gin.H{"ports": ports})
 }
 
 // handlePluginsAPIPermissions sets what the user allows a plugin beyond HTTP to the internet

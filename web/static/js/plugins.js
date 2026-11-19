@@ -558,7 +558,8 @@ PluginsManager.prototype.toggle = function(id, enabled) {
 /**
  * Save what the user allows a plugin and re-render
  * @param {string} id - Plugin ID
- * @param {Object} grants - {lan: {hosts}, mqtt: {subscribe, publish}, modbus: {}}; a missing key is not allowed
+ * @param {Object} grants - {lan: {hosts}, mqtt: {subscribe, publish}, modbus: {}, grenton_raw: {hosts},
+ *   tftp: {hosts}, serial: {ports}}; a missing key is not allowed
  */
 PluginsManager.prototype._saveGrants = function(id, grants, done) {
     var self = this;
@@ -591,7 +592,9 @@ PluginsManager.prototype._saveGrants = function(id, grants, done) {
 PluginsManager.prototype.allowPermissions = function(id) {
     var plugin = this.installedPlugins[id];
     if (!plugin || !plugin.pendingPermissions || plugin.pendingPermissions.length === 0) return;
-    if (!confirm('Allow ' + id + ' to use ' + plugin.pendingPermissions.join(', ') + '?')) return;
+    var warnings = plugin.pendingPermissions.filter(function(name) { return PERMISSION_WARNINGS[name]; })
+        .map(function(name) { return '\n\n' + name + ': ' + PERMISSION_WARNINGS[name]; }).join('');
+    if (!confirm('Allow ' + id + ' to use ' + plugin.pendingPermissions.join(', ') + '?' + warnings)) return;
     var grants = Object.assign({}, plugin.grants || {});
     plugin.pendingPermissions.forEach(function(name) { grants[name] = {}; });
     this._saveGrants(id, grants);
@@ -600,7 +603,17 @@ PluginsManager.prototype.allowPermissions = function(id) {
 var PERMISSION_LABELS = {
     lan: 'Local network (HTTP to devices in the house)',
     mqtt: 'MQTT',
-    modbus: 'Modbus'
+    modbus: 'Modbus',
+    grenton_raw: 'Grenton frames (UDP to CLUs)',
+    tftp: 'TFTP (files on devices)',
+    serial: 'Serial port'
+};
+
+// Allowed only by the user, never on install
+var PERMISSION_WARNINGS = {
+    grenton_raw: 'the plugin can send any command to a CLU it has the key for.',
+    tftp: 'the plugin can read and replace files on devices on the network, a CLU\'s too; with Grenton frames that is full control of the CLU.',
+    serial: 'the plugin drives whatever is connected to the port you assign.'
 };
 
 /**
@@ -612,7 +625,7 @@ PluginsManager.prototype.editPermissions = function(id) {
     if (!plugin) return;
     this.currentPermissionsPlugin = id;
     this.elements.permissionsPluginId.textContent = id;
-    // Without grants the plugin has what it asks for, in full
+    // Without grants the plugin has what it asks for, in full, but what needs the user
     var grants = plugin.grants;
     var lines = function(list) { return VCLU.esc((list || []).join('\n')); };
     var area = function(field, label, list, placeholder) {
@@ -622,20 +635,37 @@ PluginsManager.prototype.editPermissions = function(id) {
     };
     var html = '';
     (plugin.requestedPermissions || []).forEach(function(name) {
-        var grant = grants ? grants[name] : {};
+        var grant = grants ? grants[name] : (PERMISSION_WARNINGS[name] ? null : {});
         html += '<div class="border rounded p-2 mb-2">' +
                 '<div class="form-check mb-1"><input class="form-check-input" type="checkbox" id="perm-' + name + '"' +
                 (grant ? ' checked' : '') + '><label class="form-check-label" for="perm-' + name + '">' +
                 VCLU.esc(PERMISSION_LABELS[name] || name) + '</label></div>';
+        if (PERMISSION_WARNINGS[name]) {
+            html += '<div class="small text-danger mb-1"><i class="bi bi-exclamation-triangle"></i> ' +
+                    VCLU.esc(PERMISSION_WARNINGS[name]) + '</div>';
+        }
         if (name === 'lan') {
             html += area('lan-hosts', 'Only these hosts (IP or prefix, one per line)', grant && grant.hosts, 'any local address');
         } else if (name === 'mqtt') {
             html += area('mqtt-subscribe', 'Subscribe only to (topic filters, + and #)', grant && grant.subscribe, 'any topic');
             html += area('mqtt-publish', 'Publish only on', grant && grant.publish, 'any topic');
+        } else if (name === 'grenton_raw' || name === 'tftp') {
+            html += area(name + '-hosts', 'Only these hosts (IP or prefix, one per line)', grant && grant.hosts, 'any local address except this vCLU');
+        } else if (name === 'serial') {
+            html += area('serial-ports', 'Ports (one per line)', grant && grant.ports, 'none: the plugin opens no port until you assign one');
+            html += '<div class="small text-muted" id="perm-serial-available"></div>';
         }
         html += '</div>';
     });
     this.elements.permissionsFields.innerHTML = html;
+    if ((plugin.requestedPermissions || []).indexOf('serial') >= 0) {
+        fetch('/api/plugins/serial-ports')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var el = document.getElementById('perm-serial-available');
+                if (el) el.textContent = (data.ports && data.ports.length) ? 'On this machine: ' + data.ports.join(', ') : 'No serial ports found on this machine.';
+            });
+    }
     new bootstrap.Modal(this.elements.permissionsModal).show();
 };
 
@@ -657,6 +687,10 @@ PluginsManager.prototype.savePermissions = function() {
             grants.lan = {hosts: list('lan-hosts')};
         } else if (name === 'mqtt') {
             grants.mqtt = {subscribe: list('mqtt-subscribe'), publish: list('mqtt-publish')};
+        } else if (name === 'grenton_raw' || name === 'tftp') {
+            grants[name] = {hosts: list(name + '-hosts')};
+        } else if (name === 'serial') {
+            grants.serial = {ports: list('serial-ports')};
         } else {
             grants[name] = {};
         }

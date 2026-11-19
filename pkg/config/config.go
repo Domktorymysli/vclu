@@ -342,6 +342,11 @@ type PluginGrants struct {
 	LAN    *LANGrant    `json:"lan,omitempty"`
 	MQTT   *MQTTGrant   `json:"mqtt,omitempty"`
 	Modbus *ModbusGrant `json:"modbus,omitempty"`
+	// grenton_raw, tftp and serial reach CLUs, files on devices and the device on a port:
+	// installing does not allow them, the user does
+	GrentonRaw *HostsGrant  `json:"grenton_raw,omitempty"`
+	TFTP       *HostsGrant  `json:"tftp,omitempty"`
+	Serial     *SerialGrant `json:"serial,omitempty"`
 }
 
 // LANGrant: Hosts are IP addresses or CIDR prefixes; without the list any local address.
@@ -357,6 +362,17 @@ type MQTTGrant struct {
 }
 
 type ModbusGrant struct{}
+
+// HostsGrant: hosts (IP addresses or CIDR prefixes) of the local network the plugin may
+// reach; without the list any, never vCLU's own addresses.
+type HostsGrant struct {
+	Hosts []string `json:"hosts,omitzero"`
+}
+
+// SerialGrant: the ports the user assigned to the plugin; without one it opens none.
+type SerialGrant struct {
+	Ports []string `json:"ports,omitzero"`
+}
 
 // Example .vclu.json plugins section:
 // {

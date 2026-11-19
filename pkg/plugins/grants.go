@@ -51,6 +51,21 @@ func ValidateGrants(g config.PluginGrants) error {
 			return fmt.Errorf("lan hosts: %w", err)
 		}
 	}
+	for name, h := range map[string]*config.HostsGrant{"grenton_raw": g.GrentonRaw, "tftp": g.TFTP} {
+		if h == nil {
+			continue
+		}
+		if _, err := ParseHosts(h.Hosts); err != nil {
+			return fmt.Errorf("%s hosts: %w", name, err)
+		}
+	}
+	if g.Serial != nil {
+		for _, port := range g.Serial.Ports {
+			if !strings.HasPrefix(port, "/dev/") || strings.Contains(port, "..") {
+				return fmt.Errorf("serial: %q is not a device path such as /dev/ttyUSB0", port)
+			}
+		}
+	}
 	if g.MQTT != nil {
 		for _, list := range [][]string{g.MQTT.Subscribe, g.MQTT.Publish} {
 			for _, f := range list {

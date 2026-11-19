@@ -287,6 +287,7 @@ func NewServer(serverDir string, localIP net.IP, macAddr net.HardwareAddr) (*Ser
 
 	// Create Lua engine
 	luaEngine := lua.NewLuaEngine()
+	luaEngine.PluginIO().ReserveUDPPorts(CommandPort, ClientReportPort, tftp.DefaultPort)
 
 	// Inject GPIO manager into Lua engine
 	luaEngine.SetGPIOManager(lua.NewGPIOManager(gpioCtrl))
@@ -605,6 +606,9 @@ func (s *Server) handleBroadcastCommands() {
 			continue
 		}
 
+		if s.fromPlugin(remoteAddr) {
+			continue
+		}
 		data := buffer[:n]
 		s.processBroadcastCommand(data, remoteAddr)
 	}
@@ -631,9 +635,18 @@ func (s *Server) handleUnicastCommands() {
 			continue
 		}
 
+		if s.fromPlugin(remoteAddr) {
+			continue
+		}
 		data := buffer[:n]
 		s.processUnicastCommand(data, remoteAddr)
 	}
+}
+
+// fromPlugin: a datagram from a plugin's own socket on this machine (grenton_raw); a
+// plugin's discovery broadcast must not reach the vCLU it runs in.
+func (s *Server) fromPlugin(addr *net.UDPAddr) bool {
+	return s.luaEngine != nil && s.luaEngine.PluginIO().FromPlugin(addr)
 }
 
 // processBroadcastCommand processes a broadcast command

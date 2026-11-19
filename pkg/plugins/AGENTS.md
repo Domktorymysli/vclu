@@ -55,3 +55,15 @@ No list allows any host or topic, an empty list none. Hosts are checked in the d
 must lie inside an allowed filter: `shelly/#` covers `shelly/+/status`, `+` does not cover `#`).
 `ValidateGrants` refuses a host that is not an IP or prefix and a malformed filter. On API 1 the
 `HTTP` and `MQTT` globals are outside this: grants limit only the plugin API there (logged).
+
+`grenton_raw`, `tftp` and `serial` (#240) reach a CLU's commands, files on devices and the device
+on a port: `Grants()` leaves them out, so neither installing nor recording grants from the files
+allows them, only the user in the panel. Their grants are `{"grenton_raw": {"hosts": [...]},
+"tftp": {"hosts": [...]}, "serial": {"ports": ["/dev/ttyUSB0"]}}`; without `ports` the plugin
+opens no port. The handles live in Go (`pkg/lua/plugin_io.go`, `PluginIO`), keyed by plugin id,
+which checks the grant again: the plugin's socket and TFTP client refuse this machine's addresses
+and anything outside the local network, the socket cannot bind ports vCLU reserved
+(`ReserveUDPPorts`), a broadcast goes only to the CLU port, where the server drops datagrams from
+plugin sockets (`FromPlugin`). Data comes back through `__vclu_plugin_io` on the run loop, queued per
+handle so a slow callback does not stop the reader. `PluginSandbox:cleanup` releases everything
+the plugin opened; a reload closes all of it.

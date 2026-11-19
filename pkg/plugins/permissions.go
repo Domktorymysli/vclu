@@ -31,6 +31,10 @@ type Permissions struct {
 	LAN    bool `json:"lan,omitempty"`    // HTTP to local addresses (the house's devices)
 	MQTT   bool `json:"mqtt,omitempty"`   // subscribe and publish on the broker
 	Modbus bool `json:"modbus,omitempty"` // Modbus requests, reads and writes
+	// Only once the user allows them in the panel, never on install:
+	GrentonRaw bool `json:"grenton_raw,omitempty"` // UDP frames and the cipher of CLUs
+	TFTP       bool `json:"tftp,omitempty"`        // reading and replacing files on devices
+	Serial     bool `json:"serial,omitempty"`      // a serial port the user assigns
 }
 
 func manifestAPI(m PluginManifest) int {
@@ -84,21 +88,37 @@ func (p Permissions) Names() []string {
 	if p.Modbus {
 		out = append(out, "modbus")
 	}
+	if p.GrentonRaw {
+		out = append(out, "grenton_raw")
+	}
+	if p.TFTP {
+		out = append(out, "tftp")
+	}
+	if p.Serial {
+		out = append(out, "serial")
+	}
 	return out
 }
 
 // allowedBy: the part of p the grants allow, and what p asks for beyond them. Nil grants
-// (installed by hand, or before grants existed) allow what is asked.
+// (installed by hand, or before grants existed) allow what installing would.
 func (p Permissions) allowedBy(g *config.PluginGrants) (allowed, pending Permissions) {
 	if g == nil {
-		return p, Permissions{}
+		g = p.Grants()
 	}
-	allowed = Permissions{LAN: p.LAN && g.LAN != nil, MQTT: p.MQTT && g.MQTT != nil, Modbus: p.Modbus && g.Modbus != nil}
-	pending = Permissions{LAN: p.LAN && g.LAN == nil, MQTT: p.MQTT && g.MQTT == nil, Modbus: p.Modbus && g.Modbus == nil}
+	allowed = Permissions{
+		LAN: p.LAN && g.LAN != nil, MQTT: p.MQTT && g.MQTT != nil, Modbus: p.Modbus && g.Modbus != nil,
+		GrentonRaw: p.GrentonRaw && g.GrentonRaw != nil, TFTP: p.TFTP && g.TFTP != nil, Serial: p.Serial && g.Serial != nil,
+	}
+	pending = Permissions{
+		LAN: p.LAN && g.LAN == nil, MQTT: p.MQTT && g.MQTT == nil, Modbus: p.Modbus && g.Modbus == nil,
+		GrentonRaw: p.GrentonRaw && g.GrentonRaw == nil, TFTP: p.TFTP && g.TFTP == nil, Serial: p.Serial && g.Serial == nil,
+	}
 	return allowed, pending
 }
 
-// Grants turns permissions into what the user allows when installing a plugin: each in full.
+// Grants turns permissions into what installing a plugin allows: each in full, except
+// grenton_raw, tftp and serial, which wait for the user in the panel.
 func (p Permissions) Grants() *config.PluginGrants {
 	g := &config.PluginGrants{}
 	if p.LAN {
@@ -113,11 +133,15 @@ func (p Permissions) Grants() *config.PluginGrants {
 	return g
 }
 
-// Limits narrow allowed permissions: nil lists allow any host or topic, an empty one none.
+// Limits narrow allowed permissions: nil lists allow any host or topic, an empty one none;
+// SerialPorts are the only ports the plugin may open.
 type Limits struct {
-	LANHosts      []string `json:"lanHosts,omitzero"`
-	MQTTSubscribe []string `json:"mqttSubscribe,omitzero"`
-	MQTTPublish   []string `json:"mqttPublish,omitzero"`
+	LANHosts        []string `json:"lanHosts,omitzero"`
+	MQTTSubscribe   []string `json:"mqttSubscribe,omitzero"`
+	MQTTPublish     []string `json:"mqttPublish,omitzero"`
+	GrentonRawHosts []string `json:"grentonRawHosts,omitzero"`
+	TFTPHosts       []string `json:"tftpHosts,omitzero"`
+	SerialPorts     []string `json:"serialPorts,omitzero"`
 }
 
 func (l Limits) narrows() bool {
@@ -134,6 +158,15 @@ func limitsOf(g *config.PluginGrants) Limits {
 	}
 	if g.MQTT != nil {
 		l.MQTTSubscribe, l.MQTTPublish = g.MQTT.Subscribe, g.MQTT.Publish
+	}
+	if g.GrentonRaw != nil {
+		l.GrentonRawHosts = g.GrentonRaw.Hosts
+	}
+	if g.TFTP != nil {
+		l.TFTPHosts = g.TFTP.Hosts
+	}
+	if g.Serial != nil {
+		l.SerialPorts = g.Serial.Ports
 	}
 	return l
 }

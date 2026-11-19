@@ -643,8 +643,8 @@ func (l *Loader) LoadPlugin(pluginID string, pluginConfig map[string]interface{}
 	// 1. Create sandbox for the plugin
 	perms, limits, official := l.effectivePermissions(pluginID, manifest)
 	limitsJSON, _ := json.Marshal(limits)
-	createSandboxScript := fmt.Sprintf(`PluginSandbox:create(%s, {api = %d, lan = %t, mqtt = %t, modbus = %t, official = %t, limits = JSON:decode(%s)})`,
-		luastr.Quote(pluginID), api, perms.LAN, perms.MQTT, perms.Modbus, official, luastr.Quote(string(limitsJSON)))
+	createSandboxScript := fmt.Sprintf(`PluginSandbox:create(%s, {api = %d, lan = %t, mqtt = %t, modbus = %t, grenton_raw = %t, tftp = %t, serial = %t, official = %t, limits = JSON:decode(%s)})`,
+		luastr.Quote(pluginID), api, perms.LAN, perms.MQTT, perms.Modbus, perms.GrentonRaw, perms.TFTP, perms.Serial, official, luastr.Quote(string(limitsJSON)))
 	if _, err := l.luaExecutor.Execute(createSandboxScript); err != nil {
 		return fmt.Errorf("failed to create sandbox: %w", err)
 	}

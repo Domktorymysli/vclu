@@ -7,6 +7,21 @@ local PluginHelpers = require("PluginHelpers")
 
 PluginSandbox = {}
 PluginSandbox.sandboxes = {}  -- pluginId -> sandbox data
+PluginSandbox.ioHandles = {}  -- Go handle id -> {call} of a plugin's socket, port or transfer
+
+-- Data for plugins' sockets, ports and transfers (pkg/lua/plugin_io.go): udp (bytes, ip,
+-- port), serial (bytes) or (nil, err) once the port fails, tftp (bytes, err) once.
+function __vclu_plugin_io(id, kind, data, second, port)
+    local h = PluginSandbox.ioHandles[id]
+    if not h then return end
+    if kind == "tftp" or (kind == "serial" and data == nil) then
+        PluginSandbox.ioHandles[id] = nil
+        h.sandbox.ioHandles[id] = nil
+    end
+    if h.call then
+        h.call(data, second, port)
+    end
+end
 
 -- Nothing a plugin can reach may be a shared mutable table: it gets copies, read-only
 -- proxies of objects it did not create, and facades whose methods are bound to the
@@ -423,6 +438,7 @@ function PluginSandbox:create(pluginId, permissions)
         instance = nil,           -- the real Plugin instance, set by Plugin:new
         instanceProxy = nil,      -- the instance as the plugin holds it
         pollers = {},             -- created through the API, stopped on cleanup
+        ioHandles = {},           -- Go handle id -> true: sockets, ports, transfers
         dead = false,             -- set by cleanup
     }
     permissions = type(permissions) == "table" and permissions or {}
@@ -434,6 +450,9 @@ function PluginSandbox:create(pluginId, permissions)
         lan = permissions.lan == true,
         mqtt = permissions.mqtt == true,
         modbus = permissions.modbus == true,
+        grentonRaw = permissions.grenton_raw == true,
+        tftp = permissions.tftp == true,
+        serial = permissions.serial == true,
     }
     -- How the user narrowed them (grants in .vclu.json): lists of hosts and topic filters,
     -- nil allows any, an empty list none
@@ -443,6 +462,9 @@ function PluginSandbox:create(pluginId, permissions)
         lanHosts = list(limits.lanHosts),
         mqttSubscribe = list(limits.mqttSubscribe),
         mqttPublish = list(limits.mqttPublish),
+        grentonRawHosts = list(limits.grentonRawHosts),
+        tftpHosts = list(limits.tftpHosts),
+        serialPorts = list(limits.serialPorts),
     }
     -- Events a plugin emits are "<prefix>:<name>". An official plugin's prefix is its
     -- short id or the id's first word (sun-position: "sun"), any other's its full id,
@@ -455,6 +477,11 @@ function PluginSandbox:create(pluginId, permissions)
     -- requests of a plugin carry its id as the HTTP instance (PluginHelpers.httpRequest)
     if type(__go_http_set_lan) == "function" then
         __go_http_set_lan(pluginId, sandbox.permissions.lan, sandbox.limits.lanHosts)
+    end
+    if type(__go_pluginio_grant) == "function" then
+        __go_pluginio_grant(pluginId, sandbox.permissions.grentonRaw, sandbox.permissions.tftp,
+            sandbox.permissions.serial, sandbox.limits.grentonRawHosts, sandbox.limits.tftpHosts,
+            sandbox.limits.serialPorts)
     end
 
     -- Build wrapped API with automatic tracking
@@ -610,6 +637,109 @@ function PluginSandbox:buildAPI(sandbox)
             end
             MQTT:publish(topic, payloadStr, qos or 0, retain or false)
         end
+    end
+
+    -- grenton_raw, tftp and serial: handles live in Go, which checks the grant again
+    local function requireIO(name, key)
+        if not sandbox.permissions[key] then
+            error(name .. " needs \"" .. name .. "\" in the permissions of " .. pluginId
+                .. "'s plugin.json, allowed in the plugin's settings", 3)
+        end
+    end
+
+    local function ioCallback(what, fn)
+        if type(fn) ~= "function" then return nil end
+        return function(...)
+            local ok, err = pcall(fn, ...)
+            if not ok then
+                Logger:error("[" .. pluginId .. "] " .. what .. " error: " .. tostring(err))
+            end
+        end
+    end
+
+    local function track(id)
+        local entry = { sandbox = sandbox }
+        PluginSandbox.ioHandles[id] = entry
+        sandbox.ioHandles[id] = true
+        return entry
+    end
+
+    local function closeIO(id)
+        __go_pluginio_close(id, pluginId)
+        PluginSandbox.ioHandles[id] = nil
+        sandbox.ioHandles[id] = nil
+    end
+
+    -- A UDP socket of the plugin's own; returns nil, err when the port cannot be bound
+    api.grentonSocket = function(opts)
+        requireIO("grenton_raw", "grentonRaw")
+        local port = type(opts) == "table" and tonumber(opts.port) or 0
+        local id, err = __go_pluginio_udp_open(pluginId, port)
+        if not id then return nil, err end
+        local entry = track(id)
+        local socket = {}
+        function socket:send(ip, toPort, bytes)
+            return __go_pluginio_udp_send(id, pluginId, tostring(ip), tonumber(toPort) or 0, tostring(bytes))
+        end
+        function socket:broadcast(toPort, bytes)
+            return __go_pluginio_udp_send(id, pluginId, "255.255.255.255", tonumber(toPort) or 0, tostring(bytes))
+        end
+        function socket:onReceive(fn) entry.call = ioCallback("UDP", fn) end
+        function socket:close() closeIO(id) end
+        return socket
+    end
+
+    -- The CLU cipher with a key and IV the plugin brings (raw or base64)
+    api.grentonCipher = function(key, iv)
+        requireIO("grenton_raw", "grentonRaw")
+        key, iv = tostring(key), tostring(iv)
+        local _, err = __go_pluginio_cipher(true, key, iv, "")
+        if err then error(err, 2) end
+        return {
+            encrypt = function(_, bytes) return __go_pluginio_cipher(true, key, iv, tostring(bytes)) end,
+            decrypt = function(_, bytes) return __go_pluginio_cipher(false, key, iv, tostring(bytes)) end,
+        }
+    end
+
+    -- A TFTP client: get answers (bytes, err), put (true, err), both in a callback
+    api.tftp = function(ip, opts)
+        requireIO("tftp", "tftp")
+        local port = type(opts) == "table" and tonumber(opts.port) or 69
+        local function transfer(name, bytes, done)
+            local id, err = __go_pluginio_tftp(pluginId, tostring(ip), port, tostring(name), bytes)
+            if not id then
+                api.setTimeout(0, function() done(nil, err) end)
+                return
+            end
+            track(id).call = ioCallback("TFTP", done)
+        end
+        return {
+            get = function(_, name, callback)
+                transfer(name, nil, function(data, e)
+                    if callback then callback(data, e) end
+                end)
+            end,
+            put = function(_, name, bytes, callback)
+                transfer(name, tostring(bytes), function(_, e)
+                    if callback then callback(e == nil or nil, e) end
+                end)
+            end,
+        }
+    end
+
+    -- A serial port assigned to the plugin; returns nil, err when it cannot be opened
+    api.serialOpen = function(path, opts)
+        requireIO("serial", "serial")
+        opts = type(opts) == "table" and opts or {}
+        local id, err = __go_pluginio_serial_open(pluginId, tostring(path), tonumber(opts.baud) or 9600,
+            tonumber(opts.data) or 8, opts.parity and tostring(opts.parity) or "none", tonumber(opts.stop) or 1)
+        if not id then return nil, err end
+        local entry = track(id)
+        local port = {}
+        function port:write(bytes) return __go_pluginio_serial_write(id, pluginId, tostring(bytes)) end
+        function port:onData(fn) entry.call = ioCallback("serial", fn) end
+        function port:close() closeIO(id) end
+        return port
     end
 
     -- Create a plugin-local data object (stored in sandbox, not in global _registry)
@@ -1076,7 +1206,15 @@ function PluginSandbox:cleanup(pluginId)
     Logger:info("[SANDBOX] Cleaning up plugin: " .. pluginId)
     sandbox.dead = true
 
-    -- 0. Pollers, exposed objects and the registry entry of its instance
+    -- 0. Sockets, serial ports and transfers, then pollers, exposed objects and the
+    -- registry entry of its instance
+    if type(__go_pluginio_release) == "function" then
+        __go_pluginio_release(pluginId)
+    end
+    for id in pairs(sandbox.ioHandles) do
+        PluginSandbox.ioHandles[id] = nil
+    end
+    sandbox.ioHandles = {}
     for _, poller in ipairs(sandbox.pollers) do
         pcall(poller.stop, poller)
     end

@@ -82,6 +82,26 @@ func TestPluginsAPIInstallRecordsGrants(t *testing.T) {
 	}
 }
 
+// A plugin that asks for a serial port gets nothing of it on install: it waits for the user.
+func TestPluginsAPIInstallLeavesSerialPending(t *testing.T) {
+	repo := manifestRepo(t, "rs", "1.0.0",
+		`{"id":"rs","version":"1.0.0","api":2,"permissions":{"lan":true,"serial":true},"files":["init.lua"]}`)
+	dir := t.TempDir()
+	if err := writeTestConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
+		Repositories: []config.PluginRepository{{Name: "test", URL: repo.URL, Enabled: true}},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{serverDir: dir}
+	postInstall(t, s, "rs")
+
+	got := installedPlugins(t, s)
+	if len(got) != 1 || !lanOnly(got[0].Grants) || got[0].Grants.Serial != nil ||
+		strings.Join(got[0].PendingPermissions, ",") != "serial" {
+		t.Errorf("installed: %+v, want lan allowed and serial pending", got)
+	}
+}
+
 // An update that asks for more does not get it: the plugin installed before grants keeps
 // what its old files asked for, the rest is pending until the user allows it.
 func TestPluginsAPIUpdateAskingForMoreWaitsForTheUser(t *testing.T) {

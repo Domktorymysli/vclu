@@ -117,6 +117,7 @@ type LuaEngine struct {
 	httpServerManager   *HTTPServerManager
 	mqttManager         *MQTTManager
 	modbusManager       *ModbusManager
+	pluginIO            *PluginIO
 	kvManager           *plugins.KVStoreManager
 	gpioManager         *GPIOManager
 	satelManager        *SatelManager
@@ -230,6 +231,13 @@ func (le *LuaEngine) initializeLuaState(cluName string) error {
 		le.modbusManager = NewModbusManager()
 	}
 
+	// Plugins' sockets and ports belong to the old state's sandboxes: close them
+	if le.pluginIO == nil {
+		le.pluginIO = NewPluginIO()
+		le.pluginIO.deliver = le.executeFast
+	}
+	le.pluginIO.CloseAll()
+
 	// Register safe functions (including timer functions)
 	registerSafeFunctions(L)
 	registerTimerFunctions(L, le.timerManager)
@@ -237,6 +245,7 @@ func (le *LuaEngine) initializeLuaState(cluName string) error {
 	registerHTTPServerFunctions(L, le.httpServerManager)
 	registerMQTTFunctions(L, le.mqttManager)
 	registerModbusFunctions(L, le.modbusManager)
+	registerPluginIOFunctions(L, le.pluginIO)
 	registerParserFunctions(L)
 	registerKVFunctions(L, le.kvManager)
 	registerGPIOFunctions(L, le.gpioManager)
@@ -1738,6 +1747,9 @@ func (le *LuaEngine) Close() {
 	if le.modbusManager != nil {
 		le.modbusManager.Close()
 	}
+	if le.pluginIO != nil {
+		le.pluginIO.CloseAll()
+	}
 	if le.httpServerManager != nil {
 		le.httpServerManager.Stop()
 	}
@@ -2118,6 +2130,11 @@ func (le *LuaEngine) processGPIOOnLoop() {
 // ProcessGPIO is the public wrapper for tests.
 func (le *LuaEngine) ProcessGPIO() {
 	le.processGPIOOnLoop()
+}
+
+// PluginIO: plugins' UDP sockets, serial ports and TFTP transfers.
+func (le *LuaEngine) PluginIO() *PluginIO {
+	return le.pluginIO
 }
 
 // GetMQTTManager returns the MQTT manager instance.

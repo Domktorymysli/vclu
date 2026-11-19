@@ -239,3 +239,67 @@ func TestGrantsJSONKeepsEmptyLists(t *testing.T) {
 		t.Errorf("round trip: %s", out)
 	}
 }
+
+// grenton_raw, tftp and serial wait for the user: not on install, not for a plugin without
+// grants, not from the files of one installed before grants.
+func TestSensitivePermissionsWaitForTheUser(t *testing.T) {
+	asked := Permissions{LAN: true, GrentonRaw: true, TFTP: true, Serial: true}
+	if g := asked.Grants(); g.LAN == nil || g.GrentonRaw != nil || g.TFTP != nil || g.Serial != nil {
+		t.Errorf("install grants %+v, want lan only", g)
+	}
+	allowed, pending := asked.allowedBy(nil)
+	if allowed != (Permissions{LAN: true}) || strings.Join(pending.Names(), ",") != "grenton_raw,tftp,serial" {
+		t.Errorf("without grants: allowed %+v, pending %v", allowed, pending.Names())
+	}
+	allowed, pending = asked.allowedBy(&config.PluginGrants{
+		LAN: &config.LANGrant{}, GrentonRaw: &config.HostsGrant{}, Serial: &config.SerialGrant{Ports: []string{"/dev/ttyUSB0"}},
+	})
+	if allowed != (Permissions{LAN: true, GrentonRaw: true, Serial: true}) || strings.Join(pending.Names(), ",") != "tftp" {
+		t.Errorf("allowed by the user: %+v, pending %v", allowed, pending.Names())
+	}
+
+	l := permissionsLoader(t, nil, []config.InstalledPlugin{{ID: "@jan/rs", Enabled: true}})
+	dir := filepath.Join(l.pluginsDir, "jan--rs", "1.0.0")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "plugin.json"),
+		[]byte(`{"id":"rs","version":"1.0.0","api":2,"permissions":{"serial":true,"mqtt":true}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	l.recordGrants("@jan/rs")
+	mc, err := config.ReadMasterConfig(l.serverDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := l.PendingPermissions(mc.Plugins.Installed[0]); strings.Join(got, ",") != "serial" {
+		t.Errorf("pending after recording: %v, want [serial]", got)
+	}
+}
+
+// The hosts and ports of the new permissions reach the sandbox.
+func TestSensitivePermissionsLimits(t *testing.T) {
+	l := permissionsLoader(t, nil, []config.InstalledPlugin{{ID: "@jan/clu", Grants: &config.PluginGrants{
+		GrentonRaw: &config.HostsGrant{Hosts: []string{"192.168.1.10"}},
+		TFTP:       &config.HostsGrant{},
+		Serial:     &config.SerialGrant{Ports: []string{"/dev/ttyUSB0"}},
+	}}})
+	m := PluginManifest{API: 2, Permissions: &Permissions{GrentonRaw: true, TFTP: true, Serial: true}}
+	perms, limits, _ := l.effectivePermissions("@jan/clu", m)
+	if perms != *m.Permissions {
+		t.Errorf("permissions: %+v", perms)
+	}
+	data, _ := json.Marshal(limits)
+	if string(data) != `{"grentonRawHosts":["192.168.1.10"],"serialPorts":["/dev/ttyUSB0"]}` {
+		t.Errorf("limits: %s", data)
+	}
+	for _, g := range []config.PluginGrants{
+		{Serial: &config.SerialGrant{Ports: []string{"ttyUSB0"}}},
+		{Serial: &config.SerialGrant{Ports: []string{"/dev/../etc/passwd"}}},
+		{TFTP: &config.HostsGrant{Hosts: []string{"clu.local"}}},
+	} {
+		if err := ValidateGrants(g); err == nil {
+			t.Errorf("%+v accepted", g)
+		}
+	}
+}
