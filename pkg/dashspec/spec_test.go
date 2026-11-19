@@ -108,3 +108,14 @@ func TestPageLuaKinds(t *testing.T) {
 		}
 	}
 }
+
+// The page list shows what each action sends, so on and off differ.
+func TestDescribe(t *testing.T) {
+	w := Widget{Kind: Toggle, ID: "t", Read: &Read{CLU: "CLU1", Object: "DOU1", Feature: ip(0)},
+		On:  &Action{Op: SetFeature, CLU: "CLU1", Object: "DOU1", Value: 1.0},
+		Off: &Action{Op: Execute, CLU: "CLU1", Object: "DOU1", Index: 1, Value: "x"}}
+	reads, does := Describe(w)
+	if strings.Join(reads, ",") != "CLU1.DOU1[0]" || strings.Join(does, ",") != `CLU1.DOU1:set(0, 1),CLU1.DOU1:execute(1, "x")` {
+		t.Errorf("%v %v", reads, does)
+	}
+}

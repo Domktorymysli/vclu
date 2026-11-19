@@ -27,7 +27,7 @@
     }
 
     function widgets(p) {
-        var html = '<details class="small"><summary>' + p.widgets.length + ' ' + esc(t('widgets').toLowerCase()) + '</summary><ul class="mb-0">';
+        var html = '<details class="small"><summary>' + esc(t('widgets')) + ': ' + p.widgets.length + '</summary><ul class="mb-0">';
         p.widgets.forEach(function(w) {
             html += '<li><code>' + esc(w.kind) + '</code> ' + esc(w.label);
             if (w.reads.length) html += ' <span class="text-muted">' + esc(t('reads')) + ' ' + esc(w.reads.join(', ')) + '</span>';
@@ -58,7 +58,7 @@
                         (mine ? ' disabled' : (p.state === 'none' ? ' checked' : '')) + '></td>';
                 html += '<td>' + esc(p.label);
                 if (p.leftOut.length > 0) {
-                    html += '<details class="small text-warning"><summary>' + p.leftOut.length + ' ' + esc(t('left_out')) +
+                    html += '<details class="small text-warning"><summary>' + esc(t('left_out')) + ': ' + p.leftOut.length +
                             '</summary>' + list(p.leftOut) + '</details>';
                 }
                 html += '</td><td>' + widgets(p) + '</td>';
@@ -124,6 +124,8 @@
             }
             if (d.error) {
                 out.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> ' + esc(d.error) + '</div>';
+                // the project may have changed since the list was shown
+                load();
                 return;
             }
             var html = '<div class="alert alert-success"><i class="bi bi-check-circle"></i> ' + esc(t('written')) + ': ' +
@@ -171,5 +173,8 @@
             .catch(function(err) { root.innerHTML = '<div class="alert alert-danger">' + esc(err.message) + '</div>'; });
     }
 
+    // the list is read again each time the tab is shown: a project imported meanwhile changes it
+    var tab = document.getElementById('tab-dashboards');
+    if (tab) tab.addEventListener('shown.bs.tab', function() { out.innerHTML = ''; load(); });
     load();
 })();

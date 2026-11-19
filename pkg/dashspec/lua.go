@@ -158,6 +158,17 @@ func InitLua(modules []string) string {
 // LoadLine is the line of InitLua that loads one page.
 func LoadLine(module string) string { return "Wire.load(" + luastr.Quote(module) + ")" }
 
+// describeValue is an action's value as the page list shows it; "…" is what the user enters.
+func describeValue(a *Action) string {
+	if a.Input {
+		return "…"
+	}
+	if s, ok := a.Value.(string); ok {
+		return strconv.Quote(s)
+	}
+	return valueLua(a.Value)
+}
+
 // Describe says what a widget shows, reads and does, for the page list.
 func Describe(w Widget) (reads, does []string) {
 	addR := func(r *Read) {
@@ -182,9 +193,13 @@ func Describe(w Widget) (reads, does []string) {
 		case Script:
 			does = append(does, a.CLU+":"+a.Script+"()")
 		case SetFeature:
-			does = append(does, fmt.Sprintf("%s.%s:set(%d)", a.CLU, a.Object, a.Index))
+			does = append(does, fmt.Sprintf("%s.%s:set(%d, %s)", a.CLU, a.Object, a.Index, describeValue(a)))
 		case Execute:
-			does = append(does, fmt.Sprintf("%s.%s:execute(%d)", a.CLU, a.Object, a.Index))
+			if a.Value == nil && !a.Input {
+				does = append(does, fmt.Sprintf("%s.%s:execute(%d)", a.CLU, a.Object, a.Index))
+			} else {
+				does = append(does, fmt.Sprintf("%s.%s:execute(%d, %s)", a.CLU, a.Object, a.Index, describeValue(a)))
+			}
 		}
 	}
 	addR(w.Read)
