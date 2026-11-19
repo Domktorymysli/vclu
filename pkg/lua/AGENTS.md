@@ -231,9 +231,18 @@ module fv05) on 2026-10-18:
 A frame is several calls in one script, so keep each message under `RemotePanel.MAX_MESSAGE` and
 spaced by `SPACING_MS`; the CLU drops bursts.
 
+### GATE Alarm (#214)
+A GATE Alarm (om.lua FwType 00000002, HwType 00000012; an HTTP GATE has the same HwType, a
+Smart Panel WiFi the same FwType) declares its Satel and Jablotron objects as GATE objects
+(`SAT0001 = GATE:new(100, "SAT0001")`); `runtime/objects/RemoteGateAlarm.lua` has their numbers.
+Grenton's SatelZone is a Satel partition and its SatelInput a Satel zone, so these classes are
+`RemoteGate*`, never the Satel integration's names. Their guards (disarm, secret features) sit
+in `RemoteObject`'s `get`/`set`/`execute` through `_refused`, and Wire asks it for a read it
+sends past the proxy; a new way to send a script for an object must ask it too.
+
 ### Untested on hardware
-`RemoteLight` (dimmer), `RemoteLedChannel`, the colour of `RemoteRGBLight` and `RemoteCover` (roller) in
-`runtime/objects/` follow the documentation, not a real module. Say so in the PR when you change them; a hardware report is welcome.
+`RemoteLight` (dimmer), `RemoteLedChannel`, the colour of `RemoteRGBLight`, `RemoteCover` (roller) and
+`RemoteGateAlarm` (GATE Alarm) in `runtime/objects/` follow the documentation, not a real module. Say so in the PR when you change them; a hardware report is welcome.
 
 ## runtime/integrations: Home Assistant, MQTT, HTTP
 

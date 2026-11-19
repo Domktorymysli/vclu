@@ -25,10 +25,12 @@ Only public API is listed — internal/private functions are omitted.
 - [GPIO_DOUT](#gpio_dout) (1 functions)
 - [GPIO_DIN](#gpio_din) (1 functions)
 - [integrations.mqtt.MqttClient](#integrationsmqttmqttclient) (30 functions)
+- [Wire](#wire) (12 functions)
 - [core.Cloud](#corecloud) (9 functions)
-- [grenton.CLU_REMOTE](#grentonclu_remote) (3 functions)
+- [grenton.CLU_REMOTE](#grentonclu_remote) (4 functions)
 - [lib.cct](#libcct) (1 functions)
 - [lib.tasmota](#libtasmota) (5 functions)
+- [objects.RemoteGateAlarm](#objectsremotegatealarm) (23 functions)
 
 ---
 
@@ -2445,6 +2447,116 @@ Publish state update for object
 
 ---
 
+## Wire
+
+### `Wire.value(path) → function A read for a widget`
+
+An object's value, as the registry follows it (feature 0).
+
+- `path` (string) — "CLU221000002.DOU0001", or "CLU221000002" for the CLU's own
+
+**Returns:** function A read for a widget
+
+### `Wire.feature(path, index) → function A read for a widget`
+
+A feature of an object (or of the CLU) by its number, asked in the background.
+
+- `path` (string) — "CLU221000002.DIN0001", or "CLU221000002"
+- `index` (number) — Feature number
+
+**Returns:** function A read for a widget
+
+### `Wire.variable(clu, name) → function A read for a widget`
+
+A user feature of the CLU (a variable defined in Object Manager), asked in the background.
+
+- `clu` (string) — "CLU221000002"
+- `name` (string) — The user feature, e.g. "setpoint"
+
+**Returns:** function A read for a widget
+
+### `Wire.isOn(read) → function A read of true or false`
+
+A read as on or off: 0, "", "0", false and nothing are off.
+
+- `read` (function) — A read (Wire.value, ...)
+
+**Returns:** function A read of true or false
+
+### `Wire.text(read, onText, offText) → function A read of the text`
+
+A read shown as one of two texts, as myGrenton's indications.
+
+- `read` (function) — A read
+- `onText` (string) — Shown when on
+- `offText` (string) — Shown when off
+
+**Returns:** function A read of the text
+
+### `Wire.percent(read) → function A read of the value times 100; what is no number passes as it is`
+
+A read of 0-1 shown as 0-100: a dimmer's or an LED's level, which myGrenton shows in %.
+
+- `read` (function) — A read (Wire.value, ...)
+
+**Returns:** function A read of the value times 100; what is no number passes as it is
+
+### `Wire.fromPercent(action) → function The action for a 0-100 slider`
+
+An action that takes 0-100 and sends 0-1: Wire.percent's other half, for a slider.
+
+- `action` (function) — An action with Wire.INPUT (Wire.set(..., Wire.INPUT))
+
+**Returns:** function The action for a 0-100 slider
+
+### `Wire.set(path, index, value) → function An action for a widget`
+
+Sets a feature of an object: obj:set(index, value).
+
+- `path` (string) — "CLU221000002.DOU0001"
+- `index` (number) — Feature number
+- `value` (any) — A number, a string, or Wire.INPUT for what the user enters
+
+**Returns:** function An action for a widget
+
+### `Wire.execute(path, index, value) → function An action for a widget`
+
+Runs a method of an object: obj:execute(index[, value]).
+
+- `path` (string) — "CLU221000002.DOU0001"
+- `index` (number) — Method number
+- `value` (any) — Optional: a number, a string, or Wire.INPUT
+
+**Returns:** function An action for a widget
+
+### `Wire.script(clu, name) → function An action for a widget`
+
+Runs a script of the CLU with the given arguments.
+
+- `clu` (string) — "CLU221000002"
+- `name` (string) — The script
+
+**Returns:** function An action for a widget
+
+### `Wire.onOff(onAction, offAction) → function The toggle's action`
+
+A toggle's action from the actions for on and for off (either may be nil).
+
+- `onAction` (function) — |nil Run to switch on
+- `offAction` (function) — |nil Run to switch off
+
+**Returns:** function The toggle's action
+
+### `Wire.load(module) → boolean Whether it loaded`
+
+Loads a dashboard page on its own: one that fails is logged and listed in Wire.errors, and the others still load.
+
+- `module` (string) — The page's module, e.g. "dashboards/imported/page_1700000000001"
+
+**Returns:** boolean Whether it loaded
+
+---
+
 ## core.Cloud
 
 ### `Cloud.notify(opts, body) → string|nil The notification's id; nil and the reason when not sent`
@@ -2522,6 +2634,13 @@ Reads a user feature (a variable defined in Object Manager) from the CLU. Blocks
 
 **Returns:** any Number, string or boolean; nil when not set, or nil and an error when the CLU did not answer
 
+### `CLU_REMOTE:getAsync(name, done)`
+
+Reads a user feature without blocking: done(value, err) is called when the CLU answers, with the value as get returns it.
+
+- `name` (string) — Feature name, e.g. "temp_zadana"
+- `done` (function) — Called with the value, or nil and an error
+
 ### `CLU_REMOTE:set(name, value) → boolean true when the CLU answered, or nil and an error`
 
 Sets a user feature on the CLU. Blocks until the CLU answers, like execute.
@@ -2596,6 +2715,112 @@ Whether the device is online (its LWT is Online).
 Tasmota devices seen on MQTT discovery (tasmota/discovery/<mac>/config), sorted by topic. Nothing is created from them; add a device with a line in a module.
 
 **Returns:** table list of { topic, name, device, relays, lights, ip, mac }
+
+---
+
+## objects.RemoteGateAlarm
+
+### `RemoteGateAlarm.disarmAllowed() → boolean`
+
+Whether the configuration allows disarming a GATE Alarm's zones and sections (grenton.gateAlarm.allowDisarm in .vclu.json, default false).
+
+**Returns:** boolean
+
+### `RemoteGateAlarm:getValue() → number|nil`
+
+The value the GATE reported (feature 0).
+
+**Returns:** number|nil
+
+### `RemoteGateSatelZone:armZone()`
+
+Arms the partition (execute 0 ArmZone); the GATE reports the state.
+
+### `RemoteGateSatelZone:disarmZone()`
+
+Disarms the partition (execute 1 DisarmZone). Refused unless grenton.gateAlarm.allowDisarm is true in .vclu.json.
+
+### `RemoteGateSatelZone:isArmed() → boolean|nil`
+
+Whether the partition is armed (nil while the GATE has not reported it).
+
+**Returns:** boolean|nil
+
+### `RemoteGateSatelZone:onArm(callback)`
+
+Registers a callback for when the partition is armed.
+
+### `RemoteGateSatelZone:onDisarm(callback)`
+
+Registers a callback for when the partition is disarmed.
+
+### `RemoteGateSatelInput:onSwitchOn(callback)`
+
+Registers a callback for when the input is violated.
+
+### `RemoteGateSatelInput:onSwitchOff(callback)`
+
+Registers a callback for when the input is back to normal.
+
+### `RemoteGateSatelOutput:switchOn()`
+
+Switches the output on (execute 0); the GATE reports the state.
+
+### `RemoteGateSatelOutput:switchOff()`
+
+Switches the output off (execute 1).
+
+### `RemoteGateSatelOutput:toggle()`
+
+Switches the output off when it is on, else on.
+
+### `RemoteGateSatelOutput:setValue(value)`
+
+1 (or true) switches on, anything else off.
+
+- `value` (number) — 0 or 1
+
+### `RemoteGateSatelOutput:onSwitchOn(callback)`
+
+Registers a callback for when the output switches on.
+
+### `RemoteGateSatelOutput:onSwitchOff(callback)`
+
+Registers a callback for when the output switches off.
+
+### `RemoteGateSatel:isConnected() → boolean|nil`
+
+Whether the GATE is connected to the panel (nil while not reported).
+
+**Returns:** boolean|nil
+
+### `RemoteGateSatel:onConnected(callback)`
+
+Registers a callback for when the GATE connects to the panel.
+
+### `RemoteGateSatel:onDisconnected(callback)`
+
+Registers a callback for when the GATE loses the panel.
+
+### `RemoteGateJablotronSection:arm()`
+
+Arms the section (execute 0).
+
+### `RemoteGateJablotronSection:armPartially()`
+
+Arms the section partially (execute 1).
+
+### `RemoteGateJablotronSection:disarm()`
+
+Disarms the section (execute 2). Refused unless grenton.gateAlarm.allowDisarm is true in .vclu.json.
+
+### `RemoteGateJablotronSection:onArm(callback)`
+
+Registers a callback for when the section is armed.
+
+### `RemoteGateJablotronSection:onDisarm(callback)`
+
+Registers a callback for when the section is disarmed.
 
 ---
 

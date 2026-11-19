@@ -106,6 +106,9 @@
                             <i class="bi bi-puzzle"></i> Modules
                         </button>
                         {{end}}
+                        <button class="nav-link {{if eq .activeTab "dashboards"}}active{{end}}" id="tab-dashboards" data-bs-toggle="tab" data-bs-target="#pane-dashboards" type="button" role="tab">
+                            <i class="bi bi-grid-1x2"></i> {{index .t "mygrenton.tab"}}
+                        </button>
                         <button class="nav-link {{if eq .activeTab "sync"}}active{{end}}" id="tab-sync" data-bs-toggle="tab" data-bs-target="#pane-sync" type="button" role="tab">
                             <i class="bi bi-arrow-repeat"></i> Sync
                         </button>
@@ -204,11 +207,11 @@
                                     <i class="bi bi-upload"></i> {{if eq .lang "pl"}}Upload plików OM{{else}}Upload OM Files{{end}}
                                 </div>
                                 <div class="card-body">
-                                    <p class="text-muted small mb-3">{{if eq .lang "pl"}}Wybierz plik OM.lua lub paczkę diagnostyczną (.zip) z Object Managera.{{else}}Select an OM.lua file or diagnostic pack (.zip) from Object Manager.{{end}}</p>
+                                    <p class="text-muted small mb-3">{{if eq .lang "pl"}}Po wykryciu CLU w Object Managerze wgraj projekt (.omp) albo paczkę diagnostyczną (.zip); pojedynczy om.lua też zadziała. Z projektu agent dostaje też powiązania zdarzeń i skrypty CLU.{{else}}After discovering the CLUs in Object Manager, upload the project (.omp) or a diagnostic pack (.zip); a single om.lua works too. From the project the agent also gets the event bindings and the CLU scripts.{{end}}</p>
                                     <form id="uploadForm" enctype="multipart/form-data">
                                         <div class="mb-3">
-                                            <input type="file" class="form-control" id="omFile" name="file" accept=".lua,.zip" required>
-                                            <div class="form-text">{{if eq .lang "pl"}}Obsługiwane formaty: .lua (pojedynczy plik) lub .zip (paczka diagnostyczna){{else}}Supported formats: .lua (single file) or .zip (diagnostic pack){{end}}</div>
+                                            <input type="file" class="form-control" id="omFile" name="file" accept=".omp,.zip,.lua" required>
+                                            <div class="form-text">{{if eq .lang "pl"}}Obsługiwane formaty: .omp (projekt Object Managera), .zip (paczka diagnostyczna lub projekt), .lua (pojedynczy plik). Plik nie jest zapisywany.{{else}}Supported formats: .omp (Object Manager project), .zip (diagnostic pack or project), .lua (single file). The upload is not kept.{{end}}</div>
                                         </div>
                                         <button type="submit" class="btn btn-primary" id="uploadBtn">
                                             <i class="bi bi-upload"></i> {{if eq .lang "pl"}}Upload i waliduj{{else}}Upload & Validate{{end}}
@@ -301,6 +304,20 @@
                             </div>
                         </div>
                         {{end}}
+
+                        <!-- ==================== DASHBOARDS TAB ==================== -->
+                        <div class="tab-pane fade {{if eq .activeTab "dashboards"}}show active{{end}}" id="pane-dashboards" role="tabpanel">
+                            <div class="card mb-3">
+                                <div class="card-header">
+                                    <i class="bi bi-grid-1x2"></i> {{index .t "mygrenton.title"}}
+                                </div>
+                                <div class="card-body">
+                                    <p class="text-muted small mb-3">{{index .t "mygrenton.intro"}}</p>
+                                    <div id="mgDashboards"><div class="text-muted"><span class="spinner-border spinner-border-sm"></span></div></div>
+                                    <div id="mgResult" class="mt-3"></div>
+                                </div>
+                            </div>
+                        </div>
 
                         <!-- ==================== SYNC TAB ==================== -->
                         <div class="tab-pane fade {{if eq .activeTab "sync"}}show active{{end}}" id="pane-sync" role="tabpanel">
@@ -523,6 +540,8 @@
     <script src="/static/js/utils.js"></script>
     <script src="/static/js/csrf.js"></script>
     <script src="/static/js/om-files.js"></script>
+    <script>window.MG_T = {{json .mgT}};</script>
+    <script src="/static/js/grenton-dashboards.js"></script>
     {{if .hasModules}}
     <script>
         const MODULES_STATE = {

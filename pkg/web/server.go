@@ -191,6 +191,7 @@ type Server struct {
 	restart          func()       // nil: scheduleRestart exits the process; tests record the call
 	calendarLimiter  *rateLimiter // calendar widget requests that miss the cache, per IP
 	live             *liveFeeds   // dashboards watched over WebSockets
+	omImport         sync.Mutex   // one OM import at a time: imports/, .vclu.json and ai/om
 
 	// the roles each remote dashboard names, for the app on the LAN (local.go)
 	remoteRolesMu    sync.Mutex
@@ -1015,10 +1016,13 @@ func (s *Server) setupRoutes() {
 
 		// OM Files endpoints
 		api.POST("/om/upload", s.handleAPIOMUpload)
+		api.POST("/om/preview", s.handleAPIOMPreview)
 		api.POST("/om/regenerate", s.handleAPIOMRegenerate)
 		api.GET("/om/list", s.handleAPIOMList)
 		api.GET("/om/:serial", s.handleAPIOMDetails)
 		api.DELETE("/om/:serial", s.handleAPIOMDelete)
+		api.GET("/grenton/dashboards", s.handleAPIGrentonDashboards)
+		api.POST("/grenton/dashboards", s.handleAPIGrentonDashboardsCreate)
 
 		// Registry endpoints
 		api.GET("/registry/list", s.handleAPIRegistryList)

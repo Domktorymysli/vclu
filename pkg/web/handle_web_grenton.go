@@ -48,6 +48,7 @@ func (s *Server) handleGrenton(c *gin.Context) {
 		"activeTab":       activeTab,
 		"lang":            trans["lang"],
 		"t":               trans["t"],
+		"mgT":             prefixed(trans["t"], "mygrenton."),
 	}
 
 	// Device info
@@ -389,4 +390,16 @@ func (s *Server) GetSyncConfigSyncFunc() func() {
 		}
 		s.syncRemoteConfigToLua(masterConfig.Sync)
 	}
+}
+
+// prefixed are the translations under a prefix, without it, for a page's script.
+func prefixed(t any, prefix string) map[string]string {
+	all, _ := t.(map[string]string)
+	out := map[string]string{}
+	for k, v := range all {
+		if strings.HasPrefix(k, prefix) {
+			out[strings.TrimPrefix(k, prefix)] = v
+		}
+	}
+	return out
 }

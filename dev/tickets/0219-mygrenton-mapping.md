@@ -37,6 +37,15 @@ and the mapping that the "Dashboards" section on the Grenton page (#220) builds 
   | `HEADER` | `text` | `group` |
   | `THERMOSTAT` | `thermostatCurrentTemp`, `thermostatTargetTemp` (`min`, `max`), `thermostatState`, `thermostatMode`, `thermostatSchedule`, ... | `thermostat` |
   | `SCHEDULER` | `state`, `value`, `schedule`, `min`, `max`, `start`, `stop`, `setMin`, `setMax`, `setSchedule` | none for now: listed as left out |
+  | `DIMMER` | `buttonBistable`, `slider` (or `status`) | `toggle` + `slider` (`_level`) |
+  | `DIMMER_V2` (OM 1.8) | `min`, `max`, `object`: `onAction`, `offAction`, `setValueAction` (`PSEUDO_METHOD`, feature 0), `value` | `toggle` + `slider` (`_level`) |
+  | `LED` | `buttonBistable`, `sliderBrightness`, `sliderHue`, `sliderSaturation` | `toggle` + a `slider` each |
+  | `ROLLER_SHUTTER`, `ROLLER_SHUTTER_V2` | `buttonBistableClick` / `buttonBistableShorter`, `upButton`, `downButton`, `status`, `sliderOpenLevel`, `sliderSlatsLevel` | `button`s (`_up`, `_down`), position and slats as `slider` or `status` |
+  | `LED_CCT`, `ROLLER_SHUTTER_V3` | one `object` | none for now (no real file seen): listed as left out |
+
+  A unit is OM's enum: `DEGREE` is °C (° for an LED's hue), `PERCENT` is %, `UNKNOWN` none. A level of 0-1 in
+  `PERCENT` (a dimmer's, an LED's brightness and saturation, as OM 1.8 writes them) becomes a 0-100 slider
+  (`percent`: `Wire.percent` / `Wire.fromPercent`); a slider of 0-1 would only take 0 and 1.
 
 - A call is `{callType, cluId, objectName, index, type?, value?}`. Every call seen:
 
@@ -45,7 +54,7 @@ and the mapping that the "Dashboards" section on the Grenton page (#220) builds 
   | `ATTRIBUTE` | feature `index` of object `objectName` on `cluId` | the object's value from the registry, `<cluId>.<objectName>` |
   | `PSEUDO_METHOD` | set feature `index` to `value` | `obj:set(index, value)` |
   | `METHOD` | execute method `index` with `value` | `obj:execute(index, value)` |
-  | `SCRIPT` | run the CLU script `objectName` with `value`; `index` is null | `clu:executeNoReply(0, name .. "(" .. RemoteObject.literal(value) .. ")")`, the name checked as an identifier |
+  | `SCRIPT` | run the CLU script `objectName` with `value`, its arguments as Lua source (`1,-1`, `"on","2"`); `index` is null | the arguments read on import as a list of numbers and plain strings (`args`), anything else left out; `clu:executeNoReply(0, name .. "(" .. literals .. ")")` with each through `RemoteObject.literal`, the name checked as an identifier |
   | `VARIABLE` | the user feature `index` of the CLU (`objectName` is the CLU) | the user feature, as `clu:get(index)` (#217) reads it |
 
   `value` `"$value$"` is what the user enters: a number for a slider or a thermostat target,
@@ -57,12 +66,19 @@ and the mapping that the "Dashboards" section on the Grenton page (#220) builds 
   the last value read.
 - Commands go through the proxies, so their guards apply: a METHOD call that disarms a SatelZone
   (#214) is refused unless disarming is allowed.
-- Decided: the mapping lives in a runtime Lua module (e.g. `pkg/lua/runtime/grenton/MyGrenton.lua`),
-  so a change in Grenton's format is a change there only. Its entry point takes a dashboard section
-  and one widget as a Lua table (the checked JSON of that widget) and adds the vclu widget:
-  `MyGrenton.widget(section, {type = "ON_OFF", ...})`. The files #220 writes are lines of such calls,
-  so they need only the runtime, not the stored import. The raw JSON is kept in `imports/mygrenton/`,
-  next to the imported om.lua files, not among the user's files.
+- Decided: an anti-corruption layer. Only `pkg/omproject` knows Grenton's format: it translates the
+  interface into vclu's own model (`pkg/dashspec`: interfaces, pages, widgets of the kinds group,
+  toggle, status, slider, button and thermostat, each with what it reads and what it does), and a
+  change in Grenton's format stops there. The model is what is stored in `imports/panels/<id>.json`,
+  next to the imported om.lua files, not among the user's files; Grenton's JSON is not kept. #220
+  generates the dashboards from the model alone.
+- The generated files are plain Dashboard code; what reads a CLU or commands it goes through small
+  helpers of a runtime module (`pkg/lua/runtime/grenton/Wire.lua`): `Wire.value(path)`,
+  `feature(path, n)`, `variable(clu, name)`, `isOn(read)`, `text(read, on, off)`,
+  `set(path, n, value)`, `execute(path, n[, value])`, `script(clu, name, ...)`, `onOff(on, off)`,
+  `Wire.INPUT` for what the user enters, and `Wire.load(module)` to load a page on its own.
+  The helpers check their arguments again, as users edit the files. Commands go only to objects,
+  through their proxies; the CLU itself is only read.
 - The JSON comes from an upload. As in #178, every value that reaches Lua is checked, never escaped
   into code: `cluId` and object IDs against the patterns #178 uses, script and user feature names as
   Lua identifiers, `index` as a number (or an identifier for `VARIABLE`). Labels are data (strings),
@@ -70,16 +86,16 @@ and the mapping that the "Dashboards" section on the Grenton page (#220) builds 
 
 ## Files
 - `pkg/omproject/` (read `nodes/*/data.json`)
-- `pkg/web/handle_web_om.go` (store it in `imports/mygrenton/`, remove it when a new project has none)
-- `pkg/lua/runtime/grenton/MyGrenton.lua` (new)
+- `pkg/web/handle_web_om.go` (store it in `imports/panels/`, remove it when a new project has none)
+- `pkg/dashspec/` (new: the model, its checks, the Lua generator)
+- `pkg/lua/runtime/grenton/Wire.lua` (new: the helpers)
 
 ## Acceptance criteria
-- [ ] Importing a project or a diagnostic pack with an interface stores it in `imports/mygrenton/`;
+- [ ] Importing a project or a diagnostic pack with an interface stores it in `imports/panels/`;
       a new import replaces it, and an import of a project or pack without one removes it. Uploading
       a single om.lua leaves it alone.
-- [ ] `MyGrenton` lists the pages and, per widget, the vclu widget, its label, what it reads and what
-      it does; `MyGrenton.widget(section, w)` adds it. A test with a fixture interface that has every
-      widget type and call type above.
+- [ ] The model lists the pages and, per widget, the vclu widget, its label, what it reads and what
+      it does. A test with a fixture interface that has every widget type and call type above.
 - [ ] No read blocks the run loop: a test with a CLU that does not answer shows the dashboard still
       answers, with the last value or none.
 - [ ] Each call type reads or commands the right object (tested against registry objects): ATTRIBUTE,
@@ -91,6 +107,6 @@ and the mapping that the "Dashboards" section on the Grenton page (#220) builds 
 - [ ] `go test ./...` and `go test -race ./...` pass; a changelog entry in `changelog.d/`.
 
 ## Contract impact
-`MyGrenton.widget` becomes a public Lua API: the files #220 writes call it, and users edit them.
-Its table format (the widget as in the interface) changes only with a compatible reading of older
-tables. No dashboard changes until the user creates them (#220).
+The `Wire` helpers become a public Lua API: the files #220 writes call them, and users edit
+them. The stored model (`imports/panels/`) is vclu's own and may change with a new import. No
+dashboard changes until the user creates them (#220).

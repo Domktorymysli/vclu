@@ -160,6 +160,11 @@ func (s *Server) Reload() error {
 		return fmt.Errorf("failed to reinitialize Lua engine: %w", err)
 	}
 
+	// A changed grenton.gateAlarm.allowDisarm takes effect with the reload
+	if mc, err := config.ReadMasterConfig(s.serverDir); err == nil {
+		s.luaEngine.SetGateAlarmAllowDisarm(mc.GateAlarmAllowDisarm())
+	}
+
 	// Set firmware version string for CLU:get(17)
 	s.luaEngine.SetGlobal("_FIRMWARE_VERSION", s.deviceConfig.FirmwareVersionStr)
 
@@ -286,6 +291,9 @@ func NewServer(serverDir string, localIP net.IP, macAddr net.HardwareAddr) (*Ser
 	// Satel Integra alarm integration (optional, off by default)
 	setupSatel(serverDir, luaEngine)
 
+	// Whether a GATE Alarm's zones may be disarmed (grenton.gateAlarm.allowDisarm)
+	luaEngine.SetGateAlarmAllowDisarm(masterConfig.GateAlarmAllowDisarm())
+
 	// Set firmware version string for CLU:get(17)
 	luaEngine.SetGlobal("_FIRMWARE_VERSION", deviceConfig.FirmwareVersionStr)
 
@@ -380,6 +388,9 @@ func (s *Server) LoadInitialData() {
 	// Generate local proxy file (registers local DIN/DOUT in _registry)
 	importsDir := config.GetOMFilesDir(s.serverDir)
 	omparser.GenerateLocalProxyFile(cluDataPath, importsDir)
+
+	// om.lua copies kept before vCLU removed a GATE's settings (passwords, keys, Wi-Fi) lose them
+	stripStoredGateSettings(importsDir)
 
 	// Load proxy files (remote + local)
 	if err := s.luaEngine.LoadProxyFiles(importsDir); err != nil {
@@ -869,4 +880,16 @@ func (s *Server) persistKeys() error {
 		}
 		return nil
 	})
+}
+
+// stripStoredGateSettings removes a GATE's settings from the om.lua copies in importsDir,
+// once at start; only counts reach the log.
+func stripStoredGateSettings(importsDir string) {
+	files, lines, err := omparser.StripStoredGateSettings(importsDir)
+	if err != nil {
+		log.Printf("[OM] removing GATE settings from stored om.lua copies: %v", err)
+	}
+	if files > 0 {
+		log.Printf("[OM] removed %d GATE settings from %d stored om.lua copies", lines, files)
+	}
 }

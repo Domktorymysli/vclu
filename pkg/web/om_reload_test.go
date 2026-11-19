@@ -221,3 +221,16 @@ func TestOMReloadReportsFailedProxy(t *testing.T) {
 		t.Errorf("after the fix: %v", ans)
 	}
 }
+
+// An Object Manager project reloads once too, after all its CLUs.
+func TestOMProjectReloadsOnce(t *testing.T) {
+	s, r := omServer(t)
+	omp := zipDir(t, filepath.Join("testdata", "omproject", "om-1.8.0", "project"))
+	ans := omUpload(t, s, "house.omp", omp)
+	if ans["isProject"] != true || ans["imported"] != 6.0 || ans["reloaded"] != true || ans["success"] != true {
+		t.Fatalf("project: %v", ans)
+	}
+	if r.reloads != 1 {
+		t.Errorf("%d reloads for six CLUs", r.reloads)
+	}
+}

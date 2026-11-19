@@ -16,30 +16,37 @@ import (
 // it, so 1e+15 and 5e-05 in exponent form). A script that does not
 // compile gets no answer, so the caller sees a timeout.
 type fakeCLU struct {
-	mu   sync.Mutex
-	L    *lua.LState
-	sent []string
-	down bool
+	mu     sync.Mutex
+	L      *lua.LState
+	sent   []string
+	down   bool
+	closed bool // an async send may come after the test ended
 }
 
 func newFakeCLU(t *testing.T) *fakeCLU {
 	t.Helper()
 	L := lua.NewState()
-	t.Cleanup(L.Close)
+	c := &fakeCLU{L: L}
+	t.Cleanup(func() {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		c.closed = true
+		L.Close()
+	})
 	if err := L.DoString(`
 function setVar(name, value) _G[name] = value end
 function getVar(name) return _G[name] end
 `); err != nil {
 		t.Fatal(err)
 	}
-	return &fakeCLU{L: L}
+	return c
 }
 
 func (c *fakeCLU) send(ip, script string) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.sent = append(c.sent, script)
-	if c.down {
+	if c.down || c.closed {
 		return "", errors.New("i/o timeout")
 	}
 	fn, err := c.L.LoadString("return " + script)

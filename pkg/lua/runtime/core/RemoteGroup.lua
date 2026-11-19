@@ -98,9 +98,9 @@ function RemoteGroup:expose(exposeType, options)
             stats.skipped = stats.skipped + 1
         elseif not exposeType and type(obj._getExposeType) == "function" and obj:_getExposeType() == nil then
             stats.skipped = stats.skipped + 1
-        elseif not exposeType and type(obj._getExposeType) == "function"
-            and (ExposedObjects:getCapabilities(obj:_getExposeType()) or {}).explicitOnly then
-            -- a thermostat is exposed on its own (expose(th)), not with a group
+        elseif not exposeType and (obj._explicitOnly == true or (type(obj._getExposeType) == "function"
+            and (ExposedObjects:getCapabilities(obj:_getExposeType()) or {}).explicitOnly)) then
+            -- a thermostat, a GATE Alarm's zone or section: exposed on its own (expose(th)), not with a group
             stats.skipped = stats.skipped + 1
         else
             -- Determine type

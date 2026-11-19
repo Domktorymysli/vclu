@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/Domktorymysli/vclu/pkg/lua"
@@ -74,11 +75,9 @@ func GenerateProxy(parsed *ParsedOM, config GeneratorConfig) string {
 	// Namespace
 	namespace := config.Namespace
 	if namespace == "" {
-		namespace = strings.ToLower(parsed.CLU.Name)
-		if namespace == "" {
-			namespace = strings.ToLower(parsed.CLU.ID)
-		}
+		namespace = namespaceOf(parsed.CLU)
 	}
+	names := luaNames(parsed)
 
 	// Extract serial from CLU ID (e.g., "CLU212345678" -> 212345678)
 	serial := strings.TrimPrefix(parsed.CLU.ID, "CLU")
@@ -98,32 +97,42 @@ func GenerateProxy(parsed *ParsedOM, config GeneratorConfig) string {
 	sb.WriteString(fmt.Sprintf("%s = {}\n\n", namespace))
 
 	// Generate objects by type
-	generateObjectsForClass(&sb, parsed, namespace, ClassDOUT, "RemoteSwitch")
-	generateObjectsForClass(&sb, parsed, namespace, ClassDIN, "RemoteSensor")
-	generateObjectsForClass(&sb, parsed, namespace, ClassDIMMER, "RemoteLight")
-	generateObjectsForClass(&sb, parsed, namespace, ClassLEDRGB, "RemoteRGBLight")
-	generateObjectsForClass(&sb, parsed, namespace, ClassLEDChannel, "RemoteLedChannel")
-	generateObjectsForClass(&sb, parsed, namespace, ClassROLLER_SH, "RemoteCover")
-	generateObjectsForClass(&sb, parsed, namespace, ClassROLLER, "RemoteCover")
-	generateObjectsForClass(&sb, parsed, namespace, ClassAnalogIN, "RemoteSensor")
-	generateObjectsForClass(&sb, parsed, namespace, ClassAnalogOUT, "RemoteNumber")
-	generateObjectsForClass(&sb, parsed, namespace, ClassONE_WIRE, "RemoteThermometer")
-	generateTypedSensorsForClass(&sb, parsed, namespace, ClassPanelTemp, "PANELSENSTEMP")
-	generateTypedSensorsForClass(&sb, parsed, namespace, ClassPanelLight, "PANELSENSLIGHT")
-	generateTypedSensorsForClass(&sb, parsed, namespace, ClassHumidity, "HUMIDITY_SENSOR")
-	generateObjectsForClass(&sb, parsed, namespace, ClassPanelBtn, "RemotePanelButton")
-	generateObjectsForClass(&sb, parsed, namespace, ClassPanel, "RemotePanel")
-	generateObjectsForClass(&sb, parsed, namespace, ClassThermostat, "RemoteThermostat")
-	generatePanelButtons(&sb, parsed, namespace)
+	generateObjectsForClass(&sb, parsed, namespace, names, ClassDOUT, "RemoteSwitch")
+	generateObjectsForClass(&sb, parsed, namespace, names, ClassDIN, "RemoteSensor")
+	generateObjectsForClass(&sb, parsed, namespace, names, ClassDIMMER, "RemoteLight")
+	generateObjectsForClass(&sb, parsed, namespace, names, ClassLEDRGB, "RemoteRGBLight")
+	generateObjectsForClass(&sb, parsed, namespace, names, ClassLEDChannel, "RemoteLedChannel")
+	generateObjectsForClass(&sb, parsed, namespace, names, ClassROLLER_SH, "RemoteCover")
+	generateObjectsForClass(&sb, parsed, namespace, names, ClassROLLER, "RemoteCover")
+	generateObjectsForClass(&sb, parsed, namespace, names, ClassAnalogIN, "RemoteSensor")
+	generateObjectsForClass(&sb, parsed, namespace, names, ClassAnalogOUT, "RemoteNumber")
+	generateObjectsForClass(&sb, parsed, namespace, names, ClassONE_WIRE, "RemoteThermometer")
+	generateTypedSensorsForClass(&sb, parsed, namespace, names, ClassPanelTemp, "PANELSENSTEMP")
+	generateTypedSensorsForClass(&sb, parsed, namespace, names, ClassPanelLight, "PANELSENSLIGHT")
+	generateTypedSensorsForClass(&sb, parsed, namespace, names, ClassHumidity, "HUMIDITY_SENSOR")
+	generateObjectsForClass(&sb, parsed, namespace, names, ClassPanelBtn, "RemotePanelButton")
+	generateObjectsForClass(&sb, parsed, namespace, names, ClassPanel, "RemotePanel")
+	generateObjectsForClass(&sb, parsed, namespace, names, ClassThermostat, "RemoteThermostat")
+	generatePanelButtons(&sb, parsed, namespace, names)
+	// A GATE Alarm's objects (Parse keeps them only on a GATE Alarm)
+	for _, g := range gateAlarmProxies {
+		generateObjectsForClass(&sb, parsed, namespace, names, g.class, g.proxy)
+	}
 
 	// Register objects in _registry for lookup (use registerObject for name indexing)
 	if config.RegisterObjects {
 		sb.WriteString("-- Register objects for event forwarding\n")
 		// Thermostats too: not auto-exposed (a climate, by expose() only), but the Sync list
-		// and the subscriptions find objects in the registry
+		// and the subscriptions find objects in the registry. So are a GATE Alarm's zones,
+		// sections and connections.
 		objects := append(parsed.GetExposableObjects(), parsed.GetObjectsByClass(ClassThermostat)...)
+		for _, g := range gateAlarmProxies {
+			if !g.class.IsExposable() {
+				objects = append(objects, parsed.GetObjectsByClass(g.class)...)
+			}
+		}
 		for _, obj := range objects {
-			objName := getObjectLuaName(obj)
+			objName := names[obj.ID]
 			path := fmt.Sprintf("%s.%s", parsed.CLU.ID, obj.ID)
 			sb.WriteString(fmt.Sprintf("registerObject(\"%s\", %s.%s)\n", path, namespace, objName))
 		}
@@ -133,7 +142,23 @@ func GenerateProxy(parsed *ParsedOM, config GeneratorConfig) string {
 	return sb.String()
 }
 
-func generateObjectsForClass(sb *strings.Builder, parsed *ParsedOM, namespace string, class ObjectClass, proxyClass string) {
+// gateAlarmProxies are the Lua classes of a GATE Alarm's objects
+// (pkg/lua/runtime/objects/RemoteGateAlarm.lua), in the order they are written.
+var gateAlarmProxies = []struct {
+	class ObjectClass
+	proxy string
+}{
+	{ClassGateSatel, "RemoteGateSatel"},
+	{ClassGateSatelZone, "RemoteGateSatelZone"},
+	{ClassGateSatelInput, "RemoteGateSatelInput"},
+	{ClassGateSatelOutput, "RemoteGateSatelOutput"},
+	{ClassGateJablotron, "RemoteGateJablotron"},
+	{ClassGateJablotronSection, "RemoteGateJablotronSection"},
+	{ClassGateJablotronOutput, "RemoteGateJablotronOutput"},
+	{ClassGateJablotronDevice, "RemoteGateJablotronDevice"},
+}
+
+func generateObjectsForClass(sb *strings.Builder, parsed *ParsedOM, namespace string, names map[string]string, class ObjectClass, proxyClass string) {
 	objects := parsed.GetObjectsByClass(class)
 	if len(objects) == 0 {
 		return
@@ -141,12 +166,11 @@ func generateObjectsForClass(sb *strings.Builder, parsed *ParsedOM, namespace st
 
 	sb.WriteString(fmt.Sprintf("-- %s (%d objects)\n", class.String(), len(objects)))
 	for _, obj := range objects {
-		objName := getObjectLuaName(obj)
+		objName := names[obj.ID]
 		// Pass name as 3rd argument to new()
 		nameArg := ""
 		if obj.Name != "" {
-			// Escape quotes in name
-			escapedName := strings.ReplaceAll(obj.Name, `"`, `\"`)
+			escapedName := luaEscape(obj.Name)
 			nameArg = fmt.Sprintf(`, "%s"`, escapedName)
 		}
 		sb.WriteString(fmt.Sprintf("%s.%s = %s:new(_clu, \"%s\"%s)\n",
@@ -168,13 +192,13 @@ func generateObjectsForClass(sb *strings.Builder, parsed *ParsedOM, namespace st
 }
 
 // generatePanelButtons attaches each panel's buttons (same module) by their index.
-func generatePanelButtons(sb *strings.Builder, parsed *ParsedOM, namespace string) {
+func generatePanelButtons(sb *strings.Builder, parsed *ParsedOM, namespace string, names map[string]string) {
 	buttons := parsed.GetObjectsByClass(ClassPanelBtn)
 	for _, panel := range parsed.GetObjectsByClass(ClassPanel) {
 		for _, btn := range buttons {
 			if btn.ModuleID != "" && btn.ModuleID == panel.ModuleID {
 				fmt.Fprintf(sb, "%s.%s:addButton(%d, %s.%s)\n",
-					namespace, getObjectLuaName(panel), btn.Index, namespace, getObjectLuaName(btn))
+					namespace, names[panel.ID], btn.Index, namespace, names[btn.ID])
 			}
 		}
 	}
@@ -182,7 +206,7 @@ func generatePanelButtons(sb *strings.Builder, parsed *ParsedOM, namespace strin
 
 // generateTypedSensorsForClass emits read-only RemoteValueSensor proxies whose Grenton
 // type is passed explicitly (so it maps to the right expose type: temperature/humidity/illuminance).
-func generateTypedSensorsForClass(sb *strings.Builder, parsed *ParsedOM, namespace string, class ObjectClass, grentonType string) {
+func generateTypedSensorsForClass(sb *strings.Builder, parsed *ParsedOM, namespace string, names map[string]string, class ObjectClass, grentonType string) {
 	objects := parsed.GetObjectsByClass(class)
 	if len(objects) == 0 {
 		return
@@ -190,10 +214,10 @@ func generateTypedSensorsForClass(sb *strings.Builder, parsed *ParsedOM, namespa
 
 	sb.WriteString(fmt.Sprintf("-- %s (%d objects)\n", class.String(), len(objects)))
 	for _, obj := range objects {
-		objName := getObjectLuaName(obj)
+		objName := names[obj.ID]
 		nameArg := ""
 		if obj.Name != "" {
-			escapedName := strings.ReplaceAll(obj.Name, `"`, `\"`)
+			escapedName := luaEscape(obj.Name)
 			nameArg = fmt.Sprintf(`, "%s"`, escapedName)
 		}
 		sb.WriteString(fmt.Sprintf("%s.%s = RemoteValueSensor:new(_clu, \"%s\"%s, \"%s\")\n",
@@ -220,7 +244,7 @@ func GenerateLocalProxy(parsed *ParsedOM) string {
 	for _, obj := range objects {
 		// Set _name if NAME_IO comment provided a friendly name
 		if obj.Name != "" {
-			escapedName := strings.ReplaceAll(obj.Name, `"`, `\"`)
+			escapedName := luaEscape(obj.Name)
 			sb.WriteString(fmt.Sprintf("%s._name = \"%s\"\n", obj.ID, escapedName))
 		}
 
@@ -274,16 +298,104 @@ func GenerateLocalProxyFile(cluDataPath string, importsDir string) {
 	log.Printf("[OMPARSER] generated proxy_local.lua (%d objects)", count)
 }
 
-func getObjectLuaName(obj GrentonObject) string {
-	// Use friendly name if available, otherwise use ID
-	if obj.Name != "" && !strings.HasPrefix(obj.Name, "x") {
-		// Clean up name - replace non-alphanumeric with underscore
-		name := obj.Name
-		name = strings.ReplaceAll(name, "-", "_")
-		name = strings.ReplaceAll(name, " ", "_")
-		return name
+// reLuaName is a Lua identifier.
+var reLuaName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// luaKeywords are Lua 5.1's reserved words, which are no identifiers.
+var luaKeywords = map[string]bool{
+	"and": true, "break": true, "do": true, "else": true, "elseif": true, "end": true,
+	"false": true, "for": true, "function": true, "if": true, "in": true, "local": true,
+	"nil": true, "not": true, "or": true, "repeat": true, "return": true, "then": true,
+	"true": true, "until": true, "while": true,
+}
+
+// runtimeGlobals are the lower-case globals of Lua and of vCLU's runtime: a
+// CLU's namespace with one of these names would replace it for every module.
+// TestNamespaceIsNoRuntimeGlobal checks the list against the runtime.
+var runtimeGlobals = map[string]bool{}
+
+func init() {
+	for _, g := range strings.Fields(`after assert cancel cascade channel clamp click collectgarbage color
+		coroutine datetime debug dump emit error every expose getfenv getmetatable gpio inspect io
+		ipairs json lerp load loadstring log map math metric module newproxy next o on optional os
+		package pairs pcall persist print rawequal rawget rawset require round scene scenes select
+		sequence setfenv setmetatable shared string system table tonumber tostring type unpack xml
+		xpcall`) {
+		runtimeGlobals[g] = true
 	}
-	return obj.ID
+}
+
+// isLuaName is whether s can stand as a name in Lua code.
+func isLuaName(s string) bool {
+	return reLuaName.MatchString(s) && !luaKeywords[s]
+}
+
+// namespaceOf is the global table of a CLU's objects: its name in lower case,
+// or its ID when the name is no Lua name, is the runtime's or starts with _.
+func namespaceOf(clu CLUInfo) string {
+	ns := strings.ToLower(clu.Name)
+	if isLuaName(ns) && !runtimeGlobals[ns] && !strings.HasPrefix(ns, "_") {
+		return ns
+	}
+	return strings.ToLower(clu.ID)
+}
+
+// Namespace is the global table the proxy puts the CLU's objects in.
+func Namespace(parsed *ParsedOM) string { return namespaceOf(parsed.CLU) }
+
+// Paths are the names Lua code can reach the CLU's objects by: "CLU….<ID>" and
+// "CLU….<name>" (the registry), and "<namespace>.<name>" (the proxy's table).
+func Paths(parsed *ParsedOM) []string {
+	ns := namespaceOf(parsed.CLU)
+	names := luaNames(parsed)
+	paths := make([]string, 0, 3*len(parsed.Objects))
+	for _, obj := range parsed.Objects {
+		paths = append(paths, parsed.CLU.ID+"."+obj.ID, ns+"."+names[obj.ID])
+		if obj.Name != "" {
+			paths = append(paths, parsed.CLU.ID+"."+obj.Name)
+		}
+	}
+	return paths
+}
+
+// luaNames are the objects' names in their namespace, by ID: the name from
+// om.lua when it is a Lua name no other object of the CLU has, else the ID.
+func luaNames(parsed *ParsedOM) map[string]string {
+	names := make(map[string]string, len(parsed.Objects))
+	taken := make(map[string]bool, len(parsed.Objects))
+	for _, obj := range parsed.Objects {
+		taken[obj.ID] = true
+	}
+	for _, obj := range parsed.Objects {
+		name := obj.ID
+		if obj.Name != "" && !strings.HasPrefix(obj.Name, "x") {
+			n := strings.NewReplacer("-", "_", " ", "_").Replace(obj.Name)
+			// om.lua comes from an upload: a name that is no identifier would be code
+			if isLuaName(n) && !taken[n] {
+				name = n
+			}
+		}
+		taken[name] = true
+		names[obj.ID] = name
+	}
+	return names
+}
+
+// luaEscape makes s the contents of a double-quoted Lua string.
+func luaEscape(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; {
+		case c == '"' || c == '\\':
+			b.WriteByte('\\')
+			b.WriteByte(c)
+		case c < 0x20 || c == 0x7f:
+			fmt.Fprintf(&b, "\\%03d", c)
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
 }
 
 func generateBaseClasses() string {

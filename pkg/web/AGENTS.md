@@ -19,3 +19,24 @@
   that the page carries as `#dashTexts`; dates and numbers use `locale` from it. A literal or
   `navigator.language` fails `TestDashboardJSHasNoTexts`; a key in one language only fails
   `TestDashboardLocalesSameKeys`.
+
+## Object Manager import (`handle_web_om.go`, `pkg/omproject`)
+- A project becomes the om.lua declarations `pkg/omparser` reads (`Project.OMLua`), so a `.omp`
+  and a diagnostic pack go through the same `processOMFile`. `TestProjectUploadMatchesDiagnosticPack`
+  compares the two on `testdata/omproject/om-*/`: anonymised projects of OM 1.3.5 and 1.8.0 with
+  the om.lua their CLUs got (`pack/`). Fixtures from a real house are anonymised first: names
+  (rooms too), serials, IPs, keys (`FIXTURE-SECRET-*`), command arguments and script bodies.
+- Every value of the project that reaches om.lua is checked against a pattern (`reCLUID`, `reObjID`,
+  `reHex`, `reName` in `project.go`); what fails is left out with a warning, never escaped into it.
+- The handlers only decide and answer. What an import keeps lives in the packages: the agent's
+  files about the project in `omproject` (`WriteDocs`, `ForgetDocs`), the myGrenton interfaces in
+  `dashspec` (`SaveInterfaces`, `LoadInterfaces`), the dashboard files made from them in
+  `pkg/dashfiles` (whose a file is, writing pages and init.lua, the `require` in modules/init.lua).
+- `/api/om/preview` stores nothing: `uploadHouse` builds what the upload would leave (taking
+  files by `parseOMUpload`, as the upload does) and `pkg/omchange` compares it with the stored
+  files (`Diff`) and finds the user's Lua that names an object (`Refs`, `Missing`). An upload or
+  delete scans with the names from before it too, so a renamed CLU's old table is still
+  recognised once.
+- `c.Request.FormFile` parses with net/http's 32 MB and ignores `MaxMultipartMemory`; `c.FormFile`
+  honours it, which is how `TestProjectUploadKeepsNothingElse` makes the upload spool to a
+  temporary file and checks the handler removes it.

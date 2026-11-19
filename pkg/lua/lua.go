@@ -155,6 +155,8 @@ type LuaEngine struct {
 	maxLagNs atomic.Int64 // max lag observed since last collection
 
 	callbackTimeoutNs atomic.Int64 // see SetCallbackTimeout
+
+	gateAlarmAllowDisarm atomic.Bool // see SetGateAlarmAllowDisarm
 }
 
 // NewLuaEngine creates a new Lua engine with CLU name
@@ -242,6 +244,7 @@ func (le *LuaEngine) initializeLuaState(cluName string) error {
 	registerHistoryFunctions(L, le.historyStore)
 	registerCameraFunctions(L, le.cameraManager)
 	registerCloudFunctions(L, le.cloud)
+	le.registerGateAlarmFunctions(L)
 
 	// Load the Go-compatible bootstrap (this loads SYSTEM, GATE, OBJECT, CLU, etc.)
 	bootstrapPath := filepath.Join(le.runtimePath, "bootstrap_go.lua")

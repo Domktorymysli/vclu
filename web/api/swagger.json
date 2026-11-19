@@ -1149,6 +1149,72 @@
                 }
             }
         },
+        "/api/grenton/dashboards": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "The pages of the myGrenton interfaces from the imported Object Manager project: per page its widgets (kind, label, what they read and do), what was left out and the state of its dashboard file (none, vclu, edited, user); page files of pages no longer imported (orphans); whether modules/init.lua loads the dashboards.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "grenton"
+                ],
+                "summary": "myGrenton pages",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Writes modules/dashboards/imported/page_\u003cid\u003e.lua for each chosen page and init.lua loading every page file there. A file vclu did not write, or wrote and someone changed, is never replaced (kept); a file vclu wrote is replaced only with replace (ask). When init.lua is the user's, the pages are written and the lines to add are returned (initLines). With addRequire, require(\"dashboards/imported\") is added to modules/init.lua when missing, or returned as requireLine when it would not compile there. Lua reloads when the dashboards are required; pages that failed to load are in pageErrors.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "grenton"
+                ],
+                "summary": "Create dashboards from myGrenton pages",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "409": {
+                        "description": "files to ask about (ask) or that stay the user's (kept)",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/grenton/save": {
             "post": {
                 "security": [
@@ -2143,7 +2209,7 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Accepts a single om.lua file or a diagnostic-pack ZIP containing CLU*/om.lua entries (the vCLU's own serial is skipped). Each file is parsed, stored as om_\u003cserial\u003e.lua, a proxy_\u003cserial\u003e.lua is generated and an entry is added to .vclu.json; then the Lua runtime reloads once (reloaded, reloadError, moduleErrors in the response).",
+                "description": "Accepts a single om.lua file, a diagnostic-pack ZIP containing CLU*/om.lua entries, or an Object Manager project (.omp, or a project ZIP with system.xml); the vCLU's own serial is skipped. Each CLU is parsed, stored as om_\u003cserial\u003e.lua, a proxy_\u003cserial\u003e.lua is generated and an entry is added to .vclu.json; then the Lua runtime reloads once (reloaded, reloadError, moduleErrors in the response). A project, also the one inside a diagnostic pack, is written for the agent to ai/om/ (event bindings, scripts); what could not be read is listed in warnings. The upload itself is not kept.",
                 "consumes": [
                     "multipart/form-data"
                 ],
@@ -2157,7 +2223,7 @@
                 "parameters": [
                     {
                         "type": "file",
-                        "description": "om.lua file or diagnostic-pack ZIP",
+                        "description": "om.lua file, diagnostic-pack ZIP or Object Manager project (.omp)",
                         "name": "file",
                         "in": "formData",
                         "required": true
@@ -2165,7 +2231,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "single file: success, filename, originalName, cluName, cluIP, objectCount, moduleCount; ZIP: success, isZip, originalName, imported, skipped, results, skippedList, errors",
+                        "description": "single file: success, filename, originalName, cluName, cluIP, objectCount, moduleCount; ZIP or project: success, isZip or isProject, originalName, imported, skipped, results, skippedList, errors, omVersion, agentDocs, warnings",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
