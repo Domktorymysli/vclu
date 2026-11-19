@@ -305,6 +305,9 @@ type VCLUPluginsConfig struct {
 
 	// Installed plugins with their configuration
 	Installed []InstalledPlugin `json:"installed,omitempty"`
+
+	// Strict loads only plugins on plugin API 2 or later (they declare their permissions)
+	Strict bool `json:"strict,omitempty"`
 }
 
 // PluginRepository represents a source of plugins
@@ -346,6 +349,9 @@ type InstalledPlugin struct {
 //   }
 // }
 
+// OfficialPluginsRepoURL is the repository of the official plugins.
+const OfficialPluginsRepoURL = "https://github.com/Domktorymysli/vclu-plugins"
+
 // DefaultPluginsConfig returns default plugins configuration
 func DefaultPluginsConfig() *VCLUPluginsConfig {
 	return &VCLUPluginsConfig{
@@ -353,7 +359,7 @@ func DefaultPluginsConfig() *VCLUPluginsConfig {
 		Repositories: []PluginRepository{
 			{
 				Name:    "vCLU Official",
-				URL:     "https://github.com/Domktorymysli/vclu-plugins",
+				URL:     OfficialPluginsRepoURL,
 				Enabled: true,
 				Default: true,
 			},
