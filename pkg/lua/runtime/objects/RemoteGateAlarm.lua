@@ -98,8 +98,11 @@ local function refused(self, kind, index)
             return label(self) .. ": method " .. tostring(index) .. " is not one vCLU sends to it"
         end
         if r.disarm[index] and not allowDisarm() then
-            return label(self) .. ": " .. r.disarm[index]
+            local msg = label(self) .. ": " .. r.disarm[index]
                 .. " is refused; disarming needs grenton.gateAlarm.allowDisarm in .vclu.json"
+            -- logged too: Home Assistant, HomeKit and the cloud get no error back
+            if Logger then Logger:getShared():warn("[GATE] %s", msg) end
+            return msg
         end
     end
     return nil

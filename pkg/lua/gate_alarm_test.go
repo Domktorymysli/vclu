@@ -395,3 +395,14 @@ func TestGateAlarmGuardReadOnly(t *testing.T) {
 		t.Errorf("tables read as %q", got)
 	}
 }
+
+// A refused disarm is logged, also when it came from Home Assistant's switch, which gets
+// no error back.
+func TestGateAlarmRefusedDisarmLogged(t *testing.T) {
+	logs := captureLog(t)
+	engine, _, _ := gateAlarmEngine(t, false)
+	mustExec(t, engine, `alarm.alarm_ground:expose():setValue(0)`)
+	if out := logs.String(); !strings.Contains(out, "GATE_SATEL_ZONE SAT0002: DisarmZone is refused") {
+		t.Errorf("log:\n%s", out)
+	}
+}
