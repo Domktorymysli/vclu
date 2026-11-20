@@ -13,6 +13,9 @@ import (
 const (
 	maxNodes = 1 << 20
 	maxDepth = 128
+	// maxVisits caps the children looked through while reading: references let
+	// many elements share one list, so the reading can outgrow the stream.
+	maxVisits = 32 << 20
 )
 
 // node is one element of an XStream object stream. XStream writes an object
@@ -33,6 +36,21 @@ type stream struct {
 	root     *node
 	ids      map[string]*node
 	dangling int // references to ids the stream never defines
+	visits   int // children looked through, up to maxVisits
+}
+
+// visit counts the children of n looked through; false over the budget.
+func (s *stream) visit(n *node) bool {
+	s.visits += len(n.kids)
+	return s.visits <= maxVisits
+}
+
+// over is the error of a reading past maxVisits, nil before.
+func (s *stream) over() error {
+	if s.visits > maxVisits {
+		return fmt.Errorf("%w: over %d elements read", errTooLarge, maxVisits)
+	}
+	return nil
 }
 
 // errTooLarge is the error of a stream over the limits.
@@ -116,7 +134,7 @@ func (s *stream) get(n *node) *node {
 
 // child is the first child element with the name, references followed.
 func (s *stream) child(n *node, name string) *node {
-	if n == nil {
+	if n == nil || !s.visit(n) {
 		return nil
 	}
 	for _, k := range n.kids {
@@ -138,7 +156,7 @@ func (s *stream) text(n *node, name string) string {
 // items are the elements of a list child, references followed.
 func (s *stream) items(n *node, name string) []*node {
 	l := s.child(n, name)
-	if l == nil {
+	if l == nil || !s.visit(l) {
 		return nil
 	}
 	out := make([]*node, 0, len(l.kids))
