@@ -222,7 +222,7 @@ function HACommands.handleExposedMessage(topic, payload)
             return true
         end
     elseif exposedType == "cover" then
-        -- The object's own methods move a roller; setValue would write its feature 0
+        -- A position goes through setValue (setPosition); the rest by the object's own methods
         local obj = handle.object
         if parsed.subpath == "position" then
             if not HAStatePublisher.coverHasPosition(handle) then
@@ -232,7 +232,7 @@ function HACommands.handleExposedMessage(topic, payload)
             if not position then
                 return false, "invalid position value"
             end
-            if obj.setPosition then obj:setPosition(position) else handle:setValue(position) end
+            if not handle:setValue(position) then return false, "position not set" end
             return true
         elseif parsed.subpath == "tilt" then
             if not HAStatePublisher.coverHasTilt(handle) then
