@@ -1,3 +1,0 @@
-### Lua runtime
-
-- **HTTP Digest authentication** - `HTTP:new("door"):setDigestAuth("admin", "secret"):put(url, xml)` answers a Digest challenge (MD5, SHA-256, `-sess`, `qop=auth`) for any method and sends the body again; plugins pass `digest = { user = ..., password = ... }` to `httpRequest`. Devices that refuse Basic, such as Hikvision intercoms (ISAPI), work without a separate server. A server that does not ask for Digest gets no credentials. After a redirect on the same host the answer is for the address that asked (another host's challenge is not answered); `setTimeout(0)` is no timeout, as without Digest. Camera snapshots with `auth = "digest"` use the same code ([#232](https://github.com/Domktorymysli/vclu/issues/232)).

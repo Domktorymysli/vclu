@@ -1,5 +1,59 @@
 # Changelog
 
+## v1.12.0 (2026-11-21)
+
+### English
+
+**Highlights:** import the whole Object Manager project (.omp), with your myGrenton screens as dashboards; GATE Alarm objects; the Grenton app on iPhone works with vclu.
+
+**Before you update**
+- Temperature, humidity and light sensors from the OM import now report only real changes (0.2 °C, 1 %, 5 lx, or every 10 min); `ExposedObjects:defaults(path, { filter = false })` in a module brings every reading back ([#192](https://github.com/Domktorymysli/vclu/issues/192)).
+
+**New**
+- Object Manager project import: put the `.omp` on the OM Files tab, check the preview, import. Importing again is safe and keeps a backup ([#178](https://github.com/Domktorymysli/vclu/issues/178)).
+- myGrenton screens from the project become vclu dashboards, behind the panel login ([#219](https://github.com/Domktorymysli/vclu/issues/219)).
+- GATE Alarm objects (Satel, Jablotron) from the OM import. Disarming is off until you turn it on in `.vclu.json` ([#214](https://github.com/Domktorymysli/vclu/issues/214)).
+- Slat slider on a single blind tile, not only on the group ([#227](https://github.com/Domktorymysli/vclu/issues/227)).
+- HTTP Digest login in Lua and plugins, e.g. for Hikvision intercoms ([#232](https://github.com/Domktorymysli/vclu/issues/232)).
+- The agent reads event bindings and CLU scripts from the project ([#178](https://github.com/Domktorymysli/vclu/issues/178)).
+- The cloud tells a gate or a garage door from a blind ([#236](https://github.com/Domktorymysli/vclu/pull/236)).
+
+**Fixes**
+- The Grenton app on iPhone switches vclu objects and shows their state ([#253](https://github.com/Domktorymysli/vclu/pull/253)).
+- Grenton apps get every state change from vclu, not only the first values ([#246](https://github.com/Domktorymysli/vclu/pull/246)).
+- Rollers on the first firmware (fv01) move from vclu, Home Assistant and HomeKit ([#186](https://github.com/Domktorymysli/vclu/issues/186)).
+- A roller at its end no longer stays "opening" ([#224](https://github.com/Domktorymysli/vclu/issues/224)).
+- An om.lua import works at once, without a manual reload ([#226](https://github.com/Domktorymysli/vclu/issues/226)).
+- Smaller fixes: an unknown switch state shows as unknown in Home Assistant and HomeKit, not off; Home Assistant gets only device classes it accepts; the agent moves a blind to a position ([#252](https://github.com/Domktorymysli/vclu/pull/252)).
+
+Full list: https://github.com/Domktorymysli/vclu/compare/v1.11.0...v1.12.0
+
+### Po polsku
+
+**Najważniejsze:** import całego projektu Object Managera (.omp) razem z ekranami myGrenton jako dashboardami; obiekty GATE Alarm; aplikacja Grentona na iPhonie działa z vclu.
+
+**Przed aktualizacją**
+- Czujniki temperatury, wilgotności i światła z importu OM wysyłają teraz tylko prawdziwe zmiany (0,2 °C, 1 %, 5 lx albo co 10 min); `ExposedObjects:defaults(path, { filter = false })` w module przywraca każdy odczyt ([#192](https://github.com/Domktorymysli/vclu/issues/192)).
+
+**Nowe**
+- Import projektu Object Managera: wrzuć `.omp` na zakładce Pliki OM, sprawdź podgląd, zaimportuj. Ponowny import jest bezpieczny i robi kopię ([#178](https://github.com/Domktorymysli/vclu/issues/178)).
+- Ekrany myGrenton z projektu stają się dashboardami vclu, za logowaniem do panelu ([#219](https://github.com/Domktorymysli/vclu/issues/219)).
+- Obiekty GATE Alarm (Satel, Jablotron) z importu OM. Rozbrajanie jest wyłączone, dopóki nie włączysz go w `.vclu.json` ([#214](https://github.com/Domktorymysli/vclu/issues/214)).
+- Suwak lamel na pojedynczym kaflu rolety, nie tylko w grupie ([#227](https://github.com/Domktorymysli/vclu/issues/227)).
+- Logowanie HTTP Digest w Lua i pluginach, np. do domofonów Hikvision ([#232](https://github.com/Domktorymysli/vclu/issues/232)).
+- Agent widzi powiązania zdarzeń i skrypty CLU z projektu ([#178](https://github.com/Domktorymysli/vclu/issues/178)).
+- Chmura odróżnia bramę i garaż od rolety ([#236](https://github.com/Domktorymysli/vclu/pull/236)).
+
+**Poprawki**
+- Aplikacja Grentona na iPhonie włącza obiekty vclu i pokazuje ich stan ([#253](https://github.com/Domktorymysli/vclu/pull/253)).
+- Aplikacje Grentona dostają z vclu każdą zmianę stanu, a nie tylko wartości na start ([#246](https://github.com/Domktorymysli/vclu/pull/246)).
+- Rolety na pierwszym firmware (fv01) ruszają z vclu, Home Assistanta i HomeKit ([#186](https://github.com/Domktorymysli/vclu/issues/186)).
+- Roleta w krańcowym położeniu nie wisi już jako „otwiera się” ([#224](https://github.com/Domktorymysli/vclu/issues/224)).
+- Import om.lua działa od razu, bez ręcznego przeładowania ([#226](https://github.com/Domktorymysli/vclu/issues/226)).
+- Drobne poprawki: nieznany stan przełącznika w Home Assistancie i HomeKit jest nieznany, a nie wyłączony; Home Assistant dostaje tylko klasy urządzeń, które przyjmuje; agent ustawia roletę na pozycję ([#252](https://github.com/Domktorymysli/vclu/pull/252)).
+
+Pełna lista: https://github.com/Domktorymysli/vclu/compare/v1.11.0...v1.12.0
+
 ## v1.11.0 (2026-11-14)
 
 ### English
