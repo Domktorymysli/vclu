@@ -180,3 +180,16 @@ func TestSetCluIPAfterTwoDiscoveries(t *testing.T) {
 		t.Errorf("temporary IV kept after SetKey: %x", third)
 	}
 }
+
+// The Grenton app on iOS sends commands with an empty address ("req::<session>:..."); they were
+// dropped as unknown, so switching from the app did nothing. They are run and answered.
+func TestLuaRequestWithoutAddressAnswered(t *testing.T) {
+	for _, broadcast := range []bool{true, false} {
+		s, om := setCluIPSetup(t)
+		key := s.projectCipherKey
+		send(t, s, om, key, "req::9cb76376:DOU0507:set(0,1)\r\n", broadcast)
+		if got, want := answer(t, om, key), "resp:192.168.50.57:9cb76376:ok"; got != want {
+			t.Fatalf("broadcast=%v: answered %q, want %q", broadcast, got, want)
+		}
+	}
+}

@@ -47,6 +47,13 @@ func TestParseLuaScriptRequest_Valid(t *testing.T) {
 			wantScript: "obj:method():call():value",
 		},
 		{
+			name:       "empty address, as the Grenton app on iOS sends",
+			input:      "req::9cb76376:DOU0507:set(0,1)\r\n",
+			wantIP:     "<nil>",
+			wantSID:    0x9cb76376,
+			wantScript: "DOU0507:set(0,1)",
+		},
+		{
 			name:       "without CRLF",
 			input:      "req:192.168.1.1:aabbccdd:test()",
 			wantIP:     "192.168.1.1",
