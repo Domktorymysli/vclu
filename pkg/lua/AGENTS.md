@@ -237,8 +237,9 @@ Smart Panel WiFi the same FwType) declares its Satel and Jablotron objects as GA
 (`SAT0001 = GATE:new(100, "SAT0001")`); `runtime/objects/RemoteGateAlarm.lua` has their numbers.
 Grenton's SatelZone is a Satel partition and its SatelInput a Satel zone, so these classes are
 `RemoteGate*`, never the Satel integration's names. Their guards (disarm, secret features) sit
-in `RemoteObject`'s `get`/`set`/`execute` through `_refused`, and Wire asks it for a read it
-sends past the proxy; a new way to send a script for an object must ask it too.
+in `RemoteObject`'s `get`/`set`/`execute` (a guard given once by `RemoteObject._setGuard`, kept
+out of reach of scripts with its own copy of the tables), and Wire asks `RemoteObject.refusal` for
+a read it sends past the proxy; a new way to send a script for an object must ask it too.
 
 ### Untested on hardware
 `RemoteLight` (dimmer), `RemoteLedChannel`, the colour of `RemoteRGBLight`, `RemoteCover` (roller) and

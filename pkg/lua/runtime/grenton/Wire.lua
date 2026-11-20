@@ -151,7 +151,7 @@ local function feature(fn, path, index)
             gone(path, "is not in the registry")
             return done(nil, "not imported")
         end
-        local refused = type(obj) == "table" and obj._refused and obj:_refused("get", index)
+        local refused = RemoteObject.refusal(obj, "get", index)
         if refused then
             gone(path .. "[" .. index .. "]", refused)
             return done(nil, refused)

@@ -350,3 +350,48 @@ func TestGateAlarmExposure(t *testing.T) {
 		t.Errorf("the connection exposed: %s", got)
 	}
 }
+
+// The guard's tables are read-only from Lua, and what a script changes on a class or an
+// object (its tables, its guard, its ID) does not change what the guard refuses.
+func TestGateAlarmGuardReadOnly(t *testing.T) {
+	engine, sent, _ := gateAlarmEngine(t, false)
+	for _, stmt := range []string{
+		`RemoteGateSatelZone.DISARM[1] = nil`,
+		`RemoteGateSatelZone.METHODS[5] = "X"`,
+		`RemoteGateSatel.SECRET[4] = nil`,
+		`setmetatable(RemoteGateSatelZone.DISARM, nil)`,
+		`RemoteObject._setGuard(alarm.alarm_ground, function() return nil end)`,
+	} {
+		if got := try(t, engine, stmt); got == "ok" {
+			t.Errorf("%s went through", stmt)
+		}
+	}
+	mustExec(t, engine, `
+		RemoteGateSatelZone.DISARM = {}
+		RemoteGateJablotronSection.DISARM = {}
+		RemoteGateSatel.SECRET = {}
+		alarm.alarm_ground.DISARM = {}
+		alarm.alarm_ground._refused = function() return nil end
+		RemoteGateAlarm._refused = function() return nil end
+		alarm.section_house.METHODS = { [9] = "X" }`)
+	for _, stmt := range []string{
+		`alarm.alarm_ground:disarmZone()`, `alarm.section_house:disarm()`, `alarm.section_house:execute(9)`,
+		`alarm.satel_panel:get(4)`, `Wire.execute("CLU510000001.SAT0002", 1)()`,
+	} {
+		if got := try(t, engine, stmt); got == "ok" {
+			t.Errorf("%s went through after the tables were replaced", stmt)
+		}
+	}
+	// an output pointed at the zone would send DisarmZone as its SwitchOff
+	mustExec(t, engine, `alarm.siren._objId = "SAT0002"`)
+	if got := try(t, engine, `alarm.siren:switchOff()`); !strings.Contains(got, "ID or CLU changed") {
+		t.Errorf("an object with another ID: %s", got)
+	}
+	if got := sent.take(); got != "" {
+		t.Errorf("sent %q", got)
+	}
+	// reading the tables still works
+	if got := mustExec(t, engine, `return RemoteGateSatelOutput.METHODS[0] .. " " .. RemoteGateJablotronOutput.METHODS[1]`); got != "SwitchOn SwitchOff" {
+		t.Errorf("tables read as %q", got)
+	}
+}
