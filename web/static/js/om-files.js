@@ -85,8 +85,13 @@ OmFilesManager.prototype.upload = function() {
     fetch('/api/om/preview', { method: 'POST', body: preview })
     .then(function(response) { return response.json(); })
     .then(function(data) {
-        if (data.error || !self._needsConfirm(data)) {
-            self._send(file, originalText);
+        // never import without a preview: its error is the answer
+        if (data.error) {
+            self._previewFailed(data.error, originalText);
+            return;
+        }
+        if (!self._needsConfirm(data)) {
+            self._send(file, originalText, false);
             return;
         }
         btn.disabled = false;
@@ -100,24 +105,29 @@ OmFilesManager.prototype.upload = function() {
             btn.disabled = true;
             btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> ' +
                             (self.translations.validating || 'Validating...');
-            self._send(file, originalText);
+            self._send(file, originalText, true);
         };
         document.getElementById('omPreviewCancel').onclick = function() {
             result.innerHTML = '';
             result.style.display = 'none';
         };
-    }, function() {
-        // no preview to be had (the request failed): the upload answers for itself
-        self._send(file, originalText);
     })
     .catch(function(error) {
-        // the preview came and could not be shown: never import without it
-        btn.disabled = false;
-        btn.innerHTML = originalText;
-        result.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> Error: ' +
-                           VCLU.esc(error.message) + '</div>';
-        result.style.display = 'block';
+        self._previewFailed(error.message, originalText);
     });
+};
+
+/**
+ * Show why there is no preview; nothing is imported
+ */
+OmFilesManager.prototype._previewFailed = function(message, originalText) {
+    var btn = this.elements.uploadBtn;
+    var result = this.elements.uploadResult;
+    btn.disabled = false;
+    btn.innerHTML = originalText;
+    result.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> ' +
+                       VCLU.esc((this.translations.previewFailed || 'Not imported, no preview') + ': ' + message) + '</div>';
+    result.style.display = 'block';
 };
 
 /**
@@ -191,15 +201,18 @@ OmFilesManager.prototype._brokenNote = function(data) {
 };
 
 /**
- * Upload the file
+ * Upload the file; removeMissing after a confirmed preview lets a project remove the CLUs it lacks
  */
-OmFilesManager.prototype._send = function(file, originalText) {
+OmFilesManager.prototype._send = function(file, originalText, removeMissing) {
     var self = this;
     var btn = this.elements.uploadBtn;
     var fileInput = this.elements.fileInput;
     var result = this.elements.uploadResult;
     var formData = new FormData();
     formData.append('file', file);
+    if (removeMissing) {
+        formData.append('removeMissing', 'true');
+    }
 
     fetch('/api/om/upload', {
         method: 'POST',
