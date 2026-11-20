@@ -2,13 +2,13 @@ package web
 
 import (
 	"encoding/json"
-	"syscall"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/gin-gonic/gin"
