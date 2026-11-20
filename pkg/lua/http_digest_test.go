@@ -109,3 +109,17 @@ func TestHTTPDigestAuthNeedsUser(t *testing.T) {
 		t.Error("setDigestAuth(nil) accepted")
 	}
 }
+
+// setTimeout(0) is no timeout, as without Digest: the exchange is not cut at once.
+func TestHTTPDigestAuthTimeoutZero(t *testing.T) {
+	srv := digestDevice(t)
+	engine := NewLuaEngine()
+	defer engine.Close()
+	got := mustExec(t, engine, `(function()
+		local r = HTTP:new("door0"):setTimeout(0):setDigestAuth("admin", "secret"):put("`+srv.URL+`/x", "<cmd>open</cmd>")
+		return tostring(r.status) .. " " .. tostring(r.error)
+	end)()`)
+	if got != "200 nil" {
+		t.Errorf("got %s", got)
+	}
+}
