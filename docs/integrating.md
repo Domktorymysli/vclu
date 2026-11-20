@@ -251,8 +251,8 @@ as `null` (`{"devices":null}`, `{"scenes":null}`), not as `[]`.
 Values follow the object: `1`/`0` for a switch, `0`..`1` for a dimmer. `vclu_device_set` writes the
 object's value directly; for a cover use `vclu_device_execute` with `setPosition` (0 = closed,
 100 = open), `open`, `close` or `stop`, and for a dimmer `setBrightness` takes 0..100. The `methods`
-field of `vclu_devices` lists what an object has, and `vclu_device_execute` calls only those: the
-methods the object declares, never its raw `get`, `set` or `execute`.
+field of `vclu_devices` lists what an object has; `vclu_device_execute` calls its public methods,
+never its raw `get`, `set` or `execute`.
 
 The behaviour of these tools is pinned down by the contract test
 [`pkg/mcp/tools_contract_test.go`](../pkg/mcp/tools_contract_test.go).

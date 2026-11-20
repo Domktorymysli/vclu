@@ -26,7 +26,8 @@ function SatelPartition:new(number, name, opts)
     obj._entryTime = false
     obj._exitTime = false
     obj._allowedMethods = {"getValue", "isArmed", "isAlarm", "arm", "forceArm",
-                           "disarm", "clearAlarm", "switchOn", "switchOff", "setValue"}
+                           "disarm", "clearAlarm", "switchOn", "switchOff", "setValue",
+                           "toggle", "isFireAlarm", "isEntryTime", "isExitTime"}
     return obj
 end
 

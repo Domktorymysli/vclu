@@ -193,7 +193,7 @@ function RemoteGateSatelZone:isArmed()
 end
 
 --- set(0, 1) arms and set(0, 0) disarms, by the methods (Home Assistant's switch writes
--- set(0, v)); other features are refused (RemoteGateAlarm:_refused).
+-- set(0, v)); other features are refused by the guard.
 -- @param index number Feature number
 -- @param value any The value
 function RemoteGateSatelZone:set(index, value)
@@ -266,7 +266,7 @@ function RemoteGateSatelOutput:setValue(value)
     if value == 1 or value == true then self:switchOn() else self:switchOff() end
 end
 
---- set(0, v) switches by the methods; other features are refused (RemoteGateAlarm:_refused).
+--- set(0, v) switches by the methods; other features are refused by the guard.
 -- @param index number Feature number
 -- @param value any The value
 function RemoteGateSatelOutput:set(index, value)

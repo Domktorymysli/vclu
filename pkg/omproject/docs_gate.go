@@ -42,37 +42,38 @@ func (p *Project) gateObjects() map[string]bool {
 
 // redactGate removes the values a script or binding writes into a GATE Alarm object's
 // features (any feature by set(n, v), the secret ones by name), and the strings of a
-// line that names a secret feature.
+// line that names a secret feature; in a project with a GATE Alarm only.
 func redactGate(src string, gate map[string]bool) string {
-	if len(gate) > 0 {
-		var b strings.Builder
-		last := 0
-		for _, m := range reGateSetter.FindAllStringSubmatchIndex(src, -1) {
-			if m[0] < last || !gate[src[m[2]:m[3]]] {
-				continue
-			}
-			method := src[m[4]:m[5]]
-			if method != "set" && !secretSetter(method) {
-				continue
-			}
-			open := m[1] // after "("
-			end := closing(src, open)
-			args := src[open:end]
-			keep := ""
-			if method == "set" {
-				if i := strings.IndexByte(args, ','); i >= 0 {
-					keep = args[:i+1] + " "
-				} else {
-					continue
-				}
-			}
-			b.WriteString(src[last:open])
-			b.WriteString(keep + redactedValue)
-			last = end
-		}
-		b.WriteString(src[last:])
-		src = b.String()
+	if len(gate) == 0 {
+		return src // a project without a GATE Alarm
 	}
+	var b strings.Builder
+	last := 0
+	for _, m := range reGateSetter.FindAllStringSubmatchIndex(src, -1) {
+		if m[0] < last || !gate[src[m[2]:m[3]]] {
+			continue
+		}
+		method := src[m[4]:m[5]]
+		if method != "set" && !secretSetter(method) {
+			continue
+		}
+		open := m[1] // after "("
+		end := closing(src, open)
+		args := src[open:end]
+		keep := ""
+		if method == "set" {
+			if i := strings.IndexByte(args, ','); i >= 0 {
+				keep = args[:i+1] + " "
+			} else {
+				continue
+			}
+		}
+		b.WriteString(src[last:open])
+		b.WriteString(keep + redactedValue)
+		last = end
+	}
+	b.WriteString(src[last:])
+	src = b.String()
 	lines := strings.Split(src, "\n")
 	for i, l := range lines {
 		if reSecretWord.MatchString(l) {

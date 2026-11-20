@@ -103,4 +103,8 @@ func TestRedactGate(t *testing.T) {
 			t.Errorf("%s: %s, want %s", in, got, want)
 		}
 	}
+	// a project without a GATE Alarm keeps its scripts as they are
+	if in := `local pin = "1234" -- UserPassword`; redactGate(in, nil) != in {
+		t.Errorf("no GATE: %s", redactGate(in, nil))
+	}
 }

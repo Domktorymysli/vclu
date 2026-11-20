@@ -19,45 +19,32 @@ local function isPublic(name)
     return type(name) == "string" and not name:match("^_") and not INTERNAL[name]
 end
 
--- The methods a bot may call: those the object declares (_allowedMethods), else its public
--- functions (its own and its class's)
+-- The methods vclu_devices lists: the declared ones (_allowedMethods) first, then the
+-- object's and its class's other public functions
 local function methodsOf(obj)
-    local methods = {}
+    local methods, seen = {}, {}
     if type(obj) ~= "table" then return methods end
-    if type(obj._allowedMethods) == "table" then
-        for _, k in ipairs(obj._allowedMethods) do
-            if isPublic(k) and type(obj[k]) == "function" then table.insert(methods, k) end
-        end
-        return methods
-    end
-    local seen = {}
-    for k, v in pairs(obj) do
-        if type(v) == "function" and isPublic(k) then
+    local function add(k, v)
+        if type(v) == "function" and isPublic(k) and not seen[k] then
             seen[k] = true
             table.insert(methods, k)
         end
     end
+    if type(obj._allowedMethods) == "table" then
+        for _, k in ipairs(obj._allowedMethods) do add(k, obj[k]) end
+    end
+    for k, v in pairs(obj) do add(k, v) end
     local mt = getmetatable(obj)
     if mt and type(mt.__index) == "table" then
-        for k, v in pairs(mt.__index) do
-            if type(v) == "function" and isPublic(k) and not seen[k] then
-                seen[k] = true
-                table.insert(methods, k)
-            end
-        end
+        for k, v in pairs(mt.__index) do add(k, v) end
     end
     return methods
 end
 
--- Whether a bot may call method on obj: one methodsOf lists, or, for an object that declares
--- none, any public function it has
+-- Whether a bot may call method on obj: any public function it has (its own or by its
+-- class chain), never the raw or internal ones
 local function callable(obj, method)
-    if not isPublic(method) or type(obj[method]) ~= "function" then return false end
-    if type(obj._allowedMethods) ~= "table" then return true end
-    for _, k in ipairs(obj._allowedMethods) do
-        if k == method then return true end
-    end
-    return false
+    return isPublic(method) and type(obj[method]) == "function"
 end
 
 --- List all exposed devices, optionally filtered.
@@ -265,7 +252,7 @@ function MCP.execute_method(path, method, argsJson)
         return JSON:encode({ ok = false, error = "device object is nil" })
     end
 
-    -- Only the methods vclu_devices lists (declared or public), never raw get/set/execute
+    -- Public methods only, never raw get/set/execute
     if type(obj) ~= "table" or not callable(obj, method) then
         return JSON:encode({ ok = false, error = "method not found: " .. tostring(method) })
     end

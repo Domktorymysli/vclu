@@ -18,7 +18,7 @@ function VirtualDimmer:new(name, opts)
     obj._type = "DIMMER"
     obj:_setup(opts, 0)
     obj._lastBrightness = 1.0
-    obj._allowedMethods = {"getValue", "setValue", "getBrightness", "setBrightness", "switchOn", "switchOff", "on", "off", "toggle"}
+    obj._allowedMethods = {"getValue", "setValue", "getBrightness", "setBrightness", "switchOn", "switchOff", "on", "off", "toggle", "isOn"}
     return obj
 end
 
