@@ -151,7 +151,8 @@ type projectAnswer struct {
 // uploadFile posts a file to /api/om/upload, as the page does. A small
 // MaxMultipartMemory makes the request spool the upload to a temporary file;
 // without net/http's server around it, only the handler can remove it.
-func uploadFile(t *testing.T, s *Server, name string, data []byte) (int, []byte) {
+// fields are form fields as name, value pairs.
+func uploadFile(t *testing.T, s *Server, name string, data []byte, fields ...string) (int, []byte) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -166,6 +167,11 @@ func uploadFile(t *testing.T, s *Server, name string, data []byte) (int, []byte)
 	}
 	if _, err := fw.Write(data); err != nil {
 		t.Fatal(err)
+	}
+	for i := 0; i+1 < len(fields); i += 2 {
+		if err := mw.WriteField(fields[i], fields[i+1]); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := mw.Close(); err != nil {
 		t.Fatal(err)

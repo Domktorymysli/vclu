@@ -17,13 +17,20 @@ import (
 
 var reTimes = regexp.MustCompile(`"(uploadedAt|lastModified)":\s*"[^"]*"`)
 
-// dataTree is every file under dir with its content; times are left out.
+// dataTree is every file under dir with its content; times and the backups of om files are
+// left out.
 func dataTree(t *testing.T, dir string) map[string]string {
 	t.Helper()
 	out := map[string]string{}
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+		if err != nil {
 			return err
+		}
+		if d.IsDir() && path == filepath.Join(dir, filepath.FromSlash(omBackupsDir)) {
+			return filepath.SkipDir
+		}
+		if d.IsDir() {
+			return nil
 		}
 		b, err := os.ReadFile(path)
 		if err != nil {
@@ -72,7 +79,7 @@ func TestRepeatedImportsSettle(t *testing.T) {
 
 	upload := func(name string, data []byte) {
 		t.Helper()
-		code, body := uploadFile(t, s, name, data)
+		code, body := uploadFile(t, s, name, data, "removeMissing", "true")
 		var ans map[string]any
 		if err := json.Unmarshal(body, &ans); err != nil || code != http.StatusOK || ans["success"] != true {
 			t.Fatalf("%s: %d %s", name, code, body)
@@ -133,8 +140,9 @@ func TestRepeatedImportsSettle(t *testing.T) {
 	sameTree(t, "the same page again", made, dataTree(t, s.serverDir))
 }
 
-// A project is the whole house: its import takes out the CLUs it no longer has, says which,
-// and leaves this vCLU's own file. An import with errors takes nothing out.
+// A project is the whole house: asked to, its import takes out the CLUs it no longer has,
+// says which, and leaves this vCLU's own file. An import with errors takes nothing out, nor
+// one not asked to; the files taken out are in the backup.
 func TestProjectRemovesCLUsNotInIt(t *testing.T) {
 	house := zipDir(t, filepath.Join("testdata", "omproject", "om-1.8.0", "project"))
 	other := zipDir(t, filepath.Join("testdata", "omproject", "om-1.3.5", "project"))
@@ -149,7 +157,7 @@ func TestProjectRemovesCLUsNotInIt(t *testing.T) {
 
 	// with errors: nothing goes
 	s.luaExecutor = failingLua{}
-	_, body := uploadFile(t, s, "house.omp", house)
+	_, body := uploadFile(t, s, "house.omp", house, "removeMissing", "true")
 	var ans map[string]any
 	if err := json.Unmarshal(body, &ans); err != nil {
 		t.Fatal(err)
@@ -163,13 +171,32 @@ func TestProjectRemovesCLUsNotInIt(t *testing.T) {
 		}
 	}
 
+	// not asked to: nothing goes, the answer lists them
 	s.luaExecutor = nil
 	_, body = uploadFile(t, s, "house.omp", house)
 	ans = nil
 	if err := json.Unmarshal(body, &ans); err != nil {
 		t.Fatal(err)
 	}
+	if r, _ := ans["removed"].([]any); len(r) != 0 || ans["success"] != true {
+		t.Fatalf("removed without removeMissing: %s", body)
+	}
+	kept, _ := ans["notInProject"].([]any)
+	for serial := range before {
+		if _, ok := registered(t, s.serverDir)[serial]; !ok {
+			t.Errorf("CLU%d gone without removeMissing", serial)
+		}
+	}
+
+	_, body = uploadFile(t, s, "house.omp", house, "removeMissing", "true")
+	ans = nil
+	if err := json.Unmarshal(body, &ans); err != nil {
+		t.Fatal(err)
+	}
 	removed, _ := ans["removed"].([]any)
+	if len(kept) != len(removed) {
+		t.Errorf("notInProject %v, removed %v", kept, removed)
+	}
 	after := registered(t, s.serverDir)
 	if _, ok := after[212345678]; !ok {
 		t.Error("this vCLU's own file was removed")
@@ -183,13 +210,21 @@ func TestProjectRemovesCLUsNotInIt(t *testing.T) {
 	if len(want) == 0 || len(removed) != len(want) {
 		t.Fatalf("removed %v, gone %v", removed, want)
 	}
+	backup, _ := ans["backup"].(string)
 	for _, r := range removed {
-		if _, err := os.Stat(filepath.Join(config.GetOMFilesDir(s.serverDir), "om_"+strings.TrimPrefix(r.(string), "CLU")+".lua")); !os.IsNotExist(err) {
+		om := "om_" + strings.TrimPrefix(r.(string), "CLU") + ".lua"
+		if _, err := os.Stat(filepath.Join(config.GetOMFilesDir(s.serverDir), om)); !os.IsNotExist(err) {
 			t.Errorf("%s: om file %v", r, err)
+		}
+		if backup == "" {
+			t.Fatalf("no backup: %s", body)
+		}
+		if _, err := os.Stat(filepath.Join(s.serverDir, filepath.FromSlash(backup), om)); err != nil {
+			t.Errorf("%s not in the backup: %v", om, err)
 		}
 	}
 	// the same project again removes nothing more
-	_, body = uploadFile(t, s, "house.omp", house)
+	_, body = uploadFile(t, s, "house.omp", house, "removeMissing", "true")
 	if strings.Contains(string(body), `"removed":["`) {
 		t.Errorf("removed on the same project: %s", body)
 	}

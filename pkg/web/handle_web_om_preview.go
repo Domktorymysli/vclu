@@ -4,7 +4,6 @@ import (
 	"archive/zip"
 	"bytes"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
@@ -78,9 +77,13 @@ func (s *Server) uploadHouse(content []byte, filename string, before omchange.Ho
 			}
 		}
 		if !failed && len(imported) > 0 {
+			skipped := map[string]bool{}
+			for _, id := range project.Skipped {
+				skipped[id] = true
+			}
 			after = omchange.House{}
 			for id, c := range before {
-				if isOwn(id) {
+				if isOwn(id) || skipped[id] {
 					after[id] = c
 				}
 			}
@@ -134,30 +137,15 @@ func (s *Server) brokenRefs(before omchange.House) []omchange.Ref {
 //	@Security		ApiKeyAuth
 //	@Router			/api/om/preview [post]
 func (s *Server) handleAPIOMPreview(c *gin.Context) {
-	header, err := c.FormFile("file")
-	if c.Request.MultipartForm != nil {
-		defer func() { _ = c.Request.MultipartForm.RemoveAll() }()
-	}
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No file uploaded"})
-		return
-	}
-	file, err := header.Open()
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read file"})
-		return
-	}
-	defer func() { _ = file.Close() }()
-	content, err := io.ReadAll(file)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read file"})
+	filename, content, ok := readOMUpload(c)
+	if !ok {
 		return
 	}
 
 	s.omImport.Lock()
 	defer s.omImport.Unlock()
 	before := s.house()
-	after, project, err := s.uploadHouse(content, header.Filename, before)
+	after, project, err := s.uploadHouse(content, filename, before)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
