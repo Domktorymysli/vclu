@@ -21,6 +21,12 @@ func TestRequiredIgnoresComments(t *testing.T) {
 		"--[[\n" + Require + "\n]]\n":                    false,
 		"--[==[\n" + Require + "\n]] ]==]\n":             false,
 		"--[[ a ]]\n" + Require + "\n":                   true,
+		"local d = require(\"dashboards/imported\")\n":   true,
+		"require \"dashboards/imported\"\n":              true,
+		"require(\"dashboards/imported')\n":              false,
+		"require(\"dashboards/imported\"\n":              false,
+		"require(\"dashboards/imported/page_1\")\n":      false,
+		"x = 1 require(\"dashboards/imported\")\n":       false,
 	} {
 		if err := os.WriteFile(path, []byte(code), 0644); err != nil {
 			t.Fatal(err)

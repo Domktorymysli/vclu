@@ -2451,7 +2451,7 @@ Publish state update for object
 
 ### `Wire.value(path) → function A read for a widget`
 
-An object's value, as the registry follows it (feature 0).
+An object's value (feature 0): from the registry for an object on the Sync list, else asked.
 
 - `path` (string) — "CLU221000002.DOU0001", or "CLU221000002" for the CLU's own
 
@@ -2475,13 +2475,13 @@ A user feature of the CLU (a variable defined in Object Manager), asked in the b
 
 **Returns:** function A read for a widget
 
-### `Wire.isOn(read) → function A read of true or false`
+### `Wire.isOn(read) → function A read of true, false or nil`
 
-A read as on or off: 0, "", "0", false and nothing are off.
+A read as on or off: 0, "", "0" and false are off; nothing and -1 are unknown (nil).
 
 - `read` (function) — A read (Wire.value, ...)
 
-**Returns:** function A read of true or false
+**Returns:** function A read of true, false or nil
 
 ### `Wire.text(read, onText, offText) → function A read of the text`
 
@@ -2540,7 +2540,7 @@ Runs a script of the CLU with the given arguments.
 
 ### `Wire.onOff(onAction, offAction) → function The toggle's action`
 
-A toggle's action from the actions for on and for off (either may be nil).
+A toggle's action from the actions for on and for off (either may be nil: switching that way then fails).
 
 - `onAction` (function) — |nil Run to switch on
 - `offAction` (function) — |nil Run to switch off

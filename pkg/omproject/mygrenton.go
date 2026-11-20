@@ -2,6 +2,7 @@ package omproject
 
 import (
 	"archive/zip"
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -377,9 +378,11 @@ func (t *translation) widget(g gWidget, n int) {
 		// one object: on, off, the level to set and the value; the range is the widget's
 		o := orEmpty(g.Object)
 		read := t.read(o.Value, "value")
-		on, off := t.action(o.OnAction, "onAction"), t.action(o.OffAction, "offAction")
-		if on != nil || off != nil {
+		// with one action, the level below shows the value
+		if on, off := t.action(o.OnAction, "onAction"), t.action(o.OffAction, "offAction"); on != nil && off != nil {
 			t.add(dashspec.Widget{Kind: dashspec.Toggle, ID: t.id(g, n, ""), Label: label, Read: read, On: on, Off: off})
+		} else if do := cmp.Or(on, off); do != nil {
+			t.add(dashspec.Widget{Kind: dashspec.Button, ID: t.id(g, n, ""), Label: label, Do: do})
 		}
 		t.level(g, n, "_level", label, &gPart{Unit: "PERCENT", Min: g.Min, Max: g.Max, State: o.Value, ActionClick: o.SetValueAction})
 	case "LED_CCT", "ROLLER_SHUTTER_V3":
@@ -389,16 +392,21 @@ func (t *translation) widget(g gWidget, n int) {
 	}
 }
 
-// onOff is a bistable button: a toggle, or a status when it has no actions.
+// onOff is a bistable button: a toggle when it can switch both ways, else a status, with a
+// button for the one action it has (often a toggle() of its own).
 func (t *translation) onOff(g gWidget, n int, label string, b *gPart) {
 	read := t.read(b.State, "state")
 	on, off := t.action(b.ActionOn, "actionOn"), t.action(b.ActionOff, "actionOff")
-	if on == nil && off == nil {
-		t.add(dashspec.Widget{Kind: dashspec.Status, ID: t.id(g, n, ""), Label: label, Read: read,
-			OnText: text(b.OnIndication), OffText: text(b.OffIndication)})
+	if on != nil && off != nil {
+		t.add(dashspec.Widget{Kind: dashspec.Toggle, ID: t.id(g, n, ""), Label: label, Read: read, On: on, Off: off})
 		return
 	}
-	t.add(dashspec.Widget{Kind: dashspec.Toggle, ID: t.id(g, n, ""), Label: label, Read: read, On: on, Off: off})
+	if t.add(dashspec.Widget{Kind: dashspec.Status, ID: t.id(g, n, ""), Label: label, Read: read,
+		OnText: text(b.OnIndication), OffText: text(b.OffIndication)}) {
+		if do := cmp.Or(on, off); do != nil {
+			t.add(dashspec.Widget{Kind: dashspec.Button, ID: t.id(g, n, "_click"), Label: label, Do: do})
+		}
+	}
 }
 
 // level is a slider when its action takes the entered value within a range, else a status.

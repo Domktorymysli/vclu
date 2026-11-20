@@ -3,6 +3,7 @@ package web
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -41,6 +42,8 @@ func TestE2E_ProjectToDashboards(t *testing.T) {
 		}
 	})
 	s.SetLuaReloader(&moduleReloader{eng: engine, dir: dir})
+	// the imported dashboards ask for the panel's login, as a browser has it
+	session := s.sessions.create()
 
 	do := func(method, path, contentType string, body []byte, authed bool) (int, map[string]any) {
 		t.Helper()
@@ -50,6 +53,7 @@ func TestE2E_ProjectToDashboards(t *testing.T) {
 		}
 		if authed {
 			req.Header.Set("X-API-Key", key)
+			req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session})
 		}
 		w := httptest.NewRecorder()
 		s.router.ServeHTTP(w, req)
@@ -141,6 +145,17 @@ func TestE2E_ProjectToDashboards(t *testing.T) {
 	if code, def := do("GET", "/api/dashboard/imported_1700000000003", "", nil, true); code != http.StatusOK || def["name"] != "Living" {
 		t.Fatalf("dashboard %d %v", code, def)
 	}
+	// they control the house: not without a login
+	for _, p := range []string{"/api/dashboard/imported_1700000000003", "/api/dashboard/imported_1700000000003/values"} {
+		if code, _ := do("GET", p, "", nil, false); code != http.StatusUnauthorized {
+			t.Errorf("%s without a login: %d", p, code)
+		}
+	}
+	sent.take()
+	if code, _ := do("POST", "/api/dashboard/imported_1700000000001/action", "application/json",
+		[]byte(`{"widgetId":"w2","action":"toggle","value":true}`), false); code != http.StatusUnauthorized || sent.take() != "" {
+		t.Errorf("an action without a login: %d", code)
+	}
 
 	// the dashboards reach the CLU: a toggle switches, the dimmer's 0-100% sends 0-1
 	for _, tc := range []struct{ dash, body, want string }{
@@ -153,7 +168,10 @@ func TestE2E_ProjectToDashboards(t *testing.T) {
 			t.Errorf("%s %s sent %q, want %q", tc.dash, tc.body, got, tc.want)
 		}
 	}
-	if _, err := engine.Execute(`_registry:get("` + clu + `.` + out + `"):updateState(0.25)`); err != nil {
+	// on the Sync list, the registry's value is shown
+	if _, err := engine.Execute(`RemoteSubscription.config.enabled = true
+		RemoteSubscription.config.whitelist = { ["` + clu + `.` + out + `"] = true }
+		_registry:get("` + clu + `.` + out + `"):updateState(0.25)`); err != nil {
 		t.Fatal(err)
 	}
 	if code, vals := do("GET", "/api/dashboard/imported_1700000000003/values", "", nil, true); code != http.StatusOK ||
@@ -198,8 +216,12 @@ func TestE2E_ProjectToDashboards(t *testing.T) {
 	if !strings.Contains(mustJSON(up["brokenRefs"]), `"file":"auto.lua"`) {
 		t.Errorf("the upload does not list auto.lua: %v", up["brokenRefs"])
 	}
-	// the dashboard's toggle now names an object vclu has not: nothing is sent
-	action("imported_1700000000001", `{"widgetId":"w2","action":"toggle","value":true}`)
+	// the dashboard's toggle now names an object vclu has not: nothing is sent, the page says why
+	code, ans = do("POST", "/api/dashboard/imported_1700000000001/action", "application/json",
+		[]byte(`{"widgetId":"w2","action":"toggle","value":true}`), true)
+	if ans["success"] == true || !strings.Contains(fmt.Sprint(ans["error"]), "is not imported") {
+		t.Errorf("an action on an object that is gone: %d %v", code, ans)
+	}
 	if got := sent.take(); got != "" {
 		t.Errorf("sent to an object that is gone: %q", got)
 	}

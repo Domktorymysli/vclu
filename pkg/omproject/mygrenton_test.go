@@ -80,9 +80,12 @@ func TestReadInterface(t *testing.T) {
 	if w := c["w20"]; w.Kind != dashspec.Thermostat || *w.Current.Feature != 14 || !w.Set.Input || w.State == nil || *w.Max != 30 {
 		t.Errorf("thermostat %+v", w)
 	}
-	// numbers where OM writes strings
-	if w := c["w28"]; w.Kind != dashspec.Toggle || w.On.Value != 1.0 || *w.Read.Feature != 0 {
+	// numbers where OM writes strings; with only actionOn no toggle: its state and a button
+	if w := c["w28"]; w.Kind != dashspec.Status || *w.Read.Feature != 0 {
 		t.Errorf("numbers %+v", w)
+	}
+	if w := c["w28_click"]; w.Kind != dashspec.Button || w.Do.Value != 1.0 {
+		t.Errorf("numbers' action %+v", w)
 	}
 	// a second widget with the same id gets one of its own; a read of the CLU itself is kept
 	if w := c["w28_2"]; w.Read == nil || w.Read.Object != "" || *w.Read.Feature != 9 {
@@ -91,7 +94,7 @@ func TestReadInterface(t *testing.T) {
 	if w := c["w27"]; w.Label != "\"); os.exit(1) --]] \\ \x01" {
 		t.Errorf("label %q", w.Label)
 	}
-	if len(climate.Widgets) != 4 {
+	if len(climate.Widgets) != 5 {
 		t.Errorf("climate: %d widgets %+v", len(climate.Widgets), climate.Widgets)
 	}
 	left := strings.Join(climate.LeftOut, "\n")
@@ -172,6 +175,8 @@ func TestReadInterfaceDimmersAndShutters(t *testing.T) {
 		"w42": dashspec.Button, "w42_position": dashspec.Status,
 		"w43": dashspec.Button, "w43_up": dashspec.Button, "w43_down": dashspec.Button, "w43_position": dashspec.Slider, "w43_slats": dashspec.Slider,
 		"w44": dashspec.Toggle, "w44_level": dashspec.Slider,
+		// one action only (a toggle() of its own): a button, the level shows the value
+		"w46": dashspec.Button, "w46_level": dashspec.Status,
 	}
 	if len(kinds) != len(want) {
 		t.Errorf("widgets %v", kinds)

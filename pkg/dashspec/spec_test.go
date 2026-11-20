@@ -61,12 +61,17 @@ func TestPageLua(t *testing.T) {
 		Wire = setmetatable({}, { __index = function() return function() return function() end end end })
 		local b = {}
 		function b:name() return self end
+		function b:auth(a) AUTH = a return self end
 		function b:tabGroup() return self end
 		function b:section() return self end
 		function b:status(id, label) LABELS[#LABELS + 1] = label return self end
 		function b:build() end
 		Dashboard = { new = function() return b end }` + "\n" + code); err != nil {
 		t.Fatal(err)
+	}
+	// the page controls the house: only behind the panel's login
+	if a := L.GetGlobal("AUTH").String(); a != "session" {
+		t.Errorf("auth %q", a)
 	}
 	got := L.GetGlobal("LABELS").(*lua.LTable)
 	for i, l := range labels {
