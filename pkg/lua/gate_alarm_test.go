@@ -474,3 +474,42 @@ func TestGateAlarmUnknownStateNotOff(t *testing.T) {
 		}
 	}
 }
+
+// MCP's vclu_device_execute calls only the methods vclu_devices lists: the object's declared
+// ones, never its raw get/set/execute, its events or internal functions.
+func TestGateAlarmMCPOnlyListedMethods(t *testing.T) {
+	engine, sent, _ := gateAlarmEngine(t, true)
+	mustExec(t, engine, `alarm.alarm_ground:expose({ path = "alarm:zone" })
+		local o = { _lastState = 0, get = function(s) return s._lastState end,
+			onChange = function() return function() end end,
+			ping = function(s) s.pinged = true return "pong" end }
+		PLAIN = o
+		expose(o, "switch", { path = "t:plain" })`)
+	for _, m := range []string{"updateState", "_refused", "execute", "set", "get", "emit", "new", "call", "onEvent", "addTag"} {
+		got := mustExec(t, engine, `return MCP.execute_method("alarm:zone", "`+m+`", "[1]")`)
+		if !strings.Contains(got, "method not found") {
+			t.Errorf("%s: %s", m, got)
+		}
+	}
+	if got := sent.take(); got != "" {
+		t.Errorf("sent %q", got)
+	}
+	if got := mustExec(t, engine, `return MCP.execute_method("alarm:zone", "armZone", nil)`); !strings.Contains(got, `"ok":true`) || sent.take() != "SAT0002:execute(0)" {
+		t.Errorf("armZone: %s", got)
+	}
+	// the list says the same
+	var dev struct{ Methods []string }
+	if err := json.Unmarshal([]byte(mustExec(t, engine, `return MCP.get_device("alarm:zone")`)), &dev); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(dev.Methods, ","); got != "getValue,isArmed,armZone,disarmZone" {
+		t.Errorf("methods %s", got)
+	}
+	// an object that declares no methods keeps its own public ones
+	if got := mustExec(t, engine, `return MCP.execute_method("t:plain", "ping", nil)`); !strings.Contains(got, `"result":"pong"`) {
+		t.Errorf("ping: %s", got)
+	}
+	if got := mustExec(t, engine, `return MCP.execute_method("t:plain", "get", "[0]")`); !strings.Contains(got, "method not found") {
+		t.Errorf("get on a plain object: %s", got)
+	}
+}
