@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/Domktorymysli/vclu/pkg/config"
+	"github.com/Domktorymysli/vclu/pkg/lua"
 )
 
 // An om.lua copy kept before #214 still has a GATE Alarm's settings and Wi-Fi: the start
@@ -53,5 +54,30 @@ func TestStartStripsStoredGateSettings(t *testing.T) {
 	}
 	if left, _ := filepath.Glob(filepath.Join(imports, "*.tmp")); len(left) > 0 {
 		t.Errorf("left behind: %v", left)
+	}
+}
+
+// A backup restored from before #214 brings copies with a GATE's settings back; the reload
+// that follows removes them before the proxies load.
+func TestReloadStripsStoredGateSettings(t *testing.T) {
+	dir := t.TempDir()
+	imports := config.GetOMFilesDir(dir)
+	if err := os.MkdirAll(imports, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stored := filepath.Join(imports, "om_510000001.lua")
+	old := "-- FwType 00000002\n-- HwType 00000012\n" +
+		"SAT0001 = GATE:new(103, \"SAT0001\")\nSAT0001:set(4, \"MARKER-PASSWORD-123\")\n"
+	if err := os.WriteFile(stored, []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	engine := lua.NewLuaEngine()
+	t.Cleanup(engine.Close)
+	s := &Server{serverDir: dir, luaEngine: engine, deviceConfig: &config.CLUDeviceConfig{}}
+	if err := s.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(stored); err != nil || strings.Contains(string(data), "MARKER") {
+		t.Errorf("stored copy after the reload %v:\n%s", err, data)
 	}
 }
