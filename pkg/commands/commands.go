@@ -41,9 +41,12 @@ func ParseLuaScriptRequest(data []byte) (*LuaScriptRequest, error) {
 		return nil, fmt.Errorf("invalid request format")
 	}
 
-	ip := net.ParseIP(parts[1])
-	if ip == nil {
-		return nil, fmt.Errorf("invalid IP address: %s", parts[1])
+	// the Grenton app on iOS leaves the address empty; replies go to the sender anyway
+	var ip net.IP
+	if parts[1] != "" {
+		if ip = net.ParseIP(parts[1]); ip == nil {
+			return nil, fmt.Errorf("invalid IP address: %s", parts[1])
+		}
 	}
 
 	sessionID, err := strconv.ParseUint(parts[2], 16, 32)
