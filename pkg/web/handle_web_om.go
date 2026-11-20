@@ -310,10 +310,12 @@ func (s *Server) handleProjectUpload(c *gin.Context, zr *zip.Reader, filename st
 	if err := dashspec.SaveInterfaces(s.myGrentonPath(), project.Interfaces); err != nil {
 		errors = append(errors, err.Error())
 	}
-	warnings := append(append([]string{}, project.Warnings...), cluWarnings...)
+	// first, so the cap on warnings never cuts it
+	warnings := []string{}
 	if len(notInProject) > 0 {
 		warnings = append(warnings, "Not in the project, kept (import with removeMissing=true to remove): "+strings.Join(notInProject, ", "))
 	}
+	warnings = append(append(warnings, project.Warnings...), cluWarnings...)
 	resp := gin.H{
 		"success":      len(errors) == 0,
 		"isProject":    true,

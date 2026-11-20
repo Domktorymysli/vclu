@@ -77,9 +77,13 @@ func (s *Server) backupOMFiles() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to back up the OM files: %v", err)
 	}
+	// by name, never the copy just made: the clock may have gone back
 	names = omBackups(root)
-	for i := 0; i < len(names)-omBackupsKept; i++ {
-		_ = os.RemoveAll(filepath.Join(root, names[i]))
+	for i, extra := 0, len(names)-omBackupsKept; extra > 0 && i < len(names); i++ {
+		if names[i] != name {
+			_ = os.RemoveAll(filepath.Join(root, names[i]))
+			extra--
+		}
 	}
 	return omBackupsDir + "/" + name, nil
 }
@@ -89,7 +93,7 @@ func (s *Server) writeOMBackup(root string, files map[string][]byte) (string, er
 	// to the microsecond: names sort as the copies were made, a trimmed one never comes back
 	var name string
 	for i := 0; ; i++ {
-		name = time.Now().Format("20060102_150405.000000")
+		name = time.Now().UTC().Format(omBackupFormat)
 		err := os.Mkdir(filepath.Join(root, name), 0o755)
 		if err == nil {
 			break
@@ -109,12 +113,15 @@ func (s *Server) writeOMBackup(root string, files map[string][]byte) (string, er
 	return name, nil
 }
 
+// omBackupFormat names a backup by its UTC time.
+const omBackupFormat = "20060102_150405.000000"
+
 // omBackups are the backup directories under root, oldest first.
 func omBackups(root string) []string {
 	entries, _ := os.ReadDir(root)
 	var names []string
 	for _, e := range entries {
-		if e.IsDir() {
+		if _, err := time.Parse(omBackupFormat, e.Name()); err == nil && e.IsDir() {
 			names = append(names, e.Name())
 		}
 	}
@@ -141,22 +148,35 @@ func sameFiles(dir string, files map[string][]byte) bool {
 	return true
 }
 
-// writeFileAtomic writes next to path and renames, so a failed write leaves the old file.
+// writeFileAtomic writes next to path and renames, so a failed write leaves the old file. The
+// file keeps its mode; a new one gets perm less the umask, as os.WriteFile gives it.
 func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
+	mode, keep := perm, false
+	if fi, err := os.Stat(path); err == nil {
+		mode, keep = fi.Mode().Perm(), true
+	}
+	// created with mode, so the umask applies as in os.WriteFile
+	tmpPath := filepath.Join(filepath.Dir(path), fmt.Sprintf(".%s.tmp-%d", filepath.Base(path), time.Now().UnixNano()))
+	f, err := os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = os.Remove(tmp.Name()) }()
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
+	defer func() { _ = os.Remove(tmpPath) }()
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
 		return err
 	}
-	if err := tmp.Close(); err != nil {
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
 		return err
 	}
-	if err := os.Chmod(tmp.Name(), perm); err != nil {
+	if err := f.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp.Name(), path)
+	if keep {
+		if err := os.Chmod(tmpPath, mode); err != nil {
+			return err
+		}
+	}
+	return os.Rename(tmpPath, path)
 }

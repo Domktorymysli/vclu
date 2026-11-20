@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/json"
+	"syscall"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -162,25 +163,84 @@ func TestOMFilesBackedUp(t *testing.T) {
 	}
 }
 
-// writeFileAtomic replaces the file whole and leaves nothing beside it.
+// writeFileAtomic replaces the file whole and leaves nothing beside it; a new file gets perm
+// less the umask, a replaced one keeps its mode.
 func TestWriteFileAtomic(t *testing.T) {
+	old := syscall.Umask(0o022)
+	defer syscall.Umask(old)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "om_1.lua")
-	for _, content := range []string{"old", "new"} {
-		if err := writeFileAtomic(path, []byte(content), 0o644); err != nil {
-			t.Fatal(err)
-		}
+	if err := writeFileAtomic(path, []byte("old"), 0o666); err != nil {
+		t.Fatal(err)
+	}
+	if fi, _ := os.Stat(path); fi.Mode().Perm() != 0o644 {
+		t.Errorf("new file mode %v", fi.Mode())
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFileAtomic(path, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 	if b, _ := os.ReadFile(path); string(b) != "new" {
 		t.Errorf("%q", b)
 	}
-	if fi, _ := os.Stat(path); fi.Mode().Perm() != 0o644 {
-		t.Errorf("mode %v", fi.Mode())
+	if fi, _ := os.Stat(path); fi.Mode().Perm() != 0o600 {
+		t.Errorf("replaced file mode %v", fi.Mode())
 	}
 	if entries, _ := os.ReadDir(dir); len(entries) != 1 {
 		t.Errorf("%d files", len(entries))
 	}
 	if err := writeFileAtomic(filepath.Join(dir, "missing", "x"), nil, 0o644); err == nil {
 		t.Error("no error for a missing directory")
+	}
+}
+
+// A clock set back makes the new copy sort first: it is kept all the same, and directories
+// not named as copies are neither counted nor removed.
+func TestOMBackupSurvivesClockBack(t *testing.T) {
+	s := &Server{serverDir: t.TempDir()}
+	if code, body := uploadFile(t, s, "om.lua", []byte(namesOMLua)); code != http.StatusOK {
+		t.Fatalf("%d %s", code, body)
+	}
+	root := filepath.Join(s.serverDir, filepath.FromSlash(omBackupsDir))
+	for i := 0; i < omBackupsKept; i++ {
+		if err := os.MkdirAll(filepath.Join(root, fmt.Sprintf("2099%02d01_000000.000000", i+1)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(root, "mine"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	backup, err := s.backupOMFiles()
+	if err != nil || backup == "" {
+		t.Fatalf("%q %v", backup, err)
+	}
+	if _, err := os.Stat(filepath.Join(s.serverDir, filepath.FromSlash(backup), "om_212345678.lua")); err != nil {
+		t.Errorf("the new copy is gone: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "mine")); err != nil {
+		t.Errorf("a directory not named as a copy removed: %v", err)
+	}
+	if got := len(omBackups(root)); got != omBackupsKept {
+		t.Errorf("%d copies", got)
+	}
+}
+
+// The CLUs a project lacks and the import kept are named first, never cut with the warnings.
+func TestProjectNotInProjectWarningFirst(t *testing.T) {
+	s := &Server{serverDir: t.TempDir()}
+	if code, body := uploadFile(t, s, "om.lua", []byte(namesOMLua)); code != http.StatusOK {
+		t.Fatalf("%d %s", code, body)
+	}
+	bad := strings.Repeat("<Input><name>x</name></Input>", 300)
+	omp := zipBytes(t, map[string][]byte{"system.xml": projectXML(projectCLU("CLU221000009", "garage", bad))})
+	_, body := uploadFile(t, s, "house.omp", omp)
+	var ans projectAnswer
+	if err := json.Unmarshal(body, &ans); err != nil || len(ans.Warnings) == 0 {
+		t.Fatalf("%s", body)
+	}
+	if !strings.HasPrefix(ans.Warnings[0], "Not in the project, kept") || !strings.Contains(ans.Warnings[0], "CLU212345678") {
+		t.Errorf("first warning %q", ans.Warnings[0])
 	}
 }
