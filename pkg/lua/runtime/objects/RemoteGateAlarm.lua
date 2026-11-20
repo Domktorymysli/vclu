@@ -20,8 +20,10 @@
 --   152 JablotronOutput value 1 on; execute 0 SwitchOn, 1 SwitchOff
 --   153 JablotronDevice value 1 active; read only
 --
--- Guards (RemoteGateAlarm:_refused, checked by RemoteObject's get, set and execute, so by
--- every way in: a method here, obj:execute(n), obj:set(n, v), MCP, Home Assistant, Wire):
+-- Guards (given to RemoteObject._setGuard and checked by RemoteObject's get, set and execute,
+-- so by every way in: a method here, obj:execute(n), obj:set(n, v), MCP, Home Assistant,
+-- Wire). The tables below are read-only; the guard keeps its own copy, taken when this file
+-- loads, and the object's ID and CLU from its creation:
 -- - only the methods listed above are sent (METHODS per class); the connections (Satel,
 --   Jablotron) and the inputs and devices take none;
 -- - no feature is written: they are the GATE's settings (panel address, port, encryption,
@@ -46,6 +48,10 @@ RemoteGateAlarm.DISARM = {}
 -- Method numbers vCLU sends, by name (per class); any other is refused
 RemoteGateAlarm.METHODS = {}
 
+-- The guard's rules per class, taken by seal() at the end of this file, and per object
+local classRules = {}
+local objectRules = setmetatable({}, {__mode = "k"})
+
 -- Go's setting, taken when the runtime loads: a script that replaces the global (or
 -- RemoteGateAlarm.disarmAllowed) does not change what the guard asks
 local goAllowDisarm = __go_gate_alarm_allow_disarm
@@ -66,19 +72,21 @@ local function label(self)
     return tostring(self._type) .. " " .. tostring(self._objId)
 end
 
---- Why a read, write or method of this object is refused; nil when it is not.
--- @param kind string "get", "set" or "execute"
--- @param index number The feature or method number
--- @return string|nil
-function RemoteGateAlarm:_refused(kind, index)
+-- Why a read, write or method of this object is refused; nil when it is not
+local function refused(self, kind, index)
+    local r = objectRules[self]
+    if not r then return "not a GATE Alarm object" end
+    if rawget(self, "_objId") ~= r.objId or rawget(self, "_clu") ~= r.clu then
+        return label(self) .. ": the object's ID or CLU changed after it was created"
+    end
     -- the number goes into the script for the GATE: "1", "1) x(", NaN or math.huge would
     -- pass the tables; the same rule as Wire's (a whole number 0-9999)
     if type(index) ~= "number" or index ~= index or index < 0 or index >= 10000
        or index ~= math.floor(index) then
         return label(self) .. ": " .. tostring(kind) .. " takes a whole number 0-9999, got " .. tostring(index)
     end
-    if (kind == "get" or kind == "set") and self.SECRET[index] then
-        return label(self) .. ": feature " .. tostring(index) .. " (" .. self.SECRET[index]
+    if (kind == "get" or kind == "set") and r.secret[index] then
+        return label(self) .. ": feature " .. tostring(index) .. " (" .. r.secret[index]
             .. ") holds a secret of the alarm panel; vCLU never reads or writes it"
     end
     if kind == "set" then
@@ -86,15 +94,26 @@ function RemoteGateAlarm:_refused(kind, index)
             .. " is a setting of the GATE; vCLU does not write it (commands are the object's methods)"
     end
     if kind == "execute" then
-        if not self.METHODS[index] then
+        if not r.methods[index] then
             return label(self) .. ": method " .. tostring(index) .. " is not one vCLU sends to it"
         end
-        if self.DISARM[index] and not allowDisarm() then
-            return label(self) .. ": " .. self.DISARM[index]
+        if r.disarm[index] and not allowDisarm() then
+            local msg = label(self) .. ": " .. r.disarm[index]
                 .. " is refused; disarming needs grenton.gateAlarm.allowDisarm in .vclu.json"
+            -- logged too: Home Assistant, HomeKit and the cloud get no error back
+            if Logger then Logger:getShared():warn("[GATE] %s", msg) end
+            return msg
         end
     end
     return nil
+end
+
+--- Why a read, write or method of this object is refused; nil when it is not.
+-- @param kind string "get", "set" or "execute"
+-- @param index number The feature or method number
+-- @return string|nil
+function RemoteGateAlarm:_refused(kind, index)
+    return refused(self, kind, index)
 end
 
 --- The value the GATE reported (feature 0).
@@ -104,12 +123,15 @@ function RemoteGateAlarm:getValue()
     return self._lastState
 end
 
--- Value changes as Grenton's events: on[new] after off, off[old] after on
-local function edges(self, oldState, newState, onEvent, offEvent)
-    if oldState == nil or oldState == newState then return end
-    if oldState == 0 and newState == 1 then
+-- Value changes as Grenton's events: on after off, off after on. Compared with the last
+-- known state, so 1, -1 (unknown), 0 is still an off.
+local function edges(self, newState, onEvent, offEvent)
+    if newState ~= 0 and newState ~= 1 then return end
+    local known = self._lastKnown
+    self._lastKnown = newState
+    if known == 0 and newState == 1 then
         self:emit(onEvent)
-    elseif oldState == 1 and newState == 0 then
+    elseif known == 1 and newState == 0 then
         self:emit(offEvent)
     end
 end
@@ -124,6 +146,9 @@ local function class(name, typ, methods)
         local obj = RemoteObject.new(self, clu, objId, objName)
         obj._type = typ
         obj._allowedMethods = methods
+        local r = classRules[c]
+        objectRules[obj] = { objId = objId, clu = clu, secret = r.secret, disarm = r.disarm, methods = r.methods }
+        RemoteObject._setGuard(obj, refused)
         return obj
     end
     _G[name] = c
@@ -168,7 +193,7 @@ function RemoteGateSatelZone:isArmed()
 end
 
 --- set(0, 1) arms and set(0, 0) disarms, by the methods (Home Assistant's switch writes
--- set(0, v)); other features are refused (RemoteGateAlarm:_refused).
+-- set(0, v)); other features are refused by the guard.
 -- @param index number Feature number
 -- @param value any The value
 function RemoteGateSatelZone:set(index, value)
@@ -181,9 +206,8 @@ function RemoteGateSatelZone:set(index, value)
 end
 
 function RemoteGateSatelZone:updateState(newState)
-    local oldState = self._lastState
     RemoteObject.updateState(self, newState)
-    edges(self, oldState, newState, "OnArm", "OnDisarm")
+    edges(self, newState, "OnArm", "OnDisarm")
 end
 
 --- Registers a callback for when the partition is armed.
@@ -199,9 +223,8 @@ function RemoteGateSatelZone:onDisarm(callback) return self:onEvent("OnDisarm", 
 RemoteGateSatelInput = class("RemoteGateSatelInput", "GATE_SATEL_INPUT", {"getValue"})
 
 function RemoteGateSatelInput:updateState(newState)
-    local oldState = self._lastState
     RemoteObject.updateState(self, newState)
-    edges(self, oldState, newState, "OnSwitchOn", "OnSwitchOff")
+    edges(self, newState, "OnSwitchOn", "OnSwitchOff")
 end
 
 --- Registers a callback for when the input is violated.
@@ -243,7 +266,7 @@ function RemoteGateSatelOutput:setValue(value)
     if value == 1 or value == true then self:switchOn() else self:switchOff() end
 end
 
---- set(0, v) switches by the methods; other features are refused (RemoteGateAlarm:_refused).
+--- set(0, v) switches by the methods; other features are refused by the guard.
 -- @param index number Feature number
 -- @param value any The value
 function RemoteGateSatelOutput:set(index, value)
@@ -252,9 +275,8 @@ function RemoteGateSatelOutput:set(index, value)
 end
 
 function RemoteGateSatelOutput:updateState(newState)
-    local oldState = self._lastState
     RemoteObject.updateState(self, newState)
-    edges(self, oldState, newState, "OnSwitchOn", "OnSwitchOff")
+    edges(self, newState, "OnSwitchOn", "OnSwitchOff")
 end
 
 --- Registers a callback for when the output switches on.
@@ -282,9 +304,8 @@ end
 function RemoteGateSatel:_getExposeType() return nil end
 
 function RemoteGateSatel:updateState(newState)
-    local oldState = self._lastState
     RemoteObject.updateState(self, newState)
-    edges(self, oldState, newState, "OnConnected", "OnDisconnected")
+    edges(self, newState, "OnConnected", "OnDisconnected")
 end
 
 --- Registers a callback for when the GATE connects to the panel.
@@ -401,5 +422,34 @@ RemoteGateJablotronDevice = class("RemoteGateJablotronDevice", "GATE_JABLOTRON_D
 RemoteGateJablotronDevice.updateState = RemoteGateSatelInput.updateState
 RemoteGateJablotronDevice.onSwitchOn = RemoteGateSatelInput.onSwitchOn
 RemoteGateJablotronDevice.onSwitchOff = RemoteGateSatelInput.onSwitchOff
+
+-- ==========================================================================
+-- The guard's rules: a copy for the guard, read-only tables for scripts
+-- ==========================================================================
+
+local function copy(t)
+    local out = {}
+    for k, v in pairs(t) do out[k] = v end
+    return out
+end
+
+local function readOnly(t, what)
+    return setmetatable({}, {
+        __index = t,
+        __newindex = function() error(what .. " is read-only", 2) end,
+        __metatable = false,
+    })
+end
+
+for _, name in ipairs({ "RemoteGateSatelZone", "RemoteGateSatelInput", "RemoteGateSatelOutput",
+        "RemoteGateSatel", "RemoteGateJablotron", "RemoteGateJablotronSection",
+        "RemoteGateJablotronOutput", "RemoteGateJablotronDevice" }) do
+    local c = _G[name]
+    local r = { secret = copy(c.SECRET), disarm = copy(c.DISARM), methods = copy(c.METHODS) }
+    classRules[c] = r
+    c.SECRET = readOnly(r.secret, name .. ".SECRET")
+    c.DISARM = readOnly(r.disarm, name .. ".DISARM")
+    c.METHODS = readOnly(r.methods, name .. ".METHODS")
+end
 
 return RemoteGateAlarm

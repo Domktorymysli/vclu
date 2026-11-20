@@ -479,6 +479,8 @@ end
 local ON_TYPES = { light = true, switch = true, dimmer = true, fan = true, binary_sensor = true,
     motion = true, sensor = true }
 local READING_TYPES = { temperature = true, humidity = true, illuminance = true }
+-- On/off types whose negative value is unknown (a GATE Alarm's zone reports -1), as for HA
+local UNKNOWN_IF_NEGATIVE = { switch = true, sensor = true, motion = true, occupancy = true }
 
 -- A finite number, or nil
 local function finite(v)
@@ -506,6 +508,7 @@ local function remoteState(path, h)
         return v and { path = path, value = v } or nil
     end
     local n = finite(v)
+    if n and n < 0 and UNKNOWN_IF_NEGATIVE[h.type] then return { path = path } end
     return { path = path, on = v == true or (n ~= nil and n > 0) }
 end
 

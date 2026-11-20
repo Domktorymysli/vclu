@@ -14,7 +14,7 @@ RemoteSwitch.__index = RemoteSwitch
 function RemoteSwitch:new(clu, objId, name)
     local obj = RemoteObject.new(self, clu, objId, name)
     obj._type = "DOUT"
-    obj._allowedMethods = {"getValue", "setValue", "switchOn", "switchOff", "on", "off", "toggle"}
+    obj._allowedMethods = {"getValue", "setValue", "switchOn", "switchOff", "on", "off", "toggle", "switch", "pulse"}
     return obj
 end
 

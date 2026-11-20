@@ -136,6 +136,28 @@ function SYSTEM.Init()
     end
 end
 
+-- Format a Lua value for clientReport response.
+-- Strings are quoted, nil becomes "nil", numbers/booleans as-is.
+-- @local
+local function formatValue(value)
+    if value == nil then
+        return "nil"
+    elseif type(value) == "string" then
+        -- a Lua string literal: quotes, backslashes and control characters escaped
+        return '"' .. value:gsub('[%c"\\]', function(c)
+            if c == '"' or c == "\\" then return "\\" .. c end
+            if c == "\n" then return "\\n" end
+            if c == "\r" then return "\\r" end
+            if c == "\t" then return "\\t" end
+            return string.format("\\%03d", c:byte())
+        end) .. '"'
+    elseif type(value) == "boolean" then
+        return tostring(value)
+    else
+        return tostring(value)
+    end
+end
+
 --- Fetch values of user variables (cechy użytkownika)
 -- Takes a table of variable names, returns values in format: values:{"val1",nil}
 -- Used by Object Manager to read user-defined global variables
@@ -144,14 +166,7 @@ end
 function SYSTEM:fetchValues(names)
     local results = {}
     for i, name in ipairs(names) do
-        local value = _G[name]
-        if value == nil then
-            table.insert(results, "nil")
-        elseif type(value) == "string" then
-            table.insert(results, '"' .. tostring(value) .. '"')
-        else
-            table.insert(results, tostring(value))
-        end
+        table.insert(results, formatValue(_G[name]))
     end
     return "values:{" .. table.concat(results, ",") .. "}"
 end
@@ -202,21 +217,6 @@ end
 -- Used by Object Manager and mobile apps to subscribe to feature value changes
 -- ==========================================================================
 
--- Format a Lua value for clientReport response.
--- Strings are quoted, nil becomes "nil", numbers/booleans as-is.
--- @local
-local function formatValue(value)
-    if value == nil then
-        return "nil"
-    elseif type(value) == "string" then
-        return '"' .. tostring(value) .. '"'
-    elseif type(value) == "boolean" then
-        return tostring(value)
-    else
-        return tostring(value)
-    end
-end
-
 --- Collect feature values for a list of subscriptions
 -- Helper function that retrieves current values for subscribed features
 -- @param subscriptions table Array of {object, featureIndex} pairs
@@ -259,7 +259,8 @@ function SYSTEM:clientRegister(clientIP, destPort, sessionID, subscriptions)
     self = shared or self
     -- A bad entry kept here would break the reports of every client
     clientIP, destPort, sessionID = tostring(clientIP), tonumber(destPort), tonumber(sessionID)
-    if not clientIP:match("^[%x%.:]+$") or not destPort or not sessionID or type(subscriptions) ~= "table" then
+    if not clientIP:match("^[%x%.:]+$") or not destPort or destPort < 1 or destPort > 65535
+       or destPort ~= math.floor(destPort) or not sessionID or type(subscriptions) ~= "table" then
         error("SYSTEM:clientRegister: bad address, port, session or subscription list", 0)
     end
     for _, sub in ipairs(subscriptions) do
@@ -361,10 +362,8 @@ local function pendingReport(sub)
         for i = 1, n do
             values[i] = formatValue(cache[i])
         end
-        local valuesStr = "{" .. table.concat(values, ",") .. "}"
-        local escapedValues = valuesStr:gsub('"', '\\"')
-        return string.format('{"ip":"%s","port":%d,"sessionID":%d,"values":"%s"}',
-            sub.ip, sub.port, sub.sessionID, escapedValues)
+        return JSON.encode({ ip = sub.ip, port = sub.port, sessionID = sub.sessionID,
+            values = "{" .. table.concat(values, ",") .. "}" })
     end
 end
 

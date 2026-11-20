@@ -20,7 +20,7 @@ VirtualNumber.__index = VirtualNumber
 function VirtualNumber:new(name, opts)
     local obj = VirtualObject.new(self, name)
     obj._type = "AnalogOUT"
-    obj._allowedMethods = {"getValue", "setValue"}
+    obj._allowedMethods = {"getValue", "setValue", "getMeta"}
 
     opts = opts or {}
     obj._min = opts.min       -- nil = no lower bound

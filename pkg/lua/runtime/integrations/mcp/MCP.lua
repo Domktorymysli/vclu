@@ -11,6 +11,42 @@ local function visible(h)
     return h ~= nil and h:isExposed() and not h._cloudOnly
 end
 
+-- Raw or internal methods a bot does not call (vclu_device_set writes the value)
+local INTERNAL = { new = true, get = true, set = true, execute = true, call = true,
+    updateState = true, emit = true, onEvent = true }
+
+local function isPublic(name)
+    return type(name) == "string" and not name:match("^_") and not INTERNAL[name]
+end
+
+-- The methods vclu_devices lists: the declared ones (_allowedMethods) first, then the
+-- object's and its class's other public functions
+local function methodsOf(obj)
+    local methods, seen = {}, {}
+    if type(obj) ~= "table" then return methods end
+    local function add(k, v)
+        if type(v) == "function" and isPublic(k) and not seen[k] then
+            seen[k] = true
+            table.insert(methods, k)
+        end
+    end
+    if type(obj._allowedMethods) == "table" then
+        for _, k in ipairs(obj._allowedMethods) do add(k, obj[k]) end
+    end
+    for k, v in pairs(obj) do add(k, v) end
+    local mt = getmetatable(obj)
+    if mt and type(mt.__index) == "table" then
+        for k, v in pairs(mt.__index) do add(k, v) end
+    end
+    return methods
+end
+
+-- Whether a bot may call method on obj: any public function it has (its own or by its
+-- class chain), never the raw or internal ones
+local function callable(obj, method)
+    return isPublic(method) and type(obj[method]) == "function"
+end
+
 --- List all exposed devices, optionally filtered.
 -- @param filterJson string|nil JSON filter object or legacy type string
 -- @return string JSON array of devices
@@ -75,28 +111,7 @@ function MCP.list_devices(filterJson)
             end
 
             if include then
-                -- Collect methods from object (instance + metatable)
-                local methods = {}
-                local seen = {}
-                if handle.object then
-                    -- Instance methods
-                    for k, v in pairs(handle.object) do
-                        if type(v) == "function" and not k:match("^_") then
-                            seen[k] = true
-                            table.insert(methods, k)
-                        end
-                    end
-                    -- Metatable methods (e.g., DOUT:toggle, switchOn, switchOff)
-                    local mt = getmetatable(handle.object)
-                    if mt and mt.__index and type(mt.__index) == "table" then
-                        for k, v in pairs(mt.__index) do
-                            if type(v) == "function" and not k:match("^_") and not seen[k] then
-                                seen[k] = true
-                                table.insert(methods, k)
-                            end
-                        end
-                    end
-                end
+                local methods = methodsOf(handle.object)
 
                 local entry = {
                     path = path,
@@ -137,27 +152,9 @@ function MCP.get_device(path)
         return JSON:encode({ error = "device not found: " .. path })
     end
 
-    -- Collect methods (instance + metatable)
-    local methods = {}
+    local methods = methodsOf(handle.object)
     local events = {}
-    local seen = {}
     if handle.object then
-        for k, v in pairs(handle.object) do
-            if type(v) == "function" and not k:match("^_") then
-                seen[k] = true
-                table.insert(methods, k)
-            end
-        end
-        -- Metatable methods
-        local mt = getmetatable(handle.object)
-        if mt and mt.__index and type(mt.__index) == "table" then
-            for k, v in pairs(mt.__index) do
-                if type(v) == "function" and not k:match("^_") and not seen[k] then
-                    seen[k] = true
-                    table.insert(methods, k)
-                end
-            end
-        end
         -- Check for events
         if handle.object._events then
             for k in pairs(handle.object._events) do
@@ -255,11 +252,11 @@ function MCP.execute_method(path, method, argsJson)
         return JSON:encode({ ok = false, error = "device object is nil" })
     end
 
-    -- Validate method exists
-    local fn = obj[method]
-    if type(fn) ~= "function" then
-        return JSON:encode({ ok = false, error = "method not found: " .. method })
+    -- Public methods only, never raw get/set/execute
+    if type(obj) ~= "table" or not callable(obj, method) then
+        return JSON:encode({ ok = false, error = "method not found: " .. tostring(method) })
     end
+    local fn = obj[method]
 
     -- Parse args
     local args = {}

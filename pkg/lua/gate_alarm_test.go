@@ -1,6 +1,8 @@
 package lua
 
 import (
+	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -348,5 +350,172 @@ func TestGateAlarmExposure(t *testing.T) {
 	}
 	if got := try(t, engine, `alarm.satel_panel:expose()`); !strings.Contains(got, "no expose type") {
 		t.Errorf("the connection exposed: %s", got)
+	}
+}
+
+// The guard's tables are read-only from Lua, and what a script changes on a class or an
+// object (its tables, its guard, its ID) does not change what the guard refuses.
+func TestGateAlarmGuardReadOnly(t *testing.T) {
+	engine, sent, _ := gateAlarmEngine(t, false)
+	for _, stmt := range []string{
+		`RemoteGateSatelZone.DISARM[1] = nil`,
+		`RemoteGateSatelZone.METHODS[5] = "X"`,
+		`RemoteGateSatel.SECRET[4] = nil`,
+		`setmetatable(RemoteGateSatelZone.DISARM, nil)`,
+		`RemoteObject._setGuard(alarm.alarm_ground, function() return nil end)`,
+	} {
+		if got := try(t, engine, stmt); got == "ok" {
+			t.Errorf("%s went through", stmt)
+		}
+	}
+	mustExec(t, engine, `
+		RemoteGateSatelZone.DISARM = {}
+		RemoteGateJablotronSection.DISARM = {}
+		RemoteGateSatel.SECRET = {}
+		alarm.alarm_ground.DISARM = {}
+		alarm.alarm_ground._refused = function() return nil end
+		RemoteGateAlarm._refused = function() return nil end
+		alarm.section_house.METHODS = { [9] = "X" }`)
+	for _, stmt := range []string{
+		`alarm.alarm_ground:disarmZone()`, `alarm.section_house:disarm()`, `alarm.section_house:execute(9)`,
+		`alarm.satel_panel:get(4)`, `Wire.execute("CLU510000001.SAT0002", 1)()`,
+	} {
+		if got := try(t, engine, stmt); got == "ok" {
+			t.Errorf("%s went through after the tables were replaced", stmt)
+		}
+	}
+	// an output pointed at the zone would send DisarmZone as its SwitchOff
+	mustExec(t, engine, `alarm.siren._objId = "SAT0002"`)
+	if got := try(t, engine, `alarm.siren:switchOff()`); !strings.Contains(got, "ID or CLU changed") {
+		t.Errorf("an object with another ID: %s", got)
+	}
+	if got := sent.take(); got != "" {
+		t.Errorf("sent %q", got)
+	}
+	// reading the tables still works
+	if got := mustExec(t, engine, `return RemoteGateSatelOutput.METHODS[0] .. " " .. RemoteGateJablotronOutput.METHODS[1]`); got != "SwitchOn SwitchOff" {
+		t.Errorf("tables read as %q", got)
+	}
+}
+
+// A refused disarm is logged, also when it came from Home Assistant's switch, which gets
+// no error back.
+func TestGateAlarmRefusedDisarmLogged(t *testing.T) {
+	logs := captureLog(t)
+	engine, _, _ := gateAlarmEngine(t, false)
+	mustExec(t, engine, `alarm.alarm_ground:expose():setValue(0)`)
+	if out := logs.String(); !strings.Contains(out, "GATE_SATEL_ZONE SAT0002: DisarmZone is refused") {
+		t.Errorf("log:\n%s", out)
+	}
+}
+
+// A state that passes through unknown (-1) still fires the change against the last known
+// one: armed, unknown, disarmed is a disarm; armed, unknown, armed is nothing.
+func TestGateAlarmEdgesThroughUnknown(t *testing.T) {
+	engine, _, _ := gateAlarmEngine(t, false)
+	mustExec(t, engine, `
+		EV = {}
+		alarm.alarm_ground:onArm(function() table.insert(EV, "arm") end)
+		alarm.alarm_ground:onDisarm(function() table.insert(EV, "disarm") end)
+		function feed(...) for _, v in ipairs({...}) do alarm.alarm_ground:updateState(v) end end
+		function events() local s = table.concat(EV, ","); EV = {}; return s end`)
+	for seq, want := range map[string]string{
+		"1, -1, 0":        "disarm",
+		"0, -1, 1":        "arm",
+		"1, -1, 1":        "",
+		"0, -1, -1, 0":    "",
+		"-1, 1, -1, 0":    "disarm",
+		"1, -1, 0, -1, 1": "disarm,arm",
+	} {
+		mustExec(t, engine, `alarm.alarm_ground._lastState = nil alarm.alarm_ground._lastKnown = nil EV = {}`)
+		mustExec(t, engine, `feed(`+seq+`)`)
+		if got := mustExec(t, engine, `return events()`); got != want {
+			t.Errorf("%s: %q, want %q", seq, got, want)
+		}
+	}
+}
+
+// A zone whose state is unknown (-1) is "None" (unknown) to Home Assistant and has no on
+// for the cloud, never off.
+func TestGateAlarmUnknownStateNotOff(t *testing.T) {
+	engine, _, _ := gateAlarmEngine(t, false)
+	mustExec(t, engine, `
+		_pub = {}
+		HAStatePublisher.setup({
+			publish = function(self, topic, payload) table.insert(_pub, { topic = topic, payload = payload }) end,
+			subscribe = function() end, unsubscribe = function() end,
+		})
+		ZONE = alarm.alarm_ground:expose():remote()
+		function haState()
+			local found
+			for _, p in ipairs(_pub) do
+				if p.topic:find("/state", 1, true) and p.topic:find("sat0002", 1, true) then found = p.payload end
+			end
+			return tostring(found)
+		end`)
+	for _, c := range []struct {
+		value, ha, cloud string
+	}{
+		{"1", "ON", "true"},
+		{"-1", "None", "<nil>"},
+		{"0", "OFF", "false"},
+	} {
+		mustExec(t, engine, `alarm.alarm_ground:updateState(`+c.value+`) HAStatePublisher.refresh()`)
+		if got := mustExec(t, engine, `return haState()`); got != c.ha {
+			t.Errorf("%s: Home Assistant %q, want %q", c.value, got, c.ha)
+		}
+		out, err := engine.Call("Cloud._clientStates", `["CLU510000001.SAT0002"]`)
+		var states []map[string]any
+		if err == nil {
+			err = json.Unmarshal([]byte(out), &states)
+		}
+		if err != nil || len(states) != 1 || fmt.Sprint(states[0]["on"]) != c.cloud {
+			t.Errorf("%s: cloud %s %v, want on %s", c.value, out, err, c.cloud)
+		}
+	}
+}
+
+// MCP's vclu_device_execute calls an object's public methods, never its raw get/set/execute,
+// emit or internal functions.
+func TestGateAlarmMCPOnlyListedMethods(t *testing.T) {
+	engine, sent, _ := gateAlarmEngine(t, true)
+	mustExec(t, engine, `alarm.alarm_ground:expose({ path = "alarm:zone" })
+		local o = { _lastState = 0, get = function(s) return s._lastState end,
+			onChange = function() return function() end end,
+			ping = function(s) s.pinged = true return "pong" end }
+		PLAIN = o
+		expose(o, "switch", { path = "t:plain" })`)
+	for _, m := range []string{"updateState", "_refused", "execute", "set", "get", "emit", "new", "call", "onEvent", "noSuch"} {
+		got := mustExec(t, engine, `return MCP.execute_method("alarm:zone", "`+m+`", "[1]")`)
+		if !strings.Contains(got, "method not found") {
+			t.Errorf("%s: %s", m, got)
+		}
+	}
+	if got := sent.take(); got != "" {
+		t.Errorf("sent %q", got)
+	}
+	if got := mustExec(t, engine, `return MCP.execute_method("alarm:zone", "armZone", nil)`); !strings.Contains(got, `"ok":true`) || sent.take() != "SAT0002:execute(0)" {
+		t.Errorf("armZone: %s", got)
+	}
+	// the list says the same
+	var dev struct{ Methods []string }
+	if err := json.Unmarshal([]byte(mustExec(t, engine, `return MCP.get_device("alarm:zone")`)), &dev); err != nil {
+		t.Fatal(err)
+	}
+	got := "," + strings.Join(dev.Methods, ",") + ","
+	if !strings.HasPrefix(got, ",getValue,isArmed,armZone,disarmZone,") {
+		t.Errorf("methods %s", got)
+	}
+	for _, m := range []string{"set", "get", "execute", "updateState", "new", "_refused"} {
+		if strings.Contains(got, ","+m+",") {
+			t.Errorf("%s listed: %s", m, got)
+		}
+	}
+	// an object that declares no methods keeps its own public ones
+	if got := mustExec(t, engine, `return MCP.execute_method("t:plain", "ping", nil)`); !strings.Contains(got, `"result":"pong"`) {
+		t.Errorf("ping: %s", got)
+	}
+	if got := mustExec(t, engine, `return MCP.execute_method("t:plain", "get", "[0]")`); !strings.Contains(got, "method not found") {
+		t.Errorf("get on a plain object: %s", got)
 	}
 }

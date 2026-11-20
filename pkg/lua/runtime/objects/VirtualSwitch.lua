@@ -17,7 +17,7 @@ function VirtualSwitch:new(name, opts)
     local obj = VirtualObject.new(self, name)
     obj._type = "DOUT"
     obj:_setup(opts, 0)
-    obj._allowedMethods = {"getValue", "setValue", "switchOn", "switchOff", "on", "off", "toggle"}
+    obj._allowedMethods = {"getValue", "setValue", "switchOn", "switchOff", "on", "off", "toggle", "isOn"}
     return obj
 end
 

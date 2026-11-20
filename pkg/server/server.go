@@ -181,6 +181,9 @@ func (s *Server) Reload() error {
 	importsDir := config.GetOMFilesDir(s.serverDir)
 	omparser.GenerateLocalProxyFile(cluDataPath, importsDir)
 
+	// a restored backup can bring om.lua copies that still have a GATE's settings
+	stripStoredGateSettings(importsDir)
+
 	// Load proxy files (remote + local)
 	if err := s.luaEngine.LoadProxyFiles(importsDir); err != nil {
 		log.Printf("[RELOAD] failed to load proxy files: %v", err)
@@ -883,7 +886,7 @@ func (s *Server) persistKeys() error {
 }
 
 // stripStoredGateSettings removes a GATE's settings from the om.lua copies in importsDir,
-// once at start; only counts reach the log.
+// at start and on every reload; only counts reach the log.
 func stripStoredGateSettings(importsDir string) {
 	files, lines, err := omparser.StripStoredGateSettings(importsDir)
 	if err != nil {

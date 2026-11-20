@@ -33,9 +33,6 @@ local READONLY_REMAP = {
     dimmer = "binary_sensor", fan = "binary_sensor", number = "sensor",
 }
 
--- Effective readonly for an exposed object: the expose() option OR the "Readonly"
--- access level set per object in the dashboard. Honouring only the former let a
--- UI-readonly object be published as a controllable component with a command_topic.
 -- HA's device classes of the components that have a fixed list (others take any, as sensors)
 local HA_CLASSES = {
     switch = { outlet = true, switch = true },
@@ -49,6 +46,9 @@ local function haClassFits(component, class)
     return known == nil or known[class] == true
 end
 
+-- Effective readonly for an exposed object: the expose() option OR the "Readonly"
+-- access level set per object in the dashboard. Honouring only the former let a
+-- UI-readonly object be published as a controllable component with a command_topic.
 local function isReadonly(path, options)
     if options and options.readonly then
         return true
@@ -125,6 +125,10 @@ end
 -- Format state value for MQTT based on exposed type
 local function formatExposedState(value, exposedType)
     if exposedType == "switch" or exposedType == "sensor" or exposedType == "motion" or exposedType == "occupancy" then
+        -- a negative value is unknown (a GATE Alarm's zone reports -1): HA's "None"
+        if type(value) == "number" and value < 0 then
+            return "None"
+        end
         -- Binary: 0/1/true/false -> OFF/ON
         if value == 1 or value == true or value == "1" or value == "ON" or value == "on" then
             return "ON"

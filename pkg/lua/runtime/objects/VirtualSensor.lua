@@ -16,7 +16,7 @@ function VirtualSensor:new(name, opts)
     local obj = VirtualObject.new(self, name)
     obj._type = "DIN"
     obj:_setup(opts, 0)
-    obj._allowedMethods = {"getValue"}
+    obj._allowedMethods = {"getValue", "isActive"}
     return obj
 end
 

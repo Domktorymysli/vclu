@@ -174,7 +174,9 @@ func quote(s string) string {
 }
 
 // Do sends req; on a 401 with a Digest challenge it answers once and sends req again with its
-// body. Without a challenge the first response is returned and no credentials are sent.
+// body. Without a challenge the first response is returned and no credentials are sent. After
+// a redirect on the same host the answer goes to the address that asked for it; a challenge
+// from another host is not answered.
 func Do(client *http.Client, req *http.Request, user, password string) (*http.Response, error) {
 	resp, err := client.Do(req)
 	if err != nil || resp.StatusCode != http.StatusUnauthorized {
@@ -184,7 +186,15 @@ func Do(client *http.Client, req *http.Request, user, password string) (*http.Re
 	if !ok {
 		return resp, nil
 	}
-	auth, err := c.Authorization(req.Method, req.URL.RequestURI(), user, password)
+	// the request that got the 401, past any redirect
+	asked := req
+	if resp.Request != nil && resp.Request.URL != nil {
+		asked = resp.Request
+	}
+	if asked.URL.Scheme != req.URL.Scheme || asked.URL.Host != req.URL.Host {
+		return resp, nil
+	}
+	auth, err := c.Authorization(asked.Method, asked.URL.RequestURI(), user, password)
 	if err != nil {
 		_ = resp.Body.Close()
 		return nil, err
@@ -193,6 +203,17 @@ func Do(client *http.Client, req *http.Request, user, password string) (*http.Re
 	_ = resp.Body.Close()
 
 	again := req.Clone(req.Context())
+	if asked != req {
+		// a redirect: to its address, with its method (a 303 makes a GET without a body)
+		again.URL = asked.URL
+		again.Host = ""
+		again.Method = asked.Method
+		if asked.Method != req.Method {
+			again.Body, again.GetBody, again.ContentLength = nil, nil, 0
+			again.Header.Set("Authorization", auth)
+			return client.Do(again)
+		}
+	}
 	if req.GetBody != nil {
 		if again.Body, err = req.GetBody(); err != nil {
 			return nil, err

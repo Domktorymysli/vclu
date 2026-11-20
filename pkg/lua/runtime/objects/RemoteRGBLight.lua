@@ -22,7 +22,7 @@ RemoteRGBLight.FEATURE_WHITE = 15
 function RemoteRGBLight:new(clu, objId, name)
     local obj = RemoteLight.new(self, clu, objId, name)
     obj._type = "LEDRGB"
-    obj._allowedMethods = {"getValue", "setValue", "getBrightness", "setBrightness", "switchOn", "switchOff", "on", "off", "toggle", "getHue", "setHue", "getSaturation", "setSaturation", "getRGB", "setRGB", "getColor", "setColor", "getWhite", "setWhite"}
+    obj._allowedMethods = {"getValue", "setValue", "getBrightness", "setBrightness", "switchOn", "switchOff", "on", "off", "toggle", "getHue", "setHue", "getSaturation", "setSaturation", "getRGB", "setRGB", "getColor", "setColor", "getWhite", "setWhite", "dim"}
     return obj
 end
 

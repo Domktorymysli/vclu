@@ -207,3 +207,31 @@ func TestFindSkipsUnsupported(t *testing.T) {
 		t.Errorf("%s %v", got, err)
 	}
 }
+
+// After a redirect the challenge is answered for the address that asked (its URI in the
+// answer, the request sent there); a challenge from another host gets no answer.
+func TestDoAfterRedirect(t *testing.T) {
+	d := &device{qop: "auth"}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/old", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/ISAPI/door/1?format=xml", http.StatusTemporaryRedirect)
+	})
+	mux.Handle("/ISAPI/door/1", d)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	resp, body := put(t, srv.URL+"/old", "secret")
+	if resp.StatusCode != 200 || body != "open" || len(d.seen) != 2 || d.bodies[1] == "" {
+		t.Errorf("%d %q after %d requests, bodies %q", resp.StatusCode, body, len(d.seen), d.bodies)
+	}
+
+	other := &device{qop: "auth"}
+	far := httptest.NewServer(other)
+	defer far.Close()
+	away := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, far.URL+"/door", http.StatusTemporaryRedirect)
+	}))
+	defer away.Close()
+	if resp, _ := put(t, away.URL+"/x", "secret"); resp.StatusCode != 401 || len(other.seen) != 1 || other.seen[0] != "" {
+		t.Errorf("another host: %d, %q", resp.StatusCode, other.seen)
+	}
+}
