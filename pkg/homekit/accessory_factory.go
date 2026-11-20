@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"net/http"
+	"sync/atomic"
 
+	"github.com/brutella/hap"
 	"github.com/brutella/hap/accessory"
 	"github.com/brutella/hap/characteristic"
 	"github.com/brutella/hap/service"
@@ -139,9 +142,22 @@ func (s *Server) createExposedAccessory(obj ExposedObject, readonly bool) *Acces
 func (s *Server) createExposedSwitch(info accessory.Info, obj ExposedObject, readonly bool) (*accessory.A, func(float64)) {
 	sw := accessory.NewSwitch(info)
 
+	// A negative value is unknown (a GATE Alarm's zone reports -1): the Home app shows
+	// "No Response" rather than off
+	var unknown atomic.Bool
+	sw.Switch.On.ValueRequestFunc = func(*http.Request) (interface{}, int) {
+		if unknown.Load() {
+			return nil, hap.JsonStatusServiceCommunicationFailure
+		}
+		return sw.Switch.On.Value(), 0
+	}
+
 	// Get initial state
 	if state, ok := obj.Value.(float64); ok {
-		sw.Switch.On.SetValue(state > 0)
+		unknown.Store(state < 0)
+		if state >= 0 {
+			sw.Switch.On.SetValue(state > 0)
+		}
 	} else if state, ok := obj.Value.(bool); ok {
 		sw.Switch.On.SetValue(state)
 	}
@@ -167,7 +183,10 @@ func (s *Server) createExposedSwitch(info accessory.Info, obj ExposedObject, rea
 	}
 
 	updateFunc := func(value float64) {
-		sw.Switch.On.SetValue(value > 0)
+		unknown.Store(value < 0)
+		if value >= 0 {
+			sw.Switch.On.SetValue(value > 0)
+		}
 	}
 
 	return sw.A, updateFunc

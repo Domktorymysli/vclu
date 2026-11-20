@@ -1,9 +1,11 @@
 package homekit
 
 import (
+	"net/http/httptest"
 	"testing"
 
 	"github.com/Domktorymysli/vclu/pkg/accesscontrol"
+	"github.com/brutella/hap"
 	"github.com/brutella/hap/accessory"
 	"github.com/brutella/hap/characteristic"
 )
@@ -127,5 +129,29 @@ func TestOccupancyAccessory(t *testing.T) {
 	w.UpdateFunc(0)
 	if c.Value() != characteristic.OccupancyDetectedOccupancyNotDetected {
 		t.Errorf("after 0 = %v, want not detected", c.Value())
+	}
+}
+
+// A switch whose value is negative (a GATE Alarm's zone reports -1 when its state is
+// unknown) answers a read with "No Response", not off, until a known value comes.
+func TestSwitchUnknownValueNoResponse(t *testing.T) {
+	s := &Server{}
+	req := httptest.NewRequest("GET", "/characteristics", nil)
+	w := s.createExposedAccessory(ExposedObject{Path: "gate:zone", Name: "Strefa", Type: "switch", Value: float64(-1)}, true)
+	on := findChar(w.Accessory, characteristic.TypeOn)
+	if _, code := on.ValueRequest(req); code != hap.JsonStatusServiceCommunicationFailure {
+		t.Errorf("unknown at start: code %d", code)
+	}
+	w.UpdateFunc(1)
+	if v, code := on.ValueRequest(req); code != 0 || v != true {
+		t.Errorf("armed: %v, code %d", v, code)
+	}
+	w.UpdateFunc(-1)
+	if _, code := on.ValueRequest(req); code != hap.JsonStatusServiceCommunicationFailure {
+		t.Errorf("unknown again: code %d", code)
+	}
+	w.UpdateFunc(0)
+	if v, code := on.ValueRequest(req); code != 0 || v != false {
+		t.Errorf("disarmed: %v, code %d", v, code)
 	}
 }

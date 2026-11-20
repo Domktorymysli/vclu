@@ -506,6 +506,8 @@ local function remoteState(path, h)
         return v and { path = path, value = v } or nil
     end
     local n = finite(v)
+    -- a negative value is unknown (a GATE Alarm's zone reports -1): no on
+    if n and n < 0 then return { path = path } end
     return { path = path, on = v == true or (n ~= nil and n > 0) }
 end
 

@@ -125,6 +125,10 @@ end
 -- Format state value for MQTT based on exposed type
 local function formatExposedState(value, exposedType)
     if exposedType == "switch" or exposedType == "sensor" or exposedType == "motion" or exposedType == "occupancy" then
+        -- a negative value is unknown (a GATE Alarm's zone reports -1): HA's "None"
+        if type(value) == "number" and value < 0 then
+            return "None"
+        end
         -- Binary: 0/1/true/false -> OFF/ON
         if value == 1 or value == true or value == "1" or value == "ON" or value == "on" then
             return "ON"

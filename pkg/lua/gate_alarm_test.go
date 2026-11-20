@@ -1,6 +1,8 @@
 package lua
 
 import (
+	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -429,6 +431,46 @@ func TestGateAlarmEdgesThroughUnknown(t *testing.T) {
 		mustExec(t, engine, `feed(`+seq+`)`)
 		if got := mustExec(t, engine, `return events()`); got != want {
 			t.Errorf("%s: %q, want %q", seq, got, want)
+		}
+	}
+}
+
+// A zone whose state is unknown (-1) is "None" (unknown) to Home Assistant and has no on
+// for the cloud, never off.
+func TestGateAlarmUnknownStateNotOff(t *testing.T) {
+	engine, _, _ := gateAlarmEngine(t, false)
+	mustExec(t, engine, `
+		_pub = {}
+		HAStatePublisher.setup({
+			publish = function(self, topic, payload) table.insert(_pub, { topic = topic, payload = payload }) end,
+			subscribe = function() end, unsubscribe = function() end,
+		})
+		ZONE = alarm.alarm_ground:expose():remote()
+		function haState()
+			local found
+			for _, p in ipairs(_pub) do
+				if p.topic:find("/state", 1, true) and p.topic:find("sat0002", 1, true) then found = p.payload end
+			end
+			return tostring(found)
+		end`)
+	for _, c := range []struct {
+		value, ha, cloud string
+	}{
+		{"1", "ON", "true"},
+		{"-1", "None", "<nil>"},
+		{"0", "OFF", "false"},
+	} {
+		mustExec(t, engine, `alarm.alarm_ground:updateState(`+c.value+`) HAStatePublisher.refresh()`)
+		if got := mustExec(t, engine, `return haState()`); got != c.ha {
+			t.Errorf("%s: Home Assistant %q, want %q", c.value, got, c.ha)
+		}
+		out, err := engine.Call("Cloud._clientStates", `["CLU510000001.SAT0002"]`)
+		var states []map[string]any
+		if err == nil {
+			err = json.Unmarshal([]byte(out), &states)
+		}
+		if err != nil || len(states) != 1 || fmt.Sprint(states[0]["on"]) != c.cloud {
+			t.Errorf("%s: cloud %s %v, want on %s", c.value, out, err, c.cloud)
 		}
 	}
 }
