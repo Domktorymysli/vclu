@@ -53,3 +53,54 @@ func TestOMLuaGateAlarmObjects(t *testing.T) {
 		}
 	}
 }
+
+// What a script or binding writes into a GATE Alarm's passwords and codes stays out of the
+// agent's files (ai/om); the rest of the script and binding stays.
+func TestDocsRedactGateSecrets(t *testing.T) {
+	sys := strings.Replace(twoCLUs, `<commands class="linked-list" id="35"/>`,
+		`<commands class="linked-list" id="35"><string>Gate-&gt;alarm_zone-&gt;SetUserPassword("MARKER-1")</string><string>Home-&gt;hall_light-&gt;SwitchOff(0)</string></commands>`, 1)
+	p, err := Read(projectZip(t, map[string]string{
+		"system.xml": sys, "properties.xml": properties,
+		"scripts/Home/setup.lua": "Gate->alarm_zone->SetUserPassword(\"MARKER-2\")\n" +
+			"SAT0001:set(2, 'MARKER-3')\n" +
+			"local pin = \"MARKER-4\" -- UserPassword of the zone\n" +
+			"Gate->alarm_zone->ArmZone()\nHome->hall_light->SwitchOn(0)\nlocal s = \"keep me\"\n",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var all strings.Builder
+	for _, d := range p.Docs() {
+		all.WriteString(d)
+	}
+	out := all.String()
+	if strings.Contains(out, "MARKER") {
+		t.Errorf("a secret in the docs:\n%s", out)
+	}
+	for _, want := range []string{
+		`Gate->alarm_zone->SetUserPassword("(removed by vclu)")`, `SAT0001:set(2, "(removed by vclu)")`,
+		"Gate->alarm_zone->ArmZone()", "Home->hall_light->SwitchOn(0)", `local s = "keep me"`,
+		"Home->hall_light->SwitchOff(0)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("no %q in the docs:\n%s", want, out)
+		}
+	}
+}
+
+func TestRedactGate(t *testing.T) {
+	gate := map[string]bool{"SAT0001": true, "zone": true}
+	for in, want := range map[string]string{
+		`zone->SetUserPassword(code("x", 1))`:     `zone->SetUserPassword("(removed by vclu)")`,
+		`SAT0001 : set (4, "a)b")`:                `SAT0001 : set (4, "(removed by vclu)")`,
+		`DOU0001:set(0, 1)`:                       `DOU0001:set(0, 1)`,
+		`zone->SetNr(3)`:                          `zone->SetNr(3)`,
+		`zone->set(0)`:                            `zone->set(0)`,
+		`other->SetUserPassword("x")`:             `other->SetUserPassword("(removed by vclu)")`,
+		"a(); zone->SetAdminCode(1234); b(\"k\")": "a(); zone->SetAdminCode(\"(removed by vclu)\"); b(\"(removed by vclu)\")", // the line names a secret
+	} {
+		if got := redactGate(in, gate); got != want {
+			t.Errorf("%s: %s, want %s", in, got, want)
+		}
+	}
+}

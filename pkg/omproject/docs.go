@@ -25,7 +25,10 @@ func (p *Project) Docs() map[string]string {
 	idx.WriteString("# Object Manager project\n\n")
 	fmt.Fprintf(&idx, "Written by vCLU from the Object Manager project (OM %s) when it was imported; the next import replaces the files in `%s/`.\n\n", orUnknown(p.Version), DocsDir)
 	idx.WriteString("| CLU | ID | IP | Objects | Peripherals | Bindings | Scripts | File |\n|---|---|---|---|---|---|---|---|\n")
+	gate := p.gateObjects()
 	for _, c := range p.CLUs {
+		// what a script writes into a GATE Alarm's passwords and codes stays out
+		c = withGateRedacted(c, gate)
 		bindings := len(c.Events)
 		for _, o := range c.Objects {
 			bindings += len(o.Events)
