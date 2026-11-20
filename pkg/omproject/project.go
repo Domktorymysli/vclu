@@ -34,6 +34,9 @@ const (
 	// objects reference one list, so a small system.xml can name the same
 	// commands many times over. A house with six CLUs has 4 KB of them.
 	maxCommands = 4 << 20
+	maxCLUs     = 256
+	// MaxWarnings caps the warnings kept; the rest are only counted.
+	MaxWarnings = 100
 )
 
 // Project is what vCLU takes from an Object Manager project.
@@ -41,6 +44,11 @@ type Project struct {
 	Version  string // OM version from properties.xml, e.g. "1.8.0_2301"
 	CLUs     []CLU
 	Warnings []string
+	// WarningsOmitted counts the warnings over MaxWarnings, left out of Warnings.
+	WarningsOmitted int
+	// Skipped are the IDs of CLUs the project has and vCLU could not read: an
+	// import keeps what it stored of them.
+	Skipped []string
 	// Interfaces are the myGrenton interfaces designed in OM (nodes/<id>/data.json).
 	Interfaces []dashspec.Interface
 
@@ -212,6 +220,12 @@ func ReadZip(z *zip.Reader) (*Project, error) {
 		return nil, fmt.Errorf("system.xml: %w", err)
 	}
 	p.readCLUs(s)
+	if err := s.over(); err != nil {
+		return nil, fmt.Errorf("system.xml: %w", err)
+	}
+	if len(p.CLUs) > maxCLUs {
+		return nil, fmt.Errorf("system.xml: %w: over %d CLUs", errTooLarge, maxCLUs)
+	}
 	if len(p.CLUs) == 0 {
 		return nil, errors.New("system.xml has no CLU")
 	}
@@ -223,7 +237,26 @@ func ReadZip(z *zip.Reader) (*Project, error) {
 	return p, nil
 }
 
-func (p *Project) warn(w string) { p.Warnings = append(p.Warnings, w) }
+func (p *Project) warn(w string) {
+	if len(p.Warnings) >= MaxWarnings {
+		p.WarningsOmitted++
+		return
+	}
+	p.Warnings = append(p.Warnings, w)
+}
+
+// CapWarnings keeps the first MaxWarnings of list and says how many more there
+// are, omitted of them counted before.
+func CapWarnings(list []string, omitted int) []string {
+	if len(list) > MaxWarnings {
+		omitted += len(list) - MaxWarnings
+		list = list[:MaxWarnings:MaxWarnings]
+	}
+	if omitted > 0 {
+		list = append(list, fmt.Sprintf("... and %d more", omitted))
+	}
+	return list
+}
 
 // atoi reads a count or an index: a number that is not negative.
 func atoi(s string) (int, error) {
@@ -299,8 +332,9 @@ func readVersion(f *zip.File) string {
 // readCLUs finds every CLU, wherever XStream first spelled it out.
 func (p *Project) readCLUs(s *stream) {
 	seen := map[*node]bool{}
+	ids, skipped := map[string]bool{}, map[string]bool{}
 	s.root.walk(func(n *node) {
-		if n.ref != "" || seen[n] {
+		if n.ref != "" || seen[n] || s.over() != nil || len(p.CLUs) > maxCLUs {
 			return
 		}
 		if s.child(n, "nameOnCLU") == nil {
@@ -310,6 +344,7 @@ func (p *Project) readCLUs(s *stream) {
 			// Peripherals have a name on the CLU too, never a CLU's.
 			if id := s.text(n, "nameOnCLU"); reCLUID.MatchString(id) && s.text(n, "isRemoved") != "true" {
 				seen[n] = true
+				skipped[id] = true
 				p.warn(fmt.Sprintf("%s: a CLU without its list of inputs and outputs or of modules, left out", id))
 			}
 			return
@@ -318,12 +353,25 @@ func (p *Project) readCLUs(s *stream) {
 		if s.text(n, "isRemoved") == "true" {
 			return
 		}
-		if id := s.text(n, "nameOnCLU"); !reCLUID.MatchString(id) {
+		id := s.text(n, "nameOnCLU")
+		if !reCLUID.MatchString(id) {
 			p.warn(fmt.Sprintf("a CLU named %q on the CLU, left out", id))
 			return
 		}
+		if ids[id] {
+			p.warn(fmt.Sprintf("%s: the CLU is in the project twice, left out the second time", id))
+			return
+		}
+		ids[id] = true
 		p.CLUs = append(p.CLUs, p.readCLU(s, n))
 	})
+	// a CLU read in full elsewhere is not skipped
+	for id := range skipped {
+		if !ids[id] {
+			p.Skipped = append(p.Skipped, id)
+		}
+	}
+	sort.Strings(p.Skipped)
 }
 
 func (p *Project) readCLU(s *stream, n *node) CLU {

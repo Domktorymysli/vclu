@@ -3,6 +3,7 @@ package web
 import (
 	"archive/zip"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -26,38 +27,20 @@ import (
 // handleAPIOMUpload handles OM file upload via API (.lua, diagnostic pack .zip, project .omp)
 //
 //	@Summary		Upload OM file
-//	@Description	Accepts a single om.lua file, a diagnostic-pack ZIP containing CLU*/om.lua entries, or an Object Manager project (.omp, or a project ZIP with system.xml); the vCLU's own serial is skipped. Each CLU is parsed, stored as om_<serial>.lua, a proxy_<serial>.lua is generated and an entry is added to .vclu.json; then the Lua runtime reloads once (reloaded, reloadError, moduleErrors in the response). A project, also the one inside a diagnostic pack, is written for the agent to ai/om/ (event bindings, scripts); what could not be read is listed in warnings. The upload itself is not kept.
+//	@Description	Accepts a single om.lua file, a diagnostic-pack ZIP containing CLU*/om.lua entries, or an Object Manager project (.omp, or a project ZIP with system.xml); the vCLU's own serial is skipped. Each CLU is parsed, stored as om_<serial>.lua, a proxy_<serial>.lua is generated and an entry is added to .vclu.json; then the Lua runtime reloads once (reloaded, reloadError, moduleErrors in the response). A project, also the one inside a diagnostic pack, is written for the agent to ai/om/ (event bindings, scripts); what could not be read is listed in warnings. A project removes the stored CLUs it does not have only with removeMissing=true (as the page sends after its preview is confirmed); without it they are kept and listed in notInProject. The stored files are copied to workspace/backups/om/ first (backup). The upload itself is not kept.
 //	@Tags			grenton
 //	@Accept			mpfd
 //	@Produce		json
-//	@Param			file	formData	file	true	"om.lua file, diagnostic-pack ZIP or Object Manager project (.omp)"
-//	@Success		200		{object}	map[string]interface{}	"single file: success, filename, originalName, cluName, cluIP, objectCount, moduleCount, warnings; ZIP or project: success, isZip or isProject, originalName, imported, skipped, results, skippedList, errors, omVersion, agentDocs, warnings, brokenRefs (places in modules/ naming an object no CLU has); project also removed (CLUs not in it, taken out after an import without errors)"
+//	@Param			file			formData	file	true	"om.lua file, diagnostic-pack ZIP or Object Manager project (.omp), up to 64 MB"
+//	@Param			removeMissing	formData	bool	false	"project: remove the stored CLUs it does not have"
+//	@Success		200		{object}	map[string]interface{}	"single file: success, filename, originalName, cluName, cluIP, objectCount, moduleCount, warnings; ZIP or project: success, isZip or isProject, originalName, imported, skipped, results, skippedList, errors, omVersion, agentDocs, warnings, brokenRefs (places in modules/ naming an object no CLU has); project also removed (CLUs not in it, taken out with removeMissing after an import without errors) and notInProject (kept without removeMissing); backup when the stored files were copied"
 //	@Failure		400		{object}	web.APIError
+//	@Failure		413		{object}	web.APIError
 //	@Security		ApiKeyAuth
 //	@Router			/api/om/upload [post]
 func (s *Server) handleAPIOMUpload(c *gin.Context) {
-	// Get uploaded file
-	header, err := c.FormFile("file")
-	if c.Request.MultipartForm != nil {
-		// An upload over the engine's MaxMultipartMemory is spooled to a
-		// temporary file: remove it before answering.
-		defer func() { _ = c.Request.MultipartForm.RemoveAll() }()
-	}
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No file uploaded"})
-		return
-	}
-	file, err := header.Open()
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read file"})
-		return
-	}
-	defer file.Close()
-
-	// Read file content
-	content, err := io.ReadAll(file)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read file"})
+	filename, content, ok := readOMUpload(c)
+	if !ok {
 		return
 	}
 
@@ -65,9 +48,15 @@ func (s *Server) handleAPIOMUpload(c *gin.Context) {
 	defer s.omImport.Unlock()
 	// what the import may break is looked for among the names before it too
 	before := s.house()
+	backup, err := s.backupOMFiles()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.Set("omBackup", backup)
 
 	// An Object Manager project (.omp), or a ZIP: a diagnostic pack or a project
-	lower := strings.ToLower(header.Filename)
+	lower := strings.ToLower(filename)
 	if strings.HasSuffix(lower, ".omp") || strings.HasSuffix(lower, ".zip") {
 		zr, err := zip.NewReader(bytes.NewReader(content), int64(len(content)))
 		if err != nil {
@@ -75,23 +64,66 @@ func (s *Server) handleAPIOMUpload(c *gin.Context) {
 			return
 		}
 		if omproject.IsProject(zr) {
-			s.handleProjectUpload(c, zr, header.Filename, before)
+			s.handleProjectUpload(c, zr, filename, before, c.PostForm("removeMissing") == "true")
 			return
 		}
-		s.handleZipUpload(c, content, header.Filename, before)
+		s.handleZipUpload(c, content, filename, before)
 		return
 	}
 
 	// Handle single .lua file
-	result, err := s.processOMFile(content, header.Filename)
+	result, err := s.processOMFile(content, filename)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
 	result["brokenRefs"] = s.brokenRefs(before)
+	addBackup(c, result)
 	s.reloadForOM(result)
 	c.JSON(http.StatusOK, result)
+}
+
+// maxOMUpload caps the request body of an OM upload or preview.
+var maxOMUpload int64 = 64 << 20
+
+// readOMUpload reads the uploaded file; false after it answered the request.
+func readOMUpload(c *gin.Context) (string, []byte, bool) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxOMUpload)
+	header, err := c.FormFile("file")
+	if c.Request.MultipartForm != nil {
+		// An upload over the engine's MaxMultipartMemory is spooled to a
+		// temporary file: remove it before answering.
+		defer func() { _ = c.Request.MultipartForm.RemoveAll() }()
+	}
+	var tooLarge *http.MaxBytesError
+	if errors.As(err, &tooLarge) {
+		c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": fmt.Sprintf("File over %d MB", maxOMUpload>>20)})
+		return "", nil, false
+	}
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No file uploaded"})
+		return "", nil, false
+	}
+	file, err := header.Open()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read file"})
+		return "", nil, false
+	}
+	defer func() { _ = file.Close() }()
+	content, err := io.ReadAll(file)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read file"})
+		return "", nil, false
+	}
+	return header.Filename, content, true
+}
+
+// addBackup names in resp the copy of the om files made before the change.
+func addBackup(c *gin.Context, resp gin.H) {
+	if b := c.GetString("omBackup"); b != "" {
+		resp["backup"] = b
+	}
 }
 
 // handleZipUpload extracts om.lua files from diagnostic pack ZIP
@@ -166,9 +198,11 @@ func (s *Server) handleZipUpload(c *gin.Context, content []byte, filename string
 	}
 
 	var omVersion, agentDocs string
+	omitted := 0
 	if project != nil {
 		omVersion = project.Version
 		warnings = append(warnings, project.Warnings...)
+		omitted = project.WarningsOmitted
 		if err := project.WriteDocs(s.serverDir); err != nil {
 			errors = append(errors, err.Error())
 		} else {
@@ -198,10 +232,11 @@ func (s *Server) handleZipUpload(c *gin.Context, content []byte, filename string
 		"errors":       errors,
 		"omVersion":    omVersion,
 		"agentDocs":    agentDocs,
-		"warnings":     warnings,
+		"warnings":     omproject.CapWarnings(warnings, omitted),
 	}
 	// Once for the whole pack
 	resp["brokenRefs"] = s.brokenRefs(before)
+	addBackup(c, resp)
 	if len(results) > 0 {
 		s.reloadForOM(resp)
 	}
@@ -210,7 +245,8 @@ func (s *Server) handleZipUpload(c *gin.Context, content []byte, filename string
 
 // handleProjectUpload registers every CLU of an Object Manager project, as the
 // diagnostic pack built from it would, and writes the project for the agent.
-func (s *Server) handleProjectUpload(c *gin.Context, zr *zip.Reader, filename string, before omchange.House) {
+// The CLUs it does not have are removed only with removeMissing.
+func (s *Server) handleProjectUpload(c *gin.Context, zr *zip.Reader, filename string, before omchange.House, removeMissing bool) {
 	project, err := omproject.ReadZip(zr)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -239,15 +275,23 @@ func (s *Server) handleProjectUpload(c *gin.Context, zr *zip.Reader, filename st
 		results = append(results, result)
 	}
 	// the project is the whole house: CLUs it no longer has go, as a delete would take them,
-	// but only after an import without errors (a broken one must not empty vclu)
-	removed := []string{}
+	// when asked and only after an import without errors (a broken one must not empty vclu);
+	// a CLU the project has and vclu could not read stays
+	removed, notInProject := []string{}, []string{}
 	if len(errors) == 0 && len(results) > 0 {
 		inProject := map[uint64]bool{}
 		for _, clu := range project.CLUs {
 			inProject[extractSerialFromCLUID(clu.ID)] = true
 		}
+		for _, id := range project.Skipped {
+			inProject[extractSerialFromCLUID(id)] = true
+		}
 		for _, f := range config.GetOMFiles(s.serverDir) {
 			if inProject[f.Serial] || (ownSerial > 0 && f.Serial == ownSerial) {
+				continue
+			}
+			if !removeMissing {
+				notInProject = append(notInProject, fmt.Sprintf("CLU%d", f.Serial))
 				continue
 			}
 			if err := s.removeOMFile(f.Serial, f.Filename); err != nil {
@@ -266,7 +310,12 @@ func (s *Server) handleProjectUpload(c *gin.Context, zr *zip.Reader, filename st
 	if err := dashspec.SaveInterfaces(s.myGrentonPath(), project.Interfaces); err != nil {
 		errors = append(errors, err.Error())
 	}
-	warnings := append(append([]string{}, project.Warnings...), cluWarnings...)
+	// first, so the cap on warnings never cuts it
+	warnings := []string{}
+	if len(notInProject) > 0 {
+		warnings = append(warnings, "Not in the project, kept (import with removeMissing=true to remove): "+strings.Join(notInProject, ", "))
+	}
+	warnings = append(append(warnings, project.Warnings...), cluWarnings...)
 	resp := gin.H{
 		"success":      len(errors) == 0,
 		"isProject":    true,
@@ -277,12 +326,14 @@ func (s *Server) handleProjectUpload(c *gin.Context, zr *zip.Reader, filename st
 		"results":      results,
 		"skippedList":  skipped,
 		"removed":      removed,
+		"notInProject": notInProject,
 		"errors":       errors,
 		"agentDocs":    agentDocs,
-		"warnings":     warnings,
+		"warnings":     omproject.CapWarnings(warnings, project.WarningsOmitted),
 	}
 	// Once for the whole project
 	resp["brokenRefs"] = s.brokenRefs(before)
+	addBackup(c, resp)
 	if len(results) > 0 {
 		s.reloadForOM(resp)
 	}
@@ -415,7 +466,7 @@ func (s *Server) processOMFile(content []byte, originalName string) (gin.H, erro
 	// Save file as om_<serial>.lua
 	filename := fmt.Sprintf("om_%d.lua", serial)
 	filePath := filepath.Join(importsDir, filename)
-	if err := os.WriteFile(filePath, []byte(text), 0644); err != nil {
+	if err := writeFileAtomic(filePath, []byte(text), 0644); err != nil {
 		return nil, fmt.Errorf("failed to save file")
 	}
 
@@ -423,7 +474,7 @@ func (s *Server) processOMFile(content []byte, originalName string) (gin.H, erro
 	proxyCode := omparser.GenerateProxy(parsed, omparser.DefaultConfig())
 	proxyFilename := fmt.Sprintf("proxy_%d.lua", serial)
 	proxyPath := filepath.Join(importsDir, proxyFilename)
-	if err := os.WriteFile(proxyPath, []byte(proxyCode), 0644); err != nil {
+	if err := writeFileAtomic(proxyPath, []byte(proxyCode), 0644); err != nil {
 		return nil, fmt.Errorf("failed to save proxy file")
 	}
 
@@ -528,12 +579,20 @@ func (s *Server) handleAPIOMDelete(c *gin.Context) {
 	}
 
 	before := s.house()
+	backup, err := s.backupOMFiles()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 	if err := s.removeOMFile(serial, filename); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
 	resp := gin.H{"success": true}
+	if backup != "" {
+		resp["backup"] = backup
+	}
 	// what the project import wrote about this CLU goes with it; with the last CLU, all of it
 	// (this vCLU's own om file, if one is stored, is not a CLU of the house)
 	last := true

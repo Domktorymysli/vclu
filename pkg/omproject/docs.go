@@ -48,7 +48,7 @@ func (p *Project) Docs() map[string]string {
 	idx.WriteString(p.driven())
 	if len(p.Warnings) > 0 {
 		idx.WriteString("\n## Left out on import\n\n")
-		for _, w := range p.Warnings {
+		for _, w := range CapWarnings(p.Warnings, p.WarningsOmitted) {
 			fmt.Fprintf(&idx, "- %s\n", oneLine(w))
 		}
 	}
