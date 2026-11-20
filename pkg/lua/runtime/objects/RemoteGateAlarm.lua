@@ -123,12 +123,15 @@ function RemoteGateAlarm:getValue()
     return self._lastState
 end
 
--- Value changes as Grenton's events: on[new] after off, off[old] after on
-local function edges(self, oldState, newState, onEvent, offEvent)
-    if oldState == nil or oldState == newState then return end
-    if oldState == 0 and newState == 1 then
+-- Value changes as Grenton's events: on after off, off after on. Compared with the last
+-- known state, so 1, -1 (unknown), 0 is still an off.
+local function edges(self, newState, onEvent, offEvent)
+    if newState ~= 0 and newState ~= 1 then return end
+    local known = self._lastKnown
+    self._lastKnown = newState
+    if known == 0 and newState == 1 then
         self:emit(onEvent)
-    elseif oldState == 1 and newState == 0 then
+    elseif known == 1 and newState == 0 then
         self:emit(offEvent)
     end
 end
@@ -203,9 +206,8 @@ function RemoteGateSatelZone:set(index, value)
 end
 
 function RemoteGateSatelZone:updateState(newState)
-    local oldState = self._lastState
     RemoteObject.updateState(self, newState)
-    edges(self, oldState, newState, "OnArm", "OnDisarm")
+    edges(self, newState, "OnArm", "OnDisarm")
 end
 
 --- Registers a callback for when the partition is armed.
@@ -221,9 +223,8 @@ function RemoteGateSatelZone:onDisarm(callback) return self:onEvent("OnDisarm", 
 RemoteGateSatelInput = class("RemoteGateSatelInput", "GATE_SATEL_INPUT", {"getValue"})
 
 function RemoteGateSatelInput:updateState(newState)
-    local oldState = self._lastState
     RemoteObject.updateState(self, newState)
-    edges(self, oldState, newState, "OnSwitchOn", "OnSwitchOff")
+    edges(self, newState, "OnSwitchOn", "OnSwitchOff")
 end
 
 --- Registers a callback for when the input is violated.
@@ -274,9 +275,8 @@ function RemoteGateSatelOutput:set(index, value)
 end
 
 function RemoteGateSatelOutput:updateState(newState)
-    local oldState = self._lastState
     RemoteObject.updateState(self, newState)
-    edges(self, oldState, newState, "OnSwitchOn", "OnSwitchOff")
+    edges(self, newState, "OnSwitchOn", "OnSwitchOff")
 end
 
 --- Registers a callback for when the output switches on.
@@ -304,9 +304,8 @@ end
 function RemoteGateSatel:_getExposeType() return nil end
 
 function RemoteGateSatel:updateState(newState)
-    local oldState = self._lastState
     RemoteObject.updateState(self, newState)
-    edges(self, oldState, newState, "OnConnected", "OnDisconnected")
+    edges(self, newState, "OnConnected", "OnDisconnected")
 end
 
 --- Registers a callback for when the GATE connects to the panel.

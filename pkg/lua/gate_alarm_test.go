@@ -406,3 +406,29 @@ func TestGateAlarmRefusedDisarmLogged(t *testing.T) {
 		t.Errorf("log:\n%s", out)
 	}
 }
+
+// A state that passes through unknown (-1) still fires the change against the last known
+// one: armed, unknown, disarmed is a disarm; armed, unknown, armed is nothing.
+func TestGateAlarmEdgesThroughUnknown(t *testing.T) {
+	engine, _, _ := gateAlarmEngine(t, false)
+	mustExec(t, engine, `
+		EV = {}
+		alarm.alarm_ground:onArm(function() table.insert(EV, "arm") end)
+		alarm.alarm_ground:onDisarm(function() table.insert(EV, "disarm") end)
+		function feed(...) for _, v in ipairs({...}) do alarm.alarm_ground:updateState(v) end end
+		function events() local s = table.concat(EV, ","); EV = {}; return s end`)
+	for seq, want := range map[string]string{
+		"1, -1, 0":        "disarm",
+		"0, -1, 1":        "arm",
+		"1, -1, 1":        "",
+		"0, -1, -1, 0":    "",
+		"-1, 1, -1, 0":    "disarm",
+		"1, -1, 0, -1, 1": "disarm,arm",
+	} {
+		mustExec(t, engine, `alarm.alarm_ground._lastState = nil alarm.alarm_ground._lastKnown = nil EV = {}`)
+		mustExec(t, engine, `feed(`+seq+`)`)
+		if got := mustExec(t, engine, `return events()`); got != want {
+			t.Errorf("%s: %q, want %q", seq, got, want)
+		}
+	}
+}
