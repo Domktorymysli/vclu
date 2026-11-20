@@ -21,6 +21,8 @@ func PageLua(in Interface, p Page) string {
 	b.WriteString("-- vclu does not replace it once it is changed. Helpers: docs.vclu.pl, Grenton > myGrenton.\n")
 	b.WriteString("local s = Dashboard.new(" + luastr.Quote(DashboardID(p)) + ")\n")
 	b.WriteString("    :name(" + luastr.Quote(p.Label) + ")\n")
+	// the page controls the house: only for those logged in, as the panel
+	b.WriteString("    :auth(\"session\")\n")
 	b.WriteString("    :tabGroup(" + luastr.Quote(in.Label) + ")\n")
 	b.WriteString("    :section(" + luastr.Quote(p.Label) + ")\n")
 	for _, w := range p.Widgets {

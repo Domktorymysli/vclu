@@ -572,6 +572,9 @@ Use it when:
 
 Wire reads and commands only objects in the registry (and a CLU's own features): one with no
 proxy shows "not imported". For a module vCLU has no proxy for, call a script on the CLU.
+`Wire.value` comes from the registry only for an object on Grenton → Sync; off the list it is
+asked in the background like any feature (at most `Wire.perCLU` = 4 reads waiting per CLU).
+A command that cannot be sent raises an error, which the page shows.
 - you edit an imported page (`modules/dashboards/imported/`): keep its style.
 - a plain toggle or status of a Grenton output: `Wire.isOn(Wire.value(path))` with
   `Wire.onOff(Wire.set(path, 0, 1), Wire.set(path, 0, 0))` does what the hand-written

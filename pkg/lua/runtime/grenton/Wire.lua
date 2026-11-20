@@ -12,8 +12,9 @@
 --
 -- A path is "<CLU>.<object>" as the registry has it, or "<CLU>" for the CLU's own features; an
 -- object the registry does not have is neither read nor commanded.
--- What the registry follows (an object's value) is read from it; anything else is asked in
--- the background and the widget shows the last answer.
+-- What the registry follows (the value of an object on the Sync list) is read from it; anything
+-- else is asked in the background, at most Wire.perCLU at a time, and the widget shows the last
+-- answer. A command that cannot be sent raises an error, so the page reports it.
 -- @module Wire
 
 local Wire = {}
@@ -22,6 +23,8 @@ local Wire = {}
 Wire.refresh = 5
 -- seconds after which a read whose answer never came is asked again
 Wire.lost = 60
+-- background reads waiting for one CLU at a time; the rest are asked on a later poll
+Wire.perCLU = 4
 
 --- The value the user enters (a slider, a thermostat's set point), as set's or execute's value.
 -- @api public
@@ -105,32 +108,103 @@ end
 -- Reads
 -- ==========================================================================
 
-local cache = {} -- key -> { value, at, sentAt }
+local cache = {} -- key -> { value, at, sentAt, seq }
+local inflight = {} -- clu -> { key -> sentAt }
+local queue = {} -- clu -> { key -> { e, ask, n } }: reads waiting for a place
+local seq = 0
+
+-- Whether a CLU already has Wire.perCLU reads waiting; lost ones free their place
+local function busy(clu, now)
+    local n = 0
+    for key, at in pairs(inflight[clu]) do
+        if now - at >= Wire.lost then inflight[clu][key] = nil else n = n + 1 end
+    end
+    return n >= Wire.perCLU
+end
+
+local pump
+
+local function send(clu, key, q)
+    local e, now = q.e, os.time()
+    seq = seq + 1
+    local mine = seq
+    e.sentAt, e.seq = now, mine
+    inflight[clu][key] = now
+    local ok, err = pcall(q.ask, function(v, aerr)
+        -- an answer to an ask that was given up as lost: a newer one is on its way
+        if e.seq ~= mine then return end
+        inflight[clu][key] = nil
+        e.sentAt, e.at = nil, os.time()
+        if aerr == nil then e.value = typed(v) end
+        pump(clu)
+    end)
+    if not ok then
+        inflight[clu][key] = nil
+        e.sentAt, e.at = nil, now
+        gone(key, tostring(err))
+    end
+end
+
+-- Sends the waiting reads while the CLU has places: the never answered first, then the oldest
+local pumping = {}
+pump = function(clu)
+    if pumping[clu] then return end
+    pumping[clu] = true
+    local waiting = queue[clu]
+    while next(waiting) and not busy(clu, os.time()) do
+        local key, best
+        for k, q in pairs(waiting) do
+            if not best or (q.e.at or -1) < (best.e.at or -1)
+               or ((q.e.at or -1) == (best.e.at or -1) and q.n < best.n) then
+                key, best = k, q
+            end
+        end
+        waiting[key] = nil
+        send(clu, key, best)
+    end
+    pumping[clu] = nil
+end
 
 -- A read that asks in the background: ask(done) sends, done(value, err) stores the answer
-local function background(key, ask)
+local function background(clu, key, ask)
     return function()
         local e = cache[key]
         if not e then
             e = {}
             cache[key] = e
         end
+        inflight[clu] = inflight[clu] or {}
+        queue[clu] = queue[clu] or {}
         local now = os.time()
         -- an answer that never came (a reply lost on the way) does not stop the next ask
         local waiting = e.sentAt and now - e.sentAt < Wire.lost
-        if not waiting and (e.at == nil or now - e.at >= Wire.refresh) then
-            e.sentAt = now
-            local ok, err = pcall(ask, function(v, aerr)
-                e.sentAt, e.at = nil, os.time()
-                if aerr == nil then e.value = typed(v) end
-            end)
-            if not ok then
-                e.sentAt, e.at = nil, now
-                gone(key, tostring(err))
-            end
+        if not waiting and (e.at == nil or now - e.at >= Wire.refresh) and not queue[clu][key] then
+            seq = seq + 1
+            queue[clu][key] = { e = e, ask = ask, n = seq }
         end
+        pump(clu)
         return e.value
     end
+end
+
+-- The feature obj:getValue() gives: CurrentTemp for a thermostat, else 0; nil when it follows none
+local function valueFeature(obj)
+    if type(obj) ~= "table" or type(obj.getValue) ~= "function" then return nil end
+    local f = 0
+    if obj._type == "THERMOSTAT" then f = RemoteThermostat.FEATURE_CURRENT end
+    local list = { 0 }
+    if type(obj.subscribeFeatures) == "function" then list = obj:subscribeFeatures() end
+    for _, x in ipairs(list) do
+        if x == f then return f end
+    end
+    return nil
+end
+
+-- Whether the registry keeps obj's value up to date: a remote object only on the Sync list
+local function followed(obj, path)
+    if not obj._clu then return true end
+    local cfg = RemoteSubscription and RemoteSubscription.config
+    return cfg ~= nil and cfg.enabled == true and cfg.whitelist ~= nil and cfg.whitelist[path] == true
 end
 
 local function feature(fn, path, index)
@@ -138,7 +212,7 @@ local function feature(fn, path, index)
     check(isIndex(index), fn, "feature must be a number 0-9999, got " .. tostring(index), 1)
     local target = object or clu
     local script = target .. ":get(" .. index .. ")"
-    local ask = background(path .. "[" .. index .. "]", function(done)
+    local ask = background(clu, path .. "[" .. index .. "]", function(done)
         local c = cluOf(clu)
         if not c then
             gone(clu, "is not imported")
@@ -158,16 +232,19 @@ local function feature(fn, path, index)
         end
         c:executeAsync(script, done)
     end)
-    if index ~= 0 or not object then return ask end
-    -- the registry follows an object's value
+    if not object then return ask end
+    -- what the registry follows comes from it; off the Sync list or not reported yet, it is asked
     return function()
         local obj = objectOf(clu, object)
-        if obj and type(obj.getValue) == "function" then return obj:getValue() end
+        if valueFeature(obj) == index and followed(obj, path) then
+            local v = obj:getValue()
+            if v ~= nil then return v end
+        end
         return ask()
     end
 end
 
---- An object's value, as the registry follows it (feature 0).
+--- An object's value (feature 0): from the registry for an object on the Sync list, else asked.
 -- @api public
 -- @param path string "CLU221000002.DOU0001", or "CLU221000002" for the CLU's own
 -- @return function A read for a widget
@@ -194,7 +271,7 @@ end
 function Wire.variable(clu, name)
     check(type(clu) == "string" and clu:match("^CLU%d+$"), "variable", "clu must be like \"CLU221000002\"")
     check(isName(name), "variable", "user feature " .. tostring(name) .. " is no Lua name")
-    return background(clu .. ":" .. name, function(done)
+    return background(clu, clu .. ":" .. name, function(done)
         local c = cluOf(clu)
         if not c then
             gone(clu, "is not imported")
@@ -204,17 +281,22 @@ function Wire.variable(clu, name)
     end)
 end
 
+-- nil when unknown: no value yet, or -1 (Grenton's "unknown")
 local function on(v)
+    if type(v) == "string" then v = tonumber(v) or v end
     if type(v) == "boolean" then return v end
-    if type(v) == "number" then return v ~= 0 end
-    if type(v) == "string" then return v ~= "" and v ~= "0" and v ~= "false" end
-    return false
+    if type(v) == "number" then
+        if v == -1 then return nil end
+        return v ~= 0
+    end
+    if type(v) == "string" then return v ~= "" and v ~= "false" end
+    return nil
 end
 
---- A read as on or off: 0, "", "0", false and nothing are off.
+--- A read as on or off: 0, "", "0" and false are off; nothing and -1 are unknown (nil).
 -- @api public
 -- @param read function A read (Wire.value, ...)
--- @return function A read of true or false
+-- @return function A read of true, false or nil
 function Wire.isOn(read)
     check(type(read) == "function", "isOn", "takes a read")
     return function() return on(read()) end
@@ -230,9 +312,9 @@ function Wire.text(read, onText, offText)
     check(type(read) == "function", "text", "takes a read")
     check(type(onText) == "string" and type(offText) == "string", "text", "takes two texts")
     return function()
-        local v = read()
-        if v == nil then return nil end
-        return on(v) and onText or offText
+        local state = on(read())
+        if state == nil then return nil end
+        return state and onText or offText
     end
 end
 
@@ -257,7 +339,7 @@ function Wire.fromPercent(action)
     check(type(action) == "function", "fromPercent", "takes an action")
     return function(input)
         local n = tonumber(input)
-        if not n then return "no value entered" end
+        if not n then error("no value entered", 0) end
         return action(n / 100)
     end
 end
@@ -273,13 +355,13 @@ local function command(fn, path, index, value, send)
     return function(input)
         local v = value
         if v == Wire.INPUT then
-            if type(input) ~= "number" and type(input) ~= "string" then return "no value entered" end
+            if type(input) ~= "number" and type(input) ~= "string" then error("no value entered", 0) end
             v = input
         end
         local obj = objectOf(clu, object)
         if not obj then
             gone(path, "is not in the registry")
-            return path .. " is not imported"
+            error(path .. " is not imported", 0)
         end
         send(obj, index, v)
     end
@@ -330,13 +412,14 @@ function Wire.script(clu, name, ...)
         local c = cluOf(clu)
         if not c then
             gone(clu, "is not imported")
-            return clu .. " is not imported"
+            error(clu .. " is not imported", 0)
         end
         c:executeNoReply(0, script)
     end
 end
 
---- A toggle's action from the actions for on and for off (either may be nil).
+--- A toggle's action from the actions for on and for off (either may be nil: switching
+-- that way then fails).
 -- @api public
 -- @param onAction function|nil Run to switch on
 -- @param offAction function|nil Run to switch off
@@ -345,8 +428,10 @@ function Wire.onOff(onAction, offAction)
     check(onAction == nil or type(onAction) == "function", "onOff", "takes actions")
     check(offAction == nil or type(offAction) == "function", "onOff", "takes actions")
     return function(want)
-        if want and onAction then return onAction() end
-        if not want and offAction then return offAction() end
+        local action, what = offAction, "off"
+        if want then action, what = onAction, "on" end
+        if not action then error("no action to switch " .. what, 0) end
+        return action()
     end
 end
 

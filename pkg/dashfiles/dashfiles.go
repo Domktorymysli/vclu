@@ -33,8 +33,10 @@ const (
 var (
 	reHeader   = regexp.MustCompile(`^-- vclu: generated, sha256:([0-9a-f]{64})\n`)
 	rePageFile = regexp.MustCompile(`^page_([0-9]{1,19})\.lua$`)
-	// the require line at the start of a line, comments taken out first
-	reRequire      = regexp.MustCompile(`(?m)^[ \t]*require[ \t]*\(?[ \t]*["']dashboards[/.]imported["'][ \t]*\)?`)
+	// the require line at the start of a line (or assigned to a local), comments taken out
+	// first; the quotes and the parentheses must pair
+	reRequire = regexp.MustCompile(`(?m)^[ \t]*(local[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*=[ \t]*)?require[ \t]*` +
+		`(\([ \t]*("dashboards[/.]imported"|'dashboards[/.]imported')[ \t]*\)|"dashboards[/.]imported"|'dashboards[/.]imported')`)
 	reBlockComment = regexp.MustCompile(`(?s)--\[(=*)\[.*?\]`)
 )
 

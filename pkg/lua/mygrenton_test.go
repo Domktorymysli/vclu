@@ -1,6 +1,7 @@
 package lua
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -61,6 +62,7 @@ const myGrentonCLU = `
 setpoint = 21.5
 CLU221000002 = { get = function(self, i) return 1234 end }
 DIN0001 = { get = function(self, i) if i == 3 then return "ready" end return 1 end }
+DOU0001 = { get = function(self, i) return 0.75 end }
 THE0001 = { get = function(self, i) return ({ [14] = 20.5, [12] = 22, [6] = 1 })[i] end }
 `
 
@@ -82,6 +84,9 @@ CLU221000002 = CLU_REMOTE:new(221000002, 0xC0A80003, EventBus:getShared())
 registerObject("CLU221000002.DOU0001", RemoteSwitch:new(CLU221000002, "DOU0001", "hall_light"))
 registerObject("CLU221000002.THE0001", RemoteObject:new(CLU221000002, "THE0001", "living"))
 registerObject("CLU221000002.DIN0001", RemoteObject:new(CLU221000002, "DIN0001", "door"))
+-- on the Sync list: the registry follows them
+RemoteSubscription.config.enabled = true
+RemoteSubscription.config.whitelist = { ["CLU221000002.DOU0001"] = true, ["CLU221000002.DIN0001"] = true }
 Wire.refresh = 0`)
 	for _, p := range mgInterface.Pages {
 		mustExec(t, engine, dashspec.PageLua(mgInterface, p))
@@ -146,8 +151,8 @@ func TestWireReads(t *testing.T) {
 		vals["w5"]["value"] != "ready" || vals["w6"]["value"] != "Open" || vals["w10"]["value"] != 1234.0 {
 		t.Errorf("values %v", vals)
 	}
-	// an object not imported reads as nothing, and is never asked of the CLU
-	if vals["w12"]["value"] != false || vals["w14"]["value"] != nil {
+	// an object not imported reads as nothing (not as off), and is never asked of the CLU
+	if vals["w12"]["value"] != nil || vals["w14"]["value"] != nil {
 		t.Errorf("gone %v %v", vals["w12"], vals["w14"])
 	}
 	if asked := mustExec(t, engine, `return table.concat(ASKED, "|")`); strings.Contains(asked, "SAT0001") {
@@ -178,7 +183,7 @@ func TestWireReadsNeverWait(t *testing.T) {
 	if d := time.Since(start); d > time.Second {
 		t.Errorf("values took %v", d)
 	}
-	if vals["w4"]["value"] != nil || vals["w4"]["error"] != nil || vals["w2"]["value"] != false {
+	if vals["w4"]["value"] != nil || vals["w4"]["error"] != nil || vals["w2"]["value"] != nil {
 		t.Errorf("values %v", vals)
 	}
 	// still waiting: not asked again; after Wire.lost: asked again
@@ -203,7 +208,6 @@ func TestWireActions(t *testing.T) {
 		{"1", `"w6_click", "tap"`, `DOU0001:execute(2, 3000)`},
 		{"1", `"w7", "tap"`, `setup("evening", 2)`},
 		{"1", `"w8", "tap"`, `setup()`},
-		{"1", `"w12", "toggle", true`, ``},
 		{"2", `"w20", "set", 23.5`, `THE0001:set(3, 23.5)`},
 	} {
 		var resp map[string]any
@@ -257,5 +261,203 @@ func TestWireChecksAndLoad(t *testing.T) {
 	}
 	if e := mustExec(t, engine, `return Wire.errors[1].error`); !strings.Contains(e, "Duplicate widget ID") {
 		t.Errorf("error %s", e)
+	}
+}
+
+// The registry's value only for an object on the Sync list (with Sync on) that has reported
+// one: off the list, its _lastState is only what vclu last sent, so the CLU is asked (#219 review).
+func TestWireValueOffSyncList(t *testing.T) {
+	engine, _, _ := myGrentonEngine(t)
+	// the CLU answers at once, with a value the registry does not have
+	mustExec(t, engine, `_:get("CLU221000002.DOU0001"):updateState(0.25)
+		ASKED = 0
+		__go_send_command_async = function(ip, cmd, id) ASKED = ASKED + 1 __vclu_command_reply(id, 0.75) end`)
+	read := `return tostring(Wire.value("CLU221000002.DOU0001")()) .. " " .. ASKED`
+	// on the list, reported: from the registry, the CLU not asked
+	if got := mustExec(t, engine, read); got != "0.25 0" {
+		t.Errorf("on the Sync list: %s", got)
+	}
+	for name, setup := range map[string]string{
+		"off the list":     `RemoteSubscription.config.whitelist = {}`,
+		"Sync off":         `RemoteSubscription.config.enabled = false`,
+		"no whitelist":     `RemoteSubscription.config.whitelist = nil`,
+		"not reported yet": `_:get("CLU221000002.DOU0001")._lastState = nil`,
+	} {
+		mustExec(t, engine, `RemoteSubscription.config.enabled = true
+			RemoteSubscription.config.whitelist = { ["CLU221000002.DOU0001"] = true }
+			_:get("CLU221000002.DOU0001")._lastState = 0.25
+			ASKED = 0
+			`+setup)
+		if got := mustExec(t, engine, read); got != "0.75 1" {
+			t.Errorf("%s: %s, want the CLU's 0.75, asked once", name, got)
+		}
+	}
+}
+
+// A thermostat's getValue is its CurrentTemp (feature 14): it answers that feature, never 0.
+func TestWireThermostatValue(t *testing.T) {
+	engine, _, _ := myGrentonEngine(t)
+	out := mustExec(t, engine, `
+		local th = RemoteThermostat:new(CLU221000002, "THE0002", "hall")
+		th._version = 2
+		registerObject("CLU221000002.THE0002", th)
+		RemoteSubscription.config.whitelist["CLU221000002.THE0002"] = true
+		th:updateState(19.5)
+		ASKED = {}
+		__go_send_command_async = function(ip, cmd) ASKED[#ASKED + 1] = cmd return true end
+		local cur = Wire.feature("CLU221000002.THE0002", 14)()
+		local zero = Wire.value("CLU221000002.THE0002")()
+		return tostring(cur) .. " " .. tostring(zero) .. " " .. table.concat(ASKED, "|")`)
+	if !strings.HasPrefix(out, "19.5 nil ") || !strings.Contains(out, "THE0002:get(0)") || strings.Contains(out, "get(14)") {
+		t.Errorf("thermostat: %s", out)
+	}
+}
+
+// Unknown is neither on nor off: no value yet, -1, or nothing the CLU answered.
+func TestWireIsOnUnknown(t *testing.T) {
+	engine, _, _ := myGrentonEngine(t)
+	out := mustExec(t, engine, `
+		local out = {}
+		for _, v in ipairs({ "nil", "-1", "'-1'", "0", "'0'", "1", "0.4", "''", "'false'", "true", "false", "{}" }) do
+			local x = loadstring("return " .. v)()
+			out[#out + 1] = v .. "=" .. tostring(Wire.isOn(function() return x end)()) ..
+				"/" .. tostring(Wire.text(function() return x end, "on", "off")())
+		end
+		return table.concat(out, " ")`)
+	want := "nil=nil/nil -1=nil/nil '-1'=nil/nil 0=false/off '0'=false/off 1=true/on 0.4=true/on " +
+		"''=false/off 'false'=false/off true=true/on false=false/off {}=nil/nil"
+	if out != want {
+		t.Errorf("isOn/text:\n got %s\nwant %s", out, want)
+	}
+}
+
+// A command that cannot be sent is an error the page shows, not a success.
+func TestWireActionsFail(t *testing.T) {
+	engine, _, sent := myGrentonEngine(t)
+	mustExec(t, engine, `Dashboard.new("fail"):section("x")
+		:button("gone", "Gone", nil, Wire.set("CLU221000002.DOU0009", 0, 1))
+		:button("noclu", "No CLU", nil, Wire.script("CLU999000001", "setup"))
+		:toggle("onlyon", "Only on", nil, function() return nil end, Wire.onOff(Wire.set("CLU221000002.DOU0001", 0, 1), nil))
+		:slider("input", "Input", 0, 100, function() return 0 end, Wire.fromPercent(Wire.set("CLU221000002.DOU0001", 0, Wire.INPUT)))
+		:build()`)
+	for _, tc := range []struct{ action, want string }{
+		{`"gone", "tap"`, "CLU221000002.DOU0009 is not imported"},
+		{`"noclu", "tap"`, "CLU999000001 is not imported"},
+		{`"onlyon", "toggle", false`, "no action to switch off"},
+		{`"w12", "toggle", true`, "CLU221000002.DOU0009 is not imported"},
+	} {
+		page := "fail"
+		if strings.HasPrefix(tc.action, `"w12"`) {
+			page = "imported_1"
+		}
+		var resp map[string]any
+		dashJSON(t, engine, `Dashboard.API.executeAction("`+page+`", `+tc.action+`)`, &resp)
+		if resp["success"] == true || resp["error"] != tc.want {
+			t.Errorf("%s: %v, want error %q", tc.action, resp, tc.want)
+		}
+		if got := sent.take(); got != "" {
+			t.Errorf("%s sent %q", tc.action, got)
+		}
+	}
+	// the side it has still switches
+	var resp map[string]any
+	dashJSON(t, engine, `Dashboard.API.executeAction("fail", "onlyon", "toggle", true)`, &resp)
+	if resp["success"] != true || sent.take() != "DOU0001:set(0, 1)" {
+		t.Errorf("only on: %v", resp)
+	}
+	// an action called without the value it takes
+	for _, call := range []string{`Wire.fromPercent(Wire.set("CLU221000002.DOU0001", 0, Wire.INPUT))("x")`,
+		`Wire.set("CLU221000002.DOU0001", 0, Wire.INPUT)(nil)`} {
+		if _, err := engine.Execute(call); err == nil || !strings.Contains(err.Error(), "no value entered") {
+			t.Errorf("%s: %v", call, err)
+		}
+	}
+}
+
+// Background reads wait at most Wire.perCLU at a time on one CLU; the others are asked
+// when answers come or are lost, and another CLU has places of its own.
+func TestWireReadsPerCLU(t *testing.T) {
+	engine, _, _ := myGrentonEngine(t)
+	out := mustExec(t, engine, `
+		PENDING = {}
+		NOW = 1000
+		os.time = function() return NOW end
+		__go_send_command_async = function(ip, cmd, id) PENDING[#PENDING + 1] = id end
+		CLU221000003 = CLU_REMOTE:new(221000003, 0xC0A80004, EventBus:getShared())
+		local reads = {}
+		for i = 1, 10 do reads[i] = Wire.feature("CLU221000002", i) end
+		local other = Wire.feature("CLU221000003", 1)
+		local function poll() for _, r in ipairs(reads) do r() end other() end
+		poll()
+		local first = #PENDING
+		poll()
+		local again = #PENDING
+		-- an answer frees a place
+		__vclu_command_reply(table.remove(PENDING, 1), 1)
+		poll()
+		local answered = #PENDING
+		-- lost answers free theirs
+		NOW = NOW + Wire.lost
+		poll()
+		return first .. " " .. again .. " " .. answered .. " " .. #PENDING`)
+	// 4 of CLU221000002 and 1 of CLU221000003; one more after an answer; once lost, 4 + 1 again
+	if out != "5 5 5 10" {
+		t.Errorf("pending after polls: %s, want 5 5 5 10", out)
+	}
+}
+
+// More reads on one CLU than fit between two refreshes: each is asked within a few polls,
+// the oldest first, so none waits for ever behind the first ones (#249 review).
+func TestWireReadsPerCLUFair(t *testing.T) {
+	engine, _, _ := myGrentonEngine(t)
+	out := mustExec(t, engine, `
+		PENDING, ASKED = {}, {}
+		NOW = 1000
+		os.time = function() return NOW end
+		Wire.refresh = 5
+		__go_send_command_async = function(ip, cmd, id)
+			ASKED[cmd] = ASKED[cmd] or NOW
+			PENDING[#PENDING + 1] = id
+		end
+		local reads = {}
+		for i = 1, 20 do reads[i] = Wire.feature("CLU221000002", i) end
+		local polls = 0
+		-- a page polled every 2 s; the CLU answers between polls
+		for _ = 1, 30 do
+			polls = polls + 1
+			for _, r in ipairs(reads) do r() end
+			local n = 0
+			for _ in pairs(ASKED) do n = n + 1 end
+			if n == 20 then break end
+			local answer = PENDING
+			PENDING = {}
+			for _, id in ipairs(answer) do __vclu_command_reply(id, 1) end
+			NOW = NOW + 2
+		end
+		return tostring(polls)`)
+	if n, _ := strconv.Atoi(out); n == 0 || n > 6 {
+		t.Errorf("all 20 reads asked after %s polls", out)
+	}
+}
+
+// An answer to an ask given up as lost does not end the newer ask that replaced it.
+func TestWireLateAnswer(t *testing.T) {
+	engine, _, _ := myGrentonEngine(t)
+	out := mustExec(t, engine, `
+		PENDING = {}
+		NOW = 1000
+		os.time = function() return NOW end
+		__go_send_command_async = function(ip, cmd, id) PENDING[#PENDING + 1] = id end
+		local r = Wire.feature("CLU221000002", 1)
+		r()
+		NOW = NOW + Wire.lost
+		r()
+		-- the first answer comes late: the second ask still waits, and is not sent again
+		__vclu_command_reply(PENDING[1], "old")
+		local late = tostring(r()) .. " " .. #PENDING
+		__vclu_command_reply(PENDING[2], "new")
+		return late .. " " .. tostring(r())`)
+	if out != "nil 2 new" {
+		t.Errorf("late answer: %q, want \"nil 2 new\"", out)
 	}
 }
