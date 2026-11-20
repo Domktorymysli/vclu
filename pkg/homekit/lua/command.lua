@@ -45,10 +45,8 @@ end
 -- no SetPosition: it opens or closes, as a tap in the Home app does
 function hk.setPosition(h, target)
 	local o = h.object
-	if o._hasPosition == false and o.open then
-		if target >= 50 then o:open() else o:close() end
-	elseif o.setPosition then
-		o:setPosition(target)
+	if o.setPosition or o.open then
+		ExposedObjects.coverSetPosition(o, target)
 	else
 		h:setValue(target)
 	end

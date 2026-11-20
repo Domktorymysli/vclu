@@ -421,14 +421,28 @@ function ExposedHandle:_endPulse()
     if how == "timer" then self:_write(0) end
 end
 
--- Writes feature 0 and records the change (setValue without its checks)
+-- How a value reaches the object: a cover moves by setPosition, a light by its own setValue
+-- (an RGB light's feature 0 is read-only), anything else writes feature 0
+local function writeValue(h, value)
+    local obj = h.object
+    if h.type == "cover" and (type(obj.setPosition) == "function" or type(obj.open) == "function") then
+        return ExposedObjects.coverSetPosition(obj, value)
+    end
+    if (h.type == "light" or h.type == "dimmer") and type(obj.setValue) == "function" then
+        return obj:setValue(value)
+    end
+    obj:set(0, value)
+end
+
+-- Writes the value and records the change (setValue without its checks)
 function ExposedHandle:_write(value)
-    if self.object and type(self.object.set) == "function" then
-        local obj = self.object
+    local obj = self.object
+    if type(obj) == "table" and (type(obj.set) == "function" or type(obj.setValue) == "function"
+            or type(obj.setPosition) == "function") then
         local old, stateful = StateChange.read(obj)
         if stateful then self._lastSeen = old else old = self._lastSeen end
         local mark = StateChange.mark(obj)
-        local ok = pcall(function() obj:set(0, value) end)
+        local ok = pcall(writeValue, self, value)
         if ok then
             self._lastChanged = os.time()
             if not StateChange.publishedSince(obj, mark) then
@@ -1114,6 +1128,22 @@ function ExposedObjects.hasBrightness(handle)
     if handle.type == "dimmer" then return true end
     local o = handle.object
     return handle.type == "light" and type(o) == "table" and type(o.getBrightness) == "function"
+end
+
+--- Moves a cover to a position (0 = closed .. 100 = open), clamped and rounded: by its
+-- setPosition (a Grenton roller: execute 10); a roller without a position opens or closes.
+-- Raises an error for a value that is not a number.
+-- @param obj table The cover
+-- @param value number|string Position
+function ExposedObjects.coverSetPosition(obj, value)
+    local p = tonumber(value)
+    if not p or p - p ~= 0 then error("position is not a number: " .. tostring(value), 2) end
+    p = math.floor(math.max(0, math.min(100, p)) + 0.5)
+    if (obj._hasPosition == false or type(obj.setPosition) ~= "function") and type(obj.open) == "function" then
+        if p >= 50 then obj:open() else obj:close() end
+    else
+        obj:setPosition(p)
+    end
 end
 
 --- True when the handle is a light whose object has a colour (RemoteRGBLight)
