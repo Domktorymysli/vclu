@@ -109,7 +109,7 @@
           "object": {"onAction": {"cluId": "CLU221000002", "objectName": "DOU0001", "index": "0", "type": "ON", "value": "1", "callType": "PSEUDO_METHOD"}, "offAction": {"cluId": "CLU221000002", "objectName": "DOU0001", "index": "0", "type": "OFF", "value": "0", "callType": "PSEUDO_METHOD"}, "setValueAction": {"cluId": "CLU221000002", "objectName": "DOU0001", "index": "0", "type": "CLICK", "value": "$value$", "callType": "PSEUDO_METHOD"}, "value": {"cluId": "CLU221000002", "objectName": "DOU0001", "index": "0", "callType": "ATTRIBUTE"}}},
         {"id": 45, "type": "LED_CCT", "label": "Kitchen", "object": {}},
         {"id": 46, "type": "DIMMER_V2", "label": "Stairs", "min": 0, "max": 1,
-          "object": {"onAction": {"cluId": "CLU221000002", "objectName": "DOU0001", "index": "1", "type": "CLICK", "value": "", "callType": "METHOD"}, "value": {"cluId": "CLU221000002", "objectName": "DOU0001", "index": "0", "callType": "ATTRIBUTE"}}}
+          "object": {"offAction": {"cluId": "CLU221000002", "objectName": "DOU0001", "index": "1", "type": "CLICK", "value": "", "callType": "METHOD"}, "value": {"cluId": "CLU221000002", "objectName": "DOU0001", "index": "0", "callType": "ATTRIBUTE"}}}
       ]
     }
   ]

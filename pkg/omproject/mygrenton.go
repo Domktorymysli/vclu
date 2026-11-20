@@ -2,7 +2,6 @@ package omproject
 
 import (
 	"archive/zip"
-	"cmp"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -381,8 +380,8 @@ func (t *translation) widget(g gWidget, n int) {
 		// with one action, the level below shows the value
 		if on, off := t.action(o.OnAction, "onAction"), t.action(o.OffAction, "offAction"); on != nil && off != nil {
 			t.add(dashspec.Widget{Kind: dashspec.Toggle, ID: t.id(g, n, ""), Label: label, Read: read, On: on, Off: off})
-		} else if do := cmp.Or(on, off); do != nil {
-			t.add(dashspec.Widget{Kind: dashspec.Button, ID: t.id(g, n, ""), Label: label, Do: do})
+		} else if do, l := oneAction(label, on, off); do != nil {
+			t.add(dashspec.Widget{Kind: dashspec.Button, ID: t.id(g, n, ""), Label: l, Do: do})
 		}
 		t.level(g, n, "_level", label, &gPart{Unit: "PERCENT", Min: g.Min, Max: g.Max, State: o.Value, ActionClick: o.SetValueAction})
 	case "LED_CCT", "ROLLER_SHUTTER_V3":
@@ -403,10 +402,19 @@ func (t *translation) onOff(g gWidget, n int, label string, b *gPart) {
 	}
 	if t.add(dashspec.Widget{Kind: dashspec.Status, ID: t.id(g, n, ""), Label: label, Read: read,
 		OnText: text(b.OnIndication), OffText: text(b.OffIndication)}) {
-		if do := cmp.Or(on, off); do != nil {
-			t.add(dashspec.Widget{Kind: dashspec.Button, ID: t.id(g, n, "_click"), Label: label, Do: do})
+		if do, l := oneAction(label, on, off); do != nil {
+			t.add(dashspec.Widget{Kind: dashspec.Button, ID: t.id(g, n, "_click"), Label: l, Do: do})
 		}
 	}
+}
+
+// oneAction is the button for the one action an on/off widget has; one that only switches
+// off says so on its label.
+func oneAction(label string, on, off *dashspec.Action) (*dashspec.Action, string) {
+	if on == nil && off != nil {
+		return off, label + " (off)"
+	}
+	return on, label
 }
 
 // level is a slider when its action takes the entered value within a range, else a status.

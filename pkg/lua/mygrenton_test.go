@@ -1,6 +1,7 @@
 package lua
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -402,5 +403,61 @@ func TestWireReadsPerCLU(t *testing.T) {
 	// 4 of CLU221000002 and 1 of CLU221000003; one more after an answer; once lost, 4 + 1 again
 	if out != "5 5 5 10" {
 		t.Errorf("pending after polls: %s, want 5 5 5 10", out)
+	}
+}
+
+// More reads on one CLU than fit between two refreshes: each is asked within a few polls,
+// the oldest first, so none waits for ever behind the first ones (#249 review).
+func TestWireReadsPerCLUFair(t *testing.T) {
+	engine, _, _ := myGrentonEngine(t)
+	out := mustExec(t, engine, `
+		PENDING, ASKED = {}, {}
+		NOW = 1000
+		os.time = function() return NOW end
+		Wire.refresh = 5
+		__go_send_command_async = function(ip, cmd, id)
+			ASKED[cmd] = ASKED[cmd] or NOW
+			PENDING[#PENDING + 1] = id
+		end
+		local reads = {}
+		for i = 1, 20 do reads[i] = Wire.feature("CLU221000002", i) end
+		local polls = 0
+		-- a page polled every 2 s; the CLU answers between polls
+		for _ = 1, 30 do
+			polls = polls + 1
+			for _, r in ipairs(reads) do r() end
+			local n = 0
+			for _ in pairs(ASKED) do n = n + 1 end
+			if n == 20 then break end
+			local answer = PENDING
+			PENDING = {}
+			for _, id in ipairs(answer) do __vclu_command_reply(id, 1) end
+			NOW = NOW + 2
+		end
+		return tostring(polls)`)
+	if n, _ := strconv.Atoi(out); n == 0 || n > 6 {
+		t.Errorf("all 20 reads asked after %s polls", out)
+	}
+}
+
+// An answer to an ask given up as lost does not end the newer ask that replaced it.
+func TestWireLateAnswer(t *testing.T) {
+	engine, _, _ := myGrentonEngine(t)
+	out := mustExec(t, engine, `
+		PENDING = {}
+		NOW = 1000
+		os.time = function() return NOW end
+		__go_send_command_async = function(ip, cmd, id) PENDING[#PENDING + 1] = id end
+		local r = Wire.feature("CLU221000002", 1)
+		r()
+		NOW = NOW + Wire.lost
+		r()
+		-- the first answer comes late: the second ask still waits, and is not sent again
+		__vclu_command_reply(PENDING[1], "old")
+		local late = tostring(r()) .. " " .. #PENDING
+		__vclu_command_reply(PENDING[2], "new")
+		return late .. " " .. tostring(r())`)
+	if out != "nil 2 new" {
+		t.Errorf("late answer: %q, want \"nil 2 new\"", out)
 	}
 }

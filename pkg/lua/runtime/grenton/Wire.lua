@@ -108,8 +108,10 @@ end
 -- Reads
 -- ==========================================================================
 
-local cache = {} -- key -> { value, at, sentAt }
+local cache = {} -- key -> { value, at, sentAt, seq }
 local inflight = {} -- clu -> { key -> sentAt }
+local queue = {} -- clu -> { key -> { e, ask, n } }: reads waiting for a place
+local seq = 0
 
 -- Whether a CLU already has Wire.perCLU reads waiting; lost ones free their place
 local function busy(clu, now)
@@ -118,6 +120,49 @@ local function busy(clu, now)
         if now - at >= Wire.lost then inflight[clu][key] = nil else n = n + 1 end
     end
     return n >= Wire.perCLU
+end
+
+local pump
+
+local function send(clu, key, q)
+    local e, now = q.e, os.time()
+    seq = seq + 1
+    local mine = seq
+    e.sentAt, e.seq = now, mine
+    inflight[clu][key] = now
+    local ok, err = pcall(q.ask, function(v, aerr)
+        -- an answer to an ask that was given up as lost: a newer one is on its way
+        if e.seq ~= mine then return end
+        inflight[clu][key] = nil
+        e.sentAt, e.at = nil, os.time()
+        if aerr == nil then e.value = typed(v) end
+        pump(clu)
+    end)
+    if not ok then
+        inflight[clu][key] = nil
+        e.sentAt, e.at = nil, now
+        gone(key, tostring(err))
+    end
+end
+
+-- Sends the waiting reads while the CLU has places: the never answered first, then the oldest
+local pumping = {}
+pump = function(clu)
+    if pumping[clu] then return end
+    pumping[clu] = true
+    local waiting = queue[clu]
+    while next(waiting) and not busy(clu, os.time()) do
+        local key, best
+        for k, q in pairs(waiting) do
+            if not best or (q.e.at or -1) < (best.e.at or -1)
+               or ((q.e.at or -1) == (best.e.at or -1) and q.n < best.n) then
+                key, best = k, q
+            end
+        end
+        waiting[key] = nil
+        send(clu, key, best)
+    end
+    pumping[clu] = nil
 end
 
 -- A read that asks in the background: ask(done) sends, done(value, err) stores the answer
@@ -129,23 +174,15 @@ local function background(clu, key, ask)
             cache[key] = e
         end
         inflight[clu] = inflight[clu] or {}
+        queue[clu] = queue[clu] or {}
         local now = os.time()
         -- an answer that never came (a reply lost on the way) does not stop the next ask
         local waiting = e.sentAt and now - e.sentAt < Wire.lost
-        if not waiting and (e.at == nil or now - e.at >= Wire.refresh) and not busy(clu, now) then
-            e.sentAt = now
-            inflight[clu][key] = now
-            local ok, err = pcall(ask, function(v, aerr)
-                inflight[clu][key] = nil
-                e.sentAt, e.at = nil, os.time()
-                if aerr == nil then e.value = typed(v) end
-            end)
-            if not ok then
-                inflight[clu][key] = nil
-                e.sentAt, e.at = nil, now
-                gone(key, tostring(err))
-            end
+        if not waiting and (e.at == nil or now - e.at >= Wire.refresh) and not queue[clu][key] then
+            seq = seq + 1
+            queue[clu][key] = { e = e, ask = ask, n = seq }
         end
+        pump(clu)
         return e.value
     end
 end

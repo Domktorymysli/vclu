@@ -175,7 +175,7 @@ func TestReadInterfaceDimmersAndShutters(t *testing.T) {
 		"w42": dashspec.Button, "w42_position": dashspec.Status,
 		"w43": dashspec.Button, "w43_up": dashspec.Button, "w43_down": dashspec.Button, "w43_position": dashspec.Slider, "w43_slats": dashspec.Slider,
 		"w44": dashspec.Toggle, "w44_level": dashspec.Slider,
-		// one action only (a toggle() of its own): a button, the level shows the value
+		// one action only: a button, the level shows the value
 		"w46": dashspec.Button, "w46_level": dashspec.Status,
 	}
 	if len(kinds) != len(want) {
@@ -208,6 +208,9 @@ func TestReadInterfaceDimmersAndShutters(t *testing.T) {
 	}
 	if w := h["w41_hue"]; w.Label != "Strip (hue)" || *w.Max != 360 || w.Set.Index != 10 {
 		t.Errorf("hue %+v", w)
+	}
+	if w := h["w46"]; w.Label != "Stairs (off)" || w.Do.Index != 1 {
+		t.Errorf("off only %+v", w)
 	}
 	if w := h["w43_up"]; w.Label != "Terrace ▲" || w.Do.Index != 3 {
 		t.Errorf("up %+v", w)
