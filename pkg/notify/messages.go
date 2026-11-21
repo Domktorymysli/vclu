@@ -12,6 +12,7 @@ const (
 	MsgLockLogin     = "notify.lock.login"       // ip, until
 	MsgLockPIN       = "notify.lock.pin"         // dashboard, until
 	MsgLockToken     = "notify.lock.token"       // ip
+	MsgLockDevice    = "notify.lock.device"      // device, until
 	MsgSuppressed    = "notify.suppressed"       // count, source
 )
 
@@ -24,6 +25,7 @@ var english = map[string][2]string{
 	MsgLogin:         {"Failed login to the panel", "From {ip}."},
 	MsgLockLogin:     {"Panel login locked for {ip}", "Too many failed logins, locked until {until}."},
 	MsgLockPIN:       {"PIN of dashboard {dashboard} locked", "Too many wrong PINs, locked until {until}."},
+	MsgLockDevice:    {"PIN of {device} locked", "Too many wrong PINs from the app, locked until {until}."},
 	MsgLockToken:     {"Invalid tokens from {ip}", "Too many invalid tokens of the device API, answered with 429."},
 	MsgSuppressed:    {"{count} notifications skipped", "Too many from {source} in an hour."},
 }

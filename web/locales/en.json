@@ -1004,6 +1004,7 @@
     "lock": {
       "login": "Panel login from {ip} locked until {until}",
       "pin": "Dashboard {dashboard} PIN locked until {until}",
+      "device": "{device} PIN locked until {until}",
       "token": "Too many invalid API tokens from {ip}"
     },
     "suppressed": "{count} more notifications skipped ({source})",

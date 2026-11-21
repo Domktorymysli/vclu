@@ -1004,6 +1004,7 @@
     "lock": {
       "login": "Logowanie z adresu {ip} zablokowane do {until}",
       "pin": "PIN dashboardu {dashboard} zablokowany do {until}",
+      "device": "PIN urządzenia {device} zablokowany do {until}",
       "token": "Za dużo błędnych tokenów API z adresu {ip}"
     },
     "suppressed": "Pominięto kolejne powiadomienia ({source}): {count}",

@@ -22,6 +22,9 @@ type CloudBridge struct {
 	// changed()). It runs on the Lua loop: it must only mark the device list dirty and return,
 	// never call back into Lua.
 	ObjectsChanged func()
+	// PINLocked is called when wrong PINs from the app lock a device (path) for wait. It runs
+	// on the Lua loop: it must not call back into Lua.
+	PINLocked func(path string, wait time.Duration)
 }
 
 // SetCloud connects the Cloud module to the cloud client. Without it Cloud.notify returns nil
@@ -39,7 +42,8 @@ func (le *LuaEngine) SetCloud(b CloudBridge) {
 
 // registerCloudFunctions registers __go_cloud_notify(json) -> true | nil, err,
 // __go_cloud_presence() -> json | nil, __go_cloud_set_enabled(on) -> true | nil, err,
-// __go_cloud_enabled() -> bool, __go_cloud_objectsChanged() and __go_cloud_now_ms().
+// __go_cloud_enabled() -> bool, __go_cloud_objectsChanged(), __go_cloud_pin_locked(path, ms)
+// and __go_cloud_now_ms().
 func registerCloudFunctions(L *lua.LState, b *CloudBridge) {
 	// The wall clock the cloud client computes a command's deadline with (Cloud._command), not
 	// the Lua clock, which a test may replace.
@@ -53,6 +57,12 @@ func registerCloudFunctions(L *lua.LState, b *CloudBridge) {
 	if b.ObjectsChanged != nil {
 		L.SetGlobal("__go_cloud_objectsChanged", L.NewFunction(func(L *lua.LState) int {
 			b.ObjectsChanged()
+			return 0
+		}))
+	}
+	if b.PINLocked != nil {
+		L.SetGlobal("__go_cloud_pin_locked", L.NewFunction(func(L *lua.LState) int {
+			b.PINLocked(L.CheckString(1), time.Duration(L.CheckNumber(2))*time.Millisecond)
 			return 0
 		}))
 	}

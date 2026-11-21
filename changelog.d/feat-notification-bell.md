@@ -2,7 +2,7 @@
 
 - **Notifications in the top bar** - a bell lists what needs attention: a new vclu version, plugin
   updates (one entry for all of them), modules that do not load, failed logins to the panel and
-  locks. Read marks are kept on vclu, so every browser shows the same; a state (an update, a
+  locks, also of a device PIN after wrong tries from the app. Read marks are kept on vclu, so every browser shows the same; a state (an update, a
   module) goes away on its own once it is over. Sources can be turned off and single notifications muted
   in the settings (`notifications` in .vclu.json); errors from the log are off by default
   ([#248](https://github.com/Domktorymysli/vclu/issues/248)).

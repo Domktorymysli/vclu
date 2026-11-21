@@ -392,7 +392,9 @@ func main() {
 		States:       cloudStates(luaEngine),
 		Metrics:      metricsCollector,
 	})
-	luaEngine.SetCloud(cloudBridge(cloudClient))
+	bridge := cloudBridge(cloudClient)
+	bridge.PINLocked = func(path string, wait time.Duration) { notify.DeviceLocked(notifier, path, wait) }
+	luaEngine.SetCloud(bridge)
 
 	// Load CLU data (plugins → user.lua → om.lua → MQTT → expose)
 	srv.LoadInitialData()

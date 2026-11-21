@@ -303,7 +303,7 @@ func TestNotifyLocaleKeys(t *testing.T) {
 	}
 	keys := map[string]bool{"login.locked": true, "stats.toggle": true, "stats.configure": true}
 	for _, m := range []string{notify.MsgUpdate, notify.MsgPluginUpdates, notify.MsgModule, notify.MsgLog, notify.MsgLogin,
-		notify.MsgLockLogin, notify.MsgLockPIN, notify.MsgLockToken, notify.MsgSuppressed} {
+		notify.MsgLockLogin, notify.MsgLockPIN, notify.MsgLockDevice, notify.MsgLockToken, notify.MsgSuppressed} {
 		keys[m] = true
 	}
 	for _, src := range notify.Sources {

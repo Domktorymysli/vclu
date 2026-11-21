@@ -401,3 +401,22 @@ func TestPinLockGrows(t *testing.T) {
 		t.Errorf("an hour after the tenth lock = %+v", a)
 	}
 }
+
+// The fifth wrong PIN in a row tells Go which device is locked and for how long, once.
+func TestCloudCommandPINLocked(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+	var got []string
+	engine.SetCloud(CloudBridge{PINLocked: func(path string, wait time.Duration) {
+		got = append(got, fmt.Sprintf("%s %s", path, wait))
+	}})
+	c := commander{t, engine}
+	mustExec(t, engine, commandDevices)
+	for i := 0; i < 5; i++ {
+		c.run("vclu:safe", "on", "[]", false, "1111")
+	}
+	c.run("vclu:safe", "on", "[]", false, "1111") // locked: refused, no second report
+	if len(got) != 1 || got[0] != "vclu:safe 30s" {
+		t.Fatalf("reports %q", got)
+	}
+}
