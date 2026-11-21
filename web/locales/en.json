@@ -986,7 +986,8 @@
     "mute_7d": "7 days",
     "mute_forever": "Forever",
     "update": {
-      "available": "vclu {version} is available"
+      "available": "vclu {version} is available",
+      "whats_new": "See what is new"
     },
     "plugin": {
       "updates": "Plugin updates: {count} ({plugins})"

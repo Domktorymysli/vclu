@@ -183,7 +183,7 @@ func TestNotifyBell_OpenListAndLinks(t *testing.T) {
 	got = runBellMode(t, node, texts, "update", map[string]any{"entries": []map[string]any{first[1], first[0]}, "unread": 2, "worst": "info"})
 	list := got["entries"].([]any)
 	upd, skipped := list[0].(map[string]any), list[1].(map[string]any)
-	if upd["text"] != "Dostępna nowa wersja vclu 9.0.0" || upd["href"] != "#" || got["location"] != "/settings" {
+	if upd["text"] != "Dostępna nowa wersja vclu 9.0.0" || upd["body"] != "Zobacz, co nowego" || upd["href"] != "#" || got["location"] != "/settings" {
 		t.Errorf("update entry: %v, location %v", upd, got["location"])
 	}
 	if skipped["body"] != nil || skipped["href"] != "#" || skipped["text"] != "Pominięto kolejne powiadomienia (Blokady po zbyt wielu próbach): 4" {

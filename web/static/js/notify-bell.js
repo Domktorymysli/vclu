@@ -137,6 +137,11 @@
         }
     };
 
+    // A line under the title of an entry with an action, saying what the click shows
+    var HINTS = {
+        '#update': function() { return tr('update.whats_new', 'See what is new'); }
+    };
+
     function open(e) {
         var link = localLink(e.link);
         var marked = e.read ? Promise.resolve() : request('/api/notifications/read', { ids: [e.id] }, true);
@@ -171,7 +176,8 @@
         var main = el('span', 'notify-main');
         main.appendChild(el('span', 'notify-text', msgText(e)));
         // raw text (an error) when there is one; the English body only without a translation
-        var sub = e.detail || (translated(e) ? '' : e.body);
+        var sub = e.detail || (translated(e) ? '' : e.body) ||
+            (Object.prototype.hasOwnProperty.call(HINTS, e.link) ? HINTS[e.link]() : '');
         if (sub) main.appendChild(el('span', 'notify-body', sub));
         var meta = el('span', 'notify-meta', ago(e.last || e.first));
         if (e.count > 1) meta.appendChild(el('span', 'notify-count', ' ×' + e.count));
