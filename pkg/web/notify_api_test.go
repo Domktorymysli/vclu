@@ -554,7 +554,7 @@ func TestBackupLeavesNotificationsOut(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 	names := []string{}
 	for _, f := range r.File {
 		names = append(names, f.Name)

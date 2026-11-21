@@ -224,8 +224,8 @@ func (s *Store) Add(e Entry) {
 	}
 	s.expire(now)
 	prepare(&e)
-	switch {
-	case e.Kind == KindState:
+	switch e.Kind {
+	case KindState:
 		if old := s.find(e.Key, true); old != nil {
 			old.Level, old.Title, old.Body, old.Detail, old.Msg, old.Params, old.Link = e.Level, e.Title, e.Body, e.Detail, e.Msg, e.Params, e.Link
 			if e.Renew {
@@ -480,9 +480,9 @@ func writeAtomic(path string, b []byte) error {
 	if err != nil {
 		return err
 	}
-	defer os.Remove(tmp.Name())
+	defer func() { _ = os.Remove(tmp.Name()) }()
 	if _, err := tmp.Write(b); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return err
 	}
 	if err := tmp.Close(); err != nil {
