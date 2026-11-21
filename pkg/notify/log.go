@@ -46,13 +46,10 @@ func FromLog(le logstream.LogEntry) (Entry, bool) {
 	}, true
 }
 
-// LogHook is a logstream subscriber adding tagged errors to n; lines logged while skip() is
-// true (a Notifications.on handler running) are left out.
-func LogHook(n Notifier, skip func() bool) func(logstream.LogEntry) {
+// LogHook is a logstream subscriber adding tagged errors to n. Log entries never reach Lua
+// (ToLua false) and a handler's own errors are [NOTIFY], so a handler cannot feed itself.
+func LogHook(n Notifier) func(logstream.LogEntry) {
 	return func(le logstream.LogEntry) {
-		if skip != nil && skip() {
-			return
-		}
 		if e, ok := FromLog(le); ok {
 			n.Add(e)
 		}

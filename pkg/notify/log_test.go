@@ -20,8 +20,7 @@ func TestLogHook(t *testing.T) {
 		t.Fatal(err)
 	}
 	ls := logstream.NewLogStream(io.Discard, 100)
-	var skip atomic.Bool
-	ls.AddHook(LogHook(s, skip.Load))
+	ls.AddHook(LogHook(s))
 	l := log.New(ls, "", log.Ldate|log.Ltime)
 	l.Printf("Warning: Failed to load translations: x")
 	l.Printf("[LUA] ERROR: loaded 1/2 user module(s) — 1 FAILED")
@@ -31,9 +30,6 @@ func TestLogHook(t *testing.T) {
 	l.Printf("[WARN] [Modbus] slow")
 	l.Printf("[ERROR] [Modbus] timeout after 3000 ms on 192.168.0.9")
 	l.Printf("[ERROR] [Modbus] timeout after 5000 ms on 192.168.0.9")
-	skip.Store(true)
-	l.Printf("[ERROR] [Telegram] while a handler runs")
-	skip.Store(false)
 	vl := log.New(ls, "", log.Ldate|log.Ltime|log.Lshortfile)
 	vl.Printf("[ERROR] plain error")
 
@@ -67,9 +63,6 @@ func TestLuaBridge(t *testing.T) {
 	got := make(chan string, 4)
 	var b *LuaBridge
 	b = NewLuaBridge(func(js string) error {
-		if !b.Delivering() {
-			t.Error("not delivering during the call")
-		}
 		got <- js
 		return errors.New("Lua not ready")
 	})
@@ -113,6 +106,9 @@ func TestLuaBridgeQueueFull(t *testing.T) {
 	for i := 0; i < 100; i++ { // 64 fit in the queue, the rest are dropped
 		b.Deliver(Delivery{Entry: Entry{ID: int64(i + 2), Source: SourceUpdate}})
 	}
+	if n := b.Dropped(); n != 36 {
+		t.Errorf("dropped %d, want 36", n)
+	}
 	b.Close()
 	b.Deliver(Delivery{Entry: Entry{ID: 200, Source: SourceUpdate}})
 	close(release)
@@ -136,5 +132,26 @@ func TestLuaBridgeSkipsBadPayload(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("not delivered")
+	}
+}
+
+// An error logged elsewhere while a handler runs still reaches the bell.
+func TestLogDuringDelivery(t *testing.T) {
+	s, _, _ := newTestStore(t, t.TempDir())
+	if err := s.SetSources(map[string]bool{SourceLog: true}); err != nil {
+		t.Fatal(err)
+	}
+	ls := logstream.NewLogStream(io.Discard, 100)
+	ls.AddHook(LogHook(s))
+	l := log.New(ls, "", log.Ldate|log.Ltime)
+	inside, release := make(chan struct{}), make(chan struct{})
+	b := NewLuaBridge(func(string) error { close(inside); <-release; return nil })
+	defer b.Close()
+	b.Deliver(Delivery{Entry: Entry{ID: 1, Source: SourceUpdate}})
+	<-inside
+	l.Printf("[ERROR] [MQTT] broker down")
+	close(release)
+	if list, _, _ := s.List(); len(list) != 1 || list[0].Params["source"] != "MQTT" {
+		t.Errorf("entries %+v", list)
 	}
 }

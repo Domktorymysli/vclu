@@ -11,11 +11,11 @@ import (
 // LuaBridge hands deliveries to Lua (Notifications._deliver) from its own goroutine: a log
 // hook may run on the Lua loop, which must never wait for itself.
 type LuaBridge struct {
-	call       func(payload string) error
-	ch         chan Delivery
-	delivering atomic.Bool
-	done       chan struct{}
-	once       sync.Once
+	call    func(payload string) error
+	ch      chan Delivery
+	dropped atomic.Int64 // deliveries the full queue turned away
+	done    chan struct{}
+	once    sync.Once
 }
 
 // luaNote is what a handler gets: no read mark, the panel's own.
@@ -53,16 +53,18 @@ func (b *LuaBridge) Deliver(d Delivery) {
 	case <-b.done:
 	case b.ch <- d:
 	default:
+		b.dropped.Add(1)
 	}
 }
 
-// Delivering is whether a handler runs now; LogHook leaves its lines out.
-func (b *LuaBridge) Delivering() bool { return b.delivering.Load() }
+// Dropped is how many deliveries a full queue turned away; the bridge logs each new batch.
+func (b *LuaBridge) Dropped() int64 { return b.dropped.Load() }
 
 // Close stops the goroutine; queued deliveries are dropped.
 func (b *LuaBridge) Close() { b.once.Do(func() { close(b.done) }) }
 
 func (b *LuaBridge) run() {
+	var reported int64
 	for {
 		select {
 		case <-b.done:
@@ -72,11 +74,13 @@ func (b *LuaBridge) run() {
 			if err != nil {
 				continue
 			}
-			b.delivering.Store(true)
-			err = b.call(string(js))
-			b.delivering.Store(false)
-			if err != nil {
+			if err := b.call(string(js)); err != nil {
 				log.Printf("[NOTIFY] delivery to Lua: %v", err)
+			}
+			// logged here, not in Deliver: that may run inside a log write
+			if n := b.dropped.Load(); n > reported {
+				log.Printf("[NOTIFY] %d deliveries to Lua dropped, the queue was full", n-reported)
+				reported = n
 			}
 		}
 	}

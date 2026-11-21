@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"testing"
 
@@ -38,7 +39,7 @@ func TestNotificationsOn(t *testing.T) {
 	if out != "login:10.0.0.5:warning:false:10.0.0.5:1;update:1.13.0:info:true:nil:1" {
 		t.Errorf("handlers got %q", out)
 	}
-	if e, _ := store.Last("virt.siren"); e.Origin != "system" {
+	if e, _ := store.Last("virt.siren"); e.Origin != "system" || e.CorrelationID != "notify:1" {
 		t.Errorf("history: %+v", e)
 	}
 	luaOK(t, engine, `stop(); got = {}`)
@@ -78,23 +79,15 @@ func TestModuleLoadHandler_ReloadKeepsState(t *testing.T) {
 	n := notify.New(notify.Options{})
 	var delivered []notify.Delivery
 	n.Subscribe(func(d notify.Delivery) { delivered = append(delivered, d) })
-	engine.SetModuleLoadHandler(func(results []ModuleLoadResult) {
-		failed := map[string]string{}
-		for _, r := range results {
-			if !r.OK {
-				failed[r.Name] = r.Error
-			}
-		}
-		notify.ModuleLoad(n, failed)
-	})
 	dir := t.TempDir()
+	engine.SetModuleLoadHandler(ModuleNotices(n, filepath.Join(dir, "modules")))
 	if err := os.MkdirAll(filepath.Join(dir, "modules"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	_ = os.WriteFile(filepath.Join(dir, "modules", "bad.lua"), []byte("error('boom')"), 0o644)
 	engine.LoadUserModules(dir)
 	entries, _, _ := n.List()
-	if len(entries) != 1 {
+	if len(entries) != 1 || !strings.HasPrefix(entries[0].Detail, "modules/bad.lua:") || strings.Contains(entries[0].Detail, dir) {
 		t.Fatalf("entries %+v", entries)
 	}
 	id := entries[0].ID
@@ -110,5 +103,18 @@ func TestModuleLoadHandler_ReloadKeepsState(t *testing.T) {
 	}
 	if len(delivered) != 1 || delivered[0].Resolved {
 		t.Errorf("deliveries %+v", delivered)
+	}
+}
+
+// The source list in Notifications.on's doc is the one Go delivers to Lua.
+func TestNotificationsDocSources(t *testing.T) {
+	_, self, _, _ := goruntime.Caller(0) // other tests change the working directory
+	src, err := os.ReadFile(filepath.Join(filepath.Dir(self), "runtime/core/Notifications.lua"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `source ("` + strings.Join(notify.LuaSources(), `"|"`) + `")`
+	if !strings.Contains(string(src), want) {
+		t.Errorf("Notifications.lua does not document %s", want)
 	}
 }

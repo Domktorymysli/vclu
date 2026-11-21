@@ -10,7 +10,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"syscall"
 	"time"
 
@@ -227,8 +226,8 @@ func main() {
 		return err
 	})
 	notifier.Subscribe(notifyLua.Deliver)
-	stopLogNotices := logStream.AddHook(notify.LogHook(notifier, notifyLua.Delivering))
-	luaEngine.SetModuleLoadHandler(moduleNotices(notifier, filepath.Join(cluDir, "modules")))
+	stopLogNotices := logStream.AddHook(notify.LogHook(notifier))
+	luaEngine.SetModuleLoadHandler(lua.ModuleNotices(notifier, filepath.Join(cluDir, "modules")))
 	webSrv.SetNotifier(notifier)
 
 	// Initialize KV store manager for plugin persistence
@@ -688,24 +687,6 @@ func printBanner() {
     ───────────────────────────────────
 `
 	fmt.Printf(banner, version)
-}
-
-// moduleNotices turns each module load report into the bell's states; the error loses the
-// directory, as the editor shows it.
-func moduleNotices(n notify.Notifier, modulesDir string) func([]lua.ModuleLoadResult) {
-	prefix := modulesDir + string(filepath.Separator)
-	if abs, err := filepath.Abs(modulesDir); err == nil {
-		prefix = abs + string(filepath.Separator)
-	}
-	return func(results []lua.ModuleLoadResult) {
-		failed := map[string]string{}
-		for _, r := range results {
-			if !r.OK {
-				failed[r.Name] = strings.ReplaceAll(r.Error, prefix, "modules/")
-			}
-		}
-		notify.ModuleLoad(n, failed)
-	}
 }
 
 // historyConfig falls back to defaults when .vclu.json cannot be read.

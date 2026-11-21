@@ -172,8 +172,9 @@ func (s *Store) loadFile() {
 	s.nextID = max(s.nextID, f.NextID)
 }
 
-// Subscribe calls fn with each Delivery, outside the store's lock; fn must not block. The
-// func returned stops it.
+// Subscribe calls fn with each Delivery, outside the store's lock but on the goroutine of the
+// Add or Resolve: maybe the Lua loop or inside a log write. fn must not block, log or call
+// into Lua. The func returned stops it.
 func (s *Store) Subscribe(fn func(Delivery)) func() {
 	s.mu.Lock()
 	id := s.nextSub
@@ -622,7 +623,7 @@ func prepare(e *Entry) {
 	if e.Body == "" {
 		e.Body = render(e.Msg, e.Params, false)
 	}
-	e.Title, e.Body, e.Detail = clip(e.Title), clip(e.Body), clip(e.Detail)
+	e.Title, e.Body, e.Detail, e.Key = clip(e.Title), clip(e.Body), clip(e.Detail), clip(e.Key)
 }
 
 func clip(s string) string {

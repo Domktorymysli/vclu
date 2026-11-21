@@ -7,8 +7,10 @@
 --
 -- A handler gets a new notification, one whose count reached 10 or 100, and a state that is
 -- over (resolved = true: the update was installed, the module loads again). It runs as the
--- system (origin "system"). Errors from the log never come here, nor anything from before a
--- reload. The panel's settings turn sources off and mute keys for the handlers too.
+-- system (origin "system", correlationId "notify:<id>"). Errors from the log never come here,
+-- nor anything from before a reload; around a reload some modules may get one the others
+-- miss. All handlers share one callback time limit: keep them quick, put slow work in
+-- setTimeout. The panel's settings turn sources off and mute keys for the handlers too.
 -- @module core.Notifications
 
 local Notifications = {}
@@ -38,12 +40,11 @@ end
 function Notifications._deliver(json)
     local n = JSON.decode(json)
     if type(n) ~= 'table' then return end
+    local ctx = { origin = 'system', actor = 'system:vclu', correlationId = 'notify:' .. tostring(n.id) }
     for _, h in ipairs({ unpack(handlers) }) do
         local e = {}
         for k, v in pairs(n) do e[k] = v end
-        StateContext.push({ origin = 'system', actor = 'system:vclu' })
-        local ok, err = pcall(h.fn, e)
-        StateContext.pop()
+        local ok, err = pcall(StateContext.with, ctx, h.fn, e)
         if not ok then Logger:getShared():error('[NOTIFY] Notifications.on handler: %s', tostring(err)) end
     end
 end

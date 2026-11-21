@@ -769,3 +769,14 @@ func TestNilStoreChanges(t *testing.T) {
 		t.Error("nil store lists")
 	}
 }
+
+// The key is clipped like the texts, and so is the device a lock names.
+func TestClipKeyAndParams(t *testing.T) {
+	s, _, _ := newTestStore(t, t.TempDir())
+	long := strings.Repeat("x", 1000)
+	DeviceLocked(s, long, time.Second)
+	list, _, _ := s.List()
+	if len(list) != 1 || len([]rune(list[0].Key)) != maxText || len([]rune(list[0].Params["device"])) != maxText {
+		t.Fatalf("%+v", list)
+	}
+}
