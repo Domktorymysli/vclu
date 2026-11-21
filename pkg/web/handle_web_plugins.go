@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -181,74 +182,98 @@ func (s *Server) handlePluginsAPIRemoveRepository(c *gin.Context) {
 // handlePluginsAPIAvailable fetches available plugins from all enabled repositories
 func (s *Server) handlePluginsAPIAvailable(c *gin.Context) {
 	masterConfig, _ := config.ReadMasterConfig(s.serverDir)
-
-	var repos []config.PluginRepository
-	if masterConfig != nil && masterConfig.Plugins != nil {
-		repos = masterConfig.Plugins.Repositories
-	} else {
-		repos = config.DefaultPluginsConfig().Repositories
-	}
+	found, errors := availablePlugins(c.Request.Context(), masterConfig)
 
 	var allPlugins []gin.H
-	var errors []string
-
-	for _, repo := range repos {
-		if !repo.Enabled {
-			continue
-		}
-
-		registry, err := fetchRegistryFromRepo(repo)
-		if err != nil {
-			errors = append(errors, fmt.Sprintf("%s: %v", repo.Name, err))
-			continue
-		}
-
-		namespace := registry.Namespace
-		if namespace == "" {
-			namespace = repo.Name // fallback to repo name
-		}
-
-		for _, p := range registry.Plugins {
-			// Build fullId: @namespace/id
-			fullId := fmt.Sprintf("@%s/%s", namespace, p.ID)
-
-			// Check if installed
-			installed := false
-			installedVersion := ""
-			if masterConfig != nil && masterConfig.Plugins != nil {
-				for _, inst := range masterConfig.Plugins.Installed {
-					if inst.ID == fullId {
-						installed = true
-						installedVersion = inst.Version
-						break
-					}
-				}
-			}
-
-			allPlugins = append(allPlugins, gin.H{
-				"id":               p.ID,
-				"fullId":           fullId,
-				"namespace":        namespace,
-				"name":             p.Name,
-				"version":          p.Version,
-				"description":      p.Description,
-				"author":           p.Author,
-				"tags":             p.Tags,
-				"gitTag":           p.GitTag,
-				"path":             p.Path,
-				"repository":       repo.Name,
-				"repoUrl":          buildPluginRepoUrl(repo.URL, p.Path, p.GitTag),
-				"installed":        installed,
-				"installedVersion": installedVersion,
-				"updateAvailable":  installed && installedVersion != p.Version,
-			})
-		}
+	for _, a := range found {
+		p := a.Meta
+		allPlugins = append(allPlugins, gin.H{
+			"id":               p.ID,
+			"fullId":           a.FullID,
+			"namespace":        a.Namespace,
+			"name":             p.Name,
+			"version":          p.Version,
+			"description":      p.Description,
+			"author":           p.Author,
+			"tags":             p.Tags,
+			"gitTag":           p.GitTag,
+			"path":             p.Path,
+			"repository":       a.Repo.Name,
+			"repoUrl":          buildPluginRepoUrl(a.Repo.URL, p.Path, p.GitTag),
+			"installed":        a.Installed,
+			"installedVersion": a.InstalledVersion,
+			"updateAvailable":  a.UpdateAvailable,
+		})
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"plugins": allPlugins,
 		"errors":  errors,
 	})
+}
+
+// availablePlugin is a plugin of an enabled repository and what is installed of it.
+type availablePlugin struct {
+	Meta             PluginMetadata
+	Repo             config.PluginRepository
+	FullID           string // @namespace/id
+	Namespace        string
+	Installed        bool
+	InstalledVersion string
+	UpdateAvailable  bool // the registry's version is newer than the installed one
+}
+
+// availablePlugins reads the registries of mc's enabled repositories (the defaults without
+// a plugins section); errors are per repository.
+func availablePlugins(ctx context.Context, mc *config.VCLUConfig) ([]availablePlugin, []string) {
+	var repos []config.PluginRepository
+	if mc != nil && mc.Plugins != nil {
+		repos = mc.Plugins.Repositories
+	} else {
+		repos = config.DefaultPluginsConfig().Repositories
+	}
+
+	installed := map[string]string{} // full id -> version
+	if mc != nil && mc.Plugins != nil {
+		for _, inst := range mc.Plugins.Installed {
+			installed[inst.ID] = inst.Version
+		}
+	}
+	var out []availablePlugin
+	var errors []string
+	for _, repo := range repos {
+		if !repo.Enabled {
+			continue
+		}
+		if ctx.Err() != nil {
+			errors = append(errors, fmt.Sprintf("%s: %v", repo.Name, ctx.Err()))
+			continue
+		}
+		registry, err := fetchRegistryFromRepoCtx(ctx, repo)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("%s: %v", repo.Name, err))
+			continue
+		}
+		namespace := registry.Namespace
+		if namespace == "" {
+			namespace = repo.Name // fallback to repo name
+		}
+		for _, p := range registry.Plugins {
+			a := availablePlugin{Meta: p, Repo: repo, FullID: fmt.Sprintf("@%s/%s", namespace, p.ID), Namespace: namespace}
+			a.InstalledVersion, a.Installed = installed[a.FullID]
+			a.UpdateAvailable = a.Installed && newerVersion(p.Version, a.InstalledVersion)
+			out = append(out, a)
+		}
+	}
+	return out, errors
+}
+
+// newerVersion is whether v is newer than installed; versions that do not compare differ.
+func newerVersion(v, installed string) bool {
+	if cmp, ok := plugins.CompareVersions(v, installed); ok {
+		return cmp > 0
+	}
+	return v != installed
 }
 
 // handlePluginsAPIInstalled returns list of installed plugins
@@ -374,6 +399,7 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 		return
 	}
 
+	s.resolvePluginNotices()
 	c.JSON(http.StatusOK, gin.H{"success": true, "action": action, "fullId": fullId, "version": pluginMeta.Version})
 }
 
@@ -412,6 +438,7 @@ func (s *Server) handlePluginsAPIUninstall(c *gin.Context) {
 		return
 	}
 
+	s.resolvePluginNotices()
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
@@ -739,13 +766,24 @@ func fetchPluginsFromRepo(repo config.PluginRepository) ([]PluginMetadata, error
 	return registry.Plugins, nil
 }
 
+// maxRegistrySize bounds a repository's plugins.json.
+const maxRegistrySize = 2 << 20
+
 // fetchRegistryFromRepo fetches full plugins.json registry from a repository
 func fetchRegistryFromRepo(repo config.PluginRepository) (*PluginRegistryResponse, error) {
+	return fetchRegistryFromRepoCtx(context.Background(), repo)
+}
+
+func fetchRegistryFromRepoCtx(ctx context.Context, repo config.PluginRepository) (*PluginRegistryResponse, error) {
 	resolver := plugins.DefaultResolver(repo.URL)
 	pluginsURL := resolver.RawFileURL(repo.URL, "", "plugins.json")
 
 	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Get(pluginsURL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pluginsURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch: %w", err)
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch: %w", err)
 	}
@@ -755,7 +793,10 @@ func fetchRegistryFromRepo(repo config.PluginRepository) (*PluginRegistryRespons
 		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxRegistrySize+1))
+	if err == nil && len(body) > maxRegistrySize {
+		err = fmt.Errorf("larger than %d bytes", maxRegistrySize)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}

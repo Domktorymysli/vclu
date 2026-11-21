@@ -38,7 +38,12 @@
                     <p class="text-muted">{{brand (index .t "login.subtitle")}}</p>
                 </div>
 
-                {{if .error}}
+                {{if .lockedFor}}
+                <div class="alert alert-warning" role="alert">
+                    <i class="bi bi-hourglass-split"></i>
+                    <span id="loginLocked">{{.lockedText}}</span>
+                </div>
+                {{else if .error}}
                 <div class="alert alert-danger" role="alert">
                     <i class="bi bi-exclamation-triangle"></i> {{index .t "login.error"}}
                 </div>

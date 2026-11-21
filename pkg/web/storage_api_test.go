@@ -127,7 +127,7 @@ func TestStorageBanner_EveryPageAndLevels(t *testing.T) {
 	withStorage(t, e, 50)
 	for _, page := range []string{"/stats", "/history", "/settings", "/debug", "/backup", "/plugins"} {
 		body := e.do(t, "GET", page, "", "session").Body.String()
-		if !strings.Contains(body, `src="/static/js/storage-notice.js"`) || !strings.Contains(body, `class="topbar"`) {
+		if !strings.Contains(body, `src="/static/js/storage-notice.js?v=`+e.s.assetVersion()+`"`) || !strings.Contains(body, `class="topbar"`) {
 			t.Errorf("%s: no banner script or top bar", page)
 		}
 	}

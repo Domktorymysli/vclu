@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Domktorymysli/vclu/pkg/notify"
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -721,6 +722,12 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 			"runtime":  "cal:add(opts) → id (saved), cal:remove(id), cal:skip(id, date), cal:unskip(id, date), cal:pause('a..b', {tags}), cal:resume(), cal:paused()",
 			"clock":    "nothing fires until NTP synchronised the clock (10 min at most, never before 2025); moments skipped by a clock jump do not fire; the sandbox's virtual clock drives it on advance",
 		},
+		"notifications": map[string]any{
+			"on":      "Notifications.on(function(n) ... end) → unsubscribe; n = {id, kind 'state'|'event', source " + luaNotifySources() + ", level 'info'|'warning'|'error', key, msg, params (msg and params are stable: e.g. 'notify.login.failed' with params.ip), title, body (English), detail (raw text or nil), count, first, last (RFC 3339), link, resolved}",
+			"when":    "a new entry of the panel's bell, its count reaching 10 or 100, a state that is over (resolved=true); never errors from the log, nothing from before a reload; runs as origin 'system'",
+			"forward": "Notifications.on(function(n) if not n.resolved and n.level ~= 'info' then Cloud.notify{title=n.title, body=n.body, tag=n.key} end end)",
+			"sandbox": "vclu_draft_test delivers no notifications",
+		},
 		"pluginAPI": map[string]any{
 			"getPlugin": "Plugin.getPlugin('@vclu/name')",
 			"sensors":   "plugin:get('id') → obj with :get()",
@@ -822,4 +829,13 @@ func (s *MCPServer) handleRegistry(ctx context.Context, req mcplib.CallToolReque
 		"devices": visible,
 		"count":   len(visible),
 	})
+}
+
+// luaNotifySources are the sources Notifications.on handlers get, as 'a'|'b'.
+func luaNotifySources() string {
+	ids := notify.LuaSources()
+	for i, id := range ids {
+		ids[i] = "'" + id + "'"
+	}
+	return strings.Join(ids, "|")
 }

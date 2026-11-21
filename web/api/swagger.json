@@ -15,7 +15,7 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Returns all exposed objects from the Lua registry together with their per-integration access levels (mqtt, homekit) and the resolved access level for each MCP bot. Returns an empty object list when the Lua engine is unavailable.",
+                "description": "Returns all exposed objects from the Lua registry together with their per-integration access levels (mqtt, homekit, cloud), what Lua's :remote() says about the cloud (cloudLua: false or {access, roles}; it decides over access.cloud) and the resolved access level for each MCP bot. Returns an empty object list when the Lua engine is unavailable.",
                 "produces": [
                     "application/json"
                 ],
@@ -25,7 +25,7 @@
                 "summary": "List objects with access levels",
                 "responses": {
                     "200": {
-                        "description": "objects [{path, name, type, cluId, access {mqtt, homekit}, botAccess {botId: level}}], integrations []string, bots [{id, name}]",
+                        "description": "objects [{path, name, type, cluId, access {mqtt, homekit, cloud}, cloudLua, botAccess {botId: level}}], integrations []string, bots [{id, name}]",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -39,7 +39,7 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Sets the access level (full, readonly or hidden) for a single object path and integration (mqtt, homekit or mcp). Persists the change to the access control file and syncs it to the Lua runtime.",
+                "description": "Sets the access level (full, readonly or hidden) for a single object path and integration (mqtt, homekit, mcp or cloud). Persists the change to the access control file and syncs it to the Lua runtime.",
                 "consumes": [
                     "application/json"
                 ],
@@ -248,7 +248,7 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Returns the static list of integrations that support access control (mqtt, homekit, mcp) with display names and icons.",
+                "description": "Returns the static list of integrations that support access control (mqtt, homekit, mcp, cloud) with display names and icons.",
                 "produces": [
                     "application/json"
                 ],
@@ -2150,6 +2150,343 @@
                 }
             }
         },
+        "/api/notifications": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "The panel's notifications (the bell), the last changed first. `kind` \"state\" lasts until it is over (a new version, a module that does not load, plugin updates as one entry) and is unread again only when it grows; \"event\" (a failed login, a lock) is merged by `key` while unread (`count`), and a new one comes once it is read. `msg` and `params` are the stable fields; `title` and `body` are English made from them, `detail` is raw text without a translation (a module's error). A `link` starting with \"#\" is an action of the panel (\"#update\": the new-version window). `worst` is the worst unread level, \"\" with none.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "Notifications",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/web.notificationsList"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/notifications/clear": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Removes every event, read or not; states stay until they are over. Answers the list.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "Clear notifications",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/web.notificationsList"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/notifications/mute": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Nothing with this `key` is added for `for` (\"24h\", \"7d\" or \"forever\"), nor passed to Notifications.on handlers, and its entry is removed. Saved in .vclu.json (`notifications.muted`); \"forever\" on `update:\u003cversion\u003e` hides that version until a newer one. Answers the list.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "Mute a notification",
+                "parameters": [
+                    {
+                        "description": "What to mute",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "for": {
+                                    "type": "string"
+                                },
+                                "key": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/web.notificationsList"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Removes `key` from the muted ones. Answers the settings.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "Unmute a notification",
+                "parameters": [
+                    {
+                        "description": "The key",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "key": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/notify.Settings"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/notifications/read": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Marks the entries with `ids` read, or every one with `all`. Answers the list as GET /api/notifications does.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "Mark notifications read",
+                "parameters": [
+                    {
+                        "description": "What to mark",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "all": {
+                                    "type": "boolean"
+                                },
+                                "ids": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "integer"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/web.notificationsList"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/notifications/settings": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Each source in the order of the settings, whether it adds notifications now and whether it does by default (log does not), and the keys muted now: `until` is RFC 3339 or \"forever\". The panel names a source by its translation `notify.source.\u003cid\u003e`.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "Notification settings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/notify.Settings"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "`sources` maps source ids to on (true) or off (false); sources not sent keep their setting, and one never switched keeps its default. Saved in .vclu.json (`notifications.sources`). A source turned off adds nothing (nor asks the plugin registries, for \"plugin\") and its states are resolved. Answers the settings.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "Switch notification sources",
+                "parameters": [
+                    {
+                        "description": "The sources to switch",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "sources": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "type": "boolean"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/notify.Settings"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/om/list": {
             "get": {
                 "security": [
@@ -2171,6 +2508,50 @@
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/om/preview": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Takes the file the upload takes (.omp, .zip, .lua) and stores nothing. Answers per CLU what the upload changes (new, removed, changed, same: objects added, removed, of another type, the CLU's renamed table), the places in modules/ that work now and would name a missing object after it (breaks), and those that name a missing object already (broken).",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "grenton"
+                ],
+                "summary": "Preview an OM upload",
+                "parameters": [
+                    {
+                        "type": "file",
+                        "description": "Object Manager project, diagnostic pack or om.lua",
+                        "name": "file",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "project, clus, breaks, broken",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
                         }
                     }
                 }
@@ -2209,7 +2590,7 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Accepts a single om.lua file, a diagnostic-pack ZIP containing CLU*/om.lua entries, or an Object Manager project (.omp, or a project ZIP with system.xml); the vCLU's own serial is skipped. Each CLU is parsed, stored as om_\u003cserial\u003e.lua, a proxy_\u003cserial\u003e.lua is generated and an entry is added to .vclu.json; then the Lua runtime reloads once (reloaded, reloadError, moduleErrors in the response). A project, also the one inside a diagnostic pack, is written for the agent to ai/om/ (event bindings, scripts); what could not be read is listed in warnings. The upload itself is not kept.",
+                "description": "Accepts a single om.lua file, a diagnostic-pack ZIP containing CLU*/om.lua entries, or an Object Manager project (.omp, or a project ZIP with system.xml); the vCLU's own serial is skipped. Each CLU is parsed, stored as om_\u003cserial\u003e.lua, a proxy_\u003cserial\u003e.lua is generated and an entry is added to .vclu.json; then the Lua runtime reloads once (reloaded, reloadError, moduleErrors in the response). A project, also the one inside a diagnostic pack, is written for the agent to ai/om/ (event bindings, scripts); what could not be read is listed in warnings. A project removes the stored CLUs it does not have only with removeMissing=true (as the page sends after its preview is confirmed); without it they are kept and listed in notInProject. The stored files are copied to workspace/backups/om/ first (backup). The upload itself is not kept.",
                 "consumes": [
                     "multipart/form-data"
                 ],
@@ -2223,15 +2604,21 @@
                 "parameters": [
                     {
                         "type": "file",
-                        "description": "om.lua file, diagnostic-pack ZIP or Object Manager project (.omp)",
+                        "description": "om.lua file, diagnostic-pack ZIP or Object Manager project (.omp), up to 64 MB",
                         "name": "file",
                         "in": "formData",
                         "required": true
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "project: remove the stored CLUs it does not have",
+                        "name": "removeMissing",
+                        "in": "formData"
                     }
                 ],
                 "responses": {
                     "200": {
-                        "description": "single file: success, filename, originalName, cluName, cluIP, objectCount, moduleCount; ZIP or project: success, isZip or isProject, originalName, imported, skipped, results, skippedList, errors, omVersion, agentDocs, warnings",
+                        "description": "single file: success, filename, originalName, cluName, cluIP, objectCount, moduleCount, warnings; ZIP or project: success, isZip or isProject, originalName, imported, skipped, results, skippedList, errors, omVersion, agentDocs, warnings, brokenRefs (places in modules/ naming an object no CLU has); project also removed (CLUs not in it, taken out with removeMissing after an import without errors) and notInProject (kept without removeMissing); backup when the stored files were copied",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -2239,6 +2626,12 @@
                     },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/web.APIError"
+                        }
+                    },
+                    "413": {
+                        "description": "Request Entity Too Large",
                         "schema": {
                             "$ref": "#/definitions/web.APIError"
                         }
@@ -2304,7 +2697,7 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Deletes the stored OM file and its generated proxy file, removes the entry (and any stale sync object paths) from .vclu.json, and reloads the Lua runtime without the CLU's objects.",
+                "description": "Deletes the stored OM file and its generated proxy file, removes the entry (and any stale sync object paths) from .vclu.json, and reloads the Lua runtime without the CLU's objects. brokenRefs: the places in modules/ that name an object no CLU has any more.",
                 "produces": [
                     "application/json"
                 ],
@@ -3656,6 +4049,104 @@
                 }
             }
         },
+        "notify.Entry": {
+            "type": "object",
+            "properties": {
+                "body": {
+                    "type": "string"
+                },
+                "count": {
+                    "type": "integer"
+                },
+                "detail": {
+                    "type": "string"
+                },
+                "first": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "last": {
+                    "type": "string"
+                },
+                "level": {
+                    "type": "string"
+                },
+                "link": {
+                    "type": "string"
+                },
+                "msg": {
+                    "type": "string"
+                },
+                "params": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "read": {
+                    "type": "boolean"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "notify.Muted": {
+            "type": "object",
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "until": {
+                    "type": "string"
+                }
+            }
+        },
+        "notify.Settings": {
+            "type": "object",
+            "properties": {
+                "muted": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/notify.Muted"
+                    }
+                },
+                "sources": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/notify.Source"
+                    }
+                }
+            }
+        },
+        "notify.Source": {
+            "type": "object",
+            "properties": {
+                "default": {
+                    "type": "boolean"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                }
+            }
+        },
         "proto.CmdResult": {
             "type": "object",
             "properties": {
@@ -3688,6 +4179,10 @@
                 "area": {
                     "type": "string"
                 },
+                "class": {
+                    "description": "Class: what the device is, expose's device_class in Home Assistant's words (\"gate\",\n\"garage\", \"shutter\", \"awning\", ...), for assistants that tell a gate from a blind",
+                    "type": "string"
+                },
                 "floor": {
                     "type": "string"
                 },
@@ -3697,6 +4192,10 @@
                 "path": {
                     "description": "stable while the device exists: the id commands name",
                     "type": "string"
+                },
+                "pulse": {
+                    "description": "Pulse: a switch that only pulses (a gate, an intercom's door release): vCLU turns on,\nopen and close into one pulse, and off does nothing",
+                    "type": "boolean"
                 },
                 "roles": {
                     "description": "the home's roles that reach it; none: every member",
@@ -4194,24 +4693,18 @@
         "time.Duration": {
             "type": "integer",
             "enum": [
-                -9223372036854775808,
-                9223372036854775807,
                 1,
                 1000,
                 1000000,
                 1000000000,
                 60000000000,
                 3600000000000,
-                -9223372036854775808,
-                9223372036854775807,
                 1,
                 1000,
                 1000000,
                 1000000000,
                 60000000000,
                 3600000000000,
-                -9223372036854775808,
-                9223372036854775807,
                 1,
                 1000,
                 1000000,
@@ -4220,24 +4713,18 @@
                 3600000000000
             ],
             "x-enum-varnames": [
-                "minDuration",
-                "maxDuration",
                 "Nanosecond",
                 "Microsecond",
                 "Millisecond",
                 "Second",
                 "Minute",
                 "Hour",
-                "minDuration",
-                "maxDuration",
                 "Nanosecond",
                 "Microsecond",
                 "Millisecond",
                 "Second",
                 "Minute",
                 "Hour",
-                "minDuration",
-                "maxDuration",
                 "Nanosecond",
                 "Microsecond",
                 "Millisecond",
@@ -4623,6 +5110,25 @@
                 "success": {
                     "type": "boolean",
                     "example": true
+                }
+            }
+        },
+        "web.notificationsList": {
+            "type": "object",
+            "properties": {
+                "entries": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/notify.Entry"
+                    }
+                },
+                "unread": {
+                    "type": "integer"
+                },
+                "worst": {
+                    "description": "the worst unread level, \"\" with none",
+                    "type": "string",
+                    "example": "warning"
                 }
             }
         },

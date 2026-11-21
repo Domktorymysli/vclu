@@ -45,7 +45,8 @@
     "password": "Password",
     "password_placeholder": "Enter password",
     "submit": "Log In",
-    "error": "Invalid username or password"
+    "error": "Invalid username or password",
+    "locked": "Too many failed attempts. Try again in {time}."
   },
   "status": {
     "title": "vclu Status",
@@ -139,7 +140,7 @@
     "js_confirm_revoke": "Revoke the current API key? Any integrations using it will stop working.",
     "updates": "Updates",
     "update_check": "Check for new versions",
-    "update_check_desc": "Shows a notice when a new vclu version is out. Each check sends a random installation id, the version, os and arch.",
+    "update_check_desc": "Shows a notice when a new vclu version or a newer version of an installed plugin is out. Each check sends a random installation id, the version, os and arch to the update service, then reads plugins.json of the enabled plugin repositories.",
     "update_check_forced_off": "Turned off by",
     "js_update_check_saved": "Saved"
   },
@@ -971,5 +972,62 @@
     "orphans": "Page files of pages no longer in the imported interface (vclu does not remove them):",
     "flat": "There is a file",
     "flat_tail": "require(\"dashboards/imported\") would load it instead of the directory. Rename or remove it."
+  },
+  "notify": {
+    "title": "Notifications",
+    "label": "Notifications, {count} unread",
+    "empty": "No notifications",
+    "mark_all": "Mark all as read",
+    "mark_all_short": "Mark all read",
+    "clear": "Clear",
+    "close": "Close",
+    "mute": "Mute",
+    "mute_24h": "24 h",
+    "mute_7d": "7 days",
+    "mute_forever": "Forever",
+    "update": {
+      "available": "vclu {version} is available",
+      "whats_new": "See what is new"
+    },
+    "plugin": {
+      "updates": "Plugin updates: {count} ({plugins})"
+    },
+    "module": {
+      "failed": "Module {module} failed to load"
+    },
+    "log": {
+      "error": "Error in the log: {source}"
+    },
+    "login": {
+      "failed": "Failed panel login from {ip}"
+    },
+    "lock": {
+      "login": "Panel login from {ip} locked until {until}",
+      "pin": "Dashboard {dashboard} PIN locked until {until}",
+      "device": "{device} PIN locked until {until}",
+      "token": "Too many invalid API tokens from {ip}"
+    },
+    "suppressed": "{count} more notifications skipped ({source})",
+    "settings_title": "Notifications",
+    "settings_desc": "Choose what shows up in the bell.",
+    "source": {
+      "update": "New vclu versions",
+      "plugin": "Plugin updates",
+      "module": "Modules that failed to load",
+      "log": "Errors in the log",
+      "log_hint": "Off by default: some installations log many errors.",
+      "login": "Failed panel logins",
+      "lock": "Locks after too many attempts"
+    },
+    "muted_title": "Muted",
+    "muted_none": "Nothing is muted.",
+    "muted_forever": "for good",
+    "muted_until": "until {time}",
+    "restore": "Restore",
+    "saved": "Saved"
+  },
+  "stats": {
+    "toggle": "Collapse or expand",
+    "configure": "Settings"
   }
 }

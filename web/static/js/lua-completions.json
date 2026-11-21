@@ -429,9 +429,25 @@
       "kind": "module",
       "detail": "Scene manager",
       "documentation": "Scene management module"
+    },
+    {
+      "label": "Notifications",
+      "kind": "module",
+      "detail": "Notifications - what the panel's bell shows, for a module that passes it on. Notifications.on(function(n) if n.resolved or n.level == \"info\" then return end Cloud.notify{ title = n.title, body = n.body, tag = n.key } end) A handler gets a new notification, one whose count reached 10 or 100, and a state that is over (resolved = true: the update was installed, the module loads again). It runs as the system (origin \"system\", correlationId \"notify:<id>\"). Errors from the log never come here, nor anything from before a reload; around a reload some modules may get one the others miss. All handlers share one callback time limit: keep them quick, put slow work in setTimeout. The panel's settings turn sources off and mute keys for the handlers too.",
+      "documentation": "Notifications - what the panel's bell shows, for a module that passes it on. Notifications.on(function(n) if n.resolved or n.level == \"info\" then return end Cloud.notify{ title = n.title, body = n.body, tag = n.key } end) A handler gets a new notification, one whose count reached 10 or 100, and a state that is over (resolved = true: the update was installed, the module loads again). It runs as the system (origin \"system\", correlationId \"notify:<id>\"). Errors from the log never come here, nor anything from before a reload; around a reload some modules may get one the others miss. All handlers share one callback time limit: keep them quick, put slow work in setTimeout. The panel's settings turn sources off and mute keys for the handlers too."
     }
   ],
   "methods": {
+    "Notifications": [
+      {
+        "label": "on",
+        "kind": "method",
+        "detail": "(fn: function): function",
+        "documentation": "Calls fn(n) for each notification of the panel's bell: n = { id, kind (\"state\"|\"event\"), source (\"update\"|\"plugin\"|\"module\"|\"login\"|\"lock\"), level (\"info\"|\"warning\"|\"error\"), key, msg, params, title, body, detail, count, first, last (RFC 3339), link, resolved }. msg (e.g. \"notify.login.failed\") and params (e.g. params.ip) are stable, for code; title and body are English made from them, detail is raw text (a module's error) or nil.",
+        "insertText": "on(${1:fn})",
+        "insertTextRules": 4
+      }
+    ],
     "ANALOG_IN": [
       {
         "label": "FEATURE_VALUE",

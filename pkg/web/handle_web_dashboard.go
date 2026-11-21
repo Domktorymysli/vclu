@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/Domktorymysli/vclu/pkg/i18n"
+	"github.com/Domktorymysli/vclu/pkg/notify"
 	"github.com/gin-gonic/gin"
 )
 
@@ -200,67 +201,6 @@ func newCalendarLimiter() *rateLimiter {
 
 // pinLimiter: 5 PIN tries at once, then one per 6 s, per person or address
 var pinLimiter = &rateLimiter{buckets: make(map[string]*bucket), rate: 1.0 / 6, burst: 5}
-
-// dashPinLocks lock a dashboard's PIN for everyone after five wrong ones in a row, as a
-// device's PIN is (Cloud.lua): 30 s, then twice as long each time, up to an hour; the right
-// PIN clears it. Per person alone, many people (or addresses) would guess in parallel.
-var dashPinLocks = newPinLocks()
-
-type pinLocks struct {
-	mu  sync.Mutex
-	m   map[string]*pinLock
-	now func() time.Time
-}
-
-type pinLock struct {
-	n, locks int
-	until    time.Time
-}
-
-const (
-	pinLocksMax = 1024
-	pinTries    = 5
-	pinWait     = 30 * time.Second
-	pinWaitMax  = time.Hour
-)
-
-func newPinLocks() *pinLocks { return &pinLocks{m: map[string]*pinLock{}, now: time.Now} }
-
-// locked is whether key's PIN takes no tries now.
-func (p *pinLocks) locked(key string) bool {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	l := p.m[key]
-	return l != nil && p.now().Before(l.until)
-}
-
-// result counts a try: a right PIN clears key, the fifth wrong one in a row locks it.
-func (p *pinLocks) result(key string, ok bool) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if ok {
-		delete(p.m, key)
-		return
-	}
-	l := p.m[key]
-	if l == nil {
-		if len(p.m) >= pinLocksMax { // made-up ids must not grow it without end: drop the unlocked
-			now := p.now()
-			for k, v := range p.m {
-				if !now.Before(v.until) {
-					delete(p.m, k)
-				}
-			}
-		}
-		l = &pinLock{}
-		p.m[key] = l
-	}
-	if l.n++; l.n >= pinTries {
-		wait := min(pinWait<<l.locks, pinWaitMax)
-		l.n, l.locks, l.until = 0, l.locks+1, p.now().Add(wait)
-		log.Printf("[Dashboard] %s: %d wrong PINs in a row, locked for %s", key, pinTries, wait)
-	}
-}
 
 func (rl *rateLimiter) allow(ip string) bool {
 	rl.mu.Lock()
@@ -901,31 +841,39 @@ func (s *Server) handleAPIDashboardAuth(c *gin.Context) {
 		return
 	}
 
+	var req struct {
+		Pin string `json:"pin"`
+	}
 	if !pinLimiter.allow(limitKey(c)) || dashPinLocks.locked(id) {
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": "Too many PIN attempts, try again later"})
 		return
 	}
-
-	var req struct {
-		Pin string `json:"pin"`
-	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		return
+	}
+	if dashPinLocks.begin(id) > 0 {
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "Too many PIN attempts, try again later"})
 		return
 	}
 
 	script := fmt.Sprintf(`Dashboard.API.verifyPin("%s", "%s"%s)`, luaEscape(id), luaEscape(req.Pin), roleArg(c))
 	result, err := s.luaExecutor.Execute(script)
 	if err != nil {
+		dashPinLocks.release(id)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
 	var resp struct {
-		Valid bool `json:"valid"`
+		Valid  bool `json:"valid"`
+		HasPin bool `json:"has_pin"` // the dashboard exists and asks for a PIN
 	}
 	json.Unmarshal([]byte(result), &resp)
-	dashPinLocks.result(id, resp.Valid)
+	// a made-up id is counted too, but only a real PIN's lock is worth a notice
+	if wait := dashPinLocks.result(id, resp.Valid); wait > 0 && resp.HasPin {
+		s.notifyLock(notify.MsgLockPIN, "pin:"+id, map[string]string{"dashboard": id}, wait)
+	}
 
 	if !resp.Valid {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid PIN"})

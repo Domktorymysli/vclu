@@ -537,6 +537,9 @@ func (s *Server) scheduleRestart() {
 		if s.cloudClient != nil {
 			s.cloudClient.Shutdown("restart", time.Minute)
 		}
+		if err := s.notifier.Close(); err != nil {
+			log.Printf("[NOTIFY] not saved: %v", err)
+		}
 		log.Printf("Restarting vCLU...")
 		os.Exit(0)
 	}()

@@ -27,6 +27,7 @@ Only public API is listed — internal/private functions are omitted.
 - [integrations.mqtt.MqttClient](#integrationsmqttmqttclient) (30 functions)
 - [Wire](#wire) (12 functions)
 - [core.Cloud](#corecloud) (9 functions)
+- [core.Notifications](#corenotifications) (1 functions)
 - [grenton.CLU_REMOTE](#grentonclu_remote) (4 functions)
 - [lib.cct](#libcct) (1 functions)
 - [lib.tasmota](#libtasmota) (5 functions)
@@ -2617,6 +2618,18 @@ Whether anyone who shares their presence is at home (false when nobody shares it
 ### `Cloud.onPresence(fn) → function Call it to stop`
 
 Calls fn(e) when someone comes home or leaves: e = { user, name, home, since, anyone } (anyone: whether anyone is at home after this change). Runs as that person (origin "remote").
+
+- `fn` (function) — The handler
+
+**Returns:** function Call it to stop
+
+---
+
+## core.Notifications
+
+### `Notifications.on(fn) → function Call it to stop`
+
+Calls fn(n) for each notification of the panel's bell: n = { id, kind ("state"|"event"), source ("update"|"plugin"|"module"|"login"|"lock"), level ("info"|"warning"|"error"), key, msg, params, title, body, detail, count, first, last (RFC 3339), link, resolved }. msg (e.g. "notify.login.failed") and params (e.g. params.ip) are stable, for code; title and body are English made from them, detail is raw text (a module's error) or nil.
 
 - `fn` (function) — The handler
 

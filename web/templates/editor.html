@@ -6,7 +6,7 @@
     <title>Lua Editor - vclu</title>
     <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="/static/vendor/bootstrap-icons/font/bootstrap-icons.css">
-    <link rel="stylesheet" href="/static/css/dark-theme.css">
+    <link rel="stylesheet" href="/static/css/dark-theme.css?v={{.v}}">
     <link rel="stylesheet" href="/static/css/lua-editor.css">
     <meta name="csrf-token" content="{{.csrfToken}}">
 </head>
@@ -224,7 +224,7 @@
     <script src="/static/js/theme.js"></script>
     <script src="/static/js/sidebar.js"></script>
     <script src="/static/vendor/monaco/vs/loader.js"></script>
-    <script src="/static/js/lua-editor.js?v=2"></script>
+    <script src="/static/js/lua-editor.js?v={{.v}}"></script>
     <script>
         (function() {
             var luaEditor = new LuaEditor({

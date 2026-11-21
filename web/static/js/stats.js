@@ -286,7 +286,7 @@
             const data = await response.json();
 
             // Memory chart
-            if (data.memory_used && data.memory_used.length > 0) {
+            if (expanded('chart-memory') && data.memory_used && data.memory_used.length > 0) {
                 if (!memoryChart) {
                     memoryChart = createChart('memoryChart', data.memory_used, 'Memory', 'rgba(54, 162, 235, 1)', 'MB');
                 } else {
@@ -295,7 +295,7 @@
             }
 
             // Command rate chart
-            if (data.cmd_rate && data.cmd_rate.length > 0) {
+            if (expanded('chart-cmd') && data.cmd_rate && data.cmd_rate.length > 0) {
                 if (!cmdRateChart) {
                     cmdRateChart = createChart('cmdRateChart', data.cmd_rate, 'Commands', 'rgba(255, 193, 7, 1)', 'cmd/min');
                 } else {
@@ -304,7 +304,7 @@
             }
 
             // HTTP rate chart
-            if (data.http_rate && data.http_rate.length > 0) {
+            if (expanded('chart-http') && data.http_rate && data.http_rate.length > 0) {
                 if (!httpRateChart) {
                     httpRateChart = createChart('httpRateChart', data.http_rate, 'Requests', 'rgba(40, 167, 69, 1)', 'req/min');
                 } else {
@@ -313,7 +313,7 @@
             }
 
             // Lua Busy % chart
-            if (data.lua_busy_percent && data.lua_busy_percent.length > 0) {
+            if (expanded('chart-busy') && data.lua_busy_percent && data.lua_busy_percent.length > 0) {
                 if (!busyPercentChart) {
                     busyPercentChart = createChart('busyPercentChart', data.lua_busy_percent, 'Busy', 'rgba(220, 53, 69, 1)', '%');
                 } else {
@@ -322,7 +322,7 @@
             }
 
             // Loop Lag chart
-            if (data.lua_loop_lag && data.lua_loop_lag.length > 0) {
+            if (expanded('chart-lag') && data.lua_loop_lag && data.lua_loop_lag.length > 0) {
                 if (!loopLagChart) {
                     loopLagChart = createChart('loopLagChart', data.lua_loop_lag, 'Lag', 'rgba(13, 202, 240, 1)', 'ms');
                 } else {
@@ -345,18 +345,74 @@
             // GiB, as the Storage card counts them
             const data = (await response.json()).map(([t, v]) => ({ t: t * 1000, v: v / 2 ** 30 }));
             if (data.length === 0) return;
+            document.getElementById('diskFreeCard').classList.remove('d-none');
+            if (!expanded('diskFreeCard')) return;
             if (!diskFreeChart) {
                 diskFreeChart = createChart('diskFreeChart', data, canvas.dataset.label, 'rgba(54, 162, 235, 1)', 'GB', formatDayTime);
                 // from zero a large disk's line would sit flat at the top
                 diskFreeChart.options.scales.y.beginAtZero = false;
                 diskFreeChart.update('none');
-                document.getElementById('diskFreeCard').classList.remove('d-none');
             } else {
                 updateChart(diskFreeChart, data, formatDayTime);
             }
         } catch (error) {
             console.error('Error fetching disk space:', error);
         }
+    }
+
+    // Collapsible sections: ids of the collapsed ones are kept per browser
+    const COLLAPSED_KEY = 'vclu-stats-collapsed';
+    const CHARTS = {
+        'chart-memory': () => memoryChart, 'chart-cmd': () => cmdRateChart, 'chart-http': () => httpRateChart,
+        'chart-busy': () => busyPercentChart, 'chart-lag': () => loopLagChart, 'diskFreeCard': () => diskFreeChart
+    };
+
+    function expanded(id) {
+        const card = document.getElementById(id);
+        return !card || !card.classList.contains('collapsed');
+    }
+
+    function loadCollapsed() {
+        try {
+            const ids = JSON.parse(localStorage.getItem(COLLAPSED_KEY));
+            return Array.isArray(ids) ? ids : [];
+        } catch (e) {
+            return [];
+        }
+    }
+
+    function saveCollapsed() {
+        const ids = Array.from(document.querySelectorAll('.stats-section.collapsed')).map(c => c.id);
+        try { localStorage.setItem(COLLAPSED_KEY, JSON.stringify(ids)); } catch (e) { /* this visit only */ }
+    }
+
+    function setCollapsed(card, on) {
+        card.classList.toggle('collapsed', on);
+        card.querySelector('.section-toggle')?.setAttribute('aria-expanded', String(!on));
+        if (on || !(card.id in CHARTS)) return;
+        // a chart drawn while hidden has no size
+        CHARTS[card.id]()?.resize();
+        if (card.id === 'diskFreeCard') fetchDiskFree();
+        else fetchTimeSeries();
+    }
+
+    // /stats#storage (the disk banner) opens that section
+    function expandFromHash() {
+        const card = location.hash.length > 1 && document.getElementById(location.hash.slice(1));
+        if (card && card.classList.contains('stats-section') && card.classList.contains('collapsed')) setCollapsed(card, false);
+    }
+
+    function initSections() {
+        const collapsed = loadCollapsed();
+        document.querySelectorAll('.stats-section').forEach(card => {
+            if (collapsed.includes(card.id)) setCollapsed(card, true);
+            card.querySelector('.section-toggle')?.addEventListener('click', () => {
+                setCollapsed(card, !card.classList.contains('collapsed'));
+                saveCollapsed();
+            });
+        });
+        expandFromHash();
+        window.addEventListener('hashchange', expandFromHash);
     }
 
     // Download diagnostic ZIP
@@ -417,6 +473,8 @@
 
     // Initialize
     function init() {
+        initSections();
+
         // Initial fetch
         fetchStats();
         fetchMQTTStats();

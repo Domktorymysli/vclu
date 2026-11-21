@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/Domktorymysli/vclu/pkg/config"
+	"github.com/Domktorymysli/vclu/pkg/notify"
 	"github.com/gin-gonic/gin"
 )
 
@@ -592,6 +593,10 @@ func createBackupZip(zipPath string, dataDir string) error {
 		// for this vCLU on the LAN and catch the tokens the apps and clients send; a restored
 		// vCLU makes a new one, and the apps get its pin with their next token
 		if base := filepath.Base(path); base == localKeyFile || base == localCertFile {
+			return nil
+		}
+		// the bell's entries say what happened here, not how to set it up again
+		if path == notify.Path(dataDir) {
 			return nil
 		}
 

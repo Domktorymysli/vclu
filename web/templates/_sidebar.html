@@ -108,9 +108,12 @@
         </button>
     </div>
 </aside>
-<!-- New-version badge in the top bar of every page with this sidebar -->
-<script src="/static/js/update-notice.js" defer id="updateNoticeScript"
-        data-available="{{index .t "update.available"}}" data-title="{{index .t "update.title"}}"
+<!-- Notification bell in the top bar of every page with this sidebar (#248); its texts, and the settings' -->
+<script type="application/json" id="notifyI18n">{{json (tprefix .t "notify.")}}</script>
+<script src="/static/js/notify-bell.js?v={{.v}}" defer id="notifyBellScript"></script>
+<!-- New-version modal, opened from the bell -->
+<script src="/static/js/update-notice.js?v={{.v}}" defer id="updateNoticeScript"
+        data-title="{{index .t "update.title"}}"
         data-running="{{index .t "update.running"}}" data-release-page="{{index .t "update.release_page"}}"
         data-before-update="{{index .t "update.before_update"}}" data-more="{{index .t "update.more"}}"
         data-older="{{index .t "update.older"}}"
@@ -118,7 +121,7 @@
         data-cmd-docker="{{index .t "update.cmd_docker"}}" data-docs="{{index .t "update.docs"}}"
         data-hide="{{index .t "update.hide"}}" data-close="{{index .t "update.close"}}"></script>
 <!-- Disk space banner under the top bar (#196) -->
-<script src="/static/js/storage-notice.js" defer id="storageNoticeScript"
+<script src="/static/js/storage-notice.js?v={{.v}}" defer id="storageNoticeScript"
         data-low="{{index .t "storage.banner_low"}}" data-critical="{{index .t "storage.banner_critical"}}"
         data-largest="{{index .t "storage.banner_largest"}}" data-details="{{index .t "storage.banner_details"}}"
         data-part-history="{{index .t "storage.part_history"}}" data-part-metrics="{{index .t "storage.part_metrics"}}"

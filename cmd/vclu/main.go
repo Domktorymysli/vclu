@@ -217,6 +217,8 @@ func main() {
 	webSrv.SetMQTTManager(luaEngine.GetMQTTManager())   // Wire up MQTT manager for client reconnect/test
 	webSrv.SetSatelManager(luaEngine.GetSatelManager()) // Wire up Satel manager for status/scan/state (nil when disabled)
 
+	notifications := startNotifications(cluDir, luaEngine, logStream, webSrv)
+
 	// Initialize KV store manager for plugin persistence
 	kvManager := plugins.NewKVStoreManager(cluDir)
 	luaEngine.SetKVStoreManager(kvManager)
@@ -324,6 +326,7 @@ func main() {
 		if err := pluginLoader.LoadAllEnabled(); err != nil {
 			log.Printf("Warning: Some plugins failed to load: %v", err)
 		}
+		pluginsLoaded(webSrv, pluginLoader) // a plugin updated on load has no notice left
 	})
 
 	// Register post-load callback: auto-expose + HomeKit (runs AFTER user.lua + plugins)
@@ -373,7 +376,9 @@ func main() {
 		States:       cloudStates(luaEngine),
 		Metrics:      metricsCollector,
 	})
-	luaEngine.SetCloud(cloudBridge(cloudClient))
+	bridge := cloudBridge(cloudClient)
+	bridge.PINLocked = notifications.deviceLocked
+	luaEngine.SetCloud(bridge)
 
 	// Load CLU data (plugins → user.lua → om.lua → MQTT → expose)
 	srv.LoadInitialData()
@@ -389,9 +394,10 @@ func main() {
 
 	// New-version check; the setting is read before every check, so the switch needs no restart
 	updateChecker := updatecheck.New(updatecheck.Options{
-		Dir:     cluDir,
-		Version: version,
-		Enabled: func() bool { return config.UpdateCheckEnabled(cluDir) },
+		Dir:      cluDir,
+		Version:  version,
+		Enabled:  func() bool { return config.UpdateCheckEnabled(cluDir) },
+		OnAnswer: webSrv.UpdateAnswered, // then the plugins, from the same check
 	})
 	webSrv.SetUpdateChecker(updateChecker)
 
@@ -438,6 +444,7 @@ func main() {
 	if err := webSrv.Stop(); err != nil {
 		log.Printf("Error stopping web server: %v", err)
 	}
+	notifications.Close()
 	if err := srv.Stop(); err != nil {
 		log.Printf("Error stopping server: %v", err)
 	}

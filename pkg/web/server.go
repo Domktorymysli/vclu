@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Domktorymysli/vclu/pkg/accesscontrol"
@@ -30,6 +31,7 @@ import (
 	"github.com/Domktorymysli/vclu/pkg/luastr"
 	mcppkg "github.com/Domktorymysli/vclu/pkg/mcp"
 	"github.com/Domktorymysli/vclu/pkg/metrics"
+	"github.com/Domktorymysli/vclu/pkg/notify"
 	"github.com/Domktorymysli/vclu/pkg/server"
 	"github.com/Domktorymysli/vclu/pkg/stats"
 	"github.com/Domktorymysli/vclu/pkg/storage"
@@ -201,6 +203,9 @@ type Server struct {
 	version          string
 	updateChecker    *updatecheck.Checker // nil: GET /api/update says enabled false
 	storage          *storage.Monitor     // nil: GET /api/storage answers 503
+	notifier         *notify.Store        // the bell; nil adds nothing
+	loginLocks       *lockout             // panel logins per address
+	pluginCheck      atomic.Bool          // a background check of the plugin registries runs
 }
 
 // NewServer creates a new web server
@@ -211,8 +216,9 @@ func NewServer(port int, webDir string, serverDir string, deviceConfig *config.C
 	router := gin.New()
 	router.Use(accessLog(gin.DefaultWriter, slowRequest), gin.Recovery())
 
-	// Trust all proxies — vCLU is designed for local network behind reverse proxy (nginx/caddy)
-	// This enables correct handling of X-Forwarded-For, X-Forwarded-Proto, X-Real-IP
+	// No proxy is trusted: ClientIP is the connection's address, X-Forwarded-For is ignored, so
+	// behind a reverse proxy every request has the proxy's (login limits too). isHTTPS reads
+	// X-Forwarded-Proto on its own.
 	router.SetTrustedProxies(nil)
 	router.ForwardedByClientIP = true
 
@@ -228,16 +234,7 @@ func NewServer(port int, webDir string, serverDir string, deviceConfig *config.C
 
 	// Setup templates with translation function
 	templatesPath := filepath.Join(webDir, "templates", "*.html")
-	tmpl := template.New("").Funcs(template.FuncMap{
-		"t": func(lang, key string) string {
-			return i18n.Get(lang, key)
-		},
-		"json": func(v interface{}) template.JS {
-			b, _ := json.Marshal(v)
-			return template.JS(b)
-		},
-		"brand": brandHTML,
-	})
+	tmpl := template.New("").Funcs(templateFuncs())
 	tmpl = template.Must(tmpl.ParseGlob(templatesPath))
 	router.SetHTMLTemplate(tmpl)
 
@@ -268,6 +265,7 @@ func NewServer(port int, webDir string, serverDir string, deviceConfig *config.C
 		calendarLimiter: newCalendarLimiter(),
 		live:            newLiveFeeds(),
 	}
+	s.loginLocks = s.newLoginLockout()
 
 	// Add metrics middleware (must be first to capture all requests)
 	router.Use(s.metricsMiddleware())
@@ -1009,6 +1007,15 @@ func (s *Server) setupRoutes() {
 		api.POST("/history/clear-disk", s.handleAPIHistoryClearDisk)
 		api.POST("/backup/settings", s.handleAPIBackupSettingsSave)
 
+		// The bell
+		api.GET("/notifications", s.handleAPINotifications)
+		api.POST("/notifications/read", s.handleAPINotificationsRead)
+		api.POST("/notifications/clear", s.handleAPINotificationsClear)
+		api.POST("/notifications/mute", s.handleAPINotificationsMute)
+		api.DELETE("/notifications/mute", s.handleAPINotificationsUnmute)
+		api.GET("/notifications/settings", s.handleAPINotificationsSettings)
+		api.PUT("/notifications/settings", s.handleAPINotificationsSettingsSave)
+
 		// New-version check (top bar badge, Settings)
 		api.GET("/update", s.handleAPIUpdate)
 		api.GET("/storage", s.handleAPIStorage)
@@ -1115,5 +1122,30 @@ func checkSupportsModules(serverDir string) bool {
 func (s *Server) renderHTML(c *gin.Context, code int, name string, data gin.H) {
 	data["csrfToken"] = s.getCSRFToken(c)
 	data["appVersion"] = s.version
+	data["v"] = s.assetVersion()
 	c.HTML(code, name, data)
+}
+
+// templateFuncs are the functions of the panel's templates.
+func templateFuncs() template.FuncMap {
+	return template.FuncMap{
+		"t": func(lang, key string) string {
+			return i18n.Get(lang, key)
+		},
+		"json": func(v interface{}) template.JS {
+			b, _ := json.Marshal(v)
+			return template.JS(b)
+		},
+		"brand": brandHTML,
+		// tprefix is the translations under prefix, e.g. for {{json (tprefix .t "notify.")}}
+		"tprefix": func(t map[string]string, prefix string) map[string]string {
+			out := map[string]string{}
+			for k, v := range t {
+				if strings.HasPrefix(k, prefix) {
+					out[k] = v
+				}
+			}
+			return out
+		},
+	}
 }

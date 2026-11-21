@@ -4,8 +4,8 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"time"
 
+	"github.com/Domktorymysli/vclu/pkg/notify"
 	"github.com/gin-gonic/gin"
 )
 
@@ -37,6 +37,9 @@ func (s *Server) handleAPIReset(c *gin.Context) {
 		log.Printf("ERROR: Failed to recreate serverDir: %v", err)
 	}
 
+	// nothing of the old bell is written into the empty directory
+	s.notifier.Discard()
+	_ = os.Remove(notify.Path(s.serverDir))
 	log.Printf("CLU reset complete - all data cleared")
 
 	c.JSON(http.StatusOK, gin.H{
@@ -45,9 +48,5 @@ func (s *Server) handleAPIReset(c *gin.Context) {
 	})
 
 	// Exit process so systemd restarts vCLU with clean state
-	go func() {
-		time.Sleep(500 * time.Millisecond)
-		log.Printf("Restarting vCLU after reset...")
-		os.Exit(0)
-	}()
+	s.scheduleRestart()
 }

@@ -71,6 +71,8 @@ type Options struct {
 	Client  *http.Client
 	Clock   Clock
 	Logf    func(format string, args ...any)
+	// OnAnswer gets every good answer, on the checker's goroutine; do not modify it
+	OnAnswer func(*Answer)
 }
 
 // Checker runs the checks; one Run per Checker.
@@ -176,6 +178,9 @@ func (c *Checker) check(ctx context.Context) {
 	c.mu.Lock()
 	c.last, c.checkedAt = a, c.opts.Clock.Now()
 	c.mu.Unlock()
+	if c.opts.OnAnswer != nil {
+		c.opts.OnAnswer(a)
+	}
 }
 
 func (c *Checker) fetch(ctx context.Context, id string) (*Answer, error) {

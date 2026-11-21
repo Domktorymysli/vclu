@@ -418,6 +418,9 @@ local function command(h, path, access, action, confirmed, pin, deadlineMs, valu
                 local wait = math.min(PIN_WAIT_MS * 2 ^ f.locks, PIN_WAIT_MAX_MS)
                 f.n, f.locks, f.untilMs = 0, f.locks + 1, wallMs() + wait
                 log():warn('[CLOUD] %s: %d wrong PINs in a row, locked for %d s', tostring(path), PIN_TRIES, math.floor(wait / 1000))
+                if __go_cloud_pin_locked then
+                    __go_cloud_pin_locked(tostring(path), wait)
+                end
             end
             pinFails[path] = f
             return answer(false, 'pin_wrong', 'Zły PIN.')

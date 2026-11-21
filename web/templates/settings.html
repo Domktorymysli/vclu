@@ -6,7 +6,7 @@
     <title>{{index .t "app.settings"}} - vclu</title>
     <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="/static/vendor/bootstrap-icons/font/bootstrap-icons.css">
-    <link rel="stylesheet" href="/static/css/dark-theme.css">
+    <link rel="stylesheet" href="/static/css/dark-theme.css?v={{.v}}">
     <meta name="csrf-token" content="{{.csrfToken}}">
 </head>
 <body>
@@ -157,6 +157,20 @@
                         </div>
                     </div>
 
+                    <div class="card mb-3" id="notificationsCard">
+                        <div class="card-header">
+                            <i class="bi bi-bell"></i> {{index .t "notify.settings_title"}}
+                        </div>
+                        <div class="card-body">
+                            <p class="text-muted small">{{index .t "notify.settings_desc"}}</p>
+                            <div id="notifySources" class="mb-3"></div>
+                            <h6>{{index .t "notify.muted_title"}}</h6>
+                            <ul class="list-unstyled mb-0" id="notifyMuted">
+                                <li class="text-muted small">{{index .t "notify.muted_none"}}</li>
+                            </ul>
+                        </div>
+                    </div>
+
                     <div class="card mb-3">
                         <div class="card-header">
                             <i class="bi bi-arrow-clockwise"></i> {{index .t "settings.restart"}}
@@ -222,6 +236,6 @@
             update_check_saved: {{json (index .t "settings.js_update_check_saved")}}
         };
     </script>
-    <script src="/static/js/settings.js"></script>
+    <script src="/static/js/settings.js?v={{.v}}"></script>
 </body>
 </html>

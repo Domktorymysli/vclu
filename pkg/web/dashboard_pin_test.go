@@ -5,11 +5,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/Domktorymysli/vclu/pkg/config"
 	"github.com/Domktorymysli/vclu/pkg/lua"
+	"github.com/Domktorymysli/vclu/pkg/notify"
 	"github.com/gin-gonic/gin"
 )
 
@@ -18,7 +20,7 @@ import (
 func TestDashboardPinCookie(t *testing.T) {
 	dashCache.Invalidate()
 	pinLimiter = &rateLimiter{buckets: make(map[string]*bucket), rate: 1.0 / 6, burst: 5}
-	dashPinLocks = newPinLocks()
+	dashPinLocks = newPinLockout()
 	engine := lua.NewLuaEngine()
 	defer engine.Close()
 	if _, err := engine.Execute(`Dashboard.new('p'):auth('pin'):pin('1234'):section('S','i'):build()`); err != nil {
@@ -92,7 +94,7 @@ func TestDashboardPinCookie(t *testing.T) {
 	}
 	// a numeric :pin(9876) accepts the typed "9876"
 	pinLimiter = &rateLimiter{buckets: make(map[string]*bucket), rate: 1.0 / 6, burst: 5}
-	dashPinLocks = newPinLocks()
+	dashPinLocks = newPinLockout()
 	if w := login("9876"); w.Code != 200 {
 		t.Errorf("numeric PIN: %d %s", w.Code, w.Body)
 	}
@@ -102,7 +104,7 @@ func TestDashboardPinCookie(t *testing.T) {
 // last, up to an hour; the right PIN clears it.
 func TestDashboardPinLockGrows(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
-	p := newPinLocks()
+	p := newPinLockout()
 	p.now = func() time.Time { return now }
 	wrong5 := func() {
 		for i := 0; i < 5; i++ {
@@ -136,10 +138,114 @@ func TestDashboardPinLockGrows(t *testing.T) {
 	if p.locked("alarm") {
 		t.Error("a lock longer than an hour")
 	}
-	for i := 0; i < 2*pinLocksMax; i++ {
+	for i := 0; i < 2*lockoutMax; i++ {
 		p.result(fmt.Sprintf("x%d", i), false)
 	}
-	if len(p.m) > pinLocksMax+1 {
+	if len(p.m) > lockoutMax+1 {
 		t.Errorf("%d entries for made-up ids", len(p.m))
+	}
+}
+
+// A lock of a dashboard with a PIN is a notice; tries at made-up ids lock them, silently.
+func TestDashboardPinLockNotice(t *testing.T) {
+	dashCache.Invalidate()
+	dashPinLocks = newPinLockout()
+	engine := lua.NewLuaEngine()
+	defer engine.Close()
+	if _, err := engine.Execute(`Dashboard.new('p'):auth('pin'):pin('1234'):section('S','i'):build()`); err != nil {
+		t.Fatal(err)
+	}
+	n := notify.New(notify.Options{})
+	s := &Server{serverDir: t.TempDir(), sessions: newSessionStore(), luaExecutor: engine, notifier: n}
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/api/dashboard/:id/auth", s.handleAPIDashboardAuth)
+	try := func(id string) {
+		pinLimiter = &rateLimiter{buckets: make(map[string]*bucket), rate: 1.0 / 6, burst: 5}
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/dashboard/"+id+"/auth", strings.NewReader(`{"pin":"0000"}`)))
+	}
+	for i := 0; i < 5; i++ {
+		try("made-up")
+	}
+	if list, _, _ := n.List(); len(list) != 0 || !dashPinLocks.locked("made-up") {
+		t.Fatalf("made-up id: %+v", list)
+	}
+	for i := 0; i < 5; i++ {
+		try("p")
+	}
+	if list, _, _ := n.List(); len(list) != 1 || list[0].Key != "lock:pin:p" {
+		t.Fatalf("real PIN: %+v", list)
+	}
+}
+
+// A try begun and given back (the check failed) does not count and frees its place.
+func TestLockoutRelease(t *testing.T) {
+	p := newPinLockout()
+	for i := 0; i < lockTries-1; i++ {
+		p.begin("alarm")
+		p.result("alarm", false)
+	}
+	if p.begin("alarm") != 0 {
+		t.Fatal("the last try refused")
+	}
+	if p.begin("alarm") != lockoutBusyWait {
+		t.Fatal("a try past the ones left while one is checked")
+	}
+	p.release("alarm")
+	p.release("nope")
+	if p.locked("alarm") || p.begin("alarm") != 0 {
+		t.Fatal("a released try counted, or kept its place")
+	}
+	if p.result("alarm", false) == 0 {
+		t.Error("the fifth wrong PIN did not lock")
+	}
+}
+
+// PINs that could not be checked never lock the dashboard.
+func TestDashboardPinCheckFails(t *testing.T) {
+	dashPinLocks = newPinLockout()
+	s := &Server{serverDir: t.TempDir(), sessions: newSessionStore(), luaExecutor: failingLua{}}
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/api/dashboard/:id/auth", s.handleAPIDashboardAuth)
+	for i := 0; i < 2*lockTries; i++ {
+		pinLimiter = &rateLimiter{buckets: make(map[string]*bucket), rate: 1.0 / 6, burst: 5}
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/dashboard/p/auth", strings.NewReader(`{"pin":"0000"}`)))
+		if w.Code != http.StatusInternalServerError {
+			t.Fatalf("try %d: %d", i, w.Code)
+		}
+	}
+	if dashPinLocks.locked("p") || dashPinLocks.begin("p") != 0 {
+		t.Error("failed checks counted")
+	}
+}
+
+type countingLua struct{ calls atomic.Int32 }
+
+func (l *countingLua) Execute(string) (string, error) {
+	l.calls.Add(1)
+	return `{"valid":false,"has_pin":true}`, nil
+}
+
+// With the last try left being checked, another one is refused without asking Lua.
+func TestDashboardPinBusy(t *testing.T) {
+	dashPinLocks = newPinLockout()
+	for i := 0; i < lockTries-1; i++ {
+		dashPinLocks.begin("p")
+		dashPinLocks.result("p", false)
+	}
+	dashPinLocks.begin("p") // a check under way
+	l := &countingLua{}
+	s := &Server{serverDir: t.TempDir(), sessions: newSessionStore(), luaExecutor: l}
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/api/dashboard/:id/auth", s.handleAPIDashboardAuth)
+	pinLimiter = &rateLimiter{buckets: make(map[string]*bucket), rate: 1.0 / 6, burst: 5}
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/dashboard/p/auth", strings.NewReader(`{"pin":"0000"}`)))
+	if w.Code != http.StatusTooManyRequests || l.calls.Load() != 0 {
+		t.Errorf("%d, %d Lua calls", w.Code, l.calls.Load())
 	}
 }
