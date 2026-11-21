@@ -11,8 +11,10 @@ import (
 
 // mute is a muted key; a zero until is forever.
 type mute struct {
-	until time.Time
-	title string
+	until  time.Time
+	title  string
+	msg    string
+	params map[string]string
 }
 
 func (s *Store) loadConfig() {
@@ -39,9 +41,9 @@ func (s *Store) apply(nc *config.VCLUNotificationsConfig) {
 		}
 		for k, m := range nc.Muted {
 			if m.Until == "forever" {
-				muted[k] = mute{title: m.Title}
+				muted[k] = mute{title: m.Title, msg: m.Msg, params: m.Params}
 			} else if t, err := time.Parse(time.RFC3339, m.Until); err == nil {
-				muted[k] = mute{until: t, title: m.Title}
+				muted[k] = mute{until: t, title: m.Title, msg: m.Msg, params: m.Params}
 			}
 		}
 	}
@@ -63,7 +65,7 @@ func (s *Store) section() *config.VCLUNotificationsConfig {
 		if !m.until.IsZero() {
 			until = m.until.Format(time.RFC3339)
 		}
-		nc.Muted[k] = config.VCLUNotificationMute{Until: until, Title: m.title}
+		nc.Muted[k] = config.VCLUNotificationMute{Until: until, Title: m.title, Msg: m.msg, Params: m.params}
 	}
 	return nc
 }
@@ -118,11 +120,11 @@ func (s *Store) Mute(key string, d time.Duration) error {
 	if d > 0 {
 		until = s.opts.Now().Add(d).UTC().Truncate(time.Second).Format(time.RFC3339)
 	}
-	title := key
+	title, msg, params := key, "", map[string]string(nil)
 	kept := s.entries[:0]
 	for _, e := range s.entries {
 		if e.Key == key {
-			title = e.Title
+			title, msg, params = e.Title, e.Msg, e.Params
 			continue
 		}
 		kept = append(kept, e)
@@ -134,7 +136,7 @@ func (s *Store) Mute(key string, d time.Duration) error {
 		if nc.Muted == nil {
 			nc.Muted = map[string]config.VCLUNotificationMute{}
 		}
-		nc.Muted[key] = config.VCLUNotificationMute{Until: until, Title: title}
+		nc.Muted[key] = config.VCLUNotificationMute{Until: until, Title: title, Msg: msg, Params: params}
 	})
 }
 
@@ -175,9 +177,11 @@ type Source struct {
 
 // Muted is a muted key: until is RFC 3339 or "forever".
 type Muted struct {
-	Key   string `json:"key"`
-	Until string `json:"until"`
-	Title string `json:"title"`
+	Key    string            `json:"key"`
+	Until  string            `json:"until"`
+	Title  string            `json:"title"`
+	Msg    string            `json:"msg,omitempty"`
+	Params map[string]string `json:"params,omitempty"`
 }
 
 // Settings is GET /api/notifications/settings.
@@ -199,7 +203,7 @@ func (s *Store) Settings() Settings {
 		if !m.until.IsZero() && !now.Before(m.until) {
 			continue
 		}
-		e := Muted{Key: k, Until: "forever", Title: m.title}
+		e := Muted{Key: k, Until: "forever", Title: m.title, Msg: m.msg, Params: m.params}
 		if !m.until.IsZero() {
 			e.Until = m.until.UTC().Format(time.RFC3339)
 		}

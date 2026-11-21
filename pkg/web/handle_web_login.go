@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Domktorymysli/vclu/pkg/config"
+	"github.com/Domktorymysli/vclu/pkg/i18n"
 	"github.com/Domktorymysli/vclu/pkg/notify"
 	"github.com/gin-gonic/gin"
 )
@@ -89,6 +90,9 @@ func (s *Server) renderLogin(c *gin.Context, code int, data gin.H) {
 	data["t"] = trans["t"]
 	data["langs"] = trans["langs"]
 	data["csrfToken"] = s.getCSRFToken(c)
+	if wait, ok := data["lockedFor"].(string); ok {
+		data["lockedText"] = lockMessage(trans["lang"].(string), wait)
+	}
 	s.renderHTML(c, code, "login.html", data)
 }
 
@@ -105,6 +109,11 @@ func crossSite(c *gin.Context) bool {
 	}
 	u, err := url.Parse(origin)
 	return err != nil || !strings.EqualFold(u.Host, c.Request.Host)
+}
+
+// lockMessage is the login page's lock text, filled on the server so it reads without JS.
+func lockMessage(lang, wait string) string {
+	return strings.ReplaceAll(i18n.Get(lang, "login.locked"), "{time}", wait)
 }
 
 func seconds(d time.Duration) int { return int((d + time.Second - 1) / time.Second) }

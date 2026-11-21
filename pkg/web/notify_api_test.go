@@ -55,7 +55,7 @@ func TestLoginLimit(t *testing.T) {
 		}
 	}
 	w := postLogin(e, "10.0.0.5", "tytus", "x", nil)
-	if w.Code != http.StatusTooManyRequests || !strings.Contains(w.Body.String(), `data-time="30 s"`) {
+	if w.Code != http.StatusTooManyRequests || !strings.Contains(w.Body.String(), `id="loginLocked"`) || !strings.Contains(w.Body.String(), "30 s") {
 		t.Fatalf("fifth: %d", w.Code)
 	}
 	if w := postLogin(e, "10.0.0.5", "tytus", "secret", nil); w.Code != http.StatusTooManyRequests {

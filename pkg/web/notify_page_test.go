@@ -286,8 +286,8 @@ func TestLoginPage_LockedMessage(t *testing.T) {
 	if body := render(gin.H{}); strings.Contains(body, "loginLocked") {
 		t.Error("lock message without lockedFor")
 	}
-	body := render(gin.H{"lockedFor": "30 s", "error": true})
-	if !strings.Contains(body, `data-time="30 s"`) || !strings.Contains(body, i18n.Get("pl", "login.locked")) {
+	body := render(gin.H{"lockedFor": "30 s", "lockedText": lockMessage("pl", "30 s"), "error": true})
+	if !strings.Contains(body, "Spróbuj ponownie za 30 s") || strings.Contains(body, "{time}") {
 		t.Errorf("no lock message:\n%s", body)
 	}
 	if strings.Contains(body, i18n.Get("pl", "login.error")) {

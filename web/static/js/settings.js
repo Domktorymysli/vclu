@@ -263,6 +263,17 @@ function initNotificationSettings() {
         return Object.prototype.hasOwnProperty.call(t, 'notify.' + key) && t['notify.' + key] ? t['notify.' + key] : fallback;
     }
 
+    // the entry's message in the panel's language; the English title without one
+    function mutedText(m) {
+        var text = m.msg && t[m.msg];
+        if (!text) return m.title || m.key;
+        var p = m.params || {};
+        return text.replace(/\{(\w+)\}/g, function(all, k) {
+            if (!(k in p)) return all;
+            return k === 'source' ? tr('source.' + p[k], p[k]) : p[k];
+        });
+    }
+
     function showMuted(list) {
         muted.textContent = '';
         if (!list || !list.length) {
@@ -277,7 +288,7 @@ function initNotificationSettings() {
             li.className = 'd-flex align-items-center gap-2 mb-1';
             var name = document.createElement('span');
             name.className = 'text-truncate';
-            name.textContent = m.title || m.key;
+            name.textContent = mutedText(m);
             var until = document.createElement('small');
             until.className = 'text-muted text-nowrap';
             until.textContent = m.until === 'forever' ? tr('muted_forever', 'for good')

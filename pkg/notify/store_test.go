@@ -285,17 +285,19 @@ func TestDisabledAndMuted(t *testing.T) {
 	}
 	set := s.Settings()
 	if fmt.Sprint(set.Sources) != "[{update true true} {plugin true true} {module true true} {log false false} {login false true} {lock true true}]" ||
-		len(set.Muted) != 1 || set.Muted[0].Title != "vclu 1.13.0 is available" || set.Muted[0].Until != "2026-11-22T12:00:00Z" {
+		len(set.Muted) != 1 || set.Muted[0].Title != "vclu 1.13.0 is available" || set.Muted[0].Until != "2026-11-22T12:00:00Z" ||
+		set.Muted[0].Msg != MsgUpdate || set.Muted[0].Params["version"] != "1.13.0" {
 		t.Fatalf("settings %+v", set)
 	}
 	mc, _ := config.ReadMasterConfig(dir)
 	if mc == nil || mc.Notifications == nil || fmt.Sprint(mc.Notifications.Sources) != "map[login:false]" ||
-		mc.Notifications.Muted["update:1.13.0"] != (config.VCLUNotificationMute{Until: "2026-11-22T12:00:00Z", Title: "vclu 1.13.0 is available"}) {
+		fmt.Sprint(mc.Notifications.Muted["update:1.13.0"]) != fmt.Sprint(config.VCLUNotificationMute{Until: "2026-11-22T12:00:00Z",
+			Title: "vclu 1.13.0 is available", Msg: MsgUpdate, Params: map[string]string{"version": "1.13.0"}}) {
 		t.Fatalf(".vclu.json %+v", mc.Notifications)
 	}
 	// settings come back after a restart, and an expired mute is dropped on the next write
 	s2 := New(Options{ConfigDir: dir, Now: c.now})
-	if set := s2.Settings(); len(set.Muted) != 1 || set.Sources[4].Enabled {
+	if set := s2.Settings(); len(set.Muted) != 1 || set.Sources[4].Enabled || set.Muted[0].Msg != MsgUpdate {
 		t.Fatalf("after restart %+v", set)
 	}
 	c.add(25 * time.Hour)
