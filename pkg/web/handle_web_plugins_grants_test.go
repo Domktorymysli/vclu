@@ -188,11 +188,9 @@ func TestPluginsPageShowsPendingPermissions(t *testing.T) {
 	s := &Server{serverDir: dir}
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	tmpl := template.New("").Funcs(template.FuncMap{
-		"t":     func(lang, key string) string { return key },
-		"json":  func(v interface{}) template.JS { b, _ := json.Marshal(v); return template.JS(b) },
-		"brand": brandHTML,
-	})
+	funcs := templateFuncs()
+	funcs["t"] = func(lang, key string) string { return key }
+	tmpl := template.New("").Funcs(funcs)
 	r.SetHTMLTemplate(template.Must(tmpl.ParseGlob("../../web/templates/*.html")))
 	r.GET("/plugins", s.handlePlugins)
 	w := httptest.NewRecorder()

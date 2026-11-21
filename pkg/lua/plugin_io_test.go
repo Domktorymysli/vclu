@@ -85,7 +85,7 @@ func TestPluginUDPEcho(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer echo.Close()
+	defer func() { _ = echo.Close() }()
 	go func() {
 		buf := make([]byte, 2048)
 		for {

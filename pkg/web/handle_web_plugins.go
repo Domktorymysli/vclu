@@ -615,7 +615,13 @@ func (s *Server) handlePluginsAPIPermissions(c *gin.Context) {
 	}
 
 	if s.pluginController != nil && installed.Enabled && s.pluginController.IsLoaded(pluginID) {
-		s.pluginController.UnloadPlugin(pluginID)
+		if err := s.pluginController.UnloadPlugin(pluginID); err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": true,
+				"warning": fmt.Sprintf("Permissions saved but plugin failed to unload: %v", err),
+			})
+			return
+		}
 		if err := s.pluginController.LoadPlugin(pluginID, installed.Config); err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": true,
