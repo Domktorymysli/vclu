@@ -324,3 +324,43 @@ func TestMQTTBuiltInClientIsProtected(t *testing.T) {
 		t.Errorf("destroy/new of the built-in client = %s, want false|false|nil", got)
 	}
 }
+
+// A subscription made before the client connects is kept and only waits (debug); a failure
+// of one never stored, or on a connected client, still warns.
+func TestMQTTSubscribeBeforeConnectIsQuiet(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+
+	got, err := engine.Execute(`(function()
+		local c = MQTT:new("early")
+		c._props.connected = false
+		c._subscriptions["a/b"] = { pattern = "a/b" }
+		local queue = {
+			{ "subscribe_result", "early", "a/b", "client early not found" },
+			{ "subscribe_result", "early", "x/y", "client early not found" },
+		}
+		local real, warn, debug = __go_mqtt_poll_event, Logger.warn, Logger.debug
+		local out = {}
+		__go_mqtt_poll_event = function()
+			local e = table.remove(queue, 1)
+			if e then return e[1], e[2], e[3], e[4] end
+		end
+		Logger.warn = function(_, f, ...) out[#out + 1] = "warn " .. string.format(f, ...) end
+		Logger.debug = function(_, f, ...) out[#out + 1] = "debug " .. string.format(f, ...) end
+		MQTT.pollEvents()
+		c._props.connected = true
+		queue = { { "subscribe_result", "early", "a/b", "timeout" } }
+		MQTT.pollEvents()
+		__go_mqtt_poll_event, Logger.warn, Logger.debug = real, warn, debug
+		return table.concat(out, "\n")
+	end)()`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "debug MQTT[early] subscribe 'a/b' waits for the connection\n" +
+		"warn MQTT[early] subscribe 'x/y' failed: client early not found\n" +
+		"warn MQTT[early] subscribe 'a/b' failed: timeout"
+	if got != want {
+		t.Errorf("logs:\n%s\nwant:\n%s", got, want)
+	}
+}

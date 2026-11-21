@@ -698,7 +698,11 @@ func (mm *MQTTManager) Reconnect(instanceID, host string, port int, clientID, us
 	wrapper.connected = true
 	wrapper.connectedAt = time.Now()
 
-	log.Printf("[MQTT] %s reconnected (%d subscriptions restored)", instanceID, len(savedSubs))
+	if len(savedSubs) > 0 {
+		log.Printf("[MQTT] %s reconnected (%d subscriptions restored)", instanceID, len(savedSubs))
+	} else {
+		log.Printf("[MQTT] %s connected", instanceID) // Lua's subscriptions follow on connect
+	}
 	return nil
 }
 
