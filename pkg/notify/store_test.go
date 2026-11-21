@@ -648,3 +648,124 @@ func TestSettingsInMemory(t *testing.T) {
 		t.Errorf("expired and unmuted kept: %v", m)
 	}
 }
+
+// Entries without an id are left out of the file; one without params gets an empty map.
+func TestLoadFileSkipsBadEntries(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.MkdirAll(filepath.Dir(Path(dir)), 0o755)
+	body := `{"version": 1, "next_id": 2, "entries": [null, {"id": 0, "kind": "event", "source": "login"},
+		{"id": 5, "kind": "state", "source": "update", "key": "update:1.13.0"}]}`
+	if err := os.WriteFile(Path(dir), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, _, _ := newTestStore(t, dir)
+	list, _, _ := s.List()
+	if len(list) != 1 || list[0].ID != 5 || list[0].Params == nil {
+		t.Fatalf("%+v", list)
+	}
+	s.Add(login("1.1.1.1"))
+	if list, _, _ := s.List(); list[0].ID != 6 {
+		t.Errorf("next id %d", list[0].ID)
+	}
+}
+
+// Events without a key are never merged.
+func TestEventWithoutKey(t *testing.T) {
+	s, _, _ := newTestStore(t, t.TempDir())
+	e := login("1.1.1.1")
+	e.Key = ""
+	s.Add(e)
+	s.Add(e)
+	if list, _, _ := s.List(); len(list) != 2 || list[0].Count != 1 {
+		t.Errorf("%+v", list)
+	}
+}
+
+// With only unread states over the cap, the oldest state goes.
+func TestCapDropsOldestState(t *testing.T) {
+	s, c, _ := newTestStore(t, t.TempDir())
+	s.opts.Max = 2
+	for _, v := range []string{"1.13.0", "1.14.0", "1.15.0"} {
+		c.add(time.Second)
+		s.Add(update(v))
+	}
+	list, _, _ := s.List()
+	if len(list) != 2 || list[0].Key != "update:1.15.0" || list[1].Key != "update:1.14.0" {
+		t.Errorf("%+v", list)
+	}
+}
+
+// An entry that cannot be made JSON fails Flush and the timer logs it; nothing is written.
+func TestFlushMarshalError(t *testing.T) {
+	dir := t.TempDir()
+	l := &logs{}
+	s := New(Options{Path: Path(dir), Debounce: 10 * time.Millisecond, Logf: l.logf,
+		Now: func() time.Time { return time.Date(10000, 1, 1, 0, 0, 0, 0, time.UTC) }})
+	t.Cleanup(s.Discard)
+	s.Add(login("1.1.1.1"))
+	if err := s.Flush(); err == nil {
+		t.Fatal("flushed a year 10000")
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for !l.has("not saved") && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !l.has("not saved") {
+		t.Errorf("the timer's failure not logged: %v", l.lines)
+	}
+	if _, err := os.Stat(Path(dir)); !os.IsNotExist(err) {
+		t.Errorf("written: %v", err)
+	}
+}
+
+// A planned write that fires on a store closed meanwhile writes nothing.
+func TestTimerAfterClose(t *testing.T) {
+	dir := t.TempDir()
+	s := New(Options{Path: Path(dir), Debounce: 20 * time.Millisecond, Logf: t.Logf})
+	s.Add(login("1.1.1.1"))
+	s.mu.Lock()
+	s.closed = true // as if Close came after the timer had fired
+	s.mu.Unlock()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		s.mu.Lock()
+		pending := s.timer != nil
+		s.mu.Unlock()
+		if !pending {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if _, err := os.Stat(Path(dir)); !os.IsNotExist(err) {
+		t.Errorf("written after close: %v", err)
+	}
+}
+
+// A directory without write permission fails the write.
+func TestFlushReadOnlyDir(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root writes anywhere")
+	}
+	dir := t.TempDir()
+	ws := filepath.Join(dir, "workspace")
+	if err := os.MkdirAll(ws, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(ws, 0o755) })
+	s, _, _ := newTestStore(t, dir)
+	s.Add(login("1.1.1.1"))
+	if err := s.Flush(); err == nil {
+		t.Error("wrote into a read-only directory")
+	}
+	_ = os.Chmod(ws, 0o755)
+}
+
+func TestNilStoreChanges(t *testing.T) {
+	var s *Store
+	s.MarkRead([]int64{1}, true)
+	s.Clear()
+	s.Discard()
+	if list, _, _ := s.List(); len(list) != 0 {
+		t.Error("nil store lists")
+	}
+}

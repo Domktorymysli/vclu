@@ -4,7 +4,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"time"
 
 	"github.com/Domktorymysli/vclu/pkg/notify"
 	"github.com/gin-gonic/gin"
@@ -49,9 +48,5 @@ func (s *Server) handleAPIReset(c *gin.Context) {
 	})
 
 	// Exit process so systemd restarts vCLU with clean state
-	go func() {
-		time.Sleep(500 * time.Millisecond)
-		log.Printf("Restarting vCLU after reset...")
-		os.Exit(0)
-	}()
+	s.scheduleRestart()
 }

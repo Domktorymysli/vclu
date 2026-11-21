@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -218,5 +219,33 @@ func TestDashboardPinCheckFails(t *testing.T) {
 	}
 	if dashPinLocks.locked("p") || dashPinLocks.begin("p") != 0 {
 		t.Error("failed checks counted")
+	}
+}
+
+type countingLua struct{ calls atomic.Int32 }
+
+func (l *countingLua) Execute(string) (string, error) {
+	l.calls.Add(1)
+	return `{"valid":false,"has_pin":true}`, nil
+}
+
+// With the last try left being checked, another one is refused without asking Lua.
+func TestDashboardPinBusy(t *testing.T) {
+	dashPinLocks = newPinLockout()
+	for i := 0; i < lockTries-1; i++ {
+		dashPinLocks.begin("p")
+		dashPinLocks.result("p", false)
+	}
+	dashPinLocks.begin("p") // a check under way
+	l := &countingLua{}
+	s := &Server{serverDir: t.TempDir(), sessions: newSessionStore(), luaExecutor: l}
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/api/dashboard/:id/auth", s.handleAPIDashboardAuth)
+	pinLimiter = &rateLimiter{buckets: make(map[string]*bucket), rate: 1.0 / 6, burst: 5}
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/dashboard/p/auth", strings.NewReader(`{"pin":"0000"}`)))
+	if w.Code != http.StatusTooManyRequests || l.calls.Load() != 0 {
+		t.Errorf("%d, %d Lua calls", w.Code, l.calls.Load())
 	}
 }

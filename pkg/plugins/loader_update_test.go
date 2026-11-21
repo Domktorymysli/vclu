@@ -338,6 +338,9 @@ func TestCompareVersions(t *testing.T) {
 		if cmp, ok := compareVersions(tc.a, tc.b); cmp != tc.cmp || ok != tc.ok {
 			t.Errorf("compareVersions(%q, %q) = %d, %v; want %d, %v", tc.a, tc.b, cmp, ok, tc.cmp, tc.ok)
 		}
+		if cmp, ok := CompareVersions(tc.a, tc.b); cmp != tc.cmp || ok != tc.ok {
+			t.Errorf("CompareVersions(%q, %q) = %d, %v", tc.a, tc.b, cmp, ok)
+		}
 	}
 }
 

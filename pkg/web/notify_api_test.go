@@ -705,3 +705,29 @@ func TestNotificationsAPIErrors(t *testing.T) {
 		}
 	}
 }
+
+// A reset removes the bell's file, nothing is written after it, and the restart goes through scheduleRestart.
+func TestResetDiscardsNotifications(t *testing.T) {
+	e, n := newNotifyEnv(t)
+	restarted := false
+	e.s.restart = func() { restarted = true }
+	n.Add(notify.Entry{Kind: notify.KindEvent, Source: notify.SourceLogin, Key: "login:1.2.3.4", Msg: notify.MsgLogin})
+	if err := n.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(notify.Path(e.dir)); err != nil {
+		t.Fatal(err)
+	}
+	if w := e.do(t, "POST", "/api/reset", "", "apikey"); w.Code != http.StatusOK {
+		t.Fatalf("%d %s", w.Code, w.Body)
+	}
+	if !restarted {
+		t.Error("reset did not restart")
+	}
+	n.Add(notify.Entry{Kind: notify.KindEvent, Source: notify.SourceLogin, Key: "login:5.6.7.8", Msg: notify.MsgLogin})
+	_ = n.Flush()
+	_ = n.Close()
+	if _, err := os.Stat(notify.Path(e.dir)); !os.IsNotExist(err) {
+		t.Errorf("notifications file after reset: %v", err)
+	}
+}

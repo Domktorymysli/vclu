@@ -89,3 +89,52 @@ func TestLuaBridge(t *testing.T) {
 	b.Close()
 	b.Deliver(Delivery{}) // closed: dropped, does not block
 }
+
+// A full queue drops new deliveries without blocking, also once closed.
+func TestLuaBridgeQueueFull(t *testing.T) {
+	release := make(chan struct{})
+	started := make(chan struct{}, 1)
+	var calls atomic.Int32
+	b := NewLuaBridge(func(string) error {
+		calls.Add(1)
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+		<-release
+		return nil
+	})
+	b.Deliver(Delivery{Entry: Entry{ID: 1, Source: SourceUpdate}})
+	select {
+	case <-started:
+	case <-time.After(10 * time.Second):
+		t.Fatal("not delivered")
+	}
+	for i := 0; i < 100; i++ { // 64 fit in the queue, the rest are dropped
+		b.Deliver(Delivery{Entry: Entry{ID: int64(i + 2), Source: SourceUpdate}})
+	}
+	b.Close()
+	b.Deliver(Delivery{Entry: Entry{ID: 200, Source: SourceUpdate}})
+	close(release)
+	time.Sleep(50 * time.Millisecond)
+	if n := calls.Load(); n < 1 || n > 65 {
+		t.Errorf("%d calls, at most 65 fit", n)
+	}
+}
+
+// A delivery that cannot be made JSON is skipped; the next one still goes.
+func TestLuaBridgeSkipsBadPayload(t *testing.T) {
+	got := make(chan string, 4)
+	b := NewLuaBridge(func(js string) error { got <- js; return nil })
+	defer b.Close()
+	b.Deliver(Delivery{Entry: Entry{ID: 1, Source: SourceUpdate, First: time.Date(10000, 1, 1, 0, 0, 0, 0, time.UTC)}})
+	b.Deliver(Delivery{Entry: Entry{ID: 2, Source: SourceUpdate}})
+	select {
+	case js := <-got:
+		if !strings.Contains(js, `"id":2`) {
+			t.Errorf("payload %s", js)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("not delivered")
+	}
+}
