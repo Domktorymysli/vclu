@@ -61,8 +61,7 @@ func TestTagLevelExported(t *testing.T) {
 
 func TestLuaBridge(t *testing.T) {
 	got := make(chan string, 4)
-	var b *LuaBridge
-	b = NewLuaBridge(func(js string) error {
+	b := NewLuaBridge(func(js string) error {
 		got <- js
 		return errors.New("Lua not ready")
 	})
