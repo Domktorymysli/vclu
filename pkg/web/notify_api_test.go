@@ -563,3 +563,145 @@ func TestBackupLeavesNotificationsOut(t *testing.T) {
 		t.Errorf("zip: %s", got)
 	}
 }
+
+// A source turned off costs nothing; with both on the plugin check runs in the background,
+// one at a time.
+func TestUpdateAnsweredSources(t *testing.T) {
+	e, n := newNotifyEnv(t)
+	var requests atomic.Int32
+	hold := make(chan struct{})
+	reg := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		<-hold
+		_, _ = w.Write([]byte(`{"namespace":"vclu","plugins":[{"id":"weather","name":"Weather","version":"2.0.0"}]}`))
+	}))
+	defer reg.Close()
+	if err := writeTestConfig(e.dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
+		Repositories: []config.PluginRepository{{Name: "test", URL: reg.URL, Enabled: true}},
+		Installed:    []config.InstalledPlugin{{ID: "@vclu/weather", Version: "1.0.0"}}}}); err != nil {
+		t.Fatal(err)
+	}
+	answer := &updatecheck.Answer{Current: "1.12.0", UpdateAvailable: true, Latest: &updatecheck.Release{Version: "1.13.0"}}
+	keys := func() string {
+		list, _, _ := n.List()
+		var k []string
+		for _, e := range list {
+			k = append(k, e.Key)
+		}
+		return strings.Join(k, ",")
+	}
+
+	// update off: no notice; plugin off: no check
+	if err := n.SetSources(map[string]bool{notify.SourceUpdate: false, notify.SourcePlugin: false}); err != nil {
+		t.Fatal(err)
+	}
+	e.s.UpdateAnswered(answer)
+	if got := keys(); got != "" || e.s.pluginCheck.Load() || requests.Load() != 0 {
+		t.Fatalf("both off: %q, check %v, %d requests", got, e.s.pluginCheck.Load(), requests.Load())
+	}
+
+	// both on: the notice at once, one check however often the answer comes
+	if err := n.SetSources(map[string]bool{notify.SourceUpdate: true, notify.SourcePlugin: true}); err != nil {
+		t.Fatal(err)
+	}
+	e.s.UpdateAnswered(answer)
+	if got := keys(); got != "update:1.13.0" || !e.s.pluginCheck.Load() {
+		t.Fatalf("both on: %q, check %v", got, e.s.pluginCheck.Load())
+	}
+	e.s.UpdateAnswered(answer)
+	close(hold)
+	deadline := time.Now().Add(5 * time.Second)
+	for e.s.pluginCheck.Load() && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if e.s.pluginCheck.Load() || requests.Load() != 1 {
+		t.Fatalf("check running %v, %d requests", e.s.pluginCheck.Load(), requests.Load())
+	}
+	if got := keys(); !strings.Contains(got, pluginUpdatesKey) || !strings.Contains(got, "update:1.13.0") {
+		t.Fatalf("after the check: %q", got)
+	}
+}
+
+// No answer or no bell: nothing happens.
+func TestUpdateAnsweredNil(t *testing.T) {
+	e, n := newNotifyEnv(t)
+	e.s.UpdateAnswered(nil)
+	if list, _, _ := n.List(); len(list) != 0 || e.s.pluginCheck.Load() {
+		t.Fatalf("nil answer: %+v", list)
+	}
+	s := newHistoryEnv(t).s
+	s.UpdateAnswered(&updatecheck.Answer{Current: "1.12.0", UpdateAvailable: true, Latest: &updatecheck.Release{Version: "1.13.0"}})
+	if s.pluginCheck.Load() {
+		t.Fatal("no notifier, check started")
+	}
+}
+
+// Bad bodies are 400, no bell is 503, the API key works, a session needs the CSRF token and a
+// failed settings write is 500.
+func TestNotificationsAPIErrors(t *testing.T) {
+	e, _ := newNotifyEnv(t)
+	for _, c := range []struct{ method, url, body string }{
+		{"POST", "/api/notifications/mute", `{`},
+		{"POST", "/api/notifications/mute", `{"for":"7d"}`},
+		{"POST", "/api/notifications/mute", `{"key":"k","for":"0d"}`},
+		{"POST", "/api/notifications/mute", `{"key":"k","for":"400d"}`},
+		{"POST", "/api/notifications/mute", `{"key":"k","for":"-1h"}`},
+		{"DELETE", "/api/notifications/mute", `{`},
+		{"DELETE", "/api/notifications/mute", `{"key":""}`},
+		{"PUT", "/api/notifications/settings", `{`},
+		{"PUT", "/api/notifications/settings", `{"sources":{"login":false,"nope":true}}`},
+	} {
+		if w := e.do(t, c.method, c.url, c.body, "apikey"); w.Code != http.StatusBadRequest {
+			t.Errorf("%s %s %s: %d", c.method, c.url, c.body, w.Code)
+		}
+	}
+	if s := e.s.notifier.Settings(); !s.Sources[0].Enabled || len(s.Muted) != 0 {
+		t.Errorf("a refused request changed the settings: %+v", s)
+	}
+
+	ok := []struct{ method, url, body string }{
+		{"POST", "/api/notifications/mute", `{"key":"k","for":"24h"}`},
+		{"DELETE", "/api/notifications/mute", `{"key":"k"}`},
+		{"GET", "/api/notifications/settings", ``},
+		{"PUT", "/api/notifications/settings", `{"sources":{"log":true}}`},
+		{"POST", "/api/notifications/clear", ``},
+	}
+	for _, c := range ok {
+		if w := e.do(t, c.method, c.url, c.body, "apikey"); w.Code != http.StatusOK {
+			t.Errorf("api key %s %s: %d %s", c.method, c.url, w.Code, w.Body)
+		}
+		if c.method == "GET" {
+			continue
+		}
+		req := httptest.NewRequest(c.method, c.url, strings.NewReader(c.body))
+		req.Header.Set("Content-Type", "application/json")
+		req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: e.session})
+		w := httptest.NewRecorder()
+		e.s.router.ServeHTTP(w, req)
+		if w.Code != http.StatusForbidden {
+			t.Errorf("no CSRF %s %s: %d", c.method, c.url, w.Code)
+		}
+	}
+
+	// .vclu.json not readable: the settings are not saved
+	bad := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bad, ".vclu.json"), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e.s.notifier = notify.New(notify.Options{ConfigDir: bad, Logf: t.Logf})
+	for _, c := range ok[:2] {
+		if w := e.do(t, c.method, c.url, c.body, "apikey"); w.Code != http.StatusInternalServerError {
+			t.Errorf("write fails %s %s: %d", c.method, c.url, w.Code)
+		}
+	}
+	if w := e.do(t, "PUT", "/api/notifications/settings", ok[3].body, "apikey"); w.Code != http.StatusInternalServerError {
+		t.Errorf("write fails PUT settings: %d", w.Code)
+	}
+
+	e.s.notifier = nil
+	for _, c := range ok {
+		if w := e.do(t, c.method, c.url, c.body, "apikey"); w.Code != http.StatusServiceUnavailable {
+			t.Errorf("no bell %s %s: %d", c.method, c.url, w.Code)
+		}
+	}
+}

@@ -537,3 +537,112 @@ func TestLuaDocListsSources(t *testing.T) {
 		t.Errorf("Notifications.lua does not list source (%s)", list)
 	}
 }
+
+// Changes are written after the debounce without Flush, several in the window at once; after
+// Close no planned write comes.
+func TestDebouncedWrite(t *testing.T) {
+	dir := t.TempDir()
+	s := New(Options{Path: Path(dir), Debounce: 100 * time.Millisecond, Logf: t.Logf})
+	t.Cleanup(func() { _ = s.Close() })
+	written := func() int {
+		r := New(Options{Path: Path(dir), Logf: t.Logf})
+		list, _, _ := r.List()
+		return len(list)
+	}
+	s.Add(login("10.0.0.1"))
+	s.mu.Lock()
+	timer := s.timer
+	s.mu.Unlock()
+	s.Add(login("10.0.0.2"))
+	s.Add(login("10.0.0.3"))
+	s.mu.Lock()
+	same := s.timer == timer
+	s.mu.Unlock()
+	if timer == nil || !same {
+		t.Fatal("not one planned write for changes in the window")
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for written() != 3 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if n := written(); n != 3 {
+		t.Fatalf("%d of 3 entries written", n)
+	}
+	s.mu.Lock()
+	dirty, pending := s.dirty, s.timer != nil
+	s.mu.Unlock()
+	if dirty || pending {
+		t.Errorf("after the write: dirty %v, timer %v", dirty, pending)
+	}
+
+	s.Add(login("10.0.0.4"))
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if n := written(); n != 4 {
+		t.Fatalf("Close wrote %d of 4", n)
+	}
+	if err := os.Remove(Path(dir)); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if _, err := os.Stat(Path(dir)); !os.IsNotExist(err) {
+		t.Errorf("written after Close: %v", err)
+	}
+}
+
+// State gives a copy of the state with the key; events and missing keys are not states.
+func TestState(t *testing.T) {
+	s, _, _ := newTestStore(t, t.TempDir())
+	s.Add(update("1.13.0"))
+	s.Add(login("10.0.0.1"))
+	e, ok := s.State("update:1.13.0")
+	if !ok || e.Params["version"] != "1.13.0" || e.Kind != KindState {
+		t.Fatalf("%+v %v", e, ok)
+	}
+	e.Params["version"] = "x"
+	if e, _ := s.State("update:1.13.0"); e.Params["version"] != "1.13.0" {
+		t.Error("State is not a copy")
+	}
+	if _, ok := s.State("login:10.0.0.1"); ok {
+		t.Error("an event is a state")
+	}
+	if _, ok := s.State("nope"); ok {
+		t.Error("a missing key")
+	}
+	if _, ok := (*Store)(nil).State("update:1.13.0"); ok {
+		t.Error("nil store")
+	}
+}
+
+// Without .vclu.json the settings are kept in memory.
+func TestSettingsInMemory(t *testing.T) {
+	c := &clock{t: time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)}
+	s := New(Options{Now: c.now, Logf: t.Logf})
+	if err := s.SetSources(map[string]bool{SourceLog: true, SourceLogin: false}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Mute("a", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Mute("b", 0); err != nil {
+		t.Fatal(err)
+	}
+	nc := s.section()
+	if !nc.Sources[SourceLog] || nc.Sources[SourceLogin] || len(nc.Sources) != 2 {
+		t.Errorf("sources %v", nc.Sources)
+	}
+	if nc.Muted["a"].Until != "2026-11-21T13:00:00Z" || nc.Muted["b"].Until != "forever" || nc.Muted["b"].Title != "b" {
+		t.Errorf("muted %v", nc.Muted)
+	}
+	if !s.Enabled(SourceLog) || s.Enabled(SourceLogin) {
+		t.Error("switched sources not applied")
+	}
+	c.add(2 * time.Hour)
+	if err := s.Unmute("b"); err != nil {
+		t.Fatal(err)
+	}
+	if m := s.section().Muted; len(m) != 0 {
+		t.Errorf("expired and unmuted kept: %v", m)
+	}
+}

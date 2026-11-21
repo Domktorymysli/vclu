@@ -177,3 +177,46 @@ func TestDashboardPinLockNotice(t *testing.T) {
 		t.Fatalf("real PIN: %+v", list)
 	}
 }
+
+// A try begun and given back (the check failed) does not count and frees its place.
+func TestLockoutRelease(t *testing.T) {
+	p := newPinLockout()
+	for i := 0; i < lockTries-1; i++ {
+		p.begin("alarm")
+		p.result("alarm", false)
+	}
+	if p.begin("alarm") != 0 {
+		t.Fatal("the last try refused")
+	}
+	if p.begin("alarm") != lockoutBusyWait {
+		t.Fatal("a try past the ones left while one is checked")
+	}
+	p.release("alarm")
+	p.release("nope")
+	if p.locked("alarm") || p.begin("alarm") != 0 {
+		t.Fatal("a released try counted, or kept its place")
+	}
+	if p.result("alarm", false) == 0 {
+		t.Error("the fifth wrong PIN did not lock")
+	}
+}
+
+// PINs that could not be checked never lock the dashboard.
+func TestDashboardPinCheckFails(t *testing.T) {
+	dashPinLocks = newPinLockout()
+	s := &Server{serverDir: t.TempDir(), sessions: newSessionStore(), luaExecutor: failingLua{}}
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/api/dashboard/:id/auth", s.handleAPIDashboardAuth)
+	for i := 0; i < 2*lockTries; i++ {
+		pinLimiter = &rateLimiter{buckets: make(map[string]*bucket), rate: 1.0 / 6, burst: 5}
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/dashboard/p/auth", strings.NewReader(`{"pin":"0000"}`)))
+		if w.Code != http.StatusInternalServerError {
+			t.Fatalf("try %d: %d", i, w.Code)
+		}
+	}
+	if dashPinLocks.locked("p") || dashPinLocks.begin("p") != 0 {
+		t.Error("failed checks counted")
+	}
+}
