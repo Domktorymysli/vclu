@@ -19,10 +19,8 @@ import (
 	"github.com/Domktorymysli/vclu/pkg/history"
 	"github.com/Domktorymysli/vclu/pkg/homekit"
 	"github.com/Domktorymysli/vclu/pkg/logstream"
-	"github.com/Domktorymysli/vclu/pkg/lua"
 	"github.com/Domktorymysli/vclu/pkg/mcp"
 	"github.com/Domktorymysli/vclu/pkg/metrics"
-	"github.com/Domktorymysli/vclu/pkg/notify"
 	"github.com/Domktorymysli/vclu/pkg/plugins"
 	"github.com/Domktorymysli/vclu/pkg/server"
 	"github.com/Domktorymysli/vclu/pkg/storage"
@@ -219,16 +217,7 @@ func main() {
 	webSrv.SetMQTTManager(luaEngine.GetMQTTManager())   // Wire up MQTT manager for client reconnect/test
 	webSrv.SetSatelManager(luaEngine.GetSatelManager()) // Wire up Satel manager for status/scan/state (nil when disabled)
 
-	// The bell: entries from the sources below, passed on to Notifications.on handlers
-	notifier := notify.New(notify.Options{Path: notify.Path(cluDir), ConfigDir: cluDir})
-	notifyLua := notify.NewLuaBridge(func(js string) error {
-		_, err := luaEngine.Call("Notifications._deliver", js)
-		return err
-	})
-	notifier.Subscribe(notifyLua.Deliver)
-	stopLogNotices := logStream.AddHook(notify.LogHook(notifier))
-	luaEngine.SetModuleLoadHandler(lua.ModuleNotices(notifier, filepath.Join(cluDir, "modules")))
-	webSrv.SetNotifier(notifier)
+	notifications := startNotifications(cluDir, luaEngine, logStream, webSrv)
 
 	// Initialize KV store manager for plugin persistence
 	kvManager := plugins.NewKVStoreManager(cluDir)
@@ -337,11 +326,7 @@ func main() {
 		if err := pluginLoader.LoadAllEnabled(); err != nil {
 			log.Printf("Warning: Some plugins failed to load: %v", err)
 		}
-		loaded := map[string]string{}
-		for id, p := range pluginLoader.GetLoadedPlugins() {
-			loaded[id] = p.Manifest.Version
-		}
-		webSrv.PluginsReloaded(loaded) // a plugin updated on load has no notice left
+		pluginsLoaded(webSrv, pluginLoader) // a plugin updated on load has no notice left
 	})
 
 	// Register post-load callback: auto-expose + HomeKit (runs AFTER user.lua + plugins)
@@ -392,7 +377,7 @@ func main() {
 		Metrics:      metricsCollector,
 	})
 	bridge := cloudBridge(cloudClient)
-	bridge.PINLocked = func(path string, wait time.Duration) { notify.DeviceLocked(notifier, path, wait) }
+	bridge.PINLocked = notifications.deviceLocked
 	luaEngine.SetCloud(bridge)
 
 	// Load CLU data (plugins → user.lua → om.lua → MQTT → expose)
@@ -459,11 +444,7 @@ func main() {
 	if err := webSrv.Stop(); err != nil {
 		log.Printf("Error stopping web server: %v", err)
 	}
-	stopLogNotices()
-	notifyLua.Close()
-	if err := notifier.Close(); err != nil {
-		log.Printf("Error writing notifications: %v", err)
-	}
+	notifications.Close()
 	if err := srv.Stop(); err != nil {
 		log.Printf("Error stopping server: %v", err)
 	}
