@@ -887,7 +887,12 @@ function MQTT.pollEvents()
             instance:_emit("disconnect")
         elseif eventType == "subscribe_result" then
             if errMsg ~= "" and Logger then
-                Logger:warn("MQTT[%s] subscribe '%s' failed: %s", instanceId, topic, errMsg)
+                if not instance._props.connected and instance._subscriptions[topic] then
+                    -- kept; connect_result subscribes it (at start modules load before the client)
+                    Logger:debug("MQTT[%s] subscribe '%s' waits for the connection", instanceId, topic)
+                else
+                    Logger:warn("MQTT[%s] subscribe '%s' failed: %s", instanceId, topic, errMsg)
+                end
             end
         end
 
