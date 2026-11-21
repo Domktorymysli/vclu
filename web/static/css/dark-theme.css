@@ -683,21 +683,19 @@ html, body {
 /* Notification bell (notify-bell.js) */
 .notify-bell-btn {
     position: relative;
-    min-width: 44px;
-    min-height: 44px;
     justify-content: center;
-    font-size: 1.1rem;
 }
 
 .notify-badge {
     position: absolute;
-    top: 4px;
-    right: 2px;
-    font-size: 0.65rem;
+    top: -6px;
+    right: -8px;
+    font-size: 0.6rem;
 }
 
 .notify-menu {
-    width: 380px;
+    width: 340px;
+    font-size: 0.8125rem;
     max-width: calc(100vw - 1rem);
     max-height: 70vh;
     overflow-y: auto;
@@ -711,13 +709,18 @@ html, body {
     display: flex;
     align-items: center;
     gap: 4px;
-    padding: 6px 12px;
+    padding: 4px 6px 4px 12px;
     background: var(--bs-dropdown-bg, var(--bs-body-bg));
     border-bottom: 1px solid var(--bs-border-color);
 }
 
+.notify-head strong {
+    font-size: 0.875rem;
+}
+
 .notify-head .btn-link {
-    min-height: 44px;
+    padding: 4px 6px;
+    font-size: 0.75rem;
     text-decoration: none;
 }
 
@@ -736,14 +739,18 @@ html, body {
     flex: 1;
     min-width: 0;
     display: flex;
-    gap: 10px;
-    padding: 10px 12px;
-    min-height: 44px;
+    gap: 8px;
+    padding: 8px 12px;
+    font-size: inherit;
     white-space: normal;
 }
 
 .notify-entry.unread .notify-text {
-    font-weight: 600;
+    font-weight: 500;
+}
+
+.notify-entry:not(.unread) .notify-text {
+    color: var(--bs-secondary-color);
 }
 
 .notify-main {
@@ -753,19 +760,19 @@ html, body {
 }
 
 .notify-body {
-    font-size: 0.8rem;
+    font-size: 0.75rem;
     color: var(--bs-secondary-color);
     overflow-wrap: anywhere;
 }
 
 .notify-meta {
-    font-size: 0.75rem;
+    font-size: 0.6875rem;
     color: var(--bs-secondary-color);
 }
 
 .notify-mute-btn {
-    min-width: 44px;
-    min-height: 44px;
+    padding: 8px 10px;
+    font-size: 0.8125rem;
     justify-content: center;
 }
 
@@ -773,11 +780,26 @@ html, body {
     flex-basis: 100%;
     display: flex;
     gap: 6px;
-    padding: 0 12px 10px 40px;
+    padding: 0 12px 8px 34px;
 }
 
 .notify-mute .btn {
-    min-height: 44px;
+    font-size: 0.75rem;
+}
+
+/* Touch screens: 44 px targets */
+@media (pointer: coarse) {
+    .notify-bell-btn,
+    .notify-mute-btn {
+        min-width: 44px;
+        min-height: 44px;
+    }
+
+    .notify-head .btn-link,
+    .notify-item,
+    .notify-mute .btn {
+        min-height: 44px;
+    }
 }
 
 .notify-empty {
