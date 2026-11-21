@@ -204,7 +204,7 @@ type Server struct {
 	updateChecker    *updatecheck.Checker // nil: GET /api/update says enabled false
 	storage          *storage.Monitor     // nil: GET /api/storage answers 503
 	notifier         *notify.Store        // the bell; nil adds nothing
-	loginLocks       *pinLocks            // panel logins per address
+	loginLocks       *lockout             // panel logins per address
 	pluginCheck      atomic.Bool          // a background check of the plugin registries runs
 }
 
@@ -234,16 +234,7 @@ func NewServer(port int, webDir string, serverDir string, deviceConfig *config.C
 
 	// Setup templates with translation function
 	templatesPath := filepath.Join(webDir, "templates", "*.html")
-	tmpl := template.New("").Funcs(template.FuncMap{
-		"t": func(lang, key string) string {
-			return i18n.Get(lang, key)
-		},
-		"json": func(v interface{}) template.JS {
-			b, _ := json.Marshal(v)
-			return template.JS(b)
-		},
-		"brand": brandHTML,
-	})
+	tmpl := template.New("").Funcs(templateFuncs())
 	tmpl = template.Must(tmpl.ParseGlob(templatesPath))
 	router.SetHTMLTemplate(tmpl)
 
@@ -273,8 +264,8 @@ func NewServer(port int, webDir string, serverDir string, deviceConfig *config.C
 		sessions:        newSessionStore(),
 		calendarLimiter: newCalendarLimiter(),
 		live:            newLiveFeeds(),
-		loginLocks:      newLoginLocks(),
 	}
+	s.loginLocks = s.newLoginLockout()
 
 	// Add metrics middleware (must be first to capture all requests)
 	router.Use(s.metricsMiddleware())
@@ -1022,7 +1013,6 @@ func (s *Server) setupRoutes() {
 		api.POST("/notifications/clear", s.handleAPINotificationsClear)
 		api.POST("/notifications/mute", s.handleAPINotificationsMute)
 		api.DELETE("/notifications/mute", s.handleAPINotificationsUnmute)
-		api.POST("/notifications/hide-update", s.handleAPINotificationsHideUpdate)
 		api.GET("/notifications/settings", s.handleAPINotificationsSettings)
 		api.PUT("/notifications/settings", s.handleAPINotificationsSettingsSave)
 
@@ -1132,5 +1122,30 @@ func checkSupportsModules(serverDir string) bool {
 func (s *Server) renderHTML(c *gin.Context, code int, name string, data gin.H) {
 	data["csrfToken"] = s.getCSRFToken(c)
 	data["appVersion"] = s.version
+	data["v"] = s.assetVersion()
 	c.HTML(code, name, data)
+}
+
+// templateFuncs are the functions of the panel's templates.
+func templateFuncs() template.FuncMap {
+	return template.FuncMap{
+		"t": func(lang, key string) string {
+			return i18n.Get(lang, key)
+		},
+		"json": func(v interface{}) template.JS {
+			b, _ := json.Marshal(v)
+			return template.JS(b)
+		},
+		"brand": brandHTML,
+		// tprefix is the translations under prefix, e.g. for {{json (tprefix .t "notify.")}}
+		"tprefix": func(t map[string]string, prefix string) map[string]string {
+			out := map[string]string{}
+			for k, v := range t {
+				if strings.HasPrefix(k, prefix) {
+					out[k] = v
+				}
+			}
+			return out
+		},
+	}
 }

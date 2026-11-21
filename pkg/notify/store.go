@@ -1,15 +1,13 @@
 // Package notify keeps the panel's notifications (the bell): states that last until they are
 // resolved (a new version, a module that does not load) and events (a failed login, a lock).
-// Entries are kept in workspace/notifications.json; the sources turned off and the keys muted
-// are the "notifications" section of .vclu.json.
+// Entries are kept in workspace/notifications.json; the sources switched and the keys muted
+// are the "notifications" section of .vclu.json (settings.go).
 package notify
 
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log"
-	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -18,8 +16,6 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
-
-	"github.com/Domktorymysli/vclu/pkg/config"
 )
 
 // Kinds of entries.
@@ -35,21 +31,11 @@ const (
 	LevelError   = "error"
 )
 
-// Sources, in the order the settings list them.
-const (
-	SourceUpdate = "update"
-	SourcePlugin = "plugin"
-	SourceModule = "module"
-	SourceLog    = "log"
-	SourceLogin  = "login"
-	SourceLock   = "lock"
-)
-
-// Sources are the ids the settings take.
-var Sources = []string{SourceUpdate, SourcePlugin, SourceModule, SourceLog, SourceLogin, SourceLock}
-
 // FileName is the store's file in the data directory's workspace/.
 const FileName = "notifications.json"
+
+// fileVersion is the format of the file.
+const fileVersion = 1
 
 // Path is where the store of the data directory dir is kept.
 func Path(dir string) string { return filepath.Join(dir, "workspace", FileName) }
@@ -63,8 +49,9 @@ const (
 	logPerMinute    = 20
 )
 
-// Entry is one notification as GET /api/notifications gives it. Title and Body are English;
-// Msg and Params let the panel translate them.
+// Entry is one notification as GET /api/notifications gives it. Msg and Params are the stable
+// fields for machines; Title and Body are English, made from them; Detail is raw text that
+// has no translation (a module's error, a log line).
 type Entry struct {
 	ID     int64             `json:"id"`
 	Kind   string            `json:"kind"`
@@ -73,6 +60,7 @@ type Entry struct {
 	Key    string            `json:"key"`
 	Title  string            `json:"title"`
 	Body   string            `json:"body"`
+	Detail string            `json:"detail,omitempty"`
 	Msg    string            `json:"msg"`
 	Params map[string]string `json:"params"`
 	Link   string            `json:"link"`
@@ -80,11 +68,12 @@ type Entry struct {
 	First  time.Time         `json:"first"`
 	Last   time.Time         `json:"last"`
 	Read   bool              `json:"read"`
-	IP     string            `json:"ip,omitempty"`
+	// Renew makes Add of a state already there unread again, and delivered
+	Renew bool `json:"-"`
 }
 
-// Delivery is what Notifications.on handlers get: a new entry, a count reaching 10 or 100,
-// or a resolved state.
+// Delivery is what subscribers get: a new entry, a renewed state, a count reaching 10 or
+// 100, or a resolved state.
 type Delivery struct {
 	Entry
 	Resolved bool `json:"resolved"`
@@ -105,19 +94,20 @@ type Store struct {
 	opts Options
 
 	flushMu sync.Mutex // one write at a time, so an older snapshot never lands last
+	cfgMu   sync.Mutex // one settings write at a time
 
-	mu        sync.Mutex
-	entries   []*Entry
-	nextID    int64
-	titles    map[string]string // muted key -> its title, for the settings
-	disabled  map[string]bool
-	muted     map[string]time.Time // zero: forever
-	limits    map[string]*window
-	timer     *time.Timer
-	dirty     bool
-	gen       int64 // counts changes; a write clears dirty only if none came meanwhile
-	closed    bool
-	onDeliver func(Delivery)
+	mu      sync.Mutex
+	entries []*Entry
+	nextID  int64
+	sources map[string]bool // what the user switched; the rest keep their default
+	muted   map[string]mute
+	limits  map[string]*window
+	timer   *time.Timer
+	dirty   bool
+	gen     int64 // counts changes; a write clears dirty only if none came meanwhile
+	closed  bool
+	subs    map[int]func(Delivery)
+	nextSub int
 }
 
 type window struct {
@@ -126,9 +116,9 @@ type window struct {
 }
 
 type file struct {
-	NextID      int64             `json:"next_id"`
-	Entries     []*Entry          `json:"entries"`
-	MutedTitles map[string]string `json:"muted_titles,omitempty"`
+	Version int      `json:"version"`
+	NextID  int64    `json:"next_id"`
+	Entries []*Entry `json:"entries"`
 }
 
 // New loads the store; an unreadable file is logged and the store starts empty.
@@ -145,7 +135,7 @@ func New(opts Options) *Store {
 	if opts.Logf == nil {
 		opts.Logf = log.Printf
 	}
-	s := &Store{opts: opts, nextID: 1, titles: map[string]string{}, limits: map[string]*window{}}
+	s := &Store{opts: opts, nextID: 1, limits: map[string]*window{}, subs: map[int]func(Delivery){}}
 	s.loadConfig()
 	if opts.Path != "" {
 		s.loadFile()
@@ -162,6 +152,9 @@ func (s *Store) loadFile() {
 	if err == nil {
 		err = json.Unmarshal(b, &f)
 	}
+	if err == nil && f.Version > fileVersion {
+		err = errors.New("written by a newer vclu")
+	}
 	if err != nil {
 		s.opts.Logf("[NOTIFY] %s not read, starting empty: %v", s.opts.Path, err)
 		return
@@ -177,53 +170,43 @@ func (s *Store) loadFile() {
 		s.nextID = max(s.nextID, e.ID+1)
 	}
 	s.nextID = max(s.nextID, f.NextID)
-	if f.MutedTitles != nil {
-		s.titles = f.MutedTitles
-	}
 }
 
-func (s *Store) loadConfig() {
-	s.disabled = map[string]bool{SourceLog: true}
-	s.muted = map[string]time.Time{}
-	if s.opts.ConfigDir == "" {
-		return
-	}
-	mc, err := config.ReadMasterConfig(s.opts.ConfigDir)
-	if err != nil {
-		s.opts.Logf("[NOTIFY] settings not read, using defaults: %v", err)
-		return
-	}
-	if mc == nil || mc.Notifications == nil {
-		return
-	}
-	s.disabled, s.muted = parseConfig(mc.Notifications)
-}
-
-func parseConfig(nc *config.VCLUNotificationsConfig) (map[string]bool, map[string]time.Time) {
-	disabled := map[string]bool{SourceLog: true}
-	if nc.Disabled != nil {
-		disabled = map[string]bool{}
-		for _, id := range *nc.Disabled {
-			disabled[id] = true
-		}
-	}
-	muted := map[string]time.Time{}
-	for k, v := range nc.Muted {
-		if v == "forever" {
-			muted[k] = time.Time{}
-		} else if t, err := time.Parse(time.RFC3339, v); err == nil {
-			muted[k] = t
-		}
-	}
-	return disabled, muted
-}
-
-// SetOnDeliver sets what gets each Delivery; it is called outside the store's lock and must
-// not block. Log entries are never delivered.
-func (s *Store) SetOnDeliver(fn func(Delivery)) {
+// Subscribe calls fn with each Delivery, outside the store's lock; fn must not block. The
+// func returned stops it.
+func (s *Store) Subscribe(fn func(Delivery)) func() {
 	s.mu.Lock()
-	s.onDeliver = fn
+	id := s.nextSub
+	s.nextSub++
+	s.subs[id] = fn
 	s.mu.Unlock()
+	return func() {
+		s.mu.Lock()
+		delete(s.subs, id)
+		s.mu.Unlock()
+	}
+}
+
+// Enabled is whether source id adds entries now.
+func (s *Store) Enabled(id string) bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.enabled(id)
+}
+
+// enabled: an unknown source adds nothing; call it under mu.
+func (s *Store) enabled(id string) bool {
+	info, ok := Lookup(id)
+	if !ok {
+		return false
+	}
+	if on, set := s.sources[id]; set {
+		return on
+	}
+	return info.DefaultOn
 }
 
 // Add records e: Kind, Source and Level are required, Key merges. An empty Title or Body is
@@ -235,7 +218,7 @@ func (s *Store) Add(e Entry) {
 	var out []Delivery
 	s.mu.Lock()
 	now := s.opts.Now()
-	if s.closed || s.disabled[e.Source] || s.isMuted(e.Key, now) {
+	if s.closed || !s.enabled(e.Source) || s.isMuted(e.Key, now) {
 		s.mu.Unlock()
 		return
 	}
@@ -244,7 +227,11 @@ func (s *Store) Add(e Entry) {
 	switch {
 	case e.Kind == KindState:
 		if old := s.find(e.Key, true); old != nil {
-			old.Level, old.Title, old.Body, old.Msg, old.Params, old.Link, old.IP = e.Level, e.Title, e.Body, e.Msg, e.Params, e.Link, e.IP
+			old.Level, old.Title, old.Body, old.Detail, old.Msg, old.Params, old.Link = e.Level, e.Title, e.Body, e.Detail, e.Msg, e.Params, e.Link
+			if e.Renew {
+				old.Read, old.Last = false, now
+				out = append(out, Delivery{Entry: copyEntry(old)})
+			}
 		} else {
 			out = append(out, s.insert(e, now))
 		}
@@ -253,7 +240,7 @@ func (s *Store) Add(e Entry) {
 		if old := s.find(e.Key, false); old != nil {
 			old.Count++
 			old.Last = now
-			old.Body, old.Params, old.Level, old.IP = e.Body, e.Params, e.Level, e.IP
+			old.Body, old.Detail, old.Params, old.Level = e.Body, e.Detail, e.Params, e.Level
 			if old.Count == 10 || old.Count == 100 {
 				out = append(out, Delivery{Entry: copyEntry(old)})
 			}
@@ -264,12 +251,12 @@ func (s *Store) Add(e Entry) {
 		}
 	}
 	s.changed()
-	fn := s.onDeliver
+	subs := s.subscribers()
 	s.mu.Unlock()
-	deliver(fn, out)
+	deliver(subs, out)
 }
 
-// Resolve removes the states match picks, telling the handlers.
+// Resolve removes the states match picks, telling the subscribers.
 func (s *Store) Resolve(match func(Entry) bool) {
 	if s == nil {
 		return
@@ -288,17 +275,36 @@ func (s *Store) Resolve(match func(Entry) bool) {
 	if len(out) > 0 {
 		s.changed()
 	}
-	fn := s.onDeliver
+	subs := s.subscribers()
 	s.mu.Unlock()
-	deliver(fn, out)
+	deliver(subs, out)
 }
 
-func deliver(fn func(Delivery), out []Delivery) {
-	if fn == nil {
-		return
+// State is the state with key.
+func (s *Store) State(key string) (Entry, bool) {
+	if s == nil {
+		return Entry{}, false
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if e := s.find(key, true); e != nil {
+		return copyEntry(e), true
+	}
+	return Entry{}, false
+}
+
+// subscribers is a snapshot of them; call it under mu.
+func (s *Store) subscribers() []func(Delivery) {
+	out := make([]func(Delivery), 0, len(s.subs))
+	for _, fn := range s.subs {
+		out = append(out, fn)
+	}
+	return out
+}
+
+func deliver(subs []func(Delivery), out []Delivery) {
 	for _, d := range out {
-		if d.Source != SourceLog {
+		for _, fn := range subs {
 			fn(d)
 		}
 	}
@@ -373,162 +379,6 @@ func (s *Store) Clear() {
 	s.changed()
 }
 
-// Mute adds nothing with key for d (0: forever) and removes its entry.
-func (s *Store) Mute(key string, d time.Duration) error {
-	if key == "" {
-		return errors.New("no key")
-	}
-	s.mu.Lock()
-	var until time.Time
-	if d > 0 {
-		until = s.opts.Now().Add(d).UTC().Truncate(time.Second)
-	}
-	title := key
-	kept := s.entries[:0]
-	for _, e := range s.entries {
-		if e.Key == key {
-			title = e.Title
-			continue
-		}
-		kept = append(kept, e)
-	}
-	s.entries = kept
-	s.titles[key] = title
-	s.changed()
-	s.mu.Unlock()
-	return s.saveConfig(func(nc *config.VCLUNotificationsConfig) {
-		if nc.Muted == nil {
-			nc.Muted = map[string]string{}
-		}
-		if until.IsZero() {
-			nc.Muted[key] = "forever"
-		} else {
-			nc.Muted[key] = until.Format(time.RFC3339)
-		}
-	})
-}
-
-// Unmute lets key add entries again.
-func (s *Store) Unmute(key string) error {
-	s.mu.Lock()
-	delete(s.titles, key)
-	s.changed()
-	s.mu.Unlock()
-	return s.saveConfig(func(nc *config.VCLUNotificationsConfig) { delete(nc.Muted, key) })
-}
-
-// SetDisabled turns off these sources (and on every other one); an unknown id is an error.
-func (s *Store) SetDisabled(ids []string) error {
-	list := []string{}
-	for _, id := range ids {
-		known := false
-		for _, src := range Sources {
-			known = known || id == src
-		}
-		if !known {
-			return fmt.Errorf("unknown source %q", id)
-		}
-		list = append(list, id)
-	}
-	return s.saveConfig(func(nc *config.VCLUNotificationsConfig) { nc.Disabled = &list })
-}
-
-// Source is a source and whether it adds entries.
-type Source struct {
-	ID      string `json:"id"`
-	Enabled bool   `json:"enabled"`
-}
-
-// Muted is a muted key: until is RFC 3339 or "forever".
-type Muted struct {
-	Key   string `json:"key"`
-	Until string `json:"until"`
-	Title string `json:"title"`
-}
-
-// Settings is GET /api/notifications/settings.
-type Settings struct {
-	Sources []Source `json:"sources"`
-	Muted   []Muted  `json:"muted"`
-}
-
-// Settings gives the sources and the keys muted now.
-func (s *Store) Settings() Settings {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	now := s.opts.Now()
-	out := Settings{Sources: []Source{}, Muted: []Muted{}}
-	for _, id := range Sources {
-		out.Sources = append(out.Sources, Source{ID: id, Enabled: !s.disabled[id]})
-	}
-	for k, until := range s.muted {
-		if !until.IsZero() && !now.Before(until) {
-			continue
-		}
-		m := Muted{Key: k, Until: "forever", Title: s.titles[k]}
-		if !until.IsZero() {
-			m.Until = until.UTC().Format(time.RFC3339)
-		}
-		if m.Title == "" {
-			m.Title = k
-		}
-		out.Muted = append(out.Muted, m)
-	}
-	sort.Slice(out.Muted, func(i, j int) bool { return out.Muted[i].Key < out.Muted[j].Key })
-	return out
-}
-
-// saveConfig changes the section through UpdateMasterConfig, dropping expired mutes.
-func (s *Store) saveConfig(fn func(*config.VCLUNotificationsConfig)) error {
-	if s.opts.ConfigDir == "" {
-		s.mu.Lock()
-		nc := s.memConfig()
-		fn(nc)
-		s.disabled, s.muted = parseConfig(nc)
-		s.mu.Unlock()
-		return nil
-	}
-	var saved *config.VCLUNotificationsConfig
-	err := config.UpdateMasterConfig(s.opts.ConfigDir, func(mc *config.VCLUConfig) error {
-		if mc.Notifications == nil {
-			mc.Notifications = &config.VCLUNotificationsConfig{}
-		}
-		fn(mc.Notifications)
-		now := s.opts.Now()
-		for k, v := range mc.Notifications.Muted {
-			if t, err := time.Parse(time.RFC3339, v); v != "forever" && (err != nil || !now.Before(t)) {
-				delete(mc.Notifications.Muted, k)
-			}
-		}
-		saved = mc.Notifications
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-	s.mu.Lock()
-	s.disabled, s.muted = parseConfig(saved)
-	s.mu.Unlock()
-	return nil
-}
-
-// memConfig is the settings as a section, for a store without .vclu.json.
-func (s *Store) memConfig() *config.VCLUNotificationsConfig {
-	list := []string{}
-	for id := range s.disabled {
-		list = append(list, id)
-	}
-	nc := &config.VCLUNotificationsConfig{Disabled: &list, Muted: map[string]string{}}
-	for k, t := range s.muted {
-		if t.IsZero() {
-			nc.Muted[k] = "forever"
-		} else {
-			nc.Muted[k] = t.Format(time.RFC3339)
-		}
-	}
-	return nc
-}
-
 // Flush writes the file now.
 func (s *Store) Flush() error {
 	if s == nil || s.opts.Path == "" {
@@ -541,7 +391,7 @@ func (s *Store) Flush() error {
 		s.mu.Unlock()
 		return nil
 	}
-	b, err := json.MarshalIndent(file{NextID: s.nextID, Entries: s.entries, MutedTitles: s.titles}, "", " ")
+	b, err := json.MarshalIndent(file{Version: fileVersion, NextID: s.nextID, Entries: s.entries}, "", " ")
 	gen := s.gen
 	s.mu.Unlock()
 	if err != nil {
@@ -641,11 +491,6 @@ func writeAtomic(path string, b []byte) error {
 	return os.Rename(tmp.Name(), path)
 }
 
-func (s *Store) isMuted(key string, now time.Time) bool {
-	until, ok := s.muted[key]
-	return ok && key != "" && (until.IsZero() || now.Before(until))
-}
-
 // find is the state with key, or the unread event with it.
 func (s *Store) find(key string, state bool) *Entry {
 	if key == "" {
@@ -663,7 +508,7 @@ func (s *Store) find(key string, state bool) *Entry {
 }
 
 func (s *Store) insert(e Entry, now time.Time) Delivery {
-	e.ID, e.First, e.Last, e.Count, e.Read = s.nextID, now, now, 1, false
+	e.ID, e.First, e.Last, e.Count, e.Read, e.Renew = s.nextID, now, now, 1, false, false
 	s.nextID++
 	s.entries = append(s.entries, &e)
 	for len(s.entries) > s.opts.Max {
@@ -777,7 +622,7 @@ func prepare(e *Entry) {
 	if e.Body == "" {
 		e.Body = render(e.Msg, e.Params, false)
 	}
-	e.Title, e.Body = clip(e.Title), clip(e.Body)
+	e.Title, e.Body, e.Detail = clip(e.Title), clip(e.Body), clip(e.Detail)
 }
 
 func clip(s string) string {
@@ -807,45 +652,4 @@ func copyEntry(e *Entry) Entry {
 		c.Params[k] = v
 	}
 	return c
-}
-
-// Modules records a module load report: failed maps a file in modules/ to its error, and the
-// states of every other module are resolved.
-func (s *Store) Modules(failed map[string]string) {
-	if s == nil {
-		return
-	}
-	keys := map[string]string{}
-	for name := range failed {
-		keys[moduleKey(name)] = name
-	}
-	s.Resolve(func(e Entry) bool {
-		_, still := keys[e.Key]
-		return strings.HasPrefix(e.Key, "module:") && !still
-	})
-	names := make([]string, 0, len(failed))
-	for n := range failed {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		link := "/editor?file=modules/" + url.QueryEscape(name)
-		if name == ModulesDir {
-			link = "/editor"
-		}
-		s.Add(Entry{
-			Kind: KindState, Source: SourceModule, Level: LevelError, Key: moduleKey(name),
-			Msg: MsgModule, Params: map[string]string{"module": name}, Body: failed[name], Link: link,
-		})
-	}
-}
-
-// ModulesDir is the name a load report gives an error of the modules/ directory itself.
-const ModulesDir = "modules/"
-
-func moduleKey(name string) string {
-	if name == ModulesDir {
-		return "module:dir"
-	}
-	return "module:" + name
 }

@@ -73,10 +73,9 @@ func (s *Server) handleLoginPost(c *gin.Context) {
 	// Invalid credentials: the address only, people type passwords into the user field
 	s.notifier.Add(notify.Entry{
 		Kind: notify.KindEvent, Source: notify.SourceLogin, Level: notify.LevelWarning,
-		Key: "login:" + ip, Msg: notify.MsgLogin, Params: map[string]string{"ip": ip}, IP: ip, Link: "/settings",
+		Key: "login:" + ip, Msg: notify.MsgLogin, Params: map[string]string{"ip": ip}, Link: "/settings",
 	})
 	if wait := s.loginLocks.result(ip, false); wait > 0 {
-		s.notifyLock(notify.MsgLockLogin, "login:"+ip, map[string]string{"ip": ip}, wait, ip)
 		s.renderLogin(c, http.StatusTooManyRequests, gin.H{"locked": true, "lockedFor": lockText(wait), "lockedSeconds": seconds(wait)})
 		return
 	}

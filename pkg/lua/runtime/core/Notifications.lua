@@ -17,8 +17,9 @@ local handlers = {}
 
 --- Calls fn(n) for each notification of the panel's bell: n = { id, kind ("state"|"event"),
 -- source ("update"|"plugin"|"module"|"login"|"lock"), level ("info"|"warning"|"error"), key,
--- title, body, count, first, last (RFC 3339), link, ip (a failed login's address, else nil),
--- resolved }. title and body are English.
+-- msg, params, title, body, detail, count, first, last (RFC 3339), link, resolved }. msg (e.g.
+-- "notify.login.failed") and params (e.g. params.ip) are stable, for code; title and body are
+-- English made from them, detail is raw text (a module's error) or nil.
 -- @param fn function The handler
 -- @return function Call it to stop
 -- @api public
@@ -37,7 +38,6 @@ end
 function Notifications._deliver(json)
     local n = JSON.decode(json)
     if type(n) ~= 'table' then return end
-    if n.ip == '' then n.ip = nil end
     for _, h in ipairs({ unpack(handlers) }) do
         local e = {}
         for k, v in pairs(n) do e[k] = v end

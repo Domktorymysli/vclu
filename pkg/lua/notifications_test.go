@@ -20,7 +20,7 @@ func TestNotificationsOn(t *testing.T) {
 		got = {}
 		Notifications.on(function(n) error("boom") end)
 		stop = Notifications.on(function(n)
-			got[#got + 1] = n.key .. ":" .. n.level .. ":" .. tostring(n.resolved) .. ":" .. tostring(n.ip) .. ":" .. n.count
+			got[#got + 1] = n.key .. ":" .. n.level .. ":" .. tostring(n.resolved) .. ":" .. tostring(n.params.ip) .. ":" .. n.count
 			if n.source == "login" then sw:setValue(1) end
 		end)`)
 	deliver := func(d notify.Delivery) {
@@ -31,9 +31,9 @@ func TestNotificationsOn(t *testing.T) {
 		}
 	}
 	deliver(notify.Delivery{Entry: notify.Entry{ID: 1, Kind: notify.KindEvent, Source: notify.SourceLogin, Level: notify.LevelWarning,
-		Key: "login:10.0.0.5", Title: "Failed login to the panel", Count: 1, IP: "10.0.0.5", Params: map[string]string{"ip": "10.0.0.5"}}})
+		Key: "login:10.0.0.5", Title: "Failed login to the panel", Count: 1, Params: map[string]string{"ip": "10.0.0.5"}}})
 	deliver(notify.Delivery{Entry: notify.Entry{ID: 2, Kind: notify.KindState, Source: notify.SourceUpdate, Level: notify.LevelInfo,
-		Key: "update:1.13.0", Count: 1}, Resolved: true})
+		Key: "update:1.13.0", Count: 1, Params: map[string]string{}}, Resolved: true})
 	out, _ := engine.Execute(`return table.concat(got, ";")`)
 	if out != "login:10.0.0.5:warning:false:10.0.0.5:1;update:1.13.0:info:true:nil:1" {
 		t.Errorf("handlers got %q", out)
@@ -77,7 +77,7 @@ func TestModuleLoadHandler_ReloadKeepsState(t *testing.T) {
 	defer engine.Close()
 	n := notify.New(notify.Options{})
 	var delivered []notify.Delivery
-	n.SetOnDeliver(func(d notify.Delivery) { delivered = append(delivered, d) })
+	n.Subscribe(func(d notify.Delivery) { delivered = append(delivered, d) })
 	engine.SetModuleLoadHandler(func(results []ModuleLoadResult) {
 		failed := map[string]string{}
 		for _, r := range results {
@@ -85,7 +85,7 @@ func TestModuleLoadHandler_ReloadKeepsState(t *testing.T) {
 				failed[r.Name] = r.Error
 			}
 		}
-		n.Modules(failed)
+		notify.ModuleLoad(n, failed)
 	})
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "modules"), 0o755); err != nil {

@@ -1,13 +1,17 @@
 /**
  * Notification bell in .topbar-actions (#248): unread count coloured by the worst unread
  * level, a list from /api/notifications, mark read, clear, mute. Polled every 60 s while the
- * page is visible; an open list is not rebuilt by the poll.
+ * page is visible; an open list is not rebuilt by the poll. An entry's text is t[msg] with its
+ * params; a link starting with "#" is one of ACTIONS.
  */
 (function() {
     'use strict';
 
-    var script = document.getElementById('notifyBellScript');
-    var t = (script && script.dataset) || {};
+    // every "notify.*" text of the page's language, by its full key (_sidebar.html)
+    var t = {};
+    try {
+        t = JSON.parse(document.getElementById('notifyI18n').textContent) || {};
+    } catch (err) { /* English fallbacks */ }
     var lang = document.documentElement.lang || undefined;
     var POLL = 60000;
     var LEVELS = {
@@ -37,28 +41,28 @@
         });
     }
 
-    // "notify.lock.login" -> data-m-lock-login on the script tag
-    function msgKey(e) {
-        return String(e.msg || '').replace(/^notify\./, 'm.').replace(/[._](\w)/g, function(m, c) {
-            return c.toUpperCase();
-        });
+    function has(key) {
+        return Object.prototype.hasOwnProperty.call(t, key) && !!t[key];
+    }
+
+    function tr(key, fallback) {
+        return has('notify.' + key) ? t['notify.' + key] : fallback;
     }
 
     function translated(e) {
-        return !!(e.msg && t[msgKey(e)]);
+        return !!e.msg && has(e.msg);
     }
 
     function msgText(e) {
-        var key = msgKey(e);
         if (!translated(e)) return e.title || e.msg || '';
         var p = {};
         for (var k in e.params || {}) p[k] = e.params[k];
         // "login" -> the source's name in the settings
-        if (p.source) p.source = t['source' + p.source.charAt(0).toUpperCase() + p.source.slice(1)] || p.source;
+        if (p.source) p.source = tr('source.' + p.source, p.source);
         // lock end as a local time
         var until = new Date(p.until);
         if (p.until && !isNaN(until)) p.until = until.toLocaleTimeString(lang, { hour: '2-digit', minute: '2-digit' });
-        return fill(t[key], p);
+        return fill(t[e.msg], p);
     }
 
     function ago(iso) {
@@ -121,24 +125,28 @@
             .catch(function() { /* keep the last list */ });
     }
 
-    function open(e) {
-        var link = localLink(e.link);
-        var marked = e.read ? Promise.resolve() : request('/api/notifications/read', { ids: [e.id] }, true);
-        if (e.source === 'update') {
+    // Links starting with "#" are actions of the panel; marked is the read mark sent
+    var ACTIONS = {
+        '#update': function(marked) {
             var modal = window.VCLU && VCLU.openUpdateModal ? Promise.resolve(VCLU.openUpdateModal()) : Promise.resolve(false);
             modal.then(function(opened) {
                 if (opened) hideMenu();
                 // no release list (not checked yet, or the check is off): the setting
                 else marked.then(function() { location.href = '/settings'; });
             });
-            return;
         }
-        if (link) marked.then(function() { location.href = link; });
+    };
+
+    function open(e) {
+        var link = localLink(e.link);
+        var marked = e.read ? Promise.resolve() : request('/api/notifications/read', { ids: [e.id] }, true);
+        if (Object.prototype.hasOwnProperty.call(ACTIONS, e.link)) ACTIONS[e.link](marked);
+        else if (link) marked.then(function() { location.href = link; });
     }
 
     function muteRow(e) {
         var row = el('div', 'notify-mute d-none');
-        [['24h', t.mute24h || '24 h'], ['7d', t.mute7d || '7 days'], ['forever', t.muteForever || 'Forever']].forEach(function(m) {
+        [['24h', tr('mute_24h', '24 h')], ['7d', tr('mute_7d', '7 days')], ['forever', tr('mute_forever', 'Forever')]].forEach(function(m) {
             var b = el('button', 'btn btn-sm btn-outline-secondary', m[1]);
             b.type = 'button';
             b.dataset.mute = m[0];
@@ -162,11 +170,9 @@
         a.appendChild(el('i', 'bi ' + lv.icon + ' ' + lv.text)).setAttribute('aria-hidden', 'true');
         var main = el('span', 'notify-main');
         main.appendChild(el('span', 'notify-text', msgText(e)));
-        // English body only where it carries the detail (error text), or with no translation;
-        // never for the skipped count
-        if (e.body && e.msg !== 'notify.suppressed' && (e.source === 'module' || e.source === 'log' || !translated(e))) {
-            main.appendChild(el('span', 'notify-body', e.body));
-        }
+        // raw text (an error) when there is one; the English body only without a translation
+        var sub = e.detail || (translated(e) ? '' : e.body);
+        if (sub) main.appendChild(el('span', 'notify-body', sub));
         var meta = el('span', 'notify-meta', ago(e.last || e.first));
         if (e.count > 1) meta.appendChild(el('span', 'notify-count', ' ×' + e.count));
         main.appendChild(meta);
@@ -181,8 +187,8 @@
             var rows = muteRow(e);
             var m = el('button', 'btn-icon notify-mute-btn');
             m.type = 'button';
-            m.title = t.mute || 'Mute';
-            m.setAttribute('aria-label', t.mute || 'Mute');
+            m.title = tr('mute', 'Mute');
+            m.setAttribute('aria-label', m.title);
             m.setAttribute('aria-expanded', 'false');
             m.appendChild(el('i', 'bi bi-bell-slash'));
             m.addEventListener('click', function(ev) {
@@ -198,7 +204,7 @@
 
     function render(data, own) {
         var unread = data.unread || 0;
-        var label = fill(t.label || 'Notifications, {count} unread', { count: unread });
+        var label = fill(tr('label', 'Notifications, {count} unread'), { count: unread });
         button.setAttribute('aria-label', label);
         button.title = label;
         badge.textContent = unread > 99 ? '99+' : String(unread);
@@ -217,7 +223,7 @@
 
     function renderList(entries) {
         list.textContent = '';
-        if (!entries.length) list.appendChild(el('li', 'notify-empty', t.empty || 'No notifications'));
+        if (!entries.length) list.appendChild(el('li', 'notify-empty', tr('empty', 'No notifications')));
         entries.forEach(function(e) { list.appendChild(item(e)); });
     }
 
@@ -257,19 +263,19 @@
 
         var menu = el('div', 'dropdown-menu dropdown-menu-end notify-menu');
         var head = el('div', 'notify-head');
-        head.appendChild(el('strong', 'me-auto', t.title || 'Notifications'));
-        var markAll = headButton(t.markAllShort || t.markAll || 'Mark all as read', function() {
+        head.appendChild(el('strong', 'me-auto', tr('title', 'Notifications')));
+        var markAll = headButton(tr('mark_all_short', tr('mark_all', 'Mark all as read')), function() {
             request('/api/notifications/read', { all: true }, true);
         });
-        markAll.title = t.markAll || 'Mark all as read';
+        markAll.title = tr('mark_all', 'Mark all as read');
         markAll.setAttribute('aria-label', markAll.title);
         head.appendChild(markAll);
-        head.appendChild(headButton(t.clear || 'Clear', function() {
+        head.appendChild(headButton(tr('clear', 'Clear'), function() {
             request('/api/notifications/clear', null, true);
         }));
         var close = el('button', 'btn-close notify-close');
         close.type = 'button';
-        close.setAttribute('aria-label', t.close || 'Close');
+        close.setAttribute('aria-label', tr('close', 'Close'));
         close.addEventListener('click', function() {
             if (window.bootstrap) bootstrap.Dropdown.getOrCreateInstance(button).hide();
             button.focus();

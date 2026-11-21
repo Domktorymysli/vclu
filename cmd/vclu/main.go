@@ -226,8 +226,8 @@ func main() {
 		_, err := luaEngine.Call("Notifications._deliver", js)
 		return err
 	})
-	notifier.SetOnDeliver(notifyLua.Deliver)
-	logStream.SetHook(notify.LogHook(notifier, notifyLua.Delivering))
+	notifier.Subscribe(notifyLua.Deliver)
+	stopLogNotices := logStream.AddHook(notify.LogHook(notifier, notifyLua.Delivering))
 	luaEngine.SetModuleLoadHandler(moduleNotices(notifier, filepath.Join(cluDir, "modules")))
 	webSrv.SetNotifier(notifier)
 
@@ -458,7 +458,7 @@ func main() {
 	if err := webSrv.Stop(); err != nil {
 		log.Printf("Error stopping web server: %v", err)
 	}
-	logStream.SetHook(nil)
+	stopLogNotices()
 	notifyLua.Close()
 	if err := notifier.Close(); err != nil {
 		log.Printf("Error writing notifications: %v", err)
@@ -690,7 +690,7 @@ func printBanner() {
 
 // moduleNotices turns each module load report into the bell's states; the error loses the
 // directory, as the editor shows it.
-func moduleNotices(n *notify.Store, modulesDir string) func([]lua.ModuleLoadResult) {
+func moduleNotices(n notify.Notifier, modulesDir string) func([]lua.ModuleLoadResult) {
 	prefix := modulesDir + string(filepath.Separator)
 	if abs, err := filepath.Abs(modulesDir); err == nil {
 		prefix = abs + string(filepath.Separator)
@@ -702,7 +702,7 @@ func moduleNotices(n *notify.Store, modulesDir string) func([]lua.ModuleLoadResu
 				failed[r.Name] = strings.ReplaceAll(r.Error, prefix, "modules/")
 			}
 		}
-		n.Modules(failed)
+		notify.ModuleLoad(n, failed)
 	}
 }
 

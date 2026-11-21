@@ -2,7 +2,9 @@ package web
 
 import (
 	"archive/zip"
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -10,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -93,7 +96,7 @@ func TestLoginLimit(t *testing.T) {
 			lock = &list[i]
 		}
 	}
-	if login == nil || login.Count != 14 || login.IP != "10.0.0.5" || login.Source != notify.SourceLogin || login.Link != "/settings" {
+	if login == nil || login.Count != 14 || login.Params["ip"] != "10.0.0.5" || login.Source != notify.SourceLogin || login.Link != "/settings" {
 		t.Errorf("login entry %+v", login)
 	}
 	if lock == nil || lock.Count != 2 || lock.Params["until"] == "" || lock.Msg != notify.MsgLockLogin {
@@ -165,11 +168,11 @@ func TestLoginLimitConcurrent(t *testing.T) {
 	}
 	list, _, _ := n.List()
 	for _, en := range list {
-		if en.Key == "login:10.0.0.9" && en.Count > pinTries {
-			t.Errorf("%d tries checked, %d allowed", en.Count, pinTries)
+		if en.Key == "login:10.0.0.9" && en.Count > lockTries {
+			t.Errorf("%d tries checked, %d allowed", en.Count, lockTries)
 		}
 	}
-	if wrong > pinTries-1 {
+	if wrong > lockTries-1 {
 		t.Errorf("%d plain wrong answers", wrong)
 	}
 	if e.s.loginLocks.remaining("10.0.0.9") == 0 {
@@ -205,9 +208,9 @@ func TestLoginCountForgotten(t *testing.T) {
 func TestNotificationsAPI(t *testing.T) {
 	e, n := newNotifyEnv(t)
 	n.Add(notify.Entry{Kind: notify.KindEvent, Source: notify.SourceLogin, Level: notify.LevelWarning, Key: "login:1.2.3.4",
-		Msg: notify.MsgLogin, Params: map[string]string{"ip": "1.2.3.4"}, IP: "1.2.3.4", Link: "/settings"})
+		Msg: notify.MsgLogin, Params: map[string]string{"ip": "1.2.3.4"}, Link: "/settings"})
 	n.Add(notify.Entry{Kind: notify.KindState, Source: notify.SourceModule, Level: notify.LevelError, Key: "module:a.lua",
-		Msg: notify.MsgModule, Params: map[string]string{"module": "a.lua"}, Body: "boom"})
+		Msg: notify.MsgModule, Params: map[string]string{"module": "a.lua"}, Detail: "boom"})
 
 	if w := e.do(t, "GET", "/api/notifications", "", ""); w.Code != http.StatusUnauthorized {
 		t.Fatalf("no login: %d", w.Code)
@@ -221,10 +224,13 @@ func TestNotificationsAPI(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || w.Code != 200 || got.Unread != 2 || got.Worst != "error" || len(got.Entries) != 2 {
 		t.Fatalf("%d %s", w.Code, w.Body)
 	}
-	for _, k := range []string{"id", "kind", "source", "level", "key", "title", "body", "msg", "params", "link", "count", "first", "last", "read"} {
+	for _, k := range []string{"id", "kind", "source", "level", "key", "title", "body", "detail", "msg", "params", "link", "count", "first", "last", "read"} {
 		if _, ok := got.Entries[0][k]; !ok {
 			t.Errorf("entry without %q: %v", k, got.Entries[0])
 		}
+	}
+	if _, ok := got.Entries[1]["ip"]; ok || got.Entries[0]["detail"] != "boom" {
+		t.Errorf("entries %v", got.Entries)
 	}
 
 	// a session needs the CSRF token
@@ -250,26 +256,35 @@ func TestNotificationsAPI(t *testing.T) {
 	if w := e.do(t, "POST", "/api/notifications/mute", `{"key":"x","for":"soon"}`, "session"); w.Code != http.StatusBadRequest {
 		t.Errorf("bad for: %d", w.Code)
 	}
-	if w := e.do(t, "POST", "/api/notifications/hide-update", `{"version":"1.13.0"}`, "session"); w.Code != 200 {
-		t.Fatalf("hide-update: %d", w.Code)
+	// the new-version window hides a version for good
+	if w := e.do(t, "POST", "/api/notifications/mute", `{"key":"update:1.13.0","for":"forever"}`, "session"); w.Code != 200 {
+		t.Fatalf("mute forever: %d", w.Code)
+	}
+	if w := e.do(t, "POST", "/api/notifications/hide-update", `{"version":"1.13.0"}`, "session"); w.Code != http.StatusNotFound {
+		t.Errorf("hide-update still there: %d", w.Code)
 	}
 	w = e.do(t, "GET", "/api/notifications/settings", "", "session")
 	var set notify.Settings
-	if err := json.Unmarshal(w.Body.Bytes(), &set); err != nil || len(set.Sources) != 6 || set.Sources[3].ID != "log" || set.Sources[3].Enabled ||
+	if err := json.Unmarshal(w.Body.Bytes(), &set); err != nil || len(set.Sources) != len(notify.Sources) || set.Sources[3].ID != "log" || set.Sources[3].Enabled ||
+		set.Sources[3].Default || !set.Sources[0].Default ||
 		len(set.Muted) != 2 || set.Muted[0].Key != "module:a.lua" || set.Muted[0].Title != "Module a.lua did not load" || set.Muted[1].Until != "forever" {
 		t.Fatalf("settings %d %s", w.Code, w.Body)
 	}
-	if w := e.do(t, "PUT", "/api/notifications/settings", `{"disabled":["nope"]}`, "session"); w.Code != http.StatusBadRequest {
+	if w := e.do(t, "PUT", "/api/notifications/settings", `{"sources":{"nope":true}}`, "session"); w.Code != http.StatusBadRequest {
 		t.Errorf("unknown source: %d", w.Code)
 	}
-	if w := e.do(t, "PUT", "/api/notifications/settings", `{"disabled":[]}`, "session"); w.Code != 200 || strings.Contains(w.Body.String(), `"enabled":false`) {
-		t.Errorf("enable all: %d %s", w.Code, w.Body)
+	if w := e.do(t, "PUT", "/api/notifications/settings", `{"disabled":[]}`, "session"); w.Code != http.StatusBadRequest {
+		t.Errorf("the old shape: %d", w.Code)
+	}
+	if w := e.do(t, "PUT", "/api/notifications/settings", `{"sources":{"log":true}}`, "session"); w.Code != 200 || strings.Contains(w.Body.String(), `"enabled":false`) {
+		t.Errorf("log on: %d %s", w.Code, w.Body)
 	}
 	if w := e.do(t, "DELETE", "/api/notifications/mute", `{"key":"update:1.13.0"}`, "session"); w.Code != 200 || strings.Contains(w.Body.String(), "update:1.13.0") {
 		t.Errorf("unmute: %d %s", w.Code, w.Body)
 	}
 	mc, _ := config.ReadMasterConfig(e.dir)
-	if mc.Notifications == nil || len(*mc.Notifications.Disabled) != 0 || mc.Notifications.Muted["module:a.lua"] == "" {
+	if mc.Notifications == nil || fmt.Sprint(mc.Notifications.Sources) != "map[log:true]" || mc.Notifications.Muted["module:a.lua"].Until == "" ||
+		mc.Notifications.Muted["module:a.lua"].Title != "Module a.lua did not load" {
 		t.Errorf(".vclu.json %+v", mc.Notifications)
 	}
 	if mc.Auth == nil || mc.Auth.Username != "tytus" {
@@ -311,6 +326,9 @@ func TestUpdateAnswered(t *testing.T) {
 	e.s.UpdateAnswered(answer("1.12.0", "1.13.0"))
 	if got := keys(); got != "update:1.13.0" {
 		t.Fatalf("%s", got)
+	}
+	if list, _, _ := n.List(); list[0].Link != "#update" {
+		t.Errorf("link %q", list[0].Link)
 	}
 	e.s.UpdateAnswered(answer("1.12.0", "1.14.0"))
 	if got := keys(); got != "update:1.14.0" {
@@ -367,7 +385,8 @@ func TestUpdateCheckOffResolves(t *testing.T) {
 	}
 }
 
-// A plugin notice comes for a newer version only, and goes once installed or uninstalled.
+// A plugin is in the notice for a newer version only, and leaves it once installed or
+// uninstalled; the notice goes with the last one.
 func TestPluginNotices(t *testing.T) {
 	e, n := newNotifyEnv(t)
 	if err := writeTestConfig(e.dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{Installed: []config.InstalledPlugin{
@@ -381,7 +400,8 @@ func TestPluginNotices(t *testing.T) {
 	}
 	e.s.pluginNotices(found)
 	list, _, _ := n.List()
-	if len(list) != 1 || list[0].Key != "plugin:@vclu/weather:1.10.0" || list[0].Title != "Update for Weather: 1.10.0" || list[0].Link != "/plugins" {
+	if len(list) != 1 || list[0].Key != pluginUpdatesKey || list[0].Title != "Plugin updates: 1 (Weather)" || list[0].Link != "/plugins" ||
+		list[0].Detail != "Weather 1.10.0" || list[0].Params["count"] != "1" {
 		t.Fatalf("%+v", list)
 	}
 	if err := writeTestConfig(e.dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{Installed: []config.InstalledPlugin{
@@ -391,6 +411,111 @@ func TestPluginNotices(t *testing.T) {
 	e.s.resolvePluginNotices()
 	if list, _, _ := n.List(); len(list) != 0 {
 		t.Fatalf("installed, still %+v", list)
+	}
+}
+
+// 30 plugins with updates are one entry and one delivery. It stays read while plugins only
+// leave it (or a registry does not answer), and is unread again when a new one comes.
+func TestPluginUpdatesOneEntry(t *testing.T) {
+	e, n := newNotifyEnv(t)
+	var deliveries []notify.Delivery
+	n.Subscribe(func(d notify.Delivery) { deliveries = append(deliveries, d) })
+	var installed []config.InstalledPlugin
+	var found []availablePlugin
+	for i := 0; i < 31; i++ {
+		id := fmt.Sprintf("@vclu/p%02d", i)
+		installed = append(installed, config.InstalledPlugin{ID: id, Version: "1.0.0"})
+		if i < 30 {
+			found = append(found, availablePlugin{Meta: PluginMetadata{Name: fmt.Sprintf("P%02d", i), Version: "1.1.0"}, FullID: id,
+				Installed: true, InstalledVersion: "1.0.0", UpdateAvailable: true})
+		}
+	}
+	if err := writeTestConfig(e.dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{Installed: installed}}); err != nil {
+		t.Fatal(err)
+	}
+	e.s.pluginNotices(found)
+	list, unread, _ := n.List()
+	if len(list) != 1 || unread != 1 || len(deliveries) != 1 {
+		t.Fatalf("%d entries, %d deliveries", len(list), len(deliveries))
+	}
+	p := list[0].Params
+	if p["count"] != "30" || p["plugins"] != "P00, P01, P02 +27" || list[0].Title != "Plugin updates: 30 (P00, P01, P02 +27)" {
+		t.Fatalf("params %v, title %q", p, list[0].Title)
+	}
+	n.MarkRead(nil, true)
+
+	// one installed, one registry silent: still read, nobody told
+	installed[0].Version = "1.1.0"
+	if err := writeTestConfig(e.dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{Installed: installed}}); err != nil {
+		t.Fatal(err)
+	}
+	e.s.pluginNotices(found[2:])
+	list, unread, _ = n.List()
+	if len(list) != 1 || unread != 0 || list[0].Params["count"] != "29" || len(deliveries) != 1 {
+		t.Fatalf("after one installed: %+v unread %d, %d deliveries", list, unread, len(deliveries))
+	}
+	// a new one: unread again, told once
+	found = append(found, availablePlugin{Meta: PluginMetadata{Name: "P30", Version: "2.0.0"}, FullID: "@vclu/p30",
+		Installed: true, InstalledVersion: "1.0.0", UpdateAvailable: true})
+	e.s.pluginNotices(found)
+	list, unread, _ = n.List()
+	if len(list) != 1 || unread != 1 || list[0].Params["count"] != "30" || len(deliveries) != 2 {
+		t.Fatalf("after a new one: %+v unread %d, %d deliveries", list, unread, len(deliveries))
+	}
+	e.s.PluginsReloaded(nil)
+	if err := writeTestConfig(e.dir, &config.VCLUConfig{}); err != nil {
+		t.Fatal(err)
+	}
+	e.s.resolvePluginNotices()
+	if list, _, _ := n.List(); len(list) != 0 || len(deliveries) != 3 || !deliveries[2].Resolved {
+		t.Fatalf("all uninstalled: %+v", list)
+	}
+}
+
+// With the plugin source off nothing asks the registries, and its notice goes at once; the
+// update source off adds no new-version notice.
+func TestPluginCheckOff(t *testing.T) {
+	e, n := newNotifyEnv(t)
+	var requests atomic.Int32
+	reg := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		_, _ = w.Write([]byte(`{"namespace":"vclu","plugins":[{"id":"weather","name":"Weather","version":"2.0.0"}]}`))
+	}))
+	defer reg.Close()
+	if err := writeTestConfig(e.dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
+		Repositories: []config.PluginRepository{{Name: "test", URL: reg.URL, Enabled: true}},
+		Installed:    []config.InstalledPlugin{{ID: "@vclu/weather", Version: "1.0.0"}}}}); err != nil {
+		t.Fatal(err)
+	}
+	e.s.checkPluginUpdates(context.Background())
+	if list, _, _ := n.List(); requests.Load() != 1 || len(list) != 1 || list[0].Key != pluginUpdatesKey {
+		t.Fatalf("on: %d requests, %+v", requests.Load(), list)
+	}
+
+	if err := n.SetSources(map[string]bool{notify.SourcePlugin: false, notify.SourceUpdate: false}); err != nil {
+		t.Fatal(err)
+	}
+	if list, _, _ := n.List(); len(list) != 0 {
+		t.Fatalf("off, still %+v", list)
+	}
+	e.s.UpdateAnswered(&updatecheck.Answer{Current: "1.12.0", UpdateAvailable: true, Latest: &updatecheck.Release{Version: "1.13.0"}})
+	e.s.checkPluginUpdates(context.Background())
+	if e.s.pluginCheck.Load() || requests.Load() != 1 {
+		t.Errorf("off: check started %v, %d requests", e.s.pluginCheck.Load(), requests.Load())
+	}
+	if list, _, _ := n.List(); len(list) != 0 {
+		t.Errorf("off: %+v", list)
+	}
+}
+
+// A registry larger than 2 MB is refused.
+func TestRegistrySizeLimit(t *testing.T) {
+	reg := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"plugins":[],"pad":"` + strings.Repeat("x", maxRegistrySize) + `"}`))
+	}))
+	defer reg.Close()
+	if _, err := fetchRegistryFromRepo(config.PluginRepository{URL: reg.URL}); err == nil || !strings.Contains(err.Error(), "larger than") {
+		t.Errorf("err %v", err)
 	}
 }
 

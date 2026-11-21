@@ -1,6 +1,7 @@
 // Runs notify-bell.js in a stub DOM: renders the first /api/notifications answer, clicks the
 // first entry and the 24 h mute of the second, then prints the bell and the requests it sent.
 // Usage: node notify_bell.js <notify-bell.js> <answers.json> <texts.json> [mode]
+// texts.json is the page's notifyI18n blob: "notify.*" keys to texts.
 // answers.json is a list: GET /api/notifications answers in turn (the last one repeats).
 // mode "open": the list is open while the poll brings the second answer, then closed.
 // mode "update": clicks the first entry with no update modal to open.
@@ -55,7 +56,7 @@ const ctx = {
     document: {
         documentElement: { lang: 'en' },
         visibilityState: 'visible',
-        getElementById: (id) => (id === 'notifyBellScript' ? { dataset: texts } : null),
+        getElementById: (id) => (id === 'notifyI18n' ? { textContent: JSON.stringify(texts) } : null),
         querySelector: (sel) => (sel === '.topbar-actions' ? bar : null),
         createElement: node,
         addEventListener() {}

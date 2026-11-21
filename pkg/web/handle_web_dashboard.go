@@ -202,136 +202,6 @@ func newCalendarLimiter() *rateLimiter {
 // pinLimiter: 5 PIN tries at once, then one per 6 s, per person or address
 var pinLimiter = &rateLimiter{buckets: make(map[string]*bucket), rate: 1.0 / 6, burst: 5}
 
-// dashPinLocks lock a dashboard's PIN for everyone after five wrong ones in a row, as a
-// device's PIN is (Cloud.lua): 30 s, then twice as long each time, up to an hour; the right
-// PIN clears it. Per person alone, many people (or addresses) would guess in parallel.
-var dashPinLocks = newPinLocks()
-
-type pinLocks struct {
-	mu      sync.Mutex
-	m       map[string]*pinLock
-	now     func() time.Time
-	waitMax time.Duration
-	forget  time.Duration // an unlocked count this long without tries is dropped; 0 keeps it
-	logf    string        // the lock's log line: key, tries, wait
-}
-
-type pinLock struct {
-	n, locks int
-	inFlight int // tries begun and not yet counted
-	until    time.Time
-	last     time.Time // the last try
-}
-
-const (
-	pinLocksMax = 1024
-	pinTries    = 5
-	pinWait     = 30 * time.Second
-	pinWaitMax  = time.Hour
-	// pinBusyWait is the answer to a try over the ones left while others are checked
-	pinBusyWait = time.Second
-)
-
-func newPinLocks() *pinLocks {
-	return &pinLocks{m: map[string]*pinLock{}, now: time.Now, waitMax: pinWaitMax,
-		logf: "[Dashboard] %s: %d wrong PINs in a row, locked for %s"}
-}
-
-// newLoginLocks lock the panel's login per address the same way, up to 15 minutes; a count
-// is forgotten after an hour without tries.
-func newLoginLocks() *pinLocks {
-	return &pinLocks{m: map[string]*pinLock{}, now: time.Now, waitMax: 15 * time.Minute, forget: time.Hour,
-		logf: "[AUTH] %s: %d failed logins in a row, locked for %s"}
-}
-
-// locked is whether key's PIN takes no tries now.
-func (p *pinLocks) locked(key string) bool { return p.remaining(key) > 0 }
-
-// remaining is how long key stays locked, 0 when it is not.
-func (p *pinLocks) remaining(key string) time.Duration {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if l := p.entry(key, false); l != nil {
-		return max(l.until.Sub(p.now()), 0)
-	}
-	return 0
-}
-
-// begin reserves a try of key, to be counted by result: tries checked at the same time
-// never pass the ones left before the lock. It gives the wait when no try is left now.
-func (p *pinLocks) begin(key string) time.Duration {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	l := p.entry(key, true)
-	now := p.now()
-	if wait := l.until.Sub(now); wait > 0 {
-		return wait
-	}
-	if l.n+l.inFlight >= pinTries {
-		return pinBusyWait
-	}
-	l.inFlight++
-	l.last = now
-	return 0
-}
-
-// result counts a try: a right PIN clears key, the fifth wrong one in a row locks it. It gives
-// the lock this try started, 0 for none.
-func (p *pinLocks) result(key string, ok bool) time.Duration {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if ok {
-		delete(p.m, key)
-		return 0
-	}
-	l := p.entry(key, true)
-	l.inFlight = max(l.inFlight-1, 0)
-	l.last = p.now()
-	if l.n++; l.n >= pinTries {
-		wait := min(pinWait<<min(l.locks, 20), p.waitMax)
-		l.n, l.locks, l.until = 0, l.locks+1, p.now().Add(wait)
-		log.Printf(p.logf, key, pinTries, wait)
-		return wait
-	}
-	return 0
-}
-
-// release gives back a try begun and not counted (the check failed).
-func (p *pinLocks) release(key string) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if l := p.m[key]; l != nil {
-		l.inFlight = max(l.inFlight-1, 0)
-	}
-}
-
-// entry is key's count, made when create; one past forget is dropped first. Call under mu.
-func (p *pinLocks) entry(key string, create bool) *pinLock {
-	now := p.now()
-	l := p.m[key]
-	if l != nil && p.stale(l, now) {
-		delete(p.m, key)
-		l = nil
-	}
-	if l != nil || !create {
-		return l
-	}
-	if len(p.m) >= pinLocksMax { // made-up ids must not grow it without end: drop the unlocked
-		for k, v := range p.m {
-			if !now.Before(v.until) && v.inFlight == 0 {
-				delete(p.m, k)
-			}
-		}
-	}
-	l = &pinLock{}
-	p.m[key] = l
-	return l
-}
-
-func (p *pinLocks) stale(l *pinLock, now time.Time) bool {
-	return p.forget > 0 && l.inFlight == 0 && !now.Before(l.until) && now.Sub(l.last) >= p.forget
-}
-
 func (rl *rateLimiter) allow(ip string) bool {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
@@ -1002,7 +872,7 @@ func (s *Server) handleAPIDashboardAuth(c *gin.Context) {
 	json.Unmarshal([]byte(result), &resp)
 	// a made-up id is counted too, but only a real PIN's lock is worth a notice
 	if wait := dashPinLocks.result(id, resp.Valid); wait > 0 && resp.HasPin {
-		s.notifyLock(notify.MsgLockPIN, "pin:"+id, map[string]string{"dashboard": id}, wait, "")
+		s.notifyLock(notify.MsgLockPIN, "pin:"+id, map[string]string{"dashboard": id}, wait)
 	}
 
 	if !resp.Valid {

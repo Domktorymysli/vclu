@@ -306,11 +306,7 @@ func TestClientsPage(t *testing.T) {
 	s := &Server{sessions: newSessionStore()}
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	tmpl := template.New("").Funcs(template.FuncMap{
-		"t":     func(lang, key string) string { return i18n.Get(lang, key) },
-		"json":  func(v interface{}) template.JS { b, _ := json.Marshal(v); return template.JS(b) },
-		"brand": brandHTML,
-	})
+	tmpl := template.New("").Funcs(templateFuncs())
 	r.SetHTMLTemplate(template.Must(tmpl.ParseGlob("../../web/templates/*.html")))
 	r.Use(s.languageMiddleware())
 	r.GET("/clients", s.handleClientsPage)

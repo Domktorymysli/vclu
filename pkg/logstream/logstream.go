@@ -41,7 +41,8 @@ type LogStream struct {
 
 	written *countingWriter // wraps original: counts only what reaches it
 
-	hook atomic.Pointer[func(LogEntry)]
+	hooksMu sync.Mutex
+	hooks   atomic.Pointer[[]*hook] // copied on change, read without a lock
 }
 
 // Levels for SetLevel; the ring buffer keeps every line.
@@ -176,20 +177,43 @@ func (ls *LogStream) Write(p []byte) (n int, err error) {
 	}
 	ls.clientsMu.RUnlock()
 
-	if h := ls.hook.Load(); h != nil {
-		(*h)(entry)
+	if hs := ls.hooks.Load(); hs != nil {
+		for _, h := range *hs {
+			h.fn(entry)
+		}
 	}
 	return n, err
 }
 
-// SetHook calls fn with every entry, on the goroutine that logged it and under the log
-// package's lock: fn must not log or block. nil removes it.
-func (ls *LogStream) SetHook(fn func(LogEntry)) {
-	if fn == nil {
-		ls.hook.Store(nil)
-		return
+type hook struct{ fn func(LogEntry) }
+
+// AddHook calls fn with every entry, on the goroutine that logged it and under the log
+// package's lock: fn must not log or block. The func returned stops it.
+func (ls *LogStream) AddHook(fn func(LogEntry)) func() {
+	h := &hook{fn}
+	ls.setHooks(func(hs []*hook) []*hook { return append(hs, h) })
+	return func() {
+		ls.setHooks(func(hs []*hook) []*hook {
+			out := hs[:0]
+			for _, x := range hs {
+				if x != h {
+					out = append(out, x)
+				}
+			}
+			return out
+		})
 	}
-	ls.hook.Store(&fn)
+}
+
+func (ls *LogStream) setHooks(change func([]*hook) []*hook) {
+	ls.hooksMu.Lock()
+	defer ls.hooksMu.Unlock()
+	var hs []*hook
+	if old := ls.hooks.Load(); old != nil {
+		hs = append(hs, *old...)
+	}
+	hs = change(hs)
+	ls.hooks.Store(&hs)
 }
 
 // parseLine parses a log line into a LogEntry

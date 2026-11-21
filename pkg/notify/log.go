@@ -41,20 +41,20 @@ func FromLog(le logstream.LogEntry) (Entry, bool) {
 		Key:    "log:" + source + ":" + clip(digitsRe.ReplaceAllString(msg, "#")),
 		Msg:    MsgLog,
 		Params: map[string]string{"source": source},
-		Body:   msg,
+		Detail: msg,
 		Link:   "/debug",
 	}, true
 }
 
-// LogHook is a logstream hook adding tagged errors to s; lines logged while skip() is true
-// (a Notifications.on handler running) are left out.
-func LogHook(s *Store, skip func() bool) func(logstream.LogEntry) {
+// LogHook is a logstream subscriber adding tagged errors to n; lines logged while skip() is
+// true (a Notifications.on handler running) are left out.
+func LogHook(n Notifier, skip func() bool) func(logstream.LogEntry) {
 	return func(le logstream.LogEntry) {
 		if skip != nil && skip() {
 			return
 		}
 		if e, ok := FromLog(le); ok {
-			s.Add(e)
+			n.Add(e)
 		}
 	}
 }

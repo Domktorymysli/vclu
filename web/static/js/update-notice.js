@@ -133,10 +133,10 @@
         var hide = el('button', 'btn btn-outline-secondary', t.hide || 'Hide until next version');
         hide.type = 'button';
         hide.addEventListener('click', function() {
-            fetch('/api/notifications/hide-update', {
+            fetch('/api/notifications/mute', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ version: data.latest.version })
+                body: JSON.stringify({ key: 'update:' + data.latest.version, for: 'forever' })
             }).then(function() {
                 document.dispatchEvent(new CustomEvent('vclu:notifications-changed'));
             }).catch(function() { /* the entry stays */ });

@@ -184,3 +184,19 @@ func TestLevelSetWhileWriting(t *testing.T) {
 		t.Errorf("ring buffer has %d entries, want 50", got)
 	}
 }
+
+// Every hook gets each entry; one stopped gets nothing more.
+func TestAddHook(t *testing.T) {
+	ls := NewLogStream(io.Discard, 10)
+	var a, b []string
+	stopA := ls.AddHook(func(e LogEntry) { a = append(a, e.Message) })
+	ls.AddHook(func(e LogEntry) { b = append(b, e.TagLevel) })
+	l := log.New(ls, "", 0)
+	l.Printf("[ERROR] one")
+	stopA()
+	stopA()
+	l.Printf("two")
+	if len(a) != 1 || len(b) != 2 || b[0] != "error" || b[1] != "" {
+		t.Errorf("a %q b %q", a, b)
+	}
+}

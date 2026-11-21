@@ -19,7 +19,7 @@ import (
 func TestDashboardPinCookie(t *testing.T) {
 	dashCache.Invalidate()
 	pinLimiter = &rateLimiter{buckets: make(map[string]*bucket), rate: 1.0 / 6, burst: 5}
-	dashPinLocks = newPinLocks()
+	dashPinLocks = newPinLockout()
 	engine := lua.NewLuaEngine()
 	defer engine.Close()
 	if _, err := engine.Execute(`Dashboard.new('p'):auth('pin'):pin('1234'):section('S','i'):build()`); err != nil {
@@ -93,7 +93,7 @@ func TestDashboardPinCookie(t *testing.T) {
 	}
 	// a numeric :pin(9876) accepts the typed "9876"
 	pinLimiter = &rateLimiter{buckets: make(map[string]*bucket), rate: 1.0 / 6, burst: 5}
-	dashPinLocks = newPinLocks()
+	dashPinLocks = newPinLockout()
 	if w := login("9876"); w.Code != 200 {
 		t.Errorf("numeric PIN: %d %s", w.Code, w.Body)
 	}
@@ -103,7 +103,7 @@ func TestDashboardPinCookie(t *testing.T) {
 // last, up to an hour; the right PIN clears it.
 func TestDashboardPinLockGrows(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
-	p := newPinLocks()
+	p := newPinLockout()
 	p.now = func() time.Time { return now }
 	wrong5 := func() {
 		for i := 0; i < 5; i++ {
@@ -137,10 +137,10 @@ func TestDashboardPinLockGrows(t *testing.T) {
 	if p.locked("alarm") {
 		t.Error("a lock longer than an hour")
 	}
-	for i := 0; i < 2*pinLocksMax; i++ {
+	for i := 0; i < 2*lockoutMax; i++ {
 		p.result(fmt.Sprintf("x%d", i), false)
 	}
-	if len(p.m) > pinLocksMax+1 {
+	if len(p.m) > lockoutMax+1 {
 		t.Errorf("%d entries for made-up ids", len(p.m))
 	}
 }
@@ -148,7 +148,7 @@ func TestDashboardPinLockGrows(t *testing.T) {
 // A lock of a dashboard with a PIN is a notice; tries at made-up ids lock them, silently.
 func TestDashboardPinLockNotice(t *testing.T) {
 	dashCache.Invalidate()
-	dashPinLocks = newPinLocks()
+	dashPinLocks = newPinLockout()
 	engine := lua.NewLuaEngine()
 	defer engine.Close()
 	if _, err := engine.Execute(`Dashboard.new('p'):auth('pin'):pin('1234'):section('S','i'):build()`); err != nil {

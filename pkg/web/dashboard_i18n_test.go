@@ -167,11 +167,7 @@ func newDashI18nServer(t *testing.T) *gin.Engine {
 	s := &Server{sessions: newSessionStore(), luaExecutor: engine}
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	tmpl := template.New("").Funcs(template.FuncMap{
-		"t":     func(lang, key string) string { return i18n.Get(lang, key) },
-		"json":  func(v interface{}) template.JS { b, _ := json.Marshal(v); return template.JS(b) },
-		"brand": brandHTML,
-	})
+	tmpl := template.New("").Funcs(templateFuncs())
 	r.SetHTMLTemplate(template.Must(tmpl.ParseGlob("../../web/templates/*.html")))
 	r.Use(s.languageMiddleware())
 	r.GET("/d/:id", s.handleDashboardPage)

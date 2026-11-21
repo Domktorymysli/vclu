@@ -233,6 +233,12 @@ func availablePlugins(ctx context.Context, mc *config.VCLUConfig) ([]availablePl
 		repos = config.DefaultPluginsConfig().Repositories
 	}
 
+	installed := map[string]string{} // full id -> version
+	if mc != nil && mc.Plugins != nil {
+		for _, inst := range mc.Plugins.Installed {
+			installed[inst.ID] = inst.Version
+		}
+	}
 	var out []availablePlugin
 	var errors []string
 	for _, repo := range repos {
@@ -254,14 +260,7 @@ func availablePlugins(ctx context.Context, mc *config.VCLUConfig) ([]availablePl
 		}
 		for _, p := range registry.Plugins {
 			a := availablePlugin{Meta: p, Repo: repo, FullID: fmt.Sprintf("@%s/%s", namespace, p.ID), Namespace: namespace}
-			if mc != nil && mc.Plugins != nil {
-				for _, inst := range mc.Plugins.Installed {
-					if inst.ID == a.FullID {
-						a.Installed, a.InstalledVersion = true, inst.Version
-						break
-					}
-				}
-			}
+			a.InstalledVersion, a.Installed = installed[a.FullID]
 			a.UpdateAvailable = a.Installed && newerVersion(p.Version, a.InstalledVersion)
 			out = append(out, a)
 		}
@@ -767,6 +766,9 @@ func fetchPluginsFromRepo(repo config.PluginRepository) ([]PluginMetadata, error
 	return registry.Plugins, nil
 }
 
+// maxRegistrySize bounds a repository's plugins.json.
+const maxRegistrySize = 2 << 20
+
 // fetchRegistryFromRepo fetches full plugins.json registry from a repository
 func fetchRegistryFromRepo(repo config.PluginRepository) (*PluginRegistryResponse, error) {
 	return fetchRegistryFromRepoCtx(context.Background(), repo)
@@ -791,7 +793,10 @@ func fetchRegistryFromRepoCtx(ctx context.Context, repo config.PluginRepository)
 		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxRegistrySize+1))
+	if err == nil && len(body) > maxRegistrySize {
+		err = fmt.Errorf("larger than %d bytes", maxRegistrySize)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}

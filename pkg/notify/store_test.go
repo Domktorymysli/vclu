@@ -41,14 +41,14 @@ func newTestStore(t *testing.T, dir string) (*Store, *clock, *sink) {
 	c := &clock{t: time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)}
 	s := New(Options{Path: Path(dir), ConfigDir: dir, Now: c.now, Debounce: time.Hour, Logf: t.Logf})
 	k := &sink{}
-	s.SetOnDeliver(k.deliver)
+	s.Subscribe(k.deliver)
 	t.Cleanup(func() { _ = s.Close() })
 	return s, c, k
 }
 
 func login(ip string) Entry {
 	return Entry{Kind: KindEvent, Source: SourceLogin, Level: LevelWarning, Key: "login:" + ip,
-		Msg: MsgLogin, Params: map[string]string{"ip": ip}, IP: ip, Link: "/settings"}
+		Msg: MsgLogin, Params: map[string]string{"ip": ip}, Link: "/settings"}
 }
 
 func update(v string) Entry {
@@ -66,7 +66,7 @@ func TestEventsMergeUntilRead(t *testing.T) {
 	if len(list) != 2 || unread != 2 || worst != LevelWarning {
 		t.Fatalf("list %+v unread %d worst %q", list, unread, worst)
 	}
-	if e := list[1]; e.Key != "login:10.0.0.5" || e.Count != 2 || !e.Last.After(e.First) || e.Title != "Failed login to the panel" || e.Body != "From 10.0.0.5." || e.IP != "10.0.0.5" {
+	if e := list[1]; e.Key != "login:10.0.0.5" || e.Count != 2 || !e.Last.After(e.First) || e.Title != "Failed login to the panel" || e.Body != "From 10.0.0.5." || e.Params["ip"] != "10.0.0.5" {
 		t.Fatalf("merged %+v", e)
 	}
 	if len(k.list()) != 2 {
@@ -224,7 +224,7 @@ func TestRateLimit(t *testing.T) {
 		t.Errorf("the next hour still limited: %+v", list[0])
 	}
 
-	if err := s.SetDisabled(nil); err != nil {
+	if err := s.SetSources(map[string]bool{SourceLog: true}); err != nil {
 		t.Fatal(err)
 	}
 	s.Clear()
@@ -234,11 +234,6 @@ func TestRateLimit(t *testing.T) {
 	list, _, _ = s.List()
 	if len(list) != 21 || list[0].Count != 5 {
 		t.Fatalf("log: %d entries, first %+v", len(list), list[0])
-	}
-	for _, d := range k.list() {
-		if d.Source == SourceLog {
-			t.Fatalf("a log entry was delivered: %+v", d)
-		}
 	}
 	c.add(time.Minute)
 	s.Add(Entry{Kind: KindEvent, Source: SourceLog, Level: LevelError, Key: "log:y", Body: "y"})
@@ -273,10 +268,10 @@ func TestDisabledAndMuted(t *testing.T) {
 	if list, _, _ := s.List(); len(list) != 0 {
 		t.Fatal("log is on by default")
 	}
-	if err := s.SetDisabled([]string{SourceLogin}); err != nil {
+	if err := s.SetSources(map[string]bool{SourceLogin: false}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetDisabled([]string{"nope"}); err == nil {
+	if err := s.SetSources(map[string]bool{"nope": true}); err == nil {
 		t.Error("unknown source taken")
 	}
 	s.Add(login("1.1.1.1"))
@@ -289,12 +284,13 @@ func TestDisabledAndMuted(t *testing.T) {
 		t.Fatalf("muted or disabled added: %+v", list)
 	}
 	set := s.Settings()
-	if fmt.Sprint(set.Sources) != "[{update true} {plugin true} {module true} {log true} {login false} {lock true}]" ||
+	if fmt.Sprint(set.Sources) != "[{update true true} {plugin true true} {module true true} {log false false} {login false true} {lock true true}]" ||
 		len(set.Muted) != 1 || set.Muted[0].Title != "vclu 1.13.0 is available" || set.Muted[0].Until != "2026-11-22T12:00:00Z" {
 		t.Fatalf("settings %+v", set)
 	}
 	mc, _ := config.ReadMasterConfig(dir)
-	if mc == nil || mc.Notifications == nil || fmt.Sprint(*mc.Notifications.Disabled) != "[login]" || mc.Notifications.Muted["update:1.13.0"] != "2026-11-22T12:00:00Z" {
+	if mc == nil || mc.Notifications == nil || fmt.Sprint(mc.Notifications.Sources) != "map[login:false]" ||
+		mc.Notifications.Muted["update:1.13.0"] != (config.VCLUNotificationMute{Until: "2026-11-22T12:00:00Z", Title: "vclu 1.13.0 is available"}) {
 		t.Fatalf(".vclu.json %+v", mc.Notifications)
 	}
 	// settings come back after a restart, and an expired mute is dropped on the next write
@@ -308,7 +304,7 @@ func TestDisabledAndMuted(t *testing.T) {
 		t.Fatal(err)
 	}
 	mc, _ = config.ReadMasterConfig(dir)
-	if _, ok := mc.Notifications.Muted["update:1.13.0"]; ok || mc.Notifications.Muted["other"] != "forever" {
+	if _, ok := mc.Notifications.Muted["update:1.13.0"]; ok || mc.Notifications.Muted["other"].Until != "forever" {
 		t.Errorf("muted %+v", mc.Notifications.Muted)
 	}
 	if err := s.Unmute("other"); err != nil {
@@ -327,22 +323,22 @@ func TestDisabledAndMuted(t *testing.T) {
 func TestTextsCapped(t *testing.T) {
 	s, _, _ := newTestStore(t, t.TempDir())
 	s.Add(Entry{Kind: KindState, Source: SourceModule, Level: LevelError, Key: "module:x.lua", Msg: MsgModule,
-		Params: map[string]string{"module": "x.lua"}, Body: strings.Repeat("ż", 1000)})
+		Params: map[string]string{"module": "x.lua"}, Detail: strings.Repeat("ż", 1000)})
 	list, _, worst := s.List()
-	if n := len([]rune(list[0].Body)); n != maxText || worst != LevelError || list[0].Title != "Module x.lua did not load" {
+	if n := len([]rune(list[0].Detail)); n != maxText || worst != LevelError || list[0].Title != "Module x.lua did not load" {
 		t.Errorf("body %d runes, worst %q, title %q", n, worst, list[0].Title)
 	}
 }
 
 func TestModules(t *testing.T) {
 	s, _, k := newTestStore(t, t.TempDir())
-	s.Modules(map[string]string{"a.lua": "modules/a.lua:3: boom", "b.lua": "x"})
-	s.Modules(map[string]string{"b.lua": "y"})
+	ModuleLoad(s, map[string]string{"a.lua": "modules/a.lua:3: boom", "b.lua": "x"})
+	ModuleLoad(s, map[string]string{"b.lua": "y"})
 	list, _, _ := s.List()
-	if len(list) != 1 || list[0].Key != "module:b.lua" || list[0].Body != "y" || list[0].Link != "/editor?file=modules/b.lua" {
+	if len(list) != 1 || list[0].Key != "module:b.lua" || list[0].Detail != "y" || list[0].Body != "" || list[0].Link != "/editor?file=modules/b.lua" {
 		t.Fatalf("%+v", list)
 	}
-	s.Modules(nil)
+	ModuleLoad(s, nil)
 	if list, _, _ := s.List(); len(list) != 0 {
 		t.Fatal("a module that loads keeps its state")
 	}
@@ -360,16 +356,16 @@ func TestModules(t *testing.T) {
 // An error of the modules/ directory itself has its own key and opens the editor.
 func TestModulesDirError(t *testing.T) {
 	s, _, _ := newTestStore(t, t.TempDir())
-	s.Modules(map[string]string{ModulesDir: "failed to read modules dir"})
+	ModuleLoad(s, map[string]string{ModulesDir: "failed to read modules dir"})
 	list, _, _ := s.List()
 	if len(list) != 1 || list[0].Key != "module:dir" || list[0].Link != "/editor" {
 		t.Fatalf("%+v", list)
 	}
-	s.Modules(map[string]string{ModulesDir: "again"})
-	if list, _, _ = s.List(); len(list) != 1 || list[0].Body != "again" {
+	ModuleLoad(s, map[string]string{ModulesDir: "again"})
+	if list, _, _ = s.List(); len(list) != 1 || list[0].Detail != "again" {
 		t.Fatalf("not kept: %+v", list)
 	}
-	s.Modules(nil)
+	ModuleLoad(s, nil)
 	if list, _, _ = s.List(); len(list) != 0 {
 		t.Fatal("not resolved")
 	}
@@ -440,11 +436,104 @@ func TestNilStore(t *testing.T) {
 	var s *Store
 	s.Add(login("1.1.1.1"))
 	s.Resolve(func(Entry) bool { return true })
-	s.Modules(nil)
+	ModuleLoad(s, map[string]string{"a.lua": "x"})
+	if s.Enabled(SourceUpdate) {
+		t.Fatal("nil store enabled")
+	}
 	if list, n, w := s.List(); len(list) != 0 || n != 0 || w != "" {
 		t.Fatal("nil store lists")
 	}
 	if s.Close() != nil || s.Flush() != nil {
 		t.Fatal("nil store")
+	}
+}
+
+// A renewed state comes back unread and is delivered; a plain Add keeps it read and quiet.
+func TestStateRenew(t *testing.T) {
+	s, c, k := newTestStore(t, t.TempDir())
+	s.Add(update("1.13.0"))
+	s.MarkRead(nil, true)
+	c.add(time.Minute)
+	s.Add(update("1.13.0"))
+	if _, unread, _ := s.List(); unread != 0 || len(k.list()) != 1 {
+		t.Fatalf("plain Add: unread %d, %d deliveries", unread, len(k.list()))
+	}
+	e := update("1.13.0")
+	e.Renew = true
+	s.Add(e)
+	list, unread, _ := s.List()
+	if unread != 1 || len(list) != 1 || !list[0].Last.After(list[0].First) || len(k.list()) != 2 || k.list()[1].Resolved {
+		t.Fatalf("renewed: %+v unread %d deliveries %+v", list, unread, k.list())
+	}
+}
+
+// Each subscriber gets every delivery, log entries too; one unsubscribed gets nothing more.
+func TestSubscribe(t *testing.T) {
+	s, _, k := newTestStore(t, t.TempDir())
+	other := &sink{}
+	stop := s.Subscribe(other.deliver)
+	s.Add(login("1.1.1.1"))
+	stop()
+	s.Add(login("2.2.2.2"))
+	if len(k.list()) != 2 || len(other.list()) != 1 {
+		t.Errorf("deliveries %d and %d", len(k.list()), len(other.list()))
+	}
+}
+
+// Turning a source off resolves its states; a source switched by nobody keeps its default,
+// so one added later off by default stays off for an installation with other choices saved.
+func TestSourcesDefaults(t *testing.T) {
+	dir := t.TempDir()
+	s, _, _ := newTestStore(t, dir)
+	s.Add(update("1.13.0"))
+	s.Add(Entry{Kind: KindState, Source: SourcePlugin, Key: "plugin-updates", Msg: MsgPluginUpdates})
+	if err := s.SetSources(map[string]bool{SourcePlugin: false, SourceLog: true}); err != nil {
+		t.Fatal(err)
+	}
+	if list, _, _ := s.List(); len(list) != 1 || list[0].Source != SourceUpdate {
+		t.Fatalf("after plugin off: %+v", list)
+	}
+	saved := Sources
+	t.Cleanup(func() { Sources = saved })
+	Sources = append(append([]SourceInfo(nil), saved...), SourceInfo{ID: "later"}, SourceInfo{ID: "later-on", DefaultOn: true})
+	s2 := New(Options{ConfigDir: dir})
+	if s2.Enabled("later") || !s2.Enabled("later-on") || !s2.Enabled(SourceLog) || s2.Enabled(SourcePlugin) || !s2.Enabled(SourceUpdate) {
+		t.Errorf("settings %+v", s2.Settings().Sources)
+	}
+	if s2.Enabled("unknown") {
+		t.Error("an unknown source adds")
+	}
+}
+
+// The file carries its format; one from a newer vclu is not read.
+func TestFileVersion(t *testing.T) {
+	dir := t.TempDir()
+	s, _, _ := newTestStore(t, dir)
+	s.Add(login("1.1.1.1"))
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(Path(dir))
+	if !strings.Contains(string(b), `"version": 1`) {
+		t.Fatalf("no version: %s", b)
+	}
+	_ = os.WriteFile(Path(dir), []byte(`{"version": 2, "entries": [{"id": 1, "kind": "event", "source": "login"}]}`), 0o600)
+	if list, _, _ := New(Options{Path: Path(dir), Logf: t.Logf}).List(); len(list) != 0 {
+		t.Errorf("newer format read: %+v", list)
+	}
+}
+
+// The doc of Notifications.on lists the sources that reach Lua.
+func TestLuaDocListsSources(t *testing.T) {
+	b, err := os.ReadFile("../lua/runtime/core/Notifications.lua")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want []string
+	for _, id := range LuaSources() {
+		want = append(want, `"`+id+`"`)
+	}
+	if list := strings.Join(want, "|"); !strings.Contains(strings.ReplaceAll(string(b), "\n-- ", " "), "source ("+list+")") {
+		t.Errorf("Notifications.lua does not list source (%s)", list)
 	}
 }

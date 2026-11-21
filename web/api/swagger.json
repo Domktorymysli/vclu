@@ -2157,7 +2157,7 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "The panel's notifications (the bell), the last changed first. `kind` \"state\" lasts until it is over (a new version, a module that does not load) and comes back unread never; \"event\" (a failed login, a lock) is merged by `key` while unread (`count`), and a new one comes once it is read. `title` and `body` are English; `msg` and `params` are for translating them. `worst` is the worst unread level, \"\" with none.",
+                "description": "The panel's notifications (the bell), the last changed first. `kind` \"state\" lasts until it is over (a new version, a module that does not load, plugin updates as one entry) and is unread again only when it grows; \"event\" (a failed login, a lock) is merged by `key` while unread (`count`), and a new one comes once it is read. `msg` and `params` are the stable fields; `title` and `body` are English made from them, `detail` is raw text without a translation (a module's error). A `link` starting with \"#\" is an action of the panel (\"#update\": the new-version window). `worst` is the worst unread level, \"\" with none.",
                 "produces": [
                     "application/json"
                 ],
@@ -2212,62 +2212,6 @@
                 }
             }
         },
-        "/api/notifications/hide-update": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Mutes the notice of this vclu version for good (key `update:\u003cversion\u003e`); a newer version comes again. Answers the list.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "system"
-                ],
-                "summary": "Hide a new version",
-                "parameters": [
-                    {
-                        "description": "The version",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "type": "object",
-                            "properties": {
-                                "version": {
-                                    "type": "string"
-                                }
-                            }
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/web.notificationsList"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/web.APIError"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/web.APIError"
-                        }
-                    }
-                }
-            }
-        },
         "/api/notifications/mute": {
             "post": {
                 "security": [
@@ -2275,7 +2219,7 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Nothing with this `key` is added for `for` (\"24h\", \"7d\" or \"forever\"), nor passed to Notifications.on handlers, and its entry is removed. Saved in .vclu.json (`notifications.muted`). Answers the list.",
+                "description": "Nothing with this `key` is added for `for` (\"24h\", \"7d\" or \"forever\"), nor passed to Notifications.on handlers, and its entry is removed. Saved in .vclu.json (`notifications.muted`); \"forever\" on `update:\u003cversion\u003e` hides that version until a newer one. Answers the list.",
                 "consumes": [
                     "application/json"
                 ],
@@ -2456,7 +2400,7 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Each source (update, plugin, module, log, login, lock) and whether it adds notifications (log is off until turned on), and the keys muted now: `until` is RFC 3339 or \"forever\".",
+                "description": "Each source in the order of the settings, whether it adds notifications now and whether it does by default (log does not), and the keys muted now: `until` is RFC 3339 or \"forever\". The panel names a source by its translation `notify.source.\u003cid\u003e`.",
                 "produces": [
                     "application/json"
                 ],
@@ -2485,7 +2429,7 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "`disabled` lists the sources that add nothing (every other one adds); saved in .vclu.json (`notifications.disabled`). Answers the settings.",
+                "description": "`sources` maps source ids to on (true) or off (false); sources not sent keep their setting, and one never switched keeps its default. Saved in .vclu.json (`notifications.sources`). A source turned off adds nothing (nor asks the plugin registries, for \"plugin\") and its states are resolved. Answers the settings.",
                 "consumes": [
                     "application/json"
                 ],
@@ -2495,20 +2439,20 @@
                 "tags": [
                     "system"
                 ],
-                "summary": "Turn notification sources off",
+                "summary": "Switch notification sources",
                 "parameters": [
                     {
-                        "description": "The sources turned off",
+                        "description": "The sources to switch",
                         "name": "body",
                         "in": "body",
                         "required": true,
                         "schema": {
                             "type": "object",
                             "properties": {
-                                "disabled": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "string"
+                                "sources": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "type": "boolean"
                                     }
                                 }
                             }
@@ -4114,14 +4058,14 @@
                 "count": {
                     "type": "integer"
                 },
+                "detail": {
+                    "type": "string"
+                },
                 "first": {
                     "type": "string"
                 },
                 "id": {
                     "type": "integer"
-                },
-                "ip": {
-                    "type": "string"
                 },
                 "key": {
                     "type": "string"
@@ -4192,6 +4136,9 @@
         "notify.Source": {
             "type": "object",
             "properties": {
+                "default": {
+                    "type": "boolean"
+                },
                 "enabled": {
                     "type": "boolean"
                 },
@@ -4757,9 +4704,21 @@
                 1000000,
                 1000000000,
                 60000000000,
+                3600000000000,
+                1,
+                1000,
+                1000000,
+                1000000000,
+                60000000000,
                 3600000000000
             ],
             "x-enum-varnames": [
+                "Nanosecond",
+                "Microsecond",
+                "Millisecond",
+                "Second",
+                "Minute",
+                "Hour",
                 "Nanosecond",
                 "Microsecond",
                 "Millisecond",

@@ -980,6 +980,7 @@
     "mark_all": "Oznacz wszystkie jako przeczytane",
     "mark_all_short": "Przeczytane",
     "clear": "Wyczyść",
+    "close": "Zamknij",
     "mute": "Wycisz",
     "mute_24h": "24 h",
     "mute_7d": "7 dni",
@@ -988,7 +989,7 @@
       "available": "Dostępna nowa wersja vclu {version}"
     },
     "plugin": {
-      "update": "Plugin {plugin}: dostępna wersja {version}"
+      "updates": "Aktualizacje pluginów: {count} ({plugins})"
     },
     "module": {
       "failed": "Moduł {module} nie załadował się"
@@ -1007,13 +1008,15 @@
     "suppressed": "Pominięto kolejne powiadomienia ({source}): {count}",
     "settings_title": "Powiadomienia",
     "settings_desc": "Wybierz, co ma się pojawiać w dzwonku.",
-    "source_update": "Nowe wersje vclu",
-    "source_plugin": "Aktualizacje pluginów",
-    "source_module": "Moduły, które się nie załadowały",
-    "source_log": "Błędy w logu",
-    "source_log_hint": "Domyślnie wyłączone: niektóre instalacje logują dużo błędów.",
-    "source_login": "Nieudane logowania do panelu",
-    "source_lock": "Blokady po zbyt wielu próbach",
+    "source": {
+      "update": "Nowe wersje vclu",
+      "plugin": "Aktualizacje pluginów",
+      "module": "Moduły, które się nie załadowały",
+      "log": "Błędy w logu",
+      "log_hint": "Domyślnie wyłączone: niektóre instalacje logują dużo błędów.",
+      "login": "Nieudane logowania do panelu",
+      "lock": "Blokady po zbyt wielu próbach"
+    },
     "muted_title": "Wyciszone",
     "muted_none": "Nic nie jest wyciszone.",
     "muted_forever": "na zawsze",

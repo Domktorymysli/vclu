@@ -980,6 +980,7 @@
     "mark_all": "Mark all as read",
     "mark_all_short": "Mark all read",
     "clear": "Clear",
+    "close": "Close",
     "mute": "Mute",
     "mute_24h": "24 h",
     "mute_7d": "7 days",
@@ -988,7 +989,7 @@
       "available": "vclu {version} is available"
     },
     "plugin": {
-      "update": "Plugin {plugin}: version {version} is available"
+      "updates": "Plugin updates: {count} ({plugins})"
     },
     "module": {
       "failed": "Module {module} failed to load"
@@ -1007,13 +1008,15 @@
     "suppressed": "{count} more notifications skipped ({source})",
     "settings_title": "Notifications",
     "settings_desc": "Choose what shows up in the bell.",
-    "source_update": "New vclu versions",
-    "source_plugin": "Plugin updates",
-    "source_module": "Modules that failed to load",
-    "source_log": "Errors in the log",
-    "source_log_hint": "Off by default: some installations log many errors.",
-    "source_login": "Failed panel logins",
-    "source_lock": "Locks after too many attempts",
+    "source": {
+      "update": "New vclu versions",
+      "plugin": "Plugin updates",
+      "module": "Modules that failed to load",
+      "log": "Errors in the log",
+      "log_hint": "Off by default: some installations log many errors.",
+      "login": "Failed panel logins",
+      "lock": "Locks after too many attempts"
+    },
     "muted_title": "Muted",
     "muted_none": "Nothing is muted.",
     "muted_forever": "for good",

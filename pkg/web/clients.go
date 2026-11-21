@@ -76,7 +76,7 @@ var clientFails = &rateLimiter{buckets: make(map[string]*bucket), rate: 1, burst
 func (s *Server) authClient(c *gin.Context, token string) (config.APIClient, int) {
 	ip := c.ClientIP()
 	if clientFails.empty(ip) {
-		s.notifyLock(notify.MsgLockToken, "token:"+ip, map[string]string{"ip": ip}, 0, ip)
+		s.notifyLock(notify.MsgLockToken, "token:"+ip, map[string]string{"ip": ip}, 0)
 		return config.APIClient{}, http.StatusTooManyRequests
 	}
 	cl, ok := s.apiClient(token)

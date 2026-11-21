@@ -248,19 +248,27 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 /**
- * Notifications card: a switch per source and the muted keys (#248)
+ * Notifications card: a switch per source from /api/notifications/settings, and the muted
+ * keys (#248). Texts are the bell's (notifyI18n in _sidebar.html).
  */
 function initNotificationSettings() {
-    var switches = document.querySelectorAll('#notifySources [data-source]');
+    var box = document.getElementById('notifySources');
     var muted = document.getElementById('notifyMuted');
-    if (!switches.length || !muted) return;
+    if (!box || !muted) return;
+    var t = {};
+    try {
+        t = JSON.parse(document.getElementById('notifyI18n').textContent) || {};
+    } catch (err) { /* English fallbacks */ }
+    function tr(key, fallback) {
+        return Object.prototype.hasOwnProperty.call(t, 'notify.' + key) && t['notify.' + key] ? t['notify.' + key] : fallback;
+    }
 
     function showMuted(list) {
         muted.textContent = '';
         if (!list || !list.length) {
             var none = document.createElement('li');
             none.className = 'text-muted small';
-            none.textContent = _st('notify_muted_none', 'Nothing is muted.');
+            none.textContent = tr('muted_none', 'Nothing is muted.');
             muted.appendChild(none);
             return;
         }
@@ -272,22 +280,19 @@ function initNotificationSettings() {
             name.textContent = m.title || m.key;
             var until = document.createElement('small');
             until.className = 'text-muted text-nowrap';
-            until.textContent = m.until === 'forever' ? _st('notify_muted_forever', 'for good')
-                : _st('notify_muted_until', 'until {time}').replace('{time}', new Date(m.until).toLocaleString(document.documentElement.lang || undefined));
+            until.textContent = m.until === 'forever' ? tr('muted_forever', 'for good')
+                : tr('muted_until', 'until {time}').replace('{time}', new Date(m.until).toLocaleString(document.documentElement.lang || undefined));
             var restore = document.createElement('button');
             restore.type = 'button';
             restore.className = 'btn btn-sm btn-outline-secondary ms-auto';
-            restore.textContent = _st('notify_restore', 'Restore');
+            restore.textContent = tr('restore', 'Restore');
             restore.addEventListener('click', function() {
                 restore.disabled = true;
-                fetch('/api/notifications/mute', {
+                VCLU.fetchJSON('/api/notifications/mute', {
                     method: 'DELETE',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ key: m.key })
-                }).then(function(r) {
-                    if (!r.ok) throw new Error('HTTP ' + r.status);
-                    return load();
-                }).catch(function(err) {
+                }).then(load, function(err) {
                     restore.disabled = false;
                     VCLU.showToast('Error: ' + err.message, 'danger');
                 });
@@ -299,35 +304,58 @@ function initNotificationSettings() {
         });
     }
 
-    function load() {
-        return VCLU.fetchJSON('/api/notifications/settings').then(function(data) {
-            var on = {};
-            (data.sources || []).forEach(function(s) { on[s.id] = s.enabled; });
-            switches.forEach(function(sw) {
-                sw.checked = !!on[sw.dataset.source];
-                sw.disabled = !(sw.dataset.source in on);
+    // one switch per source, in the server's order; only the one changed is sent
+    function showSources(sources) {
+        box.textContent = '';
+        (sources || []).forEach(function(src) {
+            var wrap = document.createElement('div');
+            wrap.className = 'form-check form-switch';
+            var sw = document.createElement('input');
+            sw.className = 'form-check-input';
+            sw.type = 'checkbox';
+            sw.setAttribute('role', 'switch');
+            sw.id = 'notifySource-' + src.id;
+            sw.dataset.source = src.id;
+            sw.checked = !!src.enabled;
+            var label = document.createElement('label');
+            label.className = 'form-check-label';
+            label.htmlFor = sw.id;
+            label.textContent = tr('source.' + src.id, src.id);
+            wrap.appendChild(sw);
+            wrap.appendChild(label);
+            var hint = tr('source.' + src.id + '_hint', '');
+            if (hint) {
+                var h = document.createElement('div');
+                h.className = 'form-text mt-0';
+                h.textContent = hint;
+                wrap.appendChild(h);
+            }
+            sw.addEventListener('change', function() {
+                var body = { sources: {} };
+                body.sources[src.id] = sw.checked;
+                VCLU.fetchJSON('/api/notifications/settings', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                }).then(function() {
+                    VCLU.showToast(tr('saved', 'Saved'), 'success');
+                    document.dispatchEvent(new CustomEvent('vclu:notifications-changed'));
+                }, function(err) {
+                    sw.checked = !sw.checked;
+                    VCLU.showToast('Error: ' + err.message, 'danger');
+                });
             });
-            showMuted(data.muted);
-        }).catch(function() { /* card stays disabled */ });
+            box.appendChild(wrap);
+        });
     }
 
-    switches.forEach(function(sw) {
-        sw.addEventListener('change', function() {
-            var disabled = [];
-            switches.forEach(function(s) { if (!s.checked) disabled.push(s.dataset.source); });
-            VCLU.fetchJSON('/api/notifications/settings', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ disabled: disabled })
-            }).then(function() {
-                VCLU.showToast(_st('notify_saved', 'Saved'), 'success');
-                document.dispatchEvent(new CustomEvent('vclu:notifications-changed'));
-            }, function(err) {
-                sw.checked = !sw.checked;
-                VCLU.showToast('Error: ' + err.message, 'danger');
-            });
-        });
-    });
+    function load() {
+        return VCLU.fetchJSON('/api/notifications/settings').then(function(data) {
+            showSources(data.sources);
+            showMuted(data.muted);
+        }).catch(function() { /* the card stays empty */ });
+    }
+
     // a key muted from the bell
     document.addEventListener('vclu:notifications-changed', function(ev) {
         if (ev.detail && ev.detail.from === 'bell') load();
