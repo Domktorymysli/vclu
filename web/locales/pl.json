@@ -990,7 +990,8 @@
       "whats_new": "Zobacz, co nowego"
     },
     "plugin": {
-      "updates": "Aktualizacje pluginów: {count} ({plugins})"
+      "updates": "Aktualizacje pluginów: {count} ({plugins})",
+      "permissions": "Pluginy czekają na zgodę: {count} ({plugins})"
     },
     "module": {
       "failed": "Moduł {module} nie załadował się"

@@ -491,3 +491,61 @@ func TestLoadAllEnabledDoesNotRetryFailedUpdateOnEveryReload(t *testing.T) {
 		t.Errorf("%d requests after the retry time, want 2", n)
 	}
 }
+
+// A version for a newer plugin API is not taken: the installed one stays on disk and in the lock.
+func TestDownloadPluginRefusesNewerAPI(t *testing.T) {
+	ts := newTestServer(map[string]string{
+		"/plugins.json":                weatherIndex110,
+		"/plugins/weather/plugin.json": fmt.Sprintf(`{"id":"weather","version":"1.1.0","api":%d,"files":["init.lua"]}`, PluginAPIMax+1),
+		"/plugins/weather/init.lua":    "return 'new'\n",
+	})
+	defer ts.Close()
+	loader, _ := installedWeather(t, ts.URL, "1.0.2")
+	loader.httpClient = ts.Client()
+
+	err := loader.DownloadPlugin(configRepo("test", ts.URL), "@vclu/weather")
+	if err == nil || !strings.Contains(err.Error(), "update vclu") || !strings.Contains(err.Error(), fmt.Sprint(PluginAPIMax+1)) {
+		t.Fatalf("err %v, want one telling to update vclu", err)
+	}
+	if entry := loader.ReadLockFile()["@vclu/weather"]; entry.Version != "1.0.2" {
+		t.Errorf("lock %+v, want 1.0.2", entry)
+	}
+	entries, err := os.ReadDir(filepath.Join(loader.pluginsDir, safePluginDir("@vclu/weather")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	if got := strings.Join(names, ","); got != "1.0.2" {
+		t.Errorf("on disk: %s, want 1.0.2 only", got)
+	}
+}
+
+// An installed plugin whose id is not allowed is reported, not loaded and not skipped quietly.
+func TestLoadAllEnabledReportsInvalidID(t *testing.T) {
+	ts := newTestServer(map[string]string{})
+	defer ts.Close()
+	loader, L := installedWeather(t, ts.URL, "1.0.2")
+	err := config.UpdateMasterConfig(loader.serverDir, func(mc *config.VCLUConfig) error {
+		mc.Plugins.Installed = append(mc.Plugins.Installed,
+			config.InstalledPlugin{ID: "@Jan/foo", Version: "1.0.0", Enabled: true},
+			config.InstalledPlugin{ID: "@Jan/off", Version: "1.0.0"})
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = loader.LoadAllEnabled()
+	if err == nil || !strings.Contains(err.Error(), "@Jan/foo") || !strings.Contains(err.Error(), "install it again") {
+		t.Fatalf("err %v, want @Jan/foo reported", err)
+	}
+	if strings.Contains(err.Error(), "@Jan/off") {
+		t.Errorf("a disabled plugin reported: %v", err)
+	}
+	if dir, _ := loadedFrom(L); !strings.HasSuffix(dir, "1.0.2") {
+		t.Errorf("weather not loaded next to it: %q", dir)
+	}
+}

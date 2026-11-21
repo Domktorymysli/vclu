@@ -234,10 +234,10 @@ func availablePlugins(ctx context.Context, mc *config.VCLUConfig) ([]availablePl
 		repos = config.DefaultPluginsConfig().Repositories
 	}
 
-	installed := map[string]string{} // full id -> version
+	installed := map[string]config.InstalledPlugin{} // full id -> entry
 	if mc != nil && mc.Plugins != nil {
 		for _, inst := range mc.Plugins.Installed {
-			installed[inst.ID] = inst.Version
+			installed[inst.ID] = inst
 		}
 	}
 	var out []availablePlugin
@@ -257,12 +257,14 @@ func availablePlugins(ctx context.Context, mc *config.VCLUConfig) ([]availablePl
 		}
 		namespace := registry.Namespace
 		if namespace == "" {
-			namespace = repo.Name // fallback to repo name
+			namespace = plugins.NamespaceFromName(repo.Name)
 		}
 		for _, p := range registry.Plugins {
 			a := availablePlugin{Meta: p, Repo: repo, FullID: fmt.Sprintf("@%s/%s", namespace, p.ID), Namespace: namespace}
-			a.InstalledVersion, a.Installed = installed[a.FullID]
-			a.UpdateAvailable = a.Installed && newerVersion(p.Version, a.InstalledVersion)
+			inst, ok := installed[a.FullID]
+			a.Installed, a.InstalledVersion = ok, inst.Version
+			// another repository listing the same id is not an update of this plugin
+			a.UpdateAvailable = ok && plugins.FromRepository(inst, repo) && newerVersion(p.Version, inst.Version)
 			out = append(out, a)
 		}
 	}
@@ -356,7 +358,7 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 	// Get namespace
 	namespace := registry.Namespace
 	if namespace == "" {
-		namespace = req.Repository
+		namespace = plugins.NamespaceFromName(req.Repository)
 	}
 
 	var pluginMeta *PluginMetadata
@@ -374,6 +376,15 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 
 	// Build fullId
 	fullId := fmt.Sprintf("@%s/%s", namespace, req.ID)
+
+	// An installed plugin is updated only from the repository it came from; another one listing
+	// the same id is another publisher's plugin
+	for _, inst := range masterConfig.Plugins.Installed {
+		if inst.ID == fullId && !plugins.FromRepository(inst, *targetRepo) {
+			c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("%s is installed from another repository; uninstall it first to install this one", fullId)})
+			return
+		}
+	}
 
 	// What the files on disk ask for before an update: an installation from before grants
 	// keeps that, and an update asking for more waits for the user
@@ -418,13 +429,8 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 		// Check if already installed
 		for i, inst := range masterConfig.Plugins.Installed {
 			if inst.ID == fullId {
-				// Update version; the repository is the one the files now come from
-				// (the plugin's permissions depend on it)
-				// From another repository it is another publisher's plugin: it gets what
-				// installing gives, not what the user allowed the first one
-				if inst.Repository != "" && inst.Repository != targetRepo.Name {
-					masterConfig.Plugins.Installed[i].Grants = requested.Grants()
-				}
+				// Update version; the repository is the one the files come from (checked above;
+				// an entry from before repositories were recorded gets it now)
 				masterConfig.Plugins.Installed[i].Version = pluginMeta.Version
 				masterConfig.Plugins.Installed[i].Repository = targetRepo.Name
 				masterConfig.Plugins.Installed[i].InstalledAt = time.Now().Format(time.RFC3339)
@@ -613,6 +619,7 @@ func (s *Server) handlePluginsAPIPermissions(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save config"})
 		return
 	}
+	s.resolvePluginNotices() // the bell's "waiting for permissions"
 
 	if s.pluginController != nil && installed.Enabled && s.pluginController.IsLoaded(pluginID) {
 		if err := s.pluginController.UnloadPlugin(pluginID); err != nil {

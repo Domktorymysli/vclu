@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -50,34 +51,118 @@ func TestPluginsAPIInstallUpdateKeepsConfig(t *testing.T) {
 	}
 }
 
-// An update from another repository records that repository: the plugin's permissions
-// depend on where its files come from, not where it was first installed from.
-func TestPluginsAPIInstallUpdateRecordsRepository(t *testing.T) {
-	repo := pluginRepo(t, "salda-recuperator", "1.2.0", true)
+// An update from another repository is refused: the same id there is another publisher's
+// plugin. The repository it came from updates it.
+func TestPluginsAPIInstallUpdateFromAnotherRepository(t *testing.T) {
+	other := pluginRepo(t, "salda-recuperator", "2.0.0", true)
+	source := pluginRepo(t, "salda-recuperator", "1.2.0", true)
 
 	dir := t.TempDir()
 	err := writeTestConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
 		Repositories: []config.PluginRepository{
-			{Name: "vCLU Official", URL: config.OfficialPluginsRepoURL, Enabled: true, Default: true},
-			{Name: "test", URL: repo.URL, Enabled: true},
+			{Name: "source", URL: source.URL, Enabled: true},
+			{Name: "test", URL: other.URL, Enabled: true},
 		},
 		Installed: []config.InstalledPlugin{{
-			ID: "@vclu/salda-recuperator", Version: "1.1.0", Enabled: true, Repository: "vCLU Official",
+			ID: "@vclu/salda-recuperator", Version: "1.1.0", Enabled: true, Repository: "source",
+			Grants: &config.PluginGrants{LAN: &config.LANGrant{Hosts: []string{"192.168.0.20"}}},
 		}},
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := &Server{serverDir: dir}
-	if resp := postInstall(t, s, "salda-recuperator"); resp.Action != "updated" {
-		t.Fatalf("answer %+v", resp)
+	if w := postInstallFrom(s, "salda-recuperator", "test"); w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "another repository") {
+		t.Fatalf("from another repository: %d %s, want 409", w.Code, w.Body.String())
 	}
 	cfg, err := config.ReadMasterConfig(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := cfg.Plugins.Installed[0].Repository; got != "test" {
-		t.Errorf("repository after an update from test: %q", got)
+	if inst := cfg.Plugins.Installed[0]; inst.Version != "1.1.0" || inst.Repository != "source" ||
+		inst.Grants == nil || inst.Grants.LAN == nil || len(inst.Grants.LAN.Hosts) != 1 {
+		t.Errorf("after the refused update: %+v", inst)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "plugins", "vclu--salda-recuperator", "2.0.0")); !os.IsNotExist(err) {
+		t.Errorf("2.0.0 downloaded (%v)", err)
+	}
+
+	if w := postInstallFrom(s, "salda-recuperator", "source"); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"updated"`) {
+		t.Fatalf("from its repository: %d %s", w.Code, w.Body.String())
+	}
+	cfg, err = config.ReadMasterConfig(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inst := cfg.Plugins.Installed[0]; inst.Version != "1.2.0" || inst.Repository != "source" {
+		t.Errorf("after the update: %+v", inst)
+	}
+}
+
+// An entry from before repositories were recorded gets the one its update comes from.
+func TestPluginsAPIInstallUpdateRecordsRepository(t *testing.T) {
+	got := updateFrom(t, `{"id":"shelly","version":"1.1.0","api":2,"permissions":{"lan":true},"files":["init.lua"]}`,
+		config.InstalledPlugin{ID: "@jan/shelly", Version: "1.0.0", Enabled: true})
+	if got.Repository != "test" || got.Version != "1.1.0" {
+		t.Errorf("after the update: %+v", got)
+	}
+}
+
+// A repository whose index names no namespace gets one from its name, an id accepts.
+func TestPluginsAPIInstallNamespaceFromRepositoryName(t *testing.T) {
+	repo := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/plugins.json":
+			_, _ = w.Write([]byte(`{"plugins":[{"id":"solax","version":"1.0.0","path":"plugins/solax","tag":"solax-v1.0.0"}]}`))
+		case "/plugins/solax/plugin.json":
+			_, _ = w.Write([]byte(`{"id":"solax","version":"1.0.0","files":["init.lua"]}`))
+		case "/plugins/solax/init.lua":
+			_, _ = w.Write([]byte("return {}\n"))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(repo.Close)
+	dir := t.TempDir()
+	if err := writeTestConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
+		Repositories: []config.PluginRepository{{Name: "Community Repo", URL: repo.URL, Enabled: true}},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{serverDir: dir}
+	w := postInstallFrom(s, "solax", "Community Repo")
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"fullId":"@community-repo/solax"`) {
+		t.Fatalf("%d %s", w.Code, w.Body.String())
+	}
+	found, errs := availablePlugins(context.Background(), &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
+		Repositories: []config.PluginRepository{{Name: "Community Repo", URL: repo.URL, Enabled: true}},
+		Installed:    []config.InstalledPlugin{{ID: "@community-repo/solax", Version: "1.0.0", Repository: "Community Repo"}},
+	}})
+	if len(errs) != 0 || len(found) != 1 || found[0].FullID != "@community-repo/solax" || found[0].Namespace != "community-repo" || !found[0].Installed {
+		t.Errorf("available: %+v, errors %v", found, errs)
+	}
+}
+
+// A version for a newer plugin API is refused; the installed one stays.
+func TestPluginsAPIUpdateNeedsNewerAPI(t *testing.T) {
+	repo := manifestRepo(t, "shelly", "1.1.0", `{"id":"shelly","version":"1.1.0","api":99,"files":["init.lua"]}`)
+	dir := t.TempDir()
+	if err := writeTestConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
+		Repositories: []config.PluginRepository{{Name: "test", URL: repo.URL, Enabled: true}},
+		Installed:    []config.InstalledPlugin{{ID: "@jan/shelly", Version: "1.0.0", Enabled: true, Repository: "test"}},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	w := postInstallFrom(&Server{serverDir: dir}, "shelly", "test")
+	if w.Code == http.StatusOK || !strings.Contains(w.Body.String(), "update vclu") {
+		t.Fatalf("%d %s, want an error telling to update vclu", w.Code, w.Body.String())
+	}
+	cfg, err := config.ReadMasterConfig(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := cfg.Plugins.Installed[0].Version; v != "1.0.0" {
+		t.Errorf("version %s, want 1.0.0 kept", v)
 	}
 }
 
@@ -187,6 +272,18 @@ func TestPluginsAPIInstallAnswersVersion(t *testing.T) {
 
 type installAnswer struct {
 	Action, FullID, Version string
+}
+
+// postInstallFrom posts an install of id from the named repository.
+func postInstallFrom(s *Server, id, repository string) *httptest.ResponseRecorder {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/plugins/install",
+		strings.NewReader(`{"id":"`+id+`","repository":"`+repository+`"}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+	s.handlePluginsAPIInstall(c)
+	return w
 }
 
 func postInstall(t *testing.T, s *Server, id string) installAnswer {

@@ -142,6 +142,23 @@ func validIDPart(part string) bool {
 	return idPartRe.MatchString(part) && !strings.Contains(part, "--") && !strings.Contains(part, "..")
 }
 
+// NamespaceFromName makes a repository's display name a namespace: "Community Repo" ->
+// "community-repo", for a repository whose index names none.
+func NamespaceFromName(name string) string {
+	var b strings.Builder
+	dash := false
+	for _, r := range strings.ToLower(name) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			dash = false
+		} else if !dash && b.Len() > 0 {
+			b.WriteByte('-')
+			dash = true
+		}
+	}
+	return strings.TrimRight(b.String(), "-")
+}
+
 func validPluginID(pluginID string) bool {
 	namespace, shortId := parseFullId(pluginID)
 	if strings.HasPrefix(pluginID, "@") && namespace == "" {
@@ -315,6 +332,14 @@ func (l *Loader) downloadPlugin(repo config.PluginRepository, pluginID, newerTha
 	if dlErr != nil {
 		os.RemoveAll(tmpDir)
 		return fmt.Errorf("failed to download plugin: %w", dlErr)
+	}
+	// A version for a newer plugin API would not load: the installed one stays
+	if data, err := os.ReadFile(filepath.Join(tmpDir, "plugin.json")); err == nil {
+		var m PluginManifest
+		if json.Unmarshal(data, &m) == nil && manifestAPI(m) > PluginAPIMax {
+			_ = os.RemoveAll(tmpDir)
+			return fmt.Errorf("%s %s needs plugin API %d; this vclu runs up to %d, update vclu first", pluginID, listing.Version, manifestAPI(m), PluginAPIMax)
+		}
 	}
 
 	// Atomic rename: tmp → target
@@ -731,6 +756,11 @@ func (l *Loader) LoadAllEnabled() error {
 
 	for _, installed := range masterConfig.Plugins.Installed {
 		if !installed.Enabled {
+			continue
+		}
+		if !validPluginID(installed.ID) {
+			// ids are lower case since plugin API versions; an older install is not loaded
+			errors = append(errors, fmt.Sprintf("%s: the id is not allowed (lower case a-z, digits, '.', '_', '-'); uninstall it and install it again", installed.ID))
 			continue
 		}
 

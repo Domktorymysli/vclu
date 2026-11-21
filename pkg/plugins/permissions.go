@@ -267,12 +267,28 @@ func (l *Loader) isOfficial(pluginID string) bool {
 		}
 		for _, repo := range mc.Plugins.Repositories {
 			if repo.Name == installed.Repository {
-				return repo.Default && sameRepoURL(repo.URL, config.OfficialPluginsRepoURL)
+				return IsOfficialRepo(repo)
 			}
 		}
 		return false
 	}
 	return false
+}
+
+// IsOfficialRepo: the default repository at the official URL.
+func IsOfficialRepo(repo config.PluginRepository) bool {
+	return repo.Default && sameRepoURL(repo.URL, config.OfficialPluginsRepoURL)
+}
+
+// FromRepository is whether repo may update the installed plugin: only the repository it came
+// from. An entry from before repositories were recorded takes an @vclu id only from the
+// official one.
+func FromRepository(installed config.InstalledPlugin, repo config.PluginRepository) bool {
+	if installed.Repository != "" {
+		return installed.Repository == repo.Name
+	}
+	namespace, _ := parseFullId(installed.ID)
+	return namespace != "vclu" || IsOfficialRepo(repo)
 }
 
 func sameRepoURL(a, b string) bool {

@@ -250,17 +250,6 @@ func updateFrom(t *testing.T, manifest string, entry config.InstalledPlugin) con
 	return mc.Plugins.Installed[0]
 }
 
-// The same id from another repository is another publisher's plugin: what the user allowed
-// the first one does not carry over.
-func TestPluginsAPIUpdateFromAnotherRepositoryResetsGrants(t *testing.T) {
-	got := updateFrom(t, `{"id":"shelly","version":"1.1.0","api":2,"permissions":{"lan":true},"files":["init.lua"]}`,
-		config.InstalledPlugin{ID: "@jan/shelly", Version: "1.0.0", Enabled: true, Repository: "other",
-			Grants: &config.PluginGrants{LAN: &config.LANGrant{Hosts: []string{"192.168.1.20"}}, MQTT: &config.MQTTGrant{}}})
-	if !lanOnly(got.Grants) || got.Repository != "test" {
-		t.Errorf("grants after a change of repository: %+v", got.Grants)
-	}
-}
-
 // Without the old files nothing says what the user allowed: everything waits for them.
 func TestPluginsAPIUpdateWithoutOldFilesWaits(t *testing.T) {
 	got := updateFrom(t, `{"id":"shelly","version":"1.1.0","api":2,"permissions":{"lan":true},"files":["init.lua"]}`,

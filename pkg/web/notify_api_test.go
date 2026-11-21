@@ -484,7 +484,7 @@ func TestPluginCheckOff(t *testing.T) {
 	defer reg.Close()
 	if err := writeTestConfig(e.dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
 		Repositories: []config.PluginRepository{{Name: "test", URL: reg.URL, Enabled: true}},
-		Installed:    []config.InstalledPlugin{{ID: "@vclu/weather", Version: "1.0.0"}}}}); err != nil {
+		Installed:    []config.InstalledPlugin{{ID: "@vclu/weather", Version: "1.0.0", Repository: "test"}}}}); err != nil {
 		t.Fatal(err)
 	}
 	e.s.checkPluginUpdates(context.Background())
@@ -578,7 +578,7 @@ func TestUpdateAnsweredSources(t *testing.T) {
 	defer reg.Close()
 	if err := writeTestConfig(e.dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
 		Repositories: []config.PluginRepository{{Name: "test", URL: reg.URL, Enabled: true}},
-		Installed:    []config.InstalledPlugin{{ID: "@vclu/weather", Version: "1.0.0"}}}}); err != nil {
+		Installed:    []config.InstalledPlugin{{ID: "@vclu/weather", Version: "1.0.0", Repository: "test"}}}}); err != nil {
 		t.Fatal(err)
 	}
 	answer := &updatecheck.Answer{Current: "1.12.0", UpdateAvailable: true, Latest: &updatecheck.Release{Version: "1.13.0"}}

@@ -303,3 +303,39 @@ func TestSensitivePermissionsLimits(t *testing.T) {
 		}
 	}
 }
+
+// Only the repository a plugin came from updates it; an entry without one takes an @vclu id
+// only from the official repository.
+func TestFromRepository(t *testing.T) {
+	official := config.PluginRepository{Name: "vCLU Official", URL: config.OfficialPluginsRepoURL + ".git/", Enabled: true, Default: true}
+	impostor := config.PluginRepository{Name: "mine", URL: "https://github.com/jan/vclu-plugins", Enabled: true, Default: true}
+	notDefault := config.PluginRepository{Name: "copy", URL: config.OfficialPluginsRepoURL, Enabled: true}
+	jan := config.PluginRepository{Name: "jan", URL: "https://github.com/jan/foo", Enabled: true}
+	cases := []struct {
+		installed config.InstalledPlugin
+		repo      config.PluginRepository
+		want      bool
+	}{
+		{config.InstalledPlugin{ID: "@vclu/solax", Repository: "vCLU Official"}, official, true},
+		{config.InstalledPlugin{ID: "@vclu/solax", Repository: "vCLU Official"}, jan, false},
+		{config.InstalledPlugin{ID: "@jan/foo", Repository: "jan"}, jan, true},
+		{config.InstalledPlugin{ID: "@jan/foo", Repository: "jan"}, official, false},
+		// recorded by name: the official repository does not take another's plugin
+		{config.InstalledPlugin{ID: "@vclu/hijack", Repository: "jan"}, official, false},
+		// from before repositories were recorded
+		{config.InstalledPlugin{ID: "@vclu/solax"}, official, true},
+		{config.InstalledPlugin{ID: "@vclu/solax"}, jan, false},
+		{config.InstalledPlugin{ID: "@vclu/solax"}, impostor, false},
+		{config.InstalledPlugin{ID: "@vclu/solax"}, notDefault, false},
+		{config.InstalledPlugin{ID: "@jan/foo"}, jan, true},
+		{config.InstalledPlugin{ID: "@jan/foo"}, official, true},
+	}
+	for _, c := range cases {
+		if got := FromRepository(c.installed, c.repo); got != c.want {
+			t.Errorf("FromRepository(%s from %q, %s) = %v, want %v", c.installed.ID, c.installed.Repository, c.repo.Name, got, c.want)
+		}
+	}
+	if !IsOfficialRepo(official) || IsOfficialRepo(impostor) || IsOfficialRepo(notDefault) {
+		t.Error("IsOfficialRepo: only the default repository at the official URL")
+	}
+}

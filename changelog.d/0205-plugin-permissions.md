@@ -11,3 +11,5 @@
 - **A Grenton object's index is an integer** - `get`, `set` and `execute` on a CLU object refuse an index that is not one, instead of building it into the code sent to the CLU.
 - **An update records its repository** - updating an installed plugin from another repository stores that repository, which names its events.
 - **`plugin:mqttPublish` works** - it passed `retain` and `qos` in the wrong order and failed on every call.
+- **Updates only from the plugin's repository** - another repository listing the same id is not an update: the bell does not offer it and installing from there is refused until the plugin is uninstalled. A repository without a namespace gets its name in lower case as the namespace.
+- **Safer updates** - a version that needs a newer plugin API than this vclu is refused at download and the installed one keeps running; a plugin waiting for permissions after an update shows in the notification bell. An installed plugin whose id is not lower case is reported at load with how to fix it.

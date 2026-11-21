@@ -210,3 +210,25 @@ func TestResolvePluginDirIgnoresInvalidID(t *testing.T) {
 		t.Errorf("resolvePluginDir left the plugins directory: %s", dir)
 	}
 }
+
+// A repository's display name becomes a namespace an id accepts.
+func TestNamespaceFromName(t *testing.T) {
+	for name, want := range map[string]string{
+		"Community Repo":        "community-repo",
+		"jan":                   "jan",
+		"Jan's  Plugins!":       "jan-s-plugins",
+		"  --Moje_Pluginy 2-- ": "moje-pluginy-2",
+		"vCLU Official":         "vclu-official",
+		"a..b--c":               "a-b-c",
+		"Łódź":                  "d",
+		"!!!":                   "",
+	} {
+		got := NamespaceFromName(name)
+		if got != want {
+			t.Errorf("NamespaceFromName(%q) = %q, want %q", name, got, want)
+		}
+		if got != "" && (!validIDPart(got) || !validPluginID("@"+got+"/x")) {
+			t.Errorf("NamespaceFromName(%q) = %q, not a valid namespace", name, got)
+		}
+	}
+}
