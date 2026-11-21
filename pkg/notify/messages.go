@@ -21,7 +21,7 @@ const (
 var english = map[string][2]string{
 	MsgUpdate:        {"vclu {version} is available", "A new version of vclu is out."},
 	MsgPluginUpdates: {"Plugin updates: {count} ({plugins})", "Newer versions of installed plugins are out."},
-	MsgPluginPerms:   {"Plugins waiting for permissions: {count} ({plugins})", "An update asks for more than you allowed; it runs without it until you allow it on the plugins page."},
+	MsgPluginPerms:   {"Plugins waiting for permissions: {count} ({plugins})", "They ask for permissions you have not allowed yet and run without them until you allow them on the plugins page."},
 	MsgModule:        {"Module {module} did not load", ""},
 	MsgLog:           {"Error in the log: {source}", ""},
 	MsgLogin:         {"Failed login to the panel", "From {ip}."},

@@ -1,6 +1,8 @@
 package plugins
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -220,8 +222,10 @@ func TestNamespaceFromName(t *testing.T) {
 		"  --Moje_Pluginy 2-- ": "moje-pluginy-2",
 		"vCLU Official":         "vclu-official",
 		"a..b--c":               "a-b-c",
-		"Łódź":                  "d",
-		"!!!":                   "",
+		"Łódź":                  "lodz",
+		"Wtyczki Kraków":        "wtyczki-krakow",
+		"!!!":                   "repo-" + hexHash("!!!"),
+		"日本":                    "repo-" + hexHash("日本"),
 	} {
 		got := NamespaceFromName(name)
 		if got != want {
@@ -231,4 +235,9 @@ func TestNamespaceFromName(t *testing.T) {
 			t.Errorf("NamespaceFromName(%q) = %q, not a valid namespace", name, got)
 		}
 	}
+}
+
+func hexHash(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:4])
 }

@@ -72,7 +72,7 @@ func TestPluginsAPIInstallUpdateFromAnotherRepository(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := &Server{serverDir: dir}
-	if w := postInstallFrom(s, "salda-recuperator", "test"); w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "another repository") {
+	if w := postInstallFrom(s, "salda-recuperator", "test"); w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "uninstall it first") {
 		t.Fatalf("from another repository: %d %s, want 409", w.Code, w.Body.String())
 	}
 	cfg, err := config.ReadMasterConfig(dir)

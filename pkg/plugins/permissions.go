@@ -292,10 +292,11 @@ func FromRepository(installed config.InstalledPlugin, repo config.PluginReposito
 }
 
 func sameRepoURL(a, b string) bool {
-	norm := func(u string) string {
-		u = strings.ToLower(strings.TrimSpace(u))
-		u = strings.TrimSuffix(u, "/")
-		return strings.TrimSuffix(u, ".git")
-	}
-	return norm(a) == norm(b)
+	return normRepoURL(a) == normRepoURL(b)
+}
+
+func normRepoURL(u string) string {
+	u = strings.ToLower(strings.TrimSpace(u))
+	u = strings.TrimSuffix(u, "/")
+	return strings.TrimSuffix(u, ".git")
 }

@@ -55,7 +55,6 @@ func TestDownloadPlugin_CacheHit(t *testing.T) {
 	sd := safePluginDir("@vclu/weather")
 	versionDir := filepath.Join(tmpDir, "plugins", sd, "1.0.1")
 	os.MkdirAll(versionDir, 0755)
-	os.WriteFile(filepath.Join(versionDir, ".complete"), []byte("weather-v1.0.1"), 0644)
 	os.WriteFile(filepath.Join(versionDir, "plugin.json"), []byte(`{"id":"weather"}`), 0644)
 
 	// Server that tracks if plugin files were requested
@@ -72,6 +71,7 @@ func TestDownloadPlugin_CacheHit(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer ts.Close()
+	_ = os.WriteFile(filepath.Join(versionDir, ".complete"), []byte(completeStamp("weather-v1.0.1", ts.URL)), 0644)
 
 	loader.httpClient = ts.Client()
 
@@ -81,6 +81,39 @@ func TestDownloadPlugin_CacheHit(t *testing.T) {
 	}
 	if called {
 		t.Error("server was called for plugin files — cache should have been used")
+	}
+}
+
+// The same id and tag cached from another repository is not a hit: the files come again.
+func TestDownloadPluginCacheOtherRepository(t *testing.T) {
+	loader, tmpDir := newTestLoader(t)
+	versionDir := filepath.Join(tmpDir, "plugins", safePluginDir("@vclu/weather"), "1.0.1")
+	_ = os.MkdirAll(versionDir, 0755)
+	_ = os.WriteFile(filepath.Join(versionDir, "plugin.json"), []byte(`{"id":"weather"}`), 0644)
+	_ = os.WriteFile(filepath.Join(versionDir, "init.lua"), []byte("return 'fork'\n"), 0644)
+	_ = os.WriteFile(filepath.Join(versionDir, ".complete"), []byte(completeStamp("weather-v1.0.1", "https://github.com/someone/fork")), 0644)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/plugins.json":
+			_, _ = w.Write([]byte(`{"version":1,"name":"test","description":"t","url":"x",
+				"plugins":[{"id":"weather","name":"Weather","version":"1.0.1","path":"plugins/weather","tag":"weather-v1.0.1"}]}`))
+		case "/plugins/weather/plugin.json":
+			_, _ = w.Write([]byte(`{"id":"weather","name":"Weather","version":"1.0.1","main":"init.lua"}`))
+		case "/plugins/weather/init.lua":
+			_, _ = w.Write([]byte("return 'official'\n"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+	loader.httpClient = ts.Client()
+
+	if err := loader.DownloadPlugin(configRepo("test", ts.URL), "@vclu/weather"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(versionDir, "init.lua")); string(got) != "return 'official'\n" {
+		t.Errorf("init.lua %q, want the files of this repository", got)
 	}
 }
 

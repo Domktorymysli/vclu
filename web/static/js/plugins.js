@@ -365,9 +365,11 @@ PluginsManager.prototype._renderInstalledPlugins = function() {
     }
 
     // Find available versions for update indicators
+    // Several repositories may list one id; only the plugin's own repository offers its update
     var availableMap = {};
     this.availablePlugins.forEach(function(p) {
-        availableMap[p.fullId] = p;
+        var cur = availableMap[p.fullId];
+        if (!cur || (p.updateAvailable && !cur.updateAvailable)) availableMap[p.fullId] = p;
     });
 
     var html = '<div class="row">';

@@ -377,11 +377,20 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 	// Build fullId
 	fullId := fmt.Sprintf("@%s/%s", namespace, req.ID)
 
+	if !plugins.ValidPluginID(fullId) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid plugin id %q", fullId)})
+		return
+	}
+
 	// An installed plugin is updated only from the repository it came from; another one listing
 	// the same id is another publisher's plugin
 	for _, inst := range masterConfig.Plugins.Installed {
 		if inst.ID == fullId && !plugins.FromRepository(inst, *targetRepo) {
-			c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("%s is installed from another repository; uninstall it first to install this one", fullId)})
+			from := inst.Repository
+			if from == "" {
+				from = "the official repository"
+			}
+			c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("%s is installed from %s; to install it from %s, uninstall it first (its settings will have to be entered again)", fullId, from, targetRepo.Name)})
 			return
 		}
 	}
@@ -536,6 +545,7 @@ func (s *Server) handlePluginsAPIToggle(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save config"})
 		return
 	}
+	s.resolvePluginNotices() // a disabled plugin no longer waits for permissions
 
 	// Load or unload the plugin immediately if controller is available
 	if s.pluginController != nil {

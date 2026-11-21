@@ -237,7 +237,7 @@ func TestPermissionNoticeAfterUpdate(t *testing.T) {
 	}
 	list, _, _ := n.List()
 	if len(list) != 1 || list[0].Key != pluginPermissionsKey || list[0].Msg != notify.MsgPluginPerms || list[0].Link != "/plugins" ||
-		list[0].Level != notify.LevelWarning || list[0].Params["count"] != "1" || list[0].Params["plugins"] != "@jan/shelly" {
+		list[0].Level != notify.LevelInfo || list[0].Params["count"] != "1" || list[0].Params["plugins"] != "@jan/shelly" {
 		t.Fatalf("after the update: %+v", list)
 	}
 

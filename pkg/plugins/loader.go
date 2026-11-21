@@ -1,6 +1,8 @@
 package plugins
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -142,12 +144,16 @@ func validIDPart(part string) bool {
 	return idPartRe.MatchString(part) && !strings.Contains(part, "--") && !strings.Contains(part, "..")
 }
 
+// polishLetters keep a Polish repository name readable as a namespace ("Łódź" -> "lodz").
+var polishLetters = strings.NewReplacer("ą", "a", "ć", "c", "ę", "e", "ł", "l", "ń", "n", "ó", "o", "ś", "s", "ź", "z", "ż", "z")
+
 // NamespaceFromName makes a repository's display name a namespace: "Community Repo" ->
-// "community-repo", for a repository whose index names none.
+// "community-repo", for a repository whose index names none. A name with nothing usable
+// gets "repo-" and a hash of the name.
 func NamespaceFromName(name string) string {
 	var b strings.Builder
 	dash := false
-	for _, r := range strings.ToLower(name) {
+	for _, r := range polishLetters.Replace(strings.ToLower(name)) {
 		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
 			b.WriteRune(r)
 			dash = false
@@ -156,8 +162,15 @@ func NamespaceFromName(name string) string {
 			dash = true
 		}
 	}
-	return strings.TrimRight(b.String(), "-")
+	if ns := strings.TrimRight(b.String(), "-"); validIDPart(ns) {
+		return ns
+	}
+	sum := sha256.Sum256([]byte(name))
+	return "repo-" + hex.EncodeToString(sum[:4])
 }
+
+// ValidPluginID: lower case namespace and id, see validIDPart.
+func ValidPluginID(pluginID string) bool { return validPluginID(pluginID) }
 
 func validPluginID(pluginID string) bool {
 	namespace, shortId := parseFullId(pluginID)
@@ -295,9 +308,13 @@ func (l *Loader) downloadPlugin(repo config.PluginRepository, pluginID, newerTha
 		Path:    safeDir + "/" + version,
 	}
 
-	// Cache hit: immutable tag already downloaded
+	// The marker names the tag and the repository: the same id and version from another
+	// repository (a fork, then back to official) is not the same files
+	stamp := completeStamp(listing.GitTag, repo.URL)
+
+	// Cache hit: immutable tag already downloaded from this repository
 	if listing.GitTag != "" {
-		if _, err := os.Stat(completeMarker); err == nil {
+		if got, err := os.ReadFile(completeMarker); err == nil && string(got) == stamp {
 			log.Printf("[PLUGINS] cached %s/%s, skipping download", safeDir, version)
 			// The lock may still name an older dir (a lost lock write)
 			if cur := l.ReadLockFile()[pluginID]; cur.Path != lockEntry.Path || cur.Version != lockEntry.Version {
@@ -333,13 +350,11 @@ func (l *Loader) downloadPlugin(repo config.PluginRepository, pluginID, newerTha
 		os.RemoveAll(tmpDir)
 		return fmt.Errorf("failed to download plugin: %w", dlErr)
 	}
-	// A version for a newer plugin API would not load: the installed one stays
-	if data, err := os.ReadFile(filepath.Join(tmpDir, "plugin.json")); err == nil {
-		var m PluginManifest
-		if json.Unmarshal(data, &m) == nil && manifestAPI(m) > PluginAPIMax {
-			_ = os.RemoveAll(tmpDir)
-			return fmt.Errorf("%s %s needs plugin API %d; this vclu runs up to %d, update vclu first", pluginID, listing.Version, manifestAPI(m), PluginAPIMax)
-		}
+	// A manifest this vclu cannot read, or one for a newer plugin API, would not load: the
+	// installed version stays
+	if err := checkDownloadedManifest(filepath.Join(tmpDir, "plugin.json")); err != nil {
+		_ = os.RemoveAll(tmpDir)
+		return fmt.Errorf("%s %s: %w", pluginID, listing.Version, err)
 	}
 
 	// Atomic rename: tmp → target
@@ -351,7 +366,9 @@ func (l *Loader) downloadPlugin(repo config.PluginRepository, pluginID, newerTha
 
 	// Mark as complete (only for tagged versions — untagged always re-download)
 	if listing.GitTag != "" {
-		os.WriteFile(completeMarker, []byte(listing.GitTag), 0644)
+		if err := os.WriteFile(completeMarker, []byte(stamp), 0644); err != nil {
+			log.Printf("[PLUGINS] WARNING: %s: no cache marker (%v), the next update downloads it again", pluginID, err)
+		}
 	}
 
 	// Cleanup old versions (after successful download)
@@ -759,8 +776,9 @@ func (l *Loader) LoadAllEnabled() error {
 			continue
 		}
 		if !validPluginID(installed.ID) {
-			// ids are lower case since plugin API versions; an older install is not loaded
-			errors = append(errors, fmt.Sprintf("%s: the id is not allowed (lower case a-z, digits, '.', '_', '-'); uninstall it and install it again", installed.ID))
+			// Ids must be lower case now; an install from before that is not loaded
+			log.Printf("[ERROR] [PLUGINS] %s is not loaded: plugin ids are lower case now; uninstall it and install it again (it gets a lower-case id, its settings have to be entered again)", installed.ID)
+			errors = append(errors, fmt.Sprintf("%s: id not lower case", installed.ID))
 			continue
 		}
 
@@ -880,3 +898,23 @@ func (l *Loader) IsLoaded(pluginID string) bool {
 func (l *Loader) GetPluginDir() string {
 	return l.pluginsDir
 }
+
+// checkDownloadedManifest: the manifest decodes as this vclu reads it and its plugin API is
+// one this vclu runs.
+func checkDownloadedManifest(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var m PluginManifest
+	if err := json.Unmarshal(data, &m); err != nil {
+		return fmt.Errorf("plugin.json is not valid for this vclu: %w", err)
+	}
+	if api := manifestAPI(m); api > PluginAPIMax {
+		return fmt.Errorf("needs plugin API %d; this vclu runs up to %d, update vclu first", api, PluginAPIMax)
+	}
+	return nil
+}
+
+// completeStamp is what a downloaded version's .complete holds: its tag and repository.
+func completeStamp(tag, repoURL string) string { return tag + "\n" + normRepoURL(repoURL) }

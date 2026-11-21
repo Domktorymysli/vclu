@@ -261,6 +261,9 @@ func (s *Server) notifyLock(msg, key string, params map[string]string, wait time
 // permissionNotice is a state while enabled plugins ask for permissions the user has not
 // allowed (an update asked for more; it runs without them); it goes away once allowed.
 func (s *Server) permissionNotice() {
+	if !s.notifier.Enabled(notify.SourcePlugin) {
+		return
+	}
 	mc, err := config.ReadMasterConfig(s.serverDir)
 	if err != nil {
 		return
@@ -284,7 +287,7 @@ func (s *Server) permissionNotice() {
 		shown += " +" + strconv.Itoa(len(ids)-3)
 	}
 	s.notifier.Add(notify.Entry{
-		Kind: notify.KindState, Source: notify.SourcePlugin, Level: notify.LevelWarning, Key: pluginPermissionsKey,
+		Kind: notify.KindState, Source: notify.SourcePlugin, Level: notify.LevelInfo, Key: pluginPermissionsKey,
 		Msg: notify.MsgPluginPerms, Params: map[string]string{"count": strconv.Itoa(len(ids)), "plugins": shown}, Link: "/plugins",
 	})
 }

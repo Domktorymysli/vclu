@@ -155,7 +155,7 @@ func TestLoadAllEnabledCachedVersionFixesLock(t *testing.T) {
 	for name, content := range map[string]string{
 		"plugin.json": `{"id":"weather","name":"Weather","version":"1.1.0"}`,
 		"init.lua":    "return 'new'\n",
-		".complete":   "weather-v1.1.0",
+		".complete":   completeStamp("weather-v1.1.0", ts.URL),
 	} {
 		if err := os.WriteFile(filepath.Join(newDir, name), []byte(content), 0644); err != nil {
 			t.Fatal(err)
@@ -539,7 +539,7 @@ func TestLoadAllEnabledReportsInvalidID(t *testing.T) {
 	}
 
 	err = loader.LoadAllEnabled()
-	if err == nil || !strings.Contains(err.Error(), "@Jan/foo") || !strings.Contains(err.Error(), "install it again") {
+	if err == nil || !strings.Contains(err.Error(), "@Jan/foo") || !strings.Contains(err.Error(), "not lower case") {
 		t.Fatalf("err %v, want @Jan/foo reported", err)
 	}
 	if strings.Contains(err.Error(), "@Jan/off") {
@@ -547,5 +547,28 @@ func TestLoadAllEnabledReportsInvalidID(t *testing.T) {
 	}
 	if dir, _ := loadedFrom(L); !strings.HasSuffix(dir, "1.0.2") {
 		t.Errorf("weather not loaded next to it: %q", dir)
+	}
+}
+
+// A downloaded manifest this vclu cannot read, or for a newer plugin API, is refused before it
+// replaces the installed version.
+func TestCheckDownloadedManifest(t *testing.T) {
+	dir := t.TempDir()
+	for manifest, ok := range map[string]bool{
+		`{"id":"x","api":2}`: true,
+		`{"id":"x"}`:         true,
+		`{"id":"x","api":` + fmt.Sprint(PluginAPIMax+1) + `}`: false,
+		`{"id":"x","api":3.0}`:                                false,
+		`{"id":"x","api":"2"}`:                                false,
+		`{"id":"x","api":2,"permissions":{"lan":"yes"}}`:      false,
+		`not json`: false,
+	} {
+		p := filepath.Join(dir, "plugin.json")
+		if err := os.WriteFile(p, []byte(manifest), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := checkDownloadedManifest(p); (err == nil) != ok {
+			t.Errorf("%s: err %v, want ok=%v", manifest, err, ok)
+		}
 	}
 }
