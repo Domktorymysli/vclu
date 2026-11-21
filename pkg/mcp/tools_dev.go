@@ -721,6 +721,12 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 			"runtime":  "cal:add(opts) → id (saved), cal:remove(id), cal:skip(id, date), cal:unskip(id, date), cal:pause('a..b', {tags}), cal:resume(), cal:paused()",
 			"clock":    "nothing fires until NTP synchronised the clock (10 min at most, never before 2025); moments skipped by a clock jump do not fire; the sandbox's virtual clock drives it on advance",
 		},
+		"notifications": map[string]any{
+			"on":      "Notifications.on(function(n) ... end) → unsubscribe; n = {id, kind 'state'|'event', source 'update'|'plugin'|'module'|'login'|'lock', level 'info'|'warning'|'error', key, title, body (English), count, first, last (RFC 3339), link, ip (failed login only), resolved}",
+			"when":    "a new entry of the panel's bell, its count reaching 10 or 100, a state that is over (resolved=true); never errors from the log, nothing from before a reload; runs as origin 'system'",
+			"forward": "Notifications.on(function(n) if not n.resolved and n.level ~= 'info' then Cloud.notify{title=n.title, body=n.body, tag=n.key} end end)",
+			"sandbox": "vclu_draft_test delivers no notifications",
+		},
 		"pluginAPI": map[string]any{
 			"getPlugin": "Plugin.getPlugin('@vclu/name')",
 			"sensors":   "plugin:get('id') → obj with :get()",

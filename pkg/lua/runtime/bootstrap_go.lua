@@ -98,6 +98,9 @@ Camera = require("Camera")
 -- LAYER 7e: vclu cloud (notifications to the members' phones)
 Cloud = require("Cloud")
 
+-- LAYER 7f: the panel's notifications, for handlers that pass them on
+Notifications = require("Notifications")
+
 -- LAYER 8: Factories (OM compatibility)
 OBJECT = require("ObjectFactory")
 GATE = require("GateFactory")

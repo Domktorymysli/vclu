@@ -226,6 +226,8 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    initNotificationSettings();
+
     var revokeBtn = document.getElementById('revokeAPIKeyBtn');
     if (revokeBtn) {
         revokeBtn.addEventListener('click', function() {
@@ -244,6 +246,94 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 });
+
+/**
+ * Notifications card: a switch per source and the muted keys (#248)
+ */
+function initNotificationSettings() {
+    var switches = document.querySelectorAll('#notifySources [data-source]');
+    var muted = document.getElementById('notifyMuted');
+    if (!switches.length || !muted) return;
+
+    function showMuted(list) {
+        muted.textContent = '';
+        if (!list || !list.length) {
+            var none = document.createElement('li');
+            none.className = 'text-muted small';
+            none.textContent = _st('notify_muted_none', 'Nothing is muted.');
+            muted.appendChild(none);
+            return;
+        }
+        list.forEach(function(m) {
+            var li = document.createElement('li');
+            li.className = 'd-flex align-items-center gap-2 mb-1';
+            var name = document.createElement('span');
+            name.className = 'text-truncate';
+            name.textContent = m.title || m.key;
+            var until = document.createElement('small');
+            until.className = 'text-muted text-nowrap';
+            until.textContent = m.until === 'forever' ? _st('notify_muted_forever', 'for good')
+                : _st('notify_muted_until', 'until {time}').replace('{time}', new Date(m.until).toLocaleString(document.documentElement.lang || undefined));
+            var restore = document.createElement('button');
+            restore.type = 'button';
+            restore.className = 'btn btn-sm btn-outline-secondary ms-auto';
+            restore.textContent = _st('notify_restore', 'Restore');
+            restore.addEventListener('click', function() {
+                restore.disabled = true;
+                fetch('/api/notifications/mute', {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ key: m.key })
+                }).then(function(r) {
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    return load();
+                }).catch(function(err) {
+                    restore.disabled = false;
+                    VCLU.showToast('Error: ' + err.message, 'danger');
+                });
+            });
+            li.appendChild(name);
+            li.appendChild(until);
+            li.appendChild(restore);
+            muted.appendChild(li);
+        });
+    }
+
+    function load() {
+        return VCLU.fetchJSON('/api/notifications/settings').then(function(data) {
+            var on = {};
+            (data.sources || []).forEach(function(s) { on[s.id] = s.enabled; });
+            switches.forEach(function(sw) {
+                sw.checked = !!on[sw.dataset.source];
+                sw.disabled = !(sw.dataset.source in on);
+            });
+            showMuted(data.muted);
+        }).catch(function() { /* card stays disabled */ });
+    }
+
+    switches.forEach(function(sw) {
+        sw.addEventListener('change', function() {
+            var disabled = [];
+            switches.forEach(function(s) { if (!s.checked) disabled.push(s.dataset.source); });
+            VCLU.fetchJSON('/api/notifications/settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ disabled: disabled })
+            }).then(function() {
+                VCLU.showToast(_st('notify_saved', 'Saved'), 'success');
+                document.dispatchEvent(new CustomEvent('vclu:notifications-changed'));
+            }, function(err) {
+                sw.checked = !sw.checked;
+                VCLU.showToast('Error: ' + err.message, 'danger');
+            });
+        });
+    });
+    // a key muted from the bell
+    document.addEventListener('vclu:notifications-changed', function(ev) {
+        if (ev.detail && ev.detail.from === 'bell') load();
+    });
+    load();
+}
 
 // Legacy function for backwards compatibility
 function resetCLU() {

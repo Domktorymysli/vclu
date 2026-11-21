@@ -46,6 +46,30 @@
         .section-header i {
             font-size: 1.25rem;
         }
+        .section-tools {
+            display: flex;
+            gap: 2px;
+        }
+        .section-tools .btn-icon {
+            min-width: 36px;
+            min-height: 36px;
+            justify-content: center;
+        }
+        .section-toggle i {
+            transition: transform 0.15s;
+        }
+        .stats-section.collapsed {
+            height: auto !important;
+        }
+        .stats-section.collapsed > .card-body {
+            display: none;
+        }
+        .stats-section.collapsed > .card-header {
+            border-bottom: 0;
+        }
+        .stats-section.collapsed .section-toggle i {
+            transform: rotate(180deg);
+        }
     </style>
     <meta name="csrf-token" content="{{.csrfToken}}">
 </head>
@@ -75,11 +99,15 @@
             <div class="page-content">
                 <div class="content-wrapper wide">
                     <!-- Uptime & System Overview -->
-                    <div class="card mb-3">
-                        <div class="card-header">
+                    <div class="card stats-section mb-3" id="system">
+                        <div class="card-header d-flex align-items-center">
                             <div class="section-header mb-0 pb-0 border-0">
                                 <i class="bi bi-clock-history text-primary"></i>
                                 <span>System Overview</span>
+                            </div>
+                            <div class="section-tools ms-auto">
+                                <a class="btn-icon section-link" href="/settings" title="{{index $.t "stats.configure"}}" aria-label="{{index $.t "stats.configure"}}"><i class="bi bi-gear"></i></a>
+                                <button type="button" class="btn-icon section-toggle" aria-expanded="true" title="{{index $.t "stats.toggle"}}" aria-label="{{index $.t "stats.toggle"}}"><i class="bi bi-chevron-up"></i></button>
                             </div>
                         </div>
                         <div class="card-body">
@@ -107,11 +135,15 @@
                     <div class="row">
                         <!-- Lua Stats -->
                         <div class="col-md-6 mb-3">
-                            <div class="card h-100">
-                                <div class="card-header">
+                            <div class="card stats-section h-100" id="lua">
+                                <div class="card-header d-flex align-items-center">
                                     <div class="section-header mb-0 pb-0 border-0">
                                         <i class="bi bi-code-square text-info"></i>
                                         <span>Lua Runtime</span>
+                                    </div>
+                                    <div class="section-tools ms-auto">
+                                        <a class="btn-icon section-link" href="/editor" title="{{index $.t "stats.configure"}}" aria-label="{{index $.t "stats.configure"}}"><i class="bi bi-gear"></i></a>
+                                        <button type="button" class="btn-icon section-toggle" aria-expanded="true" title="{{index $.t "stats.toggle"}}" aria-label="{{index $.t "stats.toggle"}}"><i class="bi bi-chevron-up"></i></button>
                                     </div>
                                 </div>
                                 <div class="card-body">
@@ -147,11 +179,15 @@
 
                         <!-- Protocol Stats -->
                         <div class="col-md-6 mb-3">
-                            <div class="card h-100">
-                                <div class="card-header">
+                            <div class="card stats-section h-100" id="clu">
+                                <div class="card-header d-flex align-items-center">
                                     <div class="section-header mb-0 pb-0 border-0">
                                         <i class="bi bi-broadcast-pin text-warning"></i>
                                         <span>CLU Protocol</span>
+                                    </div>
+                                    <div class="section-tools ms-auto">
+                                        <a class="btn-icon section-link" href="/grenton" title="{{index $.t "stats.configure"}}" aria-label="{{index $.t "stats.configure"}}"><i class="bi bi-gear"></i></a>
+                                        <button type="button" class="btn-icon section-toggle" aria-expanded="true" title="{{index $.t "stats.toggle"}}" aria-label="{{index $.t "stats.toggle"}}"><i class="bi bi-chevron-up"></i></button>
                                     </div>
                                 </div>
                                 <div class="card-body">
@@ -181,11 +217,15 @@
                     <div class="row">
                         <!-- HTTP Stats -->
                         <div class="col-md-6 mb-3">
-                            <div class="card h-100">
-                                <div class="card-header">
+                            <div class="card stats-section h-100" id="http">
+                                <div class="card-header d-flex align-items-center">
                                     <div class="section-header mb-0 pb-0 border-0">
                                         <i class="bi bi-globe text-success"></i>
                                         <span>HTTP Server</span>
+                                    </div>
+                                    <div class="section-tools ms-auto">
+                                        <a class="btn-icon section-link" href="/settings" title="{{index $.t "stats.configure"}}" aria-label="{{index $.t "stats.configure"}}"><i class="bi bi-gear"></i></a>
+                                        <button type="button" class="btn-icon section-toggle" aria-expanded="true" title="{{index $.t "stats.toggle"}}" aria-label="{{index $.t "stats.toggle"}}"><i class="bi bi-chevron-up"></i></button>
                                     </div>
                                 </div>
                                 <div class="card-body">
@@ -213,11 +253,15 @@
 
                         <!-- Plugins Stats -->
                         <div class="col-md-6 mb-3">
-                            <div class="card h-100">
-                                <div class="card-header">
+                            <div class="card stats-section h-100" id="plugins">
+                                <div class="card-header d-flex align-items-center">
                                     <div class="section-header mb-0 pb-0 border-0">
                                         <i class="bi bi-plug text-purple"></i>
                                         <span>Plugins</span>
+                                    </div>
+                                    <div class="section-tools ms-auto">
+                                        <a class="btn-icon section-link" href="/plugins" title="{{index $.t "stats.configure"}}" aria-label="{{index $.t "stats.configure"}}"><i class="bi bi-gear"></i></a>
+                                        <button type="button" class="btn-icon section-toggle" aria-expanded="true" title="{{index $.t "stats.toggle"}}" aria-label="{{index $.t "stats.toggle"}}"><i class="bi bi-chevron-up"></i></button>
                                     </div>
                                 </div>
                                 <div class="card-body">
@@ -247,11 +291,15 @@
                     <div class="row">
                         <!-- MQTT Stats -->
                         <div class="col-md-6 mb-3">
-                            <div class="card h-100">
-                                <div class="card-header">
+                            <div class="card stats-section h-100" id="mqtt">
+                                <div class="card-header d-flex align-items-center">
                                     <div class="section-header mb-0 pb-0 border-0">
                                         <i class="bi bi-broadcast text-info"></i>
                                         <span>MQTT</span>
+                                    </div>
+                                    <div class="section-tools ms-auto">
+                                        <a class="btn-icon section-link" href="/mqtt" title="{{index $.t "stats.configure"}}" aria-label="{{index $.t "stats.configure"}}"><i class="bi bi-gear"></i></a>
+                                        <button type="button" class="btn-icon section-toggle" aria-expanded="true" title="{{index $.t "stats.toggle"}}" aria-label="{{index $.t "stats.toggle"}}"><i class="bi bi-chevron-up"></i></button>
                                     </div>
                                 </div>
                                 <div class="card-body">
@@ -299,11 +347,15 @@
 
                         <!-- HomeKit Stats -->
                         <div class="col-md-6 mb-3">
-                            <div class="card h-100">
-                                <div class="card-header">
+                            <div class="card stats-section h-100" id="homekit">
+                                <div class="card-header d-flex align-items-center">
                                     <div class="section-header mb-0 pb-0 border-0">
                                         <i class="bi bi-apple"></i>
                                         <span>HomeKit</span>
+                                    </div>
+                                    <div class="section-tools ms-auto">
+                                        <a class="btn-icon section-link" href="/homekit" title="{{index $.t "stats.configure"}}" aria-label="{{index $.t "stats.configure"}}"><i class="bi bi-gear"></i></a>
+                                        <button type="button" class="btn-icon section-toggle" aria-expanded="true" title="{{index $.t "stats.toggle"}}" aria-label="{{index $.t "stats.toggle"}}"><i class="bi bi-chevron-up"></i></button>
                                     </div>
                                 </div>
                                 <div class="card-body">
@@ -331,11 +383,14 @@
                     </div>
 
                     <!-- Plugin Details -->
-                    <div class="card mb-3" id="pluginDetailsCard" style="display: none;">
-                        <div class="card-header">
+                    <div class="card stats-section mb-3" style="display: none;" id="pluginDetailsCard">
+                        <div class="card-header d-flex align-items-center">
                             <div class="section-header mb-0 pb-0 border-0">
                                 <i class="bi bi-puzzle text-info"></i>
                                 <span>Plugin Details</span>
+                            </div>
+                            <div class="section-tools ms-auto">
+                                <button type="button" class="btn-icon section-toggle" aria-expanded="true" title="{{index $.t "stats.toggle"}}" aria-label="{{index $.t "stats.toggle"}}"><i class="bi bi-chevron-up"></i></button>
                             </div>
                         </div>
                         <div class="card-body">
@@ -361,7 +416,7 @@
 
                     {{with .storage}}
                     <!-- Storage (#196) -->
-                    <div class="card mb-3" id="storage">
+                    <div class="card stats-section mb-3" id="storage">
                         <div class="card-header d-flex align-items-center">
                             <div class="section-header mb-0 pb-0 border-0">
                                 <i class="bi bi-device-hdd text-primary"></i>
@@ -370,6 +425,10 @@
                             {{if eq .Level "critical"}}<span class="badge bg-danger ms-auto">{{index $.t "storage.level_critical"}}</span>
                             {{else if eq .Level "low"}}<span class="badge bg-warning text-dark ms-auto">{{index $.t "storage.level_low"}}</span>
                             {{else if .Ready}}<span class="badge bg-success ms-auto">{{index $.t "storage.level_ok"}}</span>{{end}}
+                            <div class="section-tools {{if or .Ready (eq .Level "critical") (eq .Level "low")}}ms-2{{else}}ms-auto{{end}}">
+                                <a class="btn-icon section-link" href="/history#settings" title="{{index $.t "stats.configure"}}" aria-label="{{index $.t "stats.configure"}}"><i class="bi bi-gear"></i></a>
+                                <button type="button" class="btn-icon section-toggle" aria-expanded="true" title="{{index $.t "stats.toggle"}}" aria-label="{{index $.t "stats.toggle"}}"><i class="bi bi-chevron-up"></i></button>
+                            </div>
                         </div>
                         <div class="card-body">
                             {{if not .Ready}}
@@ -430,11 +489,14 @@
                     {{end}}
 
                     <!-- Charts -->
-                    <div class="card mb-3">
-                        <div class="card-header">
+                    <div class="card stats-section mb-3" id="chart-memory">
+                        <div class="card-header d-flex align-items-center">
                             <div class="section-header mb-0 pb-0 border-0">
                                 <i class="bi bi-graph-up text-primary"></i>
                                 <span>Memory Usage (24h)</span>
+                            </div>
+                            <div class="section-tools ms-auto">
+                                <button type="button" class="btn-icon section-toggle" aria-expanded="true" title="{{index $.t "stats.toggle"}}" aria-label="{{index $.t "stats.toggle"}}"><i class="bi bi-chevron-up"></i></button>
                             </div>
                         </div>
                         <div class="card-body">
@@ -446,11 +508,14 @@
 
                     <div class="row">
                         <div class="col-md-6 mb-3">
-                            <div class="card h-100">
-                                <div class="card-header">
+                            <div class="card stats-section h-100" id="chart-cmd">
+                                <div class="card-header d-flex align-items-center">
                                     <div class="section-header mb-0 pb-0 border-0">
                                         <i class="bi bi-activity text-warning"></i>
                                         <span>Command Rate (24h)</span>
+                                    </div>
+                                    <div class="section-tools ms-auto">
+                                        <button type="button" class="btn-icon section-toggle" aria-expanded="true" title="{{index $.t "stats.toggle"}}" aria-label="{{index $.t "stats.toggle"}}"><i class="bi bi-chevron-up"></i></button>
                                     </div>
                                 </div>
                                 <div class="card-body">
@@ -461,11 +526,14 @@
                             </div>
                         </div>
                         <div class="col-md-6 mb-3">
-                            <div class="card h-100">
-                                <div class="card-header">
+                            <div class="card stats-section h-100" id="chart-http">
+                                <div class="card-header d-flex align-items-center">
                                     <div class="section-header mb-0 pb-0 border-0">
                                         <i class="bi bi-globe text-success"></i>
                                         <span>HTTP Rate (24h)</span>
+                                    </div>
+                                    <div class="section-tools ms-auto">
+                                        <button type="button" class="btn-icon section-toggle" aria-expanded="true" title="{{index $.t "stats.toggle"}}" aria-label="{{index $.t "stats.toggle"}}"><i class="bi bi-chevron-up"></i></button>
                                     </div>
                                 </div>
                                 <div class="card-body">
@@ -479,11 +547,14 @@
 
                     <div class="row">
                         <div class="col-md-6 mb-3">
-                            <div class="card h-100">
-                                <div class="card-header">
+                            <div class="card stats-section h-100" id="chart-busy">
+                                <div class="card-header d-flex align-items-center">
                                     <div class="section-header mb-0 pb-0 border-0">
                                         <i class="bi bi-cpu text-danger"></i>
                                         <span>Lua Busy % (24h)</span>
+                                    </div>
+                                    <div class="section-tools ms-auto">
+                                        <button type="button" class="btn-icon section-toggle" aria-expanded="true" title="{{index $.t "stats.toggle"}}" aria-label="{{index $.t "stats.toggle"}}"><i class="bi bi-chevron-up"></i></button>
                                     </div>
                                 </div>
                                 <div class="card-body">
@@ -494,11 +565,14 @@
                             </div>
                         </div>
                         <div class="col-md-6 mb-3">
-                            <div class="card h-100">
-                                <div class="card-header">
+                            <div class="card stats-section h-100" id="chart-lag">
+                                <div class="card-header d-flex align-items-center">
                                     <div class="section-header mb-0 pb-0 border-0">
                                         <i class="bi bi-clock-history text-info"></i>
                                         <span>Loop Lag (24h)</span>
+                                    </div>
+                                    <div class="section-tools ms-auto">
+                                        <button type="button" class="btn-icon section-toggle" aria-expanded="true" title="{{index $.t "stats.toggle"}}" aria-label="{{index $.t "stats.toggle"}}"><i class="bi bi-chevron-up"></i></button>
                                     </div>
                                 </div>
                                 <div class="card-body">
@@ -512,11 +586,14 @@
 
                     {{if .storage}}
                     <!-- shown by stats.js once there is data -->
-                    <div class="card mb-3 d-none" id="diskFreeCard">
-                        <div class="card-header">
+                    <div class="card stats-section mb-3 d-none" id="diskFreeCard">
+                        <div class="card-header d-flex align-items-center">
                             <div class="section-header mb-0 pb-0 border-0">
                                 <i class="bi bi-device-hdd text-primary"></i>
                                 <span>{{index $.t "storage.chart_free"}}</span>
+                            </div>
+                            <div class="section-tools ms-auto">
+                                <button type="button" class="btn-icon section-toggle" aria-expanded="true" title="{{index $.t "stats.toggle"}}" aria-label="{{index $.t "stats.toggle"}}"><i class="bi bi-chevron-up"></i></button>
                             </div>
                         </div>
                         <div class="card-body">
@@ -580,6 +657,6 @@
     <script src="/static/js/csrf.js"></script>
     <script src="/static/js/theme.js"></script>
     <script src="/static/js/sidebar.js"></script>
-    <script src="/static/js/stats.js?v=7"></script>
+    <script src="/static/js/stats.js?v=8"></script>
 </body>
 </html>

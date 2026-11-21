@@ -13,6 +13,7 @@ import (
 	"github.com/Domktorymysli/vclu/pkg/accesscontrol"
 	"github.com/Domktorymysli/vclu/pkg/cloud/proto"
 	"github.com/Domktorymysli/vclu/pkg/config"
+	"github.com/Domktorymysli/vclu/pkg/notify"
 	"github.com/gin-gonic/gin"
 )
 
@@ -75,6 +76,7 @@ var clientFails = &rateLimiter{buckets: make(map[string]*bucket), rate: 1, burst
 func (s *Server) authClient(c *gin.Context, token string) (config.APIClient, int) {
 	ip := c.ClientIP()
 	if clientFails.empty(ip) {
+		s.notifyLock(notify.MsgLockToken, "token:"+ip, map[string]string{"ip": ip}, 0, ip)
 		return config.APIClient{}, http.StatusTooManyRequests
 	}
 	cl, ok := s.apiClient(token)

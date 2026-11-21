@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/Domktorymysli/vclu/pkg/notify"
 	"github.com/gin-gonic/gin"
 )
 
@@ -37,6 +38,9 @@ func (s *Server) handleAPIReset(c *gin.Context) {
 		log.Printf("ERROR: Failed to recreate serverDir: %v", err)
 	}
 
+	// nothing of the old bell is written into the empty directory
+	s.notifier.Discard()
+	_ = os.Remove(notify.Path(s.serverDir))
 	log.Printf("CLU reset complete - all data cleared")
 
 	c.JSON(http.StatusOK, gin.H{

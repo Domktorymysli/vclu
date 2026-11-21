@@ -93,6 +93,9 @@ type VCLUConfig struct {
 	// Log output (absent = info and above to stdout)
 	Log *VCLULogConfig `json:"log,omitempty"`
 
+	// The panel's notifications: sources turned off, keys muted (absent = log off)
+	Notifications *VCLUNotificationsConfig `json:"notifications,omitempty"`
+
 	// Pairing state - set after CLU is added to a system via Object Manager
 	Paired      bool   `json:"paired,omitempty"`
 	PairedAt    string `json:"pairedAt,omitempty"`

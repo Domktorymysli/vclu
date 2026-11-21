@@ -368,3 +368,28 @@ func TestRedirectFailsCheck(t *testing.T) {
 		t.Fatalf("redirect followed: answer %+v, %d requests elsewhere", a, other.Load())
 	}
 }
+
+// OnAnswer gets each good answer, before the next check is planned; a failed check calls nothing.
+func TestOnAnswer(t *testing.T) {
+	e := &env{clock: newFakeClock(), svc: newService(t), logs: &logs{}, dir: t.TempDir()}
+	var got []*Answer
+	var mu sync.Mutex
+	e.c = New(Options{Dir: e.dir, Version: "1.7.0", BaseURL: e.svc.srv.URL, Clock: e.clock, Logf: e.logs.logf,
+		OnAnswer: func(a *Answer) { mu.Lock(); got = append(got, a); mu.Unlock() }})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { e.c.Run(ctx); close(done) }()
+	t.Cleanup(func() { cancel(); <-done })
+
+	e.clock.fire(e.clock.next(t))
+	w := e.clock.next(t)
+	e.svc.status.Store(500)
+	e.clock.fire(w)
+	e.clock.next(t)
+	mu.Lock()
+	defer mu.Unlock()
+	last, _ := e.c.Last()
+	if len(got) != 1 || got[0] != last || got[0].Current != "1.7.0" {
+		t.Fatalf("OnAnswer calls: %+v", got)
+	}
+}

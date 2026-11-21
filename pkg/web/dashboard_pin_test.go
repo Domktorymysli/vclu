@@ -10,6 +10,7 @@ import (
 
 	"github.com/Domktorymysli/vclu/pkg/config"
 	"github.com/Domktorymysli/vclu/pkg/lua"
+	"github.com/Domktorymysli/vclu/pkg/notify"
 	"github.com/gin-gonic/gin"
 )
 
@@ -141,5 +142,38 @@ func TestDashboardPinLockGrows(t *testing.T) {
 	}
 	if len(p.m) > pinLocksMax+1 {
 		t.Errorf("%d entries for made-up ids", len(p.m))
+	}
+}
+
+// A lock of a dashboard with a PIN is a notice; tries at made-up ids lock them, silently.
+func TestDashboardPinLockNotice(t *testing.T) {
+	dashCache.Invalidate()
+	dashPinLocks = newPinLocks()
+	engine := lua.NewLuaEngine()
+	defer engine.Close()
+	if _, err := engine.Execute(`Dashboard.new('p'):auth('pin'):pin('1234'):section('S','i'):build()`); err != nil {
+		t.Fatal(err)
+	}
+	n := notify.New(notify.Options{})
+	s := &Server{serverDir: t.TempDir(), sessions: newSessionStore(), luaExecutor: engine, notifier: n}
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/api/dashboard/:id/auth", s.handleAPIDashboardAuth)
+	try := func(id string) {
+		pinLimiter = &rateLimiter{buckets: make(map[string]*bucket), rate: 1.0 / 6, burst: 5}
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/dashboard/"+id+"/auth", strings.NewReader(`{"pin":"0000"}`)))
+	}
+	for i := 0; i < 5; i++ {
+		try("made-up")
+	}
+	if list, _, _ := n.List(); len(list) != 0 || !dashPinLocks.locked("made-up") {
+		t.Fatalf("made-up id: %+v", list)
+	}
+	for i := 0; i < 5; i++ {
+		try("p")
+	}
+	if list, _, _ := n.List(); len(list) != 1 || list[0].Key != "lock:pin:p" {
+		t.Fatalf("real PIN: %+v", list)
 	}
 }

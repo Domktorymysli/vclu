@@ -38,7 +38,18 @@
                     <p class="text-muted">{{brand (index .t "login.subtitle")}}</p>
                 </div>
 
-                {{if .error}}
+                {{if .lockedFor}}
+                <div class="alert alert-warning" role="alert">
+                    <i class="bi bi-hourglass-split"></i>
+                    <span id="loginLocked" data-time="{{.lockedFor}}">{{index .t "login.locked"}}</span>
+                </div>
+                <script>
+                    (function() {
+                        var m = document.getElementById('loginLocked');
+                        m.textContent = m.textContent.replace('{time}', m.dataset.time);
+                    })();
+                </script>
+                {{else if .error}}
                 <div class="alert alert-danger" role="alert">
                     <i class="bi bi-exclamation-triangle"></i> {{index .t "login.error"}}
                 </div>

@@ -4725,7 +4725,7 @@ function DashboardAPI.verifyPin(id, pin, role)
         return JSON.encode({ valid = false })
     end
     -- :pin(1234) is a number, the typed PIN a string
-    return JSON.encode({ valid = (tostring(pin) == tostring(dash._pin)) })
+    return JSON.encode({ valid = (tostring(pin) == tostring(dash._pin)), has_pin = true })
 end
 
 --- PIN of a 'pin' dashboard, for checking cookies server-side (never sent to pages)

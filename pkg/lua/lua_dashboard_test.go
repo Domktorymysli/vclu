@@ -428,13 +428,17 @@ func TestDashboardAuth(t *testing.T) {
 
 	// PIN verify
 	result, _ = engine.Execute(`Dashboard.API.verifyPin("pinned", "1234")`)
-	if !strings.Contains(result, "true") {
+	if !strings.Contains(result, `"valid":true`) {
 		t.Errorf("correct PIN should be valid: %s", result)
 	}
 
 	result, _ = engine.Execute(`Dashboard.API.verifyPin("pinned", "0000")`)
-	if strings.Contains(result, "true") {
+	if !strings.Contains(result, `"valid":false`) || !strings.Contains(result, `"has_pin":true`) {
 		t.Errorf("wrong PIN should be invalid: %s", result)
+	}
+	result, _ = engine.Execute(`Dashboard.API.verifyPin("no-such", "0000")`)
+	if strings.Contains(result, "has_pin") {
+		t.Errorf("a made-up id has a PIN: %s", result)
 	}
 }
 

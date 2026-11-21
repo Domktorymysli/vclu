@@ -45,7 +45,8 @@
     "password": "Hasło",
     "password_placeholder": "Wpisz hasło",
     "submit": "Zaloguj się",
-    "error": "Nieprawidłowa nazwa użytkownika lub hasło"
+    "error": "Nieprawidłowa nazwa użytkownika lub hasło",
+    "locked": "Za dużo nieudanych prób. Spróbuj ponownie za {time}."
   },
   "status": {
     "title": "Status vclu",
@@ -139,7 +140,7 @@
     "js_confirm_revoke": "Unieważnić aktualny klucz API? Wszystkie integracje używające go przestaną działać.",
     "updates": "Aktualizacje",
     "update_check": "Sprawdzaj nowe wersje",
-    "update_check_desc": "Pokazuje informację, gdy wyjdzie nowa wersja vclu. Sprawdzenie wysyła losowy identyfikator instalacji, wersję, system i architekturę.",
+    "update_check_desc": "Pokazuje informację, gdy wyjdzie nowa wersja vclu albo nowsza wersja zainstalowanego pluginu. Sprawdzenie wysyła do serwisu aktualizacji losowy identyfikator instalacji, wersję, system i architekturę, a potem pobiera plugins.json z włączonych repozytoriów pluginów.",
     "update_check_forced_off": "Wyłączone przez",
     "js_update_check_saved": "Zapisano"
   },
@@ -971,5 +972,57 @@
     "orphans": "Pliki stron, których nie ma już w zaimportowanym interfejsie (vclu ich nie usuwa):",
     "flat": "Istnieje plik",
     "flat_tail": "require(\"dashboards/imported\") wczytałby go zamiast katalogu. Zmień jego nazwę albo go usuń."
+  },
+  "notify": {
+    "title": "Powiadomienia",
+    "label": "Powiadomienia, nieprzeczytane: {count}",
+    "empty": "Brak powiadomień",
+    "mark_all": "Oznacz wszystkie jako przeczytane",
+    "mark_all_short": "Przeczytane",
+    "clear": "Wyczyść",
+    "mute": "Wycisz",
+    "mute_24h": "24 h",
+    "mute_7d": "7 dni",
+    "mute_forever": "Na zawsze",
+    "update": {
+      "available": "Dostępna nowa wersja vclu {version}"
+    },
+    "plugin": {
+      "update": "Plugin {plugin}: dostępna wersja {version}"
+    },
+    "module": {
+      "failed": "Moduł {module} nie załadował się"
+    },
+    "log": {
+      "error": "Błąd w logu: {source}"
+    },
+    "login": {
+      "failed": "Nieudane logowanie do panelu z adresu {ip}"
+    },
+    "lock": {
+      "login": "Logowanie z adresu {ip} zablokowane do {until}",
+      "pin": "PIN dashboardu {dashboard} zablokowany do {until}",
+      "token": "Za dużo błędnych tokenów API z adresu {ip}"
+    },
+    "suppressed": "Pominięto kolejne powiadomienia ({source}): {count}",
+    "settings_title": "Powiadomienia",
+    "settings_desc": "Wybierz, co ma się pojawiać w dzwonku.",
+    "source_update": "Nowe wersje vclu",
+    "source_plugin": "Aktualizacje pluginów",
+    "source_module": "Moduły, które się nie załadowały",
+    "source_log": "Błędy w logu",
+    "source_log_hint": "Domyślnie wyłączone: niektóre instalacje logują dużo błędów.",
+    "source_login": "Nieudane logowania do panelu",
+    "source_lock": "Blokady po zbyt wielu próbach",
+    "muted_title": "Wyciszone",
+    "muted_none": "Nic nie jest wyciszone.",
+    "muted_forever": "na zawsze",
+    "muted_until": "do {time}",
+    "restore": "Przywróć",
+    "saved": "Zapisano"
+  },
+  "stats": {
+    "toggle": "Zwiń lub rozwiń",
+    "configure": "Ustawienia"
   }
 }

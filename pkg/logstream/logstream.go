@@ -17,6 +17,8 @@ type LogEntry struct {
 	Level   string    `json:"level"`  // info, warning, error
 	Source  string    `json:"source"` // MQTT, HomeKit, BROADCAST, etc.
 	Message string    `json:"message"`
+	// TagLevel is the line's level tag ([ERROR] -> "error"), "" without one; Level guesses by words
+	TagLevel string `json:"tag_level,omitempty"`
 }
 
 // LogStream captures logs and broadcasts to SSE clients
@@ -38,6 +40,8 @@ type LogStream struct {
 	sourcesMu sync.RWMutex
 
 	written *countingWriter // wraps original: counts only what reaches it
+
+	hook atomic.Pointer[func(LogEntry)]
 }
 
 // Levels for SetLevel; the ring buffer keeps every line.
@@ -73,8 +77,8 @@ func (ls *LogStream) SetLevel(s string) error {
 // levelTagRegex finds the first [TAG] after the timestamp and the optional file:line of log.Lshortfile.
 var levelTagRegex = regexp.MustCompile(`^(?:\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}\s+)?(?:\S+\.go:\d+:\s+)?\[([^\]]+)\]`)
 
-// lineLevel is the level of a line for stdout: its level tag, else what parseLine found.
-func lineLevel(line string, entry LogEntry) int32 {
+// tagLevel is the line's level tag, -1 without one.
+func tagLevel(line string) int32 {
 	if m := levelTagRegex.FindStringSubmatch(line); m != nil {
 		switch strings.ToUpper(m[1]) {
 		case "DEBUG":
@@ -86,6 +90,16 @@ func lineLevel(line string, entry LogEntry) int32 {
 		case "ERROR":
 			return LevelError
 		}
+	}
+	return -1
+}
+
+var tagLevelNames = map[int32]string{LevelDebug: "debug", LevelInfo: "info", LevelWarn: "warning", LevelError: "error"}
+
+// lineLevel is the level of a line for stdout: its level tag, else what parseLine found.
+func lineLevel(line string, entry LogEntry) int32 {
+	if l := tagLevel(line); l >= 0 {
+		return l
 	}
 	// A recovered panic ("[RUNTIME] panic in work item ...") says neither error nor failed.
 	if entry.Level == "error" || strings.Contains(strings.ToLower(line), "panic") {
@@ -127,6 +141,7 @@ func (ls *LogStream) Write(p []byte) (n int, err error) {
 	}
 
 	entry := ls.parseLine(line)
+	entry.TagLevel = tagLevelNames[tagLevel(line)]
 	n, err = len(p), nil
 	if lineLevel(line, entry) >= ls.minLevel.Load() {
 		n, err = ls.original.Write(p)
@@ -161,7 +176,20 @@ func (ls *LogStream) Write(p []byte) (n int, err error) {
 	}
 	ls.clientsMu.RUnlock()
 
+	if h := ls.hook.Load(); h != nil {
+		(*h)(entry)
+	}
 	return n, err
+}
+
+// SetHook calls fn with every entry, on the goroutine that logged it and under the log
+// package's lock: fn must not log or block. nil removes it.
+func (ls *LogStream) SetHook(fn func(LogEntry)) {
+	if fn == nil {
+		ls.hook.Store(nil)
+		return
+	}
+	ls.hook.Store(&fn)
 }
 
 // parseLine parses a log line into a LogEntry

@@ -137,6 +137,7 @@ type LuaEngine struct {
 	lastModuleLoad []ModuleLoadResult
 	lastProxyLoad  []string // proxy files that failed in the last LoadProxyFiles
 	moduleLoadMu   sync.RWMutex
+	onModuleLoad   func([]ModuleLoadResult) // every report, outside moduleLoadMu
 
 	// Work queue channels — used in stateRunning for serialized LState access
 	fastQueue   chan luaWorkItem // buffered 64: workFast + workLifecycle
@@ -556,11 +557,30 @@ func (le *LuaEngine) LastModuleLoad() []ModuleLoadResult {
 func (le *LuaEngine) setLastModuleLoad(results []ModuleLoadResult) []ModuleLoadResult {
 	le.moduleLoadMu.Lock()
 	le.lastModuleLoad = results
+	fn := le.onModuleLoad
 	le.moduleLoadMu.Unlock()
 
 	out := make([]ModuleLoadResult, len(results))
 	copy(out, results)
+	if fn != nil {
+		fn(append([]ModuleLoadResult(nil), results...))
+	}
 	return out
+}
+
+// clearLastModuleLoad drops the report without a new one: the handler waits for the load.
+func (le *LuaEngine) clearLastModuleLoad() {
+	le.moduleLoadMu.Lock()
+	le.lastModuleLoad = nil
+	le.moduleLoadMu.Unlock()
+}
+
+// SetModuleLoadHandler calls fn with every module load report (start, reload, reset), on the
+// goroutine that loaded them: fn must not call into Lua.
+func (le *LuaEngine) SetModuleLoadHandler(fn func([]ModuleLoadResult)) {
+	le.moduleLoadMu.Lock()
+	le.onModuleLoad = fn
+	le.moduleLoadMu.Unlock()
 }
 
 // LoadUserModules auto-loads .lua files from the modules/ directory (flat, not recursive).
@@ -1749,7 +1769,7 @@ func (le *LuaEngine) Reinitialize(cluName string) error {
 	// Drop the previous load report up front. A reload can fail before it reaches
 	// LoadUserModules, and a stale report of past successes would then let callers
 	// conclude the modules are fine while the runtime is in fact broken.
-	le.setLastModuleLoad(nil)
+	le.clearLastModuleLoad()
 
 	_, err := le.executeFast("Reinitialize", func(L *lua.LState) (string, error) {
 		return "", le.reinitializeInner(cluName)

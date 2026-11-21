@@ -506,6 +506,9 @@ func (l *Loader) updateLater(key string) {
 	l.updateRetry[key] = time.Now().Add(updateRetryAfter)
 }
 
+// CompareVersions is compareVersions, for the panel's update notices.
+func CompareVersions(a, b string) (int, bool) { return compareVersions(a, b) }
+
 // compareVersions compares dotted numeric versions ("1.4.0" < "1.10.0"); a part may have a
 // suffix after its number ("2-beta"). ok is false when either is not such a version.
 func compareVersions(a, b string) (int, bool) {

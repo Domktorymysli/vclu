@@ -128,5 +128,8 @@ func (s *Server) handleAPIUpdateSettings(c *gin.Context) {
 		s.updateChecker.Reschedule()
 	}
 	forced := config.UpdateCheckForcedOff()
+	if !*body.Enabled || forced {
+		s.resolveUpdateNotices() // nothing checks them any more
+	}
 	c.JSON(http.StatusOK, gin.H{"enabled": *body.Enabled && !forced, "forced_off": forced})
 }

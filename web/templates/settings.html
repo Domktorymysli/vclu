@@ -157,6 +157,46 @@
                         </div>
                     </div>
 
+                    <div class="card mb-3" id="notificationsCard">
+                        <div class="card-header">
+                            <i class="bi bi-bell"></i> {{index .t "notify.settings_title"}}
+                        </div>
+                        <div class="card-body">
+                            <p class="text-muted small">{{index .t "notify.settings_desc"}}</p>
+                            <div id="notifySources" class="mb-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="notifySource-update" data-source="update" disabled>
+                                    <label class="form-check-label" for="notifySource-update">{{index .t "notify.source_update"}}</label>
+                                </div>
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="notifySource-plugin" data-source="plugin" disabled>
+                                    <label class="form-check-label" for="notifySource-plugin">{{index .t "notify.source_plugin"}}</label>
+                                </div>
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="notifySource-module" data-source="module" disabled>
+                                    <label class="form-check-label" for="notifySource-module">{{index .t "notify.source_module"}}</label>
+                                </div>
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="notifySource-log" data-source="log" disabled>
+                                    <label class="form-check-label" for="notifySource-log">{{index .t "notify.source_log"}}</label>
+                                    <div class="form-text mt-0">{{index .t "notify.source_log_hint"}}</div>
+                                </div>
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="notifySource-login" data-source="login" disabled>
+                                    <label class="form-check-label" for="notifySource-login">{{index .t "notify.source_login"}}</label>
+                                </div>
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="notifySource-lock" data-source="lock" disabled>
+                                    <label class="form-check-label" for="notifySource-lock">{{index .t "notify.source_lock"}}</label>
+                                </div>
+                            </div>
+                            <h6>{{index .t "notify.muted_title"}}</h6>
+                            <ul class="list-unstyled mb-0" id="notifyMuted">
+                                <li class="text-muted small">{{index .t "notify.muted_none"}}</li>
+                            </ul>
+                        </div>
+                    </div>
+
                     <div class="card mb-3">
                         <div class="card-header">
                             <i class="bi bi-arrow-clockwise"></i> {{index .t "settings.restart"}}
@@ -219,9 +259,14 @@
             reset_btn: {{json (index .t "settings.reset_btn")}},
             confirm_generate: {{json (index .t "settings.js_confirm_generate")}},
             confirm_revoke: {{json (index .t "settings.js_confirm_revoke")}},
-            update_check_saved: {{json (index .t "settings.js_update_check_saved")}}
+            update_check_saved: {{json (index .t "settings.js_update_check_saved")}},
+            notify_saved: {{json (index .t "notify.saved")}},
+            notify_muted_none: {{json (index .t "notify.muted_none")}},
+            notify_muted_forever: {{json (index .t "notify.muted_forever")}},
+            notify_muted_until: {{json (index .t "notify.muted_until")}},
+            notify_restore: {{json (index .t "notify.restore")}}
         };
     </script>
-    <script src="/static/js/settings.js"></script>
+    <script src="/static/js/settings.js?v=2"></script>
 </body>
 </html>

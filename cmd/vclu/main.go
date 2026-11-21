@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
@@ -19,8 +20,10 @@ import (
 	"github.com/Domktorymysli/vclu/pkg/history"
 	"github.com/Domktorymysli/vclu/pkg/homekit"
 	"github.com/Domktorymysli/vclu/pkg/logstream"
+	"github.com/Domktorymysli/vclu/pkg/lua"
 	"github.com/Domktorymysli/vclu/pkg/mcp"
 	"github.com/Domktorymysli/vclu/pkg/metrics"
+	"github.com/Domktorymysli/vclu/pkg/notify"
 	"github.com/Domktorymysli/vclu/pkg/plugins"
 	"github.com/Domktorymysli/vclu/pkg/server"
 	"github.com/Domktorymysli/vclu/pkg/storage"
@@ -217,6 +220,17 @@ func main() {
 	webSrv.SetMQTTManager(luaEngine.GetMQTTManager())   // Wire up MQTT manager for client reconnect/test
 	webSrv.SetSatelManager(luaEngine.GetSatelManager()) // Wire up Satel manager for status/scan/state (nil when disabled)
 
+	// The bell: entries from the sources below, passed on to Notifications.on handlers
+	notifier := notify.New(notify.Options{Path: notify.Path(cluDir), ConfigDir: cluDir})
+	notifyLua := notify.NewLuaBridge(func(js string) error {
+		_, err := luaEngine.Call("Notifications._deliver", js)
+		return err
+	})
+	notifier.SetOnDeliver(notifyLua.Deliver)
+	logStream.SetHook(notify.LogHook(notifier, notifyLua.Delivering))
+	luaEngine.SetModuleLoadHandler(moduleNotices(notifier, filepath.Join(cluDir, "modules")))
+	webSrv.SetNotifier(notifier)
+
 	// Initialize KV store manager for plugin persistence
 	kvManager := plugins.NewKVStoreManager(cluDir)
 	luaEngine.SetKVStoreManager(kvManager)
@@ -324,6 +338,11 @@ func main() {
 		if err := pluginLoader.LoadAllEnabled(); err != nil {
 			log.Printf("Warning: Some plugins failed to load: %v", err)
 		}
+		loaded := map[string]string{}
+		for id, p := range pluginLoader.GetLoadedPlugins() {
+			loaded[id] = p.Manifest.Version
+		}
+		webSrv.PluginsReloaded(loaded) // a plugin updated on load has no notice left
 	})
 
 	// Register post-load callback: auto-expose + HomeKit (runs AFTER user.lua + plugins)
@@ -389,9 +408,10 @@ func main() {
 
 	// New-version check; the setting is read before every check, so the switch needs no restart
 	updateChecker := updatecheck.New(updatecheck.Options{
-		Dir:     cluDir,
-		Version: version,
-		Enabled: func() bool { return config.UpdateCheckEnabled(cluDir) },
+		Dir:      cluDir,
+		Version:  version,
+		Enabled:  func() bool { return config.UpdateCheckEnabled(cluDir) },
+		OnAnswer: webSrv.UpdateAnswered, // then the plugins, from the same check
 	})
 	webSrv.SetUpdateChecker(updateChecker)
 
@@ -437,6 +457,11 @@ func main() {
 	}
 	if err := webSrv.Stop(); err != nil {
 		log.Printf("Error stopping web server: %v", err)
+	}
+	logStream.SetHook(nil)
+	notifyLua.Close()
+	if err := notifier.Close(); err != nil {
+		log.Printf("Error writing notifications: %v", err)
 	}
 	if err := srv.Stop(); err != nil {
 		log.Printf("Error stopping server: %v", err)
@@ -661,6 +686,24 @@ func printBanner() {
     ───────────────────────────────────
 `
 	fmt.Printf(banner, version)
+}
+
+// moduleNotices turns each module load report into the bell's states; the error loses the
+// directory, as the editor shows it.
+func moduleNotices(n *notify.Store, modulesDir string) func([]lua.ModuleLoadResult) {
+	prefix := modulesDir + string(filepath.Separator)
+	if abs, err := filepath.Abs(modulesDir); err == nil {
+		prefix = abs + string(filepath.Separator)
+	}
+	return func(results []lua.ModuleLoadResult) {
+		failed := map[string]string{}
+		for _, r := range results {
+			if !r.OK {
+				failed[r.Name] = strings.ReplaceAll(r.Error, prefix, "modules/")
+			}
+		}
+		n.Modules(failed)
+	}
 }
 
 // historyConfig falls back to defaults when .vclu.json cannot be read.

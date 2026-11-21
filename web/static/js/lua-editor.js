@@ -85,6 +85,10 @@ LuaEditor.prototype.init = function() {
         self._setupOutputResize();
         self._setupOutputErrorClicks();
 
+        // Deep link: /editor?file=modules/x.lua (e.g. from a notification)
+        var linked = new URLSearchParams(location.search).get('file');
+        if (linked && linked.indexOf('..') < 0 && linked.charAt(0) !== '/') self.loadFile(linked, false);
+
         // Auto-refresh drafts every 30s
         setInterval(self._refreshDrafts.bind(self), 30000);
     });
@@ -626,7 +630,7 @@ LuaEditor.prototype.loadBackup = function(backupName, filePath) {
     // Fetch backup content and current production content
     Promise.all([
         fetch('/api/mcp/workspace/backup/' + encodeURIComponent(backupName)).then(function(r) { return r.json(); }),
-        fetch('/api/editor/file/' + filePath).then(function(r) { return r.json(); }).catch(function() { return { content: '' }; })
+        fetch(editorFileURL(filePath)).then(function(r) { return r.json(); }).catch(function() { return { content: '' }; })
     ])
     .then(function(results) {
         var backupData = results[0];
@@ -749,6 +753,11 @@ LuaEditor.prototype.clearBackups = function() {
  * @param {string} path
  * @param {boolean} readonly
  */
+// The file's API address, each path segment encoded ("#", "?", "%" in a name)
+function editorFileURL(path) {
+    return '/api/editor/file/' + String(path).split('/').map(encodeURIComponent).join('/');
+}
+
 LuaEditor.prototype.loadFile = function(path, readonly) {
     var self = this;
 
@@ -761,7 +770,7 @@ LuaEditor.prototype.loadFile = function(path, readonly) {
 
     if (this.elements.status) this.elements.status.textContent = 'Loading ' + path + '...';
 
-    fetch('/api/editor/file/' + path)
+    fetch(editorFileURL(path))
         .then(function(response) { return response.json(); })
         .then(function(data) {
             if (data.error) {
@@ -906,7 +915,7 @@ LuaEditor.prototype.saveFile = function() {
     var content = this.editor.getValue();
     this.elements.status.textContent = 'Saving...';
 
-    fetch('/api/editor/file/' + this.currentFile, {
+    fetch(editorFileURL(this.currentFile), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: content })
@@ -972,7 +981,7 @@ LuaEditor.prototype.saveAll = function() {
     var errors = [];
 
     toSave.forEach(function(tab) {
-        fetch('/api/editor/file/' + tab.path, {
+        fetch(editorFileURL(tab.path), {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ content: tab.content })
@@ -1093,7 +1102,7 @@ LuaEditor.prototype.deleteFile = function(path) {
 
     if (!confirm('Delete ' + path + '?')) return;
 
-    fetch('/api/editor/file/' + path, { method: 'DELETE' })
+    fetch(editorFileURL(path), { method: 'DELETE' })
         .then(function(response) { return response.json(); })
         .then(function(data) {
             if (data.error) {
@@ -3419,7 +3428,7 @@ LuaEditor.prototype._viewBackupDiff = function(backupName, filePath) {
 
     Promise.all([
         fetch('/api/mcp/workspace/backup/' + encodeURIComponent(backupName)).then(function(r) { return r.json(); }),
-        filePath ? fetch('/api/editor/file/' + encodeURIComponent(filePath)).then(function(r) { return r.json(); }) : Promise.resolve({ content: '' })
+        filePath ? fetch(editorFileURL(filePath)).then(function(r) { return r.json(); }) : Promise.resolve({ content: '' })
     ])
     .then(function(results) {
         var backup = results[0];

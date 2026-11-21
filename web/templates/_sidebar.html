@@ -108,9 +108,27 @@
         </button>
     </div>
 </aside>
-<!-- New-version badge in the top bar of every page with this sidebar -->
+<!-- Notification bell in the top bar of every page with this sidebar (#248) -->
+<script src="/static/js/notify-bell.js" defer id="notifyBellScript"
+        data-title="{{index .t "notify.title"}}" data-label="{{index .t "notify.label"}}"
+        data-empty="{{index .t "notify.empty"}}" data-mark-all="{{index .t "notify.mark_all"}}"
+        data-mark-all-short="{{index .t "notify.mark_all_short"}}"
+        data-source-update="{{index .t "notify.source_update"}}" data-source-plugin="{{index .t "notify.source_plugin"}}"
+        data-source-module="{{index .t "notify.source_module"}}" data-source-log="{{index .t "notify.source_log"}}"
+        data-source-login="{{index .t "notify.source_login"}}" data-source-lock="{{index .t "notify.source_lock"}}"
+        data-clear="{{index .t "notify.clear"}}" data-close="{{index .t "update.close"}}"
+        data-mute="{{index .t "notify.mute"}}" data-mute24h="{{index .t "notify.mute_24h"}}"
+        data-mute7d="{{index .t "notify.mute_7d"}}" data-mute-forever="{{index .t "notify.mute_forever"}}"
+        data-m-update-available="{{index .t "notify.update.available"}}"
+        data-m-plugin-update="{{index .t "notify.plugin.update"}}"
+        data-m-module-failed="{{index .t "notify.module.failed"}}"
+        data-m-log-error="{{index .t "notify.log.error"}}"
+        data-m-login-failed="{{index .t "notify.login.failed"}}"
+        data-m-lock-login="{{index .t "notify.lock.login"}}" data-m-lock-pin="{{index .t "notify.lock.pin"}}"
+        data-m-lock-token="{{index .t "notify.lock.token"}}" data-m-suppressed="{{index .t "notify.suppressed"}}"></script>
+<!-- New-version modal, opened from the bell -->
 <script src="/static/js/update-notice.js" defer id="updateNoticeScript"
-        data-available="{{index .t "update.available"}}" data-title="{{index .t "update.title"}}"
+        data-title="{{index .t "update.title"}}"
         data-running="{{index .t "update.running"}}" data-release-page="{{index .t "update.release_page"}}"
         data-before-update="{{index .t "update.before_update"}}" data-more="{{index .t "update.more"}}"
         data-older="{{index .t "update.older"}}"

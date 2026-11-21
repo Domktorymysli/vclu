@@ -1,5 +1,5 @@
 /**
- * New-version badge: shown in .topbar-actions when /api/update says an update is available.
+ * New-version modal, opened from the notification bell as VCLU.openUpdateModal().
  * Release notes arrive as notes_html, already escaped and rendered by the server.
  */
 (function() {
@@ -7,13 +7,11 @@
 
     var script = document.getElementById('updateNoticeScript');
     var t = (script && script.dataset) || {};
-    var HIDDEN_KEY = 'vclu-update-hidden';
     var DOCS_URL = 'https://docs.vclu.pl/docs/getting-started/upgrade/';
     var CMD_SERVICE = 'curl -sSL https://raw.githubusercontent.com/Domktorymysli/vclu/main/deploy/update.sh | sudo bash';
     var CMD_DOCKER = 'docker pull ghcr.io/domktorymysli/vclu:latest';
     var FULL = 3; // newest releases shown with their summary; older ones as one line each
 
-    var badge = null;
     var modal = null;
 
     function el(tag, cls, text) {
@@ -38,10 +36,6 @@
         a.target = '_blank';
         a.rel = 'noopener noreferrer';
         return a;
-    }
-
-    function hiddenVersion() {
-        try { return localStorage.getItem(HIDDEN_KEY); } catch (e) { return null; }
     }
 
     function formatDate(iso) {
@@ -139,8 +133,13 @@
         var hide = el('button', 'btn btn-outline-secondary', t.hide || 'Hide until next version');
         hide.type = 'button';
         hide.addEventListener('click', function() {
-            try { localStorage.setItem(HIDDEN_KEY, data.latest.version); } catch (e) { /* per browser only */ }
-            removeBadge();
+            fetch('/api/notifications/hide-update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ version: data.latest.version })
+            }).then(function() {
+                document.dispatchEvent(new CustomEvent('vclu:notifications-changed'));
+            }).catch(function() { /* the entry stays */ });
             bootstrap.Modal.getOrCreateInstance(root).hide();
         });
         var close = el('button', 'btn btn-primary', t.close || 'Close');
@@ -154,36 +153,24 @@
         return root;
     }
 
-    function removeBadge() {
-        if (badge) badge.remove();
-        badge = null;
-    }
-
-    function show(data) {
-        var bar = document.querySelector('.topbar-actions');
-        if (!bar || !data.enabled || !data.update_available || !data.latest || !data.latest.version) return;
-        if (hiddenVersion() === data.latest.version) return;
-        var label = (t.available || 'vclu {version} is available').replace('{version}', data.latest.version);
-        badge = el('button', 'update-badge');
-        badge.type = 'button';
-        badge.title = label;
-        badge.setAttribute('aria-label', label);
-        badge.appendChild(el('i', 'bi bi-arrow-up-circle'));
-        badge.appendChild(brandEl('span', 'update-badge-label', 'vclu ' + data.latest.version));
-        badge.addEventListener('click', function() {
-            if (!modal) modal = buildModal(data);
+    // Release list from /api/update, read when the modal is first opened. Resolves to whether
+    // the modal opened: not before the first check, nor with the check off.
+    function open() {
+        if (modal) {
             bootstrap.Modal.getOrCreateInstance(modal).show();
-        });
-        bar.insertBefore(badge, bar.firstChild);
+            return Promise.resolve(true);
+        }
+        return fetch('/api/update', { credentials: 'same-origin' })
+            .then(function(r) { return r.ok ? r.json() : null; })
+            .then(function(data) {
+                if (!data || !data.latest || !data.latest.version || !window.bootstrap) return false;
+                modal = buildModal(data);
+                bootstrap.Modal.getOrCreateInstance(modal).show();
+                return true;
+            })
+            .catch(function() { return false; });
     }
 
-    // Settings: turning the check off hides the badge at once
-    document.addEventListener('vclu:update-check', function(e) {
-        if (!e.detail || !e.detail.enabled) removeBadge();
-    });
-
-    fetch('/api/update', { credentials: 'same-origin' })
-        .then(function(r) { return r.ok ? r.json() : null; })
-        .then(function(data) { if (data) show(data); })
-        .catch(function() { /* no badge */ });
+    window.VCLU = window.VCLU || {};
+    VCLU.openUpdateModal = open;
 })();
