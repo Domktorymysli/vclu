@@ -135,6 +135,7 @@ func TestCryptoAesEcbCbc(t *testing.T) {
 		`__round(__k24, ("\0\255"):rep(8))`,
 		`__round(__k32, ("a"):rep(17), "pkcs7")`,
 		`__round(__k16, ("\0\128"):rep(16), "none")`,
+		`__round(__k16, "", "none")`,
 	} {
 		mustLua(t, engine, expr, "true")
 	}
@@ -201,6 +202,8 @@ func TestCryptoHexBase64RoundTrip(t *testing.T) {
 	mustLua(t, engine, `select("#", Crypto.fromHex("abc")) .. tostring(Crypto.fromHex("zz"))`, "2nil")
 	mustLua(t, engine, `tostring(Crypto.fromBase64("a!b="))`, "nil")
 	mustLua(t, engine, `require("PluginHelpers").basicAuth("user", "pass")`, "Basic dXNlcjpwYXNz")
+	// plugins' Basic auth does not go through a module's replacement
+	mustLua(t, engine, `(function() local f = Crypto.toBase64; Crypto.toBase64 = function() return "leak" end; local r = require("PluginHelpers").basicAuth("u", "p"); Crypto.toBase64 = f; return r end)()`, "Basic dTpw")
 }
 
 func TestCryptoRandom(t *testing.T) {

@@ -156,7 +156,7 @@ func cryptoBlockMode(fn string, cbc, encrypt bool) lua.LGFunction {
 				data = append(data, byte(p))
 			}
 		}
-		if len(data)%aes.BlockSize != 0 || (!encrypt && len(data) == 0) {
+		if len(data)%aes.BlockSize != 0 || (!encrypt && padding == "pkcs7" && len(data) == 0) {
 			L.RaiseError("Crypto.%s: data must be a multiple of %d bytes, got %d", fn, aes.BlockSize, len(data))
 		}
 

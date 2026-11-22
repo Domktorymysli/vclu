@@ -60,8 +60,10 @@ end
 --- Base64 encode a string
 -- @param data string String to encode
 -- @return string Base64 encoded string
+-- taken at load: a module replacing Crypto.toBase64 does not see plugins' credentials
+local toBase64 = Crypto.toBase64
 function PluginHelpers.base64Encode(data)
-    return Crypto.toBase64(data)
+    return toBase64(data)
 end
 
 --- Calculate Levenshtein distance between two strings
