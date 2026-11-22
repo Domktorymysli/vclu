@@ -315,7 +315,7 @@ var luaKeywords = map[string]bool{
 var runtimeGlobals = map[string]bool{}
 
 func init() {
-	for _, g := range strings.Fields(`after assert cancel cascade channel clamp click collectgarbage color
+	for _, g := range strings.Fields(`after assert bit cancel cascade channel clamp click collectgarbage color
 		coroutine datetime debug dump emit error every expose getfenv getmetatable gpio inspect io
 		ipairs json lerp load loadstring log map math metric module newproxy next o on optional os
 		package pairs pcall persist print rawequal rawget rawset require round scene scenes select

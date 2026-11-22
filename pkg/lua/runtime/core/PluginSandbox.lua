@@ -1060,6 +1060,8 @@ function PluginSandbox:buildEnvironment(sandbox)
         string = shallowCopy(string),
         table = sandboxTable(),
         math = shallowCopy(math),
+        Crypto = shallowCopy(Crypto),
+        bit = shallowCopy(bit),
         os = safeOs,
         datetime = safeDatetime,
 

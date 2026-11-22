@@ -69,7 +69,7 @@ var timeFormats = []string{
 	"2 Jan 2006 15:04:05",
 }
 
-// RegisterParserFunctions registers the pure json/xml/datetime/color libraries in L.
+// RegisterParserFunctions registers the pure json/xml/datetime/color/Crypto/bit libraries in L.
 // Used by the MCP sandbox so drafts see the same libraries as production.
 func RegisterParserFunctions(L *lua.LState) { registerParserFunctions(L) }
 
@@ -110,6 +110,8 @@ func registerParserFunctions(L *lua.LState) {
 	L.SetGlobal("__go_xml_decode", L.NewFunction(xmlDecode))
 	L.SetGlobal("__go_datetime_parse", L.NewFunction(datetimeParse))
 	L.SetGlobal("__go_datetime_now", L.NewFunction(datetimeNow))
+
+	registerCryptoFunctions(L)
 }
 
 // jsonDecode decodes a JSON string into a Lua table

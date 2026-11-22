@@ -728,6 +728,11 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 			"forward": "Notifications.on(function(n) if not n.resolved and n.level ~= 'info' then Cloud.notify{title=n.title, body=n.body, tag=n.key} end end)",
 			"sandbox": "vclu_draft_test delivers no notifications",
 		},
+		"crypto": map[string]any{
+			"Crypto": "binary in and out as Lua strings: sha256(s), sha1(s), md5(s), hmac('sha256'|'sha1'|'md5', key, s); aesGcmEncrypt(key, nonce12, plain[, aad]) → cipher..tag16, aesGcmDecrypt(...) → plain | nil, err; aesEcbEncrypt/Decrypt(key, s[, 'pkcs7'|'none']), aesCbcEncrypt/Decrypt(key, iv16, s[, padding]); random(1..1024); toHex, fromHex, toBase64(s[, urlSafe]), fromBase64 → nil, err on bad input; keys 16/24/32 bytes",
+			"bit":    "LuaJIT BitOp, 32-bit signed: band, bor, bxor, bnot, lshift, rshift, arshift, tohex(x[, n])",
+			"note":   "modules and plugins (API 1 and 2), no permission",
+		},
 		"pluginAPI": map[string]any{
 			"getPlugin": "Plugin.getPlugin('@vclu/name')",
 			"sensors":   "plugin:get('id') → obj with :get()",
