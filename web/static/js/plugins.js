@@ -365,11 +365,15 @@ PluginsManager.prototype._renderInstalledPlugins = function() {
     }
 
     // Find available versions for update indicators
-    // Several repositories may list one id; only the plugin's own repository offers its update
+    // Several repositories may list one id: the one offering the update (only the plugin's
+    // own repository does), else the plugin's own repository, else the first
+    var installedRepo = {};
+    plugins.forEach(function(p) { installedRepo[p.id] = p.repository; });
+    var rank = function(a) { return a.updateAvailable ? 2 : (a.repository === installedRepo[a.fullId] ? 1 : 0); };
     var availableMap = {};
     this.availablePlugins.forEach(function(p) {
         var cur = availableMap[p.fullId];
-        if (!cur || (p.updateAvailable && !cur.updateAvailable)) availableMap[p.fullId] = p;
+        if (!cur || rank(p) > rank(cur)) availableMap[p.fullId] = p;
     });
 
     var html = '<div class="row">';
