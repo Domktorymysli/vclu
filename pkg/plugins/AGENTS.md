@@ -5,6 +5,14 @@ The sandbox is keyed by plugin id, so one plugin is one instance. No `config` se
 manifest: the plugin returns an object with `create(opts)`, and each call makes an independent
 instance with its own poller and sensors. Configuration is Lua written by the user or an agent.
 
+## The wizard fills data, the code stays a factory (#247, prototype)
+`"form": "form.json"` in plugin.json declares the wizard: `settings` (step 1) and an optional
+`devices` list (step 2). The plugin may register `plugin:discover(fn(cfg, done))` to fill the
+list and `plugin:moduleCode(fn(cfg, devices))` to propose the `create()` calls (step 3); vclu
+writes them to `modules/plugins/<ns>__<id>.lua` only after the user saw the diff. Values are
+checked in Go (`form.go`) on save; secret fields go to `plugin_secrets.json`, never to the config,
+and reach only their plugin as `plugin:secret(name)`. A plugin's older `config` map is step 1.
+
 ## Sensor ids are global
 Ids of sensors and controls are flat across the whole of vCLU. Derive them from the instance's
 options and refuse a duplicate with an error in the log instead of replacing another instance's.

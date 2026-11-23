@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -53,6 +54,7 @@ type PluginManifest struct {
 	Files        []string            `json:"files,omitempty"` // Additional files to download (default: ["init.lua"])
 	API          int                 `json:"api,omitempty"`   // plugin API version; 0 = 1
 	Permissions  *Permissions        `json:"permissions,omitempty"`
+	Form         string              `json:"form,omitempty"` // the wizard's form file, next to plugin.json
 }
 
 // PluginDoc represents a documentation file in plugin.json
@@ -407,6 +409,9 @@ func (l *Loader) downloadAllFiles(baseURL, localDir string) error {
 	if len(files) == 0 {
 		files = []string{"init.lua"}
 	}
+	if manifest.Form != "" && !slices.Contains(files, manifest.Form) {
+		files = append(files, manifest.Form)
+	}
 
 	// 4. Download all files from the list
 	for _, filename := range files {
@@ -699,6 +704,18 @@ func (l *Loader) LoadPlugin(pluginID string, pluginConfig map[string]interface{}
 		return fmt.Errorf("failed to set plugin config: %w", err)
 	}
 
+	secrets, err := PluginSecrets(l.serverDir, pluginID)
+	if err != nil {
+		log.Printf("[PLUGINS] %s: secrets: %v", pluginID, err)
+	}
+	if len(secrets) > 0 { // a new sandbox starts without any
+		secretsJSON, _ := json.Marshal(secrets)
+		if _, err := l.luaExecutor.Execute(fmt.Sprintf(`PluginSandbox:setSecrets(%s, JSON:decode(%s))`,
+			luastr.Quote(pluginID), luastr.Quote(string(secretsJSON)))); err != nil {
+			return fmt.Errorf("failed to set plugin secrets: %w", err)
+		}
+	}
+
 	// 3. Execute init.lua in sandbox
 	code := strings.ReplaceAll(string(initCode), "\r", "")
 	executeScript := executeLua + "\n" + fmt.Sprintf(`execute(%s, %s)`, luastr.Quote(pluginID), luastr.Quote(code))
@@ -733,8 +750,8 @@ func (l *Loader) LoadPlugin(pluginID string, pluginConfig map[string]interface{}
 }
 
 // pluginDeclaresConfig reports whether a plugin asks the user for configuration.
-// Manifests carry it either as the "config" object or the older "configSchema"
-// array; a plugin with neither is configured from code, not from a form.
+// Manifests carry it as a "form" file, the "config" object or the older "configSchema"
+// array; a plugin with none is configured from code, not from a form.
 func pluginDeclaresConfig(localDir string) bool {
 	data, err := os.ReadFile(filepath.Join(localDir, "plugin.json"))
 	if err != nil {
@@ -744,11 +761,12 @@ func pluginDeclaresConfig(localDir string) bool {
 	var probe struct {
 		Config       map[string]json.RawMessage `json:"config"`
 		ConfigSchema []json.RawMessage          `json:"configSchema"`
+		Form         string                     `json:"form"`
 	}
 	if err := json.Unmarshal(data, &probe); err != nil {
 		return true
 	}
-	return len(probe.Config) > 0 || len(probe.ConfigSchema) > 0
+	return len(probe.Config) > 0 || len(probe.ConfigSchema) > 0 || probe.Form != ""
 }
 
 // NeedsConfig reports whether an installed plugin asks for configuration and has none:

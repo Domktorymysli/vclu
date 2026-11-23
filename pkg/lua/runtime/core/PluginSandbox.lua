@@ -1207,6 +1207,79 @@ function PluginSandbox:setConfig(pluginId, config, path)
     sandbox.environment.__plugin_path = path or ""
 end
 
+--- The secret fields of the plugin's form, read by plugin:secret(name)
+function PluginSandbox:setSecrets(pluginId, secrets)
+    local sandbox = self.sandboxes[pluginId]
+    if sandbox then sandbox.secrets = secrets or {} end
+end
+
+-- ============================================
+-- Wizard: discover (step 2) and module code (step 3), called by the loader
+-- ============================================
+
+PluginSandbox.discovered = {}
+
+local function copyPlain(v, depth)
+    if type(v) ~= "table" then return v end
+    if (depth or 0) > 8 then return nil end
+    local out = {}
+    for k, x in originalPairs(v) do out[k] = copyPlain(x, (depth or 0) + 1) end
+    return out
+end
+
+local function wizardInstance(pluginId, field)
+    local sandbox = PluginSandbox.sandboxes[pluginId]
+    local instance = sandbox and not sandbox.dead and sandbox.instance
+    if not instance then return nil, nil, "the plugin is not running" end
+    local fn = rawget(instance, field)
+    if type(fn) ~= "function" then return nil, nil, "the plugin has no " .. field:sub(2) end
+    return instance, fn
+end
+
+--- Starts the plugin's discover; the result waits in PluginSandbox.discovered[reqId]
+function PluginSandbox:discover(pluginId, reqId)
+    local instance, fn, err = wizardInstance(pluginId, "_discover")
+    if not instance then
+        self.discovered[reqId] = { err = err }
+        return
+    end
+    local answered = false
+    local function done(rows, e)
+        if answered then return end
+        answered = true
+        if e ~= nil or type(rows) ~= "table" then
+            self.discovered[reqId] = { err = tostring(e or "discover gave no rows") }
+        else
+            self.discovered[reqId] = { rows = copyPlain(rows) }
+        end
+    end
+    local ok, e = pcall(fn, copyPlain(instance.config), done)
+    if not ok then done(nil, e) end
+end
+
+--- The discover result as JSON once it is there, else nil
+function PluginSandbox:takeDiscovered(reqId)
+    local r = self.discovered[reqId]
+    if not r then return nil end
+    self.discovered[reqId] = nil
+    return JSON:encode(r)
+end
+
+function PluginSandbox:forgetDiscover(reqId)
+    self.discovered[reqId] = nil
+end
+
+--- The module code the plugin proposes for its saved devices, as JSON {code} or {err}
+function PluginSandbox:moduleCode(pluginId)
+    local instance, fn, err = wizardInstance(pluginId, "_moduleCode")
+    if not instance then return JSON:encode({ err = err }) end
+    local cfg = copyPlain(instance.config) or {}
+    local ok, code = pcall(fn, cfg, copyPlain(cfg.devices) or {})
+    if not ok then return JSON:encode({ err = tostring(code) }) end
+    if type(code) ~= "string" then return JSON:encode({ err = "moduleCode did not return text" }) end
+    return JSON:encode({ code = code })
+end
+
 --- Cleanup all resources for a plugin
 -- @param pluginId string The plugin ID
 function PluginSandbox:cleanup(pluginId)
