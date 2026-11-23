@@ -51,7 +51,7 @@ func TestCryptoDigestVectors(t *testing.T) {
 	}
 }
 
-// NIST SP 800-38D vectors as published with GCM (McGrew & Viega, test cases 1, 2, 4, 16).
+// GCM test cases 1, 2, 4 and 16 from McGrew & Viega's GCM specification (submitted to NIST).
 func TestCryptoAesGcmVectors(t *testing.T) {
 	engine := cryptoEngine(t)
 	const (
@@ -142,11 +142,13 @@ func TestCryptoAesEcbCbc(t *testing.T) {
 	// pkcs7 adds a whole block to a full block
 	mustLua(t, engine, `#Crypto.aesEcbEncrypt(__k16, ("a"):rep(16))`, "32")
 
-	// decrypting with the wrong key gives bad padding: an error, never garbage
+	// bad padding and wrong lengths are errors (padding is no check of the key: use GCM for that)
 	for _, code := range []string{
 		`Crypto.aesEcbDecrypt(("z"):rep(16), Crypto.aesEcbEncrypt(__k16, "hello"))`,
 		`Crypto.aesCbcDecrypt(__k16, __iv, ("\0"):rep(16))`,
 		`Crypto.aesEcbDecrypt(__k16, "")`,
+		// last byte valid (2), the one before it not
+		`Crypto.aesEcbDecrypt(__k16, Crypto.aesEcbEncrypt(__k16, ("a"):rep(14) .. "\1\2", "none"))`,
 		`Crypto.aesEcbEncrypt(__k16, "short", "none")`,
 		`Crypto.aesEcbEncrypt(__k16, "x", "zeros")`,
 	} {
@@ -325,5 +327,35 @@ func TestPluginCryptoAndBitWithoutPermission(t *testing.T) {
 	r, _ = runPlugin(t, engine, "@t/v3", `return bit.bxor(1, 2) .. type(Crypto.hmac)`)
 	if r != "3function" {
 		t.Errorf("a new plugin sees the change: %s", r)
+	}
+}
+
+// A module's own global bit or a wrapped Crypto stays out of plugins created after it.
+func TestPluginCryptoIgnoresModuleGlobals(t *testing.T) {
+	engine := cryptoEngine(t)
+	if _, err := engine.Execute(`
+		__seen = {}
+		local hmac = Crypto.hmac
+		Crypto.hmac = function(alg, key, data) __seen.key = key; return hmac(alg, key, data) end
+		bit = { band = function() return 42 end }
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.Execute(`PluginSandbox:create("@t/a", {api = 2})`); err != nil {
+		t.Fatal(err)
+	}
+	r, e := runPlugin(t, engine, "@t/a", `return bit.band(3, 1) .. type(bit.bxor) .. #Crypto.hmac("sha256", "secret", "x")`)
+	if e != "nil" || r != "1function32" {
+		t.Errorf("r=%s e=%s, want 1function32", r, e)
+	}
+	mustLua(t, engine, `tostring(__seen.key)`, "nil")
+
+	// without the globals, plugins still load and have both
+	if _, err := engine.Execute(`bit = nil; Crypto = nil; PluginSandbox:create("@t/b", {api = 1})`); err != nil {
+		t.Fatalf("create after bit = nil: %v", err)
+	}
+	r, e = runPlugin(t, engine, "@t/b", `return bit.bxor(1, 2) .. #Crypto.sha256("")`)
+	if e != "nil" || r != "332" {
+		t.Errorf("r=%s e=%s, want 332", r, e)
 	}
 }

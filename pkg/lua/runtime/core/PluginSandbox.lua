@@ -48,6 +48,9 @@ local function shallowCopy(t)
     return c
 end
 
+-- Taken at load: a module's own global bit or a wrapped Crypto does not reach plugins
+local CRYPTO, BIT = shallowCopy(Crypto), shallowCopy(bit)
+
 -- Methods a plugin may call on an object it did not create: reads only.
 local READ_DENY = {
     getShared = true, getInstance = true, getInstanceIds = true, getConfig = true,
@@ -1060,8 +1063,8 @@ function PluginSandbox:buildEnvironment(sandbox)
         string = shallowCopy(string),
         table = sandboxTable(),
         math = shallowCopy(math),
-        Crypto = shallowCopy(Crypto),
-        bit = shallowCopy(bit),
+        Crypto = shallowCopy(CRYPTO),
+        bit = shallowCopy(BIT),
         os = safeOs,
         datetime = safeDatetime,
 
