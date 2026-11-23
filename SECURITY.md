@@ -18,39 +18,51 @@ Please include:
   HA/MQTT, an MCP bot, a plugin, a Lua module),
 - steps to reproduce, ideally without real hardware.
 
-Test the cloud only with your own account and your own house; do not access
-other people's data or degrade the service. Reports made in good faith that
-follow this policy are welcome, and we will not take action against them.
+## Testing
+
+Test only your own installation, your own cloud account and your own house.
+Do not:
+
+- run destructive tests or degrade the cloud for other users,
+- access, keep or pass on other people's data; if you reach any by accident,
+  stop, delete it and tell us,
+- operate gates, doors, locks, the alarm or other devices in a house that is
+  not yours.
+
+If you act in good faith and follow this policy, we will not take legal
+action against you over that research. We can speak only for vclu, not for
+third parties such as the makers of devices vclu connects to.
 
 ## What happens next
 
-- **Acknowledgement** within 3 working days.
-- **First assessment** within 10 days: whether it is a vulnerability, how
-  severe, and what happens next. We keep you informed until it is fixed.
-- **Fix:** critical and high severity problems get a release of their own as
-  soon as the fix is ready; others ship in the next regular release.
-- **Disclosure** together with the fix, as a GitHub security advisory. Tell us
-  if you want to be credited.
+vclu is maintained by a single developer; there is no dedicated security
+team. We aim to acknowledge a report within 3 business days and to
+give a first assessment (whether it is a vulnerability, how severe, what
+happens next) within 10 business days. Critical reports come first. Response
+times may vary with availability and the complexity of the issue. We keep you
+informed until it is resolved.
+
+- **Fix:** a fix ships in a release; a critical one gets a release of its own
+  as soon as the fix is ready.
+- **Disclosure:** we coordinate public disclosure with the availability of a
+  fix or a mitigation, as a GitHub security advisory. If users need to act
+  sooner to protect themselves, we may publish security guidance before a fix
+  is released. Tell us if you want to be credited.
 
 A vulnerability that is actively exploited, and an incident that affects the
-security of vclu, are reported to the authorities as the EU Cyber Resilience
-Act (Regulation 2024/2847) requires, through the single reporting platform of
-ENISA (an early warning within 24 hours, a notification within 72 hours, a
-final report), and users are told what to do.
+security of vclu, are reported as the EU Cyber Resilience Act (Regulation
+2024/2847) requires, through the single reporting platform of ENISA, and users
+are told what to do.
 
 ## Supported versions
 
 Security fixes ship in a new release; only the latest release gets them.
-Releases are frequent and upgrades are free, so upgrading is how a fix
-arrives: `sudo apt upgrade` with the APT repository, a new image with Docker,
-**Update** in the web UI otherwise. Each release says in its notes whether it
-fixes a security problem.
+Upgrades are free, so upgrading is how a fix arrives: `sudo apt upgrade` with
+the APT repository, a new image with Docker, **Update** in the web UI
+otherwise. Each release says in its notes whether it fixes a security problem.
 
 The cloud (`cloud.vclu.pl`) is always on its latest version. The mobile apps
 are updated through Google Play and the App Store.
-
-A long-term support line, with security fixes for a longer period, is to be
-announced.
 
 ## How fixes are announced
 
@@ -64,7 +76,9 @@ announced.
 
 - Release assets are listed with their SHA-256 in `checksums.txt` of each
   [release](https://github.com/Domktorymysli/vclu/releases):
-  `sha256sum -c checksums.txt --ignore-missing`.
+  `sha256sum -c checksums.txt --ignore-missing`. Checksums catch a damaged
+  download, not a forged one: whoever could replace an asset could replace
+  `checksums.txt` too.
 - The APT repository (`apt.vclu.pl`) is signed; its key is kept offline, never
   in CI ([deploy/apt/README.md](deploy/apt/README.md)).
 - Docker images are published to `ghcr.io/domktorymysli/vclu` by the release
@@ -92,6 +106,12 @@ accepted as not affecting vclu are listed with the reason in
 [.github/govulncheck-accepted.txt](.github/govulncheck-accepted.txt) and
 [.github/scan-accepted.txt](.github/scan-accepted.txt).
 
+The records hold only what anyone can already find: the scanners check the
+public code and release assets against published advisories for vclu's
+dependencies, and anyone can repeat those scans. A vulnerability in vclu itself
+is never written there before it is disclosed; it is handled privately as
+described above.
+
 ## Scope
 
 vclu, the vclu cloud and the mobile apps are one product; all of them are in
@@ -106,10 +126,12 @@ scope. For example:
 - a plugin escaping its sandbox,
 - disarming or force-arming Satel when it is not allowed in the configuration,
 - leaking secrets (passwords, PINs, tokens, keys) through the API, logs or MCP,
-- the cloud: accounts, pairing a vclu, the tunnel to a house, remote
-  dashboards, voice control and Google Home: reaching or controlling a house
-  that is not yours, or one that was not shared with you,
-- the mobile apps: their sessions and tokens, notifications and actions.
+- the cloud: accounts, pairing a vclu, the tunnel to a house and remote
+  dashboards: reaching or controlling a house that is not yours, or one that
+  was not shared with you,
+- the mobile apps: their sessions and tokens, notifications and actions,
+- a crafted message from a Grenton CLU, a Satel module or another device that
+  makes vclu crash, run code or act outside its configuration.
 
 Official plugins (`@vclu/*`) are in scope. Community plugins belong to their
 authors: report to them; if a plugin can harm users beyond its own purpose,
@@ -117,13 +139,18 @@ tell us too.
 
 Not vulnerabilities:
 
+- actions within the permissions an account, bot or plugin was explicitly
+  given. Escalating privileges, crossing an authorization boundary (for
+  example reaching another account's house) or escaping a sandbox stays in
+  scope, even when it needs a logged-in account,
 - what Dev mode and Exec mode are meant to do: a bot with these permissions
   can change automations and run Lua on the live runtime. A promoted module
   runs with the full rights of the vclu process (files, processes), so Dev
   mode amounts to code execution on the host. Grant it only to bots you
   trust,
-- attacks that need an admin login or shell access to the host,
-- the Grenton protocol itself (vclu has to stay compatible with real CLUs),
+- attacks that need shell access to the host,
+- weaknesses of the Grenton and Satel protocols themselves (vclu has to stay
+  compatible with real devices),
 - automations and dashboards the house's owner wrote, for example a control
   left without a PIN.
 
@@ -135,4 +162,4 @@ Not vulnerabilities:
 - Keep Dev mode off when you do not need it (it has a kill switch in the web
   UI) and give each bot its own token and access profile.
 - Protect gates, doors and the alarm with a PIN when they are reachable from
-  the cloud or a voice assistant.
+  the cloud.
