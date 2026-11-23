@@ -23,7 +23,7 @@ The `ossf/scorecard-action` runs it in GitHub Actions and publishes the result f
 Installers, partners and customers who ask how vclu is built (also with the EU Cyber Resilience
 Act in mind) can check the score themselves.
 
-Some checks follow from other tickets: SAST and fuzzing from the code scanning ticket, the
+Some checks follow from other tickets: SAST and fuzzing from #264, the
 security policy from #261. Signed releases are new: GitHub artifact attestations
 (`actions/attest-build-provenance`) record which workflow and commit built each archive, `.deb`
 and image, and users verify them with `gh attestation verify`. Some checks cannot reach 10 for a
