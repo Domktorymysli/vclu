@@ -1,0 +1,33 @@
+name: Raspberry Pi image
+
+# Raspberry Pi OS Lite (arm64) with the release installed on first boot (deploy/image/).
+# Runs from release.yml after the archives are published; by hand for an existing tag.
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, e.g. v1.9.0"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      # The build script from this ref; the tag only picks the release (older tags have no deploy/image)
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: OUT=dist deploy/image/build-image.sh "${{ inputs.tag }}"
+
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ inputs.tag }}" dist/vclu-*-rpi-arm64.img.xz dist/vclu-*-rpi-arm64.img.xz.sha256 --clobber
