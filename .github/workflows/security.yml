@@ -36,13 +36,14 @@ jobs:
       contents: write   # the release's security record
     env:
       GH_TOKEN: ${{ github.token }}
-      SCAN_OUT: ${{ runner.temp }}/scan
     steps:
       - uses: actions/checkout@v4
 
       - name: Latest release
         id: rel
         run: |
+          # runner.temp is not available in a job's env
+          echo "SCAN_OUT=$RUNNER_TEMP/scan" >> "$GITHUB_ENV"
           tag=$(gh release view --json tagName -q .tagName)
           gh release download "$tag" -p vclu-linux-amd64.tar.gz -D "$RUNNER_TEMP"
           tar -xzf "$RUNNER_TEMP/vclu-linux-amd64.tar.gz" -C "$RUNNER_TEMP" vclu

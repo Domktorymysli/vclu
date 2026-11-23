@@ -2,7 +2,8 @@ name: Release rebuild
 
 # Rebuilds the archives and images of an existing release from its tag.
 # Delete the release's assets first: GoReleaser does not overwrite them. Keep the security record
-# and its scans (vclu-*-security.json, vclu-*-scan-*.tar.gz): this does not make them again.
+# and its scans (vclu-*-security.json, vclu-*-scan-*.tar.gz): this does not scan again, but
+# makes the images' SBOMs again and updates the record's SBOM checksums.
 on:
   workflow_dispatch:
     inputs:
@@ -46,3 +47,22 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # The images were pushed again: their SBOMs and the record follow. A tag from before
+      # the security records has neither.
+      - name: SBOM and security record
+        if: hashFiles('.github/security-record.sh') != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          v=${TAG#v}
+          for arch in amd64 arm64; do
+            .github/imagescan.sh "ghcr.io/domktorymysli/vclu:$v-$arch" --format spdx-json -o "vclu-$v-image-$arch.spdx.json"
+          done
+          gh release upload "$TAG" vclu-$v-image-*.spdx.json --clobber
+          record=vclu-$v-security.json
+          if gh release download "$TAG" -p "$record"; then
+            .github/security-record.sh sboms "$record" dist/*.spdx.json vclu-$v-image-*.spdx.json
+            gh release upload "$TAG" "$record" --clobber
+          fi
