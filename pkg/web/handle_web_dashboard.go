@@ -96,6 +96,14 @@ func (dc *dashboardCache) setCalendar(key, data string) {
 	dc.cals[key] = &cacheEntry{data: data, expiresAt: now.Add(30 * time.Second)}
 }
 
+// dropCalendars forgets every calendar answer: an action may have changed a calendar that more
+// than one dashboard shows (a saved week, an added or skipped event).
+func (dc *dashboardCache) dropCalendars() {
+	dc.mu.Lock()
+	defer dc.mu.Unlock()
+	dc.cals = make(map[string]*cacheEntry)
+}
+
 func (dc *dashboardCache) getMetric(key string) (string, bool) {
 	dc.mu.RLock()
 	defer dc.mu.RUnlock()
@@ -636,7 +644,11 @@ func (s *Server) handleAPIDashboardCalendar(c *gin.Context) {
 		return
 	}
 	// a cached answer saves the Lua loop: each request holds it while the calendar expands
-	key := id + "\x00" + widget + "\x00" + from + "\x00" + to + roleKey(c)
+	skipped := c.Query("skipped") == "1" // the page brings skipped days back; other clients do not ask
+	key := id + "\x00" + widget + "\x00" + from + "\x00" + to + roleKey(c) + viewerKey(c)
+	if skipped {
+		key += "\x00skipped"
+	}
 	result, cached := dashCache.getCalendar(key)
 	if cached && s.dashWidgetHidden(c, id, widget) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "calendar widget is hidden"})
@@ -648,8 +660,12 @@ func (s *Server) handleAPIDashboardCalendar(c *gin.Context) {
 			return
 		}
 		var err error
-		result, err = s.luaExecutor.Execute(fmt.Sprintf(`Dashboard.API.calendarRange("%s", "%s", "%s", "%s"%s)`,
-			luaEscape(id), luaEscape(widget), from, to, roleArg(c)))
+		role := "nil"
+		if r := remoteRole(c); r != "" {
+			role = `"` + luaEscape(r) + `"`
+		}
+		result, err = s.luaExecutor.Execute(fmt.Sprintf(`Dashboard.API.calendarRange("%s", "%s", "%s", "%s", %s, %s)`,
+			luaEscape(id), luaEscape(widget), from, to, role, viewerCtxLua(c, fmt.Sprintf("skipped = %t, ", skipped))))
 		if err != nil {
 			// public dashboards reach this: the Lua error (paths, stack) goes to the log only
 			log.Printf("[DASHBOARD] %s calendar %s: %v", id, widget, err)
@@ -668,6 +684,84 @@ func (s *Server) handleAPIDashboardCalendar(c *gin.Context) {
 		dashCache.setCalendar(key, result)
 	}
 	c.Data(http.StatusOK, "application/json", []byte(result))
+}
+
+// handleAPIDashboardSchedule returns the week of a schedule widget and whether this viewer may
+// edit it. Never cached: the answer depends on the person.
+func (s *Server) handleAPIDashboardSchedule(c *gin.Context) {
+	id := c.Param("id")
+	if s.luaExecutor == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Lua engine not ready"})
+		return
+	}
+	if !s.checkDashboardAuth(c, id) {
+		return
+	}
+	widget := c.Query("widget")
+	if widget == "" || len(widget) > 128 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "widget is required"})
+		return
+	}
+	if s.calendarLimiter != nil && !s.calendarLimiter.allow(limitKey(c)) {
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "too many requests"})
+		return
+	}
+	result, err := s.luaExecutor.Execute(fmt.Sprintf(`Dashboard.API.scheduleWeek("%s", "%s", %s)`,
+		luaEscape(id), luaEscape(widget), viewerCtxLua(c, "")))
+	if err != nil {
+		log.Printf("[DASHBOARD] %s schedule %s: %v", id, widget, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "schedule unavailable"})
+		return
+	}
+	var r struct {
+		Status int `json:"status"`
+	}
+	if err := json.Unmarshal([]byte(result), &r); err == nil && r.Status >= 400 && r.Status < 600 {
+		c.Data(r.Status, "application/json", []byte(result))
+		return
+	}
+	c.Data(http.StatusOK, "application/json", []byte(result))
+}
+
+// viewerKey separates cached answers that depend on who may edit (an editable calendar): the
+// viewer's home roles and whether it is a device API client; "" for the house.
+func viewerKey(c *gin.Context) string {
+	if remoteRole(c) == "" {
+		return ""
+	}
+	k := "\x00"
+	if v, ok := c.Get(ctxViewerRoles); ok {
+		if js, err := json.Marshal(v); err == nil {
+			k += string(js)
+		}
+	} else {
+		k += "?"
+	}
+	if strings.HasPrefix(c.GetString(ctxRemoteActor), "client:") {
+		k += "\x00client"
+	}
+	return k
+}
+
+// viewerCtxLua is the viewer's part of an action's ctx table, as Lua fields followed by extra:
+// role, the home roles as JSON text and client for a remote viewer; nothing for the house.
+func viewerCtxLua(c *gin.Context, extra string) string {
+	var b strings.Builder
+	b.WriteString("{ ")
+	b.WriteString(extra)
+	if role := remoteRole(c); role != "" {
+		fmt.Fprintf(&b, `role = "%s", `, luaEscape(role))
+		if v, ok := c.Get(ctxViewerRoles); ok {
+			if js, err := json.Marshal(v); err == nil {
+				fmt.Fprintf(&b, `roles = "%s", `, luaEscape(string(js)))
+			}
+		}
+		if strings.HasPrefix(c.GetString(ctxRemoteActor), "client:") {
+			b.WriteString("client = true, ")
+		}
+	}
+	b.WriteString("}")
+	return b.String()
 }
 
 // handleAPIDashboardMetrics returns samples of a metric the dashboard draws,
@@ -808,12 +902,19 @@ func (s *Server) runDashboardAction(c *gin.Context, id, widget, action string, v
 		return http.StatusTooManyRequests, []byte(`{"error":"Rate limit exceeded"}`)
 	}
 
-	remote := ""
-	if role := remoteRole(c); role != "" {
-		remote = fmt.Sprintf(`, role = "%s", confirmed = %t`, luaEscape(role), confirmed)
+	extra := fmt.Sprintf("held = %t, ", held)
+	if remoteRole(c) != "" {
+		extra += fmt.Sprintf("confirmed = %t, ", confirmed)
 	}
-	script := fmt.Sprintf(`Dashboard.API.executeAction("%s", "%s", "%s", %s, { held = %t%s })`,
-		luaEscape(id), luaEscape(widget), luaEscape(action), actionValueLua(value), held, remote)
+	// actionValueLua keeps one level; a widget that takes more (a schedule's week) decodes this
+	switch value.(type) {
+	case map[string]interface{}, []interface{}:
+		if js, err := json.Marshal(value); err == nil {
+			extra += fmt.Sprintf(`valueJSON = "%s", `, luaEscape(string(js)))
+		}
+	}
+	script := fmt.Sprintf(`Dashboard.API.executeAction("%s", "%s", "%s", %s, %s)`,
+		luaEscape(id), luaEscape(widget), luaEscape(action), actionValueLua(value), viewerCtxLua(c, extra))
 	result, err := s.executeAs(c, "dashboard:"+id, script)
 	if err != nil {
 		return 0, []byte(err.Error())
@@ -821,6 +922,7 @@ func (s *Server) runDashboardAction(c *gin.Context, id, widget, action string, v
 
 	// Invalidate values cache after action, and read the live values again now
 	dashCache.dropValues(id)
+	dashCache.dropCalendars()
 	s.live.poke(id)
 
 	// a refusal for a remote viewer (readonly, not confirmed) carries its status

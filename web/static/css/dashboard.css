@@ -2452,6 +2452,7 @@ body {
     .dash-grid > .dash-widget-dimmer,
     .dash-grid > .dash-widget-color,
     .dash-grid > .dash-widget-colorTemp,
+    .dash-grid > .dash-widget-schedule,
     .dash-grid > .dash-widget-calendar {
         grid-column: 1 / -1 !important;
     }
@@ -2920,6 +2921,97 @@ body {
 @media (max-width: 600px) {
     .dash-cal-sched-row, .dash-cal-sched-ticks { grid-template-columns: 5.2em 1fr; gap: 8px; }
 }
+
+/* ---- An editable calendar: buttons on events, the form of a person's own one ---- */
+.dash-cal-item.editable { grid-template-columns: 7.5em 1fr auto; }
+.dash-cal-item.skipped .dash-cal-name, .dash-cal-item.skipped .dash-cal-time { text-decoration: line-through; opacity: 0.5; }
+.dash-cal-actions { display: flex; gap: 2px; }
+.dash-cal-actions .dash-cal-btn { min-width: 30px; height: 30px; padding: 0 6px; }
+.dash-cal-actions .dash-cal-btn.armed { background: rgba(220, 53, 69, 0.85); color: #fff; }
+.dash-cal-addrow { display: flex; justify-content: flex-end; }
+.dash-cal-form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.05);
+}
+.dash-cal-form-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.dash-cal-form-row:last-child { justify-content: flex-end; }
+.dash-cal-input {
+    background: rgba(0,0,0,0.25);
+    color: var(--dash-text);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 8px;
+    padding: 6px 8px;
+    font-size: 0.9rem;
+    min-height: 34px;
+    user-select: text;
+    -webkit-user-select: text;
+}
+.dash-cal-input:disabled { opacity: 0.4; }
+.dash-cal-check { display: flex; align-items: center; gap: 4px; font-size: 0.85rem; color: rgba(255,255,255,0.75); }
+@media (max-width: 600px) {
+    .dash-cal-item.editable { grid-template-columns: 5.2em 1fr auto; }
+}
+
+/* ---- Schedule widget: the week of an editable schedule ---- */
+.dash-widget-schedule {
+    contain: inline-size;
+    align-items: stretch;
+    justify-content: flex-start;
+    padding: 14px 14px 12px;
+    gap: 10px;
+}
+.dash-widget-schedule:active { transform: none; }
+.dash-sched-bar { grid-template-columns: 1fr auto; }
+.dash-sched-save { border-color: var(--dash-accent); color: var(--dash-accent); }
+.dash-sched-palette { display: flex; flex-wrap: wrap; gap: 6px; }
+.dash-sched-swatch {
+    border: 2px solid transparent;
+    border-radius: 8px;
+    padding: 4px 10px;
+    min-height: 32px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: rgba(255,255,255,0.92);
+    background: var(--seg);
+    cursor: pointer;
+}
+.dash-sched-swatch.neutral { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.7); }
+.dash-sched-swatch.active { border-color: var(--dash-text); }
+.dash-sched-grid { display: flex; flex-direction: column; gap: 5px; }
+.dash-widget-schedule.editing .dash-sched-grid { touch-action: none; } /* painting, not scrolling */
+.dash-sched-row {
+    display: grid;
+    grid-template-columns: 3em 1fr;
+    align-items: center;
+    gap: 8px;
+}
+.dash-sched-day {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: rgba(255,255,255,0.6);
+    text-transform: capitalize;
+}
+.dash-sched-line {
+    position: relative;
+    height: 26px;
+    border-radius: 7px;
+    overflow: hidden;
+    background: rgba(255,255,255,0.04);
+}
+.dash-sched-line.editing {
+    cursor: crosshair;
+    /* half-hour cells while painting */
+    background-image: repeating-linear-gradient(90deg, transparent 0, transparent calc(100% / 48 - 1px), rgba(255,255,255,0.06) calc(100% / 48 - 1px), rgba(255,255,255,0.06) calc(100% / 48));
+}
+.dash-sched-line .dash-cal-seg-v { pointer-events: none; }
+.dash-sched-foot { display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem; color: rgba(255,255,255,0.55); }
+.dash-sched-fixed { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.dash-sched-fixed-title { font-weight: 600; }
+.dash-sched-note { font-style: italic; }
 
 /* ---- Room tile and the room over the page (#94) ---- */
 .dash-widget-room {

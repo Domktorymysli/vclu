@@ -982,6 +982,7 @@ func (s *Server) setupRoutes() {
 		api.GET("/dashboard/:id/metrics", s.handleAPIDashboardMetrics)
 		api.GET("/dashboard/:id/bars", s.handleAPIDashboardBars)
 		api.GET("/dashboard/:id/calendar", s.handleAPIDashboardCalendar)
+		api.GET("/dashboard/:id/schedule", s.handleAPIDashboardSchedule)
 		api.POST("/dashboard/:id/action", s.handleAPIDashboardAction)
 		api.POST("/dashboard/:id/auth", s.handleAPIDashboardAuth)
 

@@ -16,6 +16,9 @@ SectionHandle.__index = SectionHandle
 
 local CALENDAR_WIDGET_KEYS = { view = true, tags = true, schedules = true, holidays = true, namedays = true, sun = true, span = true,
     visible = true, remote = true }
+local SCHEDULE_WIDGET_KEYS = { span = true, visible = true, disabled = true, remote = true }
+-- What a page may set on an event it adds to an editable calendar or changes; the rest is the module's.
+local CAL_EVENT_KEYS = { title = true, date = true, time = true, duration = true, every = true, from = true, to = true }
 
 -- "a", "b": the sorted keys of a set, or "none".
 local function quoted(set)
@@ -143,6 +146,28 @@ local function calendarWidget(id, label, cal, opts)
         end
     end
     return { id = id, type = 'calendar', label = label, calendar = calId, opts = opts }
+end
+
+-- A schedule widget: the week of an editable schedule. It keeps the calendar's id too.
+local function scheduleWidget(id, label, cal, scheduleId, opts)
+    local calId = type(cal) == 'table' and cal.id or cal
+    local where = 'schedule widget "' .. tostring(id) .. '"'
+    if type(calId) ~= 'string' then error(where .. ': expected a calendar or its id', 3) end
+    if type(scheduleId) ~= 'string' then error(where .. ': expected the id of an editable schedule of the calendar', 3) end
+    opts = opts or {}
+    if type(opts) ~= 'table' then error(where .. ': opts must be a table', 3) end
+    for k in pairs(opts) do
+        if not SCHEDULE_WIDGET_KEYS[k] then
+            error(where .. ': unknown option "' .. tostring(k) .. '" (' .. quoted(SCHEDULE_WIDGET_KEYS) .. ')', 3)
+        end
+    end
+    if opts.disabled ~= nil and type(opts.disabled) ~= 'function' then error(where .. ': opts.disabled must be a function', 3) end
+    local c = Calendar and Calendar.get(calId)
+    if c then
+        local ok, err = pcall(c.week, c, scheduleId)
+        if not ok then error(where .. ': ' .. tostring(err):gsub('^[^\n]-:%d+: ', ''), 3) end
+    end
+    return { id = id, type = 'schedule', label = label, calendar = calId, schedule = scheduleId, opts = opts }
 end
 
 -- A colour widget given a light object (RemoteRGBLight) instead of fns. Reads come from what
@@ -1860,6 +1885,19 @@ function SectionHandle:calendar(id, label, cal, opts)
     return self
 end
 
+--- Add a schedule widget to this section: the week of an editable calendar schedule, edited
+-- on the page by who the schedule's :roles() allow.
+-- @param id string Unique widget identifier
+-- @param label string Display label
+-- @param cal table Calendar from Calendar.new(...):build(), or its id
+-- @param scheduleId string An editable schedule of the calendar (:schedule(...):editable())
+-- @param opts table Optional: {span=n, visible=function()->bool, disabled=function()->bool, remote=false|'readonly'}
+-- @api public
+function SectionHandle:schedule(id, label, cal, scheduleId, opts)
+    self._builder:_addWidget(self._sectionIndex, scheduleWidget(id, label, cal, scheduleId, opts))
+    return self
+end
+
 --- Add a select widget to this section.
 -- @param id string Unique widget identifier
 -- @param label string Display label
@@ -2737,6 +2775,22 @@ function DashboardBuilder:calendar(id, label, cal, opts)
     return self
 end
 
+--- Add a schedule widget to the current section: the week of an editable calendar schedule,
+-- edited on the page by who the schedule's :roles() allow.
+-- @param id string Unique widget identifier
+-- @param label string Display label
+-- @param cal table Calendar from Calendar.new(...):build(), or its id
+-- @param scheduleId string An editable schedule of the calendar (:schedule(...):editable())
+-- @param opts table Optional: {span=n, visible=function()->bool, disabled=function()->bool, remote=false|'readonly'}
+-- @api public
+function DashboardBuilder:schedule(id, label, cal, scheduleId, opts)
+    if not self._currentSection then
+        error('Call :section() before adding widgets (dash:floor() ends the current section)', 2)
+    end
+    self:_addWidget(self._currentSection, scheduleWidget(id, label, cal, scheduleId, opts))
+    return self
+end
+
 --- Add a select widget to the current section.
 -- @param id string Unique widget identifier
 -- @param label string Display label
@@ -3477,6 +3531,74 @@ local function resolveDashboard(id, bare)
     return bare and result or expandAreas(result)
 end
 
+-- ---------- schedule widget ----------
+
+-- The calendar and the week of a schedule widget, or nil and the error.
+local function scheduleOf(w)
+    local cal = Calendar and Calendar.get(w.calendar)
+    if not cal then return nil, nil, 'calendar "' .. w.calendar .. '" not built' end
+    local ok, wk = pcall(cal.week, cal, w.schedule)
+    if not ok then return nil, nil, (tostring(wk):gsub('^[^\n]-:%d+: ', '')) end
+    return cal, wk
+end
+
+-- Values of a schedule widget: the value now and the next change as text (for a client that
+-- does not know the type), the value and the week's version.
+local function scheduleState(w)
+    local cal, wk, err = scheduleOf(w)
+    if not cal then return { error = err } end
+    local now = cal:value(w.schedule)
+    if now == nil then return { value = '…', version = wk.version } end
+    local text = tostring(now)
+    local n = cal:nextChange(w.schedule)
+    if n then
+        local at = datetime.fromTimestamp(n.at)
+        local fmt = cal:day(n.at).date == cal:day().date and '15:04' or '02.01 15:04'
+        text = text .. ' → ' .. tostring(n.value) .. ' ' .. datetime.format(at, fmt)
+    end
+    return { value = text, now = now, color = cal:color(w.schedule), version = wk.version }
+end
+
+-- The request's context as Go passes it: role (the membership role through the cloud, nil for
+-- the house), roles (the home roles as JSON text, when the house knows them), client (a client
+-- of the device API), valueJSON (an action's value as JSON text).
+local function ctxRoles(ctx)
+    if type(ctx.roles) ~= 'string' then return nil end
+    local ok, list = pcall(JSON.decode, ctx.roles)
+    if ok and type(list) == 'table' then return list end
+    return nil
+end
+
+-- Whether this viewer may change what widget w shows (a schedule's week, a calendar's events)
+-- that names roles (nil: none); the same answer for the flag the page shows and for the action.
+local function mayEdit(dash, w, roles, ctx)
+    if safeDisabled(w.opts) then return false end
+    if ctx.role == nil then
+        -- the house: a page anyone on the LAN opens does not get round the roles
+        return roles == nil or dash._auth == 'pin' or dash._auth == 'session'
+    end
+    if ctx.client == true or dash._readonly[w] then return false end
+    if roles == nil or ctx.role == 'owner' or ctx.role == 'admin' then return true end
+    for _, r in ipairs(ctxRoles(ctx) or {}) do
+        for _, x in ipairs(roles) do
+            if r == x then return true end
+        end
+    end
+    return false
+end
+
+local function mayEditSchedule(dash, w, wk, ctx) return mayEdit(dash, w, wk.roles, ctx) end
+
+local function mayEditCalendar(dash, w, cal, ctx) return cal.editable and mayEdit(dash, w, cal.roles, ctx) end
+
+local function findWidget(dash, widgetId, wtype)
+    for _, sec in ipairs(dash._sections) do
+        for _, x in ipairs(sec.widgets) do
+            if x.id == widgetId and (wtype == nil or x.type == wtype) then return x end
+        end
+    end
+end
+
 -- Remote viewers (vclu cloud, docs/protocol.md in vclu-cloud, section 8). Go passes the role
 -- only for requests through the cloud's tunnel or with a local token; nil is the house.
 
@@ -3671,7 +3793,9 @@ local CALENDAR_DAY_MAX = 300  -- events in one day view
 --- Occurrences of a calendar widget's calendar for the days from..to ('YYYY-MM-DD', at most 42)
 -- @return string JSON {today, now, ready, days=[{date, weekday, workday, holiday}], items=[...]},
 --   or {error, status} with the HTTP status of a bad request
-function DashboardAPI.calendarRange(id, widgetId, from, to, role)
+function DashboardAPI.calendarRange(id, widgetId, from, to, role, ctx)
+    ctx = type(ctx) == 'table' and ctx or {}
+    ctx.role = role
     local function fail(status, msg) return JSON.encode({ error = msg, status = status }) end
     local dash = resolveFor(id, role)
     if not dash then return fail(404, 'Dashboard not found') end
@@ -3707,7 +3831,10 @@ function DashboardAPI.calendarRange(id, widgetId, from, to, role)
         d = cal:day(d.ends)
     end
     local items = {}
-    local ok, list = pcall(cal.between, cal, a.date, b.date, { tags = w.opts.tags })
+    -- who may edit also sees the skipped days, to bring them back, when the page asks: a client
+    -- that does not know them would draw them as events
+    local editable = mayEditCalendar(dash, w, cal, ctx)
+    local ok, list = pcall(cal.between, cal, a.date, b.date, { tags = w.opts.tags, skipped = editable and ctx.skipped == true or nil })
     if not ok then
         Logger:getShared():error('[DASHBOARD] %s calendar %s: %s', tostring(id), tostring(widgetId), tostring(list))
         return fail(500, 'calendar unavailable')
@@ -3726,8 +3853,17 @@ function DashboardAPI.calendarRange(id, widgetId, from, to, role)
             end
         end
         if keep then
-            items[#items + 1] = { id = e.id, title = e.title, icon = e.icon, at = e.at, ends = e.ends,
-                allDay = e.allDay, date = e.date, last = e.last, paused = e.paused, source = e.source }
+            local item = { id = e.id, title = e.title, icon = e.icon, at = e.at, ends = e.ends,
+                allDay = e.allDay, date = e.date, last = e.last, paused = e.paused, source = e.source, skipped = e.skipped }
+            -- the fields of a person's own event, for the page's form
+            if editable and e.source == 'user' then
+                local o = cal:_saved(e.id)
+                if o then
+                    item.edit = {}
+                    for k in pairs(CAL_EVENT_KEYS) do item.edit[k] = o[k] end
+                end
+            end
+            items[#items + 1] = item
         end
     end
     -- schedules as 24 h bars: only for a single day (the day view)
@@ -3749,7 +3885,153 @@ function DashboardAPI.calendarRange(id, widgetId, from, to, role)
         end
     end
     return JSON.encode({ today = today.date, now = math.floor(__go_time_ms() / 1000), zone = __go_calendar_zone(),
-        ready = cal:isReady(), days = days, items = items, schedules = schedules })
+        ready = cal:isReady(), days = days, items = items, schedules = schedules, editable = editable or nil })
+end
+
+--- The week of a schedule widget for this viewer: Cal:week's fields, editable (whether this
+-- viewer may change it) and segments (the values in effect today and the next 6 days).
+-- @param ctx table|nil {role, roles, client} as for executeAction
+-- @return string JSON, or {error, status}
+function DashboardAPI.scheduleWeek(id, widgetId, ctx)
+    ctx = type(ctx) == 'table' and ctx or {}
+    local function fail(status, msg) return JSON.encode({ error = msg, status = status }) end
+    local dash = resolveFor(id, ctx.role)
+    if not dash then return fail(404, 'Dashboard not found') end
+    local w = findWidget(dash, widgetId, 'schedule')
+    if not w then return fail(403, 'schedule widget not on this dashboard') end
+    if dashHidden(id, dash)[w] then return fail(403, 'schedule widget is hidden') end
+    local cal, wk, err = scheduleOf(w)
+    if not cal then return fail(404, err) end
+    wk.editable = mayEditSchedule(dash, w, wk, ctx)
+    wk.roles = nil   -- who may is the house's business, the flag is enough
+    wk.now = cal:value(w.schedule)
+    wk.zone = __go_calendar_zone()
+    if cal:isReady() then
+        local today = cal:day()
+        local last = today
+        for _ = 1, 6 do last = cal:day(last.ends) end
+        local ok, segs = pcall(cal.segments, cal, w.schedule, today.date, last.date)
+        if ok then wk.segments = segs end
+    end
+    return JSON.encode(wk)
+end
+
+-- A schedule widget's set and reset: every answer has its HTTP status.
+local function scheduleAction(id, dash, w, action, ctx)
+    local function fail(status, msg, extra)
+        local out = extra or {}
+        out.error, out.status = msg, status
+        return JSON.encode(out)
+    end
+    if dashHidden(id, dash)[w] then return fail(403, 'Widget is hidden') end
+    if action ~= 'set' and action ~= 'reset' then return fail(400, 'Invalid action for schedule (set, reset)') end
+    local cal, wk, err = scheduleOf(w)
+    if not cal then return fail(404, err) end
+    if not mayEditSchedule(dash, w, wk, ctx) then return fail(403, 'not allowed to edit this schedule') end
+    local value
+    if type(ctx.valueJSON) == 'string' then
+        local ok, v = pcall(JSON.decode, ctx.valueJSON)
+        if ok then value = v end
+    end
+    if type(value) ~= 'table' or type(value.version) ~= 'number' then
+        return fail(400, 'value expected as { week, version }')
+    end
+    if value.version ~= wk.version then
+        wk.roles = nil
+        return fail(409, 'the week changed', { week = wk })
+    end
+    local ok, res
+    if action == 'set' then
+        ok, res = pcall(cal.setWeek, cal, w.schedule, value.week, { version = value.version })
+    else
+        ok, res = pcall(cal.resetWeek, cal, w.schedule, { version = value.version })
+    end
+    if not ok then return fail(400, (tostring(res):gsub('^[^\n]-:%d+: ', ''))) end
+    return JSON.encode({ success = true, value = { version = res } })
+end
+
+local CAL_EVERY = { day = true, mo = true, tu = true, we = true, th = true, fr = true, sa = true, su = true }
+
+local function calendarEventOpts(w, v)
+    if type(v) ~= 'table' then return nil, 'value expected as { title, date, ... }' end
+    local opts = {}
+    for k, x in pairs(v) do
+        if k ~= 'id' then
+            if not CAL_EVENT_KEYS[k] then return nil, 'unknown field "' .. tostring(k) .. '" (title, date, time, duration, every, from, to)' end
+            opts[k] = x
+        end
+    end
+    -- characters, not bytes: 80 Polish letters fit as the page allows them
+    if type(opts.title) ~= 'string' or opts.title == '' or select(2, opts.title:gsub('[^\128-\191]', '')) > 80 then
+        return nil, 'title expected, at most 80 characters'
+    end
+    for _, k in ipairs({ 'date', 'time', 'duration', 'from', 'to' }) do
+        if opts[k] ~= nil and type(opts[k]) ~= 'string' then return nil, k .. ' must be text' end
+    end
+    if opts.every ~= nil then
+        local list = type(opts.every) == 'table' and opts.every or { opts.every }
+        if #list == 0 or #list > 7 then return nil, 'every expects day or weekdays' end
+        for _, e in ipairs(list) do
+            if not CAL_EVERY[e] then return nil, 'every expects day or weekdays (mo..su)' end
+        end
+    end
+    local tags = w.opts.tags
+    if tags ~= nil then opts.tags = type(tags) == 'table' and tags or { tags } end
+    return opts
+end
+
+-- Whether a calendar widget shows an event: all of them, or those with one of its tags.
+local function shownOn(w, ev)
+    local tags = w.opts.tags
+    if tags == nil then return true end
+    for _, t in ipairs(type(tags) == 'table' and tags or { tags }) do
+        for _, et in ipairs(ev.tags or {}) do
+            if t == et then return true end
+        end
+    end
+    return false
+end
+
+-- A calendar widget's add, update, remove, skip and unskip: every answer has its HTTP status.
+local function calendarAction(id, dash, w, action, value, ctx)
+    local function fail(status, msg) return JSON.encode({ error = msg, status = status }) end
+    if dashHidden(id, dash)[w] then return fail(403, 'Widget is hidden') end
+    local cal = Calendar.get(w.calendar)
+    if not cal then return fail(404, 'calendar "' .. w.calendar .. '" not built') end
+    if not mayEditCalendar(dash, w, cal, ctx) then return fail(403, 'not allowed to edit this calendar') end
+    if type(ctx.valueJSON) == 'string' then
+        local okJ, v = pcall(JSON.decode, ctx.valueJSON)
+        value = okJ and v or nil
+    end
+    if type(value) ~= 'table' then return fail(400, 'value expected as a table') end
+    local function clean(err) return (tostring(err):gsub('^[^\n]-:%d+: ', '')) end
+    local evId = value.id
+    local ev = evId ~= nil and cal._byId[evId]
+    if action ~= 'add' and (type(evId) ~= 'string' or not ev or not ev.rule or not shownOn(w, ev)) then return fail(404, 'no such event') end
+    local ok, res
+    if action == 'add' or action == 'update' then
+        if action == 'update' and ev.source ~= 'user' then return fail(403, 'the module\'s events change in the module') end
+        local opts, err = calendarEventOpts(w, value)
+        if not opts then return fail(400, err) end
+        if action == 'update' then
+            -- what the page does not set (remind, icon, tags of a module's cal:add) stays
+            for k, x in pairs(cal:_saved(evId) or {}) do
+                if not CAL_EVENT_KEYS[k] and k ~= 'tags' then opts[k] = x end
+            end
+            if opts.tags == nil then opts.tags = ev.tags end
+        end
+        if action == 'add' then ok, res = pcall(cal.add, cal, opts) else ok, res = pcall(cal.update, cal, evId, opts) end
+    elseif action == 'remove' then
+        if ev.source ~= 'user' then return fail(403, 'the module\'s events change in the module') end
+        ok, res = pcall(cal.remove, cal, evId)
+    elseif action == 'skip' or action == 'unskip' then
+        if type(value.date) ~= 'string' then return fail(400, 'date expected as YYYY-MM-DD') end
+        ok, res = pcall(cal[action], cal, evId, value.date)
+    else
+        return fail(400, 'Invalid action for calendar (add, update, remove, skip, unskip)')
+    end
+    if not ok then return fail(400, clean(res)) end
+    return JSON.encode({ success = true, value = { id = action == 'add' and res or evId } })
 end
 
 --- List all dashboards with widget details
@@ -3894,6 +4176,10 @@ function DashboardAPI.getDefinition(id, role)
                 widget.refresh = w.opts.refresh
                 widget.compare = w.opts.compare ~= nil
                 widget.compareLabel = w.opts.compareLabel
+            end
+
+            if w.type == 'schedule' then
+                widget.calendar, widget.schedule, widget.format = w.calendar, w.schedule, 1
             end
 
             if w.type == 'calendar' then
@@ -4237,6 +4523,10 @@ function DashboardAPI.getValues(id, role)
                 local entry = tableState(id, w)
                 entry.disabled = safeDisabled(w.opts)
                 result[w.id] = entry
+            elseif w.type == 'schedule' then
+                local entry = scheduleState(w)
+                entry.disabled = safeDisabled(w.opts)
+                result[w.id] = entry
             elseif w.type == 'player' or w.type == 'forecast' then
                 local entry = w.type == 'player' and playerState(w) or forecastState(w)
                 entry.disabled = safeDisabled(w.opts)
@@ -4375,6 +4665,9 @@ function DashboardAPI.executeAction(id, widgetId, action, value, ctx)
     if not widget then
         return JSON.encode({ error = 'Widget not found' })
     end
+
+    if widget.type == 'schedule' then return scheduleAction(id, dash, widget, action, type(ctx) == 'table' and ctx or {}) end
+    if widget.type == 'calendar' then return calendarAction(id, dash, widget, action, value, type(ctx) == 'table' and ctx or {}) end
 
     -- A hidden widget is not on the page to tap, and its disabled() is not read
     local hidden = dashHidden(id, dash)

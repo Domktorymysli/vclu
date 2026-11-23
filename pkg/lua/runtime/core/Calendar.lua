@@ -26,7 +26,10 @@ local RULE_KEYS = { every = true, weeks = true, months = true, years = true, day
 local EVENT_KEYS = { title = true, icon = true, tags = true, remind = true, notify = true,
     catchup = true, jitter = true }
 local USER_KEYS = { id = true, title = true, icon = true, tags = true, remind = true }
-local KINDS = { start = true, ['end'] = true, reminder = true, change = true, ready = true }
+local KINDS = { start = true, ['end'] = true, reminder = true, change = true, ready = true, edit = true }
+local SCHEDULE_KEYS = { default = true, title = true, colors = true, values = true, editable = true, roles = true }
+local WEEKDAYS = { 'mo', 'tu', 'we', 'th', 'fr', 'sa', 'su' }
+local WEEK_FORMAT, WEEK_MAX_PER_DAY = 1, 48
 local KIND_ORDER = { ['end'] = 1, start = 2, reminder = 3 }
 
 local function log() return Logger:getShared() end
@@ -155,6 +158,160 @@ local function compile(where, opts, allowed, ctx)
     return rule
 end
 
+-- ---------- the week of an editable schedule ----------
+
+local DAY_INDEX = {}
+for i, d in ipairs(WEEKDAYS) do DAY_INDEX[d] = i end
+
+-- Minutes of 'HH:MM' (whole minutes); '24:00' only with allow24. nil when it is not one.
+local function minutesOf(s, allow24)
+    if type(s) ~= 'string' then return nil end
+    local h, m = s:match('^(%d%d?):(%d%d)$')
+    h, m = tonumber(h), tonumber(m)
+    if not h or m > 59 then return nil end
+    if h == 24 and m == 0 and allow24 then return 1440 end
+    if h > 23 then return nil end
+    return h * 60 + m
+end
+
+local function hhmm(m) return string.format('%02d:%02d', math.floor(m / 60), m % 60) end
+
+-- The days (indexes 1..7) of a weekly window's every, or nil when it is not one: weekdays,
+-- 'day' or 'weekend'. 'workday' gives false: it is weekly but follows the holidays.
+local function weeklyDays(every)
+    local days, workday = {}, false
+    local list = type(every) == 'table' and every or { every }
+    if #list == 0 then return nil end
+    for _, e in ipairs(list) do
+        if type(e) ~= 'string' then return nil end
+        e = e:lower()
+        if e == 'day' then for i = 1, 7 do days[i] = true end
+        elseif e == 'weekend' then days[6], days[7] = true, true
+        elseif e == 'workday' then workday = true
+        elseif DAY_INDEX[e] then days[DAY_INDEX[e]] = true
+        else return nil end
+    end
+    if workday then return false end
+    return days
+end
+
+-- A window the editor can show as a week: only every, hours ('HH:MM-HH:MM') and value. Gives
+-- its days and minutes (from, to; from >= to runs over midnight), false for a weekly-looking
+-- window with 'workday', nil for a fixed one.
+local function weeklyWindow(w)
+    for k in pairs(w) do
+        if k ~= 'every' and k ~= 'hours' and k ~= 'value' then return nil end
+    end
+    local days = weeklyDays(w.every)
+    if days == nil then return nil end
+    local from, to = 0, 0
+    if w.hours ~= nil then
+        if type(w.hours) ~= 'string' then return nil end
+        local a, b = w.hours:match('^(%d+:%d+)%s*%-%s*(%d+:%d+)$')
+        from, to = minutesOf(a), minutesOf(b)
+        if not from or not to then return nil end
+    end
+    if days == false then return false end
+    return { days = days, from = from, to = to, value = w.value }
+end
+
+-- The code's week: its weekly windows painted in order (later wins), split at midnight.
+local function paintWeek(windows, default)
+    local slots = {}
+    for d = 1, 7 do slots[d] = {} end
+    local function paint(d, a, b, v)
+        local s = slots[d]
+        for m = a, b - 1 do s[m] = v end
+    end
+    for _, w in ipairs(windows) do
+        for d = 1, 7 do
+            if w.days[d] then
+                if w.from < w.to then
+                    paint(d, w.from, w.to, w.value)
+                else   -- over midnight, also from == to: a whole day from that time
+                    paint(d, w.from, 1440, w.value)
+                    paint(d % 7 + 1, 0, w.to, w.value)
+                end
+            end
+        end
+    end
+    local week = {}
+    for d, name in ipairs(WEEKDAYS) do
+        local out, s = {}, slots[d]
+        local m = 0
+        while m < 1440 do
+            local v = s[m]
+            local a = m
+            while m < 1440 and s[m] == v do m = m + 1 end
+            if v ~= nil and v ~= default then out[#out + 1] = { from = hhmm(a), to = hhmm(m), value = v } end
+        end
+        week[name] = out
+    end
+    return week
+end
+
+-- A week checked against a schedule: a copy with every day, or nil and what is wrong.
+local function checkWeek(sc, week)
+    if type(week) ~= 'table' then return nil, 'week expected as { mo = { {from, to, value}, ... }, ... }' end
+    for k in pairs(week) do
+        if not DAY_INDEX[k] then return nil, 'unknown day "' .. tostring(k) .. '" (mo, tu, we, th, fr, sa, su)' end
+    end
+    local out = {}
+    for _, day in ipairs(WEEKDAYS) do
+        local list = week[day] or {}
+        if type(list) ~= 'table' then return nil, day .. ': expected a list of intervals' end
+        for k in pairs(list) do
+            if type(k) ~= 'number' or k < 1 or k > #list or k ~= math.floor(k) then return nil, day .. ': expected a list of intervals' end
+        end
+        if #list > WEEK_MAX_PER_DAY then return nil, day .. ': at most ' .. WEEK_MAX_PER_DAY .. ' intervals' end
+        local copied, prev = {}, 0
+        for i, iv in ipairs(list) do
+            local at = day .. ' interval ' .. i
+            if type(iv) ~= 'table' then return nil, at .. ': expected { from, to, value }' end
+            for k in pairs(iv) do
+                if k ~= 'from' and k ~= 'to' and k ~= 'value' then return nil, at .. ': unknown key "' .. tostring(k) .. '" (from, to, value)' end
+            end
+            local a, b = minutesOf(iv.from), minutesOf(iv.to, true)
+            if not a then return nil, at .. ': from expected as HH:MM' end
+            if not b then return nil, at .. ': to expected as HH:MM (up to 24:00)' end
+            if a >= b then return nil, at .. ': from must be before to' end
+            if a < prev then return nil, at .. ': overlaps the one before or is out of order' end
+            if not sc.known[iv.value] then return nil, at .. ': value ' .. tostring(iv.value) .. ' is not one of the schedule\'s values' end
+            if iv.value == sc.default then return nil, at .. ': value ' .. tostring(iv.value) .. ' is the default, leave the time out instead' end
+            copied[i] = { from = hhmm(a), to = hhmm(b), value = iv.value }
+            prev = b
+        end
+        out[day] = copied
+    end
+    return out
+end
+
+-- The windows of a checked week, one per interval, days with the same hours and value joined.
+local function weekWindows(week)
+    local byKey, order = {}, {}
+    for _, day in ipairs(WEEKDAYS) do
+        for _, iv in ipairs(week[day]) do
+            local key = iv.from .. '-' .. iv.to .. '=' .. type(iv.value) .. ':' .. tostring(iv.value)
+            local w = byKey[key]
+            if not w then
+                -- '24:00' ends at the next midnight: until before time runs over it
+                w = { every = {}, hours = iv.from .. '-' .. (iv.to == '24:00' and '00:00' or iv.to), value = iv.value }
+                byKey[key] = w
+                order[#order + 1] = w
+            end
+            w.every[#w.every + 1] = day
+        end
+    end
+    return order
+end
+
+local function deepCopy(v)
+    if type(v) ~= 'table' then return v end
+    local out = {}
+    for k, x in pairs(v) do out[k] = deepCopy(x) end
+    return out
+end
+
 -- Same pseudo-random shift for the same occurrence, also after a restart.
 local function jitterOf(key, span)
     local h = 5381
@@ -174,6 +331,30 @@ end
 
 local Builder = {}
 Builder.__index = Builder
+
+-- What :schedule() returns: :editable() and :roles() for that schedule, and every builder
+-- method, which goes on with the calendar (an error names the module's line).
+local ScheduleHandle = {}
+ScheduleHandle.__index = function(h, k)
+    if ScheduleHandle[k] then return ScheduleHandle[k] end
+    local f = Builder[k]
+    if type(f) ~= 'function' then return nil end
+    return function(self, ...)
+        local ok, res = pcall(f, rawget(self, '_b'), ...)
+        if not ok then error(clean(res), 2) end
+        return res
+    end
+end
+
+local function checkRoles(where, roles, level)
+    if type(roles) ~= 'table' or #roles == 0 then error(where .. ": roles expects names, e.g. roles('rodzice')", level) end
+    local out = {}
+    for _, r in ipairs(roles) do
+        if type(r) ~= 'string' or r == '' then error(where .. ': roles must be non-empty strings', level) end
+        out[#out + 1] = r
+    end
+    return out
+end
 
 --- Start defining a calendar.
 -- @param id string Calendar id (letters, digits, _ - .)
@@ -290,9 +471,12 @@ function Builder:schedule(id, opts)
     end
     local where = 'Calendar ' .. self._id .. ' schedule ' .. id
     for k in pairs(opts) do
-        if type(k) ~= 'number' and k ~= 'default' and k ~= 'title' and k ~= 'colors' and k ~= 'values' then
-            error(where .. ': unknown option "' .. tostring(k) .. '" ("colors", "default", "title", "values", windows)', 2)
+        if type(k) ~= 'number' and not SCHEDULE_KEYS[k] then
+            error(where .. ': unknown option "' .. tostring(k) .. '" (' .. quoted(SCHEDULE_KEYS) .. ', windows)', 2)
         end
+    end
+    if opts.editable ~= nil and type(opts.editable) ~= 'boolean' then
+        error(where .. ': editable must be true or false', 2)
     end
     if opts.default == nil then
         error(where .. ': needs a default, the value outside its windows', 2)
@@ -345,9 +529,62 @@ function Builder:schedule(id, opts)
                 .. (known and listed() or given()) .. ')', 2)
         end
     end
-    local item = { id = id, kind = 'schedule', opts = opts }
+    local item = { id = id, kind = 'schedule', opts = opts, editable = opts.editable == true }
+    if opts.roles ~= nil then item.roles = checkRoles(where, opts.roles, 3) end
     self._schedules[#self._schedules + 1] = item
     self._byId[id] = item
+    return setmetatable({ _b = self, _item = item }, ScheduleHandle)
+end
+
+--- The schedule just added can be edited from a dashboard: its weekly hours, as far as
+-- :roles() allows (see Cal:week).
+-- @api public
+function ScheduleHandle:editable(on)
+    if on ~= nil and type(on) ~= 'boolean' then
+        error('Calendar ' .. self._b._id .. ' schedule ' .. self._item.id .. ': editable expects true, false or nothing', 2)
+    end
+    self._item.editable = on ~= false
+    return self
+end
+
+--- Who may edit the schedule through a dashboard: people given one of these home roles in
+-- vclu cloud (and its owner and admins). Without it everyone the dashboard lets act.
+-- @api public
+function ScheduleHandle:roles(...)
+    local list = { ... }
+    if #list == 1 and type(list[1]) == 'table' then list = list[1] end
+    self._item.roles = checkRoles('Calendar ' .. self._b._id .. ' schedule ' .. self._item.id, list, 3)
+    return self
+end
+
+-- The calendar's own editable() and roles() come before its events and schedules, so that a
+-- schedule's :editable() is never taken for the calendar's.
+local function checkCalendarLevel(b, what)
+    if #b._items > 0 or #b._schedules > 0 then
+        error('Calendar ' .. b._id .. ': ' .. what .. ' of the calendar goes right after Calendar.new(), before its events and schedules'
+            .. ' (a schedule\'s own: :schedule(id, { ... }):editable())', 3)
+    end
+end
+
+--- People may add their own events and skip a day of any event from a dashboard, as far as
+-- :roles() allows. Right after Calendar.new().
+-- @api public
+function Builder:editable(on)
+    checkCalendarLevel(self, 'editable()')
+    if on ~= nil and type(on) ~= 'boolean' then error('Calendar ' .. self._id .. ': editable expects true, false or nothing', 2) end
+    self._editable = on ~= false
+    return self
+end
+
+--- Who may change the calendar's events through a dashboard: people given one of these home
+-- roles in vclu cloud (and its owner and admins). After :editable().
+-- @api public
+function Builder:roles(...)
+    checkCalendarLevel(self, 'roles()')
+    if not self._editable then error('Calendar ' .. self._id .. ': roles() follows :editable()', 2) end
+    local list = { ... }
+    if #list == 1 and type(list[1]) == 'table' then list = list[1] end
+    self._roles = checkRoles('Calendar ' .. self._id, list, 3)
     return self
 end
 
@@ -358,15 +595,104 @@ end
 local Cal = {}
 Cal.__index = Cal
 
+-- An editable schedule: its weekly windows first, then the fixed ones; raises naming the
+-- module's line that called build().
+local function editableOf(where, sc, it)
+    local opts = it.opts
+    if opts.values == nil then
+        error(where .. ": an editable schedule needs its values = { ... }, the editor offers them", 3)
+    end
+    local weekly, fixedFrom = {}, nil
+    for i, w in ipairs(opts) do
+        local ww = weeklyWindow(w)
+        if ww == false then
+            error(where .. ' window ' .. i .. ": 'workday' follows the holidays and a week does not: "
+                .. "use every = { 'mo', 'tu', 'we', 'th', 'fr' } and a window { every = 'holiday', ... } after the weekly ones", 3)
+        elseif ww and fixedFrom then
+            error(where .. ' window ' .. i .. ': the weekly windows (every, hours, value) of an editable schedule come before the others (window '
+                .. fixedFrom .. ')', 3)
+        elseif ww then
+            weekly[#weekly + 1] = ww
+        elseif not fixedFrom then
+            fixedFrom = i
+        end
+    end
+    if #weekly == 0 then
+        error(where .. ": an editable schedule needs a weekly window, e.g. { every = 'mo', hours = '06:00-08:00', value = ... }", 3)
+    end
+    sc.editable, sc.roles = true, it.roles
+    sc.known = {}
+    for _, v in ipairs(opts.values) do sc.known[v] = true end
+    sc.valueList = copy(opts.values)
+    sc.codeRules, sc.codeValues = sc.rules, sc.values
+    sc.fixedRules, sc.fixedValues, sc.fixed = {}, {}, {}
+    for i = #weekly + 1, #opts do
+        sc.fixedRules[#sc.fixedRules + 1] = sc.rules[i]
+        sc.fixedValues[#sc.fixedValues + 1] = sc.values[i]
+        sc.fixed[#sc.fixed + 1] = deepCopy(opts[i])
+    end
+    sc.codeWeek = paintWeek(weekly, sc.default)
+    sc.saved = nil
+end
+
+-- The rules and values of a checked week followed by the fixed windows; nil and the error
+-- when one does not compile (does not raise).
+function Cal:_compileWeek(sc, week)
+    local rules, values = {}, {}
+    for i, w in ipairs(weekWindows(week)) do
+        local spec = { every = w.every, hours = w.hours }
+        local rule, err = tryCompile('Calendar ' .. self.id .. ' schedule ' .. sc.id .. ' week window ' .. i, spec, {}, self._ctx)
+        if not rule then return nil, nil, err end
+        rules[#rules + 1], values[#values + 1] = rule, w.value
+    end
+    for i, r in ipairs(sc.fixedRules) do
+        rules[#rules + 1], values[#values + 1] = r, sc.fixedValues[i]
+    end
+    return rules, values
+end
+
+-- Saved weeks back at build(); one the code no longer allows is dropped with a log line.
+-- The version carries on, so a page holding the old week gets a conflict, and a dropped week
+-- does not come back when the module makes the schedule editable again.
+function Cal:_loadWeeks()
+    local saved, dropped = self._st.schedules, nil
+    for _, sc in ipairs(self._schedules) do
+        local s = saved[sc.id]
+        if type(s) ~= 'table' then s = nil end
+        if sc.editable then
+            sc.version = s and tonumber(s.version) or 0
+            if s then sc.by, sc.at = s.by, s.at end
+        end
+        if s and s.week ~= nil then
+            local week, err, rules, values
+            if sc.editable then
+                week, err = checkWeek(sc, s.week)
+                if week then rules, values, err = self:_compileWeek(sc, week) end
+            else
+                err = 'the schedule is not editable'
+            end
+            if rules then
+                sc.rules, sc.values, sc.saved = rules, values, week
+            else
+                log():error('[CALENDAR] %s: saved week of %s dropped, the module\'s hours apply: %s', self.id, sc.id, tostring(err))
+                dropped = dropped or copy(saved)
+                dropped[sc.id] = { version = tonumber(s.version) or 0, by = s.by, at = s.at }
+            end
+        end
+    end
+    if dropped then self._st.schedules = dropped end
+end
+
 --- Register the calendar and start it. Replaces a calendar with the same id. @api public
 function Builder:build()
     local hol = self._holidays
     local ctx = { holidays = hol, lat = self._lat, lon = self._lon }
     local where = 'Calendar ' .. self._id
     local cal = setmetatable({ id = self._id, name = self._name, icon = self._icon,
+        editable = self._editable == true, roles = self._roles,
         _holidays = hol, _ctx = ctx, _notify = self._notify, _clock = self._clock,
         _events = {}, _byId = {}, _schedules = {},
-        _handlers = { start = {}, ['end'] = {}, reminder = {}, change = {}, ready = {} },
+        _handlers = { start = {}, ['end'] = {}, reminder = {}, change = {}, ready = {}, edit = {} },
         _s = { ready = false, waitSince = now(), warned = false } }, Cal)
 
     for _, it in ipairs(self._items) do
@@ -396,6 +722,11 @@ function Builder:build()
         end
         local sc = { id = it.id, rules = rules, values = values, default = it.opts.default,
             title = it.opts.title or it.id, colors = it.opts.colors or {} }
+        if it.editable then
+            editableOf(where .. ' schedule ' .. it.id, sc, it)
+        elseif it.roles then
+            error(where .. ' schedule ' .. it.id .. ': roles is for an editable schedule: add :editable()', 2)
+        end
         cal._schedules[#cal._schedules + 1] = sc
         cal._byId[it.id] = sc
     end
@@ -403,9 +734,10 @@ function Builder:build()
     if not self._daylight then self:daylight({}) end
     cal._daylight = self._daylight
 
-    cal._st = persist('calendar.' .. cal.id, { events = {}, skips = {}, pauses = {}, seq = 0 })
+    cal._st = persist('calendar.' .. cal.id, { events = {}, skips = {}, pauses = {}, schedules = {}, seq = 0 })
     cal:_checkSaved()
     cal:_loadUserEvents()
+    cal:_loadWeeks()
 
     local old = calendars[cal.id]
     if old then
@@ -439,7 +771,7 @@ end
 -- Saved state of an unexpected shape (edited by hand, an older version) is dropped, not fatal.
 function Cal:_checkSaved()
     local st = self._st
-    for _, k in ipairs({ 'events', 'skips', 'pauses' }) do
+    for _, k in ipairs({ 'events', 'skips', 'pauses', 'schedules' }) do
         if type(st[k]) ~= 'table' then
             if st[k] ~= nil then log():error('[CALENDAR] %s: saved %s dropped (not a table)', self.id, k) end
             st[k] = {}
@@ -481,21 +813,23 @@ end
 
 -- ---------- subscriptions ----------
 
---- Subscribe: on(kind, fn) or on(kind, id, fn); kinds start, end, reminder, change, ready.
+--- Subscribe: on(kind, fn) or on(kind, id, fn); kinds start, end, reminder, change, ready, edit.
 -- At one moment end comes before start; an end from skip, pause or remove has e.cancelled = true.
+-- edit fires after a change made while running (a week saved or reset, an event added, removed,
+-- skipped, a pause): e = { calendar, id, kind = 'schedule' | 'event', action, title, origin, actor }.
 -- @return function unsubscribe
 -- @api public
 function Cal:on(kind, id, fn)
     if fn == nil then fn, id = id, nil end
-    if not KINDS[kind] then error('Calendar ' .. self.id .. ':on: unknown kind "' .. tostring(kind) .. '" (start, end, reminder, change, ready)', 2) end
+    if not KINDS[kind] then error('Calendar ' .. self.id .. ':on: unknown kind "' .. tostring(kind) .. '" (start, end, reminder, change, ready, edit)', 2) end
     if type(fn) ~= 'function' then error('Calendar ' .. self.id .. ':on: function expected', 2) end
     if id ~= nil and not self._byId[id] then error('Calendar ' .. self.id .. ':on: unknown id "' .. tostring(id) .. '"', 2) end
     if id ~= nil then
         local isSchedule = self._byId[id].rules ~= nil
         if kind == 'change' and not isSchedule then
             error('Calendar ' .. self.id .. ":on: '" .. id .. "' is an event: it has start, end and reminder, change is for schedules", 2)
-        elseif kind ~= 'change' and kind ~= 'ready' and isSchedule then
-            error('Calendar ' .. self.id .. ":on: '" .. id .. "' is a schedule: it has change, " .. kind .. ' is for events', 2)
+        elseif kind ~= 'change' and kind ~= 'ready' and kind ~= 'edit' and isSchedule then
+            error('Calendar ' .. self.id .. ":on: '" .. id .. "' is a schedule: it has change and edit, " .. kind .. ' is for events', 2)
         elseif kind == 'ready' then
             error('Calendar ' .. self.id .. ':on: ready is for the whole calendar, without an id', 2)
         end
@@ -558,9 +892,11 @@ function Cal:_list(from, to, opts)
         end
         if tagged then
             for _, o in ipairs(__go_calendar_between(ev.rule, from, to, true)) do
-                if not skips[skipKey(ev.id, o.date)] then
+                local skipped = skips[skipKey(ev.id, o.date)]
+                if not skipped or opts.skipped then
                     local e = self:_occ(ev, o)
                     e.paused = self:_pausedAt(ev, o.date)
+                    e.skipped = skipped or nil
                     out[#out + 1] = e
                 end
             end
@@ -752,45 +1088,180 @@ function Cal:isReady() return self._s.ready end
 
 -- ---------- runtime changes (Persist) ----------
 
+-- Who made the change now: the entry point's context (web, cloud, MCP, a module).
+local function cause()
+    local c = StateContext and StateContext.current()
+    return c and c.origin or 'lua', c and c.actor or nil
+end
+
+-- edit, after the change is saved; a failing handler does not undo it.
+function Cal:_edited(e)
+    e.calendar = self.id
+    e.origin, e.actor = cause()
+    local item = e.id and self._byId[e.id]
+    if item and e.title == nil then e.title = item.title end
+    self:_emit('edit', e.id, e)
+end
+
+local function editable(cal, id, what)
+    local sc = cal._byId[id]
+    if not sc or sc.rules == nil then error('Calendar ' .. cal.id .. ':' .. what .. ': unknown schedule "' .. tostring(id) .. '"', 3) end
+    if not sc.editable then
+        error('Calendar ' .. cal.id .. ':' .. what .. ': schedule "' .. tostring(id) .. '" is not editable (:editable() in the module)', 3)
+    end
+    return sc
+end
+
+local function checkVersion(cal, sc, opts, what)
+    if opts ~= nil and type(opts) ~= 'table' then error('Calendar ' .. cal.id .. ':' .. what .. ': options table expected', 3) end
+    local v = opts and opts.version
+    if v ~= nil and v ~= sc.version then
+        error('Calendar ' .. cal.id .. ':' .. what .. ': version ' .. tostring(v) .. ' is not the current one (' .. sc.version .. '): the week changed', 3)
+    end
+end
+
+--- The week of an editable schedule: { format, version, edited, by, at, week = { mo = { {from,
+-- to, value}, ... }, ..., su }, fixed (the module's other windows), values, default, colors,
+-- title, roles }. week is the saved one, or the module's weekly windows.
+-- @api public
+function Cal:week(id)
+    local sc = editable(self, id, 'week')
+    return { format = WEEK_FORMAT, version = sc.version, edited = sc.saved ~= nil, by = sc.by, at = sc.at,
+        week = deepCopy(sc.saved or sc.codeWeek), fixed = deepCopy(sc.fixed), values = copy(sc.valueList),
+        default = sc.default, colors = copy(sc.colors), title = sc.title, roles = sc.roles and copy(sc.roles) }
+end
+
+function Cal:_saveWeek(sc, week, rules, values)
+    local _, actor = cause()
+    sc.rules, sc.values, sc.saved = rules, values, week
+    sc.version, sc.by, sc.at = sc.version + 1, actor, math.floor(now())
+    local all = copy(self._st.schedules)
+    all[sc.id] = { week = week, version = sc.version, by = sc.by, at = sc.at }
+    self._st.schedules = all
+    if self._s.ready and not self._s.stopped then self:_schedulesChanged(now()) end
+    self:_replan()
+end
+
+--- Save a week for an editable schedule (the module's fixed windows stay after it):
+-- setWeek(id, { mo = { { from = '06:00', to = '08:00', value = 'komfort' } }, ... }, { version = n }).
+-- With version, raises when the week changed since. The value applies at once.
+-- @return number the new version
+-- @api public
+function Cal:setWeek(id, week, opts)
+    local sc = editable(self, id, 'setWeek')
+    checkVersion(self, sc, opts, 'setWeek')
+    local checked, err = checkWeek(sc, week)
+    if not checked then error('Calendar ' .. self.id .. ':setWeek ' .. id .. ': ' .. err, 2) end
+    local rules, values, cerr = self:_compileWeek(sc, checked)
+    if not rules then error(cerr, 2) end
+    self:_saveWeek(sc, checked, rules, values)
+    self:_edited({ id = id, kind = 'schedule', action = 'set', version = sc.version })
+    return sc.version
+end
+
+--- Back to the module's hours. resetWeek(id, { version = n }) as setWeek.
+-- @return number the new version
+-- @api public
+function Cal:resetWeek(id, opts)
+    local sc = editable(self, id, 'resetWeek')
+    checkVersion(self, sc, opts, 'resetWeek')
+    self:_saveWeek(sc, nil, sc.codeRules, sc.codeValues)
+    self:_edited({ id = id, kind = 'schedule', action = 'reset', version = sc.version })
+    return sc.version
+end
+
+-- A user event from add() or update()'s options: the event and what is saved; raises naming
+-- what (level 3: the caller of add or update).
+local function userEvent(cal, id, opts, what)
+    local where = 'Calendar ' .. cal.id .. ':' .. what
+    local saved = {}
+    for k, v in pairs(opts) do
+        if k ~= 'id' then
+            if type(v) == 'function' then error(where .. ': ' .. k .. ' cannot be a function', 3) end
+            saved[k] = v
+        end
+    end
+    for _, k in ipairs({ 'title', 'icon' }) do
+        if saved[k] ~= nil and type(saved[k]) ~= 'string' then error(where .. ': ' .. k .. ' must be a string', 3) end
+    end
+    for _, tag in ipairs(list(saved.tags)) do
+        if type(tag) ~= 'string' then error(where .. ': tags must be strings', 3) end
+    end
+    if not cal._holidays then
+        for _, e in ipairs(list(saved.every)) do
+            if e == 'workday' or e == 'holiday' then
+                error(where .. ": every = '" .. e .. "' needs the public holidays: :holidays('pl') before :build()", 3)
+            end
+        end
+    end
+    local rule, err = tryCompile(where, saved, USER_KEYS, cal._ctx)
+    if not rule then error(err, 3) end
+    local ev = { id = id, source = 'user', title = saved.title or id, icon = saved.icon, tags = list(saved.tags),
+        rule = rule, remind = {}, jitter = 0 }
+    for _, r in ipairs(list(saved.remind)) do
+        local n, rerr = nil, nil
+        if type(r) == 'string' and not r:match('^[%+%-]') then
+            rerr = where .. ': remind: "' .. r .. '" needs a sign: "-' .. r .. '" before the start, "+' .. r .. '" after'
+        else
+            n, rerr = parseSeconds(r, where .. ': remind')
+        end
+        if not n then error(rerr, 3) end
+        ev.remind[#ev.remind + 1] = { s = n, label = r }
+    end
+    return ev, saved
+end
+
 --- Add a user event (saved, survives a restart). Fields as in :event without functions.
 -- @return string id
 -- @api public
 function Cal:add(opts)
     if type(opts) ~= 'table' then error('Calendar ' .. self.id .. ':add: options table expected', 2) end
     local id = opts.id
+    if id ~= nil and (type(id) ~= 'string' or self._byId[id]) then
+        error('Calendar ' .. self.id .. ':add: id "' .. tostring(id) .. '" is taken or not a string', 2)
+    end
+    local ev, saved = userEvent(self, id or '', opts, 'add')
     if id == nil then
         repeat
             self._st.seq = (self._st.seq or 0) + 1
             id = 'u' .. self._st.seq
         until not self._byId[id]
-    elseif type(id) ~= 'string' or self._byId[id] then
-        error('Calendar ' .. self.id .. ':add: id "' .. tostring(id) .. '" is taken or not a string', 2)
+        ev.id = id
+        if saved.title == nil then ev.title = id end
     end
-    local saved = {}
-    for k, v in pairs(opts) do
-        if k ~= 'id' then
-            if type(v) == 'function' then error('Calendar ' .. self.id .. ':add: ' .. k .. ' cannot be a function', 2) end
-            saved[k] = v
-        end
-    end
-    for _, k in ipairs({ 'title', 'icon' }) do
-        if saved[k] ~= nil and type(saved[k]) ~= 'string' then error('Calendar ' .. self.id .. ':add: ' .. k .. ' must be a string', 2) end
-    end
-    for _, tag in ipairs(list(saved.tags)) do
-        if type(tag) ~= 'string' then error('Calendar ' .. self.id .. ':add: tags must be strings', 2) end
-    end
-    checkHolidaysNeeded('Calendar ' .. self.id .. ':add', saved, self._holidays)
-    local rule = compile('Calendar ' .. self.id .. ':add', saved, USER_KEYS, self._ctx)
-    local ev = { id = id, source = 'user', title = saved.title or id, icon = saved.icon, tags = list(saved.tags),
-        rule = rule, remind = {}, jitter = 0 }
-    for _, r in ipairs(list(saved.remind)) do ev.remind[#ev.remind + 1] = { s = remindSeconds(r, 'Calendar ' .. self.id .. ':add: remind'), label = r } end
     self._events[#self._events + 1] = ev
     self._byId[id] = ev
     local evs = copy(self._st.events)
     evs[id] = saved
     self._st.events = evs
     self:_replan()
+    self:_edited({ id = id, kind = 'event', action = 'add' })
     return id
+end
+
+-- What a user event was saved with (a copy), for a page that edits it; nil for others.
+function Cal:_saved(id)
+    local o = (self._st.events or {})[id]
+    return type(o) == 'table' and deepCopy(o) or nil
+end
+
+--- Change a user event: its fields again, as in add (the id stays). An occurrence going on
+-- ends first. @api public
+function Cal:update(id, opts)
+    local old = self._byId[id]
+    if not old or old.source ~= 'user' then
+        error('Calendar ' .. self.id .. ':update: "' .. tostring(id) .. '" is not a user event (events from code change in the module)', 2)
+    end
+    if type(opts) ~= 'table' then error('Calendar ' .. self.id .. ':update: options table expected', 2) end
+    local ev, saved = userEvent(self, id, opts, 'update')
+    self:_endNow(old)
+    for i, e in ipairs(self._events) do if e == old then self._events[i] = ev; break end end
+    self._byId[id] = ev
+    local evs = copy(self._st.events)
+    evs[id] = saved
+    self._st.events = evs
+    self:_replan()
+    self:_edited({ id = id, kind = 'event', action = 'update' })
 end
 
 --- Remove a user event. @api public
@@ -803,6 +1274,7 @@ function Cal:remove(id)
     local evs = copy(self._st.events)
     evs[id] = nil
     self._st.events = evs
+    self:_edited({ id = id, kind = 'event', action = 'remove', title = ev.title })
 end
 
 local function checkDate(cal, date, what)
@@ -835,6 +1307,7 @@ function Cal:skip(id, date)
     local s = copy(self._st.skips)
     s[skipKey(id, date)] = true
     self._st.skips = s
+    self:_edited({ id = id, kind = 'event', action = 'skip', date = date })
 end
 
 --- Undo skip(). @api public
@@ -843,6 +1316,7 @@ function Cal:unskip(id, date)
     s[skipKey(id, date)] = nil
     self._st.skips = s
     self:_replan()
+    if self._byId[id] then self:_edited({ id = id, kind = 'event', action = 'unskip', date = date }) end
 end
 
 --- Pause events in a range of days: pause('2026-12-24..2027-01-02', { tags = {'dzieci'} }). @api public
@@ -869,12 +1343,14 @@ function Cal:pause(range, opts)
     end
     p[#p + 1] = pause
     self._st.pauses = p
+    self:_edited({ kind = 'event', action = 'pause', from = a, to = b, tags = pause.tags })
 end
 
 --- Remove all pauses. @api public
 function Cal:resume()
     self._st.pauses = {}
     self:_replan()
+    self:_edited({ kind = 'event', action = 'resume' })
 end
 
 --- Pauses not over yet: { {from, to, tags}, ... }. @api public
