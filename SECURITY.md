@@ -39,8 +39,8 @@ vclu is maintained by a single developer; there is no dedicated security
 team. We aim to acknowledge a report within 3 business days and to
 give a first assessment (whether it is a vulnerability, how severe, what
 happens next) within 10 business days. Critical reports come first. Response
-times may vary with availability and the complexity of the issue. We keep you
-informed until it is resolved.
+times may vary with availability and the complexity of the issue. We provide
+updates as appropriate throughout the remediation process.
 
 - **Fix:** a fix ships in a release; a critical one gets a release of its own
   as soon as the fix is ready.
@@ -49,10 +49,10 @@ informed until it is resolved.
   sooner to protect themselves, we may publish security guidance before a fix
   is released. Tell us if you want to be credited.
 
-A vulnerability that is actively exploited, and an incident that affects the
-security of vclu, are reported as the EU Cyber Resilience Act (Regulation
-2024/2847) requires, through the single reporting platform of ENISA, and users
-are told what to do.
+Where the EU Cyber Resilience Act (Regulation 2024/2847) applies, an actively
+exploited vulnerability and a severe incident affecting the security of vclu
+are reported as its Article 14 requires, through the single reporting platform
+of ENISA, and users are told what to do.
 
 ## Supported versions
 
@@ -126,8 +126,8 @@ scope. For example:
 - a plugin escaping its sandbox,
 - disarming or force-arming Satel when it is not allowed in the configuration,
 - leaking secrets (passwords, PINs, tokens, keys) through the API, logs or MCP,
-- the cloud: accounts, pairing a vclu, the tunnel to a house and remote
-  dashboards: reaching or controlling a house that is not yours, or one that
+- the cloud (accounts, pairing a vclu, the tunnel to a house, remote
+  dashboards): reaching or controlling a house that is not yours, or one that
   was not shared with you,
 - the mobile apps: their sessions and tokens, notifications and actions,
 - a crafted message from a Grenton CLU, a Satel module or another device that
