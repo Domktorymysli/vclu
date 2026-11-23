@@ -203,3 +203,41 @@ func TestViewerCtxLua(t *testing.T) {
 		t.Errorf("client: %s", got)
 	}
 }
+
+// A client of the device API with a dashboard's role reads the week through the LAN listener
+// but never edits it, also a schedule naming no roles.
+func TestScheduleDeviceClientOnTheLAN(t *testing.T) {
+	s, r := clientsSite(t)
+	if _, err := s.luaExecutor.Execute(`
+woda = Calendar.new('woda'):clock({ wait = false })
+  :schedule('w', { values = { 'off', 'on' }, default = 'off',
+     { every = 'day', hours = '05:00-05:30', value = 'on' } }):editable()
+  :build()
+Dashboard.new('ogrod'):remote():roles('gosia'):section('S', 'clock'):schedule('w', 'Woda', woda, 'w'):build()
+`); err != nil {
+		t.Fatal(err)
+	}
+	s.SetLocalAccess(newLocal(t, t.TempDir()))
+	_, token := newClient(t, r, `{"name":"Zegarek","profiles":["brama"],"roles":["gosia"]}`)
+	lan := s.LocalHandler()
+	wk := call(lan, "GET", "/api/dashboard/ogrod/schedule?widget=w", token, "")
+	if wk.code != http.StatusOK || wk.body["editable"] != false {
+		t.Fatalf("the week for a client: %d %v", wk.code, wk.body)
+	}
+	set := call(lan, "POST", "/api/dashboard/ogrod/action", token, `{"widgetId":"w","action":"set","value":{"version":0,"week":{}}}`)
+	if set.code != http.StatusForbidden {
+		t.Errorf("set by a client: %d %v", set.code, set.body)
+	}
+	if v := serverLua(t, s, `return tostring(woda:week('w').version)`); v != "0" {
+		t.Errorf("version after a client's set: %s", v)
+	}
+}
+
+func serverLua(t *testing.T, s *Server, script string) string {
+	t.Helper()
+	out, err := s.luaExecutor.Execute(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}

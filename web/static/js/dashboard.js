@@ -1737,7 +1737,7 @@
             if (it.source === 'user' && it.edit) {
                 box.appendChild(calIconBtn('pencil', T.calEditEvent, function() {
                     var f = { id: it.id, title: it.edit.title, date: it.edit.date || st.day, time: it.edit.time,
-                        duration: it.edit.duration, every: it.edit.every, from: it.edit.from };
+                        duration: it.edit.duration, every: it.edit.every, from: it.edit.from, to: it.edit.to };
                     st.form = f;
                     draw();
                 }));
@@ -1823,6 +1823,7 @@
                 else {
                     v.every = repeat.value === 'day' ? 'day' : DAY_CODES[parseYmd(day).getDay()];
                     v.from = f.from || day;
+                    if (f.to) v.to = f.to;
                 }
                 if (f.id) v.id = f.id;
                 calAction(f.id ? 'update' : 'add', v, function() { st.form = null; });

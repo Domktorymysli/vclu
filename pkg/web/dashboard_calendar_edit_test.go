@@ -183,3 +183,26 @@ func TestCalendarNotEditableRangeUnchanged(t *testing.T) {
 		}
 	}
 }
+
+// update on a widget with tags keeps the event's own tags (it may show on other widgets too),
+// and the page's time replaces saved hours instead of clashing with them.
+func TestCalendarUpdateKeepsTags(t *testing.T) {
+	engine := lua.NewLuaEngine()
+	t.Cleanup(engine.Close)
+	if _, err := engine.Execute(`
+dom = Calendar.new('dom'):editable():clock({ wait = false }):build()
+dom:add({ id = 'a', title = 'A', every = 'mo', from = '2026-11-02', time = '10:00', tags = { 'dzieci', 'wazne' }, icon = 'x' })
+dom:add({ id = 'b', title = 'B', every = 'tu', hours = '10:00-11:00', tags = 'dzieci' })
+Dashboard.new('pub'):section('S', 'calendar'):calendar('c', 'Dom', dom, { tags = 'dzieci' }):build()
+`); err != nil {
+		t.Fatal(err)
+	}
+	got := luaString(t, engine, `
+local a = Dashboard.API.executeAction('pub', 'c', 'update', nil, { valueJSON = '{"id":"a","title":"A2","every":"mo","from":"2026-11-02","time":"11:00"}' })
+local b = Dashboard.API.executeAction('pub', 'c', 'update', nil, { valueJSON = '{"id":"b","title":"B2","every":"tu","from":"2026-11-03","time":"12:00","duration":"1h"}' })
+local s = dom:_saved('a')
+return a .. ' ' .. b .. ' ' .. table.concat(s.tags, ',') .. ' ' .. s.icon .. ' ' .. tostring(dom:_saved('b').hours)`)
+	if got != `{"success":true,"value":{"id":"a"}} {"success":true,"value":{"id":"b"}} dzieci,wazne x nil` {
+		t.Errorf("got %s", got)
+	}
+}

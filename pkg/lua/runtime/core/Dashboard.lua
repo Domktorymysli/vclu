@@ -4014,11 +4014,13 @@ local function calendarAction(id, dash, w, action, value, ctx)
         local opts, err = calendarEventOpts(w, value)
         if not opts then return fail(400, err) end
         if action == 'update' then
-            -- what the page does not set (remind, icon, tags of a module's cal:add) stays
-            for k, x in pairs(cal:_saved(evId) or {}) do
-                if not CAL_EVENT_KEYS[k] and k ~= 'tags' then opts[k] = x end
+            -- what the page does not set (remind, icon, tags of a module's cal:add) stays; hours
+            -- is the page's time or all day
+            local saved = cal:_saved(evId) or {}
+            for k, x in pairs(saved) do
+                if not CAL_EVENT_KEYS[k] and k ~= 'hours' then opts[k] = x end
             end
-            if opts.tags == nil then opts.tags = ev.tags end
+            opts.tags = saved.tags
         end
         if action == 'add' then ok, res = pcall(cal.add, cal, opts) else ok, res = pcall(cal.update, cal, evId, opts) end
     elseif action == 'remove' then
