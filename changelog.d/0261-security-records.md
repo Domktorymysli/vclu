@@ -1,0 +1,3 @@
+### Security
+
+- **A security record and SBOMs with every release** - each release attaches `vclu-X.Y.Z-security.json` (commit, tag, Go version, SBOMs with their SHA-256, every scan with its date, scanners and their versions, result and public advisory ids) and the scanners' raw output; the weekly scan of the latest release adds to its record. SPDX SBOMs now cover the archives and `.deb` packages, not only the images. `SECURITY.md` states response times, the supported versions, an e-mail contact (security@vclu.pl), how fixes are announced and verified, and that the cloud and the mobile apps are in scope ([#261](https://github.com/Domktorymysli/vclu/issues/261)).

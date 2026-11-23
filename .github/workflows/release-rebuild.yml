@@ -1,7 +1,8 @@
 name: Release rebuild
 
 # Rebuilds the archives and images of an existing release from its tag.
-# Delete the release's assets first: GoReleaser does not overwrite them.
+# Delete the release's assets first: GoReleaser does not overwrite them. Keep the security record
+# and its scans (vclu-*-security.json, vclu-*-scan-*.tar.gz): this does not make them again.
 on:
   workflow_dispatch:
     inputs:
@@ -36,6 +37,8 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: anchore/sbom-action/download-syft@v0
 
       - uses: goreleaser/goreleaser-action@v6
         with:

@@ -19,11 +19,22 @@ jobs:
         with:
           go-version: "1.26"
 
+      # Raw output and results kept for the release's security record (.github/security-record.sh)
       - name: Binaries and image
         run: .github/scan-release.sh
+        env:
+          SCAN_OUT: ${{ runner.temp }}/scan
 
       - name: Vendored web libraries
         run: .github/vendorcheck.sh
+        env:
+          SCAN_OUT: ${{ runner.temp }}/scan
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: scan
+          path: ${{ runner.temp }}/scan
 
   release:
     needs: scan
@@ -49,6 +60,9 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # GoReleaser's SBOMs of the archives and .deb packages (.github/sbom.sh)
+      - uses: anchore/sbom-action/download-syft@v0
+
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: latest
@@ -66,3 +80,19 @@ jobs:
             .github/imagescan.sh "ghcr.io/domktorymysli/vclu:$v-$arch" --format spdx-json -o "vclu-$v-image-$arch.spdx.json"
           done
           gh release upload "$GITHUB_REF_NAME" vclu-$v-image-*.spdx.json
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: scan
+          path: ${{ runner.temp }}/scan
+
+      # What was built, with what, and the scan before it (SECURITY.md, "Security records")
+      - name: Security record
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          v=${GITHUB_REF_NAME#v}
+          record=vclu-$v-security.json
+          .github/security-record.sh scan "$record" "$RUNNER_TEMP/scan" release "$GITHUB_REF_NAME" "$GITHUB_SHA" "$(go env GOVERSION)"
+          .github/security-record.sh sboms "$record" dist/*.spdx.json vclu-$v-image-*.spdx.json
+          gh release upload "$GITHUB_REF_NAME" "$record" vclu-$v-scan-*.tar.gz
