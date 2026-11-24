@@ -71,9 +71,9 @@ func TestCalendarEditThroughTunnel(t *testing.T) {
 	if id == "" {
 		t.Fatalf("add gave no id: %s", add.raw)
 	}
-	// added on a widget with tags, it shows there
-	if r := rng("kal"); !strings.Contains(r.raw, `"title":"Wizyta"`) {
-		t.Errorf("the added event is not on the widget: %s", r.raw)
+	// added on a widget with tags, it shows there, with who added it by name
+	if r := rng("kal"); !strings.Contains(r.raw, `"title":"Wizyta"`) || !strings.Contains(r.raw, `"byName":"Anna"`) {
+		t.Errorf("the added event is not on the widget or without who added it: %s", r.raw)
 	}
 	if r := act("kal", "update", `{"id":"`+id+`","title":"Lekarz","date":"2026-11-20","time":"11:00"}`); r.code != http.StatusOK {
 		t.Errorf("update: %d %s", r.code, r.raw)
@@ -258,7 +258,9 @@ func TestScheduleByOnlyForEditors(t *testing.T) {
 	if r := do(tunnel, "POST", "/api/dashboard/sch/action", "owner", `{"widgetId":"k","action":"set","value":{"version":0,"week":{"mo":[{"from":"06:00","to":"07:00","value":"komfort"}]}}}`); r.code != http.StatusOK {
 		t.Fatalf("save: %d %s", r.code, r.raw)
 	}
-	if r := do(tunnel, "GET", "/api/dashboard/sch/schedule?widget=k", "owner", ""); r.body["editable"] != true || r.body["by"] == nil {
+	s.SetLocalAccess(newLocal(t, t.TempDir()))
+	s.local.SetMembers(members(1, "owner"))
+	if r := do(tunnel, "GET", "/api/dashboard/sch/schedule?widget=k", "owner", ""); r.body["editable"] != true || r.body["by"] == nil || r.body["byName"] != "Anna" {
 		t.Errorf("owner: %s", r.raw)
 	}
 	if r := do(tunnel, "GET", "/api/dashboard/sch/schedule?widget=k", "member", ""); r.body["editable"] != false || r.body["by"] != nil {

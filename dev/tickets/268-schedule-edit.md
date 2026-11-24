@@ -164,6 +164,13 @@ dom:update(id, opts)   -- a user event's fields again (as add); edit with action
   ahead (a one-off whose day has passed or a repeating one past its `to` does not count), and a
   day skipped or brought back from 62 days back to 366 ahead, so a daily event cannot collect
   skips without end. Both answer 400 naming the limit.
+- Who added: a user event added at runtime keeps `who = { by, at, page }` in the calendar's
+  Persist (`page` when it came from a dashboard or the app). The range gives a viewer who may
+  edit `added = { by, at }`; Go adds `byName` from the cloud's members list (also next to a
+  saved week's `by`), and the page shows "dodane: Anna, 24.11".
+- Clean-up, on a trusted clock (ready) and before a page adds: events added from a page that
+  ended more than a year ago, and skipped days older than a year, are removed with a log line,
+  no `edit`. The module's own `cal:add` events and those without an end stay.
 
 ## Files
 - `pkg/lua/runtime/core/Calendar.lua`: schedule handle, weekly/fixed split, `week`/`setWeek`/`resetWeek`, `edit`

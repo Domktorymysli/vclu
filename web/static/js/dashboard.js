@@ -1057,6 +1057,26 @@
     var WEEK_DAYS = ['mo', 'tu', 'we', 'th', 'fr', 'sa', 'su'];
 
     function hmMin(s) { var p = s.split(':'); return +p[0] * 60 + +p[1]; }
+    // "by" of a saved week or an added event: the name vCLU knows, else what kind of caller it was
+    function actorLabel(by, byName) {
+        if (byName) return byName;
+        var s = String(by || '');
+        if (s.indexOf('user:') === 0) return s.slice(5);
+        if (s.indexOf('dashboard:') === 0) return T.byDashboard;
+        if (s.indexOf('automation:') === 0) return T.byModule;
+        if (s.indexOf('mcp') === 0 || s.indexOf('agent:') === 0) return T.byAgent;
+        return s;
+    }
+    // "Ania, 24.11" (with the time when asked)
+    function whoWhen(by, byName, at, withTime) {
+        var out = actorLabel(by, byName);
+        if (at) {
+            var d = new Date(at * 1000);
+            out += ', ' + d.toLocaleDateString(locale, { day: 'numeric', month: 'numeric' });
+            if (withTime) out += ' ' + d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
+        }
+        return out;
+    }
     function minHm(m) { return pad2(Math.floor(m / 60)) + ':' + pad2(m % 60); }
     // Monday..Sunday in the viewer's language (2026-11-23 is a Monday)
     function weekdayName(i) {
@@ -1227,6 +1247,7 @@
                 });
                 foot.appendChild(fx);
             }
+            if (d.edited && d.by) foot.appendChild(calEl('div', 'dash-sched-note', T.schedSavedBy.replace('{who}', whoWhen(d.by, d.byName, d.at, true))));
             if (!d.editable) foot.appendChild(calEl('div', 'dash-sched-note', T.schedViewOnly));
         }
 
@@ -1687,6 +1708,9 @@
                     name.appendChild(ic);
                 }
                 name.appendChild(document.createTextNode(it.title));
+                if (it.added && it.added.by) {
+                    name.appendChild(calEl('span', 'dash-cal-added', T.calAddedBy.replace('{who}', whoWhen(it.added.by, it.added.byName, it.added.at))));
+                }
                 row.appendChild(name);
                 if (editable) { row.classList.add('editable'); row.appendChild(itemActions(it)); }
                 listEl.appendChild(row);

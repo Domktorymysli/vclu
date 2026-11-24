@@ -3869,6 +3869,8 @@ function DashboardAPI.calendarRange(id, widgetId, from, to, role, ctx)
                     item.edit = {}
                     for k in pairs(CAL_EVENT_KEYS) do item.edit[k] = o[k] end
                 end
+                local who = cal:_who(e.id)
+                if who and who.by then item.added = { by = who.by, at = who.at } end
             end
             items[#items + 1] = item
         end
@@ -4000,18 +4002,12 @@ local function shownOn(w, ev)
     return false
 end
 
--- The last day of a user event as the page makes it (date 'a' or 'a..b', or to); nil: no end.
-local function lastDay(saved)
-    if type(saved.to) == 'string' then return saved.to end
-    if saved.every == nil and type(saved.date) == 'string' then return saved.date:match('%.%.(.+)$') or saved.date end
-end
-
 -- User events not over yet; an event of another shape (a module's cal:add) counts as ahead.
 local function liveUserEvents(cal)
     local today, n = cal:day().date, 0
     for _, ev in ipairs(cal._events) do
         if ev.source == 'user' then
-            local last = lastDay(cal:_saved(ev.id) or {})
+            local last = cal:_lastDay(ev.id)
             if last == nil or last >= today then n = n + 1 end
         end
     end
@@ -4054,6 +4050,7 @@ local function calendarAction(id, dash, w, action, value, ctx)
             end
             opts.tags = saved.tags
         end
+        if action == 'add' then cal:_prune() end
         if action == 'add' and liveUserEvents(cal) >= CAL_PAGE_EVENTS then
             return fail(400, 'the calendar has ' .. CAL_PAGE_EVENTS .. ' events ahead: remove some first')
         end

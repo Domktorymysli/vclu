@@ -734,7 +734,7 @@ function Builder:build()
     if not self._daylight then self:daylight({}) end
     cal._daylight = self._daylight
 
-    cal._st = persist('calendar.' .. cal.id, { events = {}, skips = {}, pauses = {}, schedules = {}, seq = 0 })
+    cal._st = persist('calendar.' .. cal.id, { events = {}, skips = {}, pauses = {}, schedules = {}, who = {}, seq = 0 })
     cal:_checkSaved()
     cal:_loadUserEvents()
     cal:_loadWeeks()
@@ -771,7 +771,7 @@ end
 -- Saved state of an unexpected shape (edited by hand, an older version) is dropped, not fatal.
 function Cal:_checkSaved()
     local st = self._st
-    for _, k in ipairs({ 'events', 'skips', 'pauses', 'schedules' }) do
+    for _, k in ipairs({ 'events', 'skips', 'pauses', 'schedules', 'who' }) do
         if type(st[k]) ~= 'table' then
             if st[k] ~= nil then log():error('[CALENDAR] %s: saved %s dropped (not a table)', self.id, k) end
             st[k] = {}
@@ -1236,9 +1236,69 @@ function Cal:add(opts)
     local evs = copy(self._st.events)
     evs[id] = saved
     self._st.events = evs
+    local origin, actor = cause()
+    local who = copy(self._st.who)
+    -- page: added by a person through a dashboard or the app, cleaned up a year after it ends
+    who[id] = { by = actor, at = math.floor(now()), page = (origin == 'web' or origin == 'remote') or nil }
+    self._st.who = who
     self:_replan()
     self:_edited({ id = id, kind = 'event', action = 'add' })
     return id
+end
+
+-- Who added a user event and when ({ by, at, page }), nil when not known (added before this
+-- was kept, or from code while the module loads).
+function Cal:_who(id)
+    local w = (self._st.who or {})[id]
+    return type(w) == 'table' and w or nil
+end
+
+-- The last day of a user event as a page makes it (date 'a' or 'a..b', or to); nil: no end.
+function Cal:_lastDay(id)
+    local o = (self._st.events or {})[id]
+    if type(o) ~= 'table' then return nil end
+    if type(o.to) == 'string' then return o.to end
+    if o.every == nil and type(o.date) == 'string' then return o.date:match('%.%.(.+)$') or o.date end
+end
+
+-- Kept a year after: events a person added from a page that ended, and skipped days. Only on a
+-- trusted clock (ready), so a Pi waking in 1970 or in the future does not drop anything.
+local KEEP_DAYS = 366
+function Cal:_prune()
+    if not self._s.ready then return end
+    local d = self:day()
+    local cutoff = self:day(d.starts + 12 * 3600 - KEEP_DAYS * 86400).date
+    local st, gone = self._st, {}
+    for id, w in pairs(st.who or {}) do
+        local last = type(w) == 'table' and w.page and self:_lastDay(id)
+        if last and last < cutoff then gone[#gone + 1] = id end
+    end
+    local skips, dropped = nil, 0
+    for k in pairs(st.skips or {}) do
+        local date = type(k) == 'string' and k:match('@(%d%d%d%d%-%d%d%-%d%d)$')
+        if date and date < cutoff then
+            skips = skips or copy(st.skips)
+            skips[k] = nil
+            dropped = dropped + 1
+        end
+    end
+    if #gone > 0 then
+        local evs, who = copy(st.events), copy(st.who)
+        for _, id in ipairs(gone) do
+            evs[id] = nil
+            who[id] = nil
+            local ev = self._byId[id]
+            if ev then
+                self._byId[id] = nil
+                for i, e in ipairs(self._events) do if e == ev then table.remove(self._events, i); break end end
+            end
+        end
+        st.events, st.who = evs, who
+    end
+    if skips then st.skips = skips end
+    if #gone > 0 or dropped > 0 then
+        log():info('[CALENDAR] %s: %d past events added from a page and %d skipped days older than a year removed', self.id, #gone, dropped)
+    end
 end
 
 -- What a user event was saved with (a copy), for a page that edits it; nil for others.
@@ -1276,6 +1336,11 @@ function Cal:remove(id)
     local evs = copy(self._st.events)
     evs[id] = nil
     self._st.events = evs
+    if (self._st.who or {})[id] then
+        local who = copy(self._st.who)
+        who[id] = nil
+        self._st.who = who
+    end
     self:_edited({ id = id, kind = 'event', action = 'remove', title = ev.title })
 end
 
@@ -1550,6 +1615,7 @@ function Cal:_check()
         s.ready, s.reason, s.last = true, nil, t
         self:_schedulesChanged(t)
         self:_catchup(t)
+        self:_prune()
         self:_emit('ready', nil, { calendar = self.id })
         if s.stopped then return end
         return self:_next(t)

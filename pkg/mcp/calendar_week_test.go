@@ -260,3 +260,33 @@ end)`, `[{"advance": 60}]`)
 		"edit schedule komfort set v1 lua automation:module:kal",
 		"after editable true edited 1")
 }
+
+// A year after: events a person added from a page that ended and skipped days are removed when
+// the clock is trusted; the module's own and the ones without an end stay.
+func TestCalendarWeek_PrunesAYearAfter(t *testing.T) {
+	got := runCalendar(t, "2026-11-24T10:00:00+01:00", `
+local st = persist('calendar.dom', { seq = 5,
+  events = { u1 = { title = 'Stara wizyta', date = '2025-10-01' }, u2 = { title = 'Świeża', date = '2026-01-10' },
+    u3 = { title = 'Z modułu', date = '2025-10-01' }, u4 = { title = 'Basen', every = 'we', from = '2024-01-01' },
+    u5 = { title = 'Kurs', every = 'mo', from = '2024-01-01', to = '2025-06-30' } },
+  who = { u1 = { by = 'cloud:12', at = 1, page = true }, u2 = { by = 'cloud:12', at = 1, page = true },
+    u3 = { by = 'automation:module:kal', at = 1 }, u4 = { by = 'cloud:12', at = 1, page = true },
+    u5 = { by = 'cloud:12', at = 1, page = true } },
+  skips = { ['a@2025-10-01'] = true, ['a@2026-11-01'] = true }, pauses = {} })
+local dom = Calendar.new('dom'):clock({ wait = false }):event('a', { every = 'day', time = '12:00' }):build()
+dom:on('ready', function()
+  local ids = {}
+  for _, id in ipairs({ 'u1', 'u2', 'u3', 'u4', 'u5' }) do
+    if st.events[id] then ids[#ids + 1] = id end
+  end
+  local sk = {}
+  for k in pairs(st.skips) do sk[#sk + 1] = k end
+  table.sort(sk)
+  print('CAL kept ' .. table.concat(ids, ',') .. ' skips ' .. table.concat(sk, ',') .. ' who u1 ' .. tostring(st.who.u1))
+  print('CAL add ' .. dom:add({ title = 'Nowe', date = '2026-11-30' }) .. ' by ' .. tostring(st.who.u6.by))
+end)`, `[{"advance": 60}]`)
+	expectLines(t, got,
+		"kept u2,u3,u4 skips a@2026-11-01 who u1 nil",
+		"add u6 by automation:module:kal",
+	)
+}

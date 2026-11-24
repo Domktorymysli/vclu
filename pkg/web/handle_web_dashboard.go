@@ -672,6 +672,7 @@ func (s *Server) handleAPIDashboardCalendar(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "calendar unavailable"})
 			return
 		}
+		result = s.withActorNames(result)
 	}
 	var r struct {
 		Status int `json:"status"`
@@ -713,6 +714,7 @@ func (s *Server) handleAPIDashboardSchedule(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "schedule unavailable"})
 		return
 	}
+	result = s.withActorNames(result)
 	var r struct {
 		Status int `json:"status"`
 	}
@@ -721,6 +723,47 @@ func (s *Server) handleAPIDashboardSchedule(c *gin.Context) {
 		return
 	}
 	c.Data(http.StatusOK, "application/json", []byte(result))
+}
+
+// withActorNames puts the name vCLU knows (a cloud member, an app acting for one) next to each
+// "by" of a calendar or schedule answer: "by":"cloud:12" gets "byName":"Ania".
+func (s *Server) withActorNames(result string) string {
+	if s.local == nil || !strings.Contains(result, `"by":"cloud:`) && !strings.Contains(result, `"by":"app:`) {
+		return result
+	}
+	var v any
+	if json.Unmarshal([]byte(result), &v) != nil {
+		return result
+	}
+	named := false
+	var walk func(x any)
+	walk = func(x any) {
+		switch t := x.(type) {
+		case map[string]any:
+			if by, ok := t["by"].(string); ok {
+				if n := s.local.ActorName(by); n != "" {
+					t["byName"] = n
+					named = true
+				}
+			}
+			for _, y := range t {
+				walk(y)
+			}
+		case []any:
+			for _, y := range t {
+				walk(y)
+			}
+		}
+	}
+	walk(v)
+	if !named {
+		return result
+	}
+	out, err := json.Marshal(v)
+	if err != nil {
+		return result
+	}
+	return string(out)
 }
 
 // viewerKey separates cached answers that depend on who may edit (an editable calendar): the
@@ -919,6 +962,7 @@ func (s *Server) runDashboardAction(c *gin.Context, id, widget, action string, v
 	if err != nil {
 		return 0, []byte(err.Error())
 	}
+	result = s.withActorNames(result) // a schedule's conflict carries the current week
 
 	// Invalidate values cache after action, and read the live values again now
 	dashCache.dropValues(id)

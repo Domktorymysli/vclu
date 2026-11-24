@@ -7,4 +7,4 @@
 ### Dashboards
 
 - **Schedule widget** - `section:schedule(id, label, cal, scheduleId)` shows the week as seven 24 h rows; who the schedule's roles allow taps Edit, paints values in half hours (`step = 10` for watering) and saves; a save from elsewhere in the meantime is reported and the current week is loaded. It works through vclu cloud, and today's apps open it from the tile in the page ([#268](https://github.com/Domktorymysli/vclu/issues/268)).
-- **Calendar widget edits** - on an editable calendar the day view has `+ Dodaj`, and each event skip and bring back, a person's own also change and remove; at most 200 events ahead from the page ([#268](https://github.com/Domktorymysli/vclu/issues/268)).
+- **Calendar widget edits** - on an editable calendar the day view has `+ Dodaj`, and each event skip and bring back, a person's own also change and remove; at most 200 events ahead from the page; who added an event shows by name, and what a page added is cleaned up a year after it ends ([#268](https://github.com/Domktorymysli/vclu/issues/268)).
