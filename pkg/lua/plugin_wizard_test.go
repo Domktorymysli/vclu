@@ -177,3 +177,36 @@ func TestWizardKeepsARequireTurnedOff(t *testing.T) {
 		t.Fatalf("init.lua: %q", b)
 	}
 }
+
+// A secret the plugin logs, by mistake or in an error, is masked; a short one is not.
+func TestPluginLogsMaskSecrets(t *testing.T) {
+	dir := t.TempDir()
+	loader := installTestPlugin(t, dir, "@jan/clu", map[string]interface{}{"api": 2, "form": "form.json"}, `
+local plugin = Plugin:new("clu", {})
+plugin:onInit(function(cfg)
+    local token = plugin:secret("token")
+    Logger:info("logger " .. token)
+    plugin:log("warn", "log " .. token .. " " .. plugin:secret("pin"))
+    plugin:logSafe("info", "safe", { t = token })
+    print("print", token)
+end)
+return plugin`, false)
+	mustWrite(t, filepath.Join(dir, "plugins", "jan--clu", "1.0.0", "form.json"), []byte(wizardForm))
+	if err := plugins.SetPluginSecrets(dir, "@jan/clu", map[string]string{"token": "s3cr(e)t%", "pin": "12"}); err != nil {
+		t.Fatal(err)
+	}
+	logs := captureLog(t)
+	apiEngine(t, loader, dir)
+	if err := loader.LoadPlugin("@jan/clu", map[string]any{"ip": "10.0.0.1"}); err != nil {
+		t.Fatal(err)
+	}
+	out := logs.String()
+	if strings.Contains(out, "s3cr(e)t") {
+		t.Fatalf("a secret in the log:\n%s", out)
+	}
+	for _, want := range []string{"logger ***", "log *** 12", "print ***"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("no %q in:\n%s", want, out)
+		}
+	}
+}

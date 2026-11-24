@@ -243,6 +243,10 @@ end
 -- @param level string Log level (info, warn, error, debug)
 -- @param message string Message to log
 function Plugin:log(level, message)
+    -- in a sandbox through its logger, which masks the plugin's secrets
+    if self._sandbox and self._sandbox.api then
+        return self._sandbox.api.log(level, message)
+    end
     -- Use shortId for cleaner log output
     local prefix = "[" .. (self.shortId or self.id):upper() .. "] "
     if level == "error" then
@@ -680,6 +684,9 @@ end
 -- @param fields table Optional fields (logged as key=value)
 -- @param redact boolean Redact secrets (default true)
 function Plugin:logSafe(level, msg, fields, redact)
+    if self._sandbox and self._sandbox.api then
+        return self._sandbox.api.logSafe(level, msg, fields, redact)
+    end
     PluginHelpers.logSafe(Logger, self.shortId or self.id, level, msg, fields, redact)
 end
 

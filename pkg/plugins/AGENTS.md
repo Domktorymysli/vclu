@@ -13,6 +13,12 @@ writes them to `modules/plugins/<ns>__<id>.lua` only after the user saw the diff
 checked in Go (`form.go`) on save; secret fields go to `plugin_secrets.json`, never to the config,
 and reach only their plugin as `plugin:secret(name)`. A plugin's older `config` map is step 1.
 
+## Secrets stay out of the registry
+A plugin keeps a secret from `plugin:secret` in a local variable. Never in a sensor, an exposed
+object, `createObject`, an event or a log line: other plugins, agents over MCP, dashboards and
+MQTT/HA read those. The sandbox masks the plugin's secret values (4+ characters) as `***` in
+`Logger`, `plugin:log`, `plugin:logSafe` and `print`; anything else it does not catch.
+
 ## Sensor ids are global
 Ids of sensors and controls are flat across the whole of vCLU. Derive them from the instance's
 options and refuse a duplicate with an error in the log instead of replacing another instance's.

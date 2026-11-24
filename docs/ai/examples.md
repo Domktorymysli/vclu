@@ -1672,6 +1672,18 @@ stopped and the rest of vCLU goes on:
 - The Grenton subscription and Object Manager's code (`om.lua`, `user.lua`) have no limit.
 - The limit is `lua.callbackTimeoutSeconds` in `.vclu.json`, read at start (negative: none).
 
+## Tokens and passwords stay out of the registry
+
+Keep a token in a local variable of the module. Fields of registry objects, exposed objects,
+event payloads, dashboards and logs are read by plugins, by agents and by MQTT/Home Assistant.
+
+```lua
+local token = "..."   -- a local: only this module's code sees it
+
+local status = VirtualText:new("BOT_STATUS", { initial = "OK" })
+status:expose()       -- the object carries the state, never the token
+```
+
 ## Directory convention
 
 Put code in modules, not loose files in `modules/`. Read `modules/init.lua`

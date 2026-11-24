@@ -180,6 +180,28 @@ local function boundFunctions(obj, names)
     })
 end
 
+-- The values of the plugin's secrets become *** in what it logs; shorter than 4 characters
+-- they would mask ordinary words
+local function maskSecrets(sandbox, v)
+    if type(v) ~= "string" or not sandbox.secrets then return v end
+    for _, secret in pairs(sandbox.secrets) do
+        if type(secret) == "string" and #secret >= 4 then
+            v = v:gsub(secret:gsub("[%^%$%(%)%%%.%[%]%*%+%-%?]", "%%%0"), "***")
+        end
+    end
+    return v
+end
+
+local function maskedLogger(sandbox)
+    local out = {}
+    for _, level in ipairs({ "debug", "info", "warn", "error" }) do
+        out[level] = function(_, msg, ...)
+            return Logger[level](Logger, maskSecrets(sandbox, msg), ...)
+        end
+    end
+    return out
+end
+
 local function topicLevels(topic)
     local levels = {}
     for level in (topic .. "/"):gmatch("([^/]*)/") do levels[#levels + 1] = level end
@@ -502,6 +524,7 @@ end
 function PluginSandbox:buildAPI(sandbox)
     local pluginId = sandbox.id
     local api = {}
+    local log = maskedLogger(sandbox)
 
     -- Wrapped setTimeout with tracking and pcall protection
     api.setTimeout = function(ms, callback)
@@ -796,13 +819,13 @@ function PluginSandbox:buildAPI(sandbox)
         local prefix = "[" .. (shortId or pluginId):upper() .. "] "
 
         if level == "error" then
-            Logger:error(prefix .. message)
+            log:error(prefix .. message)
         elseif level == "warn" then
-            Logger:warn(prefix .. message)
+            log:warn(prefix .. message)
         elseif level == "debug" then
-            Logger:debug(prefix .. message)
+            log:debug(prefix .. message)
         else
-            Logger:info(prefix .. message)
+            log:info(prefix .. message)
         end
     end
 
@@ -907,7 +930,7 @@ function PluginSandbox:buildAPI(sandbox)
     -- Log with redaction
     api.logSafe = function(level, msg, fields, redact)
         local namespace, shortId = pluginId:match("^@([^/]+)/(.+)$")
-        PluginHelpers.logSafe(Logger, shortId or pluginId, level, msg, fields, redact)
+        PluginHelpers.logSafe(log, shortId or pluginId, level, msg, fields, redact)
     end
 
     -- A disabled plugin's code may still be called (a sensor getter, a pending
@@ -1042,7 +1065,11 @@ function PluginSandbox:buildEnvironment(sandbox)
 
     local env = {
         -- Standard Lua functions (safe)
-        print = print,
+        print = function(...)
+            local args = { ... }
+            for i = 1, select("#", ...) do args[i] = maskSecrets(sandbox, args[i]) end
+            print(unpackArgs(args, 1, select("#", ...)))
+        end,
         pairs = sandboxPairs,
         ipairs = sandboxIpairs,
         next = sandboxNext,
@@ -1071,7 +1098,7 @@ function PluginSandbox:buildEnvironment(sandbox)
 
         -- Shared objects: methods callable, fields not replaceable. HTTP and MQTT go
         -- through the plugin API (plugin:httpRequest, plugin:mqttSubscribe).
-        Logger = boundFunctions(Logger, { "debug", "info", "warn", "error" }),
+        Logger = boundFunctions(maskedLogger(sandbox), { "debug", "info", "warn", "error" }),
         JSON = boundFunctions({
             encode = function(_, data, ...) return JSON:encode(plain(data), ...) end,
             decode = function(_, ...) return JSON:decode(...) end,
