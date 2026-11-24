@@ -109,6 +109,20 @@ nfpms:
       preremove: deploy/deb/prerm
       postremove: deploy/deb/postrm
 
+# SPDX SBOMs of every archive and .deb, as release assets (SECURITY.md); the images' come from
+# release.yml. The command runs in dist/, hence the path.
+sboms:
+  - id: archives
+    artifacts: archive
+    cmd: ../.github/sbom.sh
+    args: ["$artifact", "$document", "{{ .Version }}"]
+    documents: ["{{ .ArtifactName }}.spdx.json"]
+  - id: packages
+    artifacts: package
+    cmd: ../.github/sbom.sh
+    args: ["$artifact", "$document", "{{ .Version }}"]
+    documents: ["{{ .ArtifactName }}.spdx.json"]
+
 checksum:
   name_template: "checksums.txt"
 

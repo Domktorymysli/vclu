@@ -3,6 +3,7 @@ name: Security scan
 # New advisories come out after a release: once a week main and the latest release are scanned
 # again. A finding fails the run (GitHub mails a failed scheduled run). The log is public: it
 # names the public advisory ids only; how vCLU is affected goes to a draft security advisory.
+# The scan of the latest release is added to its security record (.github/security-record.sh).
 on:
   schedule:
     - cron: "17 5 * * 1"
@@ -31,6 +32,8 @@ jobs:
   # it was built with (the published one is stripped, see scan-release.sh), its image as pulled
   latest-release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # the release's security record
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -39,6 +42,8 @@ jobs:
       - name: Latest release
         id: rel
         run: |
+          # runner.temp is not available in a job's env
+          echo "SCAN_OUT=$RUNNER_TEMP/scan" >> "$GITHUB_ENV"
           tag=$(gh release view --json tagName -q .tagName)
           gh release download "$tag" -p vclu-linux-amd64.tar.gz -D "$RUNNER_TEMP"
           tar -xzf "$RUNNER_TEMP/vclu-linux-amd64.tar.gz" -C "$RUNNER_TEMP" vclu
@@ -56,14 +61,37 @@ jobs:
         with:
           go-version: ${{ steps.rel.outputs.go }}
 
+      # Both scans run and are recorded; the last step fails the run on a finding
       - name: Binary
+        id: binary
+        continue-on-error: true
         working-directory: release
         run: |
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "$RUNNER_TEMP/vclu-sym" ./cmd/vclu
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "$RUNNER_TEMP/vclu-linux-amd64" ./cmd/vclu
           # the scripts of main: an old tag may not have them
-          cd "$GITHUB_WORKSPACE" && .github/govulncheck.sh -mode=binary "$RUNNER_TEMP/vclu-sym"
+          cd "$GITHUB_WORKSPACE" && .github/govulncheck.sh -mode=binary "$RUNNER_TEMP/vclu-linux-amd64"
 
       - name: Image
+        id: image
+        continue-on-error: true
         run: .github/imagescan.sh "ghcr.io/domktorymysli/vclu:${TAG#v}"
         env:
           TAG: ${{ steps.rel.outputs.tag }}
+
+      # A release from before the records gets one with its weekly scans only
+      - name: Security record
+        if: always() && steps.rel.outcome == 'success'
+        env:
+          TAG: ${{ steps.rel.outputs.tag }}
+          GO: go${{ steps.rel.outputs.go }}
+        run: |
+          record=vclu-${TAG#v}-security.json
+          gh release download "$TAG" -p "$record" || true
+          .github/security-record.sh scan "$record" "$SCAN_OUT" weekly "$TAG" "$(git -C release rev-parse HEAD)" "$GO"
+          gh release upload "$TAG" "$record" vclu-${TAG#v}-scan-*-weekly.tar.gz --clobber
+
+      - name: Result
+        if: steps.binary.outcome == 'failure' || steps.image.outcome == 'failure'
+        run: |
+          echo "A scan of the latest release failed, see the Binary and Image steps."
+          exit 1
