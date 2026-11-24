@@ -3978,6 +3978,11 @@ local function calendarEventOpts(w, v)
     for _, k in ipairs({ 'date', 'time', 'duration', 'from', 'to' }) do
         if opts[k] ~= nil and type(opts[k]) ~= 'string' then return nil, k .. ' must be text' end
     end
+    for _, k in ipairs({ 'date', 'from', 'to' }) do
+        if opts[k] ~= nil and not opts[k]:match('^%d%d%d%d%-%d%d%-%d%d$') and not opts[k]:match('^%d%d%d%d%-%d%d%-%d%d%.%.%d%d%d%d%-%d%d%-%d%d$') then
+            return nil, k .. ' expected as YYYY-MM-DD'
+        end
+    end
     if opts.every ~= nil then
         local list = type(opts.every) == 'table' and opts.every or { opts.every }
         if #list == 0 or #list > 7 then return nil, 'every expects day or weekdays' end
@@ -4006,7 +4011,8 @@ end
 local function liveUserEvents(cal)
     local today, n = cal:day().date, 0
     for _, ev in ipairs(cal._events) do
-        if ev.source == 'user' then
+        local who = ev.source == 'user' and cal:_who(ev.id)
+        if who and who.page then
             local last = cal:_lastDay(ev.id)
             if last == nil or last >= today then n = n + 1 end
         end
@@ -4055,6 +4061,7 @@ local function calendarAction(id, dash, w, action, value, ctx)
             return fail(400, 'the calendar has ' .. CAL_PAGE_EVENTS .. ' events ahead: remove some first')
         end
         if action == 'add' then ok, res = pcall(cal.add, cal, opts) else ok, res = pcall(cal.update, cal, evId, opts) end
+        if action == 'add' and ok then cal:_markPage(res) end
     elseif action == 'remove' then
         if ev.source ~= 'user' then return fail(403, 'the module\'s events change in the module') end
         ok, res = pcall(cal.remove, cal, evId)

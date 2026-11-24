@@ -1067,6 +1067,8 @@
         if (s.indexOf('mcp') === 0 || s.indexOf('agent:') === 0) return T.byAgent;
         return s;
     }
+    // a function, so a "$&" in a name stays as typed
+    function fill(text, who) { return text.replace('{who}', function () { return who; }); }
     // "Ania, 24.11" (with the time when asked)
     function whoWhen(by, byName, at, withTime) {
         var out = actorLabel(by, byName);
@@ -1247,7 +1249,7 @@
                 });
                 foot.appendChild(fx);
             }
-            if (d.edited && d.by) foot.appendChild(calEl('div', 'dash-sched-note', T.schedSavedBy.replace('{who}', whoWhen(d.by, d.byName, d.at, true))));
+            if (d.edited && d.by) foot.appendChild(calEl('div', 'dash-sched-note', fill(T.schedSavedBy, whoWhen(d.by, d.byName, d.at, true))));
             if (!d.editable) foot.appendChild(calEl('div', 'dash-sched-note', T.schedViewOnly));
         }
 
@@ -1709,7 +1711,7 @@
                 }
                 name.appendChild(document.createTextNode(it.title));
                 if (it.added && it.added.by) {
-                    name.appendChild(calEl('span', 'dash-cal-added', T.calAddedBy.replace('{who}', whoWhen(it.added.by, it.added.byName, it.added.at))));
+                    name.appendChild(calEl('span', 'dash-cal-added', fill(T.calAddedBy, whoWhen(it.added.by, it.added.byName, it.added.at))));
                 }
                 row.appendChild(name);
                 if (editable) { row.classList.add('editable'); row.appendChild(itemActions(it)); }

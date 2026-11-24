@@ -1236,10 +1236,9 @@ function Cal:add(opts)
     local evs = copy(self._st.events)
     evs[id] = saved
     self._st.events = evs
-    local origin, actor = cause()
+    local _, actor = cause()
     local who = copy(self._st.who)
-    -- page: added by a person through a dashboard or the app, cleaned up a year after it ends
-    who[id] = { by = actor, at = math.floor(now()), page = (origin == 'web' or origin == 'remote') or nil }
+    who[id] = { by = actor, at = math.floor(now()) }
     self._st.who = who
     self:_replan()
     self:_edited({ id = id, kind = 'event', action = 'add' })
@@ -1251,6 +1250,16 @@ end
 function Cal:_who(id)
     local w = (self._st.who or {})[id]
     return type(w) == 'table' and w or nil
+end
+
+-- Marks an event a person added through a dashboard or the app: counted against the page's
+-- limit and cleaned up a year after it ends.
+function Cal:_markPage(id)
+    local who = copy(self._st.who)
+    if type(who[id]) ~= 'table' then return end
+    who[id] = copy(who[id])
+    who[id].page = true
+    self._st.who = who
 end
 
 -- The last day of a user event as a page makes it (date 'a' or 'a..b', or to); nil: no end.
@@ -1288,7 +1297,7 @@ function Cal:_prune()
             evs[id] = nil
             who[id] = nil
             local ev = self._byId[id]
-            if ev then
+            if ev and ev.source == 'user' then
                 self._byId[id] = nil
                 for i, e in ipairs(self._events) do if e == ev then table.remove(self._events, i); break end end
             end

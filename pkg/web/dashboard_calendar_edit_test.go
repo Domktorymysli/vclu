@@ -218,8 +218,9 @@ func TestCalendarPageLimits(t *testing.T) {
 	today := time.Now()
 	day := func(n int) string { return today.AddDate(0, 0, n).Format("2006-01-02") }
 	if _, err := engine.Execute(calendarEditDashboards + `
-for i = 1, 5 do dom:add({ title = 'stare', date = '` + day(-10) + `', tags = 'dzieci' }) end
-for i = 1, 199 do dom:add({ title = 'x', date = '` + day(3) + `', tags = 'dzieci' }) end
+for i = 1, 5 do dom:_markPage(dom:add({ title = 'stare', date = '` + day(-10) + `', tags = 'dzieci' })) end
+for i = 1, 199 do dom:_markPage(dom:add({ title = 'x', date = '` + day(3) + `', tags = 'dzieci' })) end
+for i = 1, 10 do dom:add({ title = 'z kodu', date = '` + day(3) + `' }) end
 `); err != nil {
 		t.Fatal(err)
 	}
@@ -239,6 +240,9 @@ for i = 1, 199 do dom:add({ title = 'x', date = '` + day(3) + `', tags = 'dzieci
 	}
 	if r := act("add", `{"title":"201.","date":"`+day(5)+`"}`); r.code != http.StatusBadRequest || !strings.Contains(r.raw, "200 events ahead") {
 		t.Errorf("the 201st: %d %s", r.code, r.raw)
+	}
+	if r := act("add", `{"title":"x","date":" `+day(5)+`"}`); r.code != http.StatusBadRequest {
+		t.Errorf("a date not as YYYY-MM-DD: %d %s", r.code, r.raw)
 	}
 	// the module's code is not bounded
 	if out, err := engine.Execute(`return dom:add({ title = 'z kodu', date = '` + day(5) + `' })`); err != nil || out == "" {
