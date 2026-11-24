@@ -241,3 +241,16 @@ func serverLua(t *testing.T, s *Server, script string) string {
 	}
 	return out
 }
+
+// A public page on the LAN cannot send a body past remoteBodyMax: it is refused before Lua.
+func TestDashboardActionBodyBoundedOnTheLAN(t *testing.T) {
+	s, _, _ := newScheduleServer(t)
+	lan := gin.New()
+	lan.POST("/api/dashboard/:id/action", limitBody, s.handleAPIDashboardAction)
+	big := `{"widgetId":"w","action":"set","value":{"version":0,"pad":"` + strings.Repeat("x", remoteBodyMax) + `"}}`
+	w := httptest.NewRecorder()
+	lan.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/dashboard/pub/action", strings.NewReader(big)))
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("a body past the limit: %d %s", w.Code, w.Body)
+	}
+}
