@@ -247,6 +247,15 @@ func TestBitMatchesBitOp(t *testing.T) {
 		`bit.tohex(255, -4)`:               "00FF",
 		`bit.tohex(0x1234abcd, 12)`:        "1234abcd",
 		`bit.tohex(-2)`:                    "fffffffe",
+		`bit.bor(0/0)`:                     "0",
+		`bit.bor(math.huge)`:               "0",
+		`bit.bor(-math.huge)`:              "0",
+		`bit.bor(2^53 + 4)`:                "4",
+		`bit.bor(2.5)`:                     "2",
+		`bit.bor(-1.5)`:                    "-2",
+		`bit.tohex(255, -2^31)`:            "000000FF",
+		`bit.tohex(255, 2^31)`:             "000000FF",
+		`bit.tohex(255, 0)`:                "",
 	} {
 		mustLua(t, engine, `tostring(`+expr+`)`, want)
 	}
