@@ -3,6 +3,7 @@
 # the files, and no known vulnerability is missing from .github/scan-accepted.txt.
 # Run from the repository root.
 set -euo pipefail
+. .github/scanlib.sh
 
 vendor=web/static/vendor
 manifest=$vendor/VERSIONS
@@ -35,13 +36,16 @@ body=$(printf '%s\n' "${queries[@]}" | jq -cs '{queries: .}')
 results=$(curl -fsS --retry 3 -X POST -H 'Content-Type: application/json' -d "$body" https://api.osv.dev/v1/querybatch)
 
 known=$(grep -oE '^[A-Za-z0-9-]+' "$accepted" 2>/dev/null | sort -u || true)
+found= ok=
 i=0
 while read -r dir pkg version file; do
   for id in $(jq -r --argjson i "$i" '.results[$i].vulns[]?.id' <<<"$results"); do
+    found+="$id"$'\n'
     vuln=$(curl -fsS --retry 3 "https://api.osv.dev/v1/vulns/$id")
     ids=$(jq -r '[.id] + (.aliases // []) | .[]' <<<"$vuln")
     if grep -qxF -f <(echo "$ids") <<<"$known"; then
       echo "$pkg@$version: $id accepted in $accepted"
+      ok+="$id"$'\n'
       continue
     fi
     echo "$pkg@$version: $id $(jq -r '.summary // ""' <<<"$vuln")"
@@ -50,6 +54,12 @@ while read -r dir pkg version file; do
   done
   i=$((i + 1))
 done <<<"$lines"
+
+raw=$(scan_raw osv-vendor.json)
+if [ -n "$raw" ]; then
+  jq -n --argjson q "$body" --argjson r "$results" '{query: $q, response: $r}' >"$raw"
+  scan_result osv.dev v1 "$vendor" "$([ "$fail" = 0 ] && echo pass || echo fail)" "$raw" "$found" "$ok"
+fi
 
 [ "$fail" = 0 ] && echo "Vendored libraries: no known vulnerability outside $accepted."
 exit "$fail"

@@ -5,6 +5,7 @@
 #   .github/imagescan.sh <image>                      scan
 #   .github/imagescan.sh <image> --format spdx-json -o <file>   an SBOM instead
 set -euo pipefail
+. .github/scanlib.sh
 
 image=${1:?usage: imagescan.sh <image> [trivy options]}
 shift
@@ -33,6 +34,22 @@ ignore=$(mktemp)
 trap 'rm -f "$ignore"' EXIT
 grep -oE '^[A-Za-z0-9-]+' "$accepted" >"$ignore" 2>/dev/null || true
 
+# For the record, every finding of any severity; the run below decides
+raw=$(scan_raw "trivy-$image.json")
+[ -z "$raw" ] || "$trivy" image --quiet --scanners vuln --pkg-types os --format json -o "$raw" "$image"
+
+status=0
 "$trivy" image --quiet --scanners vuln --pkg-types os --severity HIGH,CRITICAL --ignore-unfixed \
-  --ignorefile "$ignore" --exit-code 1 "$image"
+  --ignorefile "$ignore" --exit-code 1 "$image" || status=$?
+
+if [ -n "$raw" ]; then
+  found=$(jq -r '.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH" or .Severity == "CRITICAL")
+    | select((.FixedVersion // "") != "") | .VulnerabilityID' "$raw" | sort -u)
+  scan_result trivy "$TRIVY_VERSION" "$image" "$([ "$status" = 0 ] && echo pass || echo fail)" "$raw" \
+    "$found" "$(comm -12 <(echo "$found") <(sort -u "$ignore"))" \
+    "$("$trivy" version --format json | jq -c --argjson n "$(jq '[.Results[]?.Vulnerabilities[]?] | length' "$raw")" \
+      '{db_updated: .VulnerabilityDB.UpdatedAt, all_severities: $n}')"
+fi
+
+[ "$status" = 0 ] || exit "$status"
 echo "$image: no fixable HIGH or CRITICAL finding outside $accepted."
