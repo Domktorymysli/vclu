@@ -86,10 +86,13 @@ T|50
 N|192.168.0.5|nil|SYSTEM:clientRegister('192.168.0.100', 4344, 15, {{ROL0009, 0}, {ROL0010, 0}})
 T|50
 N|192.168.0.6|nil|SYSTEM:clientRegister('192.168.0.100', 4344, 16, {{DOU0001, 0}, {DOU0002, 0}, {DOU0003, 0}, {DOU0004, 0}})
+N|192.168.0.6|nil|SYSTEM:clientDestroy('192.168.0.100', 4344, 16)
 T|50
 N|192.168.0.6|nil|SYSTEM:clientRegister('192.168.0.100', 4344, 17, {{DOU0005, 0}, {DOU0006, 0}, {DOU0007, 0}, {DOU0008, 0}})
+N|192.168.0.6|nil|SYSTEM:clientDestroy('192.168.0.100', 4344, 17)
 T|50
 N|192.168.0.6|nil|SYSTEM:clientRegister('192.168.0.100', 4344, 18, {{DOU0009, 0}})
+N|192.168.0.6|nil|SYSTEM:clientDestroy('192.168.0.100', 4344, 18)
 B|192.168.0.5|50|SYSTEM:clientRegister('192.168.0.100', 4344, 19, {{DIM0001, 0}, {DIM0002, 0}, {DIM0003, 0}, {DIM0004, 0}})
 B|192.168.0.5|50|SYSTEM:clientRegister('192.168.0.100', 4344, 20, {{DIM0005, 0}, {DIM0006, 0}, {DIM0007, 0}, {DIM0008, 0}})
 B|192.168.0.5|50|SYSTEM:clientRegister('192.168.0.100', 4344, 21, {{DIM0009, 0}, {DIM0010, 0}, {DIM0011, 0}, {DIM0012, 0}})
@@ -186,5 +189,7 @@ T|50
 N|192.168.0.6|nil|SYSTEM:clientRegister('192.168.0.100', 4344, 56, {{DOU0009, 0}})
 --destroyAll
 N|192.168.0.6|nil|SYSTEM:clientDestroy('192.168.0.100', 4344, 54)
+T|50
 N|192.168.0.6|nil|SYSTEM:clientDestroy('192.168.0.100', 4344, 55)
+T|50
 N|192.168.0.6|nil|SYSTEM:clientDestroy('192.168.0.100', 4344, 56)

@@ -247,7 +247,7 @@ func DefaultBackupConfig() *VCLUBackupConfig {
 type VCLUSyncConfig struct {
 	Enabled    bool     `json:"enabled"`    // Master on/off switch (default: false)
 	TTL        int      `json:"ttl"`        // Subscription TTL in seconds (default: 60)
-	BatchSize  int      `json:"batchSize"`  // Entries per subscription request (default: 4, min: 2, max: 28)
+	BatchSize  int      `json:"batchSize"`  // Entries per subscription request (default: 8, min: 2, max: 28)
 	BatchDelay int      `json:"batchDelay"` // Milliseconds delay between batches (default: 50, min: 30, max: 100)
 	Objects    []string `json:"objects"`    // Whitelist of object paths to sync
 }
@@ -273,7 +273,7 @@ func DefaultSyncConfig() *VCLUSyncConfig {
 	return &VCLUSyncConfig{
 		Enabled:    false,
 		TTL:        60,
-		BatchSize:  4,
+		BatchSize:  8,
 		BatchDelay: 50,
 		Objects:    []string{},
 	}

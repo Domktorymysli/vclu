@@ -72,12 +72,17 @@ FAIL.ip = nil
 SENT[#SENT+1] = "--tick no sessions"
 INTERVALS[#INTERVALS](); runTimeouts()
 SENT[#SENT+1] = "--destroyAll"
-RemoteSubscription.destroyAll()
+RemoteSubscription.destroyAll(); runTimeouts()
 return table.concat(SENT, "\n")
 `
 
-// Without a thermostat nothing of #67 shows: the sequence is byte for byte the one of
-// main at 31e73b2 (the golden file was recorded from it, after #109 dropped the 64-entry cap).
+// The recorded sequence (no thermostat, so nothing of #67 shows). It is NO LONGER byte for byte
+// the one of main at 31e73b2: #276 changes two things on purpose. A failed renew now sends a
+// clientDestroy for that session (freeing the orphan on the CLU) right where the renew failed,
+// instead of dropping it silently — see the extra clientDestroy lines after each failed
+// 192.168.0.6 session in the --renewfail section. And destroyAll now spaces its clientDestroy
+// packets through a timer chain (a T|<delay> marker between each), the same way refreshAll spaces
+// its renews, so a CLU does not drop a back-to-back burst — see the --destroyAll section.
 func TestRemoteSubscribeMixedSameAsBefore67(t *testing.T) {
 	want, err := os.ReadFile("pkg/lua/testdata/remote_subscribe_31e73b2.golden")
 	if err != nil {

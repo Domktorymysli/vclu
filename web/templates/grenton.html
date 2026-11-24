@@ -337,7 +337,7 @@
                                         </div>
                                         <div class="col-md-4">
                                             <label for="syncBatchSize" class="form-label">Batch size (2-28)</label>
-                                            <input type="number" class="form-control" id="syncBatchSize" min="2" max="28" value="4">
+                                            <input type="number" class="form-control" id="syncBatchSize" min="2" max="28" value="8">
                                         </div>
                                         <div class="col-md-4">
                                             <label for="syncBatchDelay" class="form-label">Batch delay ms (30-100)</label>
@@ -720,7 +720,7 @@
                 syncConfig = cfg;
                 document.getElementById('syncEnabled').checked = cfg.enabled;
                 document.getElementById('syncTTL').value = cfg.ttl || 60;
-                document.getElementById('syncBatchSize').value = cfg.batchSize || 4;
+                document.getElementById('syncBatchSize').value = cfg.batchSize || 8;
                 document.getElementById('syncBatchDelay').value = cfg.batchDelay || 50;
                 whitelist = {};
                 (cfg.objects || []).forEach(function(p) { whitelist[p] = true; });
@@ -958,7 +958,7 @@
             var payload = {
                 enabled: document.getElementById('syncEnabled').checked,
                 ttl: parseInt(document.getElementById('syncTTL').value) || 60,
-                batchSize: parseInt(document.getElementById('syncBatchSize').value) || 4,
+                batchSize: parseInt(document.getElementById('syncBatchSize').value) || 8,
                 batchDelay: parseInt(document.getElementById('syncBatchDelay').value) || 50,
                 objects: Object.keys(whitelist)
             };
