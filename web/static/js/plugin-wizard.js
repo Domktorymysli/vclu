@@ -11,20 +11,24 @@
         pl: {
             settings: 'Ustawienia', devices: 'Urządzenia', code: 'Kod', save: 'Zapisz', saved: 'Zapisano',
             secretSet: 'ustawione, zostaw puste, żeby nie zmieniać', secretUnset: 'nie ustawione',
-            discover: 'Wykryj', discovering: 'Szukam…', addRow: 'Dodaj ręcznie', saveDevices: 'Zapisz urządzenia',
+            discover: 'Wykryj', discovering: 'Szukam…', addRow: 'Dodaj ręcznie',
             add: 'Dodaj', isNew: 'nowe', remove: 'Usuń', noDevices: 'Brak urządzeń. Wykryj albo dodaj ręcznie.',
             notRunning: 'Plugin nie działa: zapisz ustawienia i włącz plugin.', write: 'Zapisz do modułu i przeładuj',
             unchanged: 'Bez zmian względem pliku.', newFile: 'Nowy plik', loading: 'Ładuję…', dropped: 'Pominięte',
-            hostsAdded: 'Dodane do dozwolonych hostów', close: 'Zamknij',
+            hostsAdded: 'Dodane do dozwolonych hostów', close: 'Zamknij', back: 'Wstecz', next: 'Dalej',
+            required: 'Wymagane', badHost: 'Podaj adres IP, np. 192.168.1.10', min: 'Najmniej', max: 'Najwięcej',
+            fixFirst: 'Popraw zaznaczone pola.',
         },
         en: {
             settings: 'Settings', devices: 'Devices', code: 'Code', save: 'Save', saved: 'Saved',
             secretSet: 'set, leave empty to keep', secretUnset: 'not set',
-            discover: 'Discover', discovering: 'Searching…', addRow: 'Add by hand', saveDevices: 'Save devices',
+            discover: 'Discover', discovering: 'Searching…', addRow: 'Add by hand',
             add: 'Add', isNew: 'new', remove: 'Remove', noDevices: 'No devices. Discover or add one by hand.',
             notRunning: 'The plugin is not running: save its settings and enable it.', write: 'Write the module and reload',
             unchanged: 'No change from the file.', newFile: 'New file', loading: 'Loading…', dropped: 'Dropped',
-            hostsAdded: 'Added to the allowed hosts', close: 'Close',
+            hostsAdded: 'Added to the allowed hosts', close: 'Close', back: 'Back', next: 'Next',
+            required: 'Required', badHost: 'Enter an IP address, e.g. 192.168.1.10', min: 'At least', max: 'At most',
+            fixFirst: 'Fix the marked fields.',
         }
     };
     var t = T[lang] || T.en;
@@ -60,7 +64,9 @@
             el.innerHTML = '<div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content">' +
                 '<div class="modal-header"><h5 class="modal-title"></h5>' +
                 '<button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>' +
-                '<div class="modal-body"><ul class="nav nav-tabs mb-3"></ul><div class="wizard-step"></div></div>' +
+                '<div class="modal-body"><ul class="nav nav-tabs mb-3"></ul><div class="wizard-error"></div><div class="wizard-step"></div></div>' +
+                '<div class="modal-footer"><button type="button" class="btn btn-outline-secondary btn-sm me-auto" data-act="back"></button>' +
+                '<button type="button" class="btn btn-primary btn-sm" data-act="next"></button></div>' +
                 '</div></div>';
             document.body.appendChild(el);
         }
@@ -75,9 +81,13 @@
             self.data = data;
             self.form = typeof data.form === 'string' ? JSON.parse(data.form) : data.form;
             self.rows = (data.devices || []).map(function(v) { return { values: v, include: true, saved: true }; });
+            self.draft = null;
             var el = self.modal();
             el.querySelector('.modal-title').textContent = self.id;
             self.tabs();
+            // a plugin already running has its settings saved: every step is open
+            self.reached = data.running ? self.steps.length - 1 : 0;
+            self.current = null;
             self.show('settings');
             bootstrap.Modal.getOrCreateInstance(el).show();
             return true;
@@ -89,24 +99,127 @@
         var steps = [['settings', t.settings]];
         if (this.form.devices) steps.push(['devices', t.devices]);
         steps.push(['code', t.code]);
-        var ul = this.modal().querySelector('.nav-tabs');
+        this.steps = steps.map(function(s) { return s[0]; });
+        var el = this.modal();
+        var ul = el.querySelector('.nav-tabs');
         ul.innerHTML = steps.map(function(s, i) {
             return '<li class="nav-item"><a class="nav-link" href="#" data-step="' + s[0] + '">' + (i + 1) + '. ' + esc(s[1]) + '</a></li>';
         }).join('');
         ul.querySelectorAll('a').forEach(function(a) {
-            a.addEventListener('click', function(e) { e.preventDefault(); self.show(a.dataset.step); });
+            a.addEventListener('click', function(e) {
+                e.preventDefault();
+                if (self.steps.indexOf(a.dataset.step) <= self.reached) self.show(a.dataset.step);
+            });
         });
+        el.querySelector('[data-act="back"]').onclick = function() {
+            self.show(self.steps[self.steps.indexOf(self.current) - 1]);
+        };
+        el.querySelector('[data-act="next"]').onclick = function() { self.next(); };
+    };
+
+    // keeps what was typed in the step being left, saved or not
+    Wizard.prototype.leave = function() {
+        if (this.current === 'settings') this.draft = this.collectSettings(true);
+        else if (this.current === 'devices') this.readRows();
     };
 
     Wizard.prototype.show = function(step) {
         var el = this.modal();
-        el.querySelectorAll('.nav-link').forEach(function(a) { a.classList.toggle('active', a.dataset.step === step); });
+        this.leave();
+        this.current = step;
+        var at = this.steps.indexOf(step);
+        var self = this;
+        el.querySelectorAll('.nav-link').forEach(function(a) {
+            var i = self.steps.indexOf(a.dataset.step);
+            a.classList.toggle('active', i === at);
+            a.classList.toggle('disabled', i > self.reached);
+        });
+        var back = el.querySelector('[data-act="back"]');
+        back.textContent = t.back;
+        back.style.visibility = at > 0 ? '' : 'hidden';
+        el.querySelector('[data-act="next"]').textContent = at < this.steps.length - 1 ? t.next : t.close;
+        this.error('');
         this.body = el.querySelector('.wizard-step');
         this.body.onchange = null;
         if (step === 'settings') this.renderSettings();
         else if (step === 'devices') this.renderDevices();
         else this.renderCode();
     };
+
+    Wizard.prototype.error = function(msg) {
+        this.modal().querySelector('.wizard-error').innerHTML = msg ? '<div class="alert alert-danger py-2 small">' + esc(msg) + '</div>' : '';
+    };
+
+    // Next saves the step and moves on only when vclu took it
+    Wizard.prototype.next = function() {
+        var self = this;
+        var at = this.steps.indexOf(this.current);
+        if (at === this.steps.length - 1) {
+            bootstrap.Modal.getOrCreateInstance(this.modal()).hide();
+            return;
+        }
+        var body;
+        if (this.current === 'settings') {
+            if (!this.checkInputs(this.body, this.form.settings || {})) return;
+            body = { settings: this.collectSettings(false) };
+        } else {
+            this.readRows();
+            if (!this.checkInputs(this.body, this.form.devices.fields)) return;
+            body = { devices: this.rows.filter(function(r) { return r.include; }).map(function(r) { return r.values; }) };
+        }
+        var button = this.modal().querySelector('[data-act="next"]');
+        button.disabled = true;
+        this.save(body).then(function() {
+            // saved: nothing to keep as a draft
+            self.draft = null;
+            self.current = null;
+            self.reached = Math.max(self.reached, at + 1);
+            self.show(self.steps[at + 1]);
+        }, function(e) {
+            self.error(e.message);
+        }).then(function() { button.disabled = false; });
+    };
+
+    // marks empty required fields, hosts that are not an IP and numbers out of range; vclu checks again
+    Wizard.prototype.checkInputs = function(root, fields) {
+        var ok = true;
+        root.querySelectorAll('[data-field]').forEach(function(input) {
+            var f = fields[input.dataset.field] || {};
+            var holder = input.closest('[data-row]') || input.closest('td');
+            if (holder && holder.style.display === 'none') return;
+            var tr = input.closest('tr');
+            if (tr && !tr.querySelector('[data-include]').checked) return; // a row left out is not saved
+            var v = readField(input);
+            var msg = '';
+            if (v === null) {
+                // a secret already stored may stay empty
+                if (f.required && f.type !== 'boolean' && !(f.type === 'secret' && input.dataset.set)) msg = t.required;
+            } else if (f.type === 'host' && !isIP(String(v))) {
+                msg = t.badHost;
+            } else if (f.type === 'number') {
+                if (isNaN(v)) msg = t.required;
+                else if (f.min !== undefined && v < f.min) msg = t.min + ' ' + f.min;
+                else if (f.max !== undefined && v > f.max) msg = t.max + ' ' + f.max;
+            }
+            input.classList.toggle('is-invalid', !!msg);
+            var fb = input.parentNode.querySelector('.invalid-feedback');
+            if (msg && !fb) {
+                fb = document.createElement('div');
+                fb.className = 'invalid-feedback';
+                input.insertAdjacentElement('afterend', fb);
+            }
+            if (fb) fb.textContent = msg;
+            if (msg) ok = false;
+        });
+        if (!ok) this.error(t.fixFirst);
+        return ok;
+    };
+
+    function isIP(s) {
+        if (s.indexOf(':') >= 0) return /^[0-9a-fA-F:.]+$/.test(s);
+        var parts = s.split('.');
+        return parts.length === 4 && parts.every(function(p) { return /^\d{1,3}$/.test(p) && Number(p) <= 255; });
+    }
 
     // ---- fields ----
 
@@ -126,8 +239,8 @@
             return '<input type="checkbox" ' + attrs + (value === true || value === 'true' ? ' checked' : '') + '>';
         }
         if (f.type === 'secret') {
-            return '<input type="password" autocomplete="new-password" ' + attrs + ' placeholder="' +
-                esc(opts.secretSet ? t.secretSet : t.secretUnset) + '">';
+            return '<input type="password" autocomplete="new-password" ' + attrs + (opts.secretSet ? ' data-set="1"' : '') +
+                ' placeholder="' + esc(opts.secretSet ? t.secretSet : t.secretUnset) + '" value="' + esc(value || '') + '">';
         }
         var type = f.type === 'number' ? 'number' : 'text';
         // the older config marks a password with "secret": true, kept in the config
@@ -160,18 +273,17 @@
     Wizard.prototype.renderSettings = function() {
         var self = this;
         var fields = this.form.settings || {};
-        var values = this.data.settings || {};
+        var values = this.draft || this.data.settings || {};
         var html = '';
         Object.keys(fields).forEach(function(name) {
             var f = fields[name];
-            var v = values[name] !== undefined ? values[name] : f.default;
+            var v = values[name] !== undefined ? values[name] : (self.draft || f.type === 'secret' ? undefined : f.default);
             html += '<div class="mb-3" data-row="' + esc(name) + '">' +
                 '<label class="form-label">' + esc(text(f.label, name)) + (f.required ? ' <span class="text-danger">*</span>' : '') +
                 (f.unit ? ' <span class="text-muted small">(' + esc(f.unit) + ')</span>' : '') + '</label>' +
                 fieldInput(name, f, v, { secretSet: (self.data.secrets || {})[name] }) +
                 (f.description ? '<div class="form-text">' + esc(text(f.description)) + '</div>' : '') + '</div>';
         });
-        html += '<button class="btn btn-primary btn-sm" data-act="save">' + esc(t.save) + '</button>';
         this.body.innerHTML = html;
         var refresh = function() {
             var now = self.collectSettings(true);
@@ -181,9 +293,6 @@
         };
         this.body.onchange = refresh;
         refresh();
-        this.body.querySelector('[data-act="save"]').addEventListener('click', function() {
-            self.save({ settings: self.collectSettings(false) });
-        });
     };
 
     Wizard.prototype.collectSettings = function(forShowIf) {
@@ -212,8 +321,9 @@
             return api(self.base + '/form');
         }).then(function(data) {
             self.data = data;
-            self.rows = (data.devices || []).map(function(v) { return { values: v, include: true, saved: true }; });
-        }).catch(function(e) { VCLU.showToast(e.message, 'danger'); });
+            // rows not saved yet stay when only the settings were saved
+            if (body.devices) self.rows = (data.devices || []).map(function(v) { return { values: v, include: true, saved: true }; });
+        });
     };
 
     // ---- step 2 ----
@@ -244,7 +354,6 @@
             });
             html += '</tbody></table></div>';
         }
-        html += '<button class="btn btn-primary btn-sm" data-act="save">' + esc(t.saveDevices) + '</button>';
         this.body.innerHTML = html;
 
         var on = function(sel, fn) { var b = self.body.querySelector(sel); if (b) b.addEventListener('click', fn); };
@@ -254,11 +363,6 @@
             self.renderDevices();
         });
         on('[data-act="discover"]', function() { self.discover(); });
-        on('[data-act="save"]', function() {
-            self.readRows();
-            var devices = self.rows.filter(function(r) { return r.include; }).map(function(r) { return r.values; });
-            self.save({ devices: devices }).then(function() { self.renderDevices(); });
-        });
         this.body.querySelectorAll('[data-remove]').forEach(function(b) {
             b.addEventListener('click', function() {
                 self.readRows();
@@ -327,7 +431,7 @@
                 }).then(function(w) {
                     VCLU.showToast(w.warning || (t.saved + ': ' + w.path), w.warning ? 'warning' : 'success');
                     self.renderCode();
-                }).catch(function(e) { b.disabled = false; VCLU.showToast(e.message, 'danger'); });
+                }).catch(function(e) { b.disabled = false; self.error(e.message); });
             });
         }).catch(function(e) {
             self.body.innerHTML = '<div class="alert alert-secondary">' + esc(self.data.running ? e.message : t.notRunning) + '</div>';
