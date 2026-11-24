@@ -166,6 +166,7 @@ Dashboard.new('dom'):remote()
     :build()
 ```
 
+- A week saved from a dashboard wins over the module's weekly windows: `vclu_calendar` marks such a schedule `edited: { by, at }`. Changing the hours in the module's code does nothing then; read the week with `Calendar.get('dom'):week('komfort')` and change it with `setWeek`/`resetWeek` (ask the user first: a person set it).
 - `every = 'workday'` is refused in an editable schedule (a week has no holidays): use the weekdays and a fixed `{ every = 'holiday', ... }` window after them.
 - With `roles`, a person through the cloud edits with one of those home roles (the owner and admins always); in the house without a token only on a dashboard with `:auth('pin')` or `'session'`; a device API client never.
 - `dom:week('komfort')`, `dom:setWeek('komfort', week, { version = n })` and `dom:resetWeek('komfort')` do the same from code; a week saved by someone survives a restart until reset.

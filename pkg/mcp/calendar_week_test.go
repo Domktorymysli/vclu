@@ -238,3 +238,25 @@ print('CAL saved ' .. type(st.schedules) .. ' ' .. tostring(next(st.schedules)))
 		"saved table nil",
 	)
 }
+
+// The agent's calendar tool says a schedule is editable and, once a person saved a week, that
+// its hours come from that save (the module's code no longer decides them).
+func TestCalendarWeek_AgendaTellsTheAgent(t *testing.T) {
+	got := runCalendar(t, "2026-11-10T12:00:00+01:00", weekModule+`
+local function show(tag)
+  local a = json.decode(Calendar.API.agenda('dom', 'today'))
+  local sc = a.calendars[1].schedules[1]
+  print('CAL ' .. tag .. ' editable ' .. tostring(sc.editable) .. ' edited ' .. tostring(sc.edited and sc.edited.version))
+end
+dom:on('ready', function()
+  show('before')
+  dom:setWeek('komfort', { tu = { { from = '11:00', to = '13:00', value = 'komfort' } } })
+  show('after')
+end)`, `[{"advance": 60}]`)
+	expectLines(t, got,
+		"11-10 12:00 change eco nil", "11-10 12:00 ready",
+		"before editable true edited nil",
+		"11-10 12:00 change komfort eco",
+		"edit schedule komfort set v1 lua automation:module:kal",
+		"after editable true edited 1")
+}

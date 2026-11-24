@@ -1660,6 +1660,12 @@ local function agendaOf(cal, from, to, tags)
     -- a schedule's value and next change are about now, its segments about the day asked for
     for _, sc in ipairs(out.schedules) do
         sc.now, sc.value = sc.value, nil
+        -- a week a person saved wins over the module's weekly windows: the agent must know
+        local okW, wk = pcall(cal.week, cal, sc.id)
+        if okW then
+            sc.editable = true
+            if wk.edited then sc.edited = { version = wk.version, by = wk.by, at = wk.at and stamp(wk.at) } end
+        end
         if cal:isReady() then
             local n = cal:nextChange(sc.id)
             sc.nextChange = n and { value = n.value, at = stamp(n.at) } or nil
