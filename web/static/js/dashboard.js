@@ -1055,7 +1055,6 @@
     // ---- Schedule widget: the week of an editable calendar schedule ----
     var schedules = {}; // widgetId -> {refresh, values(data)}
     var WEEK_DAYS = ['mo', 'tu', 'we', 'th', 'fr', 'sa', 'su'];
-    var SCHED_STEP = 30; // minutes one tap paints
 
     function hmMin(s) { var p = s.split(':'); return +p[0] * 60 + +p[1]; }
     function minHm(m) { return pad2(Math.floor(m / 60)) + ':' + pad2(m % 60); }
@@ -1069,6 +1068,7 @@
         el.style.cursor = 'default';
         if (!w.span) el.style.gridColumn = '1 / -1';
         var st = { data: null, edit: null, brush: null, seq: 0, busy: false };
+        var SCHED_STEP = w.step || 30; // minutes one tap paints
 
         var bar = calEl('div', 'dash-cal-bar dash-sched-bar');
         bar.appendChild(head);

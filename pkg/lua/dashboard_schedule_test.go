@@ -26,7 +26,7 @@ func TestDashboardScheduleWidget(t *testing.T) {
 	dashJSON(t, engine, `Dashboard.API.getDefinition("d")`, &def)
 	w := def.widget("k")
 	got, _ := json.Marshal(w)
-	if string(got) != `{"calendar":"dom","disabled":false,"format":1,"id":"k","label":"Ogrzewanie","schedule":"komfort","section":0,"span":2,"type":"schedule"}` {
+	if string(got) != `{"calendar":"dom","disabled":false,"format":1,"id":"k","label":"Ogrzewanie","schedule":"komfort","section":0,"span":2,"step":30,"type":"schedule"}` {
 		t.Errorf("definition %s", got)
 	}
 	var values map[string]map[string]any
@@ -41,9 +41,10 @@ func TestDashboardScheduleWidgetErrors(t *testing.T) {
 	for module, want := range map[string]string{
 		`Dashboard.new('d'):section('S', 'clock'):schedule('k', 'K', dom, 'taryfa')`:                       `schedule widget "k": Calendar dom:week: schedule "taryfa" is not editable`,
 		`Dashboard.new('d'):section('S', 'clock'):schedule('k', 'K', dom, 'nie')`:                          `unknown schedule "nie"`,
-		`Dashboard.new('d'):section('S', 'clock'):schedule('k', 'K', dom, 'komfort', { view = 'month' })`:  `schedule widget "k": unknown option "view" ("disabled", "remote", "span", "visible")`,
+		`Dashboard.new('d'):section('S', 'clock'):schedule('k', 'K', dom, 'komfort', { view = 'month' })`:  `schedule widget "k": unknown option "view" ("disabled", "remote", "span", "step", "visible")`,
 		`Dashboard.new('d'):section('S', 'clock'):schedule('k', 'K', dom)`:                                 `expected the id of an editable schedule`,
 		`Dashboard.new('d'):section('S', 'clock'):schedule('k', 'K', dom, 'komfort', { disabled = true })`: `opts.disabled must be a function`,
+		`Dashboard.new('d'):section('S', 'clock'):schedule('k', 'K', dom, 'komfort', { step = 7 })`:        `opts.step must be 5, 10, 15, 30 or 60`,
 	} {
 		engine := NewLuaEngine()
 		_, err := engine.Execute(`

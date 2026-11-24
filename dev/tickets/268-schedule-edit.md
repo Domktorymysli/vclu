@@ -51,7 +51,7 @@ dom:setWeek('komfort', week, { version = n })   -- returns the new version; rais
 dom:resetWeek('komfort', { version = n })       -- back to the code's hours
 dom:on('edit', [id], function(e) end)           -- e: { calendar, id, kind, action, version?, origin, actor, title }
 
-Dashboard ...:schedule('ogrz', 'Ogrzewanie', dom, 'komfort', { span, visible, remote })
+Dashboard ...:schedule('ogrz', 'Ogrzewanie', dom, 'komfort', { span, visible, remote, step = 10 })
 ```
 
 **The week.** `week = { mo = { { from = '06:00', to = '08:00', value = 'komfort' }, ... }, tu = ..., su = ... }`:
@@ -111,7 +111,7 @@ undo the change.
   (no members list) mean no. The house (LAN, no token) only on a dashboard with `auth('pin')` or
   `auth('session')`: a public page on a kitchen tablet does not get round the roles.
 
-**Dashboard widget `schedule`.** Options `{ span, visible, disabled, remote }`. Definition: `calendar`, `schedule`, `title`, `format`. Values:
+**Dashboard widget `schedule`.** Options `{ span, visible, disabled, remote, step }`: `step` is the minutes one tap paints, 5, 10, 15, 30 (default) or 60 (10 for watering, 60 for a tariff). Definition: `calendar`, `schedule`, `title`, `format`, `step`. A schedule without colours has no `colors` (an empty table would reach JSON as a list); `by` goes only to a viewer who may edit. Values:
 `value` (a short text: the value now and the next change, for tiles that do not know the type),
 `now`, `version`. `GET /api/dashboard/:id/schedule?widget=<id>` (dashboard auth, in
 `remoteRoutes`, never cached: it depends on the person; `calendarLimiter` bounds it) gives `week()` plus `editable` for this
@@ -124,7 +124,7 @@ action carries `status` (403 when `mayEdit` says no, 409 with the current week o
 version, 400 on a bad week), so the house gets the HTTP status too. After a save other
 dashboards show the new hours on their next read; any action drops the calendar answers cached
 in Go (30 s), so a calendar widget shows a change at once. The page
-draws seven rows of 24 h, a value is painted by tap or drag in 30-minute steps (finer saved
+draws seven rows of 24 h, a value is painted by tap or drag in steps of `step` minutes (finer saved
 intervals are kept until painted over), with Save, Reset to the module's hours, the fixed
 windows listed below, and a conflict message that reloads the week. 390 px wide works.
 
@@ -160,6 +160,10 @@ dom:update(id, opts)   -- a user event's fields again (as add); edit with action
 - The page: in the day view a `+` adds an event (title, all day or from-to, repeat: none, every
   day, every week on that weekday), an event's row gets skip / bring back, and for user events
   edit and remove. The module's events stay its own: only a day of them can be skipped.
+- Limits for the page (the module's own `cal:add` is not bounded): at most 200 user events
+  ahead (a one-off whose day has passed or a repeating one past its `to` does not count), and a
+  day skipped or brought back from 62 days back to 366 ahead, so a daily event cannot collect
+  skips without end. Both answer 400 naming the limit.
 
 ## Files
 - `pkg/lua/runtime/core/Calendar.lua`: schedule handle, weekly/fixed split, `week`/`setWeek`/`resetWeek`, `edit`

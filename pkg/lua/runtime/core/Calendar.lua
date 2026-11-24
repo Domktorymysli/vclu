@@ -1126,9 +1126,11 @@ end
 -- @api public
 function Cal:week(id)
     local sc = editable(self, id, 'week')
+    -- no colours: left out, an empty table would reach JSON as a list
+    local colors = sc.colors and next(sc.colors) ~= nil and copy(sc.colors) or nil
     return { format = WEEK_FORMAT, version = sc.version, edited = sc.saved ~= nil, by = sc.by, at = sc.at,
         week = deepCopy(sc.saved or sc.codeWeek), fixed = deepCopy(sc.fixed), values = copy(sc.valueList),
-        default = sc.default, colors = copy(sc.colors), title = sc.title, roles = sc.roles and copy(sc.roles) }
+        default = sc.default, colors = colors, title = sc.title, roles = sc.roles and copy(sc.roles) }
 end
 
 function Cal:_saveWeek(sc, week, rules, values)

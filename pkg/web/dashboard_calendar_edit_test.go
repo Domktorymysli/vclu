@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Domktorymysli/vclu/pkg/lua"
 	"github.com/gin-gonic/gin"
@@ -204,5 +205,67 @@ local s = dom:_saved('a')
 return a .. ' ' .. b .. ' ' .. table.concat(s.tags, ',') .. ' ' .. s.icon .. ' ' .. tostring(dom:_saved('b').hours)`)
 	if got != `{"success":true,"value":{"id":"a"}} {"success":true,"value":{"id":"b"}} dzieci,wazne x nil` {
 		t.Errorf("got %s", got)
+	}
+}
+
+// What a page may keep on a calendar: 200 events ahead (past ones and the module's code do not
+// stop it), skips within 62 days back and 366 ahead.
+func TestCalendarPageLimits(t *testing.T) {
+	dashCache.Invalidate()
+	actionLimiter = &rateLimiter{buckets: make(map[string]*bucket), rate: 1000, burst: 1000}
+	engine := lua.NewLuaEngine()
+	t.Cleanup(engine.Close)
+	today := time.Now()
+	day := func(n int) string { return today.AddDate(0, 0, n).Format("2006-01-02") }
+	if _, err := engine.Execute(calendarEditDashboards + `
+for i = 1, 5 do dom:add({ title = 'stare', date = '` + day(-10) + `', tags = 'dzieci' }) end
+for i = 1, 199 do dom:add({ title = 'x', date = '` + day(3) + `', tags = 'dzieci' }) end
+`); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{serverDir: t.TempDir(), sessions: newSessionStore(), luaExecutor: engine, calendarLimiter: newCalendarLimiter(), live: newLiveFeeds()}
+	t.Cleanup(s.live.shutdown)
+	gin.SetMode(gin.TestMode)
+	tunnel := s.TunnelHandler()
+	s.SetLocalAccess(newLocal(t, t.TempDir()))
+	m := members(1, "member")
+	m.Members[0].Roles = []string{"rodzice"}
+	s.local.SetMembers(m)
+	act := func(action, value string) tunnelResp {
+		return do(tunnel, "POST", "/api/dashboard/kal/action", "member", `{"widgetId":"c","action":"`+action+`","value":`+value+`}`)
+	}
+	if r := act("add", `{"title":"200.","date":"`+day(5)+`"}`); r.code != http.StatusOK {
+		t.Fatalf("the 200th event ahead: %d %s", r.code, r.raw)
+	}
+	if r := act("add", `{"title":"201.","date":"`+day(5)+`"}`); r.code != http.StatusBadRequest || !strings.Contains(r.raw, "200 events ahead") {
+		t.Errorf("the 201st: %d %s", r.code, r.raw)
+	}
+	// the module's code is not bounded
+	if out, err := engine.Execute(`return dom:add({ title = 'z kodu', date = '` + day(5) + `' })`); err != nil || out == "" {
+		t.Errorf("cal:add from code: %q %v", out, err)
+	}
+	for n, want := range map[int]int{0: http.StatusOK, -62: http.StatusOK, 366: http.StatusOK, -63: http.StatusBadRequest, 367: http.StatusBadRequest} {
+		if r := act("skip", `{"id":"szkola","date":"`+day(n)+`"}`); r.code != want {
+			t.Errorf("skip %d days: %d %s", n, r.code, r.raw)
+		}
+	}
+}
+
+// Who saved a week is shown only to who may save too.
+func TestScheduleByOnlyForEditors(t *testing.T) {
+	s, _, _ := newScheduleServer(t)
+	tunnel := s.TunnelHandler()
+	if r := do(tunnel, "POST", "/api/dashboard/sch/action", "owner", `{"widgetId":"k","action":"set","value":{"version":0,"week":{"mo":[{"from":"06:00","to":"07:00","value":"komfort"}]}}}`); r.code != http.StatusOK {
+		t.Fatalf("save: %d %s", r.code, r.raw)
+	}
+	if r := do(tunnel, "GET", "/api/dashboard/sch/schedule?widget=k", "owner", ""); r.body["editable"] != true || r.body["by"] == nil {
+		t.Errorf("owner: %s", r.raw)
+	}
+	if r := do(tunnel, "GET", "/api/dashboard/sch/schedule?widget=k", "member", ""); r.body["editable"] != false || r.body["by"] != nil {
+		t.Errorf("member without the role: %s", r.raw)
+	}
+	// a schedule without colours sends none, not an empty list an app cannot read as a map
+	if r := do(tunnel, "GET", "/api/dashboard/sch/schedule?widget=k", "owner", ""); strings.Contains(r.raw, `"colors"`) {
+		t.Errorf("empty colours: %s", r.raw)
 	}
 }

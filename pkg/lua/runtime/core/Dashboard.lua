@@ -16,7 +16,13 @@ SectionHandle.__index = SectionHandle
 
 local CALENDAR_WIDGET_KEYS = { view = true, tags = true, schedules = true, holidays = true, namedays = true, sun = true, span = true,
     visible = true, remote = true }
-local SCHEDULE_WIDGET_KEYS = { span = true, visible = true, disabled = true, remote = true }
+local SCHEDULE_WIDGET_KEYS = { span = true, visible = true, disabled = true, remote = true, step = true }
+-- Minutes one tap paints: 10 for watering, 60 for a tariff; divides the day and the half hour.
+local SCHEDULE_STEPS = { [5] = true, [10] = true, [15] = true, [30] = true, [60] = true }
+-- What a page may keep on a calendar: events ahead (one-off or repeating, not yet over) and how
+-- far back and ahead a day may be skipped. The module's own cal:add is not bounded.
+local CAL_PAGE_EVENTS = 200
+local CAL_SKIP_BACK, CAL_SKIP_AHEAD = 62, 366
 -- What a page may set on an event it adds to an editable calendar or changes; the rest is the module's.
 local CAL_EVENT_KEYS = { title = true, date = true, time = true, duration = true, every = true, from = true, to = true }
 
@@ -162,6 +168,7 @@ local function scheduleWidget(id, label, cal, scheduleId, opts)
         end
     end
     if opts.disabled ~= nil and type(opts.disabled) ~= 'function' then error(where .. ': opts.disabled must be a function', 3) end
+    if opts.step ~= nil and not SCHEDULE_STEPS[opts.step] then error(where .. ': opts.step must be 5, 10, 15, 30 or 60 (minutes)', 3) end
     local c = Calendar and Calendar.get(calId)
     if c then
         local ok, err = pcall(c.week, c, scheduleId)
@@ -3904,6 +3911,7 @@ function DashboardAPI.scheduleWeek(id, widgetId, ctx)
     if not cal then return fail(404, err) end
     wk.editable = mayEditSchedule(dash, w, wk, ctx)
     wk.roles = nil   -- who may is the house's business, the flag is enough
+    if not wk.editable then wk.by = nil end   -- who saved: only for who may save too
     wk.now = cal:value(w.schedule)
     wk.zone = __go_calendar_zone()
     if cal:isReady() then
@@ -3992,6 +4000,30 @@ local function shownOn(w, ev)
     return false
 end
 
+-- The last day of a user event as the page makes it (date 'a' or 'a..b', or to); nil: no end.
+local function lastDay(saved)
+    if type(saved.to) == 'string' then return saved.to end
+    if saved.every == nil and type(saved.date) == 'string' then return saved.date:match('%.%.(.+)$') or saved.date end
+end
+
+-- User events not over yet; an event of another shape (a module's cal:add) counts as ahead.
+local function liveUserEvents(cal)
+    local today, n = cal:day().date, 0
+    for _, ev in ipairs(cal._events) do
+        if ev.source == 'user' then
+            local last = lastDay(cal:_saved(ev.id) or {})
+            if last == nil or last >= today then n = n + 1 end
+        end
+    end
+    return n
+end
+
+local function skipInReach(cal, date)
+    if not date:match('^%d%d%d%d%-%d%d%-%d%d$') then return true end   -- the calendar names the error
+    local noon = cal:day().starts + 12 * 3600
+    return date >= cal:day(noon - CAL_SKIP_BACK * 86400).date and date <= cal:day(noon + CAL_SKIP_AHEAD * 86400).date
+end
+
 -- A calendar widget's add, update, remove, skip and unskip: every answer has its HTTP status.
 local function calendarAction(id, dash, w, action, value, ctx)
     local function fail(status, msg) return JSON.encode({ error = msg, status = status }) end
@@ -4022,12 +4054,18 @@ local function calendarAction(id, dash, w, action, value, ctx)
             end
             opts.tags = saved.tags
         end
+        if action == 'add' and liveUserEvents(cal) >= CAL_PAGE_EVENTS then
+            return fail(400, 'the calendar has ' .. CAL_PAGE_EVENTS .. ' events ahead: remove some first')
+        end
         if action == 'add' then ok, res = pcall(cal.add, cal, opts) else ok, res = pcall(cal.update, cal, evId, opts) end
     elseif action == 'remove' then
         if ev.source ~= 'user' then return fail(403, 'the module\'s events change in the module') end
         ok, res = pcall(cal.remove, cal, evId)
     elseif action == 'skip' or action == 'unskip' then
         if type(value.date) ~= 'string' then return fail(400, 'date expected as YYYY-MM-DD') end
+        if not skipInReach(cal, value.date) then
+            return fail(400, 'a day from ' .. CAL_SKIP_BACK .. ' days back to ' .. CAL_SKIP_AHEAD .. ' days ahead')
+        end
         ok, res = pcall(cal[action], cal, evId, value.date)
     else
         return fail(400, 'Invalid action for calendar (add, update, remove, skip, unskip)')
@@ -4182,6 +4220,7 @@ function DashboardAPI.getDefinition(id, role)
 
             if w.type == 'schedule' then
                 widget.calendar, widget.schedule, widget.format = w.calendar, w.schedule, 1
+                widget.step = w.opts.step or 30
             end
 
             if w.type == 'calendar' then
