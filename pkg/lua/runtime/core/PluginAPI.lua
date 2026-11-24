@@ -243,6 +243,10 @@ end
 -- @param level string Log level (info, warn, error, debug)
 -- @param message string Message to log
 function Plugin:log(level, message)
+    -- in a sandbox through its logger, which masks the plugin's secrets
+    if self._sandbox and self._sandbox.api then
+        return self._sandbox.api.log(level, message)
+    end
     -- Use shortId for cleaner log output
     local prefix = "[" .. (self.shortId or self.id):upper() .. "] "
     if level == "error" then
@@ -408,6 +412,39 @@ function Plugin:mqttSubscribe(topic, callback)
         MQTT:subscribe(topic, callback)
         table.insert(self.subscriptions, {type = "mqtt", topic = topic, callback = callback})
     end
+end
+
+-- ============================================
+-- Wizard: secrets, discover, module code
+-- ============================================
+
+--- A secret field of the plugin's form (a token, a password); nil when not set
+-- @param name string The field name in form.json
+-- @return string|nil
+-- @usage local token = plugin:secret("apiToken")
+function Plugin:secret(name)
+    if not self._sandbox then error("secret is only for plugins", 2) end
+    local secrets = self._sandbox.secrets or {}
+    return secrets[name]
+end
+
+--- Finds devices for step 2 of the wizard: fn(config, done), then done(rows) or done(nil, err).
+-- Rows have the fields of "devices" in form.json; the user picks which to keep.
+-- @param fn function
+-- @usage plugin:discover(function(cfg, done) done({ {id = "1", name = "Lamp"} }) end)
+function Plugin:discover(fn)
+    if type(fn) ~= "function" then error("discover(fn): fn is a function", 2) end
+    self._discover = fn
+    return self
+end
+
+--- Lua for a module from the saved devices (step 3): fn(config, devices) returns the code.
+-- The user sees a diff and confirms before vclu writes modules/plugins/<plugin>.lua.
+-- @param fn function
+function Plugin:moduleCode(fn)
+    if type(fn) ~= "function" then error("moduleCode(fn): fn is a function", 2) end
+    self._moduleCode = fn
+    return self
 end
 
 -- ============================================
@@ -647,6 +684,9 @@ end
 -- @param fields table Optional fields (logged as key=value)
 -- @param redact boolean Redact secrets (default true)
 function Plugin:logSafe(level, msg, fields, redact)
+    if self._sandbox and self._sandbox.api then
+        return self._sandbox.api.logSafe(level, msg, fields, redact)
+    end
     PluginHelpers.logSafe(Logger, self.shortId or self.id, level, msg, fields, redact)
 end
 

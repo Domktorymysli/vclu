@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -505,6 +506,9 @@ func (s *Server) handlePluginsAPIUninstall(c *gin.Context) {
 		return
 	}
 
+	if err := plugins.DeletePluginSecrets(s.serverDir, pluginID); err != nil {
+		log.Printf("[PLUGINS] %s: forgetting secrets: %v", pluginID, err)
+	}
 	s.resolvePluginNotices()
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }

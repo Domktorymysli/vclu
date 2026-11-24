@@ -36,7 +36,7 @@ func mcpAllowedPath(relPath string) bool {
 
 	// Block secrets
 	base := filepath.Base(clean)
-	if base == ".vclu.json" || base == "keys.json" {
+	if base == ".vclu.json" || base == "keys.json" || base == "plugin_secrets.json" {
 		return false
 	}
 
