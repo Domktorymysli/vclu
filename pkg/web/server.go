@@ -982,8 +982,10 @@ func (s *Server) setupRoutes() {
 		api.GET("/dashboard/:id/metrics", s.handleAPIDashboardMetrics)
 		api.GET("/dashboard/:id/bars", s.handleAPIDashboardBars)
 		api.GET("/dashboard/:id/calendar", s.handleAPIDashboardCalendar)
-		api.POST("/dashboard/:id/action", s.handleAPIDashboardAction)
-		api.POST("/dashboard/:id/auth", s.handleAPIDashboardAuth)
+		api.GET("/dashboard/:id/schedule", s.handleAPIDashboardSchedule)
+		// public pages on the LAN: a body is bounded as through the tunnel
+		api.POST("/dashboard/:id/action", limitBody, s.handleAPIDashboardAction)
+		api.POST("/dashboard/:id/auth", limitBody, s.handleAPIDashboardAuth)
 
 		// CLU Function Tester endpoints
 		api.GET("/clus", s.handleAPIGetCLUs)

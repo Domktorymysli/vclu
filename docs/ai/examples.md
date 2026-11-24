@@ -136,6 +136,48 @@ dom:skip('bio', '2026-11-10'); dom:pause('2026-12-24..2027-01-02', { tags = { 'd
 - Test with `vclu_draft_test` and `advance`: the virtual clock drives the calendar.
 - `vclu_calendar` reads the house's calendars as they run: a day (`date = 'tomorrow'`) or up to 62 days, with holidays, events in local time and each schedule's value now and next change. Read it before changing a calendar module.
 
+### A schedule people change from a dashboard or the app
+
+The module gives the shape (values, default, exceptions); people change the weekly hours on the
+page, through vclu cloud too. The code that reacts with `value()` and `on('change')` stays as it is.
+
+```lua
+-- File: modules/kalendarz/init.lua
+local dom = Calendar.new('dom'):holidays('pl')
+    :schedule('komfort', { title = 'Ogrzewanie', values = { 'eco', 'komfort' }, default = 'eco',
+        colors = { komfort = 'warning' },
+        -- weekly windows first: every = weekdays, 'day' or 'weekend', hours, value
+        { every = { 'mo', 'tu', 'we', 'th', 'fr' }, hours = '06:00-08:00', value = 'komfort' },
+        { every = 'weekend', hours = '08:00-22:00', value = 'komfort' },
+        -- then the fixed ones, which the page shows but does not change
+        { every = 'holiday', hours = '08:00-22:00', value = 'komfort' } })
+        :editable():roles('rodzice')   -- without roles: everyone the dashboard lets act
+    :build()
+
+-- who changed what, as a push to the phones
+dom:on('edit', 'komfort', function(e)
+    Cloud.notify({ title = 'Ogrzewanie', body = 'Harmonogram zmieniony (' .. tostring(e.actor) .. ')' })
+end)
+
+-- File: modules/dashboards/dom.lua
+Dashboard.new('dom'):remote()
+    :section('Ogrzewanie', 'thermometer-half')
+    :schedule('ogrz', 'Ogrzewanie', Calendar.get('dom'), 'komfort')
+    :build()
+```
+
+- A week saved from a dashboard wins over the module's weekly windows: `vclu_calendar` marks such a schedule `edited: { by, at }`. Changing the hours in the module's code does nothing then; read the week with `Calendar.get('dom'):week('komfort')` and change it with `setWeek`/`resetWeek` (ask the user first: a person set it).
+- Events a person added from a dashboard keep who added them (shown on the calendar widget) and are removed a year after they end; the module's own `cal:add` events are not.
+- `every = 'workday'` is refused in an editable schedule (a week has no holidays): use the weekdays and a fixed `{ every = 'holiday', ... }` window after them.
+- With `roles`, a person through the cloud edits with one of those home roles (the owner and admins always); in the house without a token only on a dashboard with `:auth('pin')` or `'session'`; a device API client never.
+- `dom:week('komfort')`, `dom:setWeek('komfort', week, { version = n })` and `dom:resetWeek('komfort')` do the same from code; a week saved by someone survives a restart until reset.
+- `edit` fires for events too (`add`, `update`, `remove`, `skip`, `unskip`, `pause`, `resume`), with `e.origin` and `e.actor` of who did it.
+
+The calendar's own events the same way: `Calendar.new('dom'):editable():roles('rodzice')`, right
+after `new()`, lets those people add their own events on the calendar widget (day view), change and
+remove them, and skip or bring back a day of any event; the module's events stay its own.
+`dom:update(id, opts)` changes a user event from code.
+
 ## Expose z pluginu
 
 Wrapping a plugin object. The plugin loads after the modules, so use setTimeout.

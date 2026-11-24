@@ -21,7 +21,7 @@ const calendarMaxDays = 62
 
 func (s *MCPServer) registerCalendarTool() {
 	s.addTool("vclu_calendar", "The house calendar: events day by day (holidays, waste collection, reminders), "+
-		"schedules with their value now, next change and, for a single day, their hours; sun times for a single day. "+
+		"schedules with their value now, next change and, for a single day, their hours (an editable schedule a person saved from a dashboard has edited: { by, at }: its weekly hours come from that save, not from the module's code; read them with Calendar.get(id):week(sid), change them with setWeek/resetWeek, editing the module does not change them); sun times for a single day. "+
 		"Read only: to add or change an event, write a module draft (Calendar in ai/examples.md).", s.handleCalendar,
 		map[string]any{
 			"calendar": map[string]any{"type": "string", "description": "Calendar id (optional; all calendars when omitted)"},
