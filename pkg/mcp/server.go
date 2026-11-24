@@ -53,7 +53,9 @@ IMPORTANT — common pitfalls when writing Lua modules:
 
 6. Read vclu://docs/examples resource for complete code cookbook with all widget types, Virtual* objects, MQTT patterns, and dashboard examples.
 
-7. A light on motion (or anything that follows someone being in a room) is a VirtualPresence (see vclu_runtime_schema objects), not a setTimeout restarted on each motion: it joins motion sensors, radar and a door into one presence with a hold, and expose(p, "occupancy") shows it in Home Assistant and Apple Home. Never make the light it switches one of its keep sources.`
+7. A light on motion (or anything that follows someone being in a room) is a VirtualPresence (see vclu_runtime_schema objects), not a setTimeout restarted on each motion: it joins motion sensors, radar and a door into one presence with a hold, and expose(p, "occupancy") shows it in Home Assistant and Apple Home. Never make the light it switches one of its keep sources.
+
+8. The cloud reaches the house from anywhere: a stolen phone or a taken account is enough to send a command. When you expose to the cloud (:remote()) an alarm partition or zone (Satel, GATE Alarm), a lock or a door, always add :pin("<4-8 digits>") and ask the owner for the PIN; for a gate, a garage or an intercom add at least :confirm(), better :pin(). To only show an alarm's state use :remote({ readonly = true }). Never remove an existing :pin() or :confirm(). If the owner asks to expose such a device without one, say what it allows and do it only after they confirm. vclu_draft_validate warns about these.`
 
 // MQTTCredentialProvider provides access to MQTT client credentials for discovery.
 type MQTTCredentialProvider interface {
