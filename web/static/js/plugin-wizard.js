@@ -81,7 +81,6 @@
             self.data = data;
             self.form = typeof data.form === 'string' ? JSON.parse(data.form) : data.form;
             self.rows = (data.devices || []).map(function(v) { return { values: v, include: true, saved: true }; });
-            self.draft = null;
             var el = self.modal();
             el.querySelector('.modal-title').textContent = self.id;
             self.tabs();
@@ -108,24 +107,21 @@
         ul.querySelectorAll('a').forEach(function(a) {
             a.addEventListener('click', function(e) {
                 e.preventDefault();
-                if (self.steps.indexOf(a.dataset.step) <= self.reached) self.show(a.dataset.step);
+                if (self.steps.indexOf(a.dataset.step) <= self.reached) self.go(a.dataset.step);
             });
         });
         el.querySelector('[data-act="back"]').onclick = function() {
-            self.show(self.steps[self.steps.indexOf(self.current) - 1]);
+            self.go(self.steps[self.steps.indexOf(self.current) - 1]);
         };
-        el.querySelector('[data-act="next"]').onclick = function() { self.next(); };
-    };
-
-    // keeps what was typed in the step being left, saved or not
-    Wizard.prototype.leave = function() {
-        if (this.current === 'settings') this.draft = this.collectSettings(true);
-        else if (this.current === 'devices') this.readRows();
+        el.querySelector('[data-act="next"]').onclick = function() {
+            var at = self.steps.indexOf(self.current);
+            if (at === self.steps.length - 1) bootstrap.Modal.getOrCreateInstance(el).hide();
+            else self.go(self.steps[at + 1]);
+        };
     };
 
     Wizard.prototype.show = function(step) {
         var el = this.modal();
-        this.leave();
         this.current = step;
         var at = this.steps.indexOf(step);
         var self = this;
@@ -150,34 +146,36 @@
         this.modal().querySelector('.wizard-error').innerHTML = msg ? '<div class="alert alert-danger py-2 small">' + esc(msg) + '</div>' : '';
     };
 
-    // Next saves the step and moves on only when vclu took it
-    Wizard.prototype.next = function() {
+    // Leaving a step saves what changed in it; a step that does not check out keeps the user on it
+    Wizard.prototype.go = function(step) {
         var self = this;
+        if (step === this.current) return;
         var at = this.steps.indexOf(this.current);
-        if (at === this.steps.length - 1) {
-            bootstrap.Modal.getOrCreateInstance(this.modal()).hide();
-            return;
-        }
-        var body;
-        if (this.current === 'settings') {
-            if (!this.checkInputs(this.body, this.form.settings || {})) return;
-            body = { settings: this.collectSettings(false) };
-        } else {
-            this.readRows();
-            if (!this.checkInputs(this.body, this.form.devices.fields)) return;
-            body = { devices: this.rows.filter(function(r) { return r.include; }).map(function(r) { return r.values; }) };
-        }
-        var button = this.modal().querySelector('[data-act="next"]');
-        button.disabled = true;
-        this.save(body).then(function() {
-            // saved: nothing to keep as a draft
-            self.draft = null;
-            self.current = null;
+        var buttons = this.modal().querySelectorAll('.modal-footer button');
+        buttons.forEach(function(b) { b.disabled = true; });
+        this.saveStep().then(function() {
             self.reached = Math.max(self.reached, at + 1);
-            self.show(self.steps[at + 1]);
+            self.show(step);
         }, function(e) {
-            self.error(e.message);
-        }).then(function() { button.disabled = false; });
+            if (e) self.error(e.message);
+        }).then(function() { buttons.forEach(function(b) { b.disabled = false; }); });
+    };
+
+    Wizard.prototype.saveStep = function() {
+        if (this.current === 'settings') {
+            if (!this.checkInputs(this.body, this.form.settings || {})) return Promise.reject(null);
+            var settings = this.collectSettings(false);
+            if (JSON.stringify(settings) === this.pristine) return Promise.resolve();
+            return this.save({ settings: settings });
+        }
+        if (this.current === 'devices') {
+            this.readRows();
+            if (!this.checkInputs(this.body, this.form.devices.fields)) return Promise.reject(null);
+            var devices = this.rows.filter(function(r) { return r.include; }).map(function(r) { return r.values; });
+            if (JSON.stringify(devices) === JSON.stringify(this.data.devices || [])) return Promise.resolve();
+            return this.save({ devices: devices });
+        }
+        return Promise.resolve();
     };
 
     // marks empty required fields, hosts that are not an IP and numbers out of range; vclu checks again
@@ -273,11 +271,11 @@
     Wizard.prototype.renderSettings = function() {
         var self = this;
         var fields = this.form.settings || {};
-        var values = this.draft || this.data.settings || {};
+        var values = this.data.settings || {};
         var html = '';
         Object.keys(fields).forEach(function(name) {
             var f = fields[name];
-            var v = values[name] !== undefined ? values[name] : (self.draft || f.type === 'secret' ? undefined : f.default);
+            var v = values[name] !== undefined ? values[name] : (f.type === 'secret' ? undefined : f.default);
             html += '<div class="mb-3" data-row="' + esc(name) + '">' +
                 '<label class="form-label">' + esc(text(f.label, name)) + (f.required ? ' <span class="text-danger">*</span>' : '') +
                 (f.unit ? ' <span class="text-muted small">(' + esc(f.unit) + ')</span>' : '') + '</label>' +
@@ -293,6 +291,7 @@
         };
         this.body.onchange = refresh;
         refresh();
+        this.pristine = JSON.stringify(this.collectSettings(false));
     };
 
     Wizard.prototype.collectSettings = function(forShowIf) {
@@ -321,8 +320,10 @@
             return api(self.base + '/form');
         }).then(function(data) {
             self.data = data;
-            // rows not saved yet stay when only the settings were saved
-            if (body.devices) self.rows = (data.devices || []).map(function(v) { return { values: v, include: true, saved: true }; });
+            if (!body.devices) return;
+            // discovered rows not added yet stay on the list
+            var left = self.rows.filter(function(r) { return !r.include; });
+            self.rows = (data.devices || []).map(function(v) { return { values: v, include: true, saved: true }; }).concat(left);
         });
     };
 
