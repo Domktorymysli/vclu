@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/Domktorymysli/vclu/pkg/config"
+	"github.com/Domktorymysli/vclu/pkg/lua"
 )
 
 func modbusGateOM(t *testing.T) []byte {
@@ -33,10 +34,10 @@ func modbusMap(t *testing.T, s *Server) string {
 	return string(b)
 }
 
-const modbusRow = "| MODBAS_WILGOTNOSC_SCHODY | MOD9012 | ModbusRTU | 9600 8N1 | 1 | 2 | readInput |"
+const modbusRow = "| MODBAS_WILGOTNOSC_SCHODY | MOD9012 | ModbusRTU | sensor | 9600 8N1 | 1 | 2 | readInput |"
 
-// A GATE MODBUS's om.lua, alone or in a diagnostic pack, gives the agent its Modbus map; its
-// objects stay out of the registry and the kept copy as before.
+// A GATE MODBUS's om.lua, alone or in a diagnostic pack, gives the agent its Modbus map and
+// registers its objects; the kept copy keeps their settings (not the GATE's Wi-Fi password).
 func TestOMUploadModbusMap(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -59,12 +60,18 @@ func TestOMUploadModbusMap(t *testing.T) {
 				t.Errorf("map:\n%s", doc)
 			}
 			proxy := registered(t, s.serverDir)[500000001]
-			if proxy == "" || strings.Contains(proxy, "MOD90") {
-				t.Errorf("Modbus objects in the registry:\n%s", proxy)
+			for _, want := range []string{
+				`RemoteGateModbusSensor:new(_clu, "MOD9012", "MODBAS_WILGOTNOSC_SCHODY", 203)`,
+				`registerObject("CLU500000001.MOD9012"`,
+				"ObjectCount:16",
+			} {
+				if !strings.Contains(proxy, want) {
+					t.Errorf("registry lacks %q:\n%s", want, proxy)
+				}
 			}
 			kept, err := os.ReadFile(filepath.Join(config.GetOMFilesDir(s.serverDir), "om_500000001.lua"))
-			if err != nil || strings.Contains(string(kept), "MOD9012:set(") {
-				t.Errorf("kept copy has the settings (%v)", err)
+			if err != nil || !strings.Contains(string(kept), "MOD9012:set(8, 2)") || strings.Contains(string(kept), "TIM9001:set(") {
+				t.Errorf("kept copy (%v):\n%s", err, kept)
 			}
 		})
 	}
@@ -137,7 +144,7 @@ func TestOMModbusMapWithoutSettings(t *testing.T) {
 	if code != http.StatusOK || !strings.Contains(string(body), `"modbus":16`) {
 		t.Fatalf("%d %s", code, body)
 	}
-	if doc := modbusMap(t, s); !strings.Contains(doc, "| MOD9012 | ModbusRTU | — |") || !strings.Contains(doc, "no settings") {
+	if doc := modbusMap(t, s); !strings.Contains(doc, "| MOD9012 | ModbusRTU | number | — |") || !strings.Contains(doc, "no settings") {
 		t.Errorf("map:\n%s", doc)
 	}
 }
@@ -177,5 +184,27 @@ func TestOMProjectModbusMap(t *testing.T) {
 	}
 	if modbusMap(t, s) != "" {
 		t.Error("map kept after the project lost its Modbus objects")
+	}
+}
+
+// The proxy runs: the objects are in the runtime's registry with their kinds.
+func TestOMUploadModbusRuns(t *testing.T) {
+	engine := lua.NewLuaEngine()
+	t.Cleanup(engine.Close)
+	s := &Server{serverDir: t.TempDir(), luaExecutor: engine}
+	code, body := uploadFile(t, s, "om.lua", modbusGateOM(t))
+	if code != http.StatusOK {
+		t.Fatalf("%d %s", code, body)
+	}
+	var ans struct {
+		LuaError string `json:"luaError"`
+	}
+	if err := json.Unmarshal(body, &ans); err != nil || ans.LuaError != "" {
+		t.Fatalf("%s (%v)", body, err)
+	}
+	got, err := engine.Execute(`local a, b = _:get("CLU500000001.MOD9012"), _:get("CLU500000001.MOD9001")
+		return a._type .. " " .. a:subscribeFeatures()[1] .. " " .. b._type .. " " .. b:subscribeFeatures()[1]`)
+	if err != nil || got != "GATE_MODBUS_SENSOR 22 GATE_MODBUS_NUMBER 14" {
+		t.Errorf("%q (%v)", got, err)
 	}
 }

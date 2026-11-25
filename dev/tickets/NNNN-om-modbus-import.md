@@ -1,20 +1,21 @@
-# #NNNN: OM import maps the Modbus objects of a GATE MODBUS
+# #NNNN: A GATE MODBUS's Modbus objects as vclu devices, and their map for the agent
 
 - **Type:** feature
-- **Area:** grenton | modbus | mcp
-- **Size:** M
+- **Area:** grenton | modbus | lua-runtime | home-assistant | mcp
+- **Size:** L
 - **Epic:** —
 - **Blocked by:** —
 - **Skill:** `.agents/skills/write-contract-test`
-- **Needs hardware:** — (a GATE MODBUS helps for checking, not required)
+- **Needs hardware:** a GATE MODBUS to check the feature numbers (not checked yet, like #214)
 
 > State (who, status) lives in the GitHub issue, not here. To take the ticket, ask in the issue;
 > a maintainer assigns it. This file is the specification: change it by PR.
 
 ## Goal
-After importing a GATE MODBUS (its om.lua, a diagnostic pack or the `.omp` project), the agent reads every
-Modbus object with its register map (line, slave, register, function, type, scaling) in
-`ai/modbus/CLU<serial>.md` and can move the device to vclu's `Modbus` without Object Manager.
+After importing a GATE MODBUS (its om.lua, a diagnostic pack or the `.omp` project), its Modbus
+objects are vclu devices read through the GATE (sensors, binary sensors, switches, numbers), as a
+GATE Alarm's Satel objects are, and the agent reads their register map in
+`ai/modbus/CLU<serial>.md`.
 
 ## Context
 - A GATE MODBUS is `GATE:new(5000, ...)` with FwType 00000001, HwType 00000012. Its objects are
@@ -36,18 +37,35 @@ Modbus object with its register map (line, slave, register, function, type, scal
 - Before this ticket all of it was lost: `StripGateSettings` removes every `:set` of a GATE's
   objects from the copy vclu keeps (the GATE Alarm's passwords are there), and the parser drops
   GATE classes other than the GATE Alarm's.
-- vclu's `Modbus` (`pkg/lua/runtime/integrations/modbus/Modbus.lua`) is a TCP client: a device
-  on the GATE's RS485 reaches vclu through an RS485-to-TCP gateway whose address is not in the
-  project. So the import writes a map for the agent, not objects or a module.
+- The GATE polls the devices; each object has its value as a feature and OnChange events, so
+  vclu reads it like any CLU object. vclu's own `Modbus` (a TCP client) stays the way without
+  the GATE, through an RS485-to-TCP gateway; the map gives both.
+- Precedent: GATE Alarm (`dev/tickets/0214-gate-alarm.md`, `RemoteGateAlarm.lua`).
 
 ## Behaviour
-- `omparser.ReadModbus` reads the raw om.lua, before `StripGateSettings`; only on a GATE MODBUS
-  (the same classes elsewhere are something else). Objects commented out (`-- REMOVED`) are
-  skipped.
-- The stored `om_<serial>.lua` and the registry are unchanged: the settings stay stripped and
-  the objects are not registered (no HA, HomeKit, MQTT).
+- Only on a GATE MODBUS (the same classes elsewhere are left out with a warning). Objects
+  commented out (`-- REMOVED`) are skipped.
+- `StripGateSettings` keeps these objects' settings (register, line, scaling: no secrets) in the
+  stored `om_<serial>.lua`; everything else it strips stays stripped (GATE Alarm, Wi-Fi).
+- Registered as `CLU<serial>.<ID>`, class 200, 201, 203, 205 (202, 204, 206 are the GATE as a
+  slave or server: not registered), by a kind from the settings (register type: 0 coils,
+  1 discrete inputs, 2 holding, 3 input; Modbus v1/v2 writes only with AccessRights 1; a bit
+  value is binary):
+
+  | kind | Lua class | expose |
+  |---|---|---|
+  | holding without write, input register | `RemoteGateModbusSensor` | read-only number (HA sensor), by `exposeRegistry()` |
+  | coil or bit without write, discrete input | `RemoteGateModbusBinarySensor` | like a DIN, by `exposeRegistry()` |
+  | coil or bit with write | `RemoteGateModbusSwitch` | switch, only by `expose()` |
+  | holding with write | `RemoteGateModbusNumber` | number, only by `expose()` |
+
+- Feature numbers (`object_modbus_*.xml`): value 14 on 200 (written by `set(14, v)`, SetValue),
+  20 on 201, 22 on 203, 19 on 205 (written by `execute(1, "v")`, WriteValue with a string);
+  ErrorCode 13 / 23 / 25 / 22, IsValueValid 22 / 24 / 21. The Sync list follows the value
+  feature. The guard (as RemoteGateAlarm's) reads only these features (a CLU resets on a feature
+  it has not), writes no setting, and writes the value only of a switch or number.
 - `ai/modbus/CLU<serial>.md`: one row per object of class 200, 201, 203, 205 with name, ID,
-  class, line (`19200 8E1`, or `TCP host:port`), slave, register (and count), the `Modbus` read
+  class, vclu kind, line (`19200 8E1`, or `TCP host:port`), slave, register (and count), the `Modbus` read
   and write calls (none for read-only objects, discrete and input registers; coils cannot be
   written, vclu has no FC05), data type and width, byte order by OM's names, divisor, refresh
   and timeout. 202, 204, 206 are named only.
@@ -61,8 +79,10 @@ Modbus object with its register map (line, slave, register, function, type, scal
   `ai/modbus/`.
 
 ## Files
-- `pkg/omparser/modbus.go`, `pkg/omparser/types.go`
-- `pkg/omproject/project.go` (`peripheralClasses`, features), `pkg/omproject/omlua.go`
+- `pkg/omparser/modbus.go`, `types.go`, `parser.go`, `gate_settings.go`, `generator.go`
+- `pkg/lua/runtime/objects/RemoteGateModbus.lua`, `objects/init.lua`, `utils/TypeMap.lua`,
+  `pkg/lua/AGENTS.md`, `docs/ai/lua-api-reference.md` (regenerated)
+- `pkg/omproject/project.go` (`peripheralClasses`, features), `omlua.go`, `mygrenton.go`
 - `pkg/web/handle_web_om.go`, `pkg/mcp/server.go`, `web/api/swagger.json`
 - `pkg/omparser/testdata/om-modbus-gate.lua`: an anonymised om.lua of a real GATE MODBUS
   (11 objects of class 200, 5 of class 203, 2 removed)
@@ -71,8 +91,16 @@ Modbus object with its register map (line, slave, register, function, type, scal
 - [x] `TestReadModbusGate`: 16 objects from the real file, slave, register, function and line
       right for one object of each class, removed ones left out.
 - [x] `TestReadModbusOnlyOnGateModbus`: an HTTP GATE and a CLU give no map.
-- [x] `TestOMUploadModbusMap`: om.lua and diagnostic pack give the same map; no Modbus object
-      in the registry; the kept copy has no settings.
+- [x] `TestOMUploadModbusMap`, `TestOMUploadModbusRuns`: om.lua and diagnostic pack give the
+      same map and register the objects; the proxy runs; the kept copy keeps the Modbus
+      settings and not the timer's or the Wi-Fi's.
+- [x] `TestParseGateModbusKinds`, `TestParseModbusClassesOnOtherGate`,
+      `TestGenerateProxyGateModbus`, `TestStripGateSettingsKeepsModbus`: kinds from the real
+      file and from coils, discrete inputs and bits; nothing on another GATE; the proxy lines;
+      a GATE Alarm still loses the same classes' settings.
+- [x] `pkg/lua/gate_modbus_test.go`: subscribed feature per class, values (ModbusValue's
+      string too) and events, writes as `set(14, v)` / `execute(1, "v")`, guard refusals (other
+      features, settings, read-only registers, Wire, a changed ID), exposure.
 - [x] `TestOMModbusMapLifecycle`: project-style om.lua keeps the map, om.lua without Modbus and
       deleting the CLU remove it.
 - [x] `TestOMModbusMapNotFromGateAlarm`: a GATE Alarm's om.lua writes nothing to `ai/modbus/`.
@@ -85,7 +113,9 @@ Modbus object with its register map (line, slave, register, function, type, scal
 - [x] Changelog entry `changelog.d/NNNN-om-modbus-import.md`.
 
 ## Contract impact
-OM import: adds `ai/modbus/` and `modbus` in the answer, removes nothing. No decision record.
+OM import: a GATE MODBUS's objects are registered (new registry paths and Lua classes), adds
+`ai/modbus/` and `modbus` in the answer; removes nothing. No decision record.
 
 ## Out of scope
-- Modbus RTU in vclu (RS485 on the board) and generating a module from the map.
+- Units and device classes (Object Manager has none): a module sets them by `expose()`.
+- Modbus RTU in vclu itself (RS485 on the board).

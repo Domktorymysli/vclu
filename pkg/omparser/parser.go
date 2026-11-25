@@ -226,9 +226,34 @@ func Parse(content string) (*ParsedOM, error) {
 		}
 	}
 
+	// A GATE MODBUS's Modbus objects, registered by the kind their settings give
+	modbus := result.CLU.IsGateModbus()
+	kinds := map[string]string{}
+	if modbus {
+		result.Modbus, result.ModbusSettings = readModbusObjects(lines)
+		for _, o := range result.Modbus {
+			kinds[o.ID] = o.Kind()
+		}
+	}
+
 	// A GATE Alarm's alarm objects; the same classes on another CLU are something else
 	alarm := result.CLU.IsGateAlarm()
 	for _, obj := range gateObjects {
+		if obj.Class.IsModbus() {
+			if !modbus {
+				result.Warnings = append(result.Warnings, fmt.Sprintf(
+					"%s: class %d is a Modbus object only on a GATE MODBUS (FwType 00000001, HwType 00000012); this CLU has FwType %q, HwType %q, left out",
+					obj.ID, obj.Class, result.CLU.FwType, result.CLU.HwType))
+				continue
+			}
+			if _, dup := result.ObjectMap[obj.ID]; dup || kinds[obj.ID] == "" {
+				continue // the GATE as a Modbus slave or server: nothing to read
+			}
+			obj.ModbusKind = kinds[obj.ID]
+			result.Objects = append(result.Objects, obj)
+			result.ObjectMap[obj.ID] = obj
+			continue
+		}
 		if !obj.Class.IsGateAlarm() {
 			continue // other GATE objects (HTTP requests, timers...) vCLU does not read
 		}

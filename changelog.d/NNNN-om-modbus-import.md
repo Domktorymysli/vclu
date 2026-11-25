@@ -1,9 +1,21 @@
 ### Grenton
 
-- **Modbus map from a GATE MODBUS** - importing a GATE MODBUS's om.lua, a diagnostic pack or the
-  `.omp` project writes `ai/modbus/CLU<serial>.md`: every Modbus object (Modbus, ModbusValue, ModbusRTU,
-  ModbusClient) with its serial line, slave, register, data type, byte order, divisor and the
-  vclu `Modbus` call to read and write it, so the agent can move the device to vclu through an
-  RS485-to-TCP gateway. The objects are not registered and the kept om.lua still has none of
-  the GATE's settings; in a project they are no longer unknown types. The import answer gives `modbus` (how many objects)
+- **GATE MODBUS objects as devices** - importing a GATE MODBUS (its om.lua, a diagnostic pack or
+  the `.omp` project) registers its Modbus objects (Modbus, ModbusValue, ModbusRTU,
+  ModbusClient) as `CLU<serial>.<ID>`, read through the GATE like a GATE Alarm's Satel objects:
+  a register read only is a sensor (a read-only number in Home Assistant), a coil, discrete
+  input or bit a binary sensor; a writable coil is a switch and a writable holding register a
+  number, both only by `expose()`. Not checked on a GATE MODBUS yet. The kept om.lua now keeps
+  these objects' settings (no secrets); in a project they are no longer unknown types
   ([#NNNN](https://github.com/Domktorymysli/vclu/issues/NNNN)).
+- **Modbus map for the agent** - the import also writes `ai/modbus/CLU<serial>.md`: every
+  Modbus object with its vclu kind, serial line, slave, register, data type, byte order,
+  divisor and the vclu `Modbus` call to reach it through an RS485-to-TCP gateway instead; the
+  import answer gives `modbus` (how many objects).
+
+### Lua runtime
+
+- `RemoteGateModbusSensor`, `RemoteGateModbusBinarySensor`, `RemoteGateModbusSwitch`,
+  `RemoteGateModbusNumber` (`getValue`, `setValue`, `switchOn`/`switchOff`/`toggle`,
+  `onSwitchOn`/`onSwitchOff`); a guard reads only the value and error features and writes no
+  setting.

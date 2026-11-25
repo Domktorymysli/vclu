@@ -241,9 +241,19 @@ in `RemoteObject`'s `get`/`set`/`execute` (a guard given once by `RemoteObject._
 out of reach of scripts with its own copy of the tables), and Wire asks `RemoteObject.refusal` for
 a read it sends past the proxy; a new way to send a script for an object must ask it too.
 
+### GATE MODBUS
+A GATE MODBUS (om.lua FwType 00000001, HwType 00000012) declares its Modbus registers as GATE
+objects (`MOD0001 = GATE:new(203, "MOD0001")`, classes 200, 201, 203, 205; 202, 204, 206 are the
+GATE as a slave or server and are not registered). The parser gives each a kind from its
+settings (register type, access): `RemoteGateModbusSensor`, `...BinarySensor`, `...Switch`,
+`...Number` in `runtime/objects/RemoteGateModbus.lua`, which has the feature numbers per class.
+The value feature differs between classes, so the class is the last argument of `new`. The guard
+reads only the value and error features (a CLU resets when asked for a feature it has not) and
+writes only the value of a switch or number; `StripGateSettings` keeps these objects' settings.
+
 ### Untested on hardware
 `RemoteLight` (dimmer), `RemoteLedChannel`, the colour of `RemoteRGBLight`, `RemoteCover` (roller) and
-`RemoteGateAlarm` (GATE Alarm) in `runtime/objects/` follow the documentation, not a real module. Say so in the PR when you change them; a hardware report is welcome.
+`RemoteGateAlarm` (GATE Alarm) and `RemoteGateModbus` (GATE MODBUS) in `runtime/objects/` follow the documentation, not a real module. Say so in the PR when you change them; a hardware report is welcome.
 
 ## runtime/integrations: Home Assistant, MQTT, HTTP
 

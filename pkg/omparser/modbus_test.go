@@ -63,8 +63,8 @@ func TestReadModbusGate(t *testing.T) {
 	doc := m.Doc()
 	for _, want := range []string{
 		"# Modbus of GATE MODBUS MODBAS (CLU500000001)",
-		"| rekuperacja_stan | MOD9001 | Modbus | 19200 8E1 | 100 | 0 | readHolding | writeSingle / writeMultiple | number, 16 bits from bit 0 | NoSwap (little endian) | 1 | 2000 | 1000 |",
-		"| MODBAS_WILGOTNOSC_SCHODY | MOD9012 | ModbusRTU | 9600 8N1 | 1 | 2 | readInput | — | int16 | LittleBigEndian (swap bytes) | 10 | 3000 | 300 |",
+		"| rekuperacja_stan | MOD9001 | Modbus | number | 19200 8E1 | 100 | 0 | readHolding | writeSingle / writeMultiple | number, 16 bits from bit 0 | NoSwap (little endian) | 1 | 2000 | 1000 |",
+		"| MODBAS_WILGOTNOSC_SCHODY | MOD9012 | ModbusRTU | sensor | 9600 8N1 | 1 | 2 | readInput | — | int16 | LittleBigEndian (swap bytes) | 10 | 3000 | 300 |",
 	} {
 		if !strings.Contains(doc, want) {
 			t.Errorf("doc lacks %q:\n%s", want, doc)
@@ -124,7 +124,7 @@ end
 `
 	doc := ReadModbus(src).Doc()
 	for _, want := range []string{
-		"| licznik | CLI0001 | ModbusClient | TCP 192.0.2.5:502 | 3 | 12 | readInput | — | float32 | BigEndian |",
+		"| licznik | CLI0001 | ModbusClient | sensor | TCP 192.0.2.5:502 | 3 | 12 | readInput | — | float32 | BigEndian |",
 		"not mapped: SRV0001 (ModbusServer)",
 	} {
 		if !strings.Contains(doc, want) {
@@ -153,12 +153,122 @@ end
 `
 	doc := ReadModbus(src).Doc()
 	for _, want := range []string{
-		"| a\\|b | MOD0001 | Modbus | 9600 | 7 |",
+		"| a\\|b | MOD0001 | Modbus | number | 9600 | 7 |",
 		"| float32 |",
-		"| — | MOD0002 | Modbus | — | — | — | register type — | — | bit 4 |",
+		"| — | MOD0002 | Modbus | switch | — | — | — | readHolding | writeSingle / writeMultiple | bit 4 |",
 	} {
 		if !strings.Contains(doc, want) {
 			t.Errorf("doc lacks %q:\n%s", want, doc)
 		}
+	}
+}
+
+// On a GATE MODBUS the objects that read a register are registered with the kind their
+// settings give; the GATE as a slave or server is not.
+func TestParseGateModbusKinds(t *testing.T) {
+	parsed, err := Parse(readModbusFixture(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parsed.Objects) != 16 || len(parsed.Warnings) != 0 {
+		t.Fatalf("%d objects, warnings %q", len(parsed.Objects), parsed.Warnings)
+	}
+	for id, want := range map[string]string{
+		"MOD9001": ModbusNumber, // class 200, AccessRights 1, holding register
+		"MOD9002": ModbusSensor, // class 200, AccessRights 0
+		"MOD9012": ModbusSensor, // class 203, input register
+		"MOD9018": ModbusNumber, // class 203, holding register
+	} {
+		if o := parsed.ObjectMap[id]; o.ModbusKind != want {
+			t.Errorf("%s: kind %q, want %q", id, o.ModbusKind, want)
+		}
+	}
+
+	src := `-- FwType 00000001
+-- HwType 00000012
+CLU500000001 = GATE:new(5000, 0xC0A80A0A, 0xFFFFFF00, 0xC0A80A01, "", "")
+SRV0001 = GATE:new(206, "SRV0001")
+COI0001 = GATE:new(203, "COI0001")
+DIS0001 = GATE:new(205, "DIS0001")
+BIT0001 = GATE:new(200, "BIT0001")
+BIT0002 = GATE:new(201, "BIT0002")
+function OnInit()
+COI0001:set(10, 0)
+DIS0001:set(7, 1)
+BIT0001:set(1, 0)
+BIT0001:set(4, 3)
+BIT0002:set(9, 3)
+BIT0002:set(16, 1)
+end
+`
+	parsed, err = Parse(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for id, want := range map[string]string{
+		"COI0001": ModbusSwitch, "DIS0001": ModbusBinarySensor, "BIT0001": ModbusBinarySensor,
+		"BIT0002": ModbusBinarySensor, "SRV0001": "",
+	} {
+		if o := parsed.ObjectMap[id]; o.ModbusKind != want {
+			t.Errorf("%s: kind %q, want %q", id, o.ModbusKind, want)
+		}
+	}
+	if _, ok := parsed.ObjectMap["SRV0001"]; ok {
+		t.Error("the GATE's server registered")
+	}
+}
+
+// The same classes on another GATE are left out with a warning.
+func TestParseModbusClassesOnOtherGate(t *testing.T) {
+	src := strings.Replace(readModbusFixture(t), "-- FwType 00000001", "-- FwType 00000003", 1)
+	parsed, err := Parse(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parsed.Objects) != 0 || len(parsed.Modbus) != 0 {
+		t.Errorf("objects %+v", parsed.Objects)
+	}
+	if len(parsed.Warnings) != 16 || !strings.Contains(parsed.Warnings[0], "only on a GATE MODBUS") {
+		t.Errorf("warnings %q", parsed.Warnings)
+	}
+}
+
+// The proxy makes each object by its kind with its Modbus class and registers it.
+func TestGenerateProxyGateModbus(t *testing.T) {
+	parsed, err := Parse(readModbusFixture(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy := GenerateProxy(parsed, DefaultConfig())
+	for _, want := range []string{
+		`modbas.rekuperacja_stan = RemoteGateModbusNumber:new(_clu, "MOD9001", "rekuperacja_stan", 200)`,
+		`modbas.rekuperacja_temperatura_wyciagu = RemoteGateModbusSensor:new(_clu, "MOD9002", "rekuperacja_temperatura_wyciagu", 200)`,
+		`modbas.MODBAS_WILGOTNOSC_SCHODY = RemoteGateModbusSensor:new(_clu, "MOD9012", "MODBAS_WILGOTNOSC_SCHODY", 203)`,
+		`registerObject("CLU500000001.MOD9018", modbas.MODBAS_CZUJNIK_ZMIANA_ADRESU)`,
+	} {
+		if !strings.Contains(proxy, want) {
+			t.Errorf("proxy lacks %q", want)
+		}
+	}
+	if strings.Contains(proxy, "MOD9016") {
+		t.Error("a removed object in the proxy")
+	}
+}
+
+// The stored copy keeps a GATE MODBUS's Modbus settings, not its Wi-Fi password; the same
+// classes on a GATE Alarm lose theirs.
+func TestStripGateSettingsKeepsModbus(t *testing.T) {
+	src := strings.Replace(readModbusFixture(t), `"", "")`, `"net", "secret")`, 1)
+	out, n := StripGateSettings(src)
+	// the Wi-Fi line and the timer's two settings
+	if n != 3 || strings.Contains(out, "secret") || !strings.Contains(out, "MOD9012:set(8, 2)") {
+		t.Errorf("changed %d lines:\n%s", n, out)
+	}
+	if strings.Contains(out, "TIM9001:set(") {
+		t.Error("a timer's settings kept")
+	}
+	alarm := strings.Replace(src, "-- FwType 00000001", "-- FwType 00000002", 1)
+	if out, _ := StripGateSettings(alarm); strings.Contains(out, "MOD9012:set(") {
+		t.Error("Modbus classes on a GATE Alarm kept their settings")
 	}
 }

@@ -22,7 +22,7 @@ func modbusProject(peripherals string) string {
 }
 
 // A GATE MODBUS's Modbus objects in a project reach its om.lua with their settings, so the
-// Modbus map comes out of a project as out of the CLU's om.lua.
+// Modbus map and the objects' kinds come out of a project as out of the CLU's om.lua.
 func TestOMLuaModbusObjects(t *testing.T) {
 	rtu := `<ProgrammablePeripheryCLU><name>wilgotnosc</name><nameOnCLU>MOD0001</nameOnCLU><typeName>ModbusRTU</typeName><features class="linked-list">` +
 		modbusFeature(0, "9600") + modbusFeature(1, "0") + modbusFeature(2, "0") + modbusFeature(5, "1") +
@@ -52,16 +52,16 @@ func TestOMLuaModbusObjects(t *testing.T) {
 	}
 	doc := m.Doc()
 	for _, want := range []string{
-		"| wilgotnosc | MOD0001 | ModbusRTU | 9600 8N1 | 1 | 2 | readInput | — | int16 |",
-		"| licznik | MOD0002 | ModbusClient | TCP 192.0.2.5:502 | 3 | 12 | readInput |",
+		"| wilgotnosc | MOD0001 | ModbusRTU | sensor | 9600 8N1 | 1 | 2 | readInput | — | int16 |",
+		"| licznik | MOD0002 | ModbusClient | sensor | TCP 192.0.2.5:502 | 3 | 12 | readInput |",
 	} {
 		if !strings.Contains(doc, want) {
 			t.Errorf("doc lacks %q:\n%s", want, doc)
 		}
 	}
-	// the objects are no devices of the registry
+	// the objects are devices of the registry by their kind
 	parsed, err := omparser.Parse(om)
-	if err != nil || len(parsed.Objects) != 0 {
+	if err != nil || len(parsed.Objects) != 2 || parsed.ObjectMap["MOD0001"].ModbusKind != omparser.ModbusSensor {
 		t.Errorf("objects %+v (%v)", parsed.Objects, err)
 	}
 }

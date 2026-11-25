@@ -73,28 +73,33 @@ type ModbusMap struct {
 	HasSettings bool
 }
 
-// ReadModbus reads the Modbus objects of a GATE MODBUS from its om.lua as the CLU has it,
-// before StripGateSettings. Nil when the CLU is no GATE MODBUS. Objects commented out
-// (-- REMOVED) are not read.
+// ReadModbus reads the Modbus objects of a GATE MODBUS from its om.lua. Nil when the CLU is
+// no GATE MODBUS. Objects commented out (-- REMOVED) are not read.
 func ReadModbus(content string) *ModbusMap {
 	parsed, err := Parse(content)
 	if err != nil || !parsed.CLU.IsGateModbus() {
 		return nil
 	}
-	m := &ModbusMap{CLU: parsed.CLU}
+	return &ModbusMap{CLU: parsed.CLU, Objects: parsed.Modbus, HasSettings: parsed.ModbusSettings}
+}
+
+// readModbusObjects reads every Modbus object of om.lua with its settings, and whether om.lua
+// has settings at all (OnInit or a set feature).
+func readModbusObjects(lines []string) ([]ModbusObject, bool) {
+	var objs []ModbusObject
+	settings := false
 	byID := map[string]int{}
 	names := map[string]string{}
-	for _, line := range strings.Split(content, "\n") {
+	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "function OnInit") {
-			m.HasSettings = true
+			settings = true
 		}
 		if g := reGateObject.FindStringSubmatch(line); g != nil {
 			class, _ := strconv.Atoi(g[2])
-			c := ObjectClass(class)
-			if _, ok := modbusFeatures[c]; ok || modbusOther[c] != "" {
-				byID[g[1]] = len(m.Objects)
-				m.Objects = append(m.Objects, ModbusObject{ID: g[1], Class: c, Settings: map[int]string{}})
+			if c := ObjectClass(class); c.IsModbus() {
+				byID[g[1]] = len(objs)
+				objs = append(objs, ModbusObject{ID: g[1], Class: c, Settings: map[int]string{}})
 			}
 			continue
 		}
@@ -105,15 +110,67 @@ func ReadModbus(content string) *ModbusMap {
 		if s := reModbusSet.FindStringSubmatch(line); s != nil {
 			if i, ok := byID[s[1]]; ok {
 				idx, _ := strconv.Atoi(s[2])
-				m.Objects[i].Settings[idx] = strings.Trim(s[3], `"`)
-				m.HasSettings = true
+				objs[i].Settings[idx] = strings.Trim(s[3], `"`)
+				settings = true
 			}
 		}
 	}
-	for i := range m.Objects {
-		m.Objects[i].Name = names[m.Objects[i].ID]
+	for i := range objs {
+		objs[i].Name = names[objs[i].ID]
 	}
-	return m
+	return objs, settings
+}
+
+// IsModbus tells whether a class is one of a GATE MODBUS's Modbus objects.
+func (c ObjectClass) IsModbus() bool {
+	_, ok := modbusFeatures[c]
+	return ok || modbusOther[c] != ""
+}
+
+// Kinds of a GATE MODBUS's object in vclu (RemoteGateModbus.lua), from its register type
+// and access.
+const (
+	ModbusSensor       = "sensor"
+	ModbusBinarySensor = "binary_sensor"
+	ModbusSwitch       = "switch"
+	ModbusNumber       = "number"
+)
+
+// modbusDefaults are Object Manager's defaults of the settings the kind is told from, for an
+// om.lua that does not set them.
+var modbusDefaults = map[string]string{"regType": "2", "access": "1"}
+
+// setting is a setting by its field name, else Object Manager's default.
+func (o ModbusObject) setting(field string) string {
+	if v := o.get(field); v != "" {
+		return v
+	}
+	if _, ok := modbusFeatures[o.Class][field]; ok {
+		return modbusDefaults[field]
+	}
+	return ""
+}
+
+// Kind is what vclu makes of the object: coils and bits are binary, discrete inputs and input
+// registers read-only, Modbus v1/v2 writes only with AccessRights 1. "" for the GATE's
+// objects as a slave or server.
+func (o ModbusObject) Kind() string {
+	if _, ok := modbusFeatures[o.Class]; !ok {
+		return ""
+	}
+	t := o.setting("regType")
+	binary := t == "0" || t == "1" || o.get("bitWidth") == "1" ||
+		(o.Class == ClassModbus && o.get("valueType") == "3")
+	writable := (t == "0" || t == "2") && (o.Class != ClassModbus || o.setting("access") == "1")
+	switch {
+	case binary && writable:
+		return ModbusSwitch
+	case binary:
+		return ModbusBinarySensor
+	case writable:
+		return ModbusNumber
+	}
+	return ModbusSensor
 }
 
 // get is a setting of the object by its field name, "" when the class has not the field or
@@ -129,11 +186,8 @@ func (o ModbusObject) get(field string) string {
 // readOnly tells whether vCLU should only read the register: Modbus v1/v2 with AccessRights 0,
 // and discrete inputs and input registers, which Modbus cannot write.
 func (o ModbusObject) readOnly() bool {
-	if o.Class == ClassModbus && o.get("access") == "0" {
-		return true
-	}
-	t := o.get("regType")
-	return t == "1" || t == "3"
+	k := o.Kind()
+	return k == ModbusSensor || k == ModbusBinarySensor
 }
 
 // modbusCalls are vCLU's Modbus functions per register type: read, write.
@@ -233,19 +287,22 @@ func (m *ModbusMap) Doc() string {
 	}
 	fmt.Fprintf(&b, "# Modbus of GATE MODBUS %s\n\n", name)
 	b.WriteString("Written by vclu from the CLU's om.lua when it was imported; the next import of this CLU replaces it.\n\n")
-	b.WriteString("vclu's `Modbus` (see `vclu_runtime_schema`) is a Modbus TCP client: a device on the GATE's RS485 reaches it " +
-		"through an RS485-to-TCP gateway set to the row's line (its host and port are not in the project); a ModbusClient's line is already TCP. " +
-		"`unit` is the slave, `addr` the register as Object Manager has it (check the device's manual for an offset of 1). " +
-		"The value is the raw value divided by the divisor.\n\n")
-	b.WriteString("| Name | ID | Class | Line | Slave | Register | Read | Write | Data | Endianness | Divisor | Refresh ms | Timeout ms |\n")
-	b.WriteString("|---|---|---|---|---|---|---|---|---|---|---|---|---|\n")
+	b.WriteString("vclu reads these registers through the GATE, which polls the devices: each object is in the registry as " +
+		"`" + "CLU<serial>.<ID>" + "` with the kind below (RemoteGateModbus*; put it on the Sync list to follow its value). " +
+		"A switch or a number writes to the device and is exposed only by `expose()`. " +
+		"The value is the raw value divided by the divisor, as the GATE reports it.\n\n")
+	b.WriteString("Without the GATE, vclu's `Modbus` (a Modbus TCP client, see `vclu_runtime_schema`) reaches a device on the RS485 " +
+		"through an RS485-to-TCP gateway set to the row's line (its host and port are not in the project); a ModbusClient's line is " +
+		"already TCP. `unit` is the slave, `addr` the register as Object Manager has it (check the device's manual for an offset of 1).\n\n")
+	b.WriteString("| Name | ID | Class | vclu | Line | Slave | Register | Read | Write | Data | Endianness | Divisor | Refresh ms | Timeout ms |\n")
+	b.WriteString("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n")
 	var other []string
 	for _, o := range m.Objects {
 		if n := modbusOther[o.Class]; n != "" {
 			other = append(other, fmt.Sprintf("%s (%s)", cell(label(o)), n))
 			continue
 		}
-		calls, ok := modbusCalls[o.get("regType")]
+		calls, ok := modbusCalls[o.setting("regType")]
 		if !ok {
 			calls = [2]string{"register type " + orDash(o.get("regType")), "—"}
 		}
@@ -257,8 +314,8 @@ func (m *ModbusMap) Doc() string {
 		if c := o.get("count"); c != "" && c != "1" {
 			reg += fmt.Sprintf(" (%s)", c)
 		}
-		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n",
-			cell(orDash(o.Name)), o.ID, modbusClassNames[o.Class], cell(o.line()), cell(orDash(o.get("slave"))), cell(reg),
+		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n",
+			cell(orDash(o.Name)), o.ID, modbusClassNames[o.Class], o.Kind(), cell(o.line()), cell(orDash(o.get("slave"))), cell(reg),
 			calls[0], write, cell(o.data()), cell(o.endianness()), cell(orDash(o.get("divisor"))), cell(orDash(o.get("refresh"))), cell(orDash(o.get("timeout"))))
 	}
 	if !m.HasSettings {

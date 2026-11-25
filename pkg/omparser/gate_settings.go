@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -111,14 +112,29 @@ func StripStoredGateSettings(importsDir string) (files, lines int, err error) {
 // how many lines it removed or changed. A GATE Alarm's om.lua sets the panel's address, the
 // admin and user passwords and the encryption key there; vCLU needs none of them, so the copy
 // it keeps of the file has none. A GATE's own definition loses its Wi-Fi network and password
-// the same way. Nothing of a removed line is returned or logged.
+// the same way. Nothing of a removed line is returned or logged. A GATE MODBUS's Modbus
+// objects keep their settings (register, line, type): they are no secrets, and the import
+// tells the objects' kinds from them.
 func StripGateSettings(content string) (string, int) {
 	lines := strings.Split(content, "\n")
 	gate := make(map[string]bool)
 	removed := 0
+	var info CLUInfo
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if m := reFwType.FindStringSubmatch(line); m != nil {
+			info.FwType = m[1]
+		} else if m := reHwType.FindStringSubmatch(line); m != nil {
+			info.HwType = m[1]
+		}
+	}
+	modbus := info.IsGateModbus()
 	for i, line := range lines {
 		if m := reGateObject.FindStringSubmatch(strings.TrimSpace(line)); m != nil {
-			gate[m[1]] = true
+			class, _ := strconv.Atoi(m[2])
+			if !(modbus && ObjectClass(class).IsModbus()) {
+				gate[m[1]] = true
+			}
 		}
 		if blank, ok := blankGateWiFi(line); ok && blank != line {
 			lines[i] = blank

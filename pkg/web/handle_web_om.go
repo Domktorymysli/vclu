@@ -470,7 +470,7 @@ func (s *Server) processOMFile(content []byte, originalName string) (gin.H, erro
 		return nil, fmt.Errorf("failed to save file")
 	}
 
-	// read before the stored copy lost the GATE's settings
+	// the Modbus map for the agent, from the om.lua as uploaded
 	modbus, err := s.writeModbusMap(string(content), serial)
 	if err != nil {
 		warnings = append(warnings, parsed.CLU.ID+": "+err.Error())

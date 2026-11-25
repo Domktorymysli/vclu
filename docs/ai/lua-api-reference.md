@@ -32,6 +32,7 @@ Only public API is listed — internal/private functions are omitted.
 - [lib.cct](#libcct) (1 functions)
 - [lib.tasmota](#libtasmota) (5 functions)
 - [objects.RemoteGateAlarm](#objectsremotegatealarm) (23 functions)
+- [objects.RemoteGateModbus](#objectsremotegatemodbus) (8 functions)
 
 ---
 
@@ -2890,6 +2891,48 @@ Registers a callback for when the section is armed.
 ### `RemoteGateJablotronSection:onDisarm(callback)`
 
 Registers a callback for when the section is disarmed.
+
+---
+
+## objects.RemoteGateModbus
+
+### `RemoteGateModbus:getValue() → number|nil`
+
+The value the GATE reported.
+
+**Returns:** number|nil
+
+### `RemoteGateModbusBinarySensor:onSwitchOn(callback)`
+
+Registers a callback for when the value turns on.
+
+### `RemoteGateModbusBinarySensor:onSwitchOff(callback)`
+
+Registers a callback for when the value turns off.
+
+### `RemoteGateModbusSwitch:switchOn()`
+
+Writes 1; the GATE reports the value.
+
+### `RemoteGateModbusSwitch:switchOff()`
+
+Writes 0.
+
+### `RemoteGateModbusSwitch:toggle()`
+
+Switches off when on, else on.
+
+### `RemoteGateModbusSwitch:setValue(value)`
+
+1 (or true) switches on, anything else off.
+
+- `value` (number) — 0 or 1
+
+### `RemoteGateModbusNumber:setValue(value)`
+
+Writes the value to the register; the GATE reports it back.
+
+- `value` (number) — The value (scaled as the object's Divisor in Object Manager)
 
 ---
 
