@@ -119,6 +119,14 @@ func (c ObjectClass) String() string {
 		return "GATE_JABLOTRON_OUTPUT"
 	case ClassGateJablotronDevice:
 		return "GATE_JABLOTRON_DEVICE"
+	case ClassModbus:
+		return "MODBUS"
+	case ClassModbusValue:
+		return "MODBUS_VALUE"
+	case ClassModbusRTU:
+		return "MODBUS_RTU"
+	case ClassModbusClient:
+		return "MODBUS_CLIENT"
 	default:
 		return "UNKNOWN"
 	}
