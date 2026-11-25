@@ -12,7 +12,7 @@
 > a maintainer assigns it. This file is the specification: change it by PR.
 
 ## Goal
-A plugin reaches only what its `plugin.json` declares beyond HTTP to the internet, and nothing it
+A plugin reaches only what its `plugin.json` declares, internet hosts included on API 2, and nothing it
 holds is a table shared with the core or with another plugin. Plugins written before this keep
 running: the manifest names the plugin API it is written for, and the stricter contract is API 2.
 
@@ -100,7 +100,8 @@ running: the manifest names the plugin API it is written for, and the stricter c
       `TestPluginSandboxMQTTTopics`, `TestPluginsAPIPermissionsRefusesBadLists`).
 - [ ] A repository with only a root `plugin.json` lists one plugin and downloads it.
 - [ ] A plugin with `"permissions": {}` gets `a local address needs "lan"` from `plugin:httpGet`
-      on a LAN address and a response from an internet address; with `lan` both work.
+      on a LAN address and a refusal from an internet address; with `lan` and the host in
+      `internet` both work.
 - [ ] A plugin without `mqtt` cannot subscribe or publish; without `modbus` `Modbus` is `nil`.
 - [ ] A plugin cannot change `string`, `table`, `math`, `Logger`, `JSON` or `Plugin` for anyone else;
       on API 2 the `HTTP`, `HttpClient` and `MQTT` globals are absent in the sandbox.
