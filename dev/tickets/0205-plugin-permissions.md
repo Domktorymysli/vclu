@@ -23,8 +23,8 @@ running: the manifest names the plugin API it is written for, and the stricter c
   objects and other plugins' instances as they are, and HTTP, MQTT and Modbus with a module's reach.
 - `permissions` in `plugin.json`: `{"lan": true, "mqtt": true, "modbus": true}`. `lan` allows
   HTTP to local addresses, checked after DNS resolution in Go (`pkg/lua/http_lan.go`, the dialer's
-  `Control`); `mqtt` the plugin's MQTT methods; `modbus` the `Modbus` table. Nothing else exists
-  yet; a host allowlist for the internet is a later ticket.
+  `Control`); `mqtt` the plugin's MQTT methods; `modbus` the `Modbus` table. `internet` is the list of internet hosts
+  an API 2 plugin reaches (below).
 - Plugin API versions (`pkg/plugins/permissions.go`, `PluginAPIMin`/`PluginAPIMax`): `"api"` in
   `plugin.json`, missing = 1. API 1 is the contract from before permissions: `lan`, `mqtt` and
   `modbus` for any plugin, events and expose paths with any name, the `HTTP`, `HttpClient` and
@@ -57,6 +57,18 @@ running: the manifest names the plugin API it is written for, and the stricter c
 - Events a plugin emits carry its prefix: an official plugin's short id or its first word
   (`sun:`), any other plugin's full id (`@jan/foo:changed`). A plugin's expose path goes under its
   id; a plugin cannot change an object a module exposed.
+- Internet hosts on API 2 (decided 25.11, before API 2 ships, the only time the default can be
+  set without breaking someone's plugin): `"internet": ["openapi.tuyaeu.com", "*.tuyaeu.com"]`
+  reaches only those names (the panel says "connects to: …"); `"internet": "*"` (or `["*"]`) any
+  host, with a warning in the panel; no `internet`: no internet. API 1 is unchanged. The host name
+  in the URL is checked, also after every redirect (`CheckRedirect`), not the IP (cloud IPs
+  change); `*.example.com` matches subdomains, not `example.com`; an IP in the URL matches only
+  that IP on the list (or `"*"`). The LAN boundary stays as it is and works independently: a
+  listed host that resolves to a local address is still refused without `lan`. An update adding a
+  host or changing the list to `"*"` waits for the user like any new permission. The user narrows
+  it in `grants.internet` like `lan.hosts`, if cheap; a wizard "server address" field adding its
+  host to the grant is #247. A refusal says what to do: "api.example.com is not on the host list
+  of @x/foo (permissions.internet)". `mqtt_remote` is covered by the same list later, not here.
 - Plugin ids are lower case `a-z`, digits, `.`, `_`, `-`, without `--` or a `-` at either end, so
   two ids never share a directory or a KV file.
 
@@ -105,14 +117,22 @@ running: the manifest names the plugin API it is written for, and the stricter c
 - [ ] Every plugin in `vclu-plugins` loads, runs its init with a config, serves its sensors and
       unloads without leaving a timer or a registry entry, with and without `permissions` in its
       manifest (`TestOfficialPluginsSmoke`).
+- [ ] API 2 without `internet`: a request to an internet host is refused with a clear error.
+- [ ] A host list: a listed host passes, another is refused, a redirect from a listed host to an
+      unlisted one is refused.
+- [ ] `*.example.com` does not let in `example.com.evil.net` or `evilexample.com`.
+- [ ] `"*"` passes and the panel shows the warning.
+- [ ] API 1 is unchanged.
+- [ ] An update adding a host waits for the user.
+- [ ] Every official plugin works with its declared hosts (`TestOfficialPluginsSmoke`).
 - [ ] `go test ./...` and `go test -race ./...` pass.
 - [ ] A changelog entry in `changelog.d/0205-plugin-permissions.md`.
 - [ ] `DEVELOPMENT.md` in `vclu-plugins` documents `permissions`, the event prefix and the id rule,
       with the vCLU version that introduces them.
 
 ## Contract impact
-Contract change in the plugin API (CONTRIBUTING.md), versioned: `api` and `permissions` are new
-manifest fields. API 1 (no `api`) keeps the old contract. API 2: the shared globals `HTTP`,
+Contract change in the plugin API (CONTRIBUTING.md), versioned: `api` and `permissions` (with the
+`internet` host list) are new manifest fields. API 1 (no `api`) keeps the old contract. API 2: the shared globals `HTTP`,
 `HttpClient` and `MQTT` leave the sandbox (`plugin:httpRequest`, `plugin:mqttSubscribe` replace
 them), event names and expose paths get the plugin's prefix, and only declared permissions apply.
 On every version objects a plugin did not create become read-only and ids are lower case. No
