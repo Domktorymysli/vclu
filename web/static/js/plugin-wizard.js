@@ -375,8 +375,11 @@
         });
         var refresh = function() {
             var now = self.collectSettings(true);
+            // a hidden field counts as unset, so what depends on it hides too (fields in form order)
             Object.keys(fields).forEach(function(name) {
-                self.body.querySelector('[data-row="' + CSS.escape(name) + '"]').style.display = shown(fields[name], now) ? '' : 'none';
+                var on = shown(fields[name], now);
+                if (!on) delete now[name];
+                self.body.querySelector('[data-row="' + CSS.escape(name) + '"]').style.display = on ? '' : 'none';
             });
         };
         this.body.onchange = refresh;
