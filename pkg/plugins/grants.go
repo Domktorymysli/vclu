@@ -50,6 +50,9 @@ const maxGrantList = 256
 // ValidateGrants checks the hosts and topic filters the user narrowed a plugin to.
 func ValidateGrants(g config.PluginGrants) error {
 	var lists [][]string
+	if g.Internet != nil {
+		lists = append(lists, g.Internet.Hosts)
+	}
 	if g.LAN != nil {
 		lists = append(lists, g.LAN.Hosts)
 	}
@@ -67,6 +70,11 @@ func ValidateGrants(g config.PluginGrants) error {
 	for _, l := range lists {
 		if len(l) > maxGrantList {
 			return fmt.Errorf("a list of %d entries, at most %d", len(l), maxGrantList)
+		}
+	}
+	if g.Internet != nil {
+		if _, err := NormalizeInternetHosts(g.Internet.Hosts); err != nil {
+			return err
 		}
 	}
 	if g.LAN != nil {

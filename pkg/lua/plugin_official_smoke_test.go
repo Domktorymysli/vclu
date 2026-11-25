@@ -31,11 +31,11 @@ func TestOfficialPluginsSmoke(t *testing.T) {
 	configs := map[string]map[string]interface{}{
 		"@vclu/telegram":          {"botToken": "123:abc", "chatId": "1", "enablePolling": true, "pollingInterval": 5},
 		"@vclu/weather":           {"apiKey": "x", "city": "Brwinów,pl", "interval": 7000, "units": "metric"},
-		"@vclu/solax":             {"host": "http://192.0.2.10", "user": "admin", "pass": "admin", "interval": 30},
-		"@vclu/salda-recuperator": {"ip": "http://192.0.2.11/", "login": "admin", "password": "x", "interval": 60},
-		"@vclu/supla-power-meter": {"directUrl": "https://svr.example.invalid/direct/1/x/read?format=json", "interval": 60},
+		"@vclu/solax":             {"host": "http://10.255.255.10", "user": "admin", "pass": "admin", "interval": 30},
+		"@vclu/salda-recuperator": {"ip": "http://10.255.255.11/", "login": "admin", "password": "x", "interval": 60},
+		"@vclu/supla-power-meter": {"directUrl": "https://svr0.supla.org/direct/1/x/read?format=json", "interval": 60},
 		"@vclu/time-sync":         {"autoSync": true, "interval": 3600, "timezone": "Europe/Warsaw"},
-		"@vclu/frigate":           {"host": "192.0.2.12"},
+		"@vclu/frigate":           {"host": "10.255.255.12"},
 		"@vclu/sun-position":      {"latitude": 52.14, "longitude": 20.71},
 	}
 	for _, mode := range []string{"new-manifests", "old-manifests"} {
@@ -136,21 +136,21 @@ func TestOfficialPluginsSmoke(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Logf("loaded: %s", out)
-			if !strings.HasPrefix(out, "14 ") {
-				t.Errorf("want 14 instances")
+			if !strings.HasPrefix(out, fmt.Sprintf("%d ", len(ids))) {
+				t.Errorf("want %d instances", len(ids))
 			}
 			fact, err := engine.Execute(`
 				local modbus = Plugin.getPlugin("@vclu/modbus-gateway")
-				local gw = modbus:create({ id = "rozdzielnica", host = "192.0.2.9", port = 4196, interval = 30, timeout = 500,
+				local gw = modbus:create({ id = "rozdzielnica", host = "10.255.255.9", port = 4196, interval = 30, timeout = 500,
 					devices = { { id = "ladowarka", unit = 1, name = "L", profile = "sdm120" } } })
 				assert(gw, "modbus create")
-				local amp = Plugin.getPlugin("@vclu/musiccast"):create({ id = "salon", ip = "192.0.2.159", name = "Amplituner" })
+				local amp = Plugin.getPlugin("@vclu/musiccast"):create({ id = "salon", ip = "10.255.255.159", name = "Amplituner" })
 				assert(amp, "musiccast create")
 				local rce = Plugin.getPlugin("@vclu/pse-rce"):create({ id = "rce" })
 				assert(rce, "rce create"); local now = rce:now()
-				local tas = Plugin.getPlugin("@vclu/tasmota-switch"):create({ ip = "192.0.2.100", name = "Lampka" })
+				local tas = Plugin.getPlugin("@vclu/tasmota-switch"):create({ ip = "10.255.255.100", name = "Lampka" })
 				assert(tas, "tasmota create")
-				local inf = Plugin.getPlugin("@vclu/influx-metrics"):create({ url = "http://192.0.2.50:8086/write?db=vclu", interval = 60, tags = { host = "vclu" } })
+				local inf = Plugin.getPlugin("@vclu/influx-metrics"):create({ url = "http://10.255.255.50:8086/write?db=vclu", interval = 60, tags = { host = "vclu" } })
 				assert(inf, "influx create"); inf:gauge("temperature", 22.5, { room = "salon" })
 				local n = 0
 				for _ in pairs(ExposedObjects._objects or {}) do n = n + 1 end
@@ -193,9 +193,13 @@ func TestOfficialPluginsSmoke(t *testing.T) {
 			}
 
 			loadAll("reload")
-			mustLua(t, engine, `local n = 0; for _ in pairs(Plugin.instances) do n = n + 1 end; return n`, "14")
+			mustLua(t, engine, `local n = 0; for _ in pairs(Plugin.instances) do n = n + 1 end; return n`, fmt.Sprint(len(ids)))
 
 			for _, line := range strings.Split(buf.String(), "\n") {
+				// a plugin calls only the hosts its manifest lists
+				if strings.Contains(line, "is not on the host list") {
+					t.Errorf("%s", line)
+				}
 				l := strings.ToLower(line)
 				if strings.Contains(l, "error") || strings.Contains(l, "read-only") || strings.Contains(l, "refused") ||
 					strings.Contains(l, "not available in a plugin") || strings.Contains(l, "may emit only") ||

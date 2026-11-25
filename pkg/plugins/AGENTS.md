@@ -66,11 +66,22 @@ case-insensitive file system. Exposed paths of plugins that would share an MQTT 
 unique_id after its normalization are refused (`ExposedObjects:expose`).
 
 ## Permissions
-`plugin.json` declares what a plugin reaches beyond HTTP to the internet:
-`"permissions": {"lan": true, "mqtt": true, "modbus": true}`. `lan` is HTTP to local addresses,
+`plugin.json` declares what a plugin reaches:
+`"permissions": {"internet": ["api.example.com", "*.example.net"], "lan": true, "mqtt": true, "modbus": true}`.
+`lan` is HTTP to local addresses,
 checked in Go after DNS resolution, including this machine's own networks (`pkg/lua/http_lan.go`); `mqtt` and `modbus` give the plugin API
 and the `Modbus` table. A plugin on API 1 (no `"api"`) asks for all three; on API 2 for what it
 declares, nothing without the field (`permissions.go`).
+
+`internet` (API 2; API 1 reaches any host, outside the grants) lists host names, `*.domain` for
+the subdomains (not the domain itself), exact IP addresses, or `"*"` (string or `["*"]`) for any
+host. A scheme, path, port, user or `*` elsewhere refuses the manifest at download and at load
+(`internet.go`). The URL's host name is checked before the request and on every redirect
+(`dialPolicy.checkURL`), and again in the dialer: an address that is local after DNS needs `lan`
+(and its hosts), any other needs the name on the list. A plugin with `lan` reaches local names
+without an internet list. The grant is `{"internet": {"hosts": [...]}}`, the hosts the user
+allowed: a new host or `"*"` in an update waits (`pendingInternet`), the ones allowed before keep
+working.
 
 What it asks for is not what it gets: `grants` on the installed entry in `.vclu.json` is what the
 user allowed, and the plugin gets the part of its request the grants allow. Installing from the
@@ -83,7 +94,7 @@ page: "Allow", or the shield button for the details).
 A grant is set when its key is present and can be narrowed:
 `{"lan": {"hosts": ["192.168.1.20", "10.0.0.0/24"]}, "mqtt": {"subscribe": ["shelly/#"], "publish": []}, "modbus": {}}`.
 No list allows any host or topic, an empty list none. Hosts are checked in the dialer after DNS
-(`lanHostsDialer`), topics in the sandbox's `plugin:mqttSubscribe`/`mqttPublish` (a subscription
+(`dialPolicy`), topics in the sandbox's `plugin:mqttSubscribe`/`mqttPublish` (a subscription
 must lie inside an allowed filter: `shelly/#` covers `shelly/+/status`, `+` does not cover `#`).
 `ValidateGrants` refuses a host that is not an IP or prefix and a malformed filter. On API 1 the
 `HTTP`/`HttpClient`/`MQTT` globals pick their own instance, so grants cannot reach them: the

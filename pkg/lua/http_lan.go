@@ -1,11 +1,17 @@
 package lua
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/netip"
+	"net/url"
+	"slices"
+	"strings"
 	"syscall"
 	"time"
+
+	"github.com/Domktorymysli/vclu/pkg/plugins"
 )
 
 var (
@@ -59,44 +65,84 @@ func onHostNetwork(ip netip.Addr) bool {
 	return false
 }
 
-// noLANDialer refuses local addresses after DNS resolution, so a name that
-// resolves to the LAN and a redirect to one are refused as well.
-func noLANDialer() *net.Dialer {
-	return localDialer(func(netip.Addr) bool { return false },
-		`a local address needs "lan" in the plugin's permissions`)
+// dialPolicy is where a plugin's HTTP may connect. The LAN and the internet are two
+// boundaries: an address after DNS is local or not, and only a local one needs "lan" (and
+// its hosts in the grant); an internet one needs the URL's host name on the internet list.
+// A listed name resolving to a local address is therefore still refused without "lan",
+// and a plugin with "lan" reaches a local IP or a local name without any internet list.
+type dialPolicy struct {
+	plugin     string
+	noLAN      bool
+	narrowed   bool           // local addresses only in lanHosts
+	lanHosts   []netip.Prefix //
+	restricted bool           // internet hosts only those in internet
+	internet   plugins.InternetHosts
+	isLocal    func(netip.Addr) bool
+	resolve    map[string]string // tests: a name's address instead of DNS
 }
 
-// lanHostsDialer allows of the local addresses only those in hosts, the ones the user
-// narrowed the plugin's "lan" to; internet addresses as any plugin.
-func lanHostsDialer(hosts []netip.Prefix) *net.Dialer {
-	return localDialer(func(ip netip.Addr) bool {
-		ip = ip.Unmap()
-		for _, p := range hosts {
-			if p.Contains(ip) {
-				return true
-			}
-		}
-		return false
-	}, `not among the hosts allowed in the plugin's settings`)
+func (p dialPolicy) notListed(host string) error {
+	return fmt.Errorf("%s is not on the host list of %s (permissions.internet)", host, p.plugin)
 }
 
-func localDialer(allowLocal func(netip.Addr) bool, why string) *net.Dialer {
-	return &net.Dialer{
+// checkURL refuses, before DNS, an internet host not on the list: the URL of a request
+// and of every redirect. A name off the list may still be a device in the house for a
+// plugin with "lan"; the dialer decides that once the name is resolved.
+func (p dialPolicy) checkURL(u *url.URL) error {
+	if !p.restricted {
+		return nil
+	}
+	host := u.Hostname()
+	if ip, err := netip.ParseAddr(host); err == nil && p.isLocal(ip.WithZone("")) {
+		return nil
+	}
+	if p.internet.Allows(host) {
+		return nil
+	}
+	if _, err := netip.ParseAddr(host); err == nil || p.noLAN {
+		return p.notListed(host)
+	}
+	return nil
+}
+
+func (p dialPolicy) dialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, err
+	}
+	target := addr
+	if ip, ok := p.resolve[strings.ToLower(strings.TrimSuffix(host, "."))]; ok {
+		target = net.JoinHostPort(ip, port)
+	}
+	d := &net.Dialer{
 		Timeout:   30 * time.Second,
 		KeepAlive: 30 * time.Second,
-		Control: func(network, address string, _ syscall.RawConn) error {
-			host, _, err := net.SplitHostPort(address)
+		Control: func(_, address string, _ syscall.RawConn) error {
+			h, _, err := net.SplitHostPort(address)
 			if err != nil {
 				return err
 			}
-			ip, err := netip.ParseAddr(host)
+			ip, err := netip.ParseAddr(h)
 			if err != nil {
 				return fmt.Errorf("refused %s: not an IP address", address)
 			}
-			if (isLocalAddr(ip) || onHostNetwork(ip)) && !allowLocal(ip) {
-				return fmt.Errorf("refused %s: %s", host, why)
+			ip = ip.WithZone("").Unmap()
+			if !p.isLocal(ip) {
+				if p.restricted && !p.internet.Allows(host) {
+					return p.notListed(host)
+				}
+				return nil
+			}
+			if p.noLAN {
+				return fmt.Errorf(`refused %s: a local address needs "lan" in the plugin's permissions`, h)
+			}
+			if p.narrowed && !slices.ContainsFunc(p.lanHosts, func(n netip.Prefix) bool { return n.Contains(ip) }) {
+				return fmt.Errorf("refused %s: not among the hosts allowed in the plugin's settings", h)
 			}
 			return nil
 		},
 	}
+	return d.DialContext(ctx, network, target)
 }
+
+func defaultIsLocal(ip netip.Addr) bool { return isLocalAddr(ip) || onHostNetwork(ip) }

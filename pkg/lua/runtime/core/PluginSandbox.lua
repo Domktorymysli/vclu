@@ -702,6 +702,8 @@ function PluginSandbox:create(pluginId, permissions)
         grentonRawHosts = list(limits.grentonRawHosts),
         tftpHosts = list(limits.tftpHosts),
         serialPorts = list(limits.serialPorts),
+        -- internet hosts on API 2 (from the loader; any other caller: none), API 1 any
+        internetHosts = sandbox.apiVersion >= 2 and (list(limits.internetHosts) or {}) or nil,
     }
     -- Events a plugin emits are "<prefix>:<name>". An official plugin's prefix is its
     -- short id or the id's first word (sun-position: "sun"), any other's its full id,
@@ -714,6 +716,9 @@ function PluginSandbox:create(pluginId, permissions)
     -- requests of a plugin carry its id as the HTTP instance (PluginHelpers.httpRequest)
     if type(__go_http_set_lan) == "function" then
         __go_http_set_lan(pluginId, sandbox.permissions.lan, sandbox.limits.lanHosts)
+    end
+    if type(__go_http_set_internet) == "function" then
+        __go_http_set_internet(pluginId, sandbox.limits.internetHosts)
     end
     if type(__go_pluginio_grant) == "function" then
         __go_pluginio_grant(pluginId, sandbox.permissions.grentonRaw, sandbox.permissions.tftp,

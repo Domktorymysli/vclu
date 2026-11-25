@@ -209,7 +209,7 @@ PluginsManager.prototype._renderPluginCard = function(plugin, options) {
             statusBadge += ' <span class="badge bg-warning text-dark">not configured</span>';
         }
         if (plugin.pendingPermissions && plugin.pendingPermissions.length > 0) {
-            statusBadge += ' <span class="badge bg-danger" title="The update asks for this; the plugin runs without it until allowed">asks for ' +
+            statusBadge += ' <span class="badge bg-danger" title="' + VCLU.esc(pt('asks_for_title')) + '">' + VCLU.esc(pt('asks_for')) + ' ' +
                            VCLU.esc(plugin.pendingPermissions.join(', ')) + '</span>';
         }
     }
@@ -221,11 +221,14 @@ PluginsManager.prototype._renderPluginCard = function(plugin, options) {
         var requested = plugin.requestedPermissions || [];
         var pending = plugin.pendingPermissions || [];
         permsHtml = '<p class="mb-2 small">' + ALL_PERMISSIONS.map(function(name) {
-            var cls = 'bg-transparent border border-secondary text-body-secondary', title = 'Not used';
+            var cls = 'bg-transparent border border-secondary text-body-secondary', title = pt('not_used');
+            if (name === 'internet') {
+                return internetBadge(plugin.internet || [], plugin.pendingInternet || []);
+            }
             if (pending.indexOf(name) >= 0) {
-                cls = 'bg-warning text-dark'; title = 'Asked for, not allowed yet';
+                cls = 'bg-warning text-dark'; title = pt('asked_not_allowed');
             } else if (requested.indexOf(name) >= 0) {
-                cls = 'bg-success'; title = 'Allowed';
+                cls = 'bg-success'; title = pt('allowed');
             }
             return '<span class="badge ' + cls + ' me-1" title="' + VCLU.esc(title + ': ' + (PERMISSION_LABELS[name] || name)) + '">' +
                    VCLU.esc(PERMISSION_SHORT[name] || name) + '</span>';
@@ -259,15 +262,15 @@ PluginsManager.prototype._renderPluginCard = function(plugin, options) {
         if (plugin.pendingPermissions && plugin.pendingPermissions.length > 0) {
             actionBtns += '<button class="btn btn-sm btn-danger me-1" ' +
                          'onclick="pluginsManager.allowPermissions(\'' + VCLU.esc(id) + '\')" ' +
-                         'data-bs-toggle="tooltip" data-bs-placement="top" title="Allow ' +
+                         'data-bs-toggle="tooltip" data-bs-placement="top" title="' + VCLU.esc(pt('allow')) + ': ' +
                          VCLU.esc(plugin.pendingPermissions.join(', ')) + '">' +
-                         '<i class="bi bi-shield-check"></i> Allow</button>';
+                         '<i class="bi bi-shield-check"></i> ' + VCLU.esc(pt('allow')) + '</button>';
         }
         // Permissions (what the plugin may reach on the LAN and MQTT)
         if (plugin.requestedPermissions && plugin.requestedPermissions.length > 0) {
             actionBtns += '<button class="btn btn-sm btn-outline-secondary me-1" ' +
                          'onclick="pluginsManager.editPermissions(\'' + VCLU.esc(id) + '\')" ' +
-                         'data-bs-toggle="tooltip" data-bs-placement="top" title="Permissions">' +
+                         'data-bs-toggle="tooltip" data-bs-placement="top" title="' + VCLU.esc(pt('permissions_button')) + '">' +
                          '<i class="bi bi-shield-lock"></i></button>';
         }
         // Enable/Disable toggle
@@ -418,6 +421,8 @@ PluginsManager.prototype._renderInstalledPlugins = function() {
             configured: !p.needsConfig,
             requestedPermissions: p.requestedPermissions || [],
             pendingPermissions: p.pendingPermissions || [],
+            internet: p.internet || [],
+            pendingInternet: p.pendingInternet || [],
             updateAvailable: available.updateAvailable,
             availableVersion: available.version
         };
@@ -533,27 +538,33 @@ PluginsManager.prototype._confirmInstall = function(id, repository, preview) {
     var name = (this.availablePlugins || []).filter(function(p) { return p.id === shortId && p.repository === repository; })
         .map(function(p) { return p.name; })[0] || shortId;
 
-    this.elements.installPluginName.textContent = (installed ? 'Update ' : 'Install ') + name + ' v' + (preview.version || '?');
+    this.elements.installPluginName.textContent = (installed ? pt('update') : pt('install')) + ' ' + name + ' v' + (preview.version || '?');
+    var hadHosts = installed ? (installed.internet || []) : [];
     this.elements.installPermissions.innerHTML = (preview.all || ALL_PERMISSIONS).map(function(perm) {
         var asks = requested.indexOf(perm) >= 0;
         var line = '<li class="mb-1 ' + (asks ? 'text-success fw-semibold' : 'text-muted') + '">' +
                    '<i class="bi ' + (asks ? 'bi-check-circle-fill' : 'bi-circle') + ' me-1"></i>' +
-                   VCLU.esc(PERMISSION_LABELS[perm] || perm);
-        if (asks && installed && had.indexOf(perm) < 0) {
-            line += ' <span class="badge bg-warning text-dark">new</span>';
+                   VCLU.esc(perm === 'internet' && asks ? internetLabel(preview.internet || []) : (PERMISSION_LABELS[perm] || perm));
+        var newHosts = (preview.internet || []).filter(function(h) { return hadHosts.indexOf(h) < 0 && hadHosts.indexOf('*') < 0; });
+        if (asks && installed && (had.indexOf(perm) < 0 || perm === 'internet' && newHosts.length > 0)) {
+            line += ' <span class="badge bg-warning text-dark">' + VCLU.esc(pt('new')) + '</span>';
+        }
+        if (asks && perm === 'internet' && (preview.internet || []).indexOf('*') >= 0) {
+            line += '<div class="small text-danger fw-normal ms-3"><i class="bi bi-exclamation-triangle"></i> ' +
+                    VCLU.esc(INTERNET_ANY_WARNING) + '</div>';
         }
         if (asks && PERMISSION_WARNINGS[perm]) {
             line += '<div class="small text-danger fw-normal ms-3"><i class="bi bi-exclamation-triangle"></i> ' +
-                    VCLU.esc(PERMISSION_WARNINGS[perm]) + ' Off until you allow it in Permissions.</div>';
+                    VCLU.esc(PERMISSION_WARNINGS[perm] + ' ' + pt('off_until_allowed')) + '</div>';
         }
         return line + '</li>';
     }).join('');
 
     var notes = [];
-    if (requested.length === 0) notes.push('This plugin uses nothing beyond the internet.');
-    if (installed) notes.push('An update keeps what you allowed; anything new waits for you to allow it.');
+    if (requested.length === 0) notes.push(pt('uses_none'));
+    if (installed) notes.push(pt('update_keeps'));
     this.elements.installNote.textContent = notes.join(' ');
-    this.elements.installConfirm.textContent = installed ? 'Update' : 'Install';
+    this.elements.installConfirm.textContent = installed ? pt('update') : pt('install');
 
     var modal = new bootstrap.Modal(this.elements.installModal);
     this.elements.installConfirm.onclick = function() {
@@ -653,7 +664,7 @@ PluginsManager.prototype.toggle = function(id, enabled) {
 /**
  * Save what the user allows a plugin and re-render
  * @param {string} id - Plugin ID
- * @param {Object} grants - {lan: {hosts}, mqtt: {subscribe, publish}, modbus: {}, grenton_raw: {hosts},
+ * @param {Object} grants - {internet: {hosts}, lan: {hosts}, mqtt: {subscribe, publish}, modbus: {}, grenton_raw: {hosts},
  *   tftp: {hosts}, serial: {ports}}; a missing key is not allowed
  */
 PluginsManager.prototype._saveGrants = function(id, grants, done) {
@@ -674,6 +685,7 @@ PluginsManager.prototype._saveGrants = function(id, grants, done) {
         if (plugin) {
             plugin.grants = grants;
             plugin.pendingPermissions = data.pendingPermissions || [];
+            plugin.pendingInternet = data.pendingInternet || [];
         }
         self._renderInstalledPlugins();
         if (done) done();
@@ -689,38 +701,76 @@ PluginsManager.prototype.allowPermissions = function(id) {
     if (!plugin || !plugin.pendingPermissions || plugin.pendingPermissions.length === 0) return;
     var warnings = plugin.pendingPermissions.filter(function(name) { return PERMISSION_WARNINGS[name]; })
         .map(function(name) { return '\n\n' + name + ': ' + PERMISSION_WARNINGS[name]; }).join('');
-    if (!confirm('Allow ' + id + ' to use ' + plugin.pendingPermissions.join(', ') + '?' + warnings)) return;
+    var pendingHosts = plugin.pendingInternet || [];
+    if (pendingHosts.length > 0) {
+        warnings += '\n\n' + internetLabel(pendingHosts) + (pendingHosts.indexOf('*') >= 0 ? ': ' + INTERNET_ANY_WARNING : '');
+    }
+    if (!confirm(pt('allow_confirm', id, plugin.pendingPermissions.join(', ')) + warnings)) return;
     var grants = Object.assign({}, plugin.grants || {});
     plugin.pendingPermissions.forEach(function(name) { grants[name] = {}; });
+    // the hosts it asks for, those allowed before among them
+    if (plugin.pendingPermissions.indexOf('internet') >= 0) grants.internet = {hosts: plugin.internet || []};
     this._saveGrants(id, grants);
 };
 
+// Texts from web/locales (plugins.perm), rendered into PLUGINS_I18N by plugins.html;
+// {0}, {1} take the arguments
+function pt(key) {
+    var s = (window.PLUGINS_I18N && PLUGINS_I18N[key]) || key;
+    var args = arguments;
+    return s.replace(/\{(\d)\}/g, function(m, n) { return args[+n + 1] !== undefined ? args[+n + 1] : m; });
+}
+
 var PERMISSION_LABELS = {
-    lan: 'Local network (HTTP to devices in the house)',
-    mqtt: 'MQTT',
-    modbus: 'Modbus',
-    grenton_raw: 'Grenton frames (UDP to CLUs)',
-    tftp: 'TFTP (files on devices)',
-    serial: 'Serial port'
+    internet: pt('label_internet'),
+    lan: pt('label_lan'),
+    mqtt: pt('label_mqtt'),
+    modbus: pt('label_modbus'),
+    grenton_raw: pt('label_grenton_raw'),
+    tftp: pt('label_tftp'),
+    serial: pt('label_serial')
 };
 
-var ALL_PERMISSIONS = ['lan', 'mqtt', 'modbus', 'grenton_raw', 'tftp', 'serial'];
+var ALL_PERMISSIONS = ['internet', 'lan', 'mqtt', 'modbus', 'grenton_raw', 'tftp', 'serial'];
 
 var PERMISSION_SHORT = {
-    lan: 'LAN',
+    internet: pt('label_internet'),
+    lan: pt('short_lan'),
     mqtt: 'MQTT',
     modbus: 'Modbus',
-    grenton_raw: 'Grenton frames',
+    grenton_raw: pt('short_grenton_raw'),
     tftp: 'TFTP',
-    serial: 'Serial'
+    serial: pt('short_serial')
 };
 
 // Allowed only by the user, never on install
 var PERMISSION_WARNINGS = {
-    grenton_raw: 'the plugin can send any command to a CLU it has the key for.',
-    tftp: 'the plugin can read and replace files on devices on the network, a CLU\'s too; with Grenton frames that is full control of the CLU.',
-    serial: 'the plugin drives whatever is connected to the port you assign.'
+    grenton_raw: pt('warn_grenton_raw'),
+    tftp: pt('warn_tftp'),
+    serial: pt('warn_serial')
 };
+
+// "internet": "*" (any host) is allowed on install like a list, with this in front of it
+var INTERNET_ANY_WARNING = pt('warn_internet_any');
+
+function internetLabel(hosts) {
+    if (hosts.indexOf('*') >= 0) return pt('internet_any');
+    return pt('internet_connects_to', hosts.join(', '));
+}
+
+// The internet badge of an installed plugin: its hosts, "*" with a warning, none in grey
+function internetBadge(hosts, pending) {
+    var cls = 'bg-transparent border border-secondary text-body-secondary', title = pt('not_used') + ': ' + pt('label_internet');
+    if (pending.length > 0) {
+        cls = 'bg-warning text-dark'; title = pt('asked_not_allowed') + ': ' + pending.join(', ');
+    } else if (hosts.indexOf('*') >= 0) {
+        cls = 'bg-danger'; title = internetLabel(hosts) + ': ' + INTERNET_ANY_WARNING;
+    } else if (hosts.length > 0) {
+        cls = 'bg-success'; title = internetLabel(hosts);
+    }
+    var text = hosts.indexOf('*') >= 0 ? pt('internet_any_short') : pt('label_internet');
+    return '<span class="badge ' + cls + ' me-1" title="' + VCLU.esc(title) + '">' + VCLU.esc(text) + '</span>';
+}
 
 /**
  * Edit what a plugin may use: each permission it asks for, and lists that narrow it
@@ -735,9 +785,9 @@ PluginsManager.prototype.editPermissions = function(id) {
     var grants = plugin.grants;
     var lines = function(list) { return VCLU.esc((list || []).join('\n')); };
     var area = function(field, label, list, placeholder) {
-        return '<label class="form-label small mb-1" for="perm-' + field + '">' + label + '</label>' +
+        return '<label class="form-label small mb-1" for="perm-' + field + '">' + VCLU.esc(label) + '</label>' +
                '<textarea class="form-control form-control-sm mb-2" rows="2" id="perm-' + field + '" ' +
-               'placeholder="' + placeholder + '">' + lines(list) + '</textarea>';
+               'placeholder="' + VCLU.esc(placeholder) + '">' + lines(list) + '</textarea>';
     };
     var html = '';
     (plugin.requestedPermissions || []).forEach(function(name) {
@@ -750,15 +800,29 @@ PluginsManager.prototype.editPermissions = function(id) {
             html += '<div class="small text-danger mb-1"><i class="bi bi-exclamation-triangle"></i> ' +
                     VCLU.esc(PERMISSION_WARNINGS[name]) + '</div>';
         }
-        if (name === 'lan') {
-            html += area('lan-hosts', 'Only these hosts (IP or prefix, one per line)', grant && grant.hosts, 'any local address');
+        if (name === 'internet') {
+            var pendingHosts = plugin.pendingInternet || [];
+            html += '<div class="small mb-1">' + (plugin.internet || []).map(function(h) {
+                var waits = pendingHosts.indexOf(h) >= 0 || pendingHosts.indexOf('*') >= 0 && h === '*';
+                return '<span class="badge ' + (waits ? 'bg-warning text-dark' : 'bg-secondary') + ' me-1"' +
+                       (waits ? ' title="' + VCLU.esc(pt('not_allowed_yet')) + '"' : '') + '>' + VCLU.esc(h === '*' ? pt('any_server') : h) + '</span>';
+            }).join('') + '</div>';
+            if ((plugin.internet || []).indexOf('*') >= 0) {
+                html += '<div class="small text-danger mb-1"><i class="bi bi-exclamation-triangle"></i> ' +
+                        VCLU.esc(INTERNET_ANY_WARNING) + '</div>';
+            }
+            if (pendingHosts.length > 0) {
+                html += '<div class="small text-muted">' + VCLU.esc(pt('internet_save_allows')) + '</div>';
+            }
+        } else if (name === 'lan') {
+            html += area('lan-hosts', pt('hosts_only'), grant && grant.hosts, pt('any_local'));
         } else if (name === 'mqtt') {
-            html += area('mqtt-subscribe', 'Subscribe only to (topic filters, + and #)', grant && grant.subscribe, 'any topic');
-            html += area('mqtt-publish', 'Publish only on', grant && grant.publish, 'any topic');
+            html += area('mqtt-subscribe', pt('subscribe_only'), grant && grant.subscribe, pt('any_topic'));
+            html += area('mqtt-publish', pt('publish_only'), grant && grant.publish, pt('any_topic'));
         } else if (name === 'grenton_raw' || name === 'tftp') {
-            html += area(name + '-hosts', 'Only these hosts (IP or prefix, one per line)', grant && grant.hosts, 'any local address except this vCLU');
+            html += area(name + '-hosts', pt('hosts_only'), grant && grant.hosts, pt('any_local_but_vclu'));
         } else if (name === 'serial') {
-            html += area('serial-ports', 'Ports (one per line)', grant && grant.ports, 'none: the plugin opens no port until you assign one');
+            html += area('serial-ports', pt('ports'), grant && grant.ports, pt('ports_none'));
             html += '<div class="small text-muted" id="perm-serial-available"></div>';
         }
         html += '</div>';
@@ -769,7 +833,7 @@ PluginsManager.prototype.editPermissions = function(id) {
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 var el = document.getElementById('perm-serial-available');
-                if (el) el.textContent = (data.ports && data.ports.length) ? 'On this machine: ' + data.ports.join(', ') : 'No serial ports found on this machine.';
+                if (el) el.textContent = (data.ports && data.ports.length) ? pt('ports_here', data.ports.join(', ')) : pt('ports_none_here');
             });
     }
     new bootstrap.Modal(this.elements.permissionsModal).show();
@@ -789,7 +853,9 @@ PluginsManager.prototype.savePermissions = function() {
     (plugin.requestedPermissions || []).forEach(function(name) {
         var box = document.getElementById('perm-' + name);
         if (!box || !box.checked) return;
-        if (name === 'lan') {
+        if (name === 'internet') {
+            grants.internet = {hosts: plugin.internet || []};
+        } else if (name === 'lan') {
             grants.lan = {hosts: list('lan-hosts')};
         } else if (name === 'mqtt') {
             grants.mqtt = {subscribe: list('mqtt-subscribe'), publish: list('mqtt-publish')};

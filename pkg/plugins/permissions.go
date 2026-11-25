@@ -26,12 +26,14 @@ const (
 	PluginAPIMax = 2
 )
 
-// Permissions are what a plugin may reach beyond HTTP to the internet, declared in
-// plugin.json as "permissions": {"lan": true, "mqtt": true, "modbus": true}.
+// Permissions are what a plugin may reach, declared in plugin.json as "permissions":
+// {"internet": ["api.example.com"], "lan": true, "mqtt": true, "modbus": true}.
 type Permissions struct {
-	LAN    bool `json:"lan,omitempty"`    // HTTP to local addresses (the house's devices)
-	MQTT   bool `json:"mqtt,omitempty"`   // subscribe and publish on the broker
-	Modbus bool `json:"modbus,omitempty"` // Modbus requests, reads and writes
+	// Internet hosts (API 2; API 1 reaches any): nil none, ["*"] any
+	Internet InternetHosts `json:"internet,omitempty"`
+	LAN      bool          `json:"lan,omitempty"`    // HTTP to local addresses (the house's devices)
+	MQTT     bool          `json:"mqtt,omitempty"`   // subscribe and publish on the broker
+	Modbus   bool          `json:"modbus,omitempty"` // Modbus requests, reads and writes
 	// Only once the user allows them in the panel, never on install:
 	GrentonRaw bool `json:"grenton_raw,omitempty"` // UDP frames and the cipher of CLUs
 	TFTP       bool `json:"tftp,omitempty"`        // reading and replacing files on devices
@@ -66,7 +68,7 @@ func (l *Loader) strict() bool {
 }
 
 // requestedPermissions: what the plugin asks for. API 1 asks for everything, as before
-// permissions existed; API 2 for what it declares, nothing beyond the internet without the field.
+// permissions existed (and any internet host, outside the grants); API 2 for what it declares, nothing without the field.
 func requestedPermissions(manifest PluginManifest) Permissions {
 	if manifestAPI(manifest) < 2 {
 		return Permissions{LAN: true, MQTT: true, Modbus: true}
@@ -80,6 +82,9 @@ func requestedPermissions(manifest PluginManifest) Permissions {
 // Names lists the permissions set in p, in a fixed order.
 func (p Permissions) Names() []string {
 	var out []string
+	if len(p.Internet) > 0 {
+		out = append(out, "internet")
+	}
 	if p.LAN {
 		out = append(out, "lan")
 	}
@@ -102,13 +107,18 @@ func (p Permissions) Names() []string {
 }
 
 // AllPermissions: every permission a plugin can ask for, as the panel lists them.
-var AllPermissions = Permissions{LAN: true, MQTT: true, Modbus: true, GrentonRaw: true, TFTP: true, Serial: true}
+var AllPermissions = Permissions{Internet: InternetHosts{"*"}, LAN: true, MQTT: true, Modbus: true, GrentonRaw: true, TFTP: true, Serial: true}
 
 // Only keeps the permissions of p named in names.
 func (p Permissions) Only(names []string) Permissions {
 	has := func(n string) bool { return slices.Contains(names, n) }
+	var internet InternetHosts
+	if has("internet") {
+		internet = p.Internet
+	}
 	return Permissions{
-		LAN: p.LAN && has("lan"), MQTT: p.MQTT && has("mqtt"), Modbus: p.Modbus && has("modbus"),
+		Internet: internet,
+		LAN:      p.LAN && has("lan"), MQTT: p.MQTT && has("mqtt"), Modbus: p.Modbus && has("modbus"),
 		GrentonRaw: p.GrentonRaw && has("grenton_raw"), TFTP: p.TFTP && has("tftp"), Serial: p.Serial && has("serial"),
 	}
 }
@@ -127,6 +137,22 @@ func (p Permissions) allowedBy(g *config.PluginGrants) (allowed, pending Permiss
 		LAN: p.LAN && g.LAN == nil, MQTT: p.MQTT && g.MQTT == nil, Modbus: p.Modbus && g.Modbus == nil,
 		GrentonRaw: p.GrentonRaw && g.GrentonRaw == nil, TFTP: p.TFTP && g.TFTP == nil, Serial: p.Serial && g.Serial == nil,
 	}
+	// hosts allowed before keep working; a new one, or "*", waits
+	var granted InternetHosts
+	if g.Internet != nil {
+		granted, _ = NormalizeInternetHosts(g.Internet.Hosts) // a bad list allows none
+	}
+	if p.Internet.Any() && !granted.Any() {
+		allowed.Internet, pending.Internet = granted, InternetHosts{"*"}
+		return allowed, pending
+	}
+	for _, h := range p.Internet {
+		if granted.covers(h) {
+			allowed.Internet = append(allowed.Internet, h)
+		} else {
+			pending.Internet = append(pending.Internet, h)
+		}
+	}
 	return allowed, pending
 }
 
@@ -134,6 +160,9 @@ func (p Permissions) allowedBy(g *config.PluginGrants) (allowed, pending Permiss
 // grenton_raw, tftp and serial, which wait for the user in the panel.
 func (p Permissions) Grants() *config.PluginGrants {
 	g := &config.PluginGrants{}
+	if len(p.Internet) > 0 {
+		g.Internet = &config.InternetGrant{Hosts: slices.Clone([]string(p.Internet))}
+	}
 	if p.LAN {
 		g.LAN = &config.LANGrant{}
 	}
@@ -149,6 +178,7 @@ func (p Permissions) Grants() *config.PluginGrants {
 // Limits narrow allowed permissions: nil lists allow any host or topic, an empty one none;
 // SerialPorts are the only ports the plugin may open.
 type Limits struct {
+	InternetHosts   []string `json:"internetHosts,omitzero"` // set on API 2 from the allowed hosts
 	LANHosts        []string `json:"lanHosts,omitzero"`
 	MQTTSubscribe   []string `json:"mqttSubscribe,omitzero"`
 	MQTTPublish     []string `json:"mqttPublish,omitzero"`
@@ -192,7 +222,7 @@ func (l *Loader) effectivePermissions(pluginID string, manifest PluginManifest) 
 	grants := l.grants(pluginID)
 	if manifestAPI(manifest) < 2 {
 		log.Printf("[PLUGINS] %s is on plugin API 1: lan, mqtt and modbus without a declaration (\"api\": 2 in plugin.json limits it to its permissions)", pluginID)
-		if allowed, _ := requested.allowedBy(grants); allowed != requested || limitsOf(grants).narrows() {
+		if allowed, _ := requested.allowedBy(grants); !slices.Equal(allowed.Names(), requested.Names()) || limitsOf(grants).narrows() {
 			log.Printf("[PLUGINS] WARNING: %s is on plugin API 1: without lan or mqtt allowed in full in its settings it has no HTTP, HttpClient or MQTT global", pluginID)
 		}
 	}
@@ -200,7 +230,11 @@ func (l *Loader) effectivePermissions(pluginID string, manifest PluginManifest) 
 	if names := pending.Names(); len(names) > 0 {
 		log.Printf("[PLUGINS] %s asks for %s, not allowed yet: it runs without it until allowed in the plugin's settings", pluginID, strings.Join(names, ", "))
 	}
-	return allowed, limitsOf(grants), official
+	limits := limitsOf(grants)
+	if manifestAPI(manifest) >= 2 {
+		limits.InternetHosts = append([]string{}, allowed.Internet...) // empty: no internet
+	}
+	return allowed, limits, official
 }
 
 // grants: what the user allowed the installed plugin, nil when the config does not say.
@@ -217,14 +251,20 @@ func (l *Loader) grants(pluginID string) *config.PluginGrants {
 	return nil
 }
 
-// RequestedPermissions: what the plugin's files on disk ask for.
-func (l *Loader) RequestedPermissions(pluginID string) (Permissions, error) {
+func (l *Loader) diskManifest(pluginID string) (PluginManifest, error) {
+	var manifest PluginManifest
 	data, err := os.ReadFile(filepath.Join(l.resolvePluginDir(pluginID), "plugin.json"))
 	if err != nil {
-		return Permissions{}, err
+		return manifest, err
 	}
-	var manifest PluginManifest
-	if err := json.Unmarshal(data, &manifest); err != nil {
+	err = json.Unmarshal(data, &manifest)
+	return manifest, err
+}
+
+// RequestedPermissions: what the plugin's files on disk ask for.
+func (l *Loader) RequestedPermissions(pluginID string) (Permissions, error) {
+	manifest, err := l.diskManifest(pluginID)
+	if err != nil {
 		return Permissions{}, err
 	}
 	return requestedPermissions(manifest), nil
@@ -232,12 +272,28 @@ func (l *Loader) RequestedPermissions(pluginID string) (Permissions, error) {
 
 // PendingPermissions: what the installed plugin asks for and the user has not allowed.
 func (l *Loader) PendingPermissions(p config.InstalledPlugin) []string {
-	requested, err := l.RequestedPermissions(p.ID)
+	return l.PermissionsView(p).Pending.Names()
+}
+
+// PermissionsView is an installed plugin's permissions as the panel shows them.
+type PermissionsView struct {
+	Requested, Pending Permissions
+	// Internet: the hosts the plugin asks for; ["*"] on API 1, which reaches any
+	Internet []string
+}
+
+func (l *Loader) PermissionsView(p config.InstalledPlugin) PermissionsView {
+	manifest, err := l.diskManifest(p.ID)
 	if err != nil {
-		return nil
+		return PermissionsView{}
 	}
+	requested := requestedPermissions(manifest)
 	_, pending := requested.allowedBy(p.Grants)
-	return pending.Names()
+	v := PermissionsView{Requested: requested, Pending: pending, Internet: requested.Internet}
+	if manifestAPI(manifest) < 2 {
+		v.Internet = []string{"*"}
+	}
+	return v
 }
 
 // recordGrants: an installed plugin without grants keeps what its files on disk ask for, so

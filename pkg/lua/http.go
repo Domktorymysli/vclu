@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -31,6 +32,11 @@ type HTTPManager struct {
 	noLAN map[string]bool
 	// instances that may connect only to these local addresses
 	lanHosts map[string][]netip.Prefix
+	// instances (API 2 plugins) that may reach only these internet hosts
+	internet map[string]plugins.InternetHosts
+	// tests: what counts as local, and names resolved without DNS
+	isLocal     func(netip.Addr) bool
+	testResolve map[string]string
 }
 
 // asyncResponseTTL bounds how long a response nobody collected (the waiter timed out or was
@@ -59,6 +65,19 @@ func NewHTTPManager() *HTTPManager {
 		asyncInFlight:  make(map[string]bool),
 		noLAN:          make(map[string]bool),
 		lanHosts:       make(map[string][]netip.Prefix),
+		internet:       make(map[string]plugins.InternetHosts),
+		isLocal:        defaultIsLocal,
+	}
+}
+
+// SetInternet limits an instance's internet hosts to hosts (empty: none); nil allows any.
+func (hm *HTTPManager) SetInternet(instanceID string, hosts plugins.InternetHosts) {
+	hm.mu.Lock()
+	defer hm.mu.Unlock()
+	if hosts == nil {
+		delete(hm.internet, instanceID)
+	} else {
+		hm.internet[instanceID] = hosts
 	}
 }
 
@@ -92,18 +111,23 @@ func (hm *HTTPManager) SetOnRequest(fn func(hasError bool)) {
 }
 
 // getOrCreateClient gets or creates an HTTP client for the given instance
-func (hm *HTTPManager) getOrCreateClient(instanceID string, timeout int, verifySSL, followRedirects bool) *http.Client {
+func (hm *HTTPManager) getOrCreateClient(instanceID string, timeout int, verifySSL, followRedirects bool) (*http.Client, dialPolicy) {
 	hm.mu.Lock()
 	defer hm.mu.Unlock()
 
-	// Generate cache key based on settings
-	noLAN := hm.noLAN[instanceID]
 	hosts, narrowed := hm.lanHosts[instanceID]
-	cacheKey := fmt.Sprintf("%s_%d_%v_%v_%v_%v_%v", instanceID, timeout, verifySSL, followRedirects, noLAN, narrowed, hosts)
+	internet, restricted := hm.internet[instanceID]
+	policy := dialPolicy{
+		plugin: instanceID, noLAN: hm.noLAN[instanceID], narrowed: narrowed, lanHosts: hosts,
+		restricted: restricted, internet: internet, isLocal: hm.isLocal, resolve: hm.testResolve,
+	}
+	// Generate cache key based on settings
+	cacheKey := fmt.Sprintf("%s_%d_%v_%v_%v_%v_%v_%v_%q", instanceID, timeout, verifySSL, followRedirects,
+		policy.noLAN, narrowed, hosts, restricted, internet)
 
 	// Return existing client if available
 	if client, ok := hm.clients[cacheKey]; ok {
-		return client
+		return client, policy
 	}
 
 	// Create new client with specified settings
@@ -115,10 +139,8 @@ func (hm *HTTPManager) getOrCreateClient(instanceID string, timeout int, verifyS
 		MaxIdleConnsPerHost: 5,
 		IdleConnTimeout:     30 * time.Second,
 	}
-	if noLAN {
-		transport.DialContext = noLANDialer().DialContext
-	} else if narrowed {
-		transport.DialContext = lanHostsDialer(hosts).DialContext
+	if policy.noLAN || narrowed || restricted || policy.resolve != nil {
+		transport.DialContext = policy.dialContext
 	}
 
 	client := &http.Client{
@@ -130,10 +152,18 @@ func (hm *HTTPManager) getOrCreateClient(instanceID string, timeout int, verifyS
 		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
 		}
+	} else if restricted {
+		// every redirect's host is checked as the request's
+		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return errors.New("stopped after 10 redirects")
+			}
+			return policy.checkURL(req.URL)
+		}
 	}
 
 	hm.clients[cacheKey] = client
-	return client
+	return client, policy
 }
 
 // Request performs a synchronous HTTP request
@@ -147,7 +177,7 @@ func (hm *HTTPManager) RequestContext(ctx context.Context, instanceID, method, u
 }
 
 func (hm *HTTPManager) request(ctx context.Context, instanceID, method, url string, headers map[string]string, body string, timeout int, verifySSL, followRedirects bool, digest *digestAuth) (int, string, map[string]string, error) {
-	client := hm.getOrCreateClient(instanceID, timeout, verifySSL, followRedirects)
+	client, policy := hm.getOrCreateClient(instanceID, timeout, verifySSL, followRedirects)
 	if digest != nil && timeout > 0 {
 		// both requests of the exchange within one timeout, as Lua waits for one; 0 is no
 		// timeout, as the client's
@@ -165,6 +195,10 @@ func (hm *HTTPManager) request(ctx context.Context, instanceID, method, url stri
 	if err != nil {
 		hm.recordRequest(true)
 		return 0, "", nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	if err := policy.checkURL(req.URL); err != nil {
+		hm.recordRequest(true)
+		return 0, "", nil, err
 	}
 
 	// Set headers
@@ -343,6 +377,24 @@ func registerHTTPFunctions(L *lua.LState, hm *HTTPManager) {
 			hosts = parsed
 		}
 		hm.SetLANHosts(id, hosts)
+		return 0
+	}))
+
+	// __go_http_set_internet(instanceId, hosts): the internet hosts of an API 2 plugin (a
+	// table, empty: none); nil any
+	L.SetGlobal("__go_http_set_internet", L.NewFunction(func(L *lua.LState) int {
+		id := L.CheckString(1)
+		var hosts plugins.InternetHosts
+		if t, ok := L.Get(2).(*lua.LTable); ok {
+			var names []string
+			t.ForEach(func(_, v lua.LValue) { names = append(names, v.String()) })
+			parsed, err := plugins.NormalizeInternetHosts(names)
+			if err != nil {
+				log.Printf("[HTTP] %s: %v; no internet host allowed", id, err)
+			}
+			hosts = append(plugins.InternetHosts{}, parsed...)
+		}
+		hm.SetInternet(id, hosts)
 		return 0
 	}))
 
