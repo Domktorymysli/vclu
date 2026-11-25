@@ -7,7 +7,7 @@
   input or bit a binary sensor; a writable coil is a switch and a writable holding register a
   number, both only by `expose()`. Not checked on a GATE MODBUS yet. The kept om.lua now keeps
   these objects' settings (no secrets); in a project they are no longer unknown types
-  ([#NNNN](https://github.com/Domktorymysli/vclu/issues/NNNN)).
+  ([#278](https://github.com/Domktorymysli/vclu/issues/278)).
 - **Modbus map for the agent** - the import also writes `ai/modbus/CLU<serial>.md`: every
   Modbus object with its vclu kind, serial line, slave, register, data type, byte order,
   divisor and the vclu `Modbus` call to reach it through an RS485-to-TCP gateway instead; the

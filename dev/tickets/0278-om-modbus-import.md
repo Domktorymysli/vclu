@@ -1,4 +1,4 @@
-# #NNNN: A GATE MODBUS's Modbus objects as vclu devices, and their map for the agent
+# #278: A GATE MODBUS's Modbus objects as vclu devices, and their map for the agent
 
 - **Type:** feature
 - **Area:** grenton | modbus | lua-runtime | home-assistant | mcp
@@ -125,7 +125,7 @@ GATE Alarm's Satel objects are, and the agent reads their register map in
       Modbus objects are no unknown types, a value with quotes or a line end does not reach
       om.lua, a project without the objects removes the map.
 - [x] `go test ./...` and `go test -race ./...` pass.
-- [x] Changelog entry `changelog.d/NNNN-om-modbus-import.md`.
+- [x] Changelog entry `changelog.d/0278-om-modbus-import.md`.
 
 ## Contract impact
 OM import: a GATE MODBUS's objects are registered (new registry paths and Lua classes), adds
