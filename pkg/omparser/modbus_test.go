@@ -22,8 +22,8 @@ func TestReadModbusGate(t *testing.T) {
 	if m == nil {
 		t.Fatal("not read as a GATE MODBUS")
 	}
-	if !m.FromCLU || m.CLU.Name != "MODBAS" {
-		t.Errorf("FromCLU %v, name %q", m.FromCLU, m.CLU.Name)
+	if !m.HasSettings || m.CLU.Name != "MODBAS" {
+		t.Errorf("HasSettings %v, name %q", m.HasSettings, m.CLU.Name)
 	}
 	if len(m.Objects) != 16 {
 		t.Fatalf("%d objects, want 16", len(m.Objects))
@@ -95,7 +95,7 @@ func TestReadModbusWithoutSettings(t *testing.T) {
 	src := readModbusFixture(t)
 	src = src[:strings.Index(src, "function OnInit")]
 	m := ReadModbus(src)
-	if m == nil || m.FromCLU || len(m.Objects) != 16 {
+	if m == nil || m.HasSettings || len(m.Objects) != 16 {
 		t.Fatalf("%+v", m)
 	}
 	if !strings.Contains(m.Doc(), "no settings") {

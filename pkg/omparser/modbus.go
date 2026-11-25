@@ -65,12 +65,12 @@ type ModbusObject struct {
 	Settings map[int]string // feature index -> value as om.lua has it, quotes removed
 }
 
-// ModbusMap is what a GATE MODBUS's om.lua says about its Modbus objects. FromCLU is false
-// for an om.lua without OnInit, as vCLU writes from a project: it has no settings.
+// ModbusMap is what a GATE MODBUS's om.lua says about its Modbus objects. HasSettings is
+// false for an om.lua without them: no OnInit and no object's feature set.
 type ModbusMap struct {
-	CLU     CLUInfo
-	Objects []ModbusObject
-	FromCLU bool
+	CLU         CLUInfo
+	Objects     []ModbusObject
+	HasSettings bool
 }
 
 // ReadModbus reads the Modbus objects of a GATE MODBUS from its om.lua as the CLU has it,
@@ -87,7 +87,7 @@ func ReadModbus(content string) *ModbusMap {
 	for _, line := range strings.Split(content, "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "function OnInit") {
-			m.FromCLU = true
+			m.HasSettings = true
 		}
 		if g := reGateObject.FindStringSubmatch(line); g != nil {
 			class, _ := strconv.Atoi(g[2])
@@ -106,6 +106,7 @@ func ReadModbus(content string) *ModbusMap {
 			if i, ok := byID[s[1]]; ok {
 				idx, _ := strconv.Atoi(s[2])
 				m.Objects[i].Settings[idx] = strings.Trim(s[3], `"`)
+				m.HasSettings = true
 			}
 		}
 	}
@@ -260,8 +261,8 @@ func (m *ModbusMap) Doc() string {
 			cell(orDash(o.Name)), o.ID, modbusClassNames[o.Class], cell(o.line()), cell(orDash(o.get("slave"))), cell(reg),
 			calls[0], write, cell(o.data()), cell(o.endianness()), cell(orDash(o.get("divisor"))), cell(orDash(o.get("refresh"))), cell(orDash(o.get("timeout"))))
 	}
-	if !m.FromCLU {
-		b.WriteString("\nThis om.lua has no settings (written from a project): import the GATE's own om.lua or a diagnostic pack.\n")
+	if !m.HasSettings {
+		b.WriteString("\nThis om.lua has no settings: import the GATE's own om.lua, a diagnostic pack or the project.\n")
 	}
 	if len(other) > 0 {
 		sort.Strings(other)

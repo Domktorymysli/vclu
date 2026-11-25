@@ -3,6 +3,8 @@ package omproject
 import (
 	"fmt"
 	"net/netip"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -54,6 +56,26 @@ func (p *Project) OMLua(c CLU) string {
 			fmt.Fprintf(&b, "%s:set(10, %s)\n", o.ID, o.Lamel)
 		}
 	}
+	// a Modbus object's settings, as OM sets them in OnInit (StripGateSettings keeps them out
+	// of the stored copy)
+	for _, per := range c.Peripherals {
+		if per.Class == 0 || len(per.Features) == 0 {
+			continue
+		}
+		idx := make([]int, 0, len(per.Features))
+		for i := range per.Features {
+			idx = append(idx, i)
+		}
+		sort.Ints(idx)
+		for _, i := range idx {
+			v := per.Features[i]
+			if _, err := strconv.ParseFloat(v, 64); err == nil && reNumber.MatchString(v) {
+				fmt.Fprintf(&b, "%s:set(%d, %s)\n", per.ID, i, v)
+			} else if reSetting.MatchString(v) {
+				fmt.Fprintf(&b, "%s:set(%d, \"%s\")\n", per.ID, i, v)
+			}
+		}
+	}
 	add := func(id string, events []Binding) {
 		for _, e := range events {
 			fmt.Fprintf(&b, "%s:add_event(%d, EventsFor_%s_%d)\n", id, e.Index, id, e.Index)
@@ -69,6 +91,12 @@ func (p *Project) OMLua(c CLU) string {
 	}
 	return b.String()
 }
+
+// A feature value written to om.lua: a number, or a string without quotes, escapes or line ends.
+var (
+	reNumber  = regexp.MustCompile(`^-?[0-9]+(\.[0-9]+)?$`)
+	reSetting = regexp.MustCompile(`^[A-Za-z0-9_.:/ -]*$`)
+)
 
 // hexIP is an IPv4 address as OM writes it in om.lua: C0A80003.
 func hexIP(ip string) string {

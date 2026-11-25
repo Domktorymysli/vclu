@@ -12,7 +12,7 @@
 > a maintainer assigns it. This file is the specification: change it by PR.
 
 ## Goal
-After importing a GATE MODBUS's om.lua (alone or in a diagnostic pack), the agent reads every
+After importing a GATE MODBUS (its om.lua, a diagnostic pack or the `.omp` project), the agent reads every
 Modbus object with its register map (line, slave, register, function, type, scaling) in
 `ai/modbus/CLU<serial>.md` and can move the device to vclu's `Modbus` without Object Manager.
 
@@ -51,13 +51,18 @@ Modbus object with its register map (line, slave, register, function, type, scal
   and write calls (none for read-only objects, discrete and input registers; coils cannot be
   written, vclu has no FC05), data type and width, byte order by OM's names, divisor, refresh
   and timeout. 202, 204, 206 are named only.
-- An om.lua without `OnInit` (what vclu writes from a `.omp` project) keeps the map an earlier
-  import wrote; the CLU's own om.lua without Modbus objects, and deleting the CLU, remove it.
+- A `.omp` project: the Modbus types (`Modbus`, `ModbusValue`, `ModbusRTU`, `ModbusClient`, and
+  the slave/server ones) are known peripherals, like the GATE Alarm's; their features
+  (`EmbeddedFeature` index and `initValue` in `system.xml`) go to the om.lua vclu writes from
+  the project as `:set` lines, numbers or plain strings only, so the same map comes out.
+- An om.lua with Modbus objects but no settings keeps the map an earlier import wrote; one
+  without Modbus objects, and deleting the CLU, remove it.
 - The import answer per CLU has `modbus` (how many objects); MCP's instructions point to
   `ai/modbus/`.
 
 ## Files
 - `pkg/omparser/modbus.go`, `pkg/omparser/types.go`
+- `pkg/omproject/project.go` (`peripheralClasses`, features), `pkg/omproject/omlua.go`
 - `pkg/web/handle_web_om.go`, `pkg/mcp/server.go`, `web/api/swagger.json`
 - `pkg/omparser/testdata/om-modbus-gate.lua`: an anonymised om.lua of a real GATE MODBUS
   (11 objects of class 200, 5 of class 203, 2 removed)
@@ -73,6 +78,9 @@ Modbus object with its register map (line, slave, register, function, type, scal
 - [x] `TestOMModbusMapNotFromGateAlarm`: a GATE Alarm's om.lua writes nothing to `ai/modbus/`.
 - [x] `TestReadModbusV1AndCells`, `TestOMModbusMapWithoutSettings`: Modbus v1 without parity
       and stop bits, `|` in names, an om.lua without settings and no map before it.
+- [x] `TestOMLuaModbusObjects`, `TestOMProjectModbusMap`: a project gives the same map, its
+      Modbus objects are no unknown types, a value with quotes or a line end does not reach
+      om.lua, a project without the objects removes the map.
 - [x] `go test ./...` and `go test -race ./...` pass.
 - [x] Changelog entry `changelog.d/NNNN-om-modbus-import.md`.
 
@@ -80,6 +88,4 @@ Modbus object with its register map (line, slave, register, function, type, scal
 OM import: adds `ai/modbus/` and `modbus` in the answer, removes nothing. No decision record.
 
 ## Out of scope
-- Modbus objects from a `.omp` project (`system.xml` features); the project still lists them as
-  unknown types.
 - Modbus RTU in vclu (RS485 on the board) and generating a module from the map.

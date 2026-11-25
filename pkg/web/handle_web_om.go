@@ -525,20 +525,19 @@ func (s *Server) processOMFile(content []byte, originalName string) (gin.H, erro
 }
 
 // writeModbusMap writes the Modbus map of a GATE MODBUS from its om.lua to ai/modbus/<CLU>.md
-// and returns how many Modbus objects it has. An om.lua without settings (a project's) keeps
-// the map an earlier import wrote; a CLU's own om.lua without Modbus objects removes it.
+// and returns how many Modbus objects it has. An om.lua without settings keeps the map an
+// earlier import wrote; one without Modbus objects removes it.
 func (s *Server) writeModbusMap(content string, serial uint64) (int, error) {
 	path := modbusMapPath(s.serverDir, serial)
 	m := omparser.ReadModbus(content)
-	if m != nil && !m.FromCLU {
-		if _, err := os.Stat(path); err == nil || len(m.Objects) == 0 {
-			return len(m.Objects), nil
-		}
-	} else if m == nil || len(m.Objects) == 0 {
+	if m == nil || len(m.Objects) == 0 {
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			return 0, fmt.Errorf("%s: %v", omparser.ModbusDocsDir, err)
 		}
 		return 0, nil
+	}
+	if _, err := os.Stat(path); err == nil && !m.HasSettings {
+		return len(m.Objects), nil
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return 0, fmt.Errorf("%s: %v", omparser.ModbusDocsDir, err)

@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -138,5 +139,43 @@ func TestOMModbusMapWithoutSettings(t *testing.T) {
 	}
 	if doc := modbusMap(t, s); !strings.Contains(doc, "| MOD9012 | ModbusRTU | — |") || !strings.Contains(doc, "no settings") {
 		t.Errorf("map:\n%s", doc)
+	}
+}
+
+// modbusGateCLU is a GATE MODBUS of a project with the given peripherals.
+func modbusGateCLU(peripherals string) string {
+	return `<specificObject class="CLU"><name>modbus</name><ipAddress>192.0.2.10</ipAddress><nameOnCLU>CLU500000001</nameOnCLU>` +
+		`<iosList/><peripheryList>` + peripherals + `</peripheryList><modulesList/>` +
+		`<firmwareType>00000001</firmwareType><hardwareType>00000012</hardwareType></specificObject>`
+}
+
+// A project gives the map as the GATE's om.lua does; a project without the Modbus objects
+// removes it.
+func TestOMProjectModbusMap(t *testing.T) {
+	s := &Server{serverDir: t.TempDir()}
+	feature := func(i int, v string) string {
+		return fmt.Sprintf(`<EmbeddedFeature><initValue>%s</initValue><index>%d</index></EmbeddedFeature>`, v, i)
+	}
+	rtu := `<ProgrammablePeripheryCLU><name>MODBAS_WILGOTNOSC_SCHODY</name><nameOnCLU>MOD9012</nameOnCLU><typeName>ModbusRTU</typeName><features>` +
+		feature(0, "9600") + feature(1, "0") + feature(2, "0") + feature(5, "1") + feature(8, "2") + feature(10, "3") +
+		`</features><isRemoved>false</isRemoved></ProgrammablePeripheryCLU>`
+	omp := zipBytes(t, map[string][]byte{"system.xml": projectXML(modbusGateCLU(rtu))})
+	code, body := uploadFile(t, s, "house.omp", omp)
+	if code != http.StatusOK || !strings.Contains(string(body), `"modbus":1`) {
+		t.Fatalf("%d %s", code, body)
+	}
+	if doc := modbusMap(t, s); !strings.Contains(doc, modbusRow) {
+		t.Errorf("map:\n%s", doc)
+	}
+	if strings.Contains(string(body), "does not know") {
+		t.Errorf("Modbus objects reported as unknown: %s", body)
+	}
+
+	omp = zipBytes(t, map[string][]byte{"system.xml": projectXML(modbusGateCLU(""))})
+	if code, body := uploadFile(t, s, "house.omp", omp); code != http.StatusOK {
+		t.Fatalf("%d %s", code, body)
+	}
+	if modbusMap(t, s) != "" {
+		t.Error("map kept after the project lost its Modbus objects")
 	}
 }
