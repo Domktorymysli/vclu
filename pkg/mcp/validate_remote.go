@@ -216,8 +216,8 @@ func callArgs(code string, p int) (from, to, next int) {
 	if p >= len(code) {
 		return 0, 0, -1
 	}
-	switch c := code[p]; {
-	case c == '(' || c == '{':
+	switch c := code[p]; c {
+	case '(', '{':
 		e := closing(code, p)
 		if e < 0 {
 			return 0, 0, -1
@@ -226,13 +226,13 @@ func callArgs(code string, p int) (from, to, next int) {
 			return p + 1, e, e + 1
 		}
 		return p, e + 1, e + 1
-	case c == '"' || c == '\'':
+	case '"', '\'':
 		e := strings.IndexByte(code[p+1:], c) // the inside is blanked
 		if e < 0 {
 			return 0, 0, -1
 		}
 		return p + 1, p + 1 + e, p + e + 2
-	case c == '[':
+	case '[':
 		if level, ok := longBracket(code, p); ok {
 			open, shut := p+level+2, "]"+strings.Repeat("=", level)+"]"
 			e := strings.Index(code[open:], shut)
