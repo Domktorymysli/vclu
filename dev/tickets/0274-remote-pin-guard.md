@@ -1,4 +1,4 @@
-# #0274: The agent keeps alarms, locks and gates behind a PIN in the cloud
+# #274: The agent keeps alarms, locks and gates behind a PIN in the cloud
 
 - **Type:** feature
 - **Area:** mcp
@@ -22,9 +22,15 @@ taken account is then enough to disarm the alarm or open the gate. `:pin()` and 
 `expose()` calls are written by the agent. The cloud cannot tell a Satel partition from any other
 switch; vclu's source can.
 
-The check reads the draft's source (`expose(...)` and its chained calls, comments and strings
-skipped) and guesses from the object, the expose type, `device_class`, `pulse`, the id and the name.
-It warns and never fails a draft: the owner may want it, the agent has to ask.
+The check reads the draft's source (`expose(...)` and its chained calls, also those made later on
+`local h = expose(...)`; comments and strings skipped) and guesses from the object, the expose
+type, `device_class`, `pulse`, the id and the name; light and dimmer names, and rollers named after
+the garage, do not count. It warns and never fails a draft: the owner may want it, the agent has
+to ask.
+
+Out of scope: devices opened as "Full" on the panel's Access page without `:remote()`, dashboard
+buttons with `:remote()` and `Cloud.notify` actions; MQTT and HomeKit do not check the PIN (local,
+by design).
 
 ## Files
 - `pkg/mcp/validate_remote.go`, `pkg/mcp/validate_remote_test.go`
@@ -34,7 +40,7 @@ It warns and never fails a draft: the owner may want it, the agent has to ask.
 ## Acceptance criteria
 - [x] An alarm partition or zone (Satel, GATE Alarm), a lock or a door with `:remote()` and no `:pin()` gets a warning; `:confirm()` alone is not enough.
 - [x] A gate, garage or intercom (name, `pulse`, `device_class`, `garage_door`) with `:remote()` and neither `:confirm()` nor `:pin()` gets a warning.
-- [x] No warning for `:remote(false)`, `readonly`, sensors, a device without `:remote()`, or code in comments and strings.
+- [x] No warning for `:remote(false)`, `readonly` (option or `:readonly()`), `hidden = true`, sensors, lights and dimmers, rollers, a device without `:remote()`, or code in comments and strings.
 - [x] The draft stays valid (warning only).
 - [x] The MCP instructions tell the agent to add the PIN, ask the owner for it, and never remove one.
 - [x] `go test ./...` and `go test -race ./...` pass.
