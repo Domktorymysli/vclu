@@ -761,7 +761,11 @@
     "energyExport": "oddawanie",
     "energyCharge": "ładowanie",
     "energyDischarge": "rozładowanie",
-    "energyToday": "dziś"
+    "energyToday": "dziś",
+    "send": "Wyślij",
+    "addItem": "Dodaj",
+    "deleteItem": "Usuń",
+    "notSent": "Nie wysłano, spróbuj jeszcze raz"
   },
   "cloud": {
     "title": "Chmura",

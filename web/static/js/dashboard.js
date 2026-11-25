@@ -41,7 +41,7 @@
         chart: 'graph-up', select: 'list-ul', image: 'image', cover: 'arrows-expand', covers: 'window', dimmer: 'lightbulb',
         color: 'palette', calendar: 'calendar3', player: 'music-note-beamed', forecast: 'cloud-sun',
         room: 'door-open', thermostat: 'thermometer-half', table: 'table', gauge: 'speedometer2', gate: 'door-closed', bars: 'bar-chart', colorTemp: 'lightbulb', energy: 'lightning-charge',
-        latency: 'speedometer2'
+        latency: 'speedometer2', input: 'input-cursor-text', list: 'list-check'
     };
 
     // 23.9 -> "23,9" in Polish; with decimals rounded to them (21 -> "21,0"); text as it is
@@ -238,6 +238,13 @@
             if (d.error) return ['unknown', T.unknown];
             var shown = Array.isArray(d.rows) ? d.rows.length : 0;
             return ['value', d.total > shown ? shown + ' ' + T.of + ' ' + d.total : ''];
+        case 'list':
+            // "2 / 5" done of all with checkboxes, else how many
+            if (d.error || !Array.isArray(d.items)) return ['unknown', d.error ? T.unknown : ''];
+            var total = d.total != null ? d.total : d.items.length;
+            if (!(w.capabilities || {}).toggle) return ['value', String(total)];
+            var done = d.items.filter(function(it) { return it.done; }).length;
+            return ['value', done + ' / ' + total];
         case 'energy':
             var sum = energySummary(d);
             return sum == null ? ['unknown', T.unknown] : ['value', sum];
@@ -293,6 +300,7 @@
         if (type === 'player') updatePlayer(el, d);
         if (type === 'forecast') updateForecast(el, w, d);
         if (type === 'table') updateTable(el, w, d);
+        if (type === 'list') updateList(el, w, d);
         if (type === 'energy') updateEnergy(el, w, d);
         if (type === 'room') updateRoom(el, w, d, st[1]);
         if (type === 'thermostat') updateThermostat(el, w, d);
@@ -666,6 +674,10 @@
             renderForecast(el, w);
         } else if (w.type === 'table') {
             renderTable(el, w);
+        } else if (w.type === 'input') {
+            renderInput(el, w);
+        } else if (w.type === 'list') {
+            renderList(el, w);
         } else if (w.type === 'energy') {
             renderEnergy(el, w);
         } else if (w.type === 'room') {
@@ -2666,6 +2678,131 @@
         el.querySelector('.dash-table-empty').hidden = rows.length > 0;
     }
 
+    // ---- Text input and list: text sent on Enter or the button ----
+
+    // A field with its button and the error line; send(text, done) posts it, done(error) answers
+    function textForm(w, cls, placeholder, icon, buttonText, label, send) {
+        var form = calEl('form', 'dash-text-form ' + cls);
+        form.noValidate = true;
+        var row = calEl('div', 'dash-text-row');
+        var input = calEl('input', 'dash-text-input');
+        input.type = 'text';
+        input.maxLength = w.maxLength || 200;
+        input.autocomplete = 'off';
+        input.enterKeyHint = 'send';
+        if (placeholder) input.placeholder = placeholder;
+        input.setAttribute('aria-label', placeholder || w.label || '');
+        var btn = calEl('button', 'dash-text-btn');
+        btn.type = 'submit';
+        btn.setAttribute('aria-label', buttonText || label);
+        if (buttonText) btn.textContent = buttonText;
+        else btn.appendChild(calEl('i', 'bi bi-' + icon));
+        var err = calEl('div', 'dash-text-error');
+        err.setAttribute('role', 'alert');
+        err.hidden = true;
+        row.appendChild(input);
+        row.appendChild(btn);
+        form.appendChild(row);
+        form.appendChild(err);
+        input.addEventListener('input', function() { err.hidden = true; });
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            var text = input.value.trim();
+            if (!text || form.classList.contains('sending')) return;
+            form.classList.add('sending');
+            send(text, function(error) {
+                form.classList.remove('sending');
+                if (error) {
+                    err.textContent = error;
+                    err.hidden = false;
+                    return;
+                }
+                input.value = '';
+                err.hidden = true;
+            });
+        });
+        return form;
+    }
+
+    function renderInput(el, w) {
+        el.style.cursor = 'default';
+        el.appendChild(textForm(w, 'dash-input-form', w.placeholder, 'send', w.button, T.send, function(text, done) {
+            executeAction(w.id, 'submit', text, null, false, false, function(res) {
+                done(res.error || null);
+            });
+        }));
+    }
+
+    function renderList(el, w) {
+        el.style.cursor = 'default';
+        var caps = w.capabilities || {};
+        el.appendChild(calEl('ul', 'dash-list'));
+        el.appendChild(calEl('div', 'dash-list-empty', w.empty || '—'));
+        if (caps.add) {
+            el.appendChild(textForm(w, 'dash-list-add', w.placeholder, 'plus-lg', null, T.addItem, function(text, done) {
+                listAction(el, w, 'add', text, done);
+            }));
+        }
+    }
+
+    // An item's change or a new one; the answer carries the list as it is now
+    function listAction(el, w, action, value, done) {
+        executeAction(w.id, action, value, null, false, false, function(res) {
+            if (res.error) {
+                el._listKey = null; // a poll draws the items again, without the change shown early
+                if (done) done(res.error);
+                else VCLU.showToast(res.error, 'danger');
+                return;
+            }
+            if (done) done(null);
+            if (Array.isArray(res.items)) updateWidget(w.id, { items: res.items, total: res.total }, true);
+        });
+    }
+
+    // Redrawn only when the items changed; after an error the last items stay
+    function updateList(el, w, d) {
+        if (!Array.isArray(d.items)) return;
+        var key = JSON.stringify(d.items);
+        if (el._listKey === key) return;
+        el._listKey = key;
+        var caps = w.capabilities || {};
+        var ul = el.querySelector('.dash-list');
+        ul.textContent = '';
+        d.items.forEach(function(it) {
+            var id = String(it.id);
+            var li = calEl('li', 'dash-list-item' + (it.done ? ' done' : ''));
+            var body = calEl(caps.toggle ? 'label' : 'div', 'dash-list-body');
+            if (caps.toggle) {
+                var box = calEl('input', 'dash-list-check');
+                box.type = 'checkbox';
+                box.checked = !!it.done;
+                box.addEventListener('change', function() {
+                    li.classList.toggle('done', box.checked);
+                    listAction(el, w, 'toggle', { id: id, done: box.checked });
+                });
+                body.appendChild(box);
+            }
+            var text = calEl('span', 'dash-list-text');
+            text.appendChild(calEl('span', 'dash-list-label', it.label));
+            if (it.note) text.appendChild(calEl('span', 'dash-list-note', it.note));
+            body.appendChild(text);
+            li.appendChild(body);
+            if (caps['delete']) {
+                var del = calEl('button', 'dash-list-del');
+                del.type = 'button';
+                del.setAttribute('aria-label', T.deleteItem + ': ' + it.label);
+                del.appendChild(calEl('i', 'bi bi-x-lg'));
+                del.addEventListener('click', function() {
+                    li.classList.add('removing');
+                    listAction(el, w, 'delete', { id: id });
+                });
+                li.appendChild(del);
+            }
+            ul.appendChild(li);
+        });
+        el.querySelector('.dash-list-empty').hidden = d.items.length > 0;
+    }
+
     // ---- Dimmer widget ----
 
     // A slider sends the value it was moved to: after a pause, or at once when let go, so
@@ -3876,6 +4013,12 @@
                 if (!(k in d)) d[k] = null;
             });
         }
+        // a poll is the whole list; after an error the last items stay
+        if (type === 'list' && !force) {
+            ['error'].concat(d.error ? [] : ['items', 'total']).forEach(function(k) {
+                if (!(k in d)) d[k] = null;
+            });
+        }
         // a poll is the whole table; after an error the last rows stay
         if (type === 'table' && !force) {
             ['error'].concat(d.error ? [] : ['rows', 'total']).forEach(function(k) {
@@ -4044,7 +4187,8 @@
     // onFail: called when the action is refused or does not reach the server;
     // held: the press lasted the widget's hold (the server refuses it without)
     // confirmed: the person said yes to the widget's confirm (required through vclu cloud)
-    function executeAction(widgetId, action, value, onFail, held, confirmed) {
+    // onAnswer: called with the latest action's answer, {error} when it did not reach the server
+    function executeAction(widgetId, action, value, onFail, held, confirmed, onAnswer) {
         var body = { widgetId: widgetId, action: action };
         if (value !== undefined) body.value = value;
         if (held) body.held = true;
@@ -4070,6 +4214,7 @@
                 if (result && result.message) VCLU.showToast(result.message, 'success');
                 return;
             }
+            if (onAnswer) onAnswer(result || {});
             if (result && result.error) {
                 revert();
                 return;
@@ -4080,7 +4225,11 @@
             if (result && result.message) {
                 VCLU.showToast(result.message, 'success');
             }
-        }).catch(function() { if (latest()) revert(); });
+        }).catch(function() {
+            if (!latest()) return;
+            if (onAnswer) onAnswer({ error: T.notSent });
+            revert();
+        });
 
         function revert() {
             if (onFail) onFail();
