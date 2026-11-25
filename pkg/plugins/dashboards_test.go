@@ -114,7 +114,7 @@ func TestDashboardAccessCode(t *testing.T) {
 	access := map[string]DashboardAccess{"lista": {Name: nasty, Auth: "pin", PIN: "1234", Remote: true, RemotePIN: true,
 		Roles: []string{"domownicy", `x")os.exit(`}}}
 	code := DashboardAccessCode("@vclu/zakupy", declaredZakupy, access)
-	if !strings.HasPrefix(code, "-- Dostęp do dashboardów (kreator pluginu)\nlocal zakupy = Plugin.getPlugin(\"@vclu/zakupy\")\n") {
+	if !strings.HasPrefix(code, "-- Dostęp do dashboardów (kreator pluginu)") || !strings.Contains(code, "\nlocal zakupy = Plugin.getPlugin(\"@vclu/zakupy\")\n") {
 		t.Fatalf("code:\n%s", code)
 	}
 	L := lua.NewState()
@@ -148,7 +148,7 @@ func TestDashboardAccessCode(t *testing.T) {
 
 	// off and session without the app say only that
 	code = DashboardAccessCode("@jan/end", declaredZakupy, map[string]DashboardAccess{"lista": {Name: "Z", Auth: "off", Remote: true}})
-	if !strings.Contains(code, `local plugin_end = Plugin.getPlugin("@jan/end")`) || !strings.Contains(code, `{ name = "Z", auth = "off" }`) {
+	if !strings.Contains(code, `local plugin_end = Plugin.getPlugin("@jan/end")`) || !strings.Contains(code, "name = \"Z\",\n        auth = \"off\",\n    })") {
 		t.Fatalf("off:\n%s", code)
 	}
 	if DashboardAccessCode("@jan/x", declaredZakupy, nil) != "" {

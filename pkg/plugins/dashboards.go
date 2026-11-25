@@ -332,13 +332,16 @@ func DashboardAccessCode(pluginID string, declared []ManifestDashboard, access m
 			}
 			parts = append(parts, fmt.Sprintf("remote = { pin = %t, roles = %s }", a.RemotePIN, rl))
 		}
-		lines = append(lines, fmt.Sprintf("    %s:dashboardAccess(%s, { %s })", accessVar(pluginID), luastr.Quote(id), strings.Join(parts, ", ")))
+		// one option per line: the user and agents read and change this code
+		lines = append(lines, fmt.Sprintf("    %s:dashboardAccess(%s, {\n        %s,\n    })",
+			accessVar(pluginID), luastr.Quote(id), strings.Join(parts, ",\n        ")))
 	}
 	if len(lines) == 0 {
 		return ""
 	}
 	v := accessVar(pluginID)
-	return "-- Dostęp do dashboardów (kreator pluginu)\n" +
+	return "-- Dostęp do dashboardów (kreator pluginu): auth \"session\", \"pin\", \"public\" albo \"off\";\n" +
+		"-- remote: w aplikacji vclu, roles z chmury (pusto: wszyscy domownicy). Zmieniaj śmiało.\n" +
 		"local " + v + " = Plugin.getPlugin(" + luastr.Quote(pluginID) + ")\n" +
 		"if " + v + " then\n" + strings.Join(lines, "\n") + "\nend\n"
 }
