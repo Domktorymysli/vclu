@@ -73,9 +73,10 @@ func TestSandbox_MemoryGuardBacksOff(t *testing.T) {
 	if len(res.Errors) > 0 {
 		t.Fatalf("a draft under the limit was stopped: %v", res.Errors)
 	}
-	// false alarms happened (the back-off path ran), but not on every tick
-	if gcs < 2 || gcs > 12 {
-		t.Errorf("guard forced %d GCs in 1.5 s, want 2..12", gcs)
+	// false alarms happened (the back-off path ran), but not on every tick (75 in 1.5 s);
+	// 10-14 is usual, more runtime Lua raises it
+	if gcs < 2 || gcs > 30 {
+		t.Errorf("guard forced %d GCs in 1.5 s, want 2..30", gcs)
 	}
 }
 
