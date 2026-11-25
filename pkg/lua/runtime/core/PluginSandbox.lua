@@ -439,6 +439,216 @@ local function instanceProxy(inner)
     return proxy
 end
 
+-- ============================================
+-- Apps: a plugin's own dashboards and named actions
+-- ============================================
+
+local function pack(...) return { n = select("#", ...), ... } end
+
+-- Widget methods that reach the house by name (areas, covers by path, the house calendar):
+-- a plugin's dashboard shows only what the plugin gives it
+local DASH_DENY = { new = true, area = true, floor = true, room = true, covers = true, calendar = true }
+
+-- An error raised in the core names the plugin's call, not the core's file
+local function coreError(e)
+    return (tostring(e):gsub("^[^\n:]-%.lua:%d+: ", ""))
+end
+
+-- Refuses an id held by a module's dashboard or another plugin's
+local function dashboardFree(pluginId, id)
+    local d = _dashboards and _dashboards[id]
+    if d == nil or d._plugin == pluginId then return end
+    local owner = d._plugin and ("plugin " .. d._plugin) or "a module"
+    error("plugin:dashboard: dashboard " .. id .. " already exists (" .. owner .. ")", 0)
+end
+
+-- The builder as a plugin holds it: the chain API of Dashboard.new, functions it passes run
+-- as its callbacks (errors in its log), the raw builder and sections out of its reach.
+local function dashboardFacade(sandbox, raw, log)
+    local pluginId = sandbox.id
+    local facades = {}
+    local wrapArg, out
+
+    local function toFacade(v)
+        if type(v) ~= "table" then return v end
+        if facades[v] then return facades[v] end
+        if rawget(v, "_builder") == raw then return out(v) end
+        return v
+    end
+
+    local function wrapFn(fn)
+        local last
+        return function(...)
+            if sandbox.dead then error("plugin " .. pluginId .. " is disabled", 0) end
+            local res = pack(pcall(fn, mapResults(toFacade, ...)))
+            if not res[1] then
+                local msg = maskSecrets(sandbox, tostring(res[2]))
+                if msg ~= last then -- a getter failing on every poll is logged once
+                    last = msg
+                    log:error("[" .. pluginId .. "] Dashboard " .. raw._id .. " error: " .. msg)
+                end
+                error(msg, 0)
+            end
+            last = nil
+            return unpackArgs(res, 2, res.n)
+        end
+    end
+
+    local function holdsFn(v, depth)
+        if type(v) == "function" then return true end
+        if type(v) ~= "table" or getmetatable(v) ~= nil or depth > 3 then return false end
+        for _, x in originalPairs(v) do
+            if holdsFn(x, depth + 1) then return true end
+        end
+        return false
+    end
+
+    -- tables holding functions (opts, fns) are copied with them wrapped; data stays the plugin's
+    wrapArg = function(v, depth)
+        depth = depth or 0
+        if type(v) == "function" then return wrapFn(v) end
+        if not holdsFn(v, depth) then return v end
+        local copy = {}
+        for k, x in originalPairs(v) do copy[k] = wrapArg(x, depth + 1) end
+        return copy
+    end
+
+    local function finish()
+        dashboardFree(pluginId, raw._id)
+        raw._plugin = pluginId
+        local ok, err = pcall(raw.build, raw)
+        if not ok then error(coreError(err), 3) end
+        sandbox.dashboards[raw._id] = true
+        return facades[raw]
+    end
+
+    local function methodsOf(target)
+        local f = {}
+        local meta = getmetatable(target)
+        for name, fn in originalPairs(type(meta) == "table" and meta or {}) do
+            if type(fn) == "function" and type(name) == "string" and name:sub(1, 1) ~= "_" and not DASH_DENY[name] then
+                f[name] = function(self, ...)
+                    if self ~= facades[target] then
+                        error("call " .. name .. " as a method of the dashboard (:" .. name .. ")", 2)
+                    end
+                    if sandbox.dead then error("plugin " .. pluginId .. " is disabled", 2) end
+                    if name == "build" then return finish() end
+                    local args = pack(...)
+                    for i = 1, args.n do args[i] = wrapArg(args[i]) end
+                    local res = pack(pcall(fn, target, unpackArgs(args, 1, args.n)))
+                    if not res[1] then error(coreError(res[2]), 2) end
+                    return mapResults(out, unpackArgs(res, 2, res.n))
+                end
+            end
+        end
+        for name in originalPairs(DASH_DENY) do
+            if name ~= "new" then
+                f[name] = function()
+                    error("dashboard:" .. name .. " is not available in a plugin's dashboard: it reaches the house's objects", 2)
+                end
+            end
+        end
+        return f
+    end
+
+    -- the builder and its sections leave as facades; any other table not at all
+    out = function(r)
+        if type(r) ~= "table" then return r end
+        if facades[r] then return facades[r] end
+        if r == raw or rawget(r, "_builder") == raw then
+            facades[r] = methodsOf(r)
+            return facades[r]
+        end
+        return nil
+    end
+
+    return out(raw)
+end
+
+local ACTION_TYPES = { string = true, number = true, boolean = true }
+local MAX_ACTIONS, MAX_ACTION_STRING = 32, 1000
+
+-- A text for people and agents: a string or {pl = ..., en = ...}
+local function actionText(v, where)
+    if type(v) == "string" and v ~= "" and #v <= 500 then return v end
+    if type(v) == "table" and getmetatable(v) == nil then
+        local t = {}
+        for k, x in originalPairs(v) do
+            if (k ~= "pl" and k ~= "en") or type(x) ~= "string" or x == "" or #x > 500 then t = nil break end
+            t[k] = x
+        end
+        if t and next(t) then return t end
+    end
+    error("plugin:action: " .. where .. " is a text (up to 500 characters) or {pl = ..., en = ...}", 0)
+end
+
+local function actionSpec(name, spec)
+    if type(name) ~= "string" or #name > 64 or not name:match("^[a-z][a-z0-9_]*$") then
+        error("plugin:action: name " .. tostring(name) .. " is a lower-case letter, then letters, digits and _", 0)
+    end
+    if type(spec) ~= "table" or getmetatable(spec) ~= nil then
+        error("plugin:action(" .. name .. "): spec is a table {description, params}", 0)
+    end
+    for k in originalPairs(spec) do
+        if k ~= "description" and k ~= "params" then
+            error("plugin:action(" .. name .. "): unknown spec field " .. tostring(k) .. " (description, params)", 0)
+        end
+    end
+    local out = { description = actionText(spec.description, name .. " description"), params = {} }
+    if spec.params ~= nil and (type(spec.params) ~= "table" or getmetatable(spec.params) ~= nil) then
+        error("plugin:action(" .. name .. "): params is a table {name = {type, description, required}}", 0)
+    end
+    local count = 0
+    for pname, p in originalPairs(spec.params or {}) do
+        local where = name .. " param " .. tostring(pname)
+        if type(pname) ~= "string" or #pname > 64 or not pname:match("^[%a][%w_]*$") then
+            error("plugin:action: " .. where .. ": a name is a letter, then letters, digits and _", 0)
+        end
+        if type(p) ~= "table" or not ACTION_TYPES[p.type] then
+            error("plugin:action: " .. where .. ": type is \"string\", \"number\" or \"boolean\"", 0)
+        end
+        for k in originalPairs(p) do
+            if k ~= "type" and k ~= "description" and k ~= "required" then
+                error("plugin:action: " .. where .. ": unknown field " .. tostring(k) .. " (type, description, required)", 0)
+            end
+        end
+        if p.required ~= nil and type(p.required) ~= "boolean" then
+            error("plugin:action: " .. where .. ": required is true or false", 0)
+        end
+        count = count + 1
+        if count > 32 then error("plugin:action(" .. name .. "): at most 32 params", 0) end
+        out.params[pname] = {
+            type = p.type, required = p.required == true,
+            description = p.description ~= nil and actionText(p.description, where .. " description") or nil,
+        }
+    end
+    return out
+end
+
+-- An action's answer as plain data JSON can carry; nil and an error when it is not
+local function actionResult(sandbox, v, depth, seen)
+    local t = type(v)
+    if t == "string" then return maskSecrets(sandbox, v) end
+    if t == "boolean" or t == "nil" then return v end
+    if t == "number" then
+        if v - v ~= 0 then return nil, "a number that is not finite" end
+        return v
+    end
+    if t ~= "table" or getmetatable(v) ~= nil then return nil, "a " .. t end
+    seen = seen or {}
+    if seen[v] or depth > 16 then return nil, "a table nested too deep or in a cycle" end
+    seen[v] = true
+    local copy = {}
+    for k, x in originalPairs(v) do
+        if type(k) ~= "string" and type(k) ~= "number" then return nil, "a table with a " .. type(k) .. " key" end
+        local c, err = actionResult(sandbox, x, depth + 1, seen)
+        if err then return nil, err end
+        copy[k] = c
+    end
+    seen[v] = nil
+    return copy
+end
+
 --- Create a new sandbox for a plugin
 -- @param pluginId string The full plugin ID (e.g., "@vclu/weather")
 -- @param permissions table|nil {api, lan, mqtt, modbus, official} from the loader; nil grants none
@@ -464,6 +674,8 @@ function PluginSandbox:create(pluginId, permissions)
         instanceProxy = nil,      -- the instance as the plugin holds it
         pollers = {},             -- created through the API, stopped on cleanup
         ioHandles = {},           -- Go handle id -> true: sockets, ports, transfers
+        dashboards = {},          -- dashboard id -> true, removed on cleanup
+        actions = {},             -- name -> {description, params, fn}
         dead = false,             -- set by cleanup
     }
     permissions = type(permissions) == "table" and permissions or {}
@@ -936,6 +1148,33 @@ function PluginSandbox:buildAPI(sandbox)
         PluginHelpers.logSafe(log, shortId or pluginId, level, msg, fields, redact)
     end
 
+    -- A dashboard of the plugin's own at /d/<shortId>_<id>, "session" auth unless it sets one
+    local dashPrefix = ((pluginId:match("^@[^/]+/(.+)$") or pluginId):gsub("-", "_"))
+    api.dashboard = function(id)
+        if type(id) ~= "string" or #id > 64 or not id:match("^[a-z0-9_]+$") then
+            error("plugin:dashboard: id " .. tostring(id) .. " is lower-case letters, digits and _", 0)
+        end
+        if not (Dashboard and Dashboard.new) then error("plugin:dashboard: dashboards are not available", 0) end
+        local realId = dashPrefix .. "_" .. id
+        dashboardFree(pluginId, realId)
+        local raw = Dashboard.new(realId)
+        raw:auth("session")
+        return dashboardFacade(sandbox, raw, log)
+    end
+
+    -- A named action agents and voice call: fn(params) returns the result, or nil, err
+    api.action = function(name, spec, fn)
+        local a = actionSpec(name, spec)
+        if type(fn) ~= "function" then error("plugin:action(" .. name .. "): fn is a function", 0) end
+        if not sandbox.actions[name] then
+            local n = 0
+            for _ in originalPairs(sandbox.actions) do n = n + 1 end
+            if n >= MAX_ACTIONS then error("plugin:action: at most " .. MAX_ACTIONS .. " actions per plugin", 0) end
+        end
+        a.fn = fn
+        sandbox.actions[name] = a
+    end
+
     -- A disabled plugin's code may still be called (a sensor getter, a pending
     -- callback); it starts nothing new
     for name, f in originalPairs(api) do
@@ -1312,6 +1551,77 @@ function PluginSandbox:moduleCode(pluginId)
     return JSON:encode({ code = code })
 end
 
+--- The actions of running plugins (of one when pluginId is given), as JSON
+-- [{plugin, name, description, params}]
+function PluginSandbox:listActions(pluginId)
+    local ids = {}
+    for id, sb in pairs(self.sandboxes) do
+        if not sb.dead and (pluginId == nil or pluginId == "" or id == pluginId) then ids[#ids + 1] = id end
+    end
+    table.sort(ids)
+    local out = {}
+    for _, id in ipairs(ids) do
+        local names = {}
+        for name in pairs(self.sandboxes[id].actions) do names[#names + 1] = name end
+        table.sort(names)
+        for _, name in ipairs(names) do
+            local a = self.sandboxes[id].actions[name]
+            out[#out + 1] = { plugin = id, name = name, description = a.description,
+                params = next(a.params) and a.params or nil }
+        end
+    end
+    return JSON:encode(out)
+end
+
+local function actionAnswer(err, code) return JSON:encode({ error = err, code = code }) end
+
+--- Runs a plugin's action with params (a JSON object): JSON {result} or {error, code}, code
+-- "not_found", "invalid" (params) or "failed" (the action's own error)
+function PluginSandbox:callAction(pluginId, name, paramsJSON)
+    local sb = self.sandboxes[pluginId]
+    local a = sb and not sb.dead and sb.actions[name]
+    if not a then
+        return actionAnswer("plugin " .. tostring(pluginId) .. " has no action " .. tostring(name), "not_found")
+    end
+    local ok, params = pcall(JSON.decode, JSON, paramsJSON or "{}")
+    if not ok or (params ~= nil and type(params) ~= "table") then
+        return actionAnswer("params are a JSON object", "invalid")
+    end
+    local given = {}
+    for k, v in pairs(params or {}) do
+        local p = a.params[k]
+        if not p then
+            local known = {}
+            for n in pairs(a.params) do known[#known + 1] = n end
+            table.sort(known)
+            return actionAnswer("unknown param " .. tostring(k) .. " (params: "
+                .. (#known > 0 and table.concat(known, ", ") or "none") .. ")", "invalid")
+        end
+        if type(v) ~= p.type or (p.type == "number" and v - v ~= 0) then
+            return actionAnswer("param " .. k .. " is a " .. p.type .. ", got " .. type(v), "invalid")
+        end
+        if p.type == "string" and #v > MAX_ACTION_STRING then
+            return actionAnswer("param " .. k .. " is longer than " .. MAX_ACTION_STRING .. " characters", "invalid")
+        end
+        given[k] = v
+    end
+    for k, p in pairs(a.params) do
+        if p.required and given[k] == nil then return actionAnswer("param " .. k .. " is required", "invalid") end
+    end
+    local res = pack(pcall(a.fn, given))
+    local err
+    if not res[1] then
+        err = maskSecrets(sb, tostring(res[2]))
+        Logger:error("[" .. pluginId .. "] Action '" .. name .. "' error: " .. err)
+    elseif res[2] == nil and res[3] ~= nil then
+        err = maskSecrets(sb, tostring(res[3]))
+    end
+    if err then return actionAnswer(err, "failed") end
+    local result, bad = actionResult(sb, res[2], 0)
+    if bad then return actionAnswer("action " .. name .. " returned " .. bad .. " (text, number, true/false or a plain table)", "failed") end
+    return '{"result":' .. JSON:encode(result) .. '}' -- nil stays null, not an empty table
+end
+
 --- Cleanup all resources for a plugin
 -- @param pluginId string The plugin ID
 function PluginSandbox:cleanup(pluginId)
@@ -1337,6 +1647,17 @@ function PluginSandbox:cleanup(pluginId)
         pcall(poller.stop, poller)
     end
     sandbox.pollers = {}
+    -- its dashboards (still its own) and actions
+    for id in pairs(sandbox.dashboards) do
+        if _dashboards and _dashboards[id] and _dashboards[id]._plugin == pluginId then
+            _dashboards[id] = nil
+            for i = #_dashboardOrder, 1, -1 do
+                if _dashboardOrder[i] == id then table.remove(_dashboardOrder, i) end
+            end
+        end
+    end
+    sandbox.dashboards = {}
+    sandbox.actions = {}
     local instance = sandbox.instance
     if instance then
         for _, handle in ipairs(instance._exposedHandles or {}) do

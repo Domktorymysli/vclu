@@ -19,6 +19,24 @@ object, `createObject`, an event or a log line: other plugins, agents over MCP, 
 MQTT/HA read those. The sandbox masks the plugin's secret values (4+ characters) as `***` in
 `Logger`, `plugin:log`, `plugin:logSafe` and `print`; anything else it does not catch.
 
+## Apps: a dashboard and actions of the plugin's own
+`plugin:dashboard(id)` (id `[a-z0-9_]+`) returns a facade of `Dashboard.new("<shortId>_<id>")`
+(`-` in the short id as `_`): the same chain API, auth `"session"` unless the plugin sets one.
+`build()` refuses an id held by a module's dashboard or another plugin's (`_plugin` on the
+builder marks the owner; `Dashboard.API.list()` gives it as `plugin`). Functions the plugin passes
+(also inside opts/fns tables) are wrapped: errors go to the plugin's log, once per message, and
+back to the page. The raw builder and sections never reach the plugin; `area`, `floor`, `room`,
+`covers` and `calendar` are refused, as they resolve house objects by name.
+
+`plugin:action(name, {description, params}, fn)` (name `[a-z][a-z0-9_]*`, at most 32): description
+a text or `{pl, en}`, params `{p = {type = "string"|"number"|"boolean", description, required}}`.
+`PluginSandbox:callAction` checks the params (unknown refused, types exact, strings up to 1000
+characters) and answers JSON `{result}` or `{error, code}` with code `not_found`, `invalid` or
+`failed`; fn returns a result (text, number, boolean, plain table) or `nil, err`. Secrets are
+masked in both. Go reaches them through `actions.go` (`GET /api/plugins/actions`,
+`POST /api/plugins/:id/actions/:name`, MCP `vclu_app_actions`/`vclu_app_action`, gated by the
+bot's profiles on the plugin id). Cleanup removes the plugin's dashboards and actions.
+
 ## Sensor ids are global
 Ids of sensors and controls are flat across the whole of vCLU. Derive them from the instance's
 options and refuse a duplicate with an error in the log instead of replacing another instance's.

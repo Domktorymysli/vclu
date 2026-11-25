@@ -73,6 +73,8 @@ func (s *MCPServer) registerTools() {
 				"description": "Scene path",
 			},
 		}, []string{"path"})
+
+	s.registerAppActionTools()
 }
 
 // addTool is a helper to register a tool with schema.

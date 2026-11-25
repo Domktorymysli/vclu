@@ -107,6 +107,7 @@ func (s *Server) handlePluginsAPIForm(c *gin.Context) {
 // handlePluginsAPISaveForm checks and saves a step of the wizard, then restarts the plugin
 // with it. Without "devices" the saved rows stay.
 func (s *Server) handlePluginsAPISaveForm(c *gin.Context) {
+	defer dashCache.Invalidate() // a plugin started or stopped brings or takes its dashboards
 	w, id, ok := s.wizard(c)
 	if !ok {
 		return

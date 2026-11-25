@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Domktorymysli/vclu/pkg/notify"
+	"github.com/Domktorymysli/vclu/pkg/plugins"
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -738,6 +739,11 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 			"sensors":   "plugin:get('id') → obj with :get()",
 			"controls":  "plugin:get('id') → obj with :get() and :set(value)",
 			"expose":    "expose(obj, type, { name, path, area, description })",
+			"apps": "in a plugin (no permission): plugin:dashboard(id) → the builder of Dashboard.new at /d/<shortId>_<id> ('-' as '_'), " +
+				"auth 'session' unless set, its callbacks run as the plugin, no area/floor/room/covers/calendar, an id taken by a module or another plugin is refused; " +
+				"plugin:action(name, {description = text|{pl, en}, params = {p = {type = 'string'|'number'|'boolean', description, required}}}, fn(params) → result | nil, err), " +
+				"at most 32, params checked (unknown refused, strings up to 1000 characters); agents call them with vclu_app_actions / vclu_app_action, " +
+				"HTTP GET /api/plugins/actions, POST /api/plugins/:id/actions/:name. Both go when the plugin stops",
 		},
 		"filesystem": map[string]any{
 			"autoLoaded":     "modules/*.lua flat files only",
@@ -748,6 +754,7 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 
 	// Dynamic: build plugins array from config + plugin.json
 	installed := s.config.GetInstalledPlugins()
+	actions := s.appActionsByPlugin()
 	if len(installed) > 0 {
 		var pluginsInfo []map[string]any
 		for _, p := range installed {
@@ -776,6 +783,9 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 				}
 			}
 
+			if a := actions[p.ID]; len(a) > 0 {
+				info["actions"] = a
+			}
 			pluginsInfo = append(pluginsInfo, info)
 		}
 		schema["plugins"] = pluginsInfo
@@ -783,6 +793,23 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 
 	s.recordActivity("vclu_runtime_schema", "", true, start, "", ctx)
 	return toolJSON(schema)
+}
+
+// appActionsByPlugin: the running plugins' actions by plugin id (vclu_app_actions has them too)
+func (s *MCPServer) appActionsByPlugin() map[string][]plugins.Action {
+	out := map[string][]plugins.Action{}
+	if s.executor == nil {
+		return out
+	}
+	raw, err := s.executor.Execute(plugins.ListActionsScript(""))
+	if err != nil {
+		return out
+	}
+	list, _ := plugins.ParseActions(raw)
+	for _, a := range list {
+		out[a.Plugin] = append(out[a.Plugin], a)
+	}
+	return out
 }
 
 // safePluginDirName converts a plugin ID to its safe directory name.

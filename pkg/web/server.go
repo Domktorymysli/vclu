@@ -1055,6 +1055,8 @@ func (s *Server) setupRoutes() {
 		api.POST("/plugins/:id/permissions", s.handlePluginsAPIPermissions)
 		api.GET("/plugins/:id/schema", s.handlePluginsAPIGetSchema)
 		api.GET("/plugins/:id/doc", s.handlePluginsAPIGetDoc)
+		api.GET("/plugins/actions", s.handlePluginsAPIActions)
+		api.POST("/plugins/:id/actions/:name", s.handlePluginsAPICallAction)
 
 		// Debug log endpoints
 		api.GET("/debug/stream", s.handleAPIDebugStream)
