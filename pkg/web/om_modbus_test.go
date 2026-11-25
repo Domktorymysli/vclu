@@ -77,8 +77,8 @@ func TestOMUploadModbusMap(t *testing.T) {
 	}
 }
 
-// An om.lua without settings (a project's) keeps the map; the CLU's own without Modbus
-// objects, and deleting the CLU, remove it.
+// An om.lua without settings replaces the map as the registry: sensors only; one without
+// Modbus objects, and deleting the CLU, remove it.
 func TestOMModbusMapLifecycle(t *testing.T) {
 	s := &Server{serverDir: t.TempDir()}
 	src := string(modbusGateOM(t))
@@ -90,8 +90,8 @@ func TestOMModbusMapLifecycle(t *testing.T) {
 	if code, body := uploadFile(t, s, "om.lua", []byte(declarations)); code != http.StatusOK {
 		t.Fatalf("%d %s", code, body)
 	}
-	if !strings.Contains(modbusMap(t, s), modbusRow) {
-		t.Error("an om.lua without settings replaced the map")
+	if doc := modbusMap(t, s); !strings.Contains(doc, "no settings") || strings.Contains(doc, "| number |") {
+		t.Errorf("map after an om.lua without settings:\n%s", doc)
 	}
 
 	var noModbus []string

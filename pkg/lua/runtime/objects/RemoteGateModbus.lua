@@ -102,9 +102,10 @@ end
 --- Why a read, write or method of this object is refused; nil when it is not.
 -- @param kind string "get", "set" or "execute"
 -- @param index number The feature or method number
+-- @param ... any The value written or the method's arguments
 -- @return string|nil
-function RemoteGateModbus:_refused(kind, index)
-    return refused(self, kind, index)
+function RemoteGateModbus:_refused(kind, index, ...)
+    return refused(self, kind, index, ...)
 end
 
 --- The value the GATE reported.

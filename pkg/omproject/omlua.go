@@ -10,9 +10,9 @@ import (
 )
 
 // OMLua writes the declarations of om.lua for a CLU of the project: the lines
-// pkg/omparser reads, as Object Manager writes them. It has no event bodies or
-// feature settings and is never run; vCLU parses it like the om.lua of a
-// diagnostic pack.
+// pkg/omparser reads, as Object Manager writes them. It has no event bodies and no
+// feature settings but a roller's slats and Modbus objects'; it is never run, vCLU
+// parses it like the om.lua of a diagnostic pack.
 func (p *Project) OMLua(c CLU) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "-- Declarations from the Object Manager project (OM %s), written by vCLU\n", orUnknown(p.Version))
