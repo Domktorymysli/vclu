@@ -89,9 +89,6 @@
             el.querySelector('.pw-kicker').textContent = t.configure;
             el.querySelector('.modal-title').textContent = m.name || self.id;
             el.querySelector('.pw-sub').textContent = self.id + (m.version ? ' · v' + m.version : '');
-            // the device table needs the width; settings alone read better narrow
-            el.querySelector('.modal-dialog').classList.toggle('modal-xl', !!self.form.devices);
-            el.querySelector('.modal-dialog').classList.toggle('modal-lg', !self.form.devices);
             self.tabs();
             // a plugin already running has its settings saved: every step is open
             self.reached = data.running ? self.steps.length - 1 : 0;
@@ -153,6 +150,9 @@
             a.classList.toggle('disabled', i > self.reached);
             a.querySelector('.pw-dot').innerHTML = i < at ? '<i class="bi bi-check-lg"></i>' : String(i + 1);
         });
+        // the device table needs the width; settings read better narrow
+        el.querySelector('.modal-dialog').classList.toggle('modal-xl', step === 'devices');
+        el.querySelector('.modal-dialog').classList.toggle('modal-lg', step !== 'devices');
         var back = el.querySelector('[data-act="back"]');
         back.textContent = at > 0 ? t.back : t.cancel;
         var last = at === this.steps.length - 1;
@@ -318,9 +318,9 @@
                 return;
             }
             var options = f.options || f.enum;
-            if (options && f.optionLabels && options.length <= 4 && f.required !== false) {
-                // a few described options read better as buttons than a list
-                html += '<div class="' + cls + '" data-row="' + esc(name) + '"><div class="pw-label mb-2">' + label + '</div>' +
+            if (options && f.optionLabels && options.length <= 4 && f.required) {
+                // a few labelled options read better as buttons than a list; one is always chosen
+                html += '<div class="' + cls + '" data-row="' + esc(name) + '"><div class="pw-label mb-2">' + esc(text(f.label, name)) + '</div>' +
                     '<select class="d-none" data-field="' + esc(name) + '">' + options.map(function(o) {
                         return '<option value="' + esc(o) + '"' + (String(v) === o ? ' selected' : '') + '></option>';
                     }).join('') + '</select><div class="pw-choices">' + options.map(function(o) {
@@ -394,11 +394,11 @@
         var d = this.form.devices;
         var names = Object.keys(d.fields);
         var html = '<div class="d-flex gap-2 mb-3">';
-        if (d.discover) html += '<button class="btn btn-outline-primary btn-sm" data-act="discover">' + esc(t.discover) + '</button>';
-        html += '<button class="btn btn-outline-secondary btn-sm" data-act="add">' + esc(t.addRow) + '</button>' +
+        if (d.discover) html += '<button class="btn btn-primary" data-act="discover"><i class="bi bi-search me-1"></i>' + esc(t.discover) + '</button>';
+        html += '<button class="btn btn-outline-secondary" data-act="add"><i class="bi bi-plus-lg me-1"></i>' + esc(t.addRow) + '</button>' +
             '<span class="wizard-status small text-muted align-self-center"></span></div>';
         if (!this.rows.length) {
-            html += '<p class="text-muted">' + esc(t.noDevices) + '</p>';
+            html += '<div class="pw-empty"><i class="bi bi-hdd-network"></i><div>' + esc(t.noDevices) + '</div></div>';
         } else {
             html += '<div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>' + esc(t.add) + '</th>' +
                 names.map(function(n) { return '<th>' + esc(text(d.fields[n].label, n)) + '</th>'; }).join('') +

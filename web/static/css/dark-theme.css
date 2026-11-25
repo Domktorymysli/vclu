@@ -1111,7 +1111,13 @@ html, body {
 .pw-field .form-label { margin-bottom: 0.4rem; }
 .pw-desc { font-size: 0.82rem; color: var(--bs-secondary-color); margin-top: 0.35rem; }
 .pw-switch .pw-desc { margin-top: 0.15rem; }
-.pw-nested { margin-left: 0.9rem; padding-left: 1rem; border-left: 2px solid var(--bs-border-color); }
+/* fields under a switch: one line down from it, no gaps between them */
+.pw-nested { margin: 0 0 0 0.9rem; padding: 0 0 1.25rem 1rem; border-left: 2px solid var(--bs-border-color); }
+.pw-switch + .pw-nested { margin-top: -1.25rem; padding-top: 1.25rem; }
+.pw-nested + .pw-field:not(.pw-nested) { margin-top: 1.25rem; }
+@media (max-width: 576px) {
+    .pw-choice { min-width: 0; flex-basis: 100%; }
+}
 
 .pw-switch {
     display: flex; align-items: center; justify-content: space-between; gap: 1rem;
@@ -1131,6 +1137,11 @@ html, body {
     border-color: var(--accent-color); color: var(--accent-color); font-weight: 600;
     background: color-mix(in srgb, var(--accent-color) 12%, transparent);
 }
+.pw-empty {
+    text-align: center; padding: 2rem 1rem; border: 1px dashed var(--bs-border-color); border-radius: 10px;
+    color: var(--bs-secondary-color);
+}
+.pw-empty .bi { font-size: 1.8rem; display: block; margin-bottom: 0.4rem; }
 .pw-footer { border-top: 1px solid var(--bs-border-color); }
 
 @media (max-width: 576px) {
