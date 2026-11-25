@@ -1042,6 +1042,7 @@ func (s *Server) setupRoutes() {
 		api.GET("/plugins/available", s.handlePluginsAPIAvailable)
 		api.GET("/plugins/installed", s.handlePluginsAPIInstalled)
 		api.GET("/plugins/serial-ports", s.handlePluginsAPISerialPorts)
+		api.GET("/plugins/preview", s.handlePluginsAPIPreview)
 		api.POST("/plugins/install", s.handlePluginsAPIInstall)
 		api.DELETE("/plugins/:id", s.handlePluginsAPIUninstall)
 		api.POST("/plugins/:id/toggle", s.handlePluginsAPIToggle)

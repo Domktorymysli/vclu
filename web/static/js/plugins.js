@@ -42,6 +42,11 @@ PluginsManager.prototype.init = function() {
         permissionsModal: document.getElementById('permissionsModal'),
         permissionsPluginId: document.getElementById('permissionsPluginId'),
         permissionsFields: document.getElementById('permissionsFields'),
+        installModal: document.getElementById('installModal'),
+        installPluginName: document.getElementById('installPluginName'),
+        installPermissions: document.getElementById('installPermissions'),
+        installNote: document.getElementById('installNote'),
+        installConfirm: document.getElementById('installConfirm'),
         configPluginId: document.getElementById('configPluginId'),
         configFields: document.getElementById('configFields'),
         docTitle: document.getElementById('docTitle'),
@@ -209,6 +214,24 @@ PluginsManager.prototype._renderPluginCard = function(plugin, options) {
         }
     }
 
+    // Every permission, the ones the plugin uses in green (installed plugins only: the
+    // repository index does not say, the install confirmation reads it from plugin.json)
+    var permsHtml = '';
+    if (options.isInstalled) {
+        var requested = plugin.requestedPermissions || [];
+        var pending = plugin.pendingPermissions || [];
+        permsHtml = '<p class="mb-2 small">' + ALL_PERMISSIONS.map(function(name) {
+            var cls = 'bg-transparent border border-secondary text-body-secondary', title = 'Not used';
+            if (pending.indexOf(name) >= 0) {
+                cls = 'bg-warning text-dark'; title = 'Asked for, not allowed yet';
+            } else if (requested.indexOf(name) >= 0) {
+                cls = 'bg-success'; title = 'Allowed';
+            }
+            return '<span class="badge ' + cls + ' me-1" title="' + VCLU.esc(title + ': ' + (PERMISSION_LABELS[name] || name)) + '">' +
+                   VCLU.esc(PERMISSION_SHORT[name] || name) + '</span>';
+        }).join('') + '</p>';
+    }
+
     // Link buttons
     var linkBtns = '';
     // Docs button (hidden by default, shown by checkPluginDocs)
@@ -303,6 +326,7 @@ PluginsManager.prototype._renderPluginCard = function(plugin, options) {
            '<p class="card-text small mb-2">' + VCLU.esc(description) + '</p>' +
            '<p class="card-text small mb-2"><span class="text-muted">By:</span> ' + VCLU.esc(author) + '</p>' +
            tagsHtml +
+           permsHtml +
            '</div>' +
            '<div class="card-footer bg-transparent d-flex justify-content-between align-items-center">' +
            '<div>' + linkBtns + '</div>' +
@@ -480,11 +504,76 @@ PluginsManager.prototype.switchTab = function(tabName) {
  */
 PluginsManager.prototype.install = function(id, repository) {
     var self = this;
+    var shortId = id.replace(/^@[^\/]+\//, '');
+    // what the plugin asks for, from its plugin.json, before anything is downloaded
+    fetch('/api/plugins/preview?id=' + encodeURIComponent(shortId) + '&repository=' + encodeURIComponent(repository))
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.error) {
+                VCLU.showToast(data.error, 'danger');
+                return;
+            }
+            self._confirmInstall(id, repository, data);
+        })
+        .catch(function(err) { VCLU.showToast(err.message, 'danger'); });
+};
+
+/**
+ * Show every permission, those the plugin asks for in green, and install on confirmation
+ * @param {Object} preview - {version, requested, all} from /api/plugins/preview
+ */
+PluginsManager.prototype._confirmInstall = function(id, repository, preview) {
+    var self = this;
+    var shortId = id.replace(/^@[^\/]+\//, '');
+    var installed = Object.values(this.installedPlugins).filter(function(p) {
+        return p.id === id || p.id.replace(/^@[^\/]+\//, '') === shortId && p.repository === repository;
+    })[0];
+    var had = installed ? (installed.requestedPermissions || []) : [];
+    var requested = preview.requested || [];
+    var name = (this.availablePlugins || []).filter(function(p) { return p.id === shortId && p.repository === repository; })
+        .map(function(p) { return p.name; })[0] || shortId;
+
+    this.elements.installPluginName.textContent = (installed ? 'Update ' : 'Install ') + name + ' v' + (preview.version || '?');
+    this.elements.installPermissions.innerHTML = (preview.all || ALL_PERMISSIONS).map(function(perm) {
+        var asks = requested.indexOf(perm) >= 0;
+        var line = '<li class="mb-1 ' + (asks ? 'text-success fw-semibold' : 'text-muted') + '">' +
+                   '<i class="bi ' + (asks ? 'bi-check-circle-fill' : 'bi-circle') + ' me-1"></i>' +
+                   VCLU.esc(PERMISSION_LABELS[perm] || perm);
+        if (asks && installed && had.indexOf(perm) < 0) {
+            line += ' <span class="badge bg-warning text-dark">new</span>';
+        }
+        if (asks && PERMISSION_WARNINGS[perm]) {
+            line += '<div class="small text-danger fw-normal ms-3"><i class="bi bi-exclamation-triangle"></i> ' +
+                    VCLU.esc(PERMISSION_WARNINGS[perm]) + ' Off until you allow it in Permissions.</div>';
+        }
+        return line + '</li>';
+    }).join('');
+
+    var notes = [];
+    if (requested.length === 0) notes.push('This plugin uses nothing beyond the internet.');
+    if (installed) notes.push('An update keeps what you allowed; anything new waits for you to allow it.');
+    this.elements.installNote.textContent = notes.join(' ');
+    this.elements.installConfirm.textContent = installed ? 'Update' : 'Install';
+
+    var modal = new bootstrap.Modal(this.elements.installModal);
+    this.elements.installConfirm.onclick = function() {
+        modal.hide();
+        self._install(id, repository, requested);
+    };
+    modal.show();
+};
+
+/**
+ * Install after the confirmation
+ * @param {Array} accept - the permissions the user saw and confirmed
+ */
+PluginsManager.prototype._install = function(id, repository, accept) {
+    var self = this;
     fetch('/api/plugins/install', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         // the Installed tab passes the full id; the repository knows the short one
-        body: JSON.stringify({id: id.replace(/^@[^\/]+\//, ''), repository: repository})
+        body: JSON.stringify({id: id.replace(/^@[^\/]+\//, ''), repository: repository, accept: accept})
     })
     .then(function(r) { return r.json(); })
     .then(function(data) {
@@ -613,6 +702,17 @@ var PERMISSION_LABELS = {
     grenton_raw: 'Grenton frames (UDP to CLUs)',
     tftp: 'TFTP (files on devices)',
     serial: 'Serial port'
+};
+
+var ALL_PERMISSIONS = ['lan', 'mqtt', 'modbus', 'grenton_raw', 'tftp', 'serial'];
+
+var PERMISSION_SHORT = {
+    lan: 'LAN',
+    mqtt: 'MQTT',
+    modbus: 'Modbus',
+    grenton_raw: 'Grenton frames',
+    tftp: 'TFTP',
+    serial: 'Serial'
 };
 
 // Allowed only by the user, never on install

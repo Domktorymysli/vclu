@@ -257,6 +257,27 @@
         </div>
     </div>
 
+    <!-- Install Confirmation Modal -->
+    <div class="modal fade" id="installModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="installPluginName"></h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="small mb-2">What the plugin will be able to do. HTTP to the internet is always allowed.</p>
+                    <ul class="list-unstyled mb-2" id="installPermissions"></ul>
+                    <p class="small text-muted mb-0" id="installNote"></p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="installConfirm">Install</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Documentation Modal -->
     <div class="modal fade" id="docModal" tabindex="-1">
         <div class="modal-dialog modal-lg modal-dialog-scrollable">

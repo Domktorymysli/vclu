@@ -280,3 +280,84 @@ func TestPluginsAPIPermissionsRefusesUnknownKeys(t *testing.T) {
 		}
 	}
 }
+
+// The panel shows what a plugin asks for before installing it, next to every permission.
+func TestPluginsAPIPreviewReadsTheManifest(t *testing.T) {
+	repo := manifestRepo(t, "rs", "1.2.0",
+		`{"id":"rs","version":"1.2.0","api":2,"permissions":{"lan":true,"serial":true},"files":["init.lua"]}`)
+	dir := t.TempDir()
+	if err := writeTestConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
+		Repositories: []config.PluginRepository{{Name: "test", URL: repo.URL, Enabled: true}},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{serverDir: dir}
+	preview := func(id, repository string) (int, map[string]any) {
+		gin.SetMode(gin.TestMode)
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodGet, "/api/plugins/preview?id="+id+"&repository="+repository, nil)
+		s.handlePluginsAPIPreview(c)
+		var out map[string]any
+		_ = json.Unmarshal(w.Body.Bytes(), &out)
+		return w.Code, out
+	}
+
+	code, out := preview("rs", "test")
+	if code != http.StatusOK || out["version"] != "1.2.0" {
+		t.Fatalf("preview: %d %v", code, out)
+	}
+	join := func(v any) string {
+		var parts []string
+		for _, x := range v.([]any) {
+			parts = append(parts, x.(string))
+		}
+		return strings.Join(parts, ",")
+	}
+	if got := join(out["requested"]); got != "lan,serial" {
+		t.Errorf("requested %q, want lan,serial", got)
+	}
+	if got := join(out["all"]); got != "lan,mqtt,modbus,grenton_raw,tftp,serial" {
+		t.Errorf("all %q", got)
+	}
+	if code, _ := preview("rs", "nope"); code != http.StatusNotFound {
+		t.Errorf("unknown repository: %d, want 404", code)
+	}
+	if code, _ := preview("other", "test"); code != http.StatusBadGateway {
+		t.Errorf("unknown plugin: %d, want 502", code)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "plugins")); err == nil {
+		if entries, _ := os.ReadDir(filepath.Join(dir, "plugins")); len(entries) > 0 {
+			t.Errorf("preview wrote files: %v", entries)
+		}
+	}
+}
+
+// A new plugin gets only what the user confirmed; the rest waits as after an update.
+func TestPluginsAPIInstallGrantsOnlyWhatWasAccepted(t *testing.T) {
+	repo := manifestRepo(t, "shelly", "1.0.0",
+		`{"id":"shelly","version":"1.0.0","api":2,"permissions":{"lan":true,"mqtt":true},"files":["init.lua"]}`)
+	dir := t.TempDir()
+	if err := writeTestConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
+		Repositories: []config.PluginRepository{{Name: "test", URL: repo.URL, Enabled: true}},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{serverDir: dir}
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	// confirmed lan only (the manifest changed since the preview, or the user unticked mqtt)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/plugins/install",
+		strings.NewReader(`{"id":"shelly","repository":"test","accept":["lan"]}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+	s.handlePluginsAPIInstall(c)
+	if w.Code != http.StatusOK {
+		t.Fatalf("install: %d %s", w.Code, w.Body.String())
+	}
+
+	got := installedPlugins(t, s)
+	if len(got) != 1 || !lanOnly(got[0].Grants) || strings.Join(got[0].PendingPermissions, ",") != "mqtt" {
+		t.Errorf("installed: %+v, want lan allowed and mqtt pending", got)
+	}
+}

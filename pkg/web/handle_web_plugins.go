@@ -314,12 +314,47 @@ func (s *Server) installedPluginsView(installed []config.InstalledPlugin) []inst
 	return out
 }
 
+// handlePluginsAPIPreview: what a plugin of a repository asks for, read from its plugin.json
+// before installing, and every permission there is, for the confirmation in the panel.
+func (s *Server) handlePluginsAPIPreview(c *gin.Context) {
+	id, repository := c.Query("id"), c.Query("repository")
+	masterConfig, _ := config.ReadMasterConfig(s.serverDir)
+	repos := config.DefaultPluginsConfig().Repositories
+	if masterConfig != nil && masterConfig.Plugins != nil {
+		repos = masterConfig.Plugins.Repositories
+	}
+	var repo *config.PluginRepository
+	for i := range repos {
+		if repos[i].Name == repository && repos[i].Enabled {
+			repo = &repos[i]
+			break
+		}
+	}
+	if repo == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Repository not found"})
+		return
+	}
+	requested, version, err := plugins.NewLoader(s.serverDir).PreviewPermissions(*repo, id)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("Failed to read the plugin: %v", err)})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"version":   version,
+		"requested": nonNil(requested.Names()),
+		"all":       plugins.AllPermissions.Names(),
+	})
+}
+
 // handlePluginsAPIInstall installs a plugin
 func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 	var req struct {
 		ID         string `json:"id"`         // short id (e.g., "weather")
 		FullID     string `json:"fullId"`     // full id (e.g., "@vclu/weather")
 		Repository string `json:"repository"` // repository name
+		// The permissions the user confirmed (GET /plugins/preview); a new plugin gets only
+		// these, the rest waits as on an update. Without the field, what it asks for.
+		Accept *[]string `json:"accept"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -428,6 +463,9 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 		return
 	}
 	requested, _ := loader.RequestedPermissions(fullId)
+	if req.Accept != nil {
+		requested = requested.Only(*req.Accept)
+	}
 
 	// Fetched without the lock; the install goes into the file as it is now
 	action := "installed"

@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/Domktorymysli/vclu/pkg/config"
@@ -98,6 +99,18 @@ func (p Permissions) Names() []string {
 		out = append(out, "serial")
 	}
 	return out
+}
+
+// AllPermissions: every permission a plugin can ask for, as the panel lists them.
+var AllPermissions = Permissions{LAN: true, MQTT: true, Modbus: true, GrentonRaw: true, TFTP: true, Serial: true}
+
+// Only keeps the permissions of p named in names.
+func (p Permissions) Only(names []string) Permissions {
+	has := func(n string) bool { return slices.Contains(names, n) }
+	return Permissions{
+		LAN: p.LAN && has("lan"), MQTT: p.MQTT && has("mqtt"), Modbus: p.Modbus && has("modbus"),
+		GrentonRaw: p.GrentonRaw && has("grenton_raw"), TFTP: p.TFTP && has("tftp"), Serial: p.Serial && has("serial"),
+	}
 }
 
 // allowedBy: the part of p the grants allow, and what p asks for beyond them. Nil grants

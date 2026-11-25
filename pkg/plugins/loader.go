@@ -254,6 +254,54 @@ func (l *Loader) DownloadPlugin(repo config.PluginRepository, pluginID string) e
 	return l.downloadPlugin(repo, pluginID, "")
 }
 
+// PreviewPermissions reads the plugin.json of the version the repository lists, from the
+// same place a download takes it, and returns what the plugin asks for, so the user sees
+// it before installing.
+func (l *Loader) PreviewPermissions(repo config.PluginRepository, pluginID string) (Permissions, string, error) {
+	if !validPluginID(pluginID) {
+		return Permissions{}, "", fmt.Errorf("invalid plugin id %q", pluginID)
+	}
+	_, shortId := parseFullId(pluginID)
+	index, err := l.FetchRepositoryIndex(repo)
+	if err != nil {
+		return Permissions{}, "", fmt.Errorf("failed to fetch repository index: %w", err)
+	}
+	var listing *PluginListing
+	for i := range index.Plugins {
+		if index.Plugins[i].ID == shortId {
+			listing = &index.Plugins[i]
+			break
+		}
+	}
+	if listing == nil {
+		return Permissions{}, "", fmt.Errorf("plugin %s not found in repository", shortId)
+	}
+	resolver := DefaultResolver(repo.URL)
+	read := func(tag string) (PluginManifest, error) {
+		var m PluginManifest
+		url := strings.TrimSuffix(resolver.RawFileURL(repo.URL, tag, listing.Path), "/") + "/plugin.json"
+		resp, err := l.httpClient.Get(url)
+		if err != nil {
+			return m, err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return m, fmt.Errorf("plugin.json: HTTP %d", resp.StatusCode)
+		}
+		err = json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&m)
+		return m, err
+	}
+	// a tag that cannot be read falls back to main, as in downloadPlugin
+	m, err := read(listing.GitTag)
+	if err != nil && listing.GitTag != "" {
+		m, err = read("")
+	}
+	if err != nil {
+		return Permissions{}, "", err
+	}
+	return requestedPermissions(m), listing.Version, nil
+}
+
 // downloadPlugin downloads the version the repository lists; with newerThan, only when that
 // version is newer (errNotNewer otherwise), so an update never goes back.
 func (l *Loader) downloadPlugin(repo config.PluginRepository, pluginID, newerThan string) error {
