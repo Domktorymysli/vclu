@@ -17,7 +17,7 @@
             unchanged: 'Bez zmian względem pliku.', newFile: 'Nowy plik', loading: 'Ładuję…', dropped: 'Pominięte',
             hostsAdded: 'Dodane do dozwolonych hostów', close: 'Zamknij', back: 'Wstecz', next: 'Dalej',
             required: 'Wymagane', badHost: 'Podaj adres IP, np. 192.168.1.10', min: 'Najmniej', max: 'Najwięcej',
-            fixFirst: 'Popraw zaznaczone pola.', cancel: 'Anuluj', done: 'Gotowe', configure: 'Konfiguracja',
+            fixFirst: 'Popraw zaznaczone pola', row: 'wiersz', cancel: 'Anuluj', done: 'Gotowe', configure: 'Konfiguracja',
         },
         en: {
             settings: 'Settings', devices: 'Devices', code: 'Code', save: 'Save', saved: 'Saved',
@@ -28,7 +28,7 @@
             unchanged: 'No change from the file.', newFile: 'New file', loading: 'Loading…', dropped: 'Dropped',
             hostsAdded: 'Added to the allowed hosts', close: 'Close', back: 'Back', next: 'Next',
             required: 'Required', badHost: 'Enter an IP address, e.g. 192.168.1.10', min: 'At least', max: 'At most',
-            fixFirst: 'Fix the marked fields.', cancel: 'Cancel', done: 'Done', configure: 'Setup',
+            fixFirst: 'Fix the marked fields', row: 'row', cancel: 'Cancel', done: 'Done', configure: 'Setup',
         }
     };
     var t = T[lang] || T.en;
@@ -167,7 +167,8 @@
     };
 
     Wizard.prototype.error = function(msg) {
-        this.modal().querySelector('.wizard-error').innerHTML = msg ? '<div class="alert alert-danger py-2 small">' + esc(msg) + '</div>' : '';
+        this.modal().querySelector('.wizard-error').innerHTML = msg ?
+            '<div class="pw-error"><i class="bi bi-exclamation-circle"></i><span>' + esc(msg) + '</span></div>' : '';
     };
 
     // Leaving a step saves what changed in it; a step that does not check out keeps the user on it
@@ -202,39 +203,68 @@
         return Promise.resolve();
     };
 
-    // marks empty required fields, hosts that are not an IP and numbers out of range; vclu checks again
+    // what is wrong with one field, '' when nothing; vclu checks again on save
+    function fieldError(input, f) {
+        var v = readField(input);
+        if (v === null) {
+            // a secret already stored may stay empty
+            return f.required && f.type !== 'boolean' && !(f.type === 'secret' && input.dataset.set) ? t.required : '';
+        }
+        if (f.type === 'host' && !isIP(String(v))) return t.badHost;
+        if (f.type === 'number') {
+            if (isNaN(v)) return t.required;
+            if (f.min !== undefined && v < f.min) return t.min + ' ' + f.min;
+            if (f.max !== undefined && v > f.max) return t.max + ' ' + f.max;
+        }
+        return '';
+    }
+
+    function markField(input, msg) {
+        input.classList.toggle('is-invalid', !!msg);
+        // in the device table the message floats under the cell, so rows keep their height
+        var cls = input.closest('td') ? 'invalid-tooltip' : 'invalid-feedback';
+        var fb = input.parentNode.querySelector('.' + cls);
+        if (msg && !fb) {
+            fb = document.createElement('div');
+            fb.className = cls;
+            input.insertAdjacentElement('afterend', fb);
+        }
+        if (fb) fb.textContent = msg;
+    }
+
+    // marks what is wrong and says where; a marked field clears as soon as it is right
     Wizard.prototype.checkInputs = function(root, fields) {
-        var ok = true;
+        var self = this;
+        var bad = [];
         root.querySelectorAll('[data-field]').forEach(function(input) {
             var f = fields[input.dataset.field] || {};
             var holder = input.closest('[data-row]') || input.closest('td');
             if (holder && holder.style.display === 'none') return;
             var tr = input.closest('tr');
             if (tr && !tr.querySelector('[data-include]').checked) return; // a row left out is not saved
-            var v = readField(input);
-            var msg = '';
-            if (v === null) {
-                // a secret already stored may stay empty
-                if (f.required && f.type !== 'boolean' && !(f.type === 'secret' && input.dataset.set)) msg = t.required;
-            } else if (f.type === 'host' && !isIP(String(v))) {
-                msg = t.badHost;
-            } else if (f.type === 'number') {
-                if (isNaN(v)) msg = t.required;
-                else if (f.min !== undefined && v < f.min) msg = t.min + ' ' + f.min;
-                else if (f.max !== undefined && v > f.max) msg = t.max + ' ' + f.max;
+            var msg = fieldError(input, f);
+            markField(input, msg);
+            if (!msg) return;
+            var where = text(f.label, input.dataset.field);
+            if (tr) where += ' (' + t.row + ' ' + (Number(tr.dataset.index) + 1) + ')';
+            bad.push({ input: input, where: where });
+            if (!input.dataset.watch) {
+                input.dataset.watch = '1';
+                var recheck = function() {
+                    if (!input.classList.contains('is-invalid')) return;
+                    var m = fieldError(input, f);
+                    markField(input, m);
+                    if (!root.querySelector('.is-invalid')) self.error('');
+                };
+                input.addEventListener('input', recheck);
+                input.addEventListener('change', recheck);
             }
-            input.classList.toggle('is-invalid', !!msg);
-            var fb = input.parentNode.querySelector('.invalid-feedback');
-            if (msg && !fb) {
-                fb = document.createElement('div');
-                fb.className = 'invalid-feedback';
-                input.insertAdjacentElement('afterend', fb);
-            }
-            if (fb) fb.textContent = msg;
-            if (msg) ok = false;
         });
-        if (!ok) this.error(t.fixFirst);
-        return ok;
+        if (bad.length) {
+            this.error(t.fixFirst + ': ' + bad.map(function(b) { return b.where; }).join(', '));
+            bad[0].input.focus();
+        }
+        return bad.length === 0;
     };
 
     function isIP(s) {
@@ -400,7 +430,7 @@
         if (!this.rows.length) {
             html += '<div class="pw-empty"><i class="bi bi-hdd-network"></i><div>' + esc(t.noDevices) + '</div></div>';
         } else {
-            html += '<div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>' + esc(t.add) + '</th>' +
+            html += '<div class="table-responsive pw-table"><table class="table table-sm align-middle"><thead><tr><th>' + esc(t.add) + '</th>' +
                 names.map(function(n) { return '<th>' + esc(text(d.fields[n].label, n)) + '</th>'; }).join('') +
                 '<th></th></tr></thead><tbody>';
             this.rows.forEach(function(row, i) {
