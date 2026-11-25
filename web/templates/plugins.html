@@ -242,16 +242,16 @@
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">Permissions: <span id="permissionsPluginId"></span></h5>
+                    <h5 class="modal-title">{{index .t "plugins.perm.permissions_title"}}: <span id="permissionsPluginId"></span></h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                    <p class="small text-muted">Internet: the servers the plugin declares (plugins written before permissions reach any). A list narrows a permission; leave it empty for any host or topic.</p>
+                    <p class="small text-muted">{{index .t "plugins.perm.permissions_intro"}}</p>
                     <div id="permissionsFields"></div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="button" class="btn btn-primary" onclick="pluginsManager.savePermissions()">Save</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{index .t "plugins.perm.cancel"}}</button>
+                    <button type="button" class="btn btn-primary" onclick="pluginsManager.savePermissions()">{{index .t "plugins.perm.save"}}</button>
                 </div>
             </div>
         </div>
@@ -266,13 +266,13 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                    <p class="small mb-2">What the plugin will be able to do.</p>
+                    <p class="small mb-2">{{index .t "plugins.perm.install_intro"}}</p>
                     <ul class="list-unstyled mb-2" id="installPermissions"></ul>
                     <p class="small text-muted mb-0" id="installNote"></p>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="button" class="btn btn-primary" id="installConfirm">Install</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{index .t "plugins.perm.cancel"}}</button>
+                    <button type="button" class="btn btn-primary" id="installConfirm">{{index .t "plugins.perm.install"}}</button>
                 </div>
             </div>
         </div>
@@ -307,6 +307,60 @@
     <script src="/static/js/csrf.js"></script>
     <script src="/static/js/theme.js"></script>
     <script src="/static/js/sidebar.js"></script>
+    <script>
+        // permission texts for plugins.js (web/locales: plugins.perm)
+        var PLUGINS_I18N = {
+            permissions_title: '{{index .t "plugins.perm.permissions_title"}}',
+            permissions_intro: '{{index .t "plugins.perm.permissions_intro"}}',
+            cancel: '{{index .t "plugins.perm.cancel"}}',
+            save: '{{index .t "plugins.perm.save"}}',
+            install: '{{index .t "plugins.perm.install"}}',
+            update: '{{index .t "plugins.perm.update"}}',
+            install_intro: '{{index .t "plugins.perm.install_intro"}}',
+            new: '{{index .t "plugins.perm.new"}}',
+            off_until_allowed: '{{index .t "plugins.perm.off_until_allowed"}}',
+            uses_none: '{{index .t "plugins.perm.uses_none"}}',
+            update_keeps: '{{index .t "plugins.perm.update_keeps"}}',
+            not_used: '{{index .t "plugins.perm.not_used"}}',
+            asked_not_allowed: '{{index .t "plugins.perm.asked_not_allowed"}}',
+            allowed: '{{index .t "plugins.perm.allowed"}}',
+            asks_for: '{{index .t "plugins.perm.asks_for"}}',
+            asks_for_title: '{{index .t "plugins.perm.asks_for_title"}}',
+            allow: '{{index .t "plugins.perm.allow"}}',
+            allow_confirm: '{{index .t "plugins.perm.allow_confirm"}}',
+            permissions_button: '{{index .t "plugins.perm.permissions_button"}}',
+            label_internet: '{{index .t "plugins.perm.label_internet"}}',
+            label_lan: '{{index .t "plugins.perm.label_lan"}}',
+            label_mqtt: '{{index .t "plugins.perm.label_mqtt"}}',
+            label_modbus: '{{index .t "plugins.perm.label_modbus"}}',
+            label_grenton_raw: '{{index .t "plugins.perm.label_grenton_raw"}}',
+            label_tftp: '{{index .t "plugins.perm.label_tftp"}}',
+            label_serial: '{{index .t "plugins.perm.label_serial"}}',
+            short_lan: '{{index .t "plugins.perm.short_lan"}}',
+            short_grenton_raw: '{{index .t "plugins.perm.short_grenton_raw"}}',
+            short_serial: '{{index .t "plugins.perm.short_serial"}}',
+            warn_grenton_raw: '{{index .t "plugins.perm.warn_grenton_raw"}}',
+            warn_tftp: '{{index .t "plugins.perm.warn_tftp"}}',
+            warn_serial: '{{index .t "plugins.perm.warn_serial"}}',
+            warn_internet_any: '{{index .t "plugins.perm.warn_internet_any"}}',
+            internet_any: '{{index .t "plugins.perm.internet_any"}}',
+            internet_any_short: '{{index .t "plugins.perm.internet_any_short"}}',
+            internet_connects_to: '{{index .t "plugins.perm.internet_connects_to"}}',
+            any_server: '{{index .t "plugins.perm.any_server"}}',
+            not_allowed_yet: '{{index .t "plugins.perm.not_allowed_yet"}}',
+            internet_save_allows: '{{index .t "plugins.perm.internet_save_allows"}}',
+            hosts_only: '{{index .t "plugins.perm.hosts_only"}}',
+            any_local: '{{index .t "plugins.perm.any_local"}}',
+            any_local_but_vclu: '{{index .t "plugins.perm.any_local_but_vclu"}}',
+            subscribe_only: '{{index .t "plugins.perm.subscribe_only"}}',
+            publish_only: '{{index .t "plugins.perm.publish_only"}}',
+            any_topic: '{{index .t "plugins.perm.any_topic"}}',
+            ports: '{{index .t "plugins.perm.ports"}}',
+            ports_none: '{{index .t "plugins.perm.ports_none"}}',
+            ports_here: '{{index .t "plugins.perm.ports_here"}}',
+            ports_none_here: '{{index .t "plugins.perm.ports_none_here"}}'
+        };
+    </script>
     <script src="/static/js/plugin-wizard.js"></script>
     <script src="/static/js/plugins.js"></script>
     <script>
@@ -322,7 +376,9 @@
                 grants: {{if .Grants}}{{.Grants | json}}{{else}}null{{end}},
                 needsConfig: {{.NeedsConfig}},
                 requestedPermissions: {{if .RequestedPermissions}}{{.RequestedPermissions | json}}{{else}}[]{{end}},
-                pendingPermissions: {{if .PendingPermissions}}{{.PendingPermissions | json}}{{else}}[]{{end}}
+                pendingPermissions: {{if .PendingPermissions}}{{.PendingPermissions | json}}{{else}}[]{{end}},
+                internet: {{if .Internet}}{{.Internet | json}}{{else}}[]{{end}},
+                pendingInternet: {{if .PendingInternet}}{{.PendingInternet | json}}{{else}}[]{{end}}
             };
         }
         {{end}}
