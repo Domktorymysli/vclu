@@ -3985,6 +3985,7 @@ function DashboardAPI.list()
                 name = dash._name,
                 icon = dash._icon,
                 auth = dash._auth,
+                plugin = dash._plugin, -- set by plugin:dashboard
                 widgetCount = widgetCount,
                 widgets = widgets,
             })

@@ -447,16 +447,43 @@ function Plugin:moduleCode(fn)
     return self
 end
 
--- ============================================
--- grenton_raw, tftp, serial: only in a plugin's sandbox, with the permission
--- ============================================
-
 local function sandboxAPI(self, name)
     if not (self._sandbox and self._sandbox.api) then
         error(name .. " is only for plugins", 3)
     end
     return self._sandbox.api
 end
+
+-- ============================================
+-- Apps: the plugin's own dashboards and actions (no permission)
+-- ============================================
+
+--- A dashboard of the plugin's own: the builder of Dashboard.new (name, icon, auth, poll,
+-- section, widgets, build). Its id is <shortId>_<id> ("-" as "_"), at /d/<that id>; auth is
+-- "session" unless set. Widgets reaching the house by name (area, floor, room, covers, calendar)
+-- are not available. Removed when the plugin stops.
+-- @param id string Lower-case letters, digits and _
+-- @return table DashboardBuilder
+-- @usage plugin:dashboard("lista"):name("Zakupy"):section("Lista", "cart"):button("clear", "Wyczyść", "trash", function() items = {} end):build()
+function Plugin:dashboard(id)
+    return sandboxAPI(self, "dashboard").dashboard(id)
+end
+
+--- A named action agents and voice assistants call (HTTP POST /api/plugins/:id/actions/:name,
+-- MCP vclu_app_action). fn(params) gets the checked params and returns the result (text,
+-- number, true/false or a plain table) or nil, err. At most 32 per plugin; removed when it stops.
+-- @param name string Lower-case letter, then letters, digits and _
+-- @param spec table {description = text|{pl, en}, params = {name = {type = "string"|"number"|"boolean", description, required}}}
+-- @param fn function fn(params) -> result | nil, err
+-- @usage plugin:action("add", {description = {pl = "Dodaj do listy", en = "Add to the list"}, params = {item = {type = "string", required = true}}}, function(p) return add(p.item) end)
+function Plugin:action(name, spec, fn)
+    sandboxAPI(self, "action").action(name, spec, fn)
+    return self
+end
+
+-- ============================================
+-- grenton_raw, tftp, serial: only in a plugin's sandbox, with the permission
+-- ============================================
 
 --- A UDP socket of the plugin's own (permission grenton_raw)
 -- @param opts table|nil {port = 0}: 0 for any free port

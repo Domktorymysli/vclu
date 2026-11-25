@@ -511,6 +511,7 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 
 // handlePluginsAPIUninstall uninstalls a plugin
 func (s *Server) handlePluginsAPIUninstall(c *gin.Context) {
+	defer dashCache.Invalidate() // a plugin started or stopped brings or takes its dashboards
 	pluginID := c.Param("id")
 
 	err := config.UpdateMasterConfig(s.serverDir, func(masterConfig *config.VCLUConfig) error {
@@ -544,6 +545,12 @@ func (s *Server) handlePluginsAPIUninstall(c *gin.Context) {
 		return
 	}
 
+	// its dashboards and actions go with it
+	if s.pluginController != nil && s.pluginController.IsLoaded(pluginID) {
+		if err := s.pluginController.UnloadPlugin(pluginID); err != nil {
+			log.Printf("[PLUGINS] %s: unloading: %v", pluginID, err)
+		}
+	}
 	if err := plugins.DeletePluginSecrets(s.serverDir, pluginID); err != nil {
 		log.Printf("[PLUGINS] %s: forgetting secrets: %v", pluginID, err)
 	}
@@ -553,6 +560,7 @@ func (s *Server) handlePluginsAPIUninstall(c *gin.Context) {
 
 // handlePluginsAPIToggle enables/disables a plugin
 func (s *Server) handlePluginsAPIToggle(c *gin.Context) {
+	defer dashCache.Invalidate() // a plugin started or stopped brings or takes its dashboards
 	pluginID := c.Param("id")
 
 	var req struct {
@@ -633,6 +641,7 @@ func (s *Server) handlePluginsAPISerialPorts(c *gin.Context) {
 // handlePluginsAPIPermissions sets what the user allows a plugin beyond HTTP to the internet
 // and loads the plugin again with it. The plugin still gets only what its plugin.json asks for.
 func (s *Server) handlePluginsAPIPermissions(c *gin.Context) {
+	defer dashCache.Invalidate() // a plugin started or stopped brings or takes its dashboards
 	pluginID := c.Param("id")
 
 	// Unknown keys refused: {"lan": {"host": [...]}} would otherwise allow any host
@@ -695,6 +704,7 @@ func (s *Server) handlePluginsAPIPermissions(c *gin.Context) {
 
 // handlePluginsAPIConfig updates plugin configuration
 func (s *Server) handlePluginsAPIConfig(c *gin.Context) {
+	defer dashCache.Invalidate() // a plugin started or stopped brings or takes its dashboards
 	pluginID := c.Param("id")
 
 	var req struct {
