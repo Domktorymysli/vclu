@@ -35,9 +35,12 @@ end)
 return plugin
 `
 
+// the dashboards plugin.json declares, as the loader passes them
+const appsDeclared = `{dashboards = {lista = {name = "Zakupy"}, x = {name = "X"}, a = {name = "A"}, b = {name = "B"}}}`
+
 func appsEngine(t *testing.T) *LuaEngine {
 	t.Helper()
-	engine := sandboxEngine(t, "@jan/zakupy-dom", "")
+	engine := sandboxEngine(t, "@jan/zakupy-dom", appsDeclared)
 	if _, e := runPlugin(t, engine, "@jan/zakupy-dom", appsPlugin); e != "nil" {
 		t.Fatalf("plugin: %s", e)
 	}
@@ -64,7 +67,7 @@ func TestPluginDashboardIdAndAuth(t *testing.T) {
 	// an auth the plugin sets stays; building again replaces its own dashboard
 	if _, e := runPlugin(t, engine, "@jan/zakupy-dom", `
 		local p = Plugin.getPlugin("@jan/zakupy-dom")
-		p:dashboard("lista"):auth("pin"):pin("1234"):section("A"):button("b", "B", "x", function() end):build()
+		p:dashboard("lista"):auth("pin"):section("A"):button("b", "B", "x", function() end):build()
 	`); e != "nil" {
 		t.Fatalf("rebuild: %s", e)
 	}
@@ -82,7 +85,8 @@ func TestPluginDashboardCollision(t *testing.T) {
 	engine := NewLuaEngine()
 	t.Cleanup(engine.Close)
 	luaOut(t, engine, `Dashboard.new("zakupy_lista"):section("M"):build()`)
-	luaOut(t, engine, `PluginSandbox:create("@jan/zakupy", nil); PluginSandbox:create("@ola/zakupy-lista", nil)`)
+	luaOut(t, engine, `PluginSandbox:create("@jan/zakupy", {dashboards = {lista = {name = "L"}, lista_x = {name = "LX"}, late = {name = "Late"}}})
+		PluginSandbox:create("@ola/zakupy-lista", {dashboards = {x = {name = "X"}}})`)
 
 	_, e := runPlugin(t, engine, "@jan/zakupy", `Plugin:new("zakupy", {}):dashboard("lista")`)
 	if !strings.Contains(e, "zakupy_lista already exists (a module)") {
@@ -270,12 +274,15 @@ func TestPluginActionCall(t *testing.T) {
 func TestPluginAppsUnload(t *testing.T) {
 	dir := t.TempDir()
 	init := strings.Replace(appsPlugin, `Plugin:new("zakupy-dom", {})`, `Plugin:new("zakupy", {})`, 1)
-	loader := installTestPlugin(t, dir, "@jan/zakupy", map[string]interface{}{"api": 2}, init, false)
+	init = strings.Replace(init, `:name("Zakupy")`, "", 1)
+	loader := installTestPlugin(t, dir, "@jan/zakupy", map[string]interface{}{"api": 2,
+		"dashboards": []map[string]any{{"id": "lista", "name": map[string]string{"pl": "Zakupy", "en": "Shopping"}}}}, init, false)
 	engine := apiEngine(t, loader, dir)
 	if err := loader.LoadPlugin("@jan/zakupy", map[string]interface{}{}); err != nil {
 		t.Fatal(err)
 	}
 	mustLua(t, engine, `_dashboards["zakupy_lista"]._plugin`, "@jan/zakupy")
+	mustLua(t, engine, `_dashboards["zakupy_lista"]._name`, "Zakupy") // the manifest's name in Polish, the plugin set none
 	if got := luaOut(t, engine, `PluginSandbox:callAction("@jan/zakupy", "add", '{"item":"milk"}')`); !strings.Contains(got, `"count":1`) {
 		t.Fatalf("call: %s", got)
 	}

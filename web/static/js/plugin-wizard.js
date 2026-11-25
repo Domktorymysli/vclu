@@ -1,6 +1,7 @@
 /**
- * Plugin wizard: settings (step 1), devices with discovery (step 2), module code (step 3).
- * Drawn from the plugin's form file; values are checked again by vclu on save.
+ * Plugin wizard: settings (step 1), devices with discovery (step 2), access to the plugin's
+ * dashboards, module code (last). Drawn from the plugin's form file and the dashboards its
+ * plugin.json declares; values are checked again by vclu on save.
  */
 (function() {
     'use strict';
@@ -18,6 +19,15 @@
             hostsAdded: 'Dodane do dozwolonych hostów', close: 'Zamknij', back: 'Wstecz', next: 'Dalej',
             required: 'Wymagane', badHost: 'Podaj adres IP, np. 192.168.1.10', min: 'Najmniej', max: 'Najwięcej',
             fixFirst: 'Popraw zaznaczone pola', row: 'wiersz', cancel: 'Anuluj', done: 'Gotowe', configure: 'Konfiguracja',
+            dashboards: 'Dashboardy', dashName: 'Nazwa', who: 'Kto może otworzyć',
+            authSession: 'Zalogowani do panelu', authPin: 'Z kodem PIN', authPublic: 'Każdy w sieci domowej', authOff: 'Wyłączony',
+            authPublicDesc: 'Bez logowania, np. tablet w kuchni. Poza domem tylko przez aplikację.',
+            authOffDesc: 'Dashboard nie jest dostępny ani widoczny na liście.',
+            pin: 'Kod PIN', pinDesc: '4 cyfry, wpisywane na stronie dashboardu', badPin: 'Podaj 4 cyfry',
+            app: 'W aplikacji vclu (przez chmurę)', appDesc: 'Dashboard w telefonie także poza domem',
+            appPin: 'Wymagaj PIN-u w aplikacji', roles: 'Kto widzi w aplikacji',
+            rolesDesc: 'Role z chmury vclu po przecinku. Puste: wszyscy domownicy.', rolesKnown: 'Znane role:',
+            badRole: 'Role: małe litery, cyfry, - i _', dashCode: 'Dostęp zapisuje się jako kod w module, w ostatnim kroku.',
         },
         en: {
             settings: 'Settings', devices: 'Devices', code: 'Code', save: 'Save', saved: 'Saved',
@@ -29,6 +39,15 @@
             hostsAdded: 'Added to the allowed hosts', close: 'Close', back: 'Back', next: 'Next',
             required: 'Required', badHost: 'Enter an IP address, e.g. 192.168.1.10', min: 'At least', max: 'At most',
             fixFirst: 'Fix the marked fields', row: 'row', cancel: 'Cancel', done: 'Done', configure: 'Setup',
+            dashboards: 'Dashboards', dashName: 'Name', who: 'Who can open it',
+            authSession: 'Signed in to the panel', authPin: 'With a PIN', authPublic: 'Anyone at home', authOff: 'Off',
+            authPublicDesc: 'No sign-in, e.g. a kitchen tablet. Away from home only through the app.',
+            authOffDesc: 'The dashboard is not served and not listed.',
+            pin: 'PIN', pinDesc: '4 digits, typed on the dashboard page', badPin: 'Enter 4 digits',
+            app: 'In the vclu app (through the cloud)', appDesc: 'The dashboard on the phone away from home too',
+            appPin: 'Ask for the PIN in the app', roles: 'Who sees it in the app',
+            rolesDesc: 'vclu cloud roles, comma separated. Empty: every member of the home.', rolesKnown: 'Known roles:',
+            badRole: 'Roles: lower-case letters, digits, - and _', dashCode: 'Access is written as code in a module, in the last step.',
         }
     };
     var t = T[lang] || T.en;
@@ -42,7 +61,11 @@
     function api(path, opts) {
         return fetch(path, opts).then(function(r) {
             return r.json().then(function(body) {
-                if (!r.ok) throw new Error(body.error || ('HTTP ' + r.status));
+                if (!r.ok) {
+                    var e = new Error(body.error || ('HTTP ' + r.status));
+                    e.fields = body.fields; // what vclu refused, by field
+                    throw e;
+                }
                 return body;
             });
         });
@@ -80,9 +103,9 @@
         var self = this;
         return api(this.base + '/form').then(function(data) {
             if (data.formError) VCLU.showToast(data.formError, 'warning');
-            if (!data.form) return false;
+            if (!data.form && !data.dashboards) return false;
             self.data = data;
-            self.form = typeof data.form === 'string' ? JSON.parse(data.form) : data.form;
+            self.form = !data.form ? null : typeof data.form === 'string' ? JSON.parse(data.form) : data.form;
             self.rows = (data.devices || []).map(function(v) { return { values: v, include: true, saved: true }; });
             var el = self.modal();
             var m = self.meta;
@@ -93,7 +116,7 @@
             // a plugin already running has its settings saved: every step is open
             self.reached = data.running ? self.steps.length - 1 : 0;
             self.current = null;
-            self.show('settings');
+            self.show(self.steps[0]);
             bootstrap.Modal.getOrCreateInstance(el).show();
             return true;
         });
@@ -101,9 +124,11 @@
 
     Wizard.prototype.tabs = function() {
         var self = this;
-        var steps = [['settings', t.settings]];
-        if (this.form.devices) steps.push(['devices', t.devices]);
-        if (this.form.code) steps.push(['code', t.code]);
+        var form = this.form || {};
+        var steps = this.form ? [['settings', t.settings]] : [];
+        if (form.devices) steps.push(['devices', t.devices]);
+        if (this.data.dashboards) steps.push(['dashboards', t.dashboards]);
+        if (form.code || this.data.dashboards) steps.push(['code', t.code]);
         this.steps = steps.map(function(s) { return s[0]; });
         var el = this.modal();
         var ul = el.querySelector('.pw-steps');
@@ -163,6 +188,7 @@
         this.body.onchange = null;
         if (step === 'settings') this.renderSettings();
         else if (step === 'devices') this.renderDevices();
+        else if (step === 'dashboards') this.renderDashboards();
         else this.renderCode();
     };
 
@@ -199,6 +225,20 @@
             var devices = this.rows.filter(function(r) { return r.include; }).map(function(r) { return r.values; });
             if (JSON.stringify(devices) === JSON.stringify(this.data.devices || [])) return Promise.resolve();
             return this.save({ devices: devices });
+        }
+        if (this.current === 'dashboards') {
+            if (!this.checkDashboards()) return Promise.reject(null);
+            var access = this.collectDashboards();
+            if (JSON.stringify(access) === this.pristine) return Promise.resolve();
+            var self = this;
+            return this.save({ dashboards: access }).catch(function(e) {
+                // vclu's answer by field ("lista.pin"): mark them as the check here does
+                Object.keys(e.fields || {}).forEach(function(k) {
+                    var input = self.body.querySelector('[data-dfield="' + CSS.escape(k) + '"]');
+                    if (input) markField(input, e.fields[k]);
+                });
+                throw e;
+            });
         }
         return Promise.resolve();
     };
@@ -418,6 +458,131 @@
             var left = self.rows.filter(function(r) { return !r.include; });
             self.rows = (data.devices || []).map(function(v) { return { values: v, include: true, saved: true }; }).concat(left);
         });
+    };
+
+    // ---- dashboards: who may open them, written as code (Plugin:dashboardAccess) ----
+
+    var AUTHS = ['session', 'pin', 'public', 'off'];
+    var authLabel = { session: 'authSession', pin: 'authPin', public: 'authPublic', off: 'authOff' };
+
+    function splitRoles(s) {
+        return String(s || '').split(',').map(function(r) { return r.trim().toLowerCase(); }).filter(Boolean);
+    }
+
+    Wizard.prototype.renderDashboards = function() {
+        var self = this;
+        var known = this.data.roles || [];
+        var html = '<p class="pw-desc mt-0 mb-3">' + esc(t.dashCode) + '</p>';
+        this.data.dashboards.forEach(function(d) {
+            var a = (self.data.dashboardAccess || {})[d.id] || {};
+            var id = esc(d.id);
+            var auth = AUTHS.indexOf(a.auth) >= 0 ? a.auth : 'session';
+            html += '<div class="pw-dash" data-dash="' + id + '">' +
+                '<div class="pw-dash-head"><i class="bi bi-grid-1x2"></i><div><div class="pw-label">' + esc(text(d.name, d.id)) + '</div>' +
+                '<div class="pw-sub">' + esc(d.path) + '</div>' + (d.description ? '<div class="pw-desc">' + esc(text(d.description)) + '</div>' : '') + '</div></div>' +
+                '<div class="pw-field"><label class="pw-label form-label" for="pw-d-' + id + '-name">' + esc(t.dashName) + '</label>' +
+                '<input type="text" class="form-control" maxlength="60" id="pw-d-' + id + '-name" data-dfield="' + id + '.name" value="' + esc(a.name || text(d.name, d.id)) + '"></div>' +
+                '<div class="pw-field"><div class="pw-label mb-2">' + esc(t.who) + '</div><div class="pw-choices">' +
+                AUTHS.map(function(o) {
+                    return '<button type="button" class="pw-choice' + (auth === o ? ' active' : '') + '" data-auth="' + o + '">' + esc(t[authLabel[o]]) + '</button>';
+                }).join('') + '</div><div class="pw-desc" data-auth-desc></div></div>' +
+                '<div class="pw-switch" data-show="on">' +
+                '<label class="pw-switch-text" for="pw-d-' + id + '-remote"><span class="pw-label">' + esc(t.app) + '</span><div class="pw-desc">' + esc(t.appDesc) + '</div></label>' +
+                '<div class="form-check form-switch m-0"><input type="checkbox" role="switch" class="form-check-input" id="pw-d-' + id + '-remote" data-dfield="' + id + '.remote"' + (a.remote ? ' checked' : '') + '></div></div>' +
+                '<div class="pw-switch pw-nested" data-show="remote">' +
+                '<label class="pw-switch-text" for="pw-d-' + id + '-rpin"><span class="pw-label">' + esc(t.appPin) + '</span></label>' +
+                '<div class="form-check form-switch m-0"><input type="checkbox" role="switch" class="form-check-input" id="pw-d-' + id + '-rpin" data-dfield="' + id + '.remotePin"' + (a.remotePin ? ' checked' : '') + '></div></div>' +
+                '<div class="pw-field pw-nested" data-show="remote"><label class="pw-label form-label" for="pw-d-' + id + '-roles">' + esc(t.roles) + '</label>' +
+                '<input type="text" class="form-control" id="pw-d-' + id + '-roles" data-dfield="' + id + '.roles" placeholder="domownicy, gosia" value="' + esc((a.roles || []).join(', ')) + '">' +
+                '<div class="pw-desc">' + esc(t.rolesDesc) + '</div>' +
+                (known.length ? '<div class="pw-chips"><span class="pw-desc m-0">' + esc(t.rolesKnown) + '</span>' + known.map(function(r) {
+                    return '<button type="button" class="pw-chip" data-role="' + esc(r) + '">' + esc(r) + '</button>';
+                }).join('') + '</div>' : '') + '</div>' +
+                '<div class="pw-field" data-show="pin"><label class="pw-label form-label" for="pw-d-' + id + '-pin">' + esc(t.pin) + '</label>' +
+                '<input type="text" class="form-control pw-pin" inputmode="numeric" maxlength="4" autocomplete="off" id="pw-d-' + id + '-pin" data-dfield="' + id + '.pin" value="' + esc(a.pin || '') + '">' +
+                '<div class="pw-desc">' + esc(t.pinDesc) + '</div></div>' +
+                '</div>';
+        });
+        this.body.innerHTML = html;
+        this.body.querySelectorAll('.pw-dash').forEach(function(box) {
+            box.querySelectorAll('.pw-choice').forEach(function(b) {
+                b.addEventListener('click', function() {
+                    box.querySelectorAll('.pw-choice').forEach(function(o) { o.classList.toggle('active', o === b); });
+                    self.refreshDash(box);
+                });
+            });
+            box.querySelectorAll('.pw-chip').forEach(function(c) {
+                c.addEventListener('click', function() {
+                    var input = box.querySelector('[data-dfield$=".roles"]');
+                    var list = splitRoles(input.value);
+                    if (list.indexOf(c.dataset.role) < 0) list.push(c.dataset.role);
+                    input.value = list.join(', ');
+                    self.refreshDash(box);
+                });
+            });
+            box.addEventListener('input', function() { self.refreshDash(box); });
+            box.addEventListener('change', function() { self.refreshDash(box); });
+            self.refreshDash(box);
+        });
+        this.pristine = JSON.stringify(this.collectDashboards());
+    };
+
+    // what shows follows the choices; a marked field clears as soon as it is right
+    Wizard.prototype.refreshDash = function(box) {
+        var auth = box.querySelector('.pw-choice.active').dataset.auth;
+        var remote = box.querySelector('[data-dfield$=".remote"]').checked;
+        var rpin = box.querySelector('[data-dfield$=".remotePin"]').checked;
+        var on = { on: auth !== 'off', remote: auth !== 'off' && remote, pin: auth === 'pin' || (auth !== 'off' && remote && rpin) };
+        box.querySelectorAll('[data-show]').forEach(function(el) { el.style.display = on[el.dataset.show] ? '' : 'none'; });
+        var desc = auth === 'public' ? t.authPublicDesc : auth === 'off' ? t.authOffDesc : '';
+        box.querySelector('[data-auth-desc]').textContent = desc;
+        box.querySelector('[data-auth-desc]').style.display = desc ? '' : 'none';
+        var roles = splitRoles(box.querySelector('[data-dfield$=".roles"]').value);
+        box.querySelectorAll('.pw-chip').forEach(function(c) { c.classList.toggle('active', roles.indexOf(c.dataset.role) >= 0); });
+        box.querySelectorAll('.is-invalid').forEach(function(input) { markField(input, dashFieldError(input)); });
+        if (!this.body.querySelector('.is-invalid')) this.error('');
+    };
+
+    function dashFieldError(input) {
+        var name = input.dataset.dfield.split('.').pop();
+        var row = input.closest('[data-show]');
+        if (row && row.style.display === 'none') return '';
+        if (name === 'pin' && !/^\d{4}$/.test(input.value.trim())) return t.badPin;
+        if (name === 'roles' && splitRoles(input.value).some(function(r) { return !/^[a-z0-9][a-z0-9_-]{0,31}$/.test(r); })) return t.badRole;
+        if (name === 'name' && input.value.trim().length > 60) return t.max + ' 60';
+        return '';
+    }
+
+    Wizard.prototype.checkDashboards = function() {
+        var bad = [];
+        this.body.querySelectorAll('[data-dfield]').forEach(function(input) {
+            if (input.type === 'checkbox') return;
+            var msg = dashFieldError(input);
+            markField(input, msg);
+            if (msg) bad.push(input);
+        });
+        if (bad.length) {
+            this.error(t.fixFirst);
+            bad[0].focus();
+        }
+        return bad.length === 0;
+    };
+
+    Wizard.prototype.collectDashboards = function() {
+        var out = {};
+        this.body.querySelectorAll('.pw-dash').forEach(function(box) {
+            var v = function(name) { return box.querySelector('[data-dfield$=".' + name + '"]'); };
+            var a = {
+                name: v('name').value.trim(),
+                auth: box.querySelector('.pw-choice.active').dataset.auth,
+                remote: v('remote').checked,
+                remotePin: v('remotePin').checked,
+                roles: splitRoles(v('roles').value),
+            };
+            if (a.auth === 'pin' || (a.remote && a.remotePin)) a.pin = v('pin').value.trim();
+            out[box.dataset.dash] = a;
+        });
+        return out;
     };
 
     // ---- step 2 ----

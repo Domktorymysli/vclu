@@ -21,12 +21,34 @@ MQTT/HA read those. The sandbox masks the plugin's secret values (4+ characters)
 
 ## Apps: a dashboard and actions of the plugin's own
 `plugin:dashboard(id)` (id `[a-z0-9_]+`) returns a facade of `Dashboard.new("<shortId>_<id>")`
-(`-` in the short id as `_`): the same chain API, auth `"session"` unless the plugin sets one.
+(`-` in the short id as `_`): the same chain API, auth `"session"` unless the plugin sets `"pin"`.
 `build()` refuses an id held by a module's dashboard or another plugin's (`_plugin` on the
 builder marks the owner; `Dashboard.API.list()` gives it as `plugin`). Functions the plugin passes
 (also inside opts/fns tables) are wrapped: errors go to the plugin's log, once per message, and
 back to the page. The raw builder and sections never reach the plugin; `area`, `floor`, `room`,
 `covers` and `calendar` are refused, as they resolve house objects by name.
+
+A plugin declares its dashboards in plugin.json: `"dashboards": [{"id": "lista", "name": "Zakupy" | {"pl", "en"},
+"description"?: text | {"pl", "en"}}]` (id `[a-z0-9_]{1,64}`, at most 8, unique; a malformed list refuses the
+manifest at download and at load, `dashboards.go`). On API 2 `plugin:dashboard(id)` refuses an id not declared
+there; API 1 keeps any id. The declared name (Polish first) is the default name.
+
+Who may open a plugin's dashboard is the user's, not the plugin's (the plugin cannot widen its own access
+or another plugin's): from plugin code `:auth()` takes only `"session"` or `"pin"`, and `:pin()`, `:remote()`
+and `:roles()` (also on a section) are refused with a message naming `dashboardAccess`. A module grants it:
+`Plugin.getPlugin("@vclu/zakupy"):dashboardAccess("lista", {name, auth = "session"|"pin"|"public"|"off",
+pin = "1234", remote = false|true|{pin = bool, roles = {...}|fn}})`. `pin` (4 digits) is needed for auth
+`"pin"` or `remote.pin`; `"off"` is not served (404) and not listed. Errors point at the module's line. The
+grant lives in `_dashboardAccess[pluginId][declaredId]` (Dashboard.lua), out of a plugin's reach; the builder
+keeps the plugin's own choice in `_pluginOwn` and `Dashboard._applyAccess` sets `_name`, `_auth`, `_pin`,
+`_remote` and `_off` from both on build, on the plugin's later `:name`/`:auth` and on a grant. A plugin reload
+keeps the grant; a Lua reload starts empty and the module grants it again. `dashboardAccess` called from a
+plugin (its proxy, or any function in its environment) is refused.
+
+The wizard shows a Dashboards step for a plugin that declares any (also without a form) and then always a
+Code step: the step is checked in Go (`CheckDashboardAccess`), kept in the config under `_dashboards` only to
+fill the step again (the plugin does not get the key), and the Code step appends `DashboardAccessCode` (values
+through `luastr.Quote`) to the plugin's own `moduleCode`, written after the user saw the diff.
 
 `plugin:action(name, {description, params}, fn)` (name `[a-z][a-z0-9_]*`, at most 32): description
 a text or `{pl, en}`, params `{p = {type = "string"|"number"|"boolean", description, required}}`.

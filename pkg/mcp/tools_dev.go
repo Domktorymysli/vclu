@@ -742,10 +742,15 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 			"controls":  "plugin:get('id') → obj with :get() and :set(value)",
 			"expose":    "expose(obj, type, { name, path, area, description })",
 			"apps": "in a plugin (no permission): plugin:dashboard(id) → the builder of Dashboard.new at /d/<shortId>_<id> ('-' as '_'), " +
-				"auth 'session' unless set, its callbacks run as the plugin, no area/floor/room/covers/calendar, an id taken by a module or another plugin is refused; " +
+				"id declared in plugin.json \"dashboards\" (API 2), auth 'session' or 'pin' only (no public, pin code, remote or roles: those are the user's, dashboardAccess), " +
+				"its callbacks run as the plugin, no area/floor/room/covers/calendar, an id taken by a module or another plugin is refused; " +
 				"plugin:action(name, {description = text|{pl, en}, params = {p = {type = 'string'|'number'|'boolean', description, required}}}, fn(params) → result | nil, err), " +
 				"at most 32, params checked (unknown refused, strings up to 1000 characters); agents call them with vclu_app_actions / vclu_app_action, " +
 				"HTTP GET /api/plugins/actions, POST /api/plugins/:id/actions/:name. Both go when the plugin stops",
+			"dashboardAccess": "in a module (never a plugin): Plugin.getPlugin('@vclu/zakupy'):dashboardAccess('lista', {name = text, auth = 'session'|'pin'|'public'|'off', " +
+				"pin = '1234' (for auth 'pin' or remote.pin), remote = false|true|{pin = bool, roles = {'domownicy'} | fn → roles}}) — who opens a dashboard the plugin declares " +
+				"(plugins[].dashboards below); 'off' = not served, not listed; overrides the plugin's choice now and on each rebuild, kept over a plugin reload, gone on Lua reload " +
+				"(the module grants it again); the plugin wizard's Dashboards step writes it to modules/plugins/<ns>__<id>.lua",
 		},
 		"filesystem": map[string]any{
 			"autoLoaded":     "modules/*.lua flat files only",
@@ -773,6 +778,9 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 				if err == nil {
 					var manifest map[string]any
 					if json.Unmarshal([]byte(content), &manifest) == nil {
+						if d, ok := manifest["dashboards"].([]any); ok && len(d) > 0 {
+							info["dashboards"] = d // ids for dashboardAccess
+						}
 						if exports, ok := manifest["exports"].(map[string]any); ok {
 							if sensors, ok := exports["sensors"]; ok {
 								info["sensors"] = sensors

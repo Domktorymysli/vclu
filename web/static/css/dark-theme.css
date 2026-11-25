@@ -1158,6 +1158,23 @@ html, body {
 .pw-table select { min-width: 9.5rem; }
 .pw-table .invalid-tooltip { max-width: none; font-size: 0.75rem; padding: 0.15rem 0.45rem; margin-top: 0.15rem; white-space: nowrap; z-index: 3; }
 .pw-footer { border-top: 1px solid var(--bs-border-color); }
+/* dashboards step: one block per dashboard the plugin declares */
+.pw-dash + .pw-dash { border-top: 1px solid var(--bs-border-color); padding-top: 1.25rem; margin-top: 0.25rem; }
+.pw-dash-head { display: flex; gap: 0.75rem; align-items: flex-start; margin-bottom: 1rem; }
+.pw-dash-head > .bi { font-size: 1.2rem; color: var(--accent-color); margin-top: 0.1rem; }
+.pw-dash .pw-switch { margin-bottom: 1.25rem; }
+.pw-dash .pw-switch.pw-nested { margin-bottom: 0; }
+.pw-pin { max-width: 8rem; letter-spacing: 0.3em; font-family: var(--bs-font-monospace); }
+.pw-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin-top: 0.5rem; }
+.pw-chip {
+    padding: 0.15rem 0.65rem; border-radius: 999px; font-size: 0.82rem;
+    border: 1px solid var(--bs-border-color); background: var(--bs-tertiary-bg); color: var(--bs-body-color);
+}
+.pw-chip:hover { border-color: var(--accent-color); }
+.pw-chip.active {
+    border-color: var(--accent-color); color: var(--accent-color);
+    background: color-mix(in srgb, var(--accent-color) 12%, transparent);
+}
 
 @media (max-width: 576px) {
     .pw-label { white-space: normal; }
