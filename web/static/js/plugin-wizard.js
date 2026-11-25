@@ -17,7 +17,7 @@
             unchanged: 'Bez zmian względem pliku.', newFile: 'Nowy plik', loading: 'Ładuję…', dropped: 'Pominięte',
             hostsAdded: 'Dodane do dozwolonych hostów', close: 'Zamknij', back: 'Wstecz', next: 'Dalej',
             required: 'Wymagane', badHost: 'Podaj adres IP, np. 192.168.1.10', min: 'Najmniej', max: 'Najwięcej',
-            fixFirst: 'Popraw zaznaczone pola.',
+            fixFirst: 'Popraw zaznaczone pola.', cancel: 'Anuluj', done: 'Gotowe', configure: 'Konfiguracja',
         },
         en: {
             settings: 'Settings', devices: 'Devices', code: 'Code', save: 'Save', saved: 'Saved',
@@ -28,7 +28,7 @@
             unchanged: 'No change from the file.', newFile: 'New file', loading: 'Loading…', dropped: 'Dropped',
             hostsAdded: 'Added to the allowed hosts', close: 'Close', back: 'Back', next: 'Next',
             required: 'Required', badHost: 'Enter an IP address, e.g. 192.168.1.10', min: 'At least', max: 'At most',
-            fixFirst: 'Fix the marked fields.',
+            fixFirst: 'Fix the marked fields.', cancel: 'Cancel', done: 'Done', configure: 'Setup',
         }
     };
     var t = T[lang] || T.en;
@@ -48,8 +48,9 @@
         });
     }
 
-    function Wizard(id) {
+    function Wizard(id, meta) {
         this.id = id;
+        this.meta = meta || {};
         this.base = '/api/plugins/' + encodeURIComponent(id);
         this.rows = [];
     }
@@ -61,12 +62,14 @@
             el.className = 'modal fade';
             el.id = 'pluginWizardModal';
             el.tabIndex = -1;
-            el.innerHTML = '<div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content">' +
-                '<div class="modal-header"><h5 class="modal-title"></h5>' +
+            el.innerHTML = '<div class="modal-dialog modal-dialog-scrollable pw-dialog"><div class="modal-content pw">' +
+                '<div class="modal-header pw-header"><div class="pw-icon"><i class="bi bi-puzzle"></i></div>' +
+                '<div class="pw-heading"><div class="pw-kicker"></div><h5 class="modal-title"></h5><div class="pw-sub"></div></div>' +
                 '<button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>' +
-                '<div class="modal-body"><ul class="nav nav-tabs mb-3"></ul><div class="wizard-error"></div><div class="wizard-step"></div></div>' +
-                '<div class="modal-footer"><button type="button" class="btn btn-outline-secondary btn-sm me-auto" data-act="back"></button>' +
-                '<button type="button" class="btn btn-primary btn-sm" data-act="next"></button></div>' +
+                '<div class="pw-steps"></div>' +
+                '<div class="modal-body"><div class="wizard-error"></div><div class="wizard-step"></div></div>' +
+                '<div class="modal-footer pw-footer"><button type="button" class="btn btn-outline-secondary me-auto" data-act="back"></button>' +
+                '<button type="button" class="btn btn-primary px-4" data-act="next"></button></div>' +
                 '</div></div>';
             document.body.appendChild(el);
         }
@@ -82,7 +85,13 @@
             self.form = typeof data.form === 'string' ? JSON.parse(data.form) : data.form;
             self.rows = (data.devices || []).map(function(v) { return { values: v, include: true, saved: true }; });
             var el = self.modal();
-            el.querySelector('.modal-title').textContent = self.id;
+            var m = self.meta;
+            el.querySelector('.pw-kicker').textContent = t.configure;
+            el.querySelector('.modal-title').textContent = m.name || self.id;
+            el.querySelector('.pw-sub').textContent = self.id + (m.version ? ' · v' + m.version : '');
+            // the device table needs the width; settings alone read better narrow
+            el.querySelector('.modal-dialog').classList.toggle('modal-xl', !!self.form.devices);
+            el.querySelector('.modal-dialog').classList.toggle('modal-lg', !self.form.devices);
             self.tabs();
             // a plugin already running has its settings saved: every step is open
             self.reached = data.running ? self.steps.length - 1 : 0;
@@ -97,13 +106,16 @@
         var self = this;
         var steps = [['settings', t.settings]];
         if (this.form.devices) steps.push(['devices', t.devices]);
-        steps.push(['code', t.code]);
+        if (this.form.code) steps.push(['code', t.code]);
         this.steps = steps.map(function(s) { return s[0]; });
         var el = this.modal();
-        var ul = el.querySelector('.nav-tabs');
+        var ul = el.querySelector('.pw-steps');
+        // one step needs no stepper
+        ul.style.display = steps.length > 1 ? '' : 'none';
         ul.innerHTML = steps.map(function(s, i) {
-            return '<li class="nav-item"><a class="nav-link" href="#" data-step="' + s[0] + '">' + (i + 1) + '. ' + esc(s[1]) + '</a></li>';
-        }).join('');
+            return '<a class="pw-step" href="#" data-step="' + s[0] + '"><span class="pw-dot">' + (i + 1) + '</span>' +
+                '<span class="pw-label">' + esc(s[1]) + '</span></a>';
+        }).join('<span class="pw-line"></span>');
         ul.querySelectorAll('a').forEach(function(a) {
             a.addEventListener('click', function(e) {
                 e.preventDefault();
@@ -111,12 +123,21 @@
             });
         });
         el.querySelector('[data-act="back"]').onclick = function() {
-            self.go(self.steps[self.steps.indexOf(self.current) - 1]);
+            var at = self.steps.indexOf(self.current);
+            if (at === 0) bootstrap.Modal.getOrCreateInstance(el).hide();
+            else self.go(self.steps[at - 1]);
         };
         el.querySelector('[data-act="next"]').onclick = function() {
             var at = self.steps.indexOf(self.current);
-            if (at === self.steps.length - 1) bootstrap.Modal.getOrCreateInstance(el).hide();
-            else self.go(self.steps[at + 1]);
+            if (at < self.steps.length - 1) { self.go(self.steps[at + 1]); return; }
+            var buttons = el.querySelectorAll('.modal-footer button');
+            buttons.forEach(function(b) { b.disabled = true; });
+            self.saveStep().then(function() {
+                bootstrap.Modal.getOrCreateInstance(el).hide();
+                if (window.pluginsManager && pluginsManager.refreshInstalled) pluginsManager.refreshInstalled();
+            }, function(e) {
+                if (e) self.error(e.message);
+            }).then(function() { buttons.forEach(function(b) { b.disabled = false; }); });
         };
     };
 
@@ -125,15 +146,18 @@
         this.current = step;
         var at = this.steps.indexOf(step);
         var self = this;
-        el.querySelectorAll('.nav-link').forEach(function(a) {
+        el.querySelectorAll('.pw-step').forEach(function(a) {
             var i = self.steps.indexOf(a.dataset.step);
             a.classList.toggle('active', i === at);
+            a.classList.toggle('done', i < at || (i <= self.reached && i !== at));
             a.classList.toggle('disabled', i > self.reached);
+            a.querySelector('.pw-dot').innerHTML = i < at ? '<i class="bi bi-check-lg"></i>' : String(i + 1);
         });
         var back = el.querySelector('[data-act="back"]');
-        back.textContent = t.back;
-        back.style.visibility = at > 0 ? '' : 'hidden';
-        el.querySelector('[data-act="next"]').textContent = at < this.steps.length - 1 ? t.next : t.close;
+        back.textContent = at > 0 ? t.back : t.cancel;
+        var last = at === this.steps.length - 1;
+        // the last step saves on the way out: one step means "Save", several end with "Done"
+        el.querySelector('[data-act="next"]').textContent = !last ? t.next : (this.steps.length === 1 ? t.save : t.done);
         this.error('');
         this.body = el.querySelector('.wizard-step');
         this.body.onchange = null;
@@ -221,20 +245,26 @@
 
     // ---- fields ----
 
+    function optionLabel(f, o) {
+        return text((f.optionLabels || {})[o], o);
+    }
+
     function fieldInput(name, f, value, opts) {
         opts = opts || {};
-        var attrs = 'data-field="' + esc(name) + '" class="' + (f.type === 'boolean' ? 'form-check-input' : 'form-control form-control-sm') + '"';
+        var size = opts.compact ? ' form-control-sm' : '';
+        var attrs = 'data-field="' + esc(name) + '" id="pw-' + esc(name) + '" class="' + (f.type === 'boolean' ? 'form-check-input' : 'form-control' + size) + '"';
+        if (opts.compact) attrs = attrs.replace(' id="pw-' + esc(name) + '"', '');
         if (opts.readonly) attrs += ' readonly';
         var options = f.options || f.enum;
         if (options) {
             return '<select ' + attrs.replace('form-control', 'form-select') + '>' +
                 (f.required ? '' : '<option value=""></option>') +
                 options.map(function(o) {
-                    return '<option value="' + esc(o) + '"' + (String(value) === o ? ' selected' : '') + '>' + esc(o) + '</option>';
+                    return '<option value="' + esc(o) + '"' + (String(value) === o ? ' selected' : '') + '>' + esc(optionLabel(f, o)) + '</option>';
                 }).join('') + '</select>';
         }
         if (f.type === 'boolean') {
-            return '<input type="checkbox" ' + attrs + (value === true || value === 'true' ? ' checked' : '') + '>';
+            return '<input type="checkbox" role="switch" ' + attrs + (value === true || value === 'true' ? ' checked' : '') + '>';
         }
         if (f.type === 'secret') {
             return '<input type="password" autocomplete="new-password" ' + attrs + (opts.secretSet ? ' data-set="1"' : '') +
@@ -276,13 +306,43 @@
         Object.keys(fields).forEach(function(name) {
             var f = fields[name];
             var v = values[name] !== undefined ? values[name] : (f.type === 'secret' ? undefined : f.default);
-            html += '<div class="mb-3" data-row="' + esc(name) + '">' +
-                '<label class="form-label">' + esc(text(f.label, name)) + (f.required ? ' <span class="text-danger">*</span>' : '') +
-                (f.unit ? ' <span class="text-muted small">(' + esc(f.unit) + ')</span>' : '') + '</label>' +
-                fieldInput(name, f, v, { secretSet: (self.data.secrets || {})[name] }) +
-                (f.description ? '<div class="form-text">' + esc(text(f.description)) + '</div>' : '') + '</div>';
+            var label = esc(text(f.label, name)) + (f.required ? ' <span class="text-danger">*</span>' : '');
+            var desc = f.description ? '<div class="pw-desc">' + esc(text(f.description)) + '</div>' : '';
+            // a field shown by a switch sits under it
+            var nested = f.showIf && Object.keys(f.showIf).some(function(k) { return fields[k] && fields[k].type === 'boolean'; });
+            var cls = 'pw-field' + (nested ? ' pw-nested' : '');
+            if (f.type === 'boolean') {
+                html += '<div class="' + cls + ' pw-switch" data-row="' + esc(name) + '">' +
+                    '<label class="pw-switch-text" for="pw-' + esc(name) + '"><span class="pw-label">' + label + '</span>' + desc + '</label>' +
+                    '<div class="form-check form-switch m-0">' + fieldInput(name, f, v) + '</div></div>';
+                return;
+            }
+            var options = f.options || f.enum;
+            if (options && f.optionLabels && options.length <= 4 && f.required !== false) {
+                // a few described options read better as buttons than a list
+                html += '<div class="' + cls + '" data-row="' + esc(name) + '"><div class="pw-label mb-2">' + label + '</div>' +
+                    '<select class="d-none" data-field="' + esc(name) + '">' + options.map(function(o) {
+                        return '<option value="' + esc(o) + '"' + (String(v) === o ? ' selected' : '') + '></option>';
+                    }).join('') + '</select><div class="pw-choices">' + options.map(function(o) {
+                        return '<button type="button" class="pw-choice' + (String(v) === o ? ' active' : '') + '" data-choice="' + esc(o) + '">' +
+                            esc(optionLabel(f, o)) + '</button>';
+                    }).join('') + '</div>' + desc + '</div>';
+                return;
+            }
+            var input = fieldInput(name, f, v, { secretSet: (self.data.secrets || {})[name] });
+            if (f.unit) input = '<div class="input-group">' + input + '<span class="input-group-text">' + esc(f.unit) + '</span></div>';
+            html += '<div class="' + cls + '" data-row="' + esc(name) + '">' +
+                '<label class="pw-label form-label" for="pw-' + esc(name) + '">' + label + '</label>' + input + desc + '</div>';
         });
         this.body.innerHTML = html;
+        this.body.querySelectorAll('.pw-choice').forEach(function(b) {
+            b.addEventListener('click', function() {
+                var row = b.closest('[data-row]');
+                row.querySelector('select').value = b.dataset.choice;
+                row.querySelectorAll('.pw-choice').forEach(function(o) { o.classList.toggle('active', o === b); });
+                refresh();
+            });
+        });
         var refresh = function() {
             var now = self.collectSettings(true);
             Object.keys(fields).forEach(function(name) {
@@ -349,7 +409,7 @@
                     names.map(function(n) {
                         var f = d.fields[n];
                         var v = row.values[n] !== undefined ? row.values[n] : f.default;
-                        return '<td>' + fieldInput(n, f, v, { readonly: f.readonly && !row.manual }) + '</td>';
+                        return '<td>' + fieldInput(n, f, v, { readonly: f.readonly && !row.manual, compact: true }) + '</td>';
                     }).join('') +
                     '<td><button class="btn btn-link btn-sm text-danger" data-remove>' + esc(t.remove) + '</button></td></tr>';
             });
@@ -466,6 +526,7 @@
 
     // Opens the wizard; resolves false when the plugin has no form
     window.PluginWizard = {
-        open: function(id) { return new Wizard(id).open(); }
+        // meta: {name, version} from the plugins page, for the heading
+        open: function(id, meta) { return new Wizard(id, meta).open(); }
     };
 })();

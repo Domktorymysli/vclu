@@ -814,7 +814,9 @@ PluginsManager.prototype.savePermissions = function() {
 PluginsManager.prototype.configure = function(id) {
     var self = this;
     // a plugin with a form gets the wizard; others the simple form below
-    PluginWizard.open(id).then(function(opened) {
+    var p = this.installedPlugins[id] || {};
+    var listed = (this.availablePlugins || []).filter(function(a) { return a.fullId === id; })[0] || {};
+    PluginWizard.open(id, {name: listed.name || p.name, version: p.version}).then(function(opened) {
         if (!opened) self._configureSimple(id);
     }).catch(function(err) {
         VCLU.showToast(err.message, 'danger');

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -27,6 +28,8 @@ const (
 type Form struct {
 	Settings map[string]FormField `json:"settings"`
 	Devices  *DeviceList          `json:"devices,omitempty"`
+	// Code: the plugin writes a module (plugin:moduleCode), shown as the last step
+	Code bool `json:"code,omitempty"`
 }
 
 // DeviceList: the rows of step 2, filled by hand or by the plugin's discover.
@@ -50,9 +53,11 @@ type FormField struct {
 	Unit        string          `json:"unit,omitempty"`
 	Options     []string        `json:"options,omitempty"`
 	Enum        []string        `json:"enum,omitempty"` // the older config: "type": "string" with "enum"
-	ShowIf      map[string]any  `json:"showIf,omitempty"`
-	ObjectTypes []string        `json:"objectTypes,omitempty"`
-	Readonly    bool            `json:"readonly,omitempty"`
+	// OptionLabels: what the panel shows for an option, text or {"pl", "en"}, by its value
+	OptionLabels map[string]json.RawMessage `json:"optionLabels,omitempty"`
+	ShowIf       map[string]any             `json:"showIf,omitempty"`
+	ObjectTypes  []string                   `json:"objectTypes,omitempty"`
+	Readonly     bool                       `json:"readonly,omitempty"`
 }
 
 var formFieldName = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]{0,63}$`)
@@ -155,6 +160,11 @@ func checkFields(where string, fields map[string]FormField, rows bool) error {
 		}
 		if f.kind() == "enum" && len(f.options()) == 0 {
 			return fmt.Errorf("form: %s: an enum needs options", at)
+		}
+		for opt := range f.OptionLabels {
+			if !slices.Contains(f.options(), opt) {
+				return fmt.Errorf("form: %s: optionLabels names %q, not an option", at, opt)
+			}
 		}
 		if rows && f.Type == "secret" {
 			return fmt.Errorf("form: %s: a device field cannot be a secret", at)

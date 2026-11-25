@@ -16,10 +16,20 @@ func TestParseFormRefusesBadDeclarations(t *testing.T) {
 		"devices taken":          `{"settings": {"devices": {"type": "string"}}, "devices": {"fields": {"a": {"type": "string"}}}}`,
 		"showIf elsewhere":       `{"settings": {"a": {"type": "string", "showIf": {"b": "x"}}}}`,
 		"devices without fields": `{"settings": {}, "devices": {}}`,
+		"label of no option":     `{"settings": {"a": {"type": "enum", "options": ["x"], "optionLabels": {"y": "Y"}}}}`,
 	} {
 		if _, err := ParseForm([]byte(raw)); err == nil {
 			t.Errorf("%s: accepted", what)
 		}
+	}
+}
+
+// Labels name options; the step with the module code is asked for.
+func TestParseFormOptionLabelsAndCode(t *testing.T) {
+	f, err := ParseForm([]byte(`{"code": true, "settings": {"a": {"type": "enum", "options": ["x", "y"],
+		"optionLabels": {"x": {"pl": "Iks", "en": "Ex"}}}}}`))
+	if err != nil || !f.Code || string(f.Settings["a"].OptionLabels["x"]) != `{"pl": "Iks", "en": "Ex"}` {
+		t.Fatalf("form %+v, %v", f, err)
 	}
 }
 
