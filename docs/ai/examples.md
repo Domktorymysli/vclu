@@ -155,6 +155,22 @@ EventBus:getShared():setTimeout(function()
 end, 5000)
 ```
 
+## Who opens a plugin's dashboard (dashboardAccess)
+
+A plugin builds its dashboards (declared in its plugin.json `"dashboards"`, see `vclu_runtime_schema`
+plugins[].dashboards) behind login; who else opens them is set in a module. The plugin wizard's
+Dashboards step writes this to `modules/plugins/<ns>__<id>.lua`; by hand it is the same call.
+
+```lua
+local zakupy = Plugin.getPlugin("@vclu/zakupy")
+if zakupy then
+    -- the kitchen tablet without login, the vclu app for two roles, with a PIN there
+    zakupy:dashboardAccess("lista", { name = "Zakupy", auth = "public", pin = "4321",
+        remote = { pin = true, roles = { "domownicy", "gosia" } } })
+end
+-- auth = "off": not served (404) and not listed
+```
+
 ## Noisy sensor: reporting threshold
 
 A 1-Wire thermometer jumps 22.1 <-> 22.2. `filter` passes to history,

@@ -25,6 +25,7 @@ Only public API is listed — internal/private functions are omitted.
 - [GPIO_DOUT](#gpio_dout) (1 functions)
 - [GPIO_DIN](#gpio_din) (1 functions)
 - [integrations.mqtt.MqttClient](#integrationsmqttmqttclient) (30 functions)
+- [PluginAPI](#pluginapi) (1 functions)
 - [Wire](#wire) (12 functions)
 - [core.Cloud](#corecloud) (9 functions)
 - [core.Notifications](#corenotifications) (1 functions)
@@ -2483,6 +2484,21 @@ Publish state update for object
 - `state` (any) — State value
 
 **Returns:** boolean Success
+
+---
+
+## PluginAPI
+
+### `Plugin:dashboardAccess(id, opts)`
+
+Who may open a dashboard the plugin declares in plugin.json "dashboards": called from a module, never from a plugin. Overrides what the plugin set, now and whenever it builds the dashboard again (a plugin reload keeps it); a Lua reload clears it, the module grants it again.
+
+- `id` (string) — The id in plugin.json "dashboards"
+- `opts` (table) — {name = text, auth = "session"|"pin"|"public"|"off" ("off": not served, not listed), pin = "1234" (for auth "pin" or remote.pin), remote = false|true|{pin = bool, roles = {"domownicy", ...} or function returning them}}
+
+```lua
+Plugin.getPlugin("@vclu/zakupy"):dashboardAccess("lista", { name = "Zakupy", auth = "public", remote = { roles = { "domownicy" } } })
+```
 
 ---
 

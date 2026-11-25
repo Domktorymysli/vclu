@@ -6,6 +6,9 @@
 -- Global registry (cleared on module reload, rebuilt by build() calls)
 _dashboards = _dashboards or {}
 _dashboardOrder = _dashboardOrder or {}
+-- What modules grant plugins' dashboards (Plugin:dashboardAccess): [plugin id][declared id].
+-- A plugin reload keeps it; a Lua reload starts empty and the modules grant it again.
+_dashboardAccess = _dashboardAccess or {}
 
 -- ==========================================================================
 -- SectionHandle - proxy for adding widgets to a specific section
@@ -3655,7 +3658,7 @@ end
 -- bare: without filling area sections (auth and PIN need no widgets)
 local function resolveDashboard(id, bare)
     local entry = _dashboards[id]
-    if not entry then return nil end
+    if not entry or entry._off then return nil end -- a plugin's dashboard its user turned off
     if not entry._isDynamic then return bare and entry or expandAreas(entry) end
 
     -- Dynamic: create fresh builder, call user function, auto-build
@@ -4366,6 +4369,7 @@ function DashboardAPI.getDefinition(id, role)
             local tabs = {}
             for _, otherId in ipairs(_dashboardOrder) do
                 local otherDb = _dashboards[otherId]
+                if otherDb and otherDb._off then otherDb = nil end
                 if otherDb and role ~= nil and not resolveFor(otherId, role, true) then
                     otherDb = nil -- not for this remote viewer
                 end
@@ -5058,6 +5062,96 @@ function Dashboard.periodLabel(period)
         evening = "Wieczór", night = "Noc",
     }
     return labels[period] or period
+end
+
+-- ==========================================================================
+-- Plugins' dashboards: who may open them is the user's (Plugin:dashboardAccess)
+-- ==========================================================================
+
+local ACCESS_KEYS = { name = true, auth = true, pin = true, remote = true }
+local ACCESS_AUTH = { session = true, pin = true, public = true, off = true }
+local ACCESS_REMOTE_KEYS = { pin = true, roles = true }
+
+local function chars(s)
+    return select(2, s:gsub('[^\128-\191]', ''))
+end
+
+-- The checked grant, or nil and why
+local function accessSpec(opts)
+    if type(opts) ~= 'table' then return nil, 'opts is a table {name, auth, pin, remote}' end
+    for k in pairs(opts) do
+        if not ACCESS_KEYS[k] then return nil, 'unknown option "' .. tostring(k) .. '" (name, auth, pin, remote)' end
+    end
+    local a = {}
+    if opts.name ~= nil then
+        if type(opts.name) ~= 'string' or opts.name == '' or chars(opts.name) > 60 or opts.name:find('[%c]') then
+            return nil, 'name is a text of 1 to 60 characters on one line'
+        end
+        a.name = opts.name
+    end
+    if opts.auth ~= nil and not ACCESS_AUTH[opts.auth] then
+        return nil, 'auth is "session", "pin", "public" or "off"'
+    end
+    a.auth = opts.auth
+    if opts.pin ~= nil then
+        if type(opts.pin) ~= 'string' or not opts.pin:match('^%d%d%d%d$') then
+            return nil, 'pin is a text of 4 digits, e.g. "1234"'
+        end
+        a.pin = opts.pin
+    end
+    local r = opts.remote
+    if r ~= nil and r ~= false then
+        if r == true then r = {} end
+        if type(r) ~= 'table' then return nil, 'remote is false, true or {pin, roles}' end
+        for k in pairs(r) do
+            if not ACCESS_REMOTE_KEYS[k] then return nil, 'remote: unknown option "' .. tostring(k) .. '" (pin, roles)' end
+        end
+        if r.pin ~= nil and type(r.pin) ~= 'boolean' then return nil, 'remote.pin is true or false' end
+        local roles = r.roles
+        if roles == nil then
+            roles = {}
+        elseif type(roles) == 'table' then
+            local list = {}
+            for i, v in ipairs(roles) do list[i] = v end
+            local bad = badRole(list)
+            if bad then return nil, 'remote.roles: invalid role "' .. bad .. '" (a-z, 0-9, - and _, as in the cloud)' end
+            roles = list
+        elseif type(roles) ~= 'function' then
+            return nil, 'remote.roles is a list of roles or a function returning them'
+        end
+        a.remote = { pin = r.pin == true, roles = roles, poll = REMOTE_POLL }
+    end
+    if (a.auth == 'pin' or (a.remote and a.remote.pin)) and not a.pin then
+        return nil, 'a PIN is asked for: give pin = "1234"'
+    end
+    return a
+end
+
+-- Sets a plugin's dashboard from what the plugin chose (_pluginOwn) and what the user granted
+function Dashboard._applyAccess(b)
+    local own = b._pluginOwn
+    if not own then return end
+    local a = (_dashboardAccess[b._plugin] or {})[b._pluginDash]
+    local off = a ~= nil and a.auth == 'off'
+    b._off = off or nil
+    b._name = (a and a.name) or own.name
+    b._auth = (a and not off and a.auth) or own.auth
+    b._pin = a and a.pin or nil
+    local r = not off and a and a.remote
+    b._remote = r and { pin = r.pin, roles = r.roles, poll = r.poll } or nil
+end
+
+-- Plugin:dashboardAccess: stores the grant for the plugin's declared dashboard and applies it
+-- to the dashboard if built; true, or nil and why
+function Dashboard._grantPlugin(pluginId, id, opts)
+    local a, err = accessSpec(opts)
+    if not a then return nil, err end
+    _dashboardAccess[pluginId] = _dashboardAccess[pluginId] or {}
+    _dashboardAccess[pluginId][id] = a
+    for _, d in pairs(_dashboards) do
+        if d._plugin == pluginId and d._pluginDash == id then Dashboard._applyAccess(d) end
+    end
+    return true
 end
 
 -- Attach API for Go calls

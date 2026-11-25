@@ -343,6 +343,7 @@ local INSTANCE_HIDDEN = { _sandbox = true, _exposedHandles = true, timers = true
 local INSTANCE_PROTECTED = {
     id = true, shortId = true, namespace = true, _sandbox = true, _isPlugin = true, _exposedHandles = true,
     timers = true, subscriptions = true, init = true, cleanup = true, stats = true,
+    dashboardAccess = true, -- a module's grant must reach the core, not the plugin's own function
 }
 -- Called by the loader and the sandbox on the real instance, not by the plugin
 local INSTANCE_CORE_ONLY = { init = true, cleanup = true }
@@ -406,6 +407,11 @@ local function instanceProxy(inner)
                 return f
             end
             if PLUGIN_STATIC[key] or INSTANCE_CORE_ONLY[key] then return nil end
+            if key == "dashboardAccess" then
+                return function()
+                    error("dashboardAccess is the user's: a module grants access to a plugin's dashboards, not the plugin", 2)
+                end
+            end
             local override = overrides[key]
             m = function(self, ...)
                 if self ~= proxy then
@@ -453,6 +459,10 @@ local DASH_DENY = { new = true, area = true, floor = true, room = true, covers =
 local function coreError(e)
     return (tostring(e):gsub("^[^\n:]-%.lua:%d+: ", ""))
 end
+
+-- Who may open a plugin's dashboard is the user's, granted from a module (Plugin:dashboardAccess)
+local DASH_USER = { pin = true, remote = true, roles = true }
+local DASH_PLUGIN_AUTH = { session = true, pin = true }
 
 -- Refuses an id held by a module's dashboard or another plugin's
 local function dashboardFree(pluginId, id)
@@ -515,11 +525,33 @@ local function dashboardFacade(sandbox, raw, log)
 
     local function finish()
         dashboardFree(pluginId, raw._id)
-        raw._plugin = pluginId
+        Dashboard._applyAccess(raw)
         local ok, err = pcall(raw.build, raw)
         if not ok then error(coreError(err), 3) end
         sandbox.dashboards[raw._id] = true
         return facades[raw]
+    end
+
+    local function userOnly(name)
+        local how = name == "pin" and 'pin = "1234"' or name == "roles" and "remote = { roles = {...} }" or "remote = true"
+        error("dashboard:" .. name .. " is the user's to grant, not the plugin's: a module calls "
+            .. 'Plugin.getPlugin("' .. pluginId .. '"):dashboardAccess("' .. raw._pluginDash .. '", { ' .. how .. " })", 3)
+    end
+
+    -- auth and name are the plugin's defaults; what the user granted stays over them
+    local function ownSetting(target, name, v)
+        if name == "auth" then
+            if not DASH_PLUGIN_AUTH[v] then
+                error('dashboard:auth: a plugin sets "session" or "pin"; "public" and the app are the user\'s to grant '
+                    .. '(Plugin.getPlugin("' .. pluginId .. '"):dashboardAccess in a module)', 3)
+            end
+            raw._pluginOwn.auth = v
+        else
+            if type(v) ~= "string" or v == "" then error("dashboard:name: a name is a text", 3) end
+            raw._pluginOwn.name = v
+        end
+        Dashboard._applyAccess(raw)
+        return facades[target]
     end
 
     local function methodsOf(target)
@@ -533,6 +565,11 @@ local function dashboardFacade(sandbox, raw, log)
                     end
                     if sandbox.dead then error("plugin " .. pluginId .. " is disabled", 2) end
                     if name == "build" then return finish() end
+                    if DASH_USER[name] then userOnly(name) end
+                    if name == "auth" or name == "name" then
+                        local r = ownSetting(target, name, ...) -- no tail call: errors count the levels
+                        return r
+                    end
                     local args = pack(...)
                     for i = 1, args.n do args[i] = wrapArg(args[i]) end
                     local res = pack(pcall(fn, target, unpackArgs(args, 1, args.n)))
@@ -683,6 +720,15 @@ function PluginSandbox:create(pluginId, permissions)
     -- permissions, 2 adds prefixes and drops the HTTP and MQTT globals; the loader always
     -- passes it, any other caller gets the strict one
     sandbox.apiVersion = tonumber(permissions.api) or 2
+    -- dashboards in plugin.json: id -> {name}; on API 2 plugin:dashboard builds only these
+    sandbox.declaredDashboards = {}
+    if type(permissions.dashboards) == "table" then
+        for id, d in pairs(permissions.dashboards) do
+            if type(id) == "string" and type(d) == "table" and type(d.name) == "string" then
+                sandbox.declaredDashboards[id] = { name = d.name }
+            end
+        end
+    end
     sandbox.permissions = {
         lan = permissions.lan == true,
         mqtt = permissions.mqtt == true,
@@ -1160,10 +1206,16 @@ function PluginSandbox:buildAPI(sandbox)
             error("plugin:dashboard: id " .. tostring(id) .. " is lower-case letters, digits and _", 0)
         end
         if not (Dashboard and Dashboard.new) then error("plugin:dashboard: dashboards are not available", 0) end
+        local declared = sandbox.declaredDashboards[id]
+        if not declared and sandbox.apiVersion >= 2 then
+            error("plugin:dashboard: " .. id .. ' is not declared: declare it in plugin.json "dashboards"', 0)
+        end
         local realId = dashPrefix .. "_" .. id
         dashboardFree(pluginId, realId)
         local raw = Dashboard.new(realId)
-        raw:auth("session")
+        raw._plugin, raw._pluginDash = pluginId, id
+        raw._pluginOwn = { auth = "session", name = declared and declared.name or realId }
+        Dashboard._applyAccess(raw)
         return dashboardFacade(sandbox, raw, log)
     end
 

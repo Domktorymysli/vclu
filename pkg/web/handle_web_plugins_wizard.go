@@ -21,6 +21,7 @@ type PluginWizard interface {
 	Form(pluginID string) (*plugins.Form, json.RawMessage, error)
 	Discover(ctx context.Context, pluginID string) ([]map[string]any, []string, error)
 	ModuleCode(pluginID string) (string, error)
+	Dashboards(pluginID string) ([]plugins.ManifestDashboard, error)
 }
 
 func (s *Server) wizard(c *gin.Context) (PluginWizard, string, bool) {
@@ -61,19 +62,44 @@ func (s *Server) handlePluginsAPIForm(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "plugin not installed"})
 		return
 	}
+	dashboards, _ := w.Dashboards(id)
 	form, raw, err := w.Form(id)
 	if err != nil {
 		// the panel falls back to the simple form and says why
-		c.JSON(http.StatusOK, gin.H{"form": nil, "formError": err.Error()})
+		if len(dashboards) == 0 {
+			c.JSON(http.StatusOK, gin.H{"form": nil, "formError": err.Error()})
+			return
+		}
+		form, raw = nil, nil
+	}
+	if form == nil && len(dashboards) == 0 {
+		c.JSON(http.StatusOK, gin.H{"form": nil})
 		return
 	}
+	resp := gin.H{
+		"form":    raw,
+		"running": s.pluginController.IsLoaded(id),
+		"enabled": entry.Enabled,
+		"module":  "modules/plugins/" + plugins.ModuleName(id) + ".lua",
+	}
+	if len(dashboards) > 0 {
+		// declared dashboards, the step as saved and the roles to offer
+		list := make([]gin.H, 0, len(dashboards))
+		for _, d := range dashboards {
+			list = append(list, gin.H{"id": d.ID, "name": d.Name, "description": d.Description,
+				"path": "/d/" + plugins.RealDashboardID(id, d.ID)})
+		}
+		resp["dashboards"] = list
+		resp["dashboardAccess"] = plugins.SavedDashboardAccess(dashboards, entry.Config)
+		resp["roles"] = s.knownRoles()
+	}
 	if form == nil {
-		c.JSON(http.StatusOK, gin.H{"form": nil})
+		c.JSON(http.StatusOK, resp)
 		return
 	}
 	settings := map[string]any{}
 	for k, v := range entry.Config {
-		if k != plugins.DevicesKey || form.Devices == nil {
+		if (k != plugins.DevicesKey || form.Devices == nil) && k != plugins.DashboardsKey {
 			settings[k] = v
 		}
 	}
@@ -85,14 +111,8 @@ func (s *Server) handlePluginsAPIForm(c *gin.Context) {
 			set[name] = secrets[name] != ""
 		}
 	}
-	resp := gin.H{
-		"form":     raw,
-		"settings": settings,
-		"secrets":  set,
-		"running":  s.pluginController.IsLoaded(id),
-		"enabled":  entry.Enabled,
-		"module":   "modules/plugins/" + plugins.ModuleName(id) + ".lua",
-	}
+	resp["settings"] = settings
+	resp["secrets"] = set
 	if form.Devices != nil {
 		devices := entry.Config[plugins.DevicesKey]
 		if devices == nil {
@@ -113,13 +133,22 @@ func (s *Server) handlePluginsAPISaveForm(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Settings map[string]any   `json:"settings"`
-		Devices  []map[string]any `json:"devices"`
+		Settings   map[string]any             `json:"settings"`
+		Devices    []map[string]any           `json:"devices"`
+		Dashboards map[string]json.RawMessage `json:"dashboards"`
 	}
 	dec := json.NewDecoder(c.Request.Body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+	if req.Dashboards != nil {
+		if req.Settings != nil || req.Devices != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "save one step at a time"})
+			return
+		}
+		s.saveDashboardsStep(c, w, id, req.Dashboards)
 		return
 	}
 	form, _, err := w.Form(id)
@@ -210,6 +239,91 @@ func (s *Server) handlePluginsAPISaveForm(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
+// saveDashboardsStep checks the dashboards step and keeps it in the config to fill the step
+// again; nothing runs from it until the Code step writes the module.
+func (s *Server) saveDashboardsStep(c *gin.Context, w PluginWizard, id string, in map[string]json.RawMessage) {
+	declared, err := w.Dashboards(id)
+	if err != nil || len(declared) == 0 {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "the plugin declares no dashboards"})
+		return
+	}
+	access, bad := plugins.CheckDashboardAccess(declared, in)
+	if bad != nil {
+		keys := make([]string, 0, len(bad))
+		for k := range bad {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+		msgs := make([]string, len(keys))
+		for i, k := range keys {
+			msgs[i] = k + ": " + bad[k]
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": strings.Join(msgs, "; "), "fields": bad})
+		return
+	}
+	saved := plugins.SavedDashboardAccess(declared, nil)
+	if entry, err := installedEntry(s.serverDir, id); err == nil {
+		saved = plugins.SavedDashboardAccess(declared, entry.Config)
+	}
+	for k, v := range access {
+		saved[k] = v
+	}
+	err = config.UpdateMasterConfig(s.serverDir, func(mc *config.VCLUConfig) error {
+		if mc.Plugins == nil {
+			return errPluginNotFound
+		}
+		for i := range mc.Plugins.Installed {
+			p := &mc.Plugins.Installed[i]
+			if p.ID != id {
+				continue
+			}
+			if p.Config == nil {
+				p.Config = map[string]interface{}{}
+			}
+			p.Config[plugins.DashboardsKey] = saved
+			return nil
+		}
+		return errPluginNotFound
+	})
+	if ce, ok := asConfigError(err); ok {
+		c.JSON(ce.status, gin.H{"error": ce.msg})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save config"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// proposedModule: the plugin's own code (a form with "code") and the dashboards' access block.
+func (s *Server) proposedModule(w PluginWizard, id string) (string, error) {
+	var code string
+	form, _, _ := w.Form(id)
+	if form != nil && form.Code {
+		c, err := w.ModuleCode(id)
+		if err != nil {
+			return "", err
+		}
+		code = c
+	}
+	declared, _ := w.Dashboards(id)
+	if len(declared) > 0 {
+		var cfg map[string]any
+		if entry, err := installedEntry(s.serverDir, id); err == nil {
+			cfg = entry.Config
+		}
+		block := plugins.DashboardAccessCode(id, declared, plugins.SavedDashboardAccess(declared, cfg))
+		if strings.TrimSpace(code) != "" {
+			code = strings.TrimRight(code, "\n") + "\n\n"
+		}
+		code += block
+	} else if form == nil || !form.Code {
+		return "", fmt.Errorf("the plugin proposes no module")
+	}
+	return code, nil
+}
+
 // handlePluginsAPIDiscover runs the plugin's discover with its saved settings.
 func (s *Server) handlePluginsAPIDiscover(c *gin.Context) {
 	w, id, ok := s.wizard(c)
@@ -238,7 +352,7 @@ func (s *Server) handlePluginsAPIModuleCode(c *gin.Context) {
 	if !ok {
 		return
 	}
-	proposed, err := w.ModuleCode(id)
+	proposed, err := s.proposedModule(w, id)
 	if err != nil {
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
 		return
@@ -270,7 +384,7 @@ func (s *Server) handlePluginsAPIWriteModuleCode(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 		return
 	}
-	proposed, err := w.ModuleCode(id)
+	proposed, err := s.proposedModule(w, id)
 	if err != nil {
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
 		return

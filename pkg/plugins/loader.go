@@ -55,6 +55,8 @@ type PluginManifest struct {
 	API          int                 `json:"api,omitempty"`   // plugin API version; 0 = 1
 	Permissions  *Permissions        `json:"permissions,omitempty"`
 	Form         string              `json:"form,omitempty"` // the wizard's form file, next to plugin.json
+	// Dashboards the plugin builds with plugin:dashboard; access is the user's (dashboards.go)
+	Dashboards ManifestDashboards `json:"dashboards,omitempty"`
 }
 
 // PluginDoc represents a documentation file in plugin.json
@@ -738,13 +740,20 @@ func (l *Loader) LoadPlugin(pluginID string, pluginConfig map[string]interface{}
 	// 1. Create sandbox for the plugin
 	perms, limits, official := l.effectivePermissions(pluginID, manifest)
 	limitsJSON, _ := json.Marshal(limits)
-	createSandboxScript := fmt.Sprintf(`PluginSandbox:create(%s, {api = %d, lan = %t, mqtt = %t, modbus = %t, grenton_raw = %t, tftp = %t, serial = %t, official = %t, limits = JSON:decode(%s)})`,
-		luastr.Quote(pluginID), api, perms.LAN, perms.MQTT, perms.Modbus, perms.GrentonRaw, perms.TFTP, perms.Serial, official, luastr.Quote(string(limitsJSON)))
+	// declared dashboards by id, with the name they get unless the user's module renames them
+	dashboards := map[string]map[string]string{}
+	for _, d := range manifest.Dashboards {
+		dashboards[d.ID] = map[string]string{"name": d.Name.In("pl")}
+	}
+	dashJSON, _ := json.Marshal(dashboards)
+	createSandboxScript := fmt.Sprintf(`PluginSandbox:create(%s, {api = %d, lan = %t, mqtt = %t, modbus = %t, grenton_raw = %t, tftp = %t, serial = %t, official = %t, limits = JSON:decode(%s), dashboards = JSON:decode(%s)})`,
+		luastr.Quote(pluginID), api, perms.LAN, perms.MQTT, perms.Modbus, perms.GrentonRaw, perms.TFTP, perms.Serial, official, luastr.Quote(string(limitsJSON)), luastr.Quote(string(dashJSON)))
 	if _, err := l.luaExecutor.Execute(createSandboxScript); err != nil {
 		return fmt.Errorf("failed to create sandbox: %w", err)
 	}
 
-	// 2. Set plugin config in sandbox
+	// 2. Set plugin config in sandbox; the wizard's dashboards step is not the plugin's
+	pluginConfig = withoutKey(pluginConfig, DashboardsKey)
 	configJSON, _ := json.Marshal(pluginConfig)
 	setConfigScript := fmt.Sprintf(`PluginSandbox:setConfig(%s, JSON:decode(%s), %s)`,
 		luastr.Quote(pluginID), luastr.Quote(string(configJSON)), luastr.Quote(localDir))
@@ -795,6 +804,19 @@ func (l *Loader) LoadPlugin(pluginID string, pluginConfig map[string]interface{}
 
 	log.Printf("[PLUGINS] loaded %s v%s (%s)", manifest.Name, manifest.Version, pluginID)
 	return nil
+}
+
+func withoutKey(m map[string]interface{}, key string) map[string]interface{} {
+	if _, ok := m[key]; !ok {
+		return m
+	}
+	out := make(map[string]interface{}, len(m))
+	for k, v := range m {
+		if k != key {
+			out[k] = v
+		}
+	}
+	return out
 }
 
 // pluginDeclaresConfig reports whether a plugin asks the user for configuration.

@@ -31,7 +31,7 @@ func actionsPanel(t *testing.T) (http.Handler, string, *lua.LuaEngine) {
 	dashCache.Invalidate()
 	engine := lua.NewLuaEngine()
 	t.Cleanup(engine.Close)
-	if _, err := engine.Execute(`PluginSandbox:create("@jan/zakupy", nil)
+	if _, err := engine.Execute(`PluginSandbox:create("@jan/zakupy", {dashboards = {lista = {name = "Zakupy"}}})
 		local _, err = PluginSandbox:execute("@jan/zakupy", [==[` + actionsPlugin + `]==])
 		assert(err == nil, err)`); err != nil {
 		t.Fatal(err)
