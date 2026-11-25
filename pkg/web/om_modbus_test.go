@@ -144,8 +144,43 @@ func TestOMModbusMapWithoutSettings(t *testing.T) {
 	if code != http.StatusOK || !strings.Contains(string(body), `"modbus":16`) {
 		t.Fatalf("%d %s", code, body)
 	}
-	if doc := modbusMap(t, s); !strings.Contains(doc, "| MOD9012 | ModbusRTU | number | — |") || !strings.Contains(doc, "no settings") {
+	if doc := modbusMap(t, s); !strings.Contains(doc, "| MOD9012 | ModbusRTU | sensor | — |") || !strings.Contains(doc, "no settings") {
 		t.Errorf("map:\n%s", doc)
+	}
+	// without settings nothing is taken for writable: every object a read-only sensor
+	proxy := registered(t, s.serverDir)[500000001]
+	if !strings.Contains(proxy, `RemoteGateModbusSensor:new(_clu, "MOD9018"`) || strings.Contains(proxy, "RemoteGateModbusNumber") {
+		t.Errorf("proxy:\n%s", proxy)
+	}
+}
+
+// An ID declared both as an alarm object and as a Modbus object keeps its settings out of the
+// map, the kept copy and the registry.
+func TestOMModbusMapNoSecretOfOtherClass(t *testing.T) {
+	s := &Server{serverDir: t.TempDir()}
+	om := `-- FwType 00000001
+-- HwType 00000012
+CLU500000001 = GATE:new(5000, 0xC0A80A0A, 0xFFFFFF00, 0xC0A80A01, "", "")
+SAT0001 = GATE:new(100, "SAT0001")
+SAT0001 = GATE:new(205, "SAT0001")
+MOD0001 = GATE:new(203, "MOD0001")
+function OnInit()
+SAT0001:set(1, "MARKER-PASSWORD")
+MOD0001:set(10, 3)
+end
+`
+	code, body := uploadFile(t, s, "om.lua", []byte(om))
+	if code != http.StatusOK || !strings.Contains(string(body), `"modbus":1`) {
+		t.Fatalf("%d %s", code, body)
+	}
+	for name, text := range map[string]string{"map": modbusMap(t, s), "registry": registered(t, s.serverDir)[500000001], "body": string(body)} {
+		if strings.Contains(text, "MARKER") || strings.Contains(text, "SAT0001\"") || strings.Contains(text, "| SAT0001 |") {
+			t.Errorf("%s:\n%s", name, text)
+		}
+	}
+	kept, _ := os.ReadFile(filepath.Join(config.GetOMFilesDir(s.serverDir), "om_500000001.lua"))
+	if strings.Contains(string(kept), "MARKER") || !strings.Contains(string(kept), "MOD0001:set(10, 3)") {
+		t.Errorf("kept copy:\n%s", kept)
 	}
 }
 

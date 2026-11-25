@@ -2509,7 +2509,7 @@ Publish state update for object
 
 ### `Wire.value(path) → function A read for a widget`
 
-An object's value (feature 0): from the registry for an object on the Sync list, else asked.
+An object's value (feature 0, or the object's value feature: a GATE MODBUS object's): from the registry for an object on the Sync list, else asked.
 
 - `path` (string) — "CLU221000002.DOU0001", or "CLU221000002" for the CLU's own
 
@@ -2924,9 +2924,9 @@ Switches off when on, else on.
 
 ### `RemoteGateModbusSwitch:setValue(value)`
 
-1 (or true) switches on, anything else off.
+1, true, "1" or "on" switches on; 0, false, "0" or "off" off; anything else is an error.
 
-- `value` (number) — 0 or 1
+- `value` (any) — The state
 
 ### `RemoteGateModbusNumber:setValue(value)`
 

@@ -61,9 +61,19 @@ GATE Alarm's Satel objects are, and the agent reads their register map in
 
 - Feature numbers (`object_modbus_*.xml`): value 14 on 200 (written by `set(14, v)`, SetValue),
   20 on 201, 22 on 203, 19 on 205 (written by `execute(1, "v")`, WriteValue with a string);
-  ErrorCode 13 / 23 / 25 / 22, IsValueValid 22 / 24 / 21. The Sync list follows the value
-  feature. The guard (as RemoteGateAlarm's) reads only these features (a CLU resets on a feature
-  it has not), writes no setting, and writes the value only of a switch or number.
+  ErrorCode 13 / 23 / 25 / 22, IsValueValid 22 / 24 / 21. The Sync list and `Wire.value` follow
+  the value feature (`_valueIndex`). The guard (as RemoteGateAlarm's) reads only these features
+  (a CLU resets on a feature it has not), writes no setting, and writes the value only of a
+  switch or number: a finite number (`set`), a string of one (`WriteValue`), 0 or 1 on a switch.
+  A switch's `setValue` takes 1/true/"1"/"on" and 0/false/"0"/"off".
+- An object without any setting (a copy an older vclu stripped, an om.lua without OnInit) is a
+  read-only sensor: nothing is taken for writable from defaults.
+- The map is written from the kept copy, so a setting stripped there (an ID also declared as
+  another GATE object, e.g. an alarm object) never reaches it; such an ID is no Modbus object.
+- Not surfaced yet: IsValueValid and ErrorCode (readable by `get`, no events or state).
+- Unverified on hardware: everything above, in particular a coil or holding register with
+  InputOutputCount above 1 (only the first value) and a bit of a holding register as a switch
+  (WriteValue writes the whole value).
 - `ai/modbus/CLU<serial>.md`: one row per object of class 200, 201, 203, 205 with name, ID,
   class, vclu kind, line (`19200 8E1`, or `TCP host:port`), slave, register (and count), the `Modbus` read
   and write calls (none for read-only objects, discrete and input registers; coils cannot be
@@ -101,6 +111,11 @@ GATE Alarm's Satel objects are, and the agent reads their register map in
 - [x] `pkg/lua/gate_modbus_test.go`: subscribed feature per class, values (ModbusValue's
       string too) and events, writes as `set(14, v)` / `execute(1, "v")`, guard refusals (other
       features, settings, read-only registers, Wire, a changed ID), exposure.
+- [x] `TestGateModbusWireValue`, `TestGateModbusWriteValues`: Wire reads the value feature from
+      the Sync list; NaN, ±inf, tables, extra arguments and switch values other than 0/1 are
+      refused through set, execute and Wire.
+- [x] `TestModbusKindWithoutSettings`, `TestOMModbusMapNoSecretOfOtherClass`: no settings give
+      sensors; an ID declared as an alarm object and a Modbus object leaks nothing.
 - [x] `TestOMModbusMapLifecycle`: project-style om.lua keeps the map, om.lua without Modbus and
       deleting the CLU remove it.
 - [x] `TestOMModbusMapNotFromGateAlarm`: a GATE Alarm's om.lua writes nothing to `ai/modbus/`.

@@ -187,11 +187,21 @@ local function background(clu, key, ask)
     end
 end
 
--- The feature obj:getValue() gives: CurrentTemp for a thermostat, else 0; nil when it follows none
+-- The feature that holds an object's value: its own (_valueIndex: a GATE MODBUS's), CurrentTemp
+-- for a thermostat, else 0
+local function valueIndex(obj)
+    if type(obj) == "table" and type(obj._valueIndex) == "function" then
+        local ok, f = pcall(obj._valueIndex, obj)
+        if ok and type(f) == "number" then return f end
+    end
+    if type(obj) == "table" and obj._type == "THERMOSTAT" then return RemoteThermostat.FEATURE_CURRENT end
+    return 0
+end
+
+-- The feature obj:getValue() gives; nil when it follows none
 local function valueFeature(obj)
     if type(obj) ~= "table" or type(obj.getValue) ~= "function" then return nil end
-    local f = 0
-    if obj._type == "THERMOSTAT" then f = RemoteThermostat.FEATURE_CURRENT end
+    local f = valueIndex(obj)
     local list = { 0 }
     if type(obj.subscribeFeatures) == "function" then list = obj:subscribeFeatures() end
     for _, x in ipairs(list) do
@@ -244,12 +254,17 @@ local function feature(fn, path, index)
     end
 end
 
---- An object's value (feature 0): from the registry for an object on the Sync list, else asked.
+--- An object's value (feature 0, or the object's value feature: a GATE MODBUS object's):
+-- from the registry for an object on the Sync list, else asked.
 -- @api public
 -- @param path string "CLU221000002.DOU0001", or "CLU221000002" for the CLU's own
 -- @return function A read for a widget
 function Wire.value(path)
-    local read = feature("value", path, 0)
+    local clu, object = split("value", path, false)
+    local index = 0
+    local obj = object and objectOf(clu, object)
+    if obj and type(obj._valueIndex) == "function" then index = valueIndex(obj) end
+    local read = feature("value", path, index)
     return read
 end
 

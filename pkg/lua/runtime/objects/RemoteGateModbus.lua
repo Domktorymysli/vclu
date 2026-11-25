@@ -38,8 +38,37 @@ local function label(self)
     return tostring(self._type) .. " " .. tostring(self._objId)
 end
 
+-- A finite number, or nil (n - n is NaN for NaN and ±inf; gopher-lua's math.huge is no inf)
+local function finite(v)
+    local n = tonumber(v)
+    if n == nil or n - n ~= 0 or n == math.huge or n == -math.huge then return nil end
+    return n
+end
+
+-- Why the value written is refused: a number (a string of one for WriteValue), 0 or 1 on a switch
+local function badValue(self, r, kind, ...)
+    local value = ...
+    if select("#", ...) ~= 1 then
+        return label(self) .. ": the value is written as one argument"
+    end
+    if kind == "execute" and type(value) ~= "string" then
+        return label(self) .. ": WriteValue takes the value as a string, got " .. type(value)
+    end
+    if kind == "set" and type(value) ~= "number" then
+        return label(self) .. ": SetValue takes a number, got " .. type(value)
+    end
+    local n = finite(value)
+    if n == nil then
+        return label(self) .. ": the value must be a finite number, got " .. tostring(value)
+    end
+    if r.switch and n ~= 0 and n ~= 1 then
+        return label(self) .. ": a switch writes 0 or 1, got " .. tostring(value)
+    end
+    return nil
+end
+
 -- Why a read, write or method of this object is refused; nil when it is not
-local function refused(self, kind, index)
+local function refused(self, kind, index, ...)
     local r = objectRules[self]
     if not r then return "not a GATE MODBUS object" end
     if rawget(self, "_objId") ~= r.objId or rawget(self, "_clu") ~= r.clu then
@@ -67,7 +96,7 @@ local function refused(self, kind, index)
     if kind == "execute" and (r.write ~= "execute" or index ~= WRITE_VALUE) then
         return label(self) .. ": method " .. tostring(index) .. " is not one vclu sends to it"
     end
-    return nil
+    return badValue(self, r, kind, ...)
 end
 
 --- Why a read, write or method of this object is refused; nil when it is not.
@@ -83,6 +112,13 @@ end
 -- @return number|nil
 function RemoteGateModbus:getValue()
     return self._lastState
+end
+
+--- The feature that holds the value (Wire reads it from the Sync list).
+-- @return number|nil
+function RemoteGateModbus:_valueIndex()
+    local r = objectRules[self]
+    return r and r.value
 end
 
 --- The feature the Sync list follows: the class's value.
@@ -121,7 +157,7 @@ local function edges(self, newState, onEvent, offEvent)
     end
 end
 
-local function class(name, typ, methods, writable)
+local function class(name, typ, methods, writable, switch)
     local c = setmetatable({}, {__index = RemoteGateModbus})
     c.__index = c
     c.new = function(self, clu, objId, objName, modbusClass)
@@ -137,7 +173,7 @@ local function class(name, typ, methods, writable)
         local read = {}
         for k, v in pairs(rules.read) do read[k] = v end
         objectRules[obj] = { objId = objId, clu = clu, value = rules.value, read = read,
-            write = rules.write, writable = writable }
+            write = rules.write, writable = writable, switch = switch }
         RemoteObject._setGuard(obj, refused)
         return obj
     end
@@ -180,7 +216,7 @@ function RemoteGateModbusBinarySensor:onSwitchOff(callback) return self:onEvent(
 --- A coil or a bit the GATE writes: 0 off, 1 on. Events OnChange, OnSwitchOn, OnSwitchOff.
 -- A switch only by expose(): writing to a device vclu knows nothing of is the user's choice.
 RemoteGateModbusSwitch = class("RemoteGateModbusSwitch", "GATE_MODBUS_SWITCH",
-    {"getValue", "setValue", "switchOn", "switchOff", "toggle"}, true)
+    {"getValue", "setValue", "switchOn", "switchOff", "toggle"}, true, true)
 RemoteGateModbusSwitch._explicitOnly = true
 
 --- Writes 1; the GATE reports the value.
@@ -197,11 +233,17 @@ function RemoteGateModbusSwitch:toggle()
     if self._lastState ~= nil and self._lastState ~= 0 then self:switchOff() else self:switchOn() end
 end
 
---- 1 (or true) switches on, anything else off.
+local ON = { [1] = true, [true] = true, ["1"] = true, on = true }
+local OFF = { [0] = true, [false] = true, ["0"] = true, off = true }
+
+--- 1, true, "1" or "on" switches on; 0, false, "0" or "off" off; anything else is an error.
 -- @api public
--- @param value number 0 or 1
+-- @param value any The state
 function RemoteGateModbusSwitch:setValue(value)
-    if value == 1 or value == true then self:switchOn() else self:switchOff() end
+    local v = type(value) == "string" and value:lower() or value
+    if v ~= nil and ON[v] then return self:switchOn() end
+    if v ~= nil and OFF[v] then return self:switchOff() end
+    error(label(self) .. ": setValue takes 1/true/\"on\" or 0/false/\"off\", got " .. tostring(value), 2)
 end
 
 --- set(0, v) switches; other features are refused by the guard.
@@ -226,9 +268,9 @@ RemoteGateModbusNumber._explicitOnly = true
 -- @api public
 -- @param value number The value (scaled as the object's Divisor in Object Manager)
 function RemoteGateModbusNumber:setValue(value)
-    local v = tonumber(value)
-    if not v or v ~= v or v == math.huge or v == -math.huge then
-        error(label(self) .. ": setValue takes a number, got " .. tostring(value), 2)
+    local v = finite(value)
+    if not v then
+        error(label(self) .. ": setValue takes a finite number, got " .. tostring(value), 2)
     end
     write(self, v)
 end

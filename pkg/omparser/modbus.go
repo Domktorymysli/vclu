@@ -66,7 +66,7 @@ type ModbusObject struct {
 }
 
 // ModbusMap is what a GATE MODBUS's om.lua says about its Modbus objects. HasSettings is
-// false for an om.lua without them: no OnInit and no object's feature set.
+// false when no object has a setting.
 type ModbusMap struct {
 	CLU         CLUInfo
 	Objects     []ModbusObject
@@ -83,23 +83,31 @@ func ReadModbus(content string) *ModbusMap {
 	return &ModbusMap{CLU: parsed.CLU, Objects: parsed.Modbus, HasSettings: parsed.ModbusSettings}
 }
 
-// readModbusObjects reads every Modbus object of om.lua with its settings, and whether om.lua
-// has settings at all (OnInit or a set feature).
+// readModbusObjects reads every Modbus object of om.lua with its settings, and whether any
+// object has a setting. An ID also declared as another GATE object is no Modbus object.
 func readModbusObjects(lines []string) ([]ModbusObject, bool) {
 	var objs []ModbusObject
 	settings := false
 	byID := map[string]int{}
 	names := map[string]string{}
+	other := map[string]bool{}
+	for _, line := range lines {
+		if g := reGateObject.FindStringSubmatch(strings.TrimSpace(line)); g != nil {
+			class, _ := strconv.Atoi(g[2])
+			if !ObjectClass(class).IsModbus() {
+				other[g[1]] = true
+			}
+		}
+	}
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "function OnInit") {
-			settings = true
-		}
 		if g := reGateObject.FindStringSubmatch(line); g != nil {
 			class, _ := strconv.Atoi(g[2])
-			if c := ObjectClass(class); c.IsModbus() {
-				byID[g[1]] = len(objs)
-				objs = append(objs, ModbusObject{ID: g[1], Class: c, Settings: map[int]string{}})
+			if c := ObjectClass(class); c.IsModbus() && !other[g[1]] {
+				if _, dup := byID[g[1]]; !dup {
+					byID[g[1]] = len(objs)
+					objs = append(objs, ModbusObject{ID: g[1], Class: c, Settings: map[int]string{}})
+				}
 			}
 			continue
 		}
@@ -152,11 +160,15 @@ func (o ModbusObject) setting(field string) string {
 }
 
 // Kind is what vclu makes of the object: coils and bits are binary, discrete inputs and input
-// registers read-only, Modbus v1/v2 writes only with AccessRights 1. "" for the GATE's
-// objects as a slave or server.
+// registers read-only, Modbus v1/v2 writes only with AccessRights 1. An object without any
+// setting (a copy stripped by an older vclu) is a read-only sensor, never a write. "" for the
+// GATE's objects as a slave or server.
 func (o ModbusObject) Kind() string {
 	if _, ok := modbusFeatures[o.Class]; !ok {
 		return ""
+	}
+	if len(o.Settings) == 0 {
+		return ModbusSensor
 	}
 	t := o.setting("regType")
 	binary := t == "0" || t == "1" || o.get("bitWidth") == "1" ||

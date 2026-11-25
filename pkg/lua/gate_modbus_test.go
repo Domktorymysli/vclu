@@ -105,7 +105,7 @@ func TestGateModbusWrites(t *testing.T) {
 			t.Errorf("%s sent %q, want %q", stmt, got, want)
 		}
 	}
-	if got := try(t, engine, `modbus.mode:setValue("x")`); !strings.Contains(got, "takes a number") {
+	if got := try(t, engine, `modbus.mode:setValue("x")`); !strings.Contains(got, "takes a finite number") {
 		t.Errorf("a number from a string: %s", got)
 	}
 }
@@ -187,5 +187,76 @@ func TestGateModbusExposure(t *testing.T) {
 	}
 	if got := sent.take(); got != `MOD0004:execute(1, "1")` {
 		t.Errorf("sent %q", got)
+	}
+}
+
+// Wire.value reads a Modbus object's value feature: from the Sync list when the object is on
+// it, else asked by that feature, never feature 0.
+func TestGateModbusWireValue(t *testing.T) {
+	engine, _, _ := gateModbusEngine(t)
+	mustExec(t, engine, `ASYNC = {}
+		__go_send_command_async = function(ip, script) table.insert(ASYNC, script) return true end
+		Wire.refresh = 0
+		modbus.temp:updateState(215)`)
+	// off the Sync list: asked by its value feature
+	mustExec(t, engine, `READ = Wire.value("CLU500000001.MOD0001") READ()`)
+	if got := mustExec(t, engine, `local s = table.concat(ASYNC, ";") ASYNC = {} return s`); got != "MOD0001:get(22)" {
+		t.Errorf("asked %q", got)
+	}
+	// on the Sync list: the registry's value, nothing asked
+	mustExec(t, engine, `RemoteSubscription.config = { enabled = true, whitelist = { ["CLU500000001.MOD0001"] = true } }`)
+	if got := mustExec(t, engine, `return tostring(Wire.value("CLU500000001.MOD0001")()) .. " " .. tostring(Wire.feature("CLU500000001.MOD0001", 22)())`); got != "215 215" {
+		t.Errorf("read %q", got)
+	}
+	if got := mustExec(t, engine, `return table.concat(ASYNC, ";")`); got != "" {
+		t.Errorf("asked %q while on the Sync list", got)
+	}
+}
+
+// The guard checks the value written too: a finite number (a string of one for WriteValue),
+// 0 or 1 on a switch; a switch takes 1/true/"1"/"on" and 0/false/"0"/"off" only.
+func TestGateModbusWriteValues(t *testing.T) {
+	engine, sent, _ := gateModbusEngine(t)
+	for _, stmt := range []string{
+		`RemoteObject.set(modbus.mode, 14, 0/0)`,
+		`RemoteObject.set(modbus.mode, 14, math.huge)`,
+		`RemoteObject.set(modbus.mode, 14, {})`,
+		`RemoteObject.set(modbus.mode, 14, "3")`,
+		`modbus.value:execute(1, 1/0)`,
+		`modbus.value:execute(1, "nan")`,
+		`modbus.value:execute(1, "1) x(")`,
+		`modbus.value:execute(1, {})`,
+		`modbus.value:execute(1)`,
+		`modbus.value:execute(1, "1", "2")`,
+		`modbus.relay:execute(1, "2")`,
+		`RemoteObject.set(modbus.coil, 14, 5)`,
+		`Wire.execute("CLU500000001.MOD0006", 1, 0/0)()`,
+		`Wire.set("CLU500000001.MOD0002", 14, -1/0)()`,
+		`modbus.relay:setValue("x")`,
+		`modbus.relay:setValue(2)`,
+		`modbus.mode:setValue(1/0)`,
+		`modbus.mode:setValue(-1/0)`,
+		`modbus.value:setValue(0/0)`,
+	} {
+		if got := try(t, engine, stmt); got == "ok" {
+			t.Errorf("%s: written", stmt)
+		}
+	}
+	if s := sent.take(); s != "" {
+		t.Errorf("sent %q", s)
+	}
+	for stmt, want := range map[string]string{
+		`modbus.relay:setValue("on")`:  `MOD0004:execute(1, "1")`,
+		`modbus.relay:setValue("OFF")`: `MOD0004:execute(1, "0")`,
+		`modbus.relay:setValue("1")`:   `MOD0004:execute(1, "1")`,
+		`modbus.relay:setValue(false)`: `MOD0004:execute(1, "0")`,
+		`modbus.coil:setValue(true)`:   "MOD0007:set(14, 1)",
+	} {
+		if got := try(t, engine, stmt); got != "ok" {
+			t.Errorf("%s: %s", stmt, got)
+		}
+		if got := sent.take(); got != want {
+			t.Errorf("%s sent %q, want %q", stmt, got, want)
+		}
 	}
 }

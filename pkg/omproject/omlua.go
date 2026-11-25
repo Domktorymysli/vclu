@@ -56,8 +56,8 @@ func (p *Project) OMLua(c CLU) string {
 			fmt.Fprintf(&b, "%s:set(10, %s)\n", o.ID, o.Lamel)
 		}
 	}
-	// a Modbus object's settings, as OM sets them in OnInit (StripGateSettings keeps them out
-	// of the stored copy)
+	// a Modbus object's settings, as OM sets them in OnInit (StripGateSettings keeps them on
+	// a GATE MODBUS; the kinds come from them)
 	for _, per := range c.Peripherals {
 		if per.Class == 0 || len(per.Features) == 0 {
 			continue

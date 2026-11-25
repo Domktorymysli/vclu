@@ -272,3 +272,27 @@ func TestStripGateSettingsKeepsModbus(t *testing.T) {
 		t.Error("Modbus classes on a GATE Alarm kept their settings")
 	}
 }
+
+// An object without settings is a read-only sensor; OnInit alone is no setting.
+func TestModbusKindWithoutSettings(t *testing.T) {
+	src := `-- FwType 00000001
+-- HwType 00000012
+CLU500000001 = GATE:new(5000, 0xC0A80A0A, 0xFFFFFF00, 0xC0A80A01, "", "")
+MOD0001 = GATE:new(200, "MOD0001")
+MOD0002 = GATE:new(203, "MOD0002")
+function OnInit()
+end
+`
+	parsed, err := Parse(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"MOD0001", "MOD0002"} {
+		if k := parsed.ObjectMap[id].ModbusKind; k != ModbusSensor {
+			t.Errorf("%s: %q", id, k)
+		}
+	}
+	if parsed.ModbusSettings {
+		t.Error("OnInit alone taken for settings")
+	}
+}
