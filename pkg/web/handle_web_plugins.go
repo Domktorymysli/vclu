@@ -299,17 +299,17 @@ type installedPluginView struct {
 	// (POST /plugins/:id/permissions)
 	RequestedPermissions []string `json:"requestedPermissions,omitempty"`
 	PendingPermissions   []string `json:"pendingPermissions,omitempty"`
+	// Internet hosts it asks for (["*"]: any) and of them those not allowed yet
+	Internet        []string `json:"internet,omitempty"`
+	PendingInternet []string `json:"pendingInternet,omitempty"`
 }
 
 func (s *Server) installedPluginsView(installed []config.InstalledPlugin) []installedPluginView {
 	out := []installedPluginView{}
 	loader := plugins.NewLoader(s.serverDir)
 	for _, p := range installed {
-		var requested []string
-		if perms, err := loader.RequestedPermissions(p.ID); err == nil {
-			requested = perms.Names()
-		}
-		out = append(out, installedPluginView{p, loader.NeedsConfig(p), requested, loader.PendingPermissions(p)})
+		v := loader.PermissionsView(p)
+		out = append(out, installedPluginView{p, loader.NeedsConfig(p), v.Requested.Names(), v.Pending.Names(), v.Internet, v.Pending.Internet})
 	}
 	return out
 }
@@ -342,6 +342,7 @@ func (s *Server) handlePluginsAPIPreview(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"version":   version,
 		"requested": nonNil(requested.Names()),
+		"internet":  nonNil([]string(requested.Internet)),
 		"all":       plugins.AllPermissions.Names(),
 	})
 }
@@ -638,7 +639,7 @@ func (s *Server) handlePluginsAPISerialPorts(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ports": ports})
 }
 
-// handlePluginsAPIPermissions sets what the user allows a plugin beyond HTTP to the internet
+// handlePluginsAPIPermissions sets what the user allows a plugin
 // and loads the plugin again with it. The plugin still gets only what its plugin.json asks for.
 func (s *Server) handlePluginsAPIPermissions(c *gin.Context) {
 	defer dashCache.Invalidate() // a plugin started or stopped brings or takes its dashboards
@@ -699,7 +700,8 @@ func (s *Server) handlePluginsAPIPermissions(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"success": true, "pendingPermissions": plugins.NewLoader(s.serverDir).PendingPermissions(installed)})
+	v := plugins.NewLoader(s.serverDir).PermissionsView(installed)
+	c.JSON(http.StatusOK, gin.H{"success": true, "pendingPermissions": v.Pending.Names(), "pendingInternet": v.Pending.Internet})
 }
 
 // handlePluginsAPIConfig updates plugin configuration

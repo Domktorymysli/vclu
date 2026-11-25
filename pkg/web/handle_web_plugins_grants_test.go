@@ -284,7 +284,7 @@ func TestPluginsAPIPermissionsRefusesUnknownKeys(t *testing.T) {
 // The panel shows what a plugin asks for before installing it, next to every permission.
 func TestPluginsAPIPreviewReadsTheManifest(t *testing.T) {
 	repo := manifestRepo(t, "rs", "1.2.0",
-		`{"id":"rs","version":"1.2.0","api":2,"permissions":{"lan":true,"serial":true},"files":["init.lua"]}`)
+		`{"id":"rs","version":"1.2.0","api":2,"permissions":{"internet":["api.example.com"],"lan":true,"serial":true},"files":["init.lua"]}`)
 	dir := t.TempDir()
 	if err := writeTestConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
 		Repositories: []config.PluginRepository{{Name: "test", URL: repo.URL, Enabled: true}},
@@ -314,10 +314,13 @@ func TestPluginsAPIPreviewReadsTheManifest(t *testing.T) {
 		}
 		return strings.Join(parts, ",")
 	}
-	if got := join(out["requested"]); got != "lan,serial" {
-		t.Errorf("requested %q, want lan,serial", got)
+	if got := join(out["requested"]); got != "internet,lan,serial" {
+		t.Errorf("requested %q, want internet,lan,serial", got)
 	}
-	if got := join(out["all"]); got != "lan,mqtt,modbus,grenton_raw,tftp,serial" {
+	if got := join(out["internet"]); got != "api.example.com" {
+		t.Errorf("internet %q", got)
+	}
+	if got := join(out["all"]); got != "internet,lan,mqtt,modbus,grenton_raw,tftp,serial" {
 		t.Errorf("all %q", got)
 	}
 	if code, _ := preview("rs", "nope"); code != http.StatusNotFound {
@@ -359,5 +362,114 @@ func TestPluginsAPIInstallGrantsOnlyWhatWasAccepted(t *testing.T) {
 	got := installedPlugins(t, s)
 	if len(got) != 1 || !lanOnly(got[0].Grants) || strings.Join(got[0].PendingPermissions, ",") != "mqtt" {
 		t.Errorf("installed: %+v, want lan allowed and mqtt pending", got)
+	}
+}
+
+func installedInternet(t *testing.T, s *Server) (internet, pending []string, grants *config.PluginGrants) {
+	t.Helper()
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/plugins/installed", nil)
+	s.handlePluginsAPIInstalled(c)
+	var out struct {
+		Installed []struct {
+			Internet, PendingInternet []string
+			Grants                    *config.PluginGrants
+		}
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil || len(out.Installed) != 1 {
+		t.Fatalf("installed %s: %v", w.Body.String(), err)
+	}
+	p := out.Installed[0]
+	return p.Internet, p.PendingInternet, p.Grants
+}
+
+// Installing allows the hosts asked for if the user accepted "internet"; an update adding a
+// host waits for the user, the hosts allowed before keep working.
+func TestPluginsAPIInternetHostsInstallAndUpdate(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, c := range []struct {
+		accept, wantGrant string
+	}{
+		{`["internet","lan"]`, "a.example.com"},
+		{`["lan"]`, ""},
+	} {
+		repo := manifestRepo(t, "cloud", "1.0.0",
+			`{"id":"cloud","version":"1.0.0","api":2,"permissions":{"internet":["a.example.com"],"lan":true},"files":["init.lua"]}`)
+		dir := t.TempDir()
+		if err := writeTestConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
+			Repositories: []config.PluginRepository{{Name: "test", URL: repo.URL, Enabled: true}},
+		}}); err != nil {
+			t.Fatal(err)
+		}
+		s := &Server{serverDir: dir}
+		w := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(w)
+		ctx.Request = httptest.NewRequest(http.MethodPost, "/api/plugins/install",
+			strings.NewReader(`{"id":"cloud","repository":"test","accept":`+c.accept+`}`))
+		ctx.Request.Header.Set("Content-Type", "application/json")
+		s.handlePluginsAPIInstall(ctx)
+		if w.Code != http.StatusOK {
+			t.Fatalf("install: %d %s", w.Code, w.Body.String())
+		}
+		internet, pending, grants := installedInternet(t, s)
+		var granted string
+		if grants.Internet != nil {
+			granted = strings.Join(grants.Internet.Hosts, ",")
+		}
+		if strings.Join(internet, ",") != "a.example.com" || granted != c.wantGrant ||
+			(c.wantGrant == "") != (strings.Join(pending, ",") == "a.example.com") {
+			t.Errorf("accept %s: internet %v pending %v grant %q", c.accept, internet, pending, granted)
+		}
+	}
+
+	// the update asks for another host and then for any
+	for _, asks := range []string{`["a.example.com","b.example.com"]`, `"*"`} {
+		repo := manifestRepo(t, "cloud", "1.1.0",
+			`{"id":"cloud","version":"1.1.0","api":2,"permissions":{"internet":`+asks+`},"files":["init.lua"]}`)
+		dir := t.TempDir()
+		if err := writeTestConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
+			Repositories: []config.PluginRepository{{Name: "test", URL: repo.URL, Enabled: true}},
+			Installed: []config.InstalledPlugin{{ID: "@jan/cloud", Version: "1.0.0", Enabled: true, Repository: "test",
+				Grants: &config.PluginGrants{Internet: &config.InternetGrant{Hosts: []string{"a.example.com"}}}}},
+		}}); err != nil {
+			t.Fatal(err)
+		}
+		s := &Server{serverDir: dir}
+		if resp := postInstall(t, s, "cloud"); resp.Action != "updated" {
+			t.Fatalf("answer %+v", resp)
+		}
+		_, pending, grants := installedInternet(t, s)
+		wantPending := map[bool]string{true: "*", false: "b.example.com"}[asks == `"*"`]
+		if grants.Internet == nil || strings.Join(grants.Internet.Hosts, ",") != "a.example.com" || strings.Join(pending, ",") != wantPending {
+			t.Errorf("update to %s: grant %+v pending %v, want %s", asks, grants.Internet, pending, wantPending)
+		}
+
+		// the user allows it
+		w := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(w)
+		ctx.Params = gin.Params{{Key: "id", Value: "@jan/cloud"}}
+		ctx.Request = httptest.NewRequest(http.MethodPost, "/api/plugins/@jan/cloud/permissions",
+			strings.NewReader(`{"internet":{"hosts":`+strings.Replace(asks, `"*"`, `["*"]`, 1)+`}}`))
+		ctx.Request.Header.Set("Content-Type", "application/json")
+		s.handlePluginsAPIPermissions(ctx)
+		if w.Code != http.StatusOK {
+			t.Fatalf("permissions: %d %s", w.Code, w.Body.String())
+		}
+		if _, pending, _ := installedInternet(t, s); len(pending) > 0 {
+			t.Errorf("after allowing %s: pending %v", asks, pending)
+		}
+	}
+
+	// a bad host in a grant is refused
+	w := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(w)
+	ctx.Params = gin.Params{{Key: "id", Value: "@jan/cloud"}}
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/plugins/@jan/cloud/permissions",
+		strings.NewReader(`{"internet":{"hosts":["https://a.example.com/"]}}`))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+	(&Server{serverDir: t.TempDir()}).handlePluginsAPIPermissions(ctx)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("bad host: %d %s", w.Code, w.Body.String())
 	}
 }

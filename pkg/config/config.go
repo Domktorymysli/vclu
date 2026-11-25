@@ -335,18 +335,25 @@ type InstalledPlugin struct {
 	Grants      *PluginGrants          `json:"grants,omitempty"`      // What the user allowed; nil: what plugin.json asks for
 }
 
-// PluginGrants is what the user allowed a plugin beyond HTTP to the internet. A plugin gets
+// PluginGrants is what the user allowed a plugin. A plugin gets
 // what its plugin.json asks for and this allows; an update that asks for more waits for the user.
 // A permission is allowed when its field is set; its lists narrow it.
 type PluginGrants struct {
-	LAN    *LANGrant    `json:"lan,omitempty"`
-	MQTT   *MQTTGrant   `json:"mqtt,omitempty"`
-	Modbus *ModbusGrant `json:"modbus,omitempty"`
+	Internet *InternetGrant `json:"internet,omitempty"` // API 2; API 1 reaches any host
+	LAN      *LANGrant      `json:"lan,omitempty"`
+	MQTT     *MQTTGrant     `json:"mqtt,omitempty"`
+	Modbus   *ModbusGrant   `json:"modbus,omitempty"`
 	// grenton_raw, tftp and serial reach CLUs, files on devices and the device on a port:
 	// installing does not allow them, the user does
 	GrentonRaw *HostsGrant  `json:"grenton_raw,omitempty"`
 	TFTP       *HostsGrant  `json:"tftp,omitempty"`
 	Serial     *SerialGrant `json:"serial,omitempty"`
+}
+
+// InternetGrant: the internet hosts of the plugin's request the user allowed ("*" any);
+// a host the plugin asks for beyond them waits for the user.
+type InternetGrant struct {
+	Hosts []string `json:"hosts"`
 }
 
 // LANGrant: Hosts are IP addresses or CIDR prefixes; without the list any local address.
