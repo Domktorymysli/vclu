@@ -36,10 +36,12 @@ const dashWidgetsVisibleSetup = `
 				{ visible = shown })
 			:player('pl', 'Player', { getState = reader('player', { playing = true }), play = function() end }, { visible = shown })
 			:forecast('fc', 'Forecast', reader('forecast', { days = {}, hours = {} }), { visible = shown })
+			:input('in', 'Input', nil, function() W.submitted = true end, { visible = shown })
+			:list('ls', 'List', reader('list', { { id = 1, label = 'a' } }), { onDelete = function() W.deleted = true end, visible = shown })
 		:build()
 `
 
-var dashWidgetsVisibleIDs = []string{"t", "g", "gt", "b", "ct", "th", "e", "sl", "se", "im", "di", "co", "pl", "fc"}
+var dashWidgetsVisibleIDs = []string{"t", "g", "gt", "b", "ct", "th", "e", "sl", "se", "im", "di", "co", "pl", "fc", "in", "ls"}
 
 func TestDashboardEveryWidgetVisible(t *testing.T) {
 	engine := NewLuaEngine()
@@ -81,6 +83,8 @@ func TestDashboardEveryWidgetVisible(t *testing.T) {
 		`Dashboard.API.executeAction("allvis", "se", "select", "b")`,
 		`Dashboard.API.executeAction("allvis", "di", "set", 50)`,
 		`Dashboard.API.executeAction("allvis", "pl", "play")`,
+		`Dashboard.API.executeAction("allvis", "in", "submit", "x")`,
+		`Dashboard.API.executeAction("allvis", "ls", "delete", { id = "1" })`,
 	} {
 		if got := mustExec(t, engine, "return "+call); !strings.Contains(got, "hidden") {
 			t.Errorf("%s on a hidden widget: %s", call, got)
@@ -90,8 +94,8 @@ func TestDashboardEveryWidgetVisible(t *testing.T) {
 	mustExec(t, engine, `W.show = true`)
 	dashJSON(t, engine, `Dashboard.API.getValues("allvis")`, &vals)
 	for _, id := range dashWidgetsVisibleIDs {
-		if id == "b" || id == "im" {
-			continue // bars come from /bars, an image's url with the definition
+		if id == "b" || id == "im" || id == "in" {
+			continue // bars come from /bars, an image's url with the definition; an input has no value
 		}
 		if _, ok := vals[id]; !ok {
 			t.Errorf("shown %s missing from the values", id)
@@ -99,8 +103,8 @@ func TestDashboardEveryWidgetVisible(t *testing.T) {
 	}
 	// the image's url is read for the definition, not the poll
 	dashJSON(t, engine, `Dashboard.API.getDefinition("allvis")`, &def)
-	if n := reads(); n != "13" {
-		t.Errorf("shown widgets read: %s of 13: %s", n, mustExec(t, engine, `local s = ''; for k in pairs(W.reads) do s = s .. k .. ' ' end; return s`))
+	if n := reads(); n != "14" {
+		t.Errorf("shown widgets read: %s of 14: %s", n, mustExec(t, engine, `local s = ''; for k in pairs(W.reads) do s = s .. k .. ' ' end; return s`))
 	}
 	if got := mustExec(t, engine, `return Dashboard.API.barsSpec("allvis", "b")`); !strings.Contains(got, "test:energy") {
 		t.Errorf("bars of a shown widget: %s", got)

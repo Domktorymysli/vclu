@@ -228,6 +228,8 @@ body {
     .dash-widget-player:hover,
     .dash-widget-forecast:hover,
     .dash-widget-table:hover,
+    .dash-widget-input:hover,
+    .dash-widget-list:hover,
     .dash-widget-gauge:hover,
     .dash-widget-energy:hover,
     .dash-widget-dimmer:hover,
@@ -486,6 +488,8 @@ body {
 .dash-widget-player:active,
 .dash-widget-forecast:active,
 .dash-widget-table:active,
+.dash-widget-input:active,
+.dash-widget-list:active,
 .dash-widget-energy:active,
 .dash-widget-dimmer:active,
 .dash-widget-color:active,
@@ -1697,6 +1701,174 @@ body {
     display: none;
 }
 
+/* ---- Text input and list: a field with its button, items with a checkbox and a delete ---- */
+.dash-widget-input,
+.dash-widget-list {
+    cursor: default;
+}
+
+.dash-text-row {
+    display: flex;
+    gap: 8px;
+}
+
+/* 16px text: iOS does not zoom into the field */
+.dash-text-input {
+    flex: 1;
+    min-width: 0;
+    min-height: 44px;
+    padding: 8px 12px;
+    font: inherit;
+    font-size: 16px;
+    color: var(--dash-text);
+    background: rgba(128,128,128,0.12);
+    border: 1px solid rgba(128,128,128,0.3);
+    border-radius: 12px;
+    -webkit-user-select: text;
+    user-select: text;
+}
+.dash-text-input::placeholder {
+    color: var(--dash-text);
+    opacity: 0.45;
+}
+.dash-text-input:focus {
+    outline: none;
+    border-color: var(--tile-c);
+    box-shadow: 0 0 0 2px rgba(39,194,168,0.25);
+}
+
+.dash-text-btn {
+    flex: none;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0 14px;
+    border: 0;
+    border-radius: 12px;
+    background: var(--tile-c);
+    color: #fff;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+.dash-text-btn:active { filter: brightness(0.9); }
+.dash-text-btn:focus-visible {
+    outline: 2px solid var(--tile-c);
+    outline-offset: 2px;
+}
+.dash-text-form.sending .dash-text-btn { opacity: 0.5; }
+
+.dash-text-error {
+    margin-top: 6px;
+    font-size: 0.85rem;
+    color: #e5484d;
+}
+.dash-text-error[hidden] { display: none; }
+
+.dash-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.dash-list-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-height: 44px;
+}
+.dash-list-item + .dash-list-item {
+    border-top: 1px solid rgba(128,128,128,0.14);
+}
+.dash-list-item.removing { opacity: 0.4; }
+
+.dash-list-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 0;
+    padding: 8px 0;
+    cursor: inherit;
+}
+label.dash-list-body { cursor: pointer; }
+
+.dash-list-check {
+    flex: none;
+    width: 24px;
+    height: 24px;
+    margin: 0;
+    -webkit-appearance: none;
+    appearance: none;
+    border: 2px solid rgba(128,128,128,0.55);
+    border-radius: 7px;
+    background: transparent;
+    display: grid;
+    place-content: center;
+    cursor: pointer;
+}
+.dash-list-check::after {
+    content: "";
+    width: 11px;
+    height: 6px;
+    border: solid #fff;
+    border-width: 0 0 2.5px 2.5px;
+    transform: translate(0, -1px) rotate(-45deg);
+    opacity: 0;
+}
+.dash-list-check:checked {
+    background: var(--tile-c);
+    border-color: var(--tile-c);
+}
+.dash-list-check:checked::after { opacity: 1; }
+.dash-list-check:focus-visible {
+    outline: 2px solid var(--tile-c);
+    outline-offset: 2px;
+}
+
+.dash-list-text {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    overflow-wrap: anywhere;
+}
+.dash-list-label { font-size: 0.95rem; }
+.dash-list-note {
+    font-size: 0.78rem;
+    opacity: 0.6;
+}
+.dash-list-item.done .dash-list-label {
+    text-decoration: line-through;
+    opacity: 0.5;
+}
+
+.dash-list-del {
+    flex: none;
+    width: 44px;
+    height: 44px;
+    border: 0;
+    border-radius: 10px;
+    background: none;
+    color: inherit;
+    opacity: 0.5;
+    cursor: pointer;
+}
+.dash-list-del:hover,
+.dash-list-del:focus-visible { opacity: 0.9; }
+.dash-list-del:focus-visible {
+    outline: 2px solid var(--tile-c);
+    outline-offset: -2px;
+}
+
+.dash-list-empty {
+    font-size: 0.9rem;
+    opacity: 0.55;
+    padding: 6px 0;
+}
+.dash-list-empty[hidden] { display: none; }
+
+.dash-list-add { margin-top: 4px; }
+
 /* a row is a card: the first column its title, the others "label: value" lines */
 @media (max-width: 600px) {
     .dash-table,
@@ -2447,6 +2619,8 @@ body {
     .dash-grid > .dash-widget-player,
     .dash-grid > .dash-widget-forecast,
     .dash-grid > .dash-widget-table,
+    .dash-grid > .dash-widget-input,
+    .dash-grid > .dash-widget-list,
     .dash-grid > .dash-widget-energy,
     .dash-grid > .dash-widget-thermostat,
     .dash-grid > .dash-widget-dimmer,
@@ -3129,6 +3303,11 @@ body.dash-room-open {
     .dash-player-idle .dash-player-btn.dash-player-play { background: color-mix(in srgb, var(--dash-text) 9%, transparent); }
     .dash-forecast-day { background: color-mix(in srgb, var(--dash-text) 5%, transparent); }
     .dash-table td.dash-table-colored { color: color-mix(in srgb, var(--cell-c) 80%, var(--dash-text)); }
+    .dash-text-input { background: color-mix(in srgb, var(--dash-text) 6%, transparent); border-color: color-mix(in srgb, var(--dash-text) 18%, transparent); }
+    .dash-text-input:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--tile-c) 30%, transparent); }
+    .dash-list-check { border-color: color-mix(in srgb, var(--dash-text) 40%, transparent); }
+    .dash-list-item + .dash-list-item { border-top-color: color-mix(in srgb, var(--dash-text) 10%, transparent); }
+    .dash-list-del:hover { background: color-mix(in srgb, var(--dash-text) 8%, transparent); }
     .dash-energy-circle { background: color-mix(in srgb, var(--node-c) 10%, var(--dash-card-bg)); }
     .dash-energy-icon { color: color-mix(in srgb, var(--node-c) 80%, var(--dash-text)); }
     .dash-thermo-btn { background: color-mix(in srgb, var(--dash-text) 9%, transparent); }

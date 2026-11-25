@@ -761,7 +761,11 @@
     "energyExport": "export",
     "energyCharge": "charging",
     "energyDischarge": "discharging",
-    "energyToday": "today"
+    "energyToday": "today",
+    "send": "Send",
+    "addItem": "Add",
+    "deleteItem": "Delete",
+    "notSent": "Not sent, try again"
   },
   "cloud": {
     "title": "Cloud",

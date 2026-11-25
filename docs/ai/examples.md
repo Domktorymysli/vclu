@@ -1077,6 +1077,57 @@ local rooms = {
 - `nil` or `{}` from `rows` shows "brak danych". opts: `icon` (default `table`), `disabled`, `visible`, `span`,
   `size`. Two columns wide by default, full width on a phone.
 
+### Text input and editable list
+
+`:input(id, label, icon, onSubmit, opts)` is a text field with a send button; `:list(id, label,
+getItems, opts)` an editable list. Together they make a small app such as a shopping list:
+
+```lua
+local st = persist('zakupy', { items = {}, next = 1 })
+
+:section('Zakupy', 'cart')
+  :list('zakupy', 'Lista zakupów', function() return st.items end, {
+      onAdd = function(text)
+        if #st.items >= 50 then return false, 'Lista jest pełna' end
+        local items = st.items
+        items[#items + 1] = { id = st.next, label = text }
+        st.next = st.next + 1
+        st.items = items
+      end,
+      onToggle = function(id, done)
+        for _, it in ipairs(st.items) do if it.id == id then it.done = done end end
+        st:save()
+      end,
+      onDelete = function(id)
+        local items = st.items
+        for i, it in ipairs(items) do if it.id == id then table.remove(items, i); break end end
+        st.items = items
+      end,
+      placeholder = 'Dodaj produkt…', empty = 'Nic do kupienia',
+  })
+  :input('notatka', 'Notatka dla domowników', 'chat-text', function(text)
+      Logger:getShared():info('[NOTATKA] %s', text)
+      return 'Wysłano'                   -- a string is a toast
+  end, { placeholder = 'Napisz…', maxLength = 140 })
+```
+
+- **Text** (onSubmit, onAdd): trimmed, control characters as spaces; empty text is not sent, text
+  longer than `maxLength` (default 200, at most 1000, counted in characters) is refused by vclu.
+  Return `false, 'message'` (or `nil, 'message'`) to refuse: the message shows under the field and
+  the text stays; otherwise the field clears. An error in the function shows the same way.
+- **getItems** returns `{ { id = string|number, label = string, done = bool?, note = string? }, ... }`,
+  read on every poll and after each change; ids must be unique. Done items are struck through,
+  in the order given. A bad item or an error is the tile's error.
+- **onToggle(id, done)** adds a checkbox, **onDelete(id)** a delete button, **onAdd(text)** a field
+  below the items; without them the list is read-only. The id the page sends must be one
+  `getItems()` gives at that moment (compared as text); the function gets it as `getItems` gave it.
+- opts: input `placeholder`, `button` (a text button; default a send icon), `maxLength`, `disabled`,
+  `visible`, `span`; list `placeholder`, `empty` (default `—`), `icon` (default `list-check`),
+  `maxItems` (shown, default 100, the state line counts all), `maxLength`, `disabled`, `visible`,
+  `span`. Unknown options fail at the module's line. Not in the header.
+- Like a toggle, they act for whoever opens the dashboard: use `:auth('pin')` or `'session'` for
+  anything that matters; `remote = 'readonly'` shows them without controls through vclu cloud.
+
 ### Gauge (arc or bar)
 
 `:gauge(id, label, getValue, opts)` shows a number between `min` and `max` on a 240° arc with the

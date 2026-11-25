@@ -19,7 +19,7 @@ Only public API is listed — internal/private functions are omitted.
 - [core.Registry](#coreregistry) (10 functions)
 - [core.Metrics](#coremetrics) (1 functions)
 - [core.Calendar](#corecalendar) (39 functions)
-- [Dashboard](#dashboard) (83 functions)
+- [Dashboard](#dashboard) (87 functions)
 - [lib.panel](#libpanel) (55 functions)
 - [objects.RemotePanel](#objectsremotepanel) (6 functions)
 - [GPIO_DOUT](#gpio_dout) (1 functions)
@@ -1433,6 +1433,25 @@ Add a gauge: a value on an arc or a bar between min and max, coloured by thresho
 - `getValue` (function) — Returns the value: function() -> number|nil (nil shows a dash)
 - `opts` (table) — Optional: {min=0, max=100 (above min), unit=string, decimals=0-6, style="arc"|"bar", thresholds={{value, color}, ...} (ascending), target=number|function()->number|nil (a marker, e.g. a power limit), icon=string (default "speedometer2"), disabled=function()->bool, visible=function()->bool, span=n, size=string, color=string (the fill below the first threshold)}
 
+### `SectionHandle:input(id, label, icon, onSubmit, opts)`
+
+Add a text field with a send button: onSubmit(text) gets the trimmed text (empty text is not sent). onSubmit may return false, "message" (or nil, "message") to refuse: the message shows under the field and the text stays; otherwise the field clears (a returned string is a toast).
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `icon` (string) — |nil Bootstrap icon name (default "input-cursor-text")
+- `onSubmit` (function) — Called with the text: function(text) -> nil | string | false, message
+- `opts` (table) — Optional: {placeholder=string, button=string (a text button; default an icon), maxLength=1-1000 (default 200, checked by vCLU too), disabled=function()->bool, visible=function()->bool, span=n}
+
+### `SectionHandle:list(id, label, getItems, opts)`
+
+Add an editable list: items from getItems(), a checkbox with onToggle, a delete button with onDelete, a text field below with onAdd (as section:input's onSubmit). Items keep the order getItems gives; done ones are struck through. An item id the page sends is checked against getItems() before a callback runs.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `getItems` (function) — Returns the items: function() -> { {id=string|number, label=string, done=bool?, note=string?}, ... }
+- `opts` (table) — Optional: {onToggle=function(itemId, done), onDelete=function(itemId), onAdd=function(text) -> nil | string | false, message, placeholder=string, empty=string (no items, default "—"), icon=string (default "list-check"), maxItems=1-1000 (shown, default 100), maxLength=1-1000 (onAdd's text, default 200), disabled=function()->bool, visible=function()->bool, span=n}
+
 ### `SectionHandle:chip(id, icon, fn, opts)`
 
 Add a chip to the header: an icon and a short text from fn, hidden while fn returns nil.
@@ -1801,6 +1820,25 @@ Add a gauge to the current section: a value on an arc or a bar between min and m
 - `label` (string) — Display label
 - `getValue` (function) — Returns the value: function() -> number|nil (nil shows a dash)
 - `opts` (table) — Optional: {min=0, max=100 (above min), unit=string, decimals=0-6, style="arc"|"bar", thresholds={{value, color}, ...} (ascending), target=number|function()->number|nil (a marker, e.g. a power limit), icon=string (default "speedometer2"), disabled=function()->bool, visible=function()->bool, span=n, size=string, color=string (the fill below the first threshold)}
+
+### `DashboardBuilder:input(id, label, icon, onSubmit, opts)`
+
+Add to the current section a text field with a send button: onSubmit(text) gets the trimmed text (empty text is not sent). onSubmit may return false, "message" (or nil, "message") to refuse: the message shows under the field and the text stays; otherwise the field clears (a returned string is a toast).
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `icon` (string) — |nil Bootstrap icon name (default "input-cursor-text")
+- `onSubmit` (function) — Called with the text: function(text) -> nil | string | false, message
+- `opts` (table) — Optional: {placeholder=string, button=string (a text button; default an icon), maxLength=1-1000 (default 200, checked by vCLU too), disabled=function()->bool, visible=function()->bool, span=n}
+
+### `DashboardBuilder:list(id, label, getItems, opts)`
+
+Add an editable list to the current section: items from getItems(), a checkbox with onToggle, a delete button with onDelete, a text field below with onAdd (as section:input's onSubmit). Items keep the order getItems gives; done ones are struck through. An item id the page sends is checked against getItems() before a callback runs.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `getItems` (function) — Returns the items: function() -> { {id=string|number, label=string, done=bool?, note=string?}, ... }
+- `opts` (table) — Optional: {onToggle=function(itemId, done), onDelete=function(itemId), onAdd=function(text) -> nil | string | false, message, placeholder=string, empty=string (no items, default "—"), icon=string (default "list-check"), maxItems=1-1000 (shown, default 100), maxLength=1-1000 (onAdd's text, default 200), disabled=function()->bool, visible=function()->bool, span=n}
 
 ### `DashboardBuilder:colorTemp(id, label, fns, opts)`
 

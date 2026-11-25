@@ -270,3 +270,92 @@ func TestDashboardActionEndpointHold(t *testing.T) {
 		t.Errorf("%s actions ran after the refusals", n)
 	}
 }
+
+// Through the endpoint: an input's text reaches onSubmit trimmed and whole (quotes, Lua syntax,
+// Polish letters); a list item by its id; a body over the cap, a PIN dashboard without its
+// cookie and a remote viewer of a readonly list are refused before any callback.
+func TestDashboardActionEndpointInputList(t *testing.T) {
+	dashCache.Invalidate()
+	saved := actionLimiter
+	actionLimiter = &rateLimiter{buckets: make(map[string]*bucket), rate: 1000, burst: 1000}
+	t.Cleanup(func() { actionLimiter = saved })
+	engine := lua.NewLuaEngine()
+	defer engine.Close()
+	if _, err := engine.Execute(`
+		GOT = { n = 0 }
+		ITEMS = { { id = 7, label = 'Mleko' } }
+		for _, id in ipairs({ 'a', 'pin' }) do
+			local d = Dashboard.new(id):remote()
+			if id == 'pin' then d:auth('pin'):pin('1234') end
+			d:section('S', 'i')
+				:input('in', 'In', nil, function(t) GOT.n = GOT.n + 1; GOT.text = t end)
+				:list('ls', 'Ls', function() return ITEMS end, {
+					onToggle = function(id, done) GOT.n = GOT.n + 1; GOT.toggled = tostring(id) .. ':' .. tostring(done) end,
+					remote = 'readonly' })
+			d:build()
+		end`); err != nil {
+		t.Fatal(err)
+	}
+	// a login configured, so a PIN dashboard needs its cookie
+	dir := t.TempDir()
+	hash, _ := config.HashPassword("secret")
+	if err := writeTestConfig(dir, &config.VCLUConfig{Auth: &config.VCLUAuthConfig{Username: "u", PasswordHash: hash}}); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{serverDir: dir, sessions: newSessionStore(), luaExecutor: engine}
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/api/dashboard/:id/action", s.handleAPIDashboardAction)
+	remote := gin.New()
+	remote.Use(func(c *gin.Context) { c.Set(ctxRemoteRole, "owner") })
+	remote.POST("/api/dashboard/:id/action", s.handleAPIDashboardAction)
+	post := func(h *gin.Engine, dash, body string) (int, map[string]interface{}) {
+		t.Helper()
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/dashboard/"+dash+"/action", strings.NewReader(body)))
+		var res map[string]interface{}
+		json.Unmarshal(w.Body.Bytes(), &res)
+		return w.Code, res
+	}
+	got := func(k string) string {
+		t.Helper()
+		v, err := engine.Execute(`return tostring(GOT.` + k + `)`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+
+	text := `  "] os.exit() --[[ zażółć \ 🔥  `
+	b, _ := json.Marshal(map[string]interface{}{"widgetId": "in", "action": "submit", "value": text})
+	if code, res := post(r, "a", string(b)); code != http.StatusOK || res["success"] != true {
+		t.Fatalf("submit = %d %v", code, res)
+	}
+	if v := got("text"); v != strings.TrimSpace(text) {
+		t.Errorf("onSubmit got %q, want %q", v, strings.TrimSpace(text))
+	}
+	if _, res := post(r, "a", `{"widgetId":"in","action":"submit","value":"   "}`); res["error"] != "Empty text" {
+		t.Errorf("empty submit = %v", res)
+	}
+	if _, res := post(r, "a", `{"widgetId":"ls","action":"toggle","value":{"id":"7","done":true}}`); res["success"] != true || got("toggled") != "7:true" {
+		t.Errorf("toggle = %v (%s)", res, got("toggled"))
+	}
+	if _, res := post(r, "a", `{"widgetId":"ls","action":"toggle","value":{"id":"8","done":true}}`); res["error"] != "Unknown item" {
+		t.Errorf("unknown item = %v", res)
+	}
+
+	n := got("n")
+	big := `{"widgetId":"in","action":"submit","value":"` + strings.Repeat("a", dashActionBodyMax) + `"}`
+	if code, _ := post(r, "a", big); code != http.StatusBadRequest {
+		t.Errorf("body over the cap: %d, want 400", code)
+	}
+	if code, _ := post(r, "pin", `{"widgetId":"in","action":"submit","value":"x"}`); code != http.StatusUnauthorized {
+		t.Errorf("PIN dashboard without its cookie: %d", code)
+	}
+	if code, res := post(remote, "a", `{"widgetId":"ls","action":"toggle","value":{"id":"7","done":false}}`); code != http.StatusForbidden || res["error"] != "readonly" {
+		t.Errorf("remote readonly list = %d %v", code, res)
+	}
+	if v := got("n"); v != n {
+		t.Errorf("callbacks ran on refused requests: %s, was %s", v, n)
+	}
+}
