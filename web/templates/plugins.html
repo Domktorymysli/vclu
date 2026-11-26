@@ -392,7 +392,12 @@
                 internet: {{if .Internet}}{{.Internet | json}}{{else}}[]{{end}},
                 pendingInternet: {{if .PendingInternet}}{{.PendingInternet | json}}{{else}}[]{{end}},
                 broadcastPorts: {{if .BroadcastPorts}}{{.BroadcastPorts | json}}{{else}}[]{{end}},
-                tcpPorts: {{if .TCPPorts}}{{.TCPPorts | json}}{{else}}[]{{end}}
+                tcpPorts: {{if .TCPPorts}}{{.TCPPorts | json}}{{else}}[]{{end}},
+                pendingBroadcastPorts: {{if .PendingBroadcastPorts}}{{.PendingBroadcastPorts | json}}{{else}}[]{{end}},
+                pendingTcpPorts: {{if .PendingTCPPorts}}{{.PendingTCPPorts | json}}{{else}}[]{{end}},
+                websocketPorts: {{if .WebSocketPorts}}{{.WebSocketPorts | json}}{{else}}[]{{end}},
+                pendingWebsocketPorts: {{if .PendingWebSocketPorts}}{{.PendingWebSocketPorts | json}}{{else}}[]{{end}},
+                usage: {{if .Usage}}{{.Usage | json}}{{else}}null{{end}}
             };
         }
         {{end}}

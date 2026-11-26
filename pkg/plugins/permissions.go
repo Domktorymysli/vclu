@@ -322,8 +322,23 @@ func (l *Loader) effectivePermissions(pluginID string, manifest PluginManifest) 
 		l.recordPorts(pluginID, requested, grants)
 	}
 	allowed, pending := requested.allowedBy(grants)
-	if names := pending.Names(); len(names) > 0 {
-		log.Printf("[PLUGINS] %s asks for %s, not allowed yet: it runs without it until allowed in the plugin's settings", pluginID, strings.Join(names, ", "))
+	var waiting []string
+	for _, name := range pending.Names() {
+		if !slices.Contains(allowed.Names(), name) {
+			waiting = append(waiting, name)
+		}
+	}
+	if len(waiting) > 0 {
+		log.Printf("[PLUGINS] %s asks for %s, not allowed yet: it runs without it until allowed in the plugin's settings", pluginID, strings.Join(waiting, ", "))
+	}
+	for _, p := range []struct {
+		name  string
+		ok    bool
+		ports []int
+	}{{"udp broadcast", allowed.UDP, pending.BroadcastPorts}, {"tcp", allowed.TCP, pending.TCPPorts}, {"WebSocket", allowed.LAN, pending.WebSocketPorts}} {
+		if p.ok && len(p.ports) > 0 {
+			log.Printf("[PLUGINS] %s asks for %s ports %v, not allowed yet: it uses those allowed before until then", pluginID, p.name, p.ports)
+		}
 	}
 	limits := limitsOf(grants)
 	if manifestAPI(manifest) >= 2 {
