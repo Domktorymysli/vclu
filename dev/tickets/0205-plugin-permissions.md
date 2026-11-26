@@ -104,6 +104,10 @@ running: the manifest names the plugin API it is written for, and the stricter c
   for a writer with a time limit. A change of `lan` or the internet list closes the connections it no
   longer allows (1008); a reload closes with 1001; `close(code, reason)` takes 1000 or 3000-4999.
   No reconnect in the core. Shares the 16 handles of a plugin.
+- A plugin's HTTP (decided 26.11) does not reach the ports vclu listens on at this machine's
+  addresses (the panel, the MQTT broker and its WebSocket, HomeKit, the Lua HTTP server), with
+  `lan`, a host list naming it or a name resolving to it, on every plugin API; another service on
+  the same machine (InfluxDB on `localhost:8086`) stays reachable with `lan`. Modules are unchanged.
 
 ## Files
 - `pkg/lua/runtime/core/PluginSandbox.lua`, `PluginAPI.lua`, `PluginHelpers.lua`, `ExposedObjects.lua`
@@ -196,6 +200,9 @@ running: the manifest names the plugin API it is written for, and the stricter c
 - [ ] `close(code, reason)` sends the code, a reload closes with 1001, 16 handles at most, and a
       narrowed `lan` closes an open connection (`TestPluginWSCloseReloadAndLimit`,
       `TestPluginWSGrantWithdrawn`).
+- [ ] A plugin's HTTP to vclu's own port is refused, by its address or a name resolving to it,
+      also with a host list naming it; another port on the machine and a module's request pass
+      (`TestHTTPManagerPluginNotToOwnAddress`).
 - [ ] `go test ./...` and `go test -race ./...` pass.
 - [ ] A changelog entry in `changelog.d/0205-plugin-permissions.md`.
 - [ ] `DEVELOPMENT.md` in `vclu-plugins` documents `permissions`, the event prefix and the id rule,

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -118,6 +119,7 @@ type LuaEngine struct {
 	mqttManager         *MQTTManager
 	modbusManager       *ModbusManager
 	pluginIO            *PluginIO
+	ownTCPPorts         func() []int // vclu's listening ports, kept from plugins' HTTP
 	kvManager           *plugins.KVStoreManager
 	gpioManager         *GPIOManager
 	satelManager        *SatelManager
@@ -215,6 +217,7 @@ func (le *LuaEngine) initializeLuaState(cluName string) error {
 	le.timerManager = NewTimerManager()
 
 	le.httpManager = NewHTTPManager()
+	le.applyOwnTCPPorts()
 
 	// Create HTTP server manager (but don't stop existing - preserve across reinit)
 	if le.httpServerManager == nil {
@@ -2131,6 +2134,29 @@ func (le *LuaEngine) processGPIOOnLoop() {
 // ProcessGPIO is the public wrapper for tests.
 func (le *LuaEngine) ProcessGPIO() {
 	le.processGPIOOnLoop()
+}
+
+// SetOwnTCPPorts: the TCP ports vclu listens on (panel, MQTT broker, HomeKit), read again on
+// every Lua load; with the Lua HTTP server's, a plugin's HTTP does not reach them here.
+func (le *LuaEngine) SetOwnTCPPorts(fn func() []int) {
+	le.ownTCPPorts = fn
+	le.applyOwnTCPPorts()
+}
+
+func (le *LuaEngine) applyOwnTCPPorts() {
+	if le.httpManager == nil || le.ownTCPPorts == nil {
+		return
+	}
+	ports := le.ownTCPPorts()
+	le.httpManager.SetOwnPorts(func() []int {
+		if sm := le.httpServerManager; sm != nil && sm.IsRunning() {
+			sm.mu.RLock()
+			p := sm.config.Port
+			sm.mu.RUnlock()
+			return append(slices.Clip(ports), p)
+		}
+		return ports
+	})
 }
 
 // PluginIO: plugins' UDP sockets, serial ports and TFTP transfers.

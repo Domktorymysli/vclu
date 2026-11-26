@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -39,6 +40,7 @@ func TestHTTPManagerNoLAN(t *testing.T) {
 	byName := strings.Replace(srv.URL, "127.0.0.1", "localhost", 1)
 
 	hm := NewHTTPManager()
+	hm.ownAddr = func(netip.Addr) bool { return false }
 	hm.SetLANAllowed("@t/a", false)
 	for _, u := range []string{srv.URL, byName} {
 		_, _, _, err := hm.Request("@t/a", "GET", u, nil, "", 5000, true, true)
@@ -82,5 +84,60 @@ func TestOnHostNetwork(t *testing.T) {
 	}
 	if onHostNetwork(netip.MustParseAddr("1.1.1.1")) {
 		t.Error("1.1.1.1 on the host's network")
+	}
+}
+
+// A plugin's HTTP, with lan and on API 1 alike, does not reach this vclu: not by its
+// loopback, not by a name resolving to it; a module's does.
+func TestHTTPManagerPluginNotToOwnAddress(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+	byName := strings.Replace(srv.URL, "127.0.0.1", "localhost", 1)
+
+	hm := NewHTTPManager()
+	hm.SetLANAllowed("@t/a", true)
+	for _, u := range []string{srv.URL, byName} {
+		_, _, _, err := hm.Request("@t/a", "GET", u, nil, "", 5000, true, true)
+		if err == nil || !strings.Contains(err.Error(), "an address of this vclu") {
+			t.Errorf("%s: want refusal, got %v", u, err)
+		}
+	}
+	hm.SetLANHosts("@t/a", []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")})
+	if _, _, _, err := hm.Request("@t/a", "GET", srv.URL, nil, "", 5000, true, true); err == nil {
+		t.Error("a host list naming this vclu does not allow it")
+	}
+	if status, _, _, err := hm.Request("module", "GET", srv.URL, nil, "", 5000, true, true); err != nil || status != 200 {
+		t.Errorf("a module's request: %d %v", status, err)
+	}
+
+	// with vclu's ports known, only those are refused: a service next to vclu stays reachable
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("influx"))
+	}))
+	defer other.Close()
+	_, vcluPort, _ := net.SplitHostPort(strings.TrimPrefix(srv.URL, "http://"))
+	n, _ := strconv.Atoi(vcluPort)
+	hm.SetOwnPorts(func() []int { return []int{n} })
+	hm.SetLANHosts("@t/a", nil)
+	if _, _, _, err := hm.Request("@t/a", "GET", srv.URL, nil, "", 5000, true, true); err == nil || !strings.Contains(err.Error(), "an address of this vclu") {
+		t.Errorf("vclu's own port: %v", err)
+	}
+	if status, body, _, err := hm.Request("@t/a", "GET", other.URL, nil, "", 5000, true, true); err != nil || status != 200 || body != "influx" {
+		t.Errorf("another service on this machine: %d %q %v", status, body, err)
+	}
+
+	// a name resolving to an address of this vclu is refused after DNS
+	hm = NewHTTPManager()
+	hm.ownAddr = func(ip netip.Addr) bool { return ip == netip.MustParseAddr("127.0.0.2") }
+	hm.testResolve = map[string]string{"dev.lan": "127.0.0.2"}
+	hm.SetLANAllowed("@t/a", true)
+	_, port, _ := net.SplitHostPort(strings.TrimPrefix(srv.URL, "http://"))
+	if _, _, _, err := hm.Request("@t/a", "GET", "http://dev.lan:"+port+"/", nil, "", 5000, true, true); err == nil || !strings.Contains(err.Error(), "an address of this vclu") {
+		t.Errorf("a name resolving to this vclu: %v", err)
+	}
+	if status, _, _, err := hm.Request("@t/a", "GET", srv.URL, nil, "", 5000, true, true); err != nil || status != 200 {
+		t.Errorf("another local address: %d %v", status, err)
 	}
 }

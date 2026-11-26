@@ -27,6 +27,7 @@ func internetServer(t *testing.T, hm *HTTPManager, names ...string) (port string
 	t.Cleanup(srv.Close)
 	_, port, _ = net.SplitHostPort(strings.TrimPrefix(srv.URL, "http://"))
 	hm.isLocal = func(netip.Addr) bool { return false }
+	hm.ownAddr = func(netip.Addr) bool { return false }
 	hm.testResolve = map[string]string{}
 	for _, n := range names {
 		hm.testResolve[n] = "127.0.0.1"
@@ -121,6 +122,7 @@ func TestHTTPManagerInternetAndLAN(t *testing.T) {
 	defer srv.Close()
 	_, port, _ := net.SplitHostPort(strings.TrimPrefix(srv.URL, "http://"))
 	hm := NewHTTPManager()
+	hm.ownAddr = func(netip.Addr) bool { return false }
 	hm.testResolve = map[string]string{"api.example.com": "127.0.0.1"}
 	listed := "http://" + net.JoinHostPort("api.example.com", port) + "/"
 

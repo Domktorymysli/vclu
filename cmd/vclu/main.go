@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"flag"
 	"fmt"
@@ -201,6 +202,7 @@ func main() {
 
 	// Create and start web server
 	webSrv := web.NewServer(*webPort, webDir, cluDir, deviceConfig, keys, luaEngine)
+	luaEngine.SetOwnTCPPorts(func() []int { return ownTCPPorts(cluDir, *webPort) })
 
 	// Every state change (StateBus): an immediate client report, and the live dashboards read again
 	luaEngine.SetClientPushHandler(func() {
@@ -677,4 +679,20 @@ func historyConfig(cluDir string) history.Config {
 		log.Printf("History settings: %v (using defaults)", err)
 	}
 	return cfg
+}
+
+// ownTCPPorts: where vclu listens (panel, MQTT broker and its WebSocket, HomeKit); a
+// plugin's HTTP does not reach these on this machine.
+func ownTCPPorts(cluDir string, webPort int) []int {
+	ports := []int{webPort}
+	if b := config.GetMQTTBrokerConfig(cluDir); b != nil && b.Enabled {
+		ports = append(ports, cmp.Or(b.Port, 1883))
+		if b.WSPort > 0 {
+			ports = append(ports, b.WSPort)
+		}
+	}
+	if mc, _ := config.ReadMasterConfig(cluDir); mc != nil && mc.HomeKit != nil && mc.HomeKit.Enabled {
+		ports = append(ports, cmp.Or(mc.HomeKit.Port, 5123))
+	}
+	return ports
 }

@@ -1,6 +1,7 @@
 package lua
 
 import (
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +14,8 @@ func sandboxEngine(t *testing.T, id, perms string) *LuaEngine {
 	t.Helper()
 	engine := NewLuaEngine()
 	t.Cleanup(engine.Close)
+	// test servers on loopback stand for devices in the house, not this vclu
+	engine.httpManager.ownAddr = func(netip.Addr) bool { return false }
 	if perms == "" {
 		perms = "nil"
 	}

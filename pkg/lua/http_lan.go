@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -80,6 +81,8 @@ type dialPolicy struct {
 	isLocal    func(netip.Addr) bool
 	resolve    map[string]string     // tests: a name's address instead of DNS
 	own        func(netip.Addr) bool // set: this machine's addresses refused (a plugin's WebSocket)
+	ownAddr    func(netip.Addr) bool // set: on this machine, ownPorts refused (a plugin's HTTP)
+	ownPorts   func() []int          // nil or returning nil: every port
 }
 
 func (p dialPolicy) notListed(host string) error {
@@ -127,10 +130,23 @@ func (p dialPolicy) dialContext(ctx context.Context, network, addr string) (net.
 			if err != nil {
 				return fmt.Errorf("refused %s: not an IP address", address)
 			}
+			if p.ownAddr != nil && p.ownAddr(ip.WithZone("").Unmap()) {
+				n, _ := strconv.Atoi(port)
+				if ports := p.ownPortList(); ports == nil || slices.Contains(ports, n) {
+					return fmt.Errorf("refused %s: an address of this vclu", address)
+				}
+			}
 			return p.allows(host, ip)
 		},
 	}
 	return d.DialContext(ctx, network, target)
+}
+
+func (p dialPolicy) ownPortList() []int {
+	if p.ownPorts == nil {
+		return nil
+	}
+	return p.ownPorts()
 }
 
 // allows: the address host resolved to may be reached, as the dialer decides after DNS.

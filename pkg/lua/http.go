@@ -35,6 +35,10 @@ type HTTPManager struct {
 	lanHosts map[string][]netip.Prefix
 	// instances (API 2 plugins) that may reach only these internet hosts
 	internet map[string]plugins.InternetHosts
+	// plugin instances (their lan was set): not to vclu's own ports on this machine
+	plugins  map[string]bool
+	ownAddr  func(netip.Addr) bool // tests replace it
+	ownPorts func() []int          // vclu's TCP ports (SetOwnPorts); nil: every port
 	// tests: what counts as local, and names resolved without DNS
 	isLocal     func(netip.Addr) bool
 	testResolve map[string]string
@@ -67,6 +71,8 @@ func NewHTTPManager() *HTTPManager {
 		noLAN:          make(map[string]bool),
 		lanHosts:       make(map[string][]netip.Prefix),
 		internet:       make(map[string]plugins.InternetHosts),
+		plugins:        make(map[string]bool),
+		ownAddr:        ownAddr,
 		isLocal:        defaultIsLocal,
 	}
 }
@@ -88,6 +94,7 @@ func (hm *HTTPManager) SetLANAllowed(instanceID string, allowed bool) {
 	hm.mu.Lock()
 	defer hm.policyChanged(instanceID)
 	defer hm.mu.Unlock()
+	hm.plugins[instanceID] = true
 	if allowed {
 		delete(hm.noLAN, instanceID)
 	} else {
@@ -105,6 +112,25 @@ func (hm *HTTPManager) SetLANHosts(instanceID string, hosts []netip.Prefix) {
 	} else {
 		hm.lanHosts[instanceID] = hosts
 	}
+}
+
+// SetOwnPorts: the TCP ports vclu listens on (panel, MQTT broker, HomeKit); a plugin's HTTP
+// does not reach them on this machine's addresses. Without it, no port of this machine.
+func (hm *HTTPManager) SetOwnPorts(fn func() []int) {
+	hm.mu.Lock()
+	hm.ownPorts = fn
+	hm.mu.Unlock()
+}
+
+// currentOwnPorts: as set now (a cached client's dialer reads it on every dial); nil: every port.
+func (hm *HTTPManager) currentOwnPorts() []int {
+	hm.mu.RLock()
+	fn := hm.ownPorts
+	hm.mu.RUnlock()
+	if fn == nil {
+		return nil
+	}
+	return fn()
 }
 
 // SetOnPolicy: called, without the lock, after an instance's lan or internet changed.
@@ -140,10 +166,14 @@ func (hm *HTTPManager) policy(instanceID string) dialPolicy {
 func (hm *HTTPManager) policyLocked(instanceID string) dialPolicy {
 	hosts, narrowed := hm.lanHosts[instanceID]
 	internet, restricted := hm.internet[instanceID]
-	return dialPolicy{
+	p := dialPolicy{
 		plugin: instanceID, noLAN: hm.noLAN[instanceID], narrowed: narrowed, lanHosts: hosts,
 		restricted: restricted, internet: internet, isLocal: hm.isLocal, resolve: hm.testResolve,
 	}
+	if hm.plugins[instanceID] {
+		p.ownAddr, p.ownPorts = hm.ownAddr, hm.currentOwnPorts
+	}
+	return p
 }
 
 // getOrCreateClient gets or creates an HTTP client for the given instance
@@ -154,8 +184,8 @@ func (hm *HTTPManager) getOrCreateClient(instanceID string, timeout int, verifyS
 	policy := hm.policyLocked(instanceID)
 	hosts, narrowed, restricted, internet := policy.lanHosts, policy.narrowed, policy.restricted, policy.internet
 	// Generate cache key based on settings
-	cacheKey := fmt.Sprintf("%s_%d_%v_%v_%v_%v_%v_%v_%q", instanceID, timeout, verifySSL, followRedirects,
-		policy.noLAN, narrowed, hosts, restricted, internet)
+	cacheKey := fmt.Sprintf("%s_%d_%v_%v_%v_%v_%v_%v_%q_%v", instanceID, timeout, verifySSL, followRedirects,
+		policy.noLAN, narrowed, hosts, restricted, internet, policy.ownAddr != nil)
 
 	// Return existing client if available
 	if client, ok := hm.clients[cacheKey]; ok {
@@ -171,7 +201,7 @@ func (hm *HTTPManager) getOrCreateClient(instanceID string, timeout int, verifyS
 		MaxIdleConnsPerHost: 5,
 		IdleConnTimeout:     30 * time.Second,
 	}
-	if policy.noLAN || narrowed || restricted || policy.resolve != nil {
+	if policy.noLAN || narrowed || restricted || policy.resolve != nil || policy.ownAddr != nil {
 		transport.DialContext = policy.dialContext
 	}
 

@@ -91,7 +91,9 @@ unique_id after its normalization are refused (`ExposedObjects:expose`).
 `plugin.json` declares what a plugin reaches:
 `"permissions": {"internet": ["api.example.com", "*.example.net"], "lan": true, "mqtt": true, "modbus": true}`.
 `lan` is HTTP to local addresses,
-checked in Go after DNS resolution, including this machine's own networks (`pkg/lua/http_lan.go`); `mqtt` and `modbus` give the plugin API
+checked in Go after DNS resolution, including this machine's own networks (`pkg/lua/http_lan.go`),
+but never the ports vclu listens on at this machine's addresses (`LuaEngine.SetOwnTCPPorts`, set in
+`cmd/vclu`; without it every port of this machine); `mqtt` and `modbus` give the plugin API
 and the `Modbus` table. A plugin on API 1 (no `"api"`) asks for all three; on API 2 for what it
 declares, nothing without the field (`permissions.go`).
 

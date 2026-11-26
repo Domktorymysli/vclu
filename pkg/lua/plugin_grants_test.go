@@ -17,6 +17,7 @@ func TestHTTPManagerLANHosts(t *testing.T) {
 	defer srv.Close()
 
 	hm := NewHTTPManager()
+	hm.ownAddr = func(netip.Addr) bool { return false }
 	hm.SetLANAllowed("@t/a", true)
 	for _, c := range []struct {
 		hosts []netip.Prefix
