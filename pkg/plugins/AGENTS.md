@@ -86,6 +86,19 @@ facades (handles, pollers) and proxies refuse a self other than their own; `init
 id or the id's first word (`sun-position` → `sun:`), any other plugin's full id (`@jan/foo:`). `pkg/lua/plugin_sandbox_escape_test.go` holds the attempts to get out; a
 change to the sandbox keeps them failing.
 
+## What a module gets of a plugin (API 2)
+`PluginSandbox.moduleFacade` (PluginSandbox.lua): `Plugin.getPlugin(id)` and `_:get("@ns/id")` give a
+module the plugin's facade, never the instance: the plugin's own methods, the core's `get`, `on`,
+`getExposed`, `dashboardAccess`, `listSensorsAndControls`, `stats`, and `id`, `name`, `version`;
+not its config, sandbox, KV store or timers (`plugin:kvGet` and the like refuse). What crosses is
+the contract one Lua state per plugin keeps (pluginy-2.0 §12): numbers, strings, booleans and plain
+tables are copied both ways (depth 32, no cycles); a table with functions (or a metatable) the
+plugin hands out is a handle — its methods, its plain fields as copies, never its `_` fields, the
+same object always the same handle; a module function the plugin calls runs after it, in order
+(`later`), returning nothing; a house object (registry, CLU) reaches the plugin read-only, so a
+module gives a path to act on. What a module sets on a handle stays on the handle. A stopped
+plugin's facade and handles refuse ("@ns/id: stopped"). `plugin_boundary_test.go` is the contract.
+
 ## Plugin ids
 A namespace and a short id are lower case, without `--` or a `-` at either end
 (`validPluginID`): the directory and KV file name `ns--id` then belong to one id, also on a

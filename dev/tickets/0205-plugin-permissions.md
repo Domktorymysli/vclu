@@ -288,6 +288,12 @@ running: the manifest names the plugin API it is written for, and the stricter c
       or `seen` (with its `api`) is refused with 400 `consent_required`, with a session as with an API
       key, and `grenton_raw`, `tftp` and `serial` never come with an install, even accepted
       (`TestInstallNeedsConsent`, `TestInstallNeverGrantsPanelOnlyPermissions`).
+- [ ] On API 2 a module gets a plugin's facade (`Plugin.getPlugin`, `_:get`): its methods and the
+      core's get, on, getExposed, dashboardAccess, not its config, sandbox, store or timers; plain
+      data crosses as copies, objects with functions as handles (the same object the same handle,
+      `_` fields hidden), module functions a plugin calls run after it in order, a house object
+      reaches the plugin read-only, a stopped plugin's handles refuse (`plugin_boundary_test.go`);
+      the official plugins' README code runs on handles (`TestOfficialPluginsSmoke`).
 - [ ] `go test ./...` and `go test -race ./...` pass.
 - [ ] A changelog entry in `changelog.d/0205-plugin-permissions.md`.
 - [ ] `DEVELOPMENT.md` in `vclu-plugins` documents `permissions`, the event prefix and the id rule,
