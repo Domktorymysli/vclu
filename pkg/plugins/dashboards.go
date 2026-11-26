@@ -98,18 +98,23 @@ type ManifestDashboard struct {
 // ManifestDashboards refuses a manifest with a malformed list, at download and at load.
 type ManifestDashboards []ManifestDashboard
 
-// UnmarshalJSON checks ids, names and the count.
+// UnmarshalJSON checks ids, names and the count; a field this vclu does not know refuses it.
 func (d *ManifestDashboards) UnmarshalJSON(data []byte) error {
-	var list []ManifestDashboard
-	if err := json.Unmarshal(data, &list); err != nil {
+	var raws []json.RawMessage
+	if err := json.Unmarshal(data, &raws); err != nil {
 		return fmt.Errorf("dashboards: %w", err)
 	}
-	if len(list) > maxManifestDashboards {
+	if len(raws) > maxManifestDashboards {
 		return fmt.Errorf("dashboards: at most %d", maxManifestDashboards)
 	}
+	list := make([]ManifestDashboard, len(raws))
 	seen := map[string]bool{}
-	for i, m := range list {
+	for i, raw := range raws {
 		at := fmt.Sprintf("dashboards[%d]", i)
+		if err := decodeStrict(at, raw, &list[i]); err != nil {
+			return err
+		}
+		m := list[i]
 		if !dashboardID.MatchString(m.ID) {
 			return fmt.Errorf("%s: id %q is 1 to 64 lower-case letters, digits and _", at, m.ID)
 		}

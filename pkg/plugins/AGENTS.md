@@ -123,9 +123,10 @@ skip it until `Resume` (POST `/api/plugins/:id/resume`); runtime only, a restart
 parameters, `true` short for one without any where that does not mean "everything", `why` (a
 `LocalText`) required for a wide one:
 `"permissions": {"internet": {"hosts": ["api.example.com"]}, "lan": {"ports": [80]}, "udp": {"ports": [7000], "broadcast": [7000]}, "tcp": {"ports": [23]}, "mqtt": {"subscribe": ["z2m/#"], "publish": ["z2m/+/set"]}, "modbus": true, "clu": {"why": "..."}, "tftp": {"why": "..."}, "serial": {"why": "..."}}`.
-Every object decodes with unknown fields refused; an unknown permission, field, action field or
-form field type refuses the plugin as `ErrNewerVclu` (at download and at load), so a plugin never
-runs with less than it was written for. `"permissions"` is required on API 2 (`{}` for none);
+Every object decodes with unknown fields refused (`decodeStrict`: a field spelled in another case
+or written twice counts as unknown, in dashboards and the form file too); an unknown permission,
+field, action field or form field type refuses the plugin as `ErrNewerVclu` (at download and at
+load), so a plugin never runs with less than it was written for. `"permissions"` is required on API 2 (`{}` for none);
 top-level keys of earlier drafts (`udp`, `tcp`, `websocket`, `internetWhy`, `minVcluVersion`)
 refuse it with where they went. `requires.vclu` (`>=X.Y.Z`) is checked against `SetVcluVersion`.
 Actions are declared in `"actions"` (`ManifestActions`); `plugin:action(name, fn)` takes only a

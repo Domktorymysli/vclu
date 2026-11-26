@@ -111,21 +111,32 @@ func ReadForm(localDir string) (form *Form, raw json.RawMessage, err error) {
 			return nil, nil, fmt.Errorf("form: %s is larger than %d KiB", m.Form, maxFormFile>>10)
 		}
 	case len(bytes.TrimSpace(m.Config)) > 0 && !bytes.Equal(bytes.TrimSpace(m.Config), []byte("null")):
+		// the older "config" map reads as before: what this vclu knows of it
 		raw = json.RawMessage(`{"settings":` + string(m.Config) + `}`)
+		form, err = parseForm(raw, false)
 	default:
 		return nil, nil, nil
 	}
-	form, err = ParseForm(raw)
+	if m.Form != "" {
+		form, err = ParseForm(raw)
+	}
 	if err != nil {
 		return nil, nil, err
 	}
 	return form, raw, nil
 }
 
-// ParseForm reads and checks a form file.
-func ParseForm(raw []byte) (*Form, error) {
+// ParseForm reads and checks a form file; a key this vclu does not know (a constraint it would
+// not enforce) refuses it as written for a newer vclu.
+func ParseForm(raw []byte) (*Form, error) { return parseForm(raw, true) }
+
+func parseForm(raw []byte, strict bool) (*Form, error) {
 	var f Form
-	if err := json.Unmarshal(raw, &f); err != nil {
+	if strict {
+		if err := decodeStrict("form", raw, &f); err != nil {
+			return nil, err
+		}
+	} else if err := json.Unmarshal(raw, &f); err != nil {
 		return nil, fmt.Errorf("form: %w", err)
 	}
 	if err := checkFields("settings", f.Settings, false); err != nil {

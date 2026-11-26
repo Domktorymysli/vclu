@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"regexp"
 	"slices"
 	"sort"
@@ -72,8 +73,12 @@ func newerVclu(what string) error {
 	return fmt.Errorf("%s: unknown to this vclu: %w", what, ErrNewerVclu)
 }
 
-// decodeStrict decodes v into dst refusing unknown fields as written for a newer vclu.
+// decodeStrict decodes v into dst refusing unknown fields as written for a newer vclu, a
+// field in another case ("Ports") among them, and a field written twice.
 func decodeStrict(where string, v json.RawMessage, dst any) error {
+	if err := strictKeys(where, v, reflect.TypeOf(dst)); err != nil {
+		return err
+	}
 	dec := json.NewDecoder(bytes.NewReader(v))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(dst); err != nil {
@@ -82,6 +87,102 @@ func decodeStrict(where string, v json.RawMessage, dst any) error {
 			return newerVclu(where + "." + strings.Trim(msg[i+len("unknown field "):], `"`))
 		}
 		return fmt.Errorf("%s: %w", where, err)
+	}
+	return nil
+}
+
+type jsonEntry struct {
+	key string
+	val json.RawMessage
+}
+
+// objectEntries: the keys of the JSON object v in order with their values; a key twice is
+// an error. Not an object: nil (the decoder says what it is).
+func objectEntries(where string, v json.RawMessage) ([]jsonEntry, error) {
+	if !bytes.HasPrefix(bytes.TrimSpace(v), []byte("{")) {
+		return nil, nil
+	}
+	dec := json.NewDecoder(bytes.NewReader(v))
+	if _, err := dec.Token(); err != nil {
+		return nil, nil
+	}
+	var out []jsonEntry
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			return nil, nil
+		}
+		key, _ := tok.(string)
+		var val json.RawMessage
+		if err := dec.Decode(&val); err != nil {
+			return nil, nil
+		}
+		if slices.ContainsFunc(out, func(e jsonEntry) bool { return e.key == key }) {
+			return nil, fmt.Errorf("%s.%s: written twice", where, key)
+		}
+		out = append(out, jsonEntry{key, val})
+	}
+	return out, nil
+}
+
+var jsonUnmarshaler = reflect.TypeFor[json.Unmarshaler]()
+
+// strictKeys: every key of the object v is a field of the struct t, written as its tag spells
+// it and once; nested structs, maps and lists of them likewise. A type that reads itself
+// (LocalText, RawMessage) is its own.
+func strictKeys(where string, v json.RawMessage, t reflect.Type) error {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	if reflect.PointerTo(t).Implements(jsonUnmarshaler) {
+		return nil
+	}
+	switch t.Kind() {
+	case reflect.Struct:
+		entries, err := objectEntries(where, v)
+		if err != nil {
+			return err
+		}
+		fields := map[string]reflect.Type{}
+		for i := 0; i < t.NumField(); i++ {
+			f := t.Field(i)
+			name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+			if name == "" {
+				name = f.Name
+			}
+			if name != "-" && f.IsExported() {
+				fields[name] = f.Type
+			}
+		}
+		for _, e := range entries {
+			ft, ok := fields[e.key]
+			if !ok {
+				return newerVclu(where + "." + e.key)
+			}
+			if err := strictKeys(where+"."+e.key, e.val, ft); err != nil {
+				return err
+			}
+		}
+	case reflect.Map:
+		entries, err := objectEntries(where, v)
+		if err != nil {
+			return err
+		}
+		for _, e := range entries {
+			if err := strictKeys(where+"."+e.key, e.val, t.Elem()); err != nil {
+				return err
+			}
+		}
+	case reflect.Slice, reflect.Array:
+		var items []json.RawMessage
+		if json.Unmarshal(v, &items) != nil {
+			return nil
+		}
+		for i, item := range items {
+			if err := strictKeys(fmt.Sprintf("%s[%d]", where, i), item, t.Elem()); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -153,6 +254,9 @@ func (p *Permissions) UnmarshalJSON(data []byte) error {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil || raw == nil {
 		return fmt.Errorf(`permissions: an object such as {"lan": {"ports": [80]}}, {} for none`)
+	}
+	if _, err := objectEntries("permissions", data); err != nil {
+		return err
 	}
 	names := make([]string, 0, len(raw))
 	for name := range raw {
@@ -475,7 +579,10 @@ func (r *ManifestRequires) minVclu() (v [3]int, ok bool) {
 		return v, false
 	}
 	for i := range v {
-		v[i], _ = strconv.Atoi(m[i+1])
+		var err error
+		if v[i], err = strconv.Atoi(m[i+1]); err != nil {
+			return v, false
+		}
 	}
 	return v, true
 }
@@ -631,6 +738,9 @@ func (m *PluginManifest) UnmarshalJSON(data []byte) error {
 	}
 	if api < 2 || api > PluginAPIMax {
 		return nil // API 1 asks by its version; a newer one is refused by its version (checkAPI)
+	}
+	if _, err := objectEntries("plugin.json", data); err != nil {
+		return err
 	}
 	if len(aux.Permissions) == 0 || isJSON(aux.Permissions, "null") {
 		return fmt.Errorf(`plugin API 2 needs "permissions" in plugin.json ({} for none)`)
