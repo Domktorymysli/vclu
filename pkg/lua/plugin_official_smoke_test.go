@@ -152,6 +152,20 @@ func TestOfficialPluginsSmoke(t *testing.T) {
 				assert(tas, "tasmota create")
 				local inf = Plugin.getPlugin("@vclu/influx-metrics"):create({ url = "http://10.255.255.50:8086/write?db=vclu", interval = 60, tags = { host = "vclu" } })
 				assert(inf, "influx create"); inf:gauge("temperature", 22.5, { room = "salon" })
+				-- module code of the READMEs: handles of the plugins' objects (API 2)
+				local tasmota = Plugin.getPlugin("@vclu/tasmota")
+				if tasmota then
+					local plug = tasmota:device({ ip = "10.255.255.101" })
+					local lamp = plug:relay(1)
+					expose(lamp, "light", { path = "tasmota.lampa", name = "Lampa", mqtt = false, homekit = false })
+					local power = plug:power()
+					expose(power, "number", { path = "tasmota.lampa_moc", name = "Lampa moc", readonly = true, unit = "W", mqtt = false, homekit = false })
+					assert(tasmota:device({ ip = "10.255.255.101" }) == plug, "tasmota: the same device is the same handle")
+					lamp:onChange(function(v, old) end)
+					assert(lamp:get() == nil and plug:isOnline() == false, "tasmota: no reading yet")
+				end
+				local zakupy = Plugin.getPlugin("@vclu/zakupy")
+				if zakupy then zakupy:dashboardAccess("lista", { name = "Zakupy", auth = "session" }) end
 				local n = 0
 				for _ in pairs(ExposedObjects._objects or {}) do n = n + 1 end
 				return "factories ok, exposed=" .. n .. " rce:now=" .. tostring(now)

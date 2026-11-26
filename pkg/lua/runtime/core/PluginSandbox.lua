@@ -104,6 +104,9 @@ local readOnlyProxy
 
 -- A plugin's instance proxy -> its real instance: another plugin gets the facade of it
 local instanceOf = setmetatable({}, { __mode = "k" })
+-- What a module holds of a plugin (a handle, the instance's facade) -> { obj, inner }
+local handleInfo = setmetatable({}, { __mode = "k" })
+local handleOf = setmetatable({}, { __mode = "k" })     -- plugin object -> the module's handle of it
 
 -- Another plugin as a plugin sees it: its sensors and controls, read-only. Not its
 -- config, KV store or sandbox.
@@ -160,6 +163,11 @@ readOnlyProxy = function(obj, owner)
     if type(obj) ~= "table" then return obj end
     owner = owner or false
     if instanceOf[obj] then return pluginFacade(instanceOf[obj], owner) end
+    local held = handleInfo[obj]
+    if held then
+        if held.obj == held.inner then return pluginFacade(held.inner, owner) end
+        obj = held.obj -- a module's handle of a plugin's object: read-only here
+    end
     local src = sourceOf(obj)
     if src then
         local mt = getmetatable(obj)
@@ -401,7 +409,7 @@ local function visible(t, seen)
 end
 
 -- vis: a table for JSON, which the plugin can read back (so without the _fields of a proxy
--- or a facade); an event's payload goes to modules as the object itself
+-- or a facade). Always a copy: an event's payload is the plugin's no more once emitted.
 local function plain(v, seen, vis)
     if type(v) ~= "table" then return v end
     local src = sourceOf(v)
@@ -411,17 +419,10 @@ local function plain(v, seen, vis)
     end
     seen = seen or {}
     if seen[v] then return seen[v] end
-    seen[v] = v
-    local copy
-    for k, val in originalPairs(v) do
-        local pv = plain(val, seen, vis)
-        if pv ~= val and not copy then
-            copy = shallowCopy(v)
-            seen[v] = copy
-        end
-        if copy then copy[k] = pv end
-    end
-    return copy or v
+    local copy = {}
+    seen[v] = copy
+    for k, val in originalPairs(v) do copy[k] = plain(val, seen, vis) end
+    return copy
 end
 
 -- The plugin's table library: raw functions read through a proxy, and do not write one
@@ -449,7 +450,7 @@ local function sandboxUnpack(list, ...)
 end
 
 -- Plugin class functions that are not instance methods
-local PLUGIN_STATIC = { new = true, getPlugin = true, list = true, allStats = true, initFromConfig = true }
+local PLUGIN_STATIC = { new = true, getPlugin = true, _lookup = true, list = true, allStats = true, initFromConfig = true }
 -- Fields of its own instance a plugin may not see (the sandbox, raw handles) or replace
 local INSTANCE_HIDDEN = { _sandbox = true, _exposedHandles = true, timers = true, subscriptions = true }
 local INSTANCE_PROTECTED = {
@@ -497,7 +498,9 @@ local function instanceProxy(inner)
         -- a path only under the plugin's id, not a CLU's or another plugin's
         expose = function(obj, objType, options)
             local prefix = inner.id .. ":"
-            local existing = ExposedObjects and ExposedObjects._objectToPath[obj]
+            local paths = ExposedObjects and ExposedObjects._objectToPath
+            -- a module exposes the plugin's object as its handle
+            local existing = paths and (paths[obj] or (handleOf[obj] and paths[handleOf[obj]]))
             if existing and existing:sub(1, #prefix) ~= prefix then
                 error("Read-only: " .. existing .. " was exposed by a module; a plugin cannot change it", 2)
             end
@@ -570,6 +573,285 @@ local function instanceProxy(inner)
         end,
     })
     return proxy
+end
+
+-- ============================================
+-- What a module gets of a plugin (API 2): plain data as copies, objects with functions as
+-- handles, its functions called back later. One Lua state per plugin keeps this contract.
+-- ============================================
+
+local BOUNDARY_DEPTH = 32
+local facadeOf = setmetatable({}, { __mode = "k" })     -- instance -> its facade
+local callbackOf = setmetatable({}, { __mode = "k" })   -- instance -> { module function -> plugin side }
+local boundaryFnOf = setmetatable({}, { __mode = "k" }) -- plugin function -> module side
+-- a plugin object's fields the core reads (a sensor's type, id and name for expose)
+local HANDLE_FIELDS = { _type = true, _id = true, _name = true, _isPlugin = true }
+local handleSeq = 0
+local toModule, toPlugin, moduleHandle
+
+-- A handle of a stopped plugin (disabled, suspended, reloaded) does nothing
+local function stoppedCheck(inner, level)
+    local sb = inner._sandbox
+    if (sb and sb.dead) or Plugin.instances[inner.id] ~= inner then
+        error(tostring(inner.id) .. ": stopped", level or 3)
+    end
+end
+
+-- Module functions a plugin calls run after it, in order
+local laterQueue, laterArmed = {}, false
+local function runLater()
+    laterArmed = false
+    local q = laterQueue
+    laterQueue = {}
+    for i = 1, #q do
+        local ok, err = pcall(q[i].fn, unpackArgs(q[i].args, 1, q[i].args.n))
+        if not ok and Logger then Logger:warn("[PLUGIN] a module callback given to " .. q[i].from .. ": " .. tostring(err)) end
+    end
+end
+local function later(from, fn, args)
+    if type(__go_setTimeout) ~= "function" then -- a state without timers: now
+        pcall(fn, unpackArgs(args, 1, args.n))
+        return
+    end
+    laterQueue[#laterQueue + 1] = { fn = fn, args = args, from = from }
+    if not laterArmed then
+        laterArmed = true
+        __go_setTimeout(runLater, 0)
+    end
+end
+
+local function copyTable(v, inner, depth, seen, conv)
+    if depth > BOUNDARY_DEPTH then error("data between a module and " .. tostring(inner.id) .. " is nested deeper than " .. BOUNDARY_DEPTH, 0) end
+    if seen[v] then error("data between a module and " .. tostring(inner.id) .. " has a cycle", 0) end
+    seen[v] = true
+    local c = {}
+    for k, val in originalPairs(v) do c[conv(k, inner, depth + 1, seen)] = conv(val, inner, depth + 1, seen) end
+    seen[v] = nil
+    return c
+end
+
+-- numbers, strings, booleans and nil cross as they are: no table for the common call
+local function allSimple(...)
+    for i = 1, select("#", ...) do
+        local t = type((select(i, ...)))
+        if t == "table" or t == "function" then return false end
+    end
+    return true
+end
+
+local function toPluginArgs(inner, ...)
+    if allSimple(...) then return ... end
+    local n = select("#", ...)
+    local out = { ... }
+    for i = 1, n do out[i] = toPlugin(out[i], inner, 0) end
+    return unpackArgs(out, 1, n)
+end
+
+local function toModuleResults(inner, ...)
+    if allSimple(...) then return ... end
+    local n = select("#", ...)
+    local out = { ... }
+    for i = 1, n do out[i] = toModule(out[i], inner, 0) end
+    return unpackArgs(out, 1, n)
+end
+
+-- A value from a module (or the core, through a handle) as the plugin gets it
+toPlugin = function(v, inner, depth, seen)
+    local t = type(v)
+    if t == "function" then
+        local byFn = callbackOf[inner]
+        if not byFn then
+            byFn = setmetatable({}, { __mode = "k" })
+            callbackOf[inner] = byFn
+        end
+        local cb = byFn[v]
+        if not cb then
+            local fn = v
+            cb = function(...)
+                local n = select("#", ...)
+                local args = { n = n }
+                for i = 1, n do args[i] = toModule((select(i, ...)), inner, 0) end
+                later(inner.id, fn, args)
+            end
+            byFn[v] = cb
+        end
+        return cb
+    end
+    if t ~= "table" then return v end
+    local held = handleInfo[v]
+    if held then
+        if held.inner ~= inner then
+            error("an object of " .. tostring(held.inner.id) .. " cannot be given to " .. tostring(inner.id)
+                .. ": give its path or plain data", 0)
+        end
+        if held.obj == inner then return (inner._sandbox and inner._sandbox.instanceProxy) or inner end
+        return held.obj
+    end
+    -- a house object (registry, CLU) reaches the plugin read-only: give a path to act on it
+    if getmetatable(v) ~= nil then return readOnlyProxy(v, inner.id) end
+    return copyTable(v, inner, depth or 0, seen or {}, toPlugin)
+end
+
+-- A value from the plugin as a module gets it
+toModule = function(v, inner, depth, seen)
+    local t = type(v)
+    if t == "function" then
+        local f = boundaryFnOf[v]
+        if not f then
+            local fn = v
+            f = function(...)
+                stoppedCheck(inner)
+                return toModuleResults(inner, fn(toPluginArgs(inner, ...)))
+            end
+            boundaryFnOf[v] = f
+        end
+        return f
+    end
+    if t ~= "table" then return v end
+    if handleInfo[v] then return v end
+    if v == inner or instanceOf[v] == inner then return PluginSandbox.moduleFacade(inner) end
+    local src = sourceOf(v)
+    if src then return src end -- a house object the plugin read: the module's own
+    if getmetatable(v) ~= nil then return moduleHandle(v, inner) end
+    for _, val in originalPairs(v) do
+        if type(val) == "function" then return moduleHandle(v, inner) end
+    end
+    return copyTable(v, inner, depth or 0, seen or {}, toModule)
+end
+
+-- A plugin's object as a module holds it: its methods, its plain fields as copies, never its
+-- _fields; the same object is the same handle
+moduleHandle = function(obj, inner)
+    local h = handleOf[obj]
+    if h then return h end
+    handleSeq = handleSeq + 1
+    local label = "<" .. tostring(inner.id) .. " handle " .. handleSeq .. ">"
+    -- methods found once are a plain lookup; fields are read each time
+    local methods = setmetatable({}, {
+        __index = function(cache, key)
+            local val = obj[key]
+            local private = type(key) == "string" and key:sub(1, 1) == "_"
+            if type(val) == "function" then
+                if private and key ~= "_notify" then return nil end
+                local m = function(self, ...)
+                    stoppedCheck(inner)
+                    local fn = obj[key]
+                    if self == h then return toModuleResults(inner, fn(obj, toPluginArgs(inner, ...))) end
+                    return toModuleResults(inner, fn(toPluginArgs(inner, self, ...)))
+                end
+                rawset(cache, key, m)
+                return m
+            end
+            if HANDLE_FIELDS[key] then return val end
+            if private then return nil end
+            stoppedCheck(inner)
+            return toModule(val, inner)
+        end,
+    })
+    h = setmetatable({}, {
+        __index = methods,
+        -- what a module (or the core: history, its path) sets stays on the handle, never in the
+        -- plugin's object; only the core's note of a sensor's reported value goes through
+        __newindex = function(t, key, value)
+            if key == "_notified" then
+                obj._notified = value
+                return
+            end
+            rawset(t, key, value)
+        end,
+        __tostring = function() return label end,
+    })
+    handleOf[obj] = h
+    handleInfo[h] = { obj = obj, inner = inner }
+    return h
+end
+
+-- The plugin as Plugin.getPlugin gives it to a module: its own methods, the core's a module
+-- may call, its name and version; not its config, sandbox, store or timers
+local FACADE_FIELDS = { id = true, shortId = true, namespace = true, name = true, version = true,
+    description = true, _isPlugin = true }
+local FACADE_HIDDEN = { config = true, timers = true, subscriptions = true }
+-- the core's methods: "raw" results are the core's (expose handles), "handle" go through toModule
+local FACADE_CORE = { get = "handle", on = "handle", getExposed = "raw", dashboardAccess = "raw",
+    listSensorsAndControls = "raw", stats = "raw" }
+
+function PluginSandbox.moduleFacade(inner)
+    local f = facadeOf[inner]
+    if f then return f end
+    local function asMethod(key, self)
+        if self ~= f then error("call " .. tostring(key) .. " as a method: plugin:" .. tostring(key) .. "(...)", 3) end
+        stoppedCheck(inner, 4)
+    end
+    -- the core's error as the module's: at the line that called it
+    local function coreCall(core, ...)
+        local r = { n = select("#", ...), pcall(core, inner, ...) }
+        if not r[1] then
+            local msg = r[2]
+            if type(msg) == "string" then msg = msg:gsub("^[^\n]-%.lua:%d+: ", "", 1) end
+            error(msg, 3)
+        end
+        return unpackArgs(r, 2, table.maxn(r))
+    end
+    local methods = setmetatable({}, {
+        __index = function(cache, key)
+            if FACADE_FIELDS[key] then return rawget(inner, key) end
+            stoppedCheck(inner)
+            local m
+            local own = rawget(inner, key)
+            local private = type(key) == "string" and key:sub(1, 1) == "_"
+            if type(own) == "function" and not private then
+                m = function(self, ...)
+                    asMethod(key, self)
+                    return toModuleResults(inner, rawget(inner, key)(inner, toPluginArgs(inner, ...)))
+                end
+            elseif own == nil and FACADE_CORE[key] then
+                local how, core = FACADE_CORE[key], Plugin[key]
+                m = function(self, ...)
+                    asMethod(key, self)
+                    if how == "raw" then
+                        return mapResults(function(r) if r == inner then return f end return r end, coreCall(core, ...))
+                    end
+                    return toModuleResults(inner, coreCall(core, toPluginArgs(inner, ...)))
+                end
+            elseif own ~= nil then
+                if private or FACADE_HIDDEN[key] then return nil end
+                return toModule(own, inner)
+            elseif type(Plugin[key]) == "function" then
+                m = function()
+                    error(tostring(inner.id) .. ":" .. tostring(key) .. " is the plugin's own; a module uses its own "
+                        .. "(EventBus:getShared(), its KV, its timers)", 2)
+                end
+            else
+                return nil
+            end
+            rawset(cache, key, m)
+            return m
+        end,
+    })
+    f = setmetatable({}, {
+        __index = methods,
+        __newindex = function()
+            error("Read-only: Plugin.getPlugin(\"" .. tostring(inner.id) .. "\") is the plugin's; a module sets nothing on it", 2)
+        end,
+        __tostring = function() return "<plugin " .. tostring(inner.id) .. ">" end,
+    })
+    facadeOf[inner] = f
+    handleInfo[f] = { obj = inner, inner = inner }
+    return f
+end
+
+-- What Plugin.getPlugin gives a module: the facade on API 2, the instance on API 1
+function PluginSandbox.moduleView(instance)
+    local sb = type(instance) == "table" and instance._sandbox
+    if sb and sb.apiVersion and sb.apiVersion >= 2 then return PluginSandbox.moduleFacade(instance) end
+    return instance
+end
+
+-- The plugin behind a module's facade or handle (the core's own lookups)
+function PluginSandbox.instanceBehind(v)
+    local held = handleInfo[v]
+    if held then return held.inner end
+    return v
 end
 
 -- ============================================
@@ -1295,6 +1577,7 @@ function PluginSandbox:buildAPI(sandbox)
             obj = _:get(path)
         end
         if type(obj) ~= "table" then return nil end
+        obj = PluginSandbox.instanceBehind(obj)
         if obj == sandbox.instance then return sandbox.instanceProxy end
         return readOnlyProxy(obj, pluginId)
     end
@@ -1569,6 +1852,7 @@ function PluginSandbox:buildEnvironment(sandbox)
     -- The plugin's view of the Plugin class: its own instance, other plugins read-only
     local function external(obj)
         if obj == nil then return nil end
+        obj = PluginSandbox.instanceBehind(obj)
         if obj == sandbox.instance then return sandbox.instanceProxy end
         return readOnlyProxy(obj, pluginId)
     end
@@ -1620,7 +1904,7 @@ function PluginSandbox:buildEnvironment(sandbox)
             return sandbox.instanceProxy
         end,
         getPlugin = function(id)
-            return external(Plugin.getPlugin(id))
+            return external(Plugin._lookup(id))
         end,
     }
     local pluginClass = setmetatable({}, {

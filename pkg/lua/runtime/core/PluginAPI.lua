@@ -1217,9 +1217,8 @@ function Plugin.initFromConfig(pluginId, config)
     end
 end
 
--- Get plugin instance by fullId or shortId
--- Note: Use Plugin.getPlugin() instead of Plugin.get() to avoid conflict with instance method
-function Plugin.getPlugin(pluginId)
+-- The instance by fullId or shortId, as the core holds it
+function Plugin._lookup(pluginId)
     -- Try fullId first
     if Plugin.instances[pluginId] then
         return Plugin.instances[pluginId]
@@ -1234,6 +1233,16 @@ function Plugin.getPlugin(pluginId)
         end
     end
     return found
+end
+
+-- Get a plugin by fullId or shortId. On plugin API 2 a module gets its facade: the plugin's
+-- methods and the core's get, on, getExposed, dashboardAccess; values cross as copies,
+-- objects with functions as handles (PluginSandbox.moduleFacade).
+-- Note: Use Plugin.getPlugin() instead of Plugin.get() to avoid conflict with instance method
+function Plugin.getPlugin(pluginId)
+    local instance = Plugin._lookup(pluginId)
+    if instance and PluginSandbox and PluginSandbox.moduleView then return PluginSandbox.moduleView(instance) end
+    return instance
 end
 
 -- List all registered plugins
