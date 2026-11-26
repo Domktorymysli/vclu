@@ -42,3 +42,31 @@ func TestTelnetLibBytes(t *testing.T) {
 		eq("closed", conn.closed, true)
 	`)
 }
+
+// A device that never ends a line: past MAX_LINE the text goes out as a line; a bad
+// prompt pattern is refused when it is set, not on every read.
+func TestTelnetLibLimits(t *testing.T) {
+	engine := NewLuaEngine()
+	defer engine.Close()
+	mustExec(t, engine, `
+		local Telnet = require("lib/telnet")
+		local conn = {}
+		function conn:send(b) return true end
+		function conn:onReceive(fn) self.recv = fn end
+		function conn:close() end
+		local t = Telnet.wrap(conn)
+		local lines = {}
+		t:onLine(function(line) lines[#lines + 1] = #line end)
+		local chunk = string.rep("x", 16 * 1024)
+		for _ = 1, 4 do conn.recv(chunk) end
+		assert(#lines == 0, "a line at the limit waits")
+		conn.recv("y")
+		assert(#lines == 1 and lines[1] == Telnet.MAX_LINE + 1, "over the limit: " .. tostring(lines[1]))
+		conn.recv("end\n")
+		assert(lines[2] == 3, "next line: " .. tostring(lines[2]))
+
+		local ok, err = pcall(function() t:onPrompt("login[", function() end) end)
+		assert(not ok and tostring(err):find("bad pattern"), tostring(err))
+		conn.recv("login: ")
+	`)
+}

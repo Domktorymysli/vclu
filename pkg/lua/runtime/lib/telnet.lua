@@ -12,12 +12,16 @@
 -- the device stays in plain line mode; subnegotiation (SB ... SE) and other commands are
 -- dropped, IAC IAC is the byte 255. A command or a line split across two reads is joined.
 -- A prompt is text without a line end that matches a pattern (end it with $); it is
--- consumed when matched, a line is never a prompt.
+-- consumed when matched, a line is never a prompt. Text without a line end longer than
+-- M.MAX_LINE bytes is handed to onLine as a line, so a device that never ends one cannot
+-- fill the plugin's memory.
 -- @module lib.telnet
 
 local M = {}
 
 local IAC, DONT, DO, WONT, WILL, SB, SE = 255, 254, 253, 252, 251, 250, 240
+
+M.MAX_LINE = 64 * 1024
 
 --- Telnet on conn, anything with send(bytes), onReceive(fn(bytes)) and close()
 -- @param conn table a connection from plugin:tcpConnect
@@ -92,6 +96,11 @@ function M.wrap(conn, opts)
             text = text:sub(at + 1)
             if lineFn then lineFn(line) end
         end
+        if #text > M.MAX_LINE then
+            local line = text
+            text = ""
+            if lineFn then lineFn(line) end
+        end
         if text == "" then return end
         for _, p in ipairs(prompts) do
             if text:find(p.pattern) then
@@ -108,7 +117,11 @@ function M.wrap(conn, opts)
     function t:sendRaw(bytes) return conn:send(tostring(bytes)) end
     function t:onLine(fn) lineFn = fn end
     function t:onPrompt(pattern, fn)
-        prompts[#prompts + 1] = { pattern = tostring(pattern), fn = fn }
+        pattern = tostring(pattern)
+        local ok, err = pcall(string.find, "", pattern)
+        if not ok then error("Telnet:onPrompt: bad pattern " .. string.format("%q", pattern) .. ": " .. tostring(err), 2) end
+        if type(fn) ~= "function" then error("Telnet:onPrompt: fn must be a function", 2) end
+        prompts[#prompts + 1] = { pattern = pattern, fn = fn }
     end
     function t:close() return conn:close() end
     return t
