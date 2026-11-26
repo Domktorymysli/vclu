@@ -220,8 +220,9 @@ end
 local function maskedLogger(sandbox)
     local out = {}
     for _, level in ipairs({ "debug", "info", "warn", "error" }) do
+        -- formatted first: a secret among the arguments of "%s" is masked too
         out[level] = function(_, msg, ...)
-            return Logger[level](Logger, maskSecrets(sandbox, msg), ...)
+            return Logger[level](Logger, maskSecrets(sandbox, Logger:format(msg, ...)))
         end
     end
     return out
@@ -826,6 +827,7 @@ function PluginSandbox:buildAPI(sandbox)
     local pluginId = sandbox.id
     local api = {}
     local log = maskedLogger(sandbox)
+    sandbox.log = log -- PluginHelpers logs a plugin's requests and pollers through it
 
     -- Wrapped setTimeout with tracking and pcall protection
     api.setTimeout = function(ms, callback)
@@ -836,7 +838,7 @@ function PluginSandbox:buildAPI(sandbox)
         local wrappedCallback = function(...)
             local ok, err = pcall(callback, ...)
             if not ok then
-                Logger:error("[" .. pluginId .. "] Timer error: " .. tostring(err))
+                log:error("[" .. pluginId .. "] Timer error: " .. tostring(err))
             end
         end
 
@@ -854,7 +856,7 @@ function PluginSandbox:buildAPI(sandbox)
         local wrappedCallback = function(...)
             local ok, err = pcall(callback, ...)
             if not ok then
-                Logger:error("[" .. pluginId .. "] Interval error: " .. tostring(err))
+                log:error("[" .. pluginId .. "] Interval error: " .. tostring(err))
             end
         end
 
@@ -878,7 +880,7 @@ function PluginSandbox:buildAPI(sandbox)
         local wrappedCallback = function(...)
             local ok, err = pcall(callback, mapResults(readOnlyProxy, ...))
             if not ok then
-                Logger:error("[" .. pluginId .. "] Event '" .. eventName .. "' error: " .. tostring(err))
+                log:error("[" .. pluginId .. "] Event '" .. eventName .. "' error: " .. tostring(err))
             end
         end
 
@@ -935,7 +937,7 @@ function PluginSandbox:buildAPI(sandbox)
         local wrappedCallback = function(t, payload)
             local ok, err = pcall(callback, t, payload)
             if not ok then
-                Logger:error("[" .. pluginId .. "] MQTT '" .. topic .. "' error: " .. tostring(err))
+                log:error("[" .. pluginId .. "] MQTT '" .. topic .. "' error: " .. tostring(err))
             end
         end
 
@@ -976,7 +978,7 @@ function PluginSandbox:buildAPI(sandbox)
         return function(...)
             local ok, err = pcall(fn, ...)
             if not ok then
-                Logger:error("[" .. pluginId .. "] " .. what .. " error: " .. tostring(err))
+                log:error("[" .. pluginId .. "] " .. what .. " error: " .. tostring(err))
             end
         end
     end
@@ -1189,7 +1191,7 @@ function PluginSandbox:buildAPI(sandbox)
         PluginHelpers.httpRequest(pluginId, opts, function(response, err)
             local ok, callErr = pcall(callback, response, err)
             if not ok then
-                Logger:error("[" .. pluginId .. "] HTTP " .. opts.method .. " callback error: " .. tostring(callErr))
+                log:error("[" .. pluginId .. "] HTTP " .. opts.method .. " callback error: " .. tostring(callErr))
             end
         end, alive)
     end
@@ -1642,11 +1644,18 @@ function PluginSandbox:execute(pluginId, code)
     -- Execute with pcall protection
     local ok, result = pcall(fn)
     if not ok then
-        Logger:error("[SANDBOX] Runtime error in " .. pluginId .. ": " .. tostring(result))
-        return nil, "Runtime error: " .. tostring(result)
+        result = maskSecrets(sandbox, tostring(result))
+        Logger:error("[SANDBOX] Runtime error in " .. pluginId .. ": " .. result)
+        return nil, "Runtime error: " .. result
     end
 
     return result, nil
+end
+
+--- text with the plugin's secrets as *** (an error the core passes on)
+function PluginSandbox:mask(pluginId, text)
+    local sandbox = self.sandboxes[pluginId]
+    return sandbox and maskSecrets(sandbox, text) or text
 end
 
 --- Set environment variables for a plugin
@@ -1702,7 +1711,7 @@ function PluginSandbox:discover(pluginId, reqId)
         if answered then return end
         answered = true
         if e ~= nil or type(rows) ~= "table" then
-            self.discovered[reqId] = { err = tostring(e or "discover gave no rows") }
+            self.discovered[reqId] = { err = maskSecrets(PluginSandbox.sandboxes[pluginId] or {}, tostring(e or "discover gave no rows")) }
         else
             self.discovered[reqId] = { rows = copyPlain(rows) }
         end
@@ -1729,7 +1738,7 @@ function PluginSandbox:moduleCode(pluginId)
     if not instance then return JSON:encode({ err = err }) end
     local cfg = copyPlain(instance.config) or {}
     local ok, code = pcall(fn, cfg, copyPlain(cfg.devices) or {})
-    if not ok then return JSON:encode({ err = tostring(code) }) end
+    if not ok then return JSON:encode({ err = maskSecrets(PluginSandbox.sandboxes[pluginId] or {}, tostring(code)) }) end
     if type(code) ~= "string" then return JSON:encode({ err = "moduleCode did not return text" }) end
     return JSON:encode({ code = code })
 end

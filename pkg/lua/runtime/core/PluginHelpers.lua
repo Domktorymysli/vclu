@@ -557,6 +557,12 @@ end
 -- HTTP REQUEST
 -- ============================================
 
+-- A plugin's own logger (PluginSandbox), which masks its secrets; else the shared one
+local function loggerFor(pluginId)
+    local sb = PluginSandbox and PluginSandbox.sandboxes and PluginSandbox.sandboxes[pluginId]
+    return sb and sb.log or Logger
+end
+
 --- Make HTTP request with retry, parseJson, errCode support
 -- @param pluginId string Plugin identifier
 -- @param opts table Request options
@@ -686,7 +692,7 @@ function PluginHelpers.httpRequest(pluginId, opts, callback, alive)
     -- Log function
     local function logRequest(msg, fields)
         if Logger then
-            PluginHelpers.logSafe(Logger, pluginId, logLevel, msg, fields, logRedact)
+            PluginHelpers.logSafe(loggerFor(pluginId), pluginId, logLevel, msg, fields, logRedact)
         end
     end
 
@@ -1258,7 +1264,7 @@ function PluginHelpers.createPoller(pluginId, name, opts)
                 end
 
                 if Logger then
-                    Logger:warn("[" .. self._pluginId .. "] Poller '" .. self._name .. "' tick exception: " .. tostring(tickErr))
+                    loggerFor(self._pluginId):warn("[" .. self._pluginId .. "] Poller '" .. self._name .. "' tick exception: " .. tostring(tickErr))
                 end
 
                 if self._onError then
@@ -1302,7 +1308,7 @@ function PluginHelpers.emitThrottled(pluginId, emitFn, event, data, opts)
     if throttle <= 0 then
         local ok, err = pcall(emitFn, event, data)
         if not ok and Logger then
-            Logger:error("[" .. pluginId .. "] Emit error: " .. tostring(err))
+            loggerFor(pluginId):error("[" .. pluginId .. "] Emit error: " .. tostring(err))
         end
         return true
     end
@@ -1329,7 +1335,7 @@ function PluginHelpers.emitThrottled(pluginId, emitFn, event, data, opts)
             -- Safe emit with pcall
             local ok, err = pcall(emitFn, event, data)
             if not ok and Logger then
-                Logger:error("[" .. pluginId .. "] Emit error: " .. tostring(err))
+                loggerFor(pluginId):error("[" .. pluginId .. "] Emit error: " .. tostring(err))
             end
 
             -- Schedule trailing emit if enabled
@@ -1345,7 +1351,7 @@ function PluginHelpers.emitThrottled(pluginId, emitFn, event, data, opts)
                     if state.buffer and state.emitFn then
                         local ok2, err2 = pcall(state.emitFn, state.eventName, state.buffer)
                         if not ok2 and Logger then
-                            Logger:error("[" .. pluginId .. "] Trailing emit error: " .. tostring(err2))
+                            loggerFor(pluginId):error("[" .. pluginId .. "] Trailing emit error: " .. tostring(err2))
                         end
                     end
                     state.pending = false
@@ -1371,7 +1377,7 @@ function PluginHelpers.emitThrottled(pluginId, emitFn, event, data, opts)
                 if state.buffer and state.emitFn then
                     local ok2, err2 = pcall(state.emitFn, state.eventName, state.buffer)
                     if not ok2 and Logger then
-                        Logger:error("[" .. pluginId .. "] Trailing emit error: " .. tostring(err2))
+                        loggerFor(pluginId):error("[" .. pluginId .. "] Trailing emit error: " .. tostring(err2))
                     end
                     state.lastEmit = os.time() * 1000
                 end

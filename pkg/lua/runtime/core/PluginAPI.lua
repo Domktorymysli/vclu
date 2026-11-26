@@ -1205,7 +1205,11 @@ end
 -- pluginId is the fullId (e.g., "@vclu/weather")
 function Plugin.initFromConfig(pluginId, config)
     local instance = Plugin.instances[pluginId]
-    if instance then
+    if instance and instance._sandbox and PluginSandbox then
+        -- the loader logs and shows the error: without the plugin's secrets
+        local ok, err = pcall(instance.init, instance, config)
+        if not ok then error(PluginSandbox:mask(pluginId, tostring(err)), 0) end
+    elseif instance then
         instance:init(config)
     else
         Logger:warn("[PLUGIN] Cannot init unknown plugin: " .. pluginId)
