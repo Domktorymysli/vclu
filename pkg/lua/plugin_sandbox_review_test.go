@@ -1,0 +1,189 @@
+package lua
+
+import (
+	"testing"
+)
+
+// Review of #206: what a plugin can reach by walking every field it is given.
+
+// walkLua walks the plugin's globals, the registry entries in roots and what they lead to,
+// through fields and pairs only (no method calls); found strings and functions are kept.
+const walkLua = `
+	local seen, queue, strs, fns = {}, {}, {}, {}
+	local function push(v, path)
+		if type(v) == "table" and not seen[__srcid(v)] then
+			seen[__srcid(v)] = path
+			queue[#queue + 1] = { v, path }
+		elseif type(v) == "string" then
+			strs[#strs + 1] = path .. "=" .. v
+		elseif type(v) == "function" then
+			fns[#fns + 1] = { v, path }
+		end
+	end
+	for _, name in ipairs(__roots) do push(_registry[name], "_registry." .. name) end
+	push(Plugin.getPlugin("@t/b"), "getPlugin(b)")
+	push(_:get("@t/b"), "_:get(b)")
+	for _, name in ipairs({ "string", "table", "math", "os", "datetime", "Crypto", "bit", "Telnet",
+		"Logger", "JSON", "Plugin", "EventBus", "_", "_registry", "Modbus" }) do
+		local ok, v = pcall(function() return _ENVX[name] end)
+		if ok then push(v, name) end
+	end
+	local i = 1
+	while i <= #queue and i < 20000 do
+		local t, path = queue[i][1], queue[i][2]
+		i = i + 1
+		local ok = pcall(function()
+			for k, v in pairs(t) do
+				push(k, path .. ".<key>")
+				push(v, path .. "." .. tostring(k))
+			end
+		end)
+	end
+	__walk = { strs = strs, fns = fns, tables = queue }
+	return #queue
+`
+
+func TestReviewExecPluginWalkFindsNoSecretOrRawShared(t *testing.T) {
+	engine := sandboxEngine(t, "@t/a", "")
+	if _, err := engine.Execute(`
+		PluginSandbox:create("@t/b", nil)
+		PluginSandbox:setSecrets("@t/b", { token = "TOPSECRET-b-123" })
+		PluginSandbox:execute("@t/b", [[
+			local p = Plugin:new("b", {name = "B"})
+			p:sensor("temp", function() return 21 end)
+			p.config = { botToken = "TOPSECRET-cfg-456" }
+			local h = p:expose(p:get("temp"), "temperature", { id = "t" })
+		]])
+		_registry["mod.thing"] = {
+			value = 1, getValue = function(self) return self.value end,
+			bus = EventBus:getShared(), exposed = ExposedObjects, plugin = Plugin,
+		}
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if _, e := runPlugin(t, engine, "@t/a", `p = Plugin:new("a", {name = "A"})`); e != "nil" {
+		t.Fatal(e)
+	}
+	if _, err := engine.Execute(`
+		local env = PluginSandbox.sandboxes["@t/a"].environment
+		local roots = {}
+		for k in pairs(_registry) do if type(k) == "string" then roots[#roots + 1] = k end end
+		env.__roots = roots
+		env._ENVX = env
+		env.__srcid = function(t)
+			local mt = getmetatable(t)
+			return type(mt) == "table" and rawget(mt, "__sandboxSource") or t
+		end
+	`); err != nil {
+		t.Fatal(err)
+	}
+	r, e := runPlugin(t, engine, "@t/a", walkLua)
+	if e != "nil" {
+		t.Fatalf("walk: %s", e)
+	}
+	t.Logf("walked %s tables", r)
+
+	// secrets: the sandbox's and the other plugin's config
+	out, err := engine.Execute(`
+		local w = PluginSandbox.sandboxes["@t/a"].environment.__walk
+		local bad = {}
+		for _, s in ipairs(w.strs) do
+			if s:find("TOPSECRET", 1, true) then bad[#bad + 1] = s end
+		end
+		-- shared tables and dangerous functions must not be reachable raw
+		local shared = { [_G] = "_G", [string] = "string", [table] = "table", [Plugin] = "Plugin",
+			[PluginSandbox] = "PluginSandbox", [PluginSandbox.sandboxes] = "sandboxes",
+			[Plugin.instances] = "Plugin.instances", [_registry] = "_registry",
+			[EventBus] = "EventBus", [ExposedObjects] = "ExposedObjects", [JSON] = "JSON", [Logger] = "Logger" }
+		for _, sb in pairs(PluginSandbox.sandboxes) do shared[sb] = "a sandbox"; shared[sb.api] = "a sandbox api" end
+		for _, inst in pairs(Plugin.instances) do shared[inst] = "instance " .. inst.id end
+		for _, q in ipairs(w.tables) do
+			if shared[q[1]] and q[1] == PluginSandbox.sandboxes["@t/a"].environment.__srcid(q[1]) then bad[#bad + 1] = "raw " .. shared[q[1]] .. " at " .. q[2] end
+		end
+		local danger = {}
+		for name, f in pairs({ rawset = rawset, rawget = rawget, setmetatable = setmetatable,
+			getmetatable = getmetatable, loadstring = loadstring, load = load, require = require,
+			getfenv = getfenv, setfenv = setfenv, dofile = dofile }) do danger[f] = name end
+		if os.execute then danger[os.execute] = "os.execute" end
+		if io and io.open then danger[io.open] = "io.open" end
+		if debug then for k, f in pairs(debug) do danger[f] = "debug." .. k end end
+		for _, f in ipairs(w.fns) do
+			if danger[f[1]] then bad[#bad + 1] = danger[f[1]] .. " at " .. f[2] end
+		end
+		return table.concat(bad, "\n")
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "" {
+		t.Errorf("reachable from another plugin:\n%s", out)
+	}
+}
+
+// What is missing from a plugin's environment stays missing, also under other names.
+func TestReviewExecPluginEnvHasNoEscapeHatches(t *testing.T) {
+	engine := sandboxEngine(t, "@t/a", "")
+	if _, err := engine.Execute(`
+		local env = PluginSandbox.sandboxes["@t/a"].environment
+		env._ENV_PROBE = function(n) return env[n] end
+	`); err != nil {
+		t.Fatal(err)
+	}
+	r, e := runPlugin(t, engine, "@t/a", `
+		local out = {}
+		for _, n in ipairs({ "load", "loadstring", "dofile", "loadfile", "require", "rawset", "rawget",
+			"rawequal", "getmetatable", "setmetatable", "getfenv", "setfenv", "debug", "coroutine",
+			"io", "module", "newproxy", "_G", "collectgarbage", "gcinfo", "channel" }) do
+			if _ENV_PROBE(n) ~= nil then out[#out + 1] = n end
+		end
+		if os.execute or os.exit or os.remove or os.rename or os.getenv or os.setenv then out[#out + 1] = "os.*" end
+		if string.dump then
+			local ok = pcall(string.dump, function() end)
+			if ok then out[#out + 1] = "string.dump" end
+		end
+		return table.concat(out, ",")
+	`)
+	if e != "nil" || r != "" {
+		t.Errorf("reachable: %q (e=%s)", r, e)
+	}
+}
+
+// The plugin's copy of a standard library holds no table of the real one.
+func TestReviewExecPluginStdlibCopyHoldsNoSharedTable(t *testing.T) {
+	engine := sandboxEngine(t, "@t/a", "")
+	r, e := runPlugin(t, engine, "@t/a", `
+		local found = {}
+		for lib, t in pairs({ string = string, table = table, math = math, os = os, Crypto = Crypto,
+			bit = bit, Telnet = Telnet, datetime = datetime }) do
+			for k, v in pairs(t) do
+				if type(v) == "table" then
+					found[#found + 1] = lib .. "." .. tostring(k)
+					pcall(function() v.rep = function() return "pwned" end end)
+				end
+			end
+		end
+		return table.concat(found, ",")
+	`)
+	if e != "nil" || r != "" {
+		t.Errorf("tables in the plugin's libraries: %q (e=%s)", r, e)
+	}
+	mustLua(t, engine, `string.rep("a", 2)`, "aa")
+	mustLua(t, engine, `("a"):rep(2)`, "aa")
+}
+
+// A string's methods come from the real library: reaching it through a string changes nothing.
+func TestReviewExecPluginStringMethodsReadOnly(t *testing.T) {
+	engine := sandboxEngine(t, "@t/a", "")
+	for _, code := range []string{
+		`local s = ("").__index; s.rep = function() return "pwned" end`,
+		`local s = ("x")["__index"]; s.format = nil`,
+	} {
+		runPlugin(t, engine, "@t/a", code)
+	}
+	mustLua(t, engine, `("a"):rep(2)`, "aa")
+	mustLua(t, engine, `string.format("%d", 1)`, "1")
+	r, _ := runPlugin(t, engine, "@t/a", `return ("a"):rep(2) .. ("%d"):format(3) .. ("abc"):sub(2)`)
+	if r != "aa3bc" {
+		t.Errorf("string methods in a plugin: %q", r)
+	}
+}

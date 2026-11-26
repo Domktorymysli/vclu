@@ -187,10 +187,28 @@ func NewLuaEngineWithRuntimePath(cluName string, runtimePath string) *LuaEngine 
 	return le
 }
 
+// isolateStringMethods: strings find their methods in the string library through a table
+// of their own, so ("").__index is not the library a plugin could change for everyone.
+func isolateStringMethods(L *lua.LState) {
+	lib, ok := L.GetGlobal("string").(*lua.LTable)
+	if !ok {
+		return
+	}
+	methods := L.NewTable()
+	methods.RawSetString("__index", lua.LFalse)
+	fallback := L.NewTable()
+	fallback.RawSetString("__index", lib)
+	L.SetMetatable(methods, fallback)
+	mt := L.NewTable()
+	mt.RawSetString("__index", methods)
+	L.SetMetatable(lua.LString(""), mt)
+}
+
 // initializeLuaState creates and configures a fresh Lua state
 // This is the common initialization used by both NewLuaEngineWithRuntimePath and Reinitialize
 func (le *LuaEngine) initializeLuaState(cluName string) error {
 	L := lua.NewState()
+	isolateStringMethods(L)
 	RegisterErrorLevel(L)
 	registerCoroutineContext(L)
 	le.registerLimitFunctions(L)

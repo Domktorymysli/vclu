@@ -58,8 +58,18 @@ local function shallowCopy(t)
     return c
 end
 
+-- A library as a plugin gets it: its functions and constants, no table of the real one
+-- (string.__index is the string library itself)
+local function libCopy(t)
+    local c = {}
+    for k, v in pairs(t) do
+        if type(v) ~= "table" then c[k] = v end
+    end
+    return c
+end
+
 -- Taken at load: a module's own global bit or a wrapped Crypto does not reach plugins
-local CRYPTO, BIT = shallowCopy(Crypto), shallowCopy(bit)
+local CRYPTO, BIT = libCopy(Crypto), libCopy(bit)
 -- lib/telnet: pure functions over the connection a plugin gives it
 local TELNET = require("lib/telnet")
 
@@ -326,7 +336,7 @@ end
 
 -- The plugin's table library: raw functions read through a proxy, and do not write one
 local function sandboxTable()
-    local t = shallowCopy(table)
+    local t = libCopy(table)
     t.concat = function(list, ...)
         return table.concat(sourceOf(list) or list, ...)
     end
@@ -1498,12 +1508,12 @@ function PluginSandbox:buildEnvironment(sandbox)
         assert = assert,
 
         -- Standard libraries: the plugin's own copies, so a change stays in the plugin
-        string = shallowCopy(string),
+        string = libCopy(string),
         table = sandboxTable(),
-        math = shallowCopy(math),
-        Crypto = shallowCopy(CRYPTO),
-        bit = shallowCopy(BIT),
-        Telnet = shallowCopy(TELNET),
+        math = libCopy(math),
+        Crypto = libCopy(CRYPTO),
+        bit = libCopy(BIT),
+        Telnet = libCopy(TELNET),
         os = safeOs,
         datetime = safeDatetime,
 
