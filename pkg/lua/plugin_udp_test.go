@@ -1,6 +1,7 @@
 package lua
 
 import (
+	"errors"
 	"net"
 	"net/netip"
 	"strconv"
@@ -109,10 +110,10 @@ func TestPluginDeviceUDPTargets(t *testing.T) {
 			t.Errorf("%s -> %s:%d: %v, want %q", x.plugin, x.ip, x.port, err, x.refusal)
 		}
 	}
-	if err := io.SendUDP(b, "@t/b", "192.168.7.1", 7000, []byte("x")); err != nil {
+	if err := io.SendUDP(b, "@t/b", "192.168.7.1", 7000, []byte("x")); !passedChecks(err) {
 		t.Errorf("allowed host: %v", err)
 	}
-	if err := io.SendUDP(cRaw, "@t/c", "192.168.1.10", 1234, []byte("x")); err != nil {
+	if err := io.SendUDP(cRaw, "@t/c", "192.168.1.10", 1234, []byte("x")); !passedChecks(err) {
 		t.Errorf("grenton_raw to the CLU port: %v", err)
 	}
 	// a declared port passes the checks; the network may still not route a broadcast
@@ -144,4 +145,11 @@ func TestPluginDeviceUDPBroadcastPortsFromSandbox(t *testing.T) {
 	if got, _ := engine.Execute(`Plugin.getPlugin("@t/ac").declared`); strings.Contains(got, "refused") {
 		t.Errorf("broadcast to the declared port: %s", got)
 	}
+}
+
+// passedChecks: the send got past vclu's checks; a host without a route to the made-up
+// address (a CI box without a network) may still refuse the write itself.
+func passedChecks(err error) bool {
+	var op *net.OpError
+	return err == nil || errors.As(err, &op)
 }

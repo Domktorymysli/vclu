@@ -145,7 +145,7 @@ func TestPluginUDPTargets(t *testing.T) {
 			t.Errorf("%s -> %s:%d: %v, want %q", c.plugin, c.ip, c.port, err, c.refusal)
 		}
 	}
-	if err := io.SendUDP(b, "@t/b", "192.168.7.1", 1234, []byte("x")); err != nil {
+	if err := io.SendUDP(b, "@t/b", "192.168.7.1", 1234, []byte("x")); !passedChecks(err) {
 		t.Errorf("allowed host: %v", err)
 	}
 }

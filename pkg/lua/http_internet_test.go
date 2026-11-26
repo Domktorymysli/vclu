@@ -198,3 +198,16 @@ func TestPluginSandboxInternetHosts(t *testing.T) {
 		t.Errorf("API 1: %q", got)
 	}
 }
+
+func TestNumericHost(t *testing.T) {
+	for _, h := range []string{"16843009", "127.1", "0x7f.1", "0X7F000001", "1.2.3.4.", "017700000001"} {
+		if !numericHost(h) {
+			t.Errorf("%s: not seen as a number", h)
+		}
+	}
+	for _, h := range []string{"api.example.com", "1.example", "dev.lan", "x0x7f", "1-2-3-4.nip.io"} {
+		if numericHost(h) {
+			t.Errorf("%s: seen as a number", h)
+		}
+	}
+}

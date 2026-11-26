@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"net/url"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -104,11 +105,16 @@ func (p dialPolicy) checkURL(u *url.URL) error {
 	if p.internet.Allows(host) {
 		return nil
 	}
-	if _, err := netip.ParseAddr(host); err == nil || p.noLAN {
+	// a number a resolver may read as an IPv4 address (16843009, 0x7f.1) is not a device's name
+	if _, err := netip.ParseAddr(host); err == nil || p.noLAN || numericHost(host) {
 		return p.notListed(host)
 	}
 	return nil
 }
+
+var numericHostRe = regexp.MustCompile(`(?i)^(0x[0-9a-f]*|[0-9]+)(\.(0x[0-9a-f]*|[0-9]+)){0,3}\.?$`)
+
+func numericHost(host string) bool { return numericHostRe.MatchString(host) }
 
 func (p dialPolicy) dialContext(ctx context.Context, network, addr string) (net.Conn, error) {
 	host, port, err := net.SplitHostPort(addr)
