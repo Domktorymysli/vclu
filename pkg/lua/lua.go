@@ -150,6 +150,7 @@ type LuaEngine struct {
 	drainDone   chan struct{}    // closed on shutdown — unblocks waiting submitters
 	drainOnce   sync.Once        // drainDone is closed from several paths
 	loopDone    chan struct{}    // closed when RunLoop has returned
+	loopStarted atomic.Bool      // RunLoop was called: Close waits for loopDone
 
 	// Runtime busy tracking for runtime:busy_percent metric
 	busyTimeNs   atomic.Int64 // nanoseconds spent in callbacks since start
@@ -1469,6 +1470,7 @@ func (le *LuaEngine) drainAllQueuesWithError(err error) {
 // RunLoop runs the main event loop, processing timers, HTTP server requests, and work queues.
 // This blocks until Stop is called.
 func (le *LuaEngine) RunLoop(stopChan <-chan struct{}) {
+	le.loopStarted.Store(true)
 	le.engineState.Store(int32(stateRunning))
 	defer close(le.loopDone)
 
@@ -1741,18 +1743,17 @@ func (le *LuaEngine) ProcessHTTPServer() int {
 // If stateInit (RunLoop never started), we close directly.
 func (le *LuaEngine) Close() {
 	prev := engineState(le.engineState.Load())
-	if prev == stateClosed || prev == stateFailed {
-		return
-	}
-
-	// RunLoop owns the state until it returns: wait for it (it drains the
-	// queues and flushes persist) before closing the state underneath it
-	if prev == stateRunning || prev == stateStopping {
+	// RunLoop owns the state until it returns: wait for it (it drains the queues and
+	// flushes persist), also when it has already marked the state closed on its way out
+	if le.loopStarted.Load() {
 		select {
 		case <-le.loopDone:
 		case <-time.After(5 * time.Second):
 			log.Printf("[LUA] Close: RunLoop did not stop within 5 s")
 		}
+	}
+	if prev == stateClosed || prev == stateFailed {
+		return
 	}
 
 	// If stateInit (RunLoop never started), close drainDone and transition directly
