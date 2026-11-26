@@ -15,6 +15,8 @@
             discover: 'Wykryj', discovering: 'Szukam…', addRow: 'Dodaj ręcznie',
             add: 'Dodaj', isNew: 'nowe', remove: 'Usuń', noDevices: 'Brak urządzeń. Wykryj albo dodaj ręcznie.',
             notRunning: 'Plugin nie działa: zapisz ustawienia i włącz plugin.', write: 'Zapisz do modułu i przeładuj',
+            writeConfirm: 'Zapisać kod do {path} ({changes}) i przeładować wszystkie moduły? Automatyki zatrzymają się na chwilę.',
+            writeNew: 'nowy plik', writeChanges: '+{add} / -{del} linii',
             unchanged: 'Bez zmian względem pliku.', newFile: 'Nowy plik', loading: 'Ładuję…', dropped: 'Pominięte',
             hostsAdded: 'Dodane do dozwolonych hostów', close: 'Zamknij', back: 'Wstecz', next: 'Dalej',
             required: 'Wymagane', badHost: 'Podaj adres IP, np. 192.168.1.10', min: 'Najmniej', max: 'Najwięcej',
@@ -35,6 +37,8 @@
             discover: 'Discover', discovering: 'Searching…', addRow: 'Add by hand',
             add: 'Add', isNew: 'new', remove: 'Remove', noDevices: 'No devices. Discover or add one by hand.',
             notRunning: 'The plugin is not running: save its settings and enable it.', write: 'Write the module and reload',
+            writeConfirm: 'Write the code to {path} ({changes}) and reload all modules? Automations stop for a moment.',
+            writeNew: 'a new file', writeChanges: '+{add} / -{del} lines',
             unchanged: 'No change from the file.', newFile: 'New file', loading: 'Loading…', dropped: 'Dropped',
             hostsAdded: 'Added to the allowed hosts', close: 'Close', back: 'Back', next: 'Next',
             required: 'Required', badHost: 'Enter an IP address, e.g. 192.168.1.10', min: 'At least', max: 'At most',
@@ -700,6 +704,10 @@
             self.body.innerHTML = html;
             var b = self.body.querySelector('[data-act="write"]');
             if (b) b.addEventListener('click', function() {
+                var pre = self.body.querySelector('.wizard-diff');
+                var changes = r.current ? t.writeChanges.replace('{add}', pre.querySelectorAll('.text-success').length)
+                    .replace('{del}', pre.querySelectorAll('.text-danger').length) : t.writeNew;
+                if (!confirm(t.writeConfirm.replace('{path}', r.path).replace('{changes}', changes))) return;
                 b.disabled = true;
                 api(self.base + '/module-code', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hash: r.hash })
