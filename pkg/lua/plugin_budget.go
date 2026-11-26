@@ -246,6 +246,7 @@ type budgetRun struct {
 	last    time.Time
 	prev    string // owner at the last sample: time between two samples of one owner is its
 	spent   map[string]time.Duration
+	charged time.Duration // by the samples and the timed calls in all (a timed call takes it off)
 	tripped string
 	err     error
 	raising bool
@@ -269,8 +270,14 @@ func (r *budgetRun) sample(L *lua.LState) bool {
 	if !same {
 		d = 0
 	}
+	return r.add(owner, d)
+}
+
+// add charges d to owner; true when it just went over its budget.
+func (r *budgetRun) add(owner string, d time.Duration) bool {
 	limit, suspended := r.b.charge(owner, d)
 	r.spent[owner] += d
+	r.charged += d
 	if !suspended && r.spent[owner] <= limit {
 		return false
 	}
@@ -282,6 +289,49 @@ func (r *budgetRun) sample(L *lua.LState) bool {
 		r.b.overrun(owner, limit)
 	}
 	return true
+}
+
+// goCall charges the time of one Go call to the plugin whose frame made it: it ran between
+// two instructions, where the samples see nothing, and a callback of a few instructions is
+// never sampled at all.
+func (r *budgetRun) goCall(L *lua.LState, d time.Duration) {
+	if r.tripped != "" || d <= 0 {
+		return
+	}
+	owner := r.b.owner(L)
+	if owner == "" {
+		return
+	}
+	r.last, r.prev = time.Now(), owner
+	if r.add(owner, d) {
+		r.raising = true
+	}
+}
+
+// timedGoFunction: fn, with each call's time (less what the samples charged inside it, a
+// gsub's Lua callback) charged to the plugin calling it.
+func timedGoFunction(fn lua.LGFunction) lua.LGFunction {
+	return func(L *lua.LState) int {
+		bc, ok := L.Context().(*budgetCtx)
+		if !ok {
+			return fn(L)
+		}
+		before, start := bc.run.charged, time.Now()
+		defer func() { bc.run.goCall(L, time.Since(start)-(bc.run.charged-before)) }()
+		return fn(L)
+	}
+}
+
+// timedFunction: f as timedGoFunction makes it, with its upvalues; a Lua function stays as it is.
+func timedFunction(L *lua.LState, f *lua.LFunction) *lua.LFunction {
+	if !f.IsG {
+		return f
+	}
+	ups := make([]lua.LValue, len(f.Upvalues))
+	for i, u := range f.Upvalues {
+		ups[i] = u.Value()
+	}
+	return L.NewClosure(timedGoFunction(f.GFunction), ups...)
 }
 
 // budgetCtx: the callback's context with the plugins' budget. gopher-lua asks Done before
@@ -361,6 +411,11 @@ func registerPluginBudgetFunctions(L *lua.LState, b *pluginBudget) {
 	L.SetGlobal("__go_plugin_budget_loading", L.NewFunction(func(L *lua.LState) int {
 		b.setLoading(L.CheckString(1), L.ToBool(2))
 		return 0
+	}))
+	// __go_plugin_timed(fn) -> fn with its time charged to the plugin calling it (the sandbox's string library)
+	L.SetGlobal("__go_plugin_timed", L.NewFunction(func(L *lua.LState) int {
+		L.Push(timedFunction(L, L.CheckFunction(1)))
+		return 1
 	}))
 	// __go_proxy_read_method(fn): fn is made like every read method of a read-only proxy
 	L.SetGlobal("__go_proxy_read_method", L.NewFunction(func(L *lua.LState) int {

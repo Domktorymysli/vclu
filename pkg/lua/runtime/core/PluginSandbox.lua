@@ -68,6 +68,18 @@ local function libCopy(t)
     return c
 end
 
+-- The string library as a plugin gets it: each call's time is the plugin's, also a pattern
+-- that backtracks for seconds in one Go call (as ("").find is for everyone)
+local function timedLib(t)
+    local c = libCopy(t)
+    if type(__go_plugin_timed) == "function" then
+        for k, f in pairs(c) do
+            if type(f) == "function" then c[k] = __go_plugin_timed(f) end
+        end
+    end
+    return c
+end
+
 -- Taken at load: a module's own global bit or a wrapped Crypto does not reach plugins
 local CRYPTO, BIT = libCopy(Crypto), libCopy(bit)
 -- lib/telnet: pure functions over the connection a plugin gives it
@@ -104,12 +116,20 @@ local function pluginFacade(obj, owner)
     }
 end
 
+-- A function of an object the plugin did not create never leaves raw (through a proxy it
+-- is a method, refused unless a read)
+local function keptFunction()
+    error("Read-only: a function of an object the plugin did not create cannot be taken out of it", 2)
+end
+
 -- Results of a read as the plugin gets them: tables proxied for the same owner
 local function ownedResults(owner, ...)
     local n = select("#", ...)
     if n == 0 then return end
     local out = { ... }
-    for i = 1, n do out[i] = readOnlyProxy(out[i], owner) end
+    for i = 1, n do
+        if type(out[i]) == "function" then out[i] = keptFunction else out[i] = readOnlyProxy(out[i], owner) end
+    end
     return unpackArgs(out, 1, n)
 end
 
@@ -197,6 +217,8 @@ local function boundFacade(obj, deny, owner)
         __sandboxSource = obj,
         __index = function(_, key)
             if deny and deny[key] then return deny[key] end
+            -- its _fields are the core's (what the user set on a handle, a poller's timers)
+            if type(key) == "string" and key:sub(1, 1) == "_" then return nil end
             local val = obj[key]
             if type(val) == "function" then
                 local m = methods[key]
@@ -307,25 +329,20 @@ local function ownsMqtt(sandbox, callback)
     return false
 end
 
--- A shared class (HTTP, MQTT) for plugin API 1: its constructors and functions work
--- as on the real one, its fields cannot be replaced
-local function classFacade(class)
-    if type(class) ~= "table" then return nil end
+-- A shared class (HTTP, MQTT) as plugin API 1 holds it: fns, callable with or without the
+-- class as self, nothing else of the real one
+local function legacyClass(name, fns)
     local facade
-    local fns = {}
     facade = setmetatable({}, {
         __index = function(_, key)
-            local val = class[key]
-            if type(val) ~= "function" then return val end
             local f = fns[key]
-            if not f then
-                f = function(self, ...)
-                    if self == facade then return val(class, ...) end
-                    return val(self, ...)
+            if f then
+                return function(self, ...)
+                    if self == facade then return f(...) end
+                    return f(self, ...)
                 end
-                fns[key] = f
             end
-            return f
+            error(name .. "." .. tostring(key) .. " is not available in a plugin; use the plugin API (plugin:httpRequest, plugin:mqttSubscribe)", 2)
         end,
         __newindex = function()
             error("Read-only: plugins cannot modify a shared object", 2)
@@ -339,13 +356,12 @@ local originalPairs = pairs
 local originalIpairs = ipairs
 local originalNext = next
 
--- A key leaves like a value: a table as a read-only proxy, a function not at all
+-- A key leaves like a value: a table as a read-only proxy, a function or a _field not at all
 local function sandboxNext(t, key)
     local source = sourceOf(t)
     if not source then return originalNext(t, key) end
-    local hideOwn = rawget(getmetatable(t), "__sandboxReadOnly")
     local function hidden(k)
-        return type(k) == "function" or hideOwn and type(k) == "string" and k:sub(1, 1) == "_"
+        return type(k) == "function" or type(k) == "string" and k:sub(1, 1) == "_"
     end
     local k = originalNext(source, sourceOf(key) or key)
     while hidden(k) do k = originalNext(source, k) end
@@ -384,12 +400,13 @@ local function visible(t, seen)
     return c
 end
 
--- vis: a table for JSON, which the plugin can read back
+-- vis: a table for JSON, which the plugin can read back (so without the _fields of a proxy
+-- or a facade); an event's payload goes to modules as the object itself
 local function plain(v, seen, vis)
     if type(v) ~= "table" then return v end
     local src = sourceOf(v)
     if src then
-        if vis and rawget(getmetatable(v), "__sandboxReadOnly") then return visible(src, vis) end
+        if vis then return visible(src, vis) end
         return src
     end
     seen = seen or {}
@@ -1495,16 +1512,36 @@ function PluginSandbox:buildEnvironment(sandbox)
         end
     end
 
-    -- API 1 globals pick their own HTTP instance and share the MQTT client, so no grant
-    -- reaches them: only for a plugin allowed lan or mqtt in full
+    -- API 1 globals, only for a plugin allowed lan or mqtt in full: HTTP:new() is a client whose
+    -- requests are the plugin's (its policy, not vclu's own ports), MQTT the shared client
+    -- through the sandbox (its topics tracked, a module's never taken)
     local limits = sandbox.limits
     local legacyHTTP, legacyMQTT
     if sandbox.apiVersion < 2 then
-        if sandbox.permissions.lan and limits.lanHosts == nil then
-            legacyHTTP = classFacade(HTTP)
+        if sandbox.permissions.lan and limits.lanHosts == nil and HTTP then
+            legacyHTTP = legacyClass("HTTP", {
+                new = function()
+                    local client = HTTP:new()
+                    client._instanceId = pluginId
+                    return boundFacade(client, nil, pluginId)
+                end,
+            })
         end
-        if sandbox.permissions.mqtt and limits.mqttSubscribe == nil and limits.mqttPublish == nil then
-            legacyMQTT = classFacade(MQTT)
+        if sandbox.permissions.mqtt and limits.mqttSubscribe == nil and limits.mqttPublish == nil and MQTT then
+            legacyMQTT = legacyClass("MQTT", {
+                subscribe = api.mqttSubscribe,
+                publish = function(topic, payload, qos, retain) return api.mqttPublish(topic, payload, retain, qos) end,
+                unsubscribe = function(topic)
+                    local held = mqttHolder(topic)
+                    if not held or not ownsMqtt(sandbox, held) then return false end
+                    for i = #sandbox.mqttSubscriptions, 1, -1 do
+                        if sandbox.mqttSubscriptions[i].callback == held then table.remove(sandbox.mqttSubscriptions, i) end
+                    end
+                    return MQTT:unsubscribe(topic)
+                end,
+                isConnected = function() return MQTT:isConnected() end,
+                getTopicPrefix = function() return MQTT:getTopicPrefix() end,
+            })
         end
     end
 
@@ -1618,7 +1655,7 @@ function PluginSandbox:buildEnvironment(sandbox)
         assert = assert,
 
         -- Standard libraries: the plugin's own copies, so a change stays in the plugin
-        string = libCopy(string),
+        string = timedLib(string),
         table = sandboxTable(),
         math = libCopy(math),
         Crypto = libCopy(CRYPTO),

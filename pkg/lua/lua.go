@@ -188,13 +188,19 @@ func NewLuaEngineWithRuntimePath(cluName string, runtimePath string) *LuaEngine 
 }
 
 // isolateStringMethods: strings find their methods in the string library through a table
-// of their own, so ("").__index is not the library a plugin could change for everyone.
+// of their own, so ("").__index is not the library a plugin could change for everyone. The
+// methods are timed (plugin_budget.go): a plugin's call is charged to it, a module's costs a clock read.
 func isolateStringMethods(L *lua.LState) {
 	lib, ok := L.GetGlobal("string").(*lua.LTable)
 	if !ok {
 		return
 	}
 	methods := L.NewTable()
+	lib.ForEach(func(k, v lua.LValue) {
+		if f, ok := v.(*lua.LFunction); ok {
+			methods.RawSet(k, timedFunction(L, f))
+		}
+	})
 	methods.RawSetString("__index", lua.LFalse)
 	fallback := L.NewTable()
 	fallback.RawSetString("__index", lib)
