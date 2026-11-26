@@ -544,6 +544,10 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save config"})
 		return
 	}
+	if previousErr == nil {
+		// a grant from before ports were recorded keeps the old files' ports, not the update's
+		loader.PinPorts(fullId, previous)
+	}
 
 	// The files first: the config then never names a version that is not on disk (#112)
 	seenAPI := 0
@@ -960,7 +964,7 @@ func fetchPluginSchema(repo config.PluginRepository, pluginPath, gitTag string) 
 		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := readRepoFile(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
@@ -1063,12 +1067,24 @@ func fetchPluginDoc(repo config.PluginRepository, pluginPath, docFile, gitTag st
 		return "", fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := readRepoFile(resp.Body)
 	if err != nil {
 		return "", fmt.Errorf("failed to read response: %w", err)
 	}
 
 	return string(body), nil
+}
+
+// maxRepoFile bounds a plugin.json or a documentation file read from a repository.
+const maxRepoFile = 1 << 20
+
+// readRepoFile reads a repository file up to maxRepoFile.
+func readRepoFile(r io.Reader) ([]byte, error) {
+	body, err := io.ReadAll(io.LimitReader(r, maxRepoFile+1))
+	if err == nil && len(body) > maxRepoFile {
+		err = fmt.Errorf("larger than %d bytes", maxRepoFile)
+	}
+	return body, err
 }
 
 // fetchPluginsFromRepo fetches plugins.json from a repository

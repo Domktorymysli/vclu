@@ -122,8 +122,10 @@ working.
 What it asks for is not what it gets: `grants` on the installed entry in `.vclu.json` is what the
 user allowed, and the plugin gets the part of its request the grants allow. Installing from the
 panel allows what the plugin asks for then; an entry without grants (installed by hand, or before
-grants existed) is given what its files on disk ask for on the next load, before an update.
-An update that asks for more runs without it, logs it and lists it as `pendingPermissions` in
+grants existed) is given what its files on disk ask for on the next load, before an update; with
+no files on disk it gets none of what the fetched files ask for. An entry absent from a
+configuration that lists plugins does not load. A downloaded file is at most 4 MiB, a manifest
+lists at most 64. An update that asks for more runs without it, logs it and lists it as `pendingPermissions` in
 `GET /api/plugins/installed` until `POST /api/plugins/:id/permissions` allows it (the plugins
 page: "Allow", or the shield button for the details).
 

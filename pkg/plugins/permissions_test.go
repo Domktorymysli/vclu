@@ -140,7 +140,7 @@ func TestEffectivePermissionsAllowedByGrants(t *testing.T) {
 		{"@jan/none", 2, Permissions{}},
 		{"@jan/none", 1, Permissions{}}, // API 1 asks for everything; the user allowed nothing
 		{"@jan/old", 2, *lanMQTT},
-		{"@jan/not-installed", 2, *lanMQTT},
+		{"@jan/not-installed", 2, Permissions{}}, // a configuration that lists plugins without it: nothing
 	}
 	for _, c := range cases {
 		if got, _, _, _ := l.effectivePermissions(c.id, PluginManifest{API: c.api, Permissions: lanMQTT}); !reflect.DeepEqual(got, c.want) {

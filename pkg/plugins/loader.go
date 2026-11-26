@@ -510,6 +510,13 @@ func (l *Loader) downloadPlugin(repo config.PluginRepository, pluginID, newerTha
 	return nil
 }
 
+// maxPluginFile bounds one downloaded plugin file, maxPluginFiles how many plugin.json lists:
+// a repository is not trusted with the disk.
+const (
+	maxPluginFile  = 4 << 20
+	maxPluginFiles = 64
+)
+
 // downloadAllFiles downloads plugin.json and all files listed in the manifest
 func (l *Loader) downloadAllFiles(baseURL, localDir string) error {
 	// 1. Download plugin.json (always required)
@@ -537,6 +544,9 @@ func (l *Loader) downloadAllFiles(baseURL, localDir string) error {
 	}
 	if manifest.Form != "" && !slices.Contains(files, manifest.Form) {
 		files = append(files, manifest.Form)
+	}
+	if len(files) > maxPluginFiles {
+		return fmt.Errorf("plugin.json lists %d files, at most %d", len(files), maxPluginFiles)
 	}
 
 	// 4. Download all files from the list
@@ -606,8 +616,14 @@ func (l *Loader) downloadFile(url, localPath string) error {
 	}
 	defer out.Close()
 
-	_, err = io.Copy(out, resp.Body)
-	return err
+	n, err := io.Copy(out, io.LimitReader(resp.Body, maxPluginFile+1))
+	if err != nil {
+		return err
+	}
+	if n > maxPluginFile {
+		return fmt.Errorf("larger than %d bytes", maxPluginFile)
+	}
+	return nil
 }
 
 // resolvePluginDir returns the local directory for a plugin's files.
@@ -1081,7 +1097,8 @@ func (l *Loader) syncFiles(pluginID string) (installed config.InstalledPlugin, s
 		}
 		localDir = l.resolvePluginDir(installed.ID)
 		if installed.Grants == nil {
-			l.recordGrants(installed.ID)
+			// as the panel's update without the old files: what the fetched files ask for waits
+			l.recordEmptyGrants(installed.ID)
 		}
 	} else if local := l.localVersion(installed.ID, localDir); installed.Version != "" && local != "" && local != installed.Version {
 		// An update from the panel writes the version; the files follow here (#112). Only an
@@ -1173,6 +1190,8 @@ func checkDownloadedManifest(path string) error {
 	}
 	if api := manifestAPI(m); api > PluginAPIMax {
 		return fmt.Errorf("needs plugin API %d; this vclu runs up to %d, update vclu first", api, PluginAPIMax)
+	} else if api < PluginAPIMin {
+		return fmt.Errorf("plugin API %d is not supported (this vclu runs %d to %d)", api, PluginAPIMin, PluginAPIMax)
 	}
 	if err := m.checkUDP(); err != nil {
 		return err

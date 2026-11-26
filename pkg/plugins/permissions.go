@@ -2,6 +2,7 @@ package plugins
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/url"
@@ -313,6 +314,10 @@ func (l *Loader) effectivePermissions(pluginID string, manifest PluginManifest) 
 	official := l.isOfficial(pluginID)
 	requested := requestedPermissions(manifest)
 	grants, err := l.grants(pluginID)
+	if errors.Is(err, errNotInstalled) {
+		// an entry removed meanwhile: nothing says what the user allowed it
+		return Permissions{}, Limits{}, false, fmt.Errorf("plugin %s is not installed: it does not run", pluginID)
+	}
 	if err != nil {
 		// without the grants the plugin would get all it asks for: it does not run until they are readable
 		return Permissions{}, Limits{}, false, fmt.Errorf("plugin %s: its permissions cannot be read: %w", pluginID, err)
@@ -352,14 +357,26 @@ func (l *Loader) effectivePermissions(pluginID string, manifest PluginManifest) 
 	return allowed, limits, official, nil
 }
 
+// errNotInstalled: the configuration lists plugins and this is not one of them.
+var errNotInstalled = errors.New("not installed")
+
 // grants: what the user allowed the installed plugin, nil when the config does not say
-// (installed by hand, or before grants); an error when .vclu.json cannot be read.
+// (installed by hand, or before grants); an error when .vclu.json cannot be read, or lists
+// plugins without this one.
 func (l *Loader) grants(pluginID string) (*config.PluginGrants, error) {
-	inst, ok, err := l.installedEntry(pluginID)
-	if err != nil || !ok {
+	mc, err := config.ReadMasterConfig(l.serverDir)
+	if err != nil {
 		return nil, err
 	}
-	return inst.Grants, nil
+	if mc == nil || mc.Plugins == nil {
+		return nil, nil // no configuration yet
+	}
+	for _, inst := range mc.Plugins.Installed {
+		if inst.ID == pluginID {
+			return inst.Grants, nil
+		}
+	}
+	return nil, errNotInstalled
 }
 
 func (l *Loader) diskManifest(pluginID string) (PluginManifest, error) {
@@ -434,6 +451,35 @@ func (l *Loader) recordGrants(pluginID string) {
 	if err != nil {
 		log.Printf("[PLUGINS] WARNING: permissions of %s not recorded: %v", pluginID, err)
 	}
+}
+
+// recordEmptyGrants: an entry without grants whose files had to be fetched again allows none of
+// what the fetched files ask for; the user allows it in the panel.
+func (l *Loader) recordEmptyGrants(pluginID string) {
+	err := config.UpdateMasterConfig(l.serverDir, func(mc *config.VCLUConfig) error {
+		if mc.Plugins == nil {
+			return nil
+		}
+		for i := range mc.Plugins.Installed {
+			if mc.Plugins.Installed[i].ID == pluginID && mc.Plugins.Installed[i].Grants == nil {
+				mc.Plugins.Installed[i].Grants = &config.PluginGrants{}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		log.Printf("[PLUGINS] WARNING: permissions of %s not recorded: %v", pluginID, err)
+	}
+}
+
+// PinPorts records the ports of requested (the files on disk) for grants from before ports
+// were recorded, before an update may list others.
+func (l *Loader) PinPorts(pluginID string, requested Permissions) {
+	g, err := l.grants(pluginID)
+	if err != nil || g == nil {
+		return
+	}
+	l.recordPorts(pluginID, requested, g)
 }
 
 // recordPorts: a lan, udp or tcp grant from before ports were recorded keeps the ports plugin.json
