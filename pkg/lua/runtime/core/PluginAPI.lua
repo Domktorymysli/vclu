@@ -227,18 +227,6 @@ function Plugin:on(eventName, callback)
     return self
 end
 
---- Emit an event
--- @param eventName string Name of the event
--- @param ... any Event arguments
--- @usage plugin:emit("weather:updated", data)
-function Plugin:emit(eventName, ...)
-    if self._sandbox and self._sandbox.api then
-        self._sandbox.api.emit(eventName, ...)
-    elseif EventBus then
-        EventBus:emit(eventName, ...)
-    end
-end
-
 --- Log a message with plugin prefix
 -- @param level string Log level (info, warn, error, debug)
 -- @param message string Message to log
@@ -343,31 +331,6 @@ function Plugin:httpPost(url, data, callback)
             :send()
     else
         callback(nil, "HttpClient not available")
-    end
-end
-
---- Make an HTTP request with full options (method, headers, body, timeout)
--- Uses sandbox API if available for pcall protection
--- @param options table Request options {method, url, headers, body, timeout}
--- @param callback function Callback with (response, error)
--- @usage plugin:httpRequest({
---     method = "GET",
---     url = "https://api.example.com/data",
---     headers = { ["Authorization"] = "Basic xxx" },
---     timeout = 5000
--- }, function(resp, err) end)
-function Plugin:httpRequest(options, callback)
-    if self._sandbox and self._sandbox.api and self._sandbox.api.httpRequest then
-        self._sandbox.api.httpRequest(options, callback)
-        return
-    end
-
-    -- Fallback - use httpGet/httpPost without custom headers
-    local method = (options.method or "GET"):upper()
-    if method == "POST" then
-        self:httpPost(options.url, options.body, callback)
-    else
-        self:httpGet(options.url, callback)
     end
 end
 
@@ -593,6 +556,17 @@ function Plugin:httpRequest(opts, callback)
         return self._sandbox.api.httpRequest(opts, callback)
     end
     PluginHelpers.httpRequest(self.id, opts, callback)
+end
+
+--- What this vclu offers a plugin: a method ("websocket"), a permission it knows
+-- ("permission:udp", "permission:lan.ports") or a form field type ("form:host"); never errors
+-- @param name string
+-- @return boolean
+function Plugin:has(name)
+    if self._sandbox and self._sandbox.api and self._sandbox.api.has then
+        return self._sandbox.api.has(name)
+    end
+    return PluginHelpers.has(name)
 end
 
 --- Build URL with sorted query parameters

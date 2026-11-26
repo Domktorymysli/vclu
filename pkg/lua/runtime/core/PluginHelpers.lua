@@ -1526,6 +1526,27 @@ end
 -- MODULE EXPORT
 -- ============================================
 
+-- What plugin:has answers: the permissions (and their fields) and form field types this vclu
+-- reads; a method is any function of the Plugin class
+PluginHelpers.KNOWN = {
+    ["permission:internet"] = true, ["permission:internet.hosts"] = true,
+    ["permission:lan"] = true, ["permission:lan.ports"] = true,
+    ["permission:udp"] = true, ["permission:udp.ports"] = true, ["permission:udp.broadcast"] = true,
+    ["permission:tcp"] = true, ["permission:tcp.ports"] = true,
+    ["permission:mqtt"] = true, ["permission:mqtt.subscribe"] = true, ["permission:mqtt.publish"] = true,
+    ["permission:modbus"] = true, ["permission:clu"] = true, ["permission:tftp"] = true, ["permission:serial"] = true,
+    ["form:string"] = true, ["form:number"] = true, ["form:boolean"] = true, ["form:enum"] = true,
+    ["form:secret"] = true, ["form:host"] = true, ["form:object"] = true,
+}
+
+--- Whether this vclu offers name to plugins (plugin:has); never errors
+function PluginHelpers.has(name)
+    if type(name) ~= "string" then return false end
+    if PluginHelpers.KNOWN[name] then return true end
+    if name:find(":", 1, true) then return false end
+    return Plugin ~= nil and type(rawget(Plugin, name)) == "function" and name:sub(1, 1) ~= "_"
+end
+
 if Logger then
     Logger:info("[CORE] PluginHelpers loaded")
 end
