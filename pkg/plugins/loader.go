@@ -55,6 +55,7 @@ type PluginManifest struct {
 	API          int                 `json:"api,omitempty"`   // plugin API version; 0 = 1
 	Permissions  *Permissions        `json:"permissions,omitempty"`
 	UDP          *ManifestUDP        `json:"udp,omitempty"`  // broadcast ports, with the udp permission
+	TCP          *ManifestTCP        `json:"tcp,omitempty"`  // ports, with the tcp permission
 	Form         string              `json:"form,omitempty"` // the wizard's form file, next to plugin.json
 	// Dashboards the plugin builds with plugin:dashboard; access is the user's (dashboards.go)
 	Dashboards ManifestDashboards `json:"dashboards,omitempty"`
@@ -262,6 +263,7 @@ type Preview struct {
 	Requested      Permissions
 	Version        string
 	BroadcastPorts []int // with udp: where it may broadcast
+	TCPPorts       []int // with tcp: where it may connect
 }
 
 // PreviewPermissions reads the plugin.json of the version the repository lists, from the
@@ -309,7 +311,7 @@ func (l *Loader) PreviewPermissions(repo config.PluginRepository, pluginID strin
 	if err != nil {
 		return Preview{}, err
 	}
-	return Preview{Requested: requestedPermissions(m), Version: listing.Version, BroadcastPorts: m.BroadcastPorts()}, nil
+	return Preview{Requested: requestedPermissions(m), Version: listing.Version, BroadcastPorts: m.BroadcastPorts(), TCPPorts: m.TCPPorts()}, nil
 }
 
 // downloadPlugin downloads the version the repository lists; with newerThan, only when that
@@ -747,6 +749,9 @@ func (l *Loader) LoadPlugin(pluginID string, pluginConfig map[string]interface{}
 	if err := manifest.checkUDP(); err != nil {
 		return fmt.Errorf("plugin %s: %w", pluginID, err)
 	}
+	if err := manifest.checkTCP(); err != nil {
+		return fmt.Errorf("plugin %s: %w", pluginID, err)
+	}
 
 	// 1. Create sandbox for the plugin
 	perms, limits, official := l.effectivePermissions(pluginID, manifest)
@@ -758,8 +763,9 @@ func (l *Loader) LoadPlugin(pluginID string, pluginConfig map[string]interface{}
 	}
 	dashJSON, _ := json.Marshal(dashboards)
 	broadcastJSON, _ := json.Marshal(append([]int{}, manifest.BroadcastPorts()...))
-	createSandboxScript := fmt.Sprintf(`PluginSandbox:create(%s, {api = %d, lan = %t, udp = %t, mqtt = %t, modbus = %t, grenton_raw = %t, tftp = %t, serial = %t, official = %t, limits = JSON:decode(%s), dashboards = JSON:decode(%s), udpBroadcastPorts = JSON:decode(%s)})`,
-		luastr.Quote(pluginID), api, perms.LAN, perms.UDP, perms.MQTT, perms.Modbus, perms.GrentonRaw, perms.TFTP, perms.Serial, official, luastr.Quote(string(limitsJSON)), luastr.Quote(string(dashJSON)), luastr.Quote(string(broadcastJSON)))
+	tcpJSON, _ := json.Marshal(append([]int{}, manifest.TCPPorts()...))
+	createSandboxScript := fmt.Sprintf(`PluginSandbox:create(%s, {api = %d, lan = %t, udp = %t, tcp = %t, mqtt = %t, modbus = %t, grenton_raw = %t, tftp = %t, serial = %t, official = %t, limits = JSON:decode(%s), dashboards = JSON:decode(%s), udpBroadcastPorts = JSON:decode(%s), tcpPorts = JSON:decode(%s)})`,
+		luastr.Quote(pluginID), api, perms.LAN, perms.UDP, perms.TCP, perms.MQTT, perms.Modbus, perms.GrentonRaw, perms.TFTP, perms.Serial, official, luastr.Quote(string(limitsJSON)), luastr.Quote(string(dashJSON)), luastr.Quote(string(broadcastJSON)), luastr.Quote(string(tcpJSON)))
 	if _, err := l.luaExecutor.Execute(createSandboxScript); err != nil {
 		return fmt.Errorf("failed to create sandbox: %w", err)
 	}
@@ -1013,7 +1019,10 @@ func checkDownloadedManifest(path string) error {
 	if api := manifestAPI(m); api > PluginAPIMax {
 		return fmt.Errorf("needs plugin API %d; this vclu runs up to %d, update vclu first", api, PluginAPIMax)
 	}
-	return m.checkUDP()
+	if err := m.checkUDP(); err != nil {
+		return err
+	}
+	return m.checkTCP()
 }
 
 // completeStamp is what a downloaded version's .complete holds: its tag and repository.

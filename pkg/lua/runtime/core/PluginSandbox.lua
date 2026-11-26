@@ -10,10 +10,19 @@ PluginSandbox.sandboxes = {}  -- pluginId -> sandbox data
 PluginSandbox.ioHandles = {}  -- Go handle id -> {call} of a plugin's socket, port or transfer
 
 -- Data for plugins' sockets, ports and transfers (pkg/lua/plugin_io.go): udp (bytes, ip,
--- port), serial (bytes), either (nil, err) once when it fails; tftp (bytes, err) once.
+-- port), serial (bytes), either (nil, err) once when it fails; tftp (bytes, err) once;
+-- tcp ("connect" | "data" | "close", bytes | reason).
 function __vclu_plugin_io(id, kind, data, second, port)
     local h = PluginSandbox.ioHandles[id]
     if not h then return end
+    if kind == "tcp" then
+        if second == "close" then
+            PluginSandbox.ioHandles[id] = nil
+            h.sandbox.ioHandles[id] = nil
+        end
+        if h.call then h.call(second, data) end
+        return
+    end
     if kind == "tftp" or data == nil then -- a transfer's answer, or a socket or port that failed
         PluginSandbox.ioHandles[id] = nil
         h.sandbox.ioHandles[id] = nil
@@ -50,6 +59,8 @@ end
 
 -- Taken at load: a module's own global bit or a wrapped Crypto does not reach plugins
 local CRYPTO, BIT = shallowCopy(Crypto), shallowCopy(bit)
+-- lib/telnet: pure functions over the connection a plugin gives it
+local TELNET = require("lib/telnet")
 
 -- Methods a plugin may call on an object it did not create: reads only.
 local READ_DENY = {
@@ -732,6 +743,7 @@ function PluginSandbox:create(pluginId, permissions)
     sandbox.permissions = {
         lan = permissions.lan == true,
         udp = permissions.udp == true,
+        tcp = permissions.tcp == true,
         mqtt = permissions.mqtt == true,
         modbus = permissions.modbus == true,
         grentonRaw = permissions.grenton_raw == true,
@@ -745,6 +757,7 @@ function PluginSandbox:create(pluginId, permissions)
     sandbox.limits = {
         lanHosts = list(limits.lanHosts),
         udpHosts = list(limits.udpHosts),
+        tcpHosts = list(limits.tcpHosts),
         mqttSubscribe = list(limits.mqttSubscribe),
         mqttPublish = list(limits.mqttPublish),
         grentonRawHosts = list(limits.grentonRawHosts),
@@ -769,11 +782,12 @@ function PluginSandbox:create(pluginId, permissions)
         __go_http_set_internet(pluginId, sandbox.limits.internetHosts)
     end
     if type(__go_pluginio_grant) == "function" then
-        -- udp broadcasts only to the ports in plugin.json's "udp"
+        -- udp broadcasts only to the ports in plugin.json's "udp", tcp connects only to those in "tcp"
         __go_pluginio_grant(pluginId, sandbox.permissions.grentonRaw, sandbox.permissions.tftp,
             sandbox.permissions.serial, sandbox.limits.grentonRawHosts, sandbox.limits.tftpHosts,
             sandbox.limits.serialPorts, sandbox.permissions.udp, sandbox.limits.udpHosts,
-            list(permissions.udpBroadcastPorts) or {})
+            list(permissions.udpBroadcastPorts) or {}, sandbox.permissions.tcp, sandbox.limits.tcpHosts,
+            list(permissions.tcpPorts) or {})
     end
 
     -- Build wrapped API with automatic tracking
@@ -932,7 +946,7 @@ function PluginSandbox:buildAPI(sandbox)
         end
     end
 
-    -- udp, grenton_raw, tftp and serial: handles live in Go, which checks the grant again
+    -- udp, tcp, grenton_raw, tftp and serial: handles live in Go, which checks the grant again
     local function requireIO(name, key)
         if not sandbox.permissions[key] then
             error(name .. " needs \"" .. name .. "\" in the permissions of " .. pluginId
@@ -985,6 +999,40 @@ function PluginSandbox:buildAPI(sandbox)
     api.udpSocket = function(opts)
         requireIO("udp", "udp")
         return udpSocket(opts, "udp")
+    end
+
+    -- A TCP connection to a device; it comes up (or fails) in the callbacks, nil, err when refused
+    api.tcpConnect = function(opts)
+        requireIO("tcp", "tcp")
+        if type(opts) ~= "table" then
+            error("plugin:tcpConnect: opts is a table {host = ip, port = n, timeout = seconds}", 2)
+        end
+        local id, err = __go_pluginio_tcp_open(pluginId, tostring(opts.host), tonumber(opts.port) or 0,
+            tonumber(opts.timeout) or 0)
+        if not id then return nil, err end
+        local on, state = {}, "connecting"
+        track(id).call = function(what, data)
+            if what == "connect" then
+                state = "open"
+                if on.connect then on.connect() end
+            elseif what == "close" then
+                state = "closed"
+                if on.close then on.close(data) end
+            elseif on.receive then
+                on.receive(data)
+            end
+        end
+        local conn = {}
+        function conn:send(bytes) return __go_pluginio_tcp_send(id, pluginId, tostring(bytes)) end
+        function conn:onConnect(fn) on.connect = ioCallback("TCP", fn) end
+        function conn:onReceive(fn) on.receive = ioCallback("TCP", fn) end
+        function conn:onClose(fn) on.close = ioCallback("TCP", fn) end
+        function conn:isOpen() return state == "open" end
+        function conn:close()
+            state = "closed"
+            closeIO(id)
+        end
+        return conn
     end
 
     -- Frames to CLUs: their port, broadcast for discovery
@@ -1403,6 +1451,7 @@ function PluginSandbox:buildEnvironment(sandbox)
         math = shallowCopy(math),
         Crypto = shallowCopy(CRYPTO),
         bit = shallowCopy(BIT),
+        Telnet = shallowCopy(TELNET),
         os = safeOs,
         datetime = safeDatetime,
 

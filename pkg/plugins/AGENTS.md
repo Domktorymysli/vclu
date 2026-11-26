@@ -143,3 +143,12 @@ limits `udpHosts`). `plugin:udpSocket` opens the same handle as `grentonSocket` 
 listens on, and a broadcast goes only to the ports in plugin.json's `"udp": {"broadcastPorts": [7000]}`
 (at most 8, never 1234 or 69, only with `"udp": true` in permissions: `udp.go`, checked at download
 and at load), and never with a host list. A `grenton_raw` socket keeps its rules.
+
+`tcp` (API 2) is a TCP client to devices on the local network (a local Tuya socket, telnet):
+granted on install like `udp`, narrowed by hosts (limits `tcpHosts`). plugin.json lists the ports in
+`"tcp": {"ports": [23]}` (required with the permission, at most 8, never a port of another
+permission: `tcp.go`). `plugin:tcpConnect` (`pkg/lua/plugin_tcp.go`) connects in the background and
+answers through the handle's queue (`connect`, data, `close` with a reason); sends go through a
+writer with a time limit. `SetGrant` closes connections a new grant does not allow; `SetTCPTaken`
+keeps the MQTT broker vclu uses out of reach. `lib/telnet.lua` is pure Lua over such a connection,
+given to plugins as the global `Telnet`.

@@ -511,7 +511,7 @@ function Plugin:action(name, spec, fn)
 end
 
 -- ============================================
--- udp, grenton_raw, tftp, serial: only in a plugin's sandbox, with the permission
+-- udp, tcp, grenton_raw, tftp, serial: only in a plugin's sandbox, with the permission
 -- ============================================
 
 --- A UDP socket for devices on the local network (permission udp); not to the CLU's ports
@@ -522,6 +522,17 @@ end
 -- @usage local s = plugin:udpSocket() s:onReceive(function(b, ip) end) s:broadcast(7000, '{"t":"scan"}')
 function Plugin:udpSocket(opts)
     return sandboxAPI(self, "udpSocket").udpSocket(opts)
+end
+
+--- A TCP connection to a device on the local network (permission tcp), to a port in
+-- plugin.json's "tcp": {"ports": [...]}
+-- @param opts table {host = "192.168.1.20", port = 23, timeout = 5}: an IPv4 address, seconds 1-30
+-- @return table|nil conn:send(bytes) after onConnect, conn:onConnect(function() end),
+--   conn:onReceive(function(bytes) end), conn:onClose(function(reason) end) when the device or
+--   the network ends it, conn:isOpen(), conn:close(); nil, err if refused
+-- @usage local c = plugin:tcpConnect({host = "192.168.1.20", port = 23}) c:onConnect(function() c:send("hi\r\n") end)
+function Plugin:tcpConnect(opts)
+    return sandboxAPI(self, "tcpConnect").tcpConnect(opts)
 end
 
 --- A UDP socket of the plugin's own (permission grenton_raw)

@@ -332,6 +332,7 @@
             label_internet: '{{index .t "plugins.perm.label_internet"}}',
             label_lan: '{{index .t "plugins.perm.label_lan"}}',
             label_udp: '{{index .t "plugins.perm.label_udp"}}',
+            label_tcp: '{{index .t "plugins.perm.label_tcp"}}',
             label_mqtt: '{{index .t "plugins.perm.label_mqtt"}}',
             label_modbus: '{{index .t "plugins.perm.label_modbus"}}',
             label_grenton_raw: '{{index .t "plugins.perm.label_grenton_raw"}}',
@@ -348,6 +349,7 @@
             internet_any_short: '{{index .t "plugins.perm.internet_any_short"}}',
             internet_connects_to: '{{index .t "plugins.perm.internet_connects_to"}}',
             udp_broadcast_to: '{{index .t "plugins.perm.udp_broadcast_to"}}',
+            tcp_ports: '{{index .t "plugins.perm.tcp_ports"}}',
             any_server: '{{index .t "plugins.perm.any_server"}}',
             not_allowed_yet: '{{index .t "plugins.perm.not_allowed_yet"}}',
             internet_save_allows: '{{index .t "plugins.perm.internet_save_allows"}}',
@@ -381,7 +383,8 @@
                 pendingPermissions: {{if .PendingPermissions}}{{.PendingPermissions | json}}{{else}}[]{{end}},
                 internet: {{if .Internet}}{{.Internet | json}}{{else}}[]{{end}},
                 pendingInternet: {{if .PendingInternet}}{{.PendingInternet | json}}{{else}}[]{{end}},
-                broadcastPorts: {{if .BroadcastPorts}}{{.BroadcastPorts | json}}{{else}}[]{{end}}
+                broadcastPorts: {{if .BroadcastPorts}}{{.BroadcastPorts | json}}{{else}}[]{{end}},
+                tcpPorts: {{if .TCPPorts}}{{.TCPPorts | json}}{{else}}[]{{end}}
             };
         }
         {{end}}

@@ -304,6 +304,8 @@ type installedPluginView struct {
 	PendingInternet []string `json:"pendingInternet,omitempty"`
 	// with udp: the ports it may broadcast to
 	BroadcastPorts []int `json:"broadcastPorts,omitempty"`
+	// with tcp: the ports it connects to
+	TCPPorts []int `json:"tcpPorts,omitempty"`
 }
 
 func (s *Server) installedPluginsView(installed []config.InstalledPlugin) []installedPluginView {
@@ -311,7 +313,7 @@ func (s *Server) installedPluginsView(installed []config.InstalledPlugin) []inst
 	loader := plugins.NewLoader(s.serverDir)
 	for _, p := range installed {
 		v := loader.PermissionsView(p)
-		out = append(out, installedPluginView{p, loader.NeedsConfig(p), v.Requested.Names(), v.Pending.Names(), v.Internet, v.Pending.Internet, v.BroadcastPorts})
+		out = append(out, installedPluginView{p, loader.NeedsConfig(p), v.Requested.Names(), v.Pending.Names(), v.Internet, v.Pending.Internet, v.BroadcastPorts, v.TCPPorts})
 	}
 	return out
 }
@@ -346,6 +348,7 @@ func (s *Server) handlePluginsAPIPreview(c *gin.Context) {
 		"requested":      nonNil(preview.Requested.Names()),
 		"internet":       nonNil([]string(preview.Requested.Internet)),
 		"broadcastPorts": append([]int{}, preview.BroadcastPorts...),
+		"tcpPorts":       append([]int{}, preview.TCPPorts...),
 		"all":            plugins.AllPermissions.Names(),
 	})
 }

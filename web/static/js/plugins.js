@@ -232,6 +232,7 @@ PluginsManager.prototype._renderPluginCard = function(plugin, options) {
             }
             var label = PERMISSION_LABELS[name] || name;
             if (name === 'udp' && requested.indexOf('udp') >= 0) label = udpLabel(plugin.broadcastPorts || []);
+            if (name === 'tcp' && requested.indexOf('tcp') >= 0) label = tcpLabel(plugin.tcpPorts || []);
             return '<span class="badge ' + cls + ' me-1" title="' + VCLU.esc(title + ': ' + label) + '">' +
                    VCLU.esc(PERMISSION_SHORT[name] || name) + '</span>';
         }).join('') + '</p>';
@@ -426,6 +427,7 @@ PluginsManager.prototype._renderInstalledPlugins = function() {
             internet: p.internet || [],
             pendingInternet: p.pendingInternet || [],
             broadcastPorts: p.broadcastPorts || [],
+            tcpPorts: p.tcpPorts || [],
             updateAvailable: available.updateAvailable,
             availableVersion: available.version
         };
@@ -528,7 +530,7 @@ PluginsManager.prototype.install = function(id, repository) {
 
 /**
  * Show every permission, those the plugin asks for in green, and install on confirmation
- * @param {Object} preview - {version, requested, internet, broadcastPorts, all} from /api/plugins/preview
+ * @param {Object} preview - {version, requested, internet, broadcastPorts, tcpPorts, all} from /api/plugins/preview
  */
 PluginsManager.prototype._confirmInstall = function(id, repository, preview) {
     var self = this;
@@ -548,7 +550,8 @@ PluginsManager.prototype._confirmInstall = function(id, repository, preview) {
         var line = '<li class="mb-1 ' + (asks ? 'text-success fw-semibold' : 'text-muted') + '">' +
                    '<i class="bi ' + (asks ? 'bi-check-circle-fill' : 'bi-circle') + ' me-1"></i>' +
                    VCLU.esc(perm === 'internet' && asks ? internetLabel(preview.internet || []) :
-                            perm === 'udp' && asks ? udpLabel(preview.broadcastPorts || []) : (PERMISSION_LABELS[perm] || perm));
+                            perm === 'udp' && asks ? udpLabel(preview.broadcastPorts || []) :
+                            perm === 'tcp' && asks ? tcpLabel(preview.tcpPorts || []) : (PERMISSION_LABELS[perm] || perm));
         var newHosts = (preview.internet || []).filter(function(h) { return hadHosts.indexOf(h) < 0 && hadHosts.indexOf('*') < 0; });
         if (asks && installed && (had.indexOf(perm) < 0 || perm === 'internet' && newHosts.length > 0)) {
             line += ' <span class="badge bg-warning text-dark">' + VCLU.esc(pt('new')) + '</span>';
@@ -668,7 +671,7 @@ PluginsManager.prototype.toggle = function(id, enabled) {
 /**
  * Save what the user allows a plugin and re-render
  * @param {string} id - Plugin ID
- * @param {Object} grants - {internet: {hosts}, lan: {hosts}, udp: {hosts}, mqtt: {subscribe, publish}, modbus: {}, grenton_raw: {hosts},
+ * @param {Object} grants - {internet: {hosts}, lan: {hosts}, udp: {hosts}, tcp: {hosts}, mqtt: {subscribe, publish}, modbus: {}, grenton_raw: {hosts},
  *   tftp: {hosts}, serial: {ports}}; a missing key is not allowed
  */
 PluginsManager.prototype._saveGrants = function(id, grants, done) {
@@ -729,6 +732,7 @@ var PERMISSION_LABELS = {
     internet: pt('label_internet'),
     lan: pt('label_lan'),
     udp: pt('label_udp'),
+    tcp: pt('label_tcp'),
     mqtt: pt('label_mqtt'),
     modbus: pt('label_modbus'),
     grenton_raw: pt('label_grenton_raw'),
@@ -736,12 +740,13 @@ var PERMISSION_LABELS = {
     serial: pt('label_serial')
 };
 
-var ALL_PERMISSIONS = ['internet', 'lan', 'udp', 'mqtt', 'modbus', 'grenton_raw', 'tftp', 'serial'];
+var ALL_PERMISSIONS = ['internet', 'lan', 'udp', 'tcp', 'mqtt', 'modbus', 'grenton_raw', 'tftp', 'serial'];
 
 var PERMISSION_SHORT = {
     internet: pt('label_internet'),
     lan: pt('short_lan'),
     udp: 'UDP',
+    tcp: 'TCP',
     mqtt: 'MQTT',
     modbus: 'Modbus',
     grenton_raw: pt('short_grenton_raw'),
@@ -763,6 +768,12 @@ var INTERNET_ANY_WARNING = pt('warn_internet_any');
 function udpLabel(ports) {
     if (ports.length === 0) return pt('label_udp');
     return pt('label_udp') + '. ' + pt('udp_broadcast_to', ports.join(', '));
+}
+
+// tcp with the ports it connects to (plugin.json "tcp")
+function tcpLabel(ports) {
+    if (ports.length === 0) return pt('label_tcp');
+    return pt('label_tcp') + '. ' + pt('tcp_ports', ports.join(', '));
 }
 
 function internetLabel(hosts) {
@@ -831,9 +842,12 @@ PluginsManager.prototype.editPermissions = function(id) {
         } else if (name === 'mqtt') {
             html += area('mqtt-subscribe', pt('subscribe_only'), grant && grant.subscribe, pt('any_topic'));
             html += area('mqtt-publish', pt('publish_only'), grant && grant.publish, pt('any_topic'));
-        } else if (name === 'udp' || name === 'grenton_raw' || name === 'tftp') {
+        } else if (name === 'udp' || name === 'tcp' || name === 'grenton_raw' || name === 'tftp') {
             if (name === 'udp' && (plugin.broadcastPorts || []).length > 0) {
                 html += '<div class="small text-muted mb-1">' + VCLU.esc(pt('udp_broadcast_to', plugin.broadcastPorts.join(', '))) + '</div>';
+            }
+            if (name === 'tcp' && (plugin.tcpPorts || []).length > 0) {
+                html += '<div class="small text-muted mb-1">' + VCLU.esc(pt('tcp_ports', plugin.tcpPorts.join(', '))) + '</div>';
             }
             html += area(name + '-hosts', pt('hosts_only'), grant && grant.hosts, pt('any_local_but_vclu'));
         } else if (name === 'serial') {
@@ -874,7 +888,7 @@ PluginsManager.prototype.savePermissions = function() {
             grants.lan = {hosts: list('lan-hosts')};
         } else if (name === 'mqtt') {
             grants.mqtt = {subscribe: list('mqtt-subscribe'), publish: list('mqtt-publish')};
-        } else if (name === 'udp' || name === 'grenton_raw' || name === 'tftp') {
+        } else if (name === 'udp' || name === 'tcp' || name === 'grenton_raw' || name === 'tftp') {
             grants[name] = {hosts: list(name + '-hosts')};
         } else if (name === 'serial') {
             grants.serial = {ports: list('serial-ports')};

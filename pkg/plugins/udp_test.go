@@ -73,7 +73,7 @@ func TestUDPPermission(t *testing.T) {
 	if got := strings.Join(p.Names(), ","); got != "lan,udp,grenton_raw" {
 		t.Errorf("names %q", got)
 	}
-	if got := strings.Join(AllPermissions.Names(), ","); got != "internet,lan,udp,mqtt,modbus,grenton_raw,tftp,serial" {
+	if got := strings.Join(AllPermissions.Names(), ","); got != "internet,lan,udp,tcp,mqtt,modbus,grenton_raw,tftp,serial" {
 		t.Errorf("all %q", got)
 	}
 	if got := p.Only([]string{"lan"}); got.UDP {

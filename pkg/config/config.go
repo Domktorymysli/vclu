@@ -342,6 +342,7 @@ type PluginGrants struct {
 	Internet *InternetGrant `json:"internet,omitempty"` // API 2; API 1 reaches any host
 	LAN      *LANGrant      `json:"lan,omitempty"`
 	UDP      *HostsGrant    `json:"udp,omitempty"` // UDP to local devices; Hosts narrow it
+	TCP      *HostsGrant    `json:"tcp,omitempty"` // TCP to local devices; Hosts narrow it
 	MQTT     *MQTTGrant     `json:"mqtt,omitempty"`
 	Modbus   *ModbusGrant   `json:"modbus,omitempty"`
 	// grenton_raw, tftp and serial reach CLUs, files on devices and the device on a port:

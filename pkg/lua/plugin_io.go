@@ -2,6 +2,7 @@ package lua
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -30,8 +31,8 @@ const (
 	pluginTFTPMaxBytes = 16 << 20 // one file
 )
 
-// PluginIO holds what plugins with udp, grenton_raw, tftp or serial opened: their UDP sockets,
-// serial ports and TFTP transfers. Each belongs to one plugin, data reaches Lua through
+// PluginIO holds what plugins with udp, tcp, grenton_raw, tftp or serial opened: their UDP sockets,
+// TCP connections, serial ports and TFTP transfers. Each belongs to one plugin, data reaches Lua through
 // deliver (the run loop) and every handle closes with the plugin.
 type PluginIO struct {
 	mu       sync.Mutex
@@ -43,6 +44,9 @@ type PluginIO struct {
 	sent     map[int]time.Time // local ports of plugin sockets, kept a while after they close
 	deliver  func(name string, fn func(L *lua.LState) (string, error)) (string, error)
 	own      func(netip.Addr) bool // an address of this machine; tests replace it
+	// tcpTaken: addresses vclu itself talks to with another permission (its MQTT broker)
+	tcpTaken func() map[netip.AddrPort]string
+	dialTCP  func(ctx context.Context, addr string) (net.Conn, error)
 }
 
 // pluginIOGrant: what the user allowed a plugin; nil host lists allow any local host.
@@ -55,22 +59,27 @@ type pluginIOGrant struct {
 	udp              bool
 	udpHosts         []netip.Prefix
 	broadcastPorts   []int // udp: from plugin.json
+	tcp              bool
+	tcpHosts         []netip.Prefix
+	tcpPorts         []int // tcp: from plugin.json
 }
 
 type ioHandle struct {
 	id     int
 	plugin string
-	kind   string // "udp", "serial", "tftp"
+	kind   string // "udp", "tcp", "serial", "tftp"
 	perm   string // udp: the permission it was opened under, "udp" or "grenton_raw"
 	path   string // serial: resolved path
 	conn   *net.UDPConn
 	port   io.ReadWriteCloser
+	tcp    *tcpConn
 	q      ioQueue
 	done   chan struct{}
 	once   sync.Once
 }
 
 type ioEvent struct {
+	what string // tcp: "connect" once it is up; data and err as for the others
 	data []byte
 	ip   string
 	port int
@@ -98,7 +107,7 @@ func (q *ioQueue) push2(e ioEvent, merge, whole bool) {
 		q.dropped += len(e.data)
 	} else {
 		q.size += len(e.data)
-		if n := len(q.events); merge && n > 0 && q.events[n-1].err == "" && e.err == "" {
+		if n := len(q.events); merge && n > 0 && q.events[n-1].err == "" && e.err == "" && q.events[n-1].what == "" && e.what == "" {
 			q.events[n-1].data = append(q.events[n-1].data, e.data...)
 		} else {
 			q.events = append(q.events, e)
@@ -128,6 +137,7 @@ func NewPluginIO() *PluginIO {
 		reserved: map[int]bool{},
 		sent:     map[int]time.Time{},
 		own:      ownAddr,
+		dialTCP:  dialTCPDefault,
 	}
 }
 
@@ -217,11 +227,21 @@ func isBroadcast(ip netip.Addr) bool {
 	return false
 }
 
-// SetGrant: what the plugin may open. Called by PluginSandbox:create for every plugin.
+// SetGrant: what the plugin may open. Called by PluginSandbox:create for every plugin; a
+// TCP connection the new grant does not allow closes.
 func (p *PluginIO) SetGrant(plugin string, g pluginIOGrant) {
 	p.mu.Lock()
 	p.grants[plugin] = g
+	var gone []*ioHandle
+	for _, h := range p.handles {
+		if h.plugin == plugin && h.kind == "tcp" && h.tcp != nil && p.tcpAllowed(g, h.tcp.remote) != nil {
+			gone = append(gone, h)
+		}
+	}
 	p.mu.Unlock()
+	for _, h := range gone {
+		p.close(h)
+	}
 }
 
 // Release closes everything the plugin opened and forgets its grant.
@@ -258,7 +278,7 @@ func (p *PluginIO) close(h *ioHandle) {
 	h.once.Do(func() {
 		p.mu.Lock()
 		close(h.done)
-		conn, port := h.conn, h.port
+		conn, port, tc := h.conn, h.port, h.tcp
 		if conn != nil {
 			p.markSent(conn.LocalAddr().(*net.UDPAddr).Port)
 		}
@@ -272,6 +292,9 @@ func (p *PluginIO) close(h *ioHandle) {
 		}
 		if port != nil {
 			_ = port.Close()
+		}
+		if tc != nil {
+			tc.close()
 		}
 	})
 }
@@ -401,6 +424,17 @@ func callIO(L *lua.LState, h *ioHandle, e ioEvent) error {
 	data := lua.LValue(lua.LNil)
 	if e.data != nil {
 		data = lua.LString(e.data)
+	}
+	if h.kind == "tcp" { // (id, "tcp", bytes | reason, "connect" | "data" | "close")
+		what := "data"
+		switch {
+		case e.what == "connect":
+			what = "connect"
+		case e.err != "":
+			what, data = "close", lua.LString(e.err)
+		}
+		return L.CallByParam(lua.P{Fn: fn, NRet: 0, Protect: true},
+			lua.LNumber(h.id), lua.LString(h.kind), data, lua.LString(what), lua.LNumber(0))
 	}
 	second := lua.LValue(lua.LNil)
 	switch {
@@ -678,6 +712,19 @@ func hostsArg(L *lua.LState, n int, who string) []netip.Prefix {
 	return parsed
 }
 
+// portsArg: a Lua list of port numbers.
+func portsArg(L *lua.LState, n int) []int {
+	var out []int
+	if t, ok := L.Get(n).(*lua.LTable); ok {
+		t.ForEach(func(_, v lua.LValue) {
+			if n, ok := v.(lua.LNumber); ok {
+				out = append(out, int(n))
+			}
+		})
+	}
+	return out
+}
+
 func pushResult(L *lua.LState, v lua.LValue, err error) int {
 	if err != nil {
 		L.Push(lua.LNil)
@@ -691,7 +738,7 @@ func pushResult(L *lua.LState, v lua.LValue, err error) int {
 
 func registerPluginIOFunctions(L *lua.LState, p *PluginIO) {
 	// __go_pluginio_grant(pluginId, grentonRaw, tftp, serial, rawHosts, tftpHosts, serialPorts,
-	//   udp, udpHosts, broadcastPorts)
+	//   udp, udpHosts, broadcastPorts, tcp, tcpHosts, tcpPorts)
 	L.SetGlobal("__go_pluginio_grant", L.NewFunction(func(L *lua.LState) int {
 		id := L.CheckString(1)
 		g := pluginIOGrant{grentonRaw: L.ToBool(2), tftp: L.ToBool(3), serial: L.ToBool(4), udp: L.ToBool(8)}
@@ -701,13 +748,10 @@ func registerPluginIOFunctions(L *lua.LState, p *PluginIO) {
 			t.ForEach(func(_, v lua.LValue) { g.serialPorts = append(g.serialPorts, v.String()) })
 		}
 		g.udpHosts = hostsArg(L, 9, id)
-		if t, ok := L.Get(10).(*lua.LTable); ok {
-			t.ForEach(func(_, v lua.LValue) {
-				if n, ok := v.(lua.LNumber); ok {
-					g.broadcastPorts = append(g.broadcastPorts, int(n))
-				}
-			})
-		}
+		g.broadcastPorts = portsArg(L, 10)
+		g.tcp = L.ToBool(11)
+		g.tcpHosts = hostsArg(L, 12, id)
+		g.tcpPorts = portsArg(L, 13)
 		p.SetGrant(id, g)
 		return 0
 	}))
@@ -739,6 +783,19 @@ func registerPluginIOFunctions(L *lua.LState, p *PluginIO) {
 	// __go_pluginio_udp_send(id, pluginId, ip, port, bytes) -> true | nil, err
 	L.SetGlobal("__go_pluginio_udp_send", L.NewFunction(func(L *lua.LState) int {
 		err := p.SendUDP(L.CheckInt(1), L.CheckString(2), L.CheckString(3), L.CheckInt(4), []byte(L.CheckString(5)))
+		return pushResult(L, lua.LTrue, err)
+	}))
+
+	// __go_pluginio_tcp_open(pluginId, ip, port, timeoutSeconds) -> id | nil, err
+	L.SetGlobal("__go_pluginio_tcp_open", L.NewFunction(func(L *lua.LState) int {
+		timeout := time.Duration(float64(L.OptNumber(4, 0)) * float64(time.Second))
+		id, err := p.OpenTCP(L.CheckString(1), L.CheckString(2), L.CheckInt(3), timeout)
+		return pushResult(L, lua.LNumber(id), err)
+	}))
+
+	// __go_pluginio_tcp_send(id, pluginId, bytes) -> true | nil, err
+	L.SetGlobal("__go_pluginio_tcp_send", L.NewFunction(func(L *lua.LState) int {
+		err := p.SendTCP(L.CheckInt(1), L.CheckString(2), []byte(L.CheckString(3)))
 		return pushResult(L, lua.LTrue, err)
 	}))
 

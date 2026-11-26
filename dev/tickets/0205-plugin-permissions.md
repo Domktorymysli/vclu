@@ -81,13 +81,26 @@ running: the manifest names the plugin API it is written for, and the stricter c
   allows it like `lan` and the confirmation lists the ports; the grant `{"udp": {"hosts": [...]}}`
   narrows it like `grenton_raw`, and with a host list the plugin does not broadcast. New ports in
   an update need no new consent.
+- TCP to devices and telnet (decided 26.11: a local Tuya socket on 6668, telnet consoles):
+  `"permissions": {"tcp": true}` on API 2 with the ports it connects to in `"tcp": {"ports": [23]}`
+  (whole ports, at most 8, required with `"tcp": true`, never 1234, 69, 502, 1883 or 8883: those
+  belong to `grenton_raw`, `tftp`, `modbus` and `mqtt`; otherwise the manifest is refused at
+  download and at load). `plugin:tcpConnect({host, port, timeout})` is a client only: an IPv4
+  address on the local network, not this vclu, not the external MQTT broker vclu uses; it connects
+  in the background (5 s, at most 30) and answers through `onConnect`, `onReceive` and `onClose`;
+  `send` queues (1 MiB) and a writer sends with a time limit, so a slow device does not hold Lua.
+  Installing allows it like `lan` and the confirmation lists the ports; `{"tcp": {"hosts": [...]}}`
+  narrows it, and a narrowed or withdrawn grant closes open connections. New ports in an update need
+  no new consent. Telnet is not a permission: `Telnet.wrap(conn)` (`lib/telnet.lua`, a global in
+  plugins) answers DO with WONT and WILL with DONT, drops subnegotiation and gives lines and prompts.
 
 ## Files
 - `pkg/lua/runtime/core/PluginSandbox.lua`, `PluginAPI.lua`, `PluginHelpers.lua`, `ExposedObjects.lua`
 - `pkg/lua/runtime/objects/RemoteObject.lua` (integer index on `get`/`set`/`execute`)
 - `pkg/lua/http.go`, `pkg/lua/http_lan.go`
 - `pkg/plugins/permissions.go`, `loader.go`, `udp.go`, `kvstore.go`, `AGENTS.md`
-- `pkg/lua/plugin_io.go` (`udp` sockets)
+- `pkg/lua/plugin_io.go` (`udp` sockets), `plugin_tcp.go` (`tcp` connections), `runtime/lib/telnet.lua`
+- `pkg/plugins/tcp.go`
 - `pkg/web/handle_web_plugins.go` (an update records its repository; grants), `web/static/js/plugins.js`, `web/templates/plugins.html`
 - `pkg/config/config.go`
 - Tests: `pkg/lua/plugin_sandbox_escape_test.go`, `plugin_sandbox_data_test.go`,
@@ -147,6 +160,19 @@ running: the manifest names the plugin API it is written for, and the stricter c
 - [ ] `broadcastPorts` that are not whole ports, repeated, more than 8, 1234 or 69, or without
       `"udp": true` refuse the manifest (`TestManifestUDPBroadcastPorts`, `TestManifestUDPNeedsThePermission`).
 - [ ] The install confirmation lists `udp` with its broadcast ports (`TestPluginsAPIPreviewReadsTheManifest`).
+- [ ] `tcp` without other permissions connects, sends and receives in order, and a device closing
+      ends it in `onClose`; without `tcp` neither Lua nor Go connects (`TestPluginTCPEchoAndClose`,
+      `TestPluginTCPRefusedWithoutPermission`).
+- [ ] A `tcp` connection refuses an address outside the local network or of this vclu, a name, a
+      port not in `"tcp"` or of another permission, the MQTT broker vclu uses, a host outside the
+      list, a timeout over 30 s; it times out, and a plugin opens at most 16 handles
+      (`TestPluginTCPTargets`, `TestPluginTCPTimeoutAndHandleLimit`).
+- [ ] The plugin's cleanup and a narrowed grant close an open connection (`TestPluginTCPClosedByReleaseAndGrant`).
+- [ ] `"tcp"` ports that are not whole ports, repeated, more than 8 or of another permission, `"tcp"`
+      without the permission and the permission without ports refuse the manifest
+      (`TestManifestTCPPorts`, `TestManifestTCPNeedsThePermissionAndPorts`).
+- [ ] `lib/telnet` refuses options, drops commands split across reads and gives lines and prompts
+      (`TestTelnetLibBytes`, `TestPluginTelnetLogin`).
 - [ ] `go test ./...` and `go test -race ./...` pass.
 - [ ] A changelog entry in `changelog.d/0205-plugin-permissions.md`.
 - [ ] `DEVELOPMENT.md` in `vclu-plugins` documents `permissions`, the event prefix and the id rule,
@@ -154,7 +180,7 @@ running: the manifest names the plugin API it is written for, and the stricter c
 
 ## Contract impact
 Contract change in the plugin API (CONTRIBUTING.md), versioned: `api` and `permissions` (with the
-`internet` host list and `udp`) and `udp.broadcastPorts` are new manifest fields. API 1 (no `api`) keeps the old contract. API 2: the shared globals `HTTP`,
+`internet` host list, `udp` and `tcp`), `udp.broadcastPorts` and `tcp.ports` are new manifest fields. API 1 (no `api`) keeps the old contract. API 2: the shared globals `HTTP`,
 `HttpClient` and `MQTT` leave the sandbox (`plugin:httpRequest`, `plugin:mqttSubscribe` replace
 them), event names and expose paths get the plugin's prefix, and only declared permissions apply.
 On every version objects a plugin did not create become read-only and ids are lower case. No
