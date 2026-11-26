@@ -73,3 +73,59 @@ func (l *Loader) recordAPI(pluginID string, api int) {
 		log.Printf("[PLUGINS] WARNING: plugin API of %s not recorded: %v", pluginID, err)
 	}
 }
+
+// pinOlderEntries: an entry from before addresses and APIs were recorded gets its repository's
+// address (unless its files came from another) and the API of its files on the first load.
+func (l *Loader) pinOlderEntries(mc *config.VCLUConfig) {
+	type pin struct {
+		url string
+		api int
+	}
+	pins := map[string]pin{}
+	for _, inst := range mc.Plugins.Installed {
+		if !validPluginID(inst.ID) {
+			continue
+		}
+		var p pin
+		if inst.RepositoryURL == "" && inst.Repository != "" {
+			if repo := l.findRepository(mc.Plugins.Repositories, inst.Repository); repo != nil {
+				if ok, _ := l.FromSource(inst, *repo); ok {
+					p.url = normRepoURL(repo.URL)
+				}
+			}
+		}
+		if inst.API == 0 {
+			if api, err := l.DiskAPI(inst.ID); err == nil && api > 0 {
+				p.api = api
+			}
+		}
+		if p != (pin{}) {
+			pins[inst.ID] = p
+		}
+	}
+	if len(pins) == 0 {
+		return
+	}
+	err := config.UpdateMasterConfig(l.serverDir, func(mc *config.VCLUConfig) error {
+		if mc.Plugins == nil {
+			return nil
+		}
+		for i := range mc.Plugins.Installed {
+			inst := &mc.Plugins.Installed[i]
+			p, ok := pins[inst.ID]
+			if !ok {
+				continue
+			}
+			if inst.RepositoryURL == "" && p.url != "" {
+				inst.RepositoryURL = p.url
+			}
+			if p.api > inst.API {
+				inst.API = p.api
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		log.Printf("[PLUGINS] WARNING: repository addresses of installed plugins not recorded: %v", err)
+	}
+}

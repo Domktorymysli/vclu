@@ -946,6 +946,7 @@ func (l *Loader) LoadAllEnabled() error {
 	if err != nil || masterConfig == nil || masterConfig.Plugins == nil {
 		return nil // No plugins configured
 	}
+	l.pinOlderEntries(masterConfig)
 
 	var errors []string
 	loadedCount := 0
