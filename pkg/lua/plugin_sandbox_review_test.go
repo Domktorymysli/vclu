@@ -327,3 +327,27 @@ func TestReviewExecCryptoBadInput(t *testing.T) {
 		}
 	}
 }
+
+// A module's object as a plugin sees it: no _fields, and its read methods still use them.
+func TestProxyHidesOwnFields(t *testing.T) {
+	engine := sandboxEngine(t, "@t/a", "")
+	if _, err := engine.Execute(`
+		local o = { name = "lampa", _secret = "s3", _state = { n = 1 } }
+		function o:getName() return self.name .. ":" .. self._secret end
+		function o:_internal() return "x" end
+		_registry["mod.lampa"] = o
+	`); err != nil {
+		t.Fatal(err)
+	}
+	r, e := runPlugin(t, engine, "@t/a", `
+		local o = _:get("mod.lampa")
+		local keys = {}
+		for k in pairs(o) do keys[#keys + 1] = tostring(k) end
+		table.sort(keys)
+		return tostring(o._secret) .. "|" .. tostring(o._state) .. "|" .. tostring(o._internal)
+			.. "|" .. table.concat(keys, ",") .. "|" .. o:getName()
+	`)
+	if e != "nil" || r != "nil|nil|nil|getName,name|lampa:s3" {
+		t.Errorf("r=%q e=%q", r, e)
+	}
+}

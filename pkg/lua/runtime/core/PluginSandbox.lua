@@ -129,6 +129,8 @@ readOnlyProxy = function(obj, owner)
         __sandboxSource = obj,
         __sandboxReadOnly = true,
         __index = function(_, key)
+            -- an object's _fields are its own state, not for another plugin
+            if type(key) == "string" and key:sub(1, 1) == "_" then return nil end
             local val = obj[sourceOf(key) or key]
             if type(val) == "function" then
                 local m = methods[key]
@@ -329,8 +331,12 @@ local originalNext = next
 local function sandboxNext(t, key)
     local source = sourceOf(t)
     if not source then return originalNext(t, key) end
+    local hideOwn = rawget(getmetatable(t), "__sandboxReadOnly")
+    local function hidden(k)
+        return type(k) == "function" or hideOwn and type(k) == "string" and k:sub(1, 1) == "_"
+    end
     local k = originalNext(source, sourceOf(key) or key)
-    while type(k) == "function" do k = originalNext(source, k) end
+    while hidden(k) do k = originalNext(source, k) end
     if k == nil then return nil end
     return readOnlyProxy(k), t[k]
 end
