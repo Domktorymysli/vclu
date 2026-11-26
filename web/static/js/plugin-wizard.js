@@ -51,6 +51,8 @@
         }
     };
     var t = T[lang] || T.en;
+    // where a wizard closed with the X was, so opening it again goes back there
+    var lastStep = {};
 
     function text(v, fallback) {
         if (v === null || v === undefined) return fallback || '';
@@ -116,7 +118,13 @@
             // a plugin already running has its settings saved: every step is open
             self.reached = data.running ? self.steps.length - 1 : 0;
             self.current = null;
-            self.show(self.steps[0]);
+            var last = lastStep[self.id];
+            if (last) self.reached = Math.max(self.reached, Math.min(last.reached, self.steps.length - 1));
+            var start = last && self.steps.indexOf(last.step) >= 0 && self.steps.indexOf(last.step) <= self.reached ? last.step : self.steps[0];
+            self.show(start);
+            el.addEventListener('hide.bs.modal', function() {
+                lastStep[self.id] = self.done ? null : { step: self.current, reached: self.reached };
+            }, { once: true });
             bootstrap.Modal.getOrCreateInstance(el).show();
             return true;
         });
@@ -155,6 +163,7 @@
             var buttons = el.querySelectorAll('.modal-footer button');
             buttons.forEach(function(b) { b.disabled = true; });
             self.saveStep().then(function() {
+                self.done = true;
                 bootstrap.Modal.getOrCreateInstance(el).hide();
                 if (window.pluginsManager && pluginsManager.refreshInstalled) pluginsManager.refreshInstalled();
             }, function(e) {
@@ -415,11 +424,18 @@
         });
         var refresh = function() {
             var now = self.collectSettings(true);
-            // a hidden field counts as unset, so what depends on it hides too (fields in form order)
+            // a hidden field counts as unset, so what depends on it hides too, in any order (as in vclu)
+            var hidden = {}, changed = true;
+            while (changed) {
+                changed = false;
+                Object.keys(fields).forEach(function(name) {
+                    if (hidden[name] || shown(fields[name], now)) return;
+                    hidden[name] = changed = true;
+                    delete now[name];
+                });
+            }
             Object.keys(fields).forEach(function(name) {
-                var on = shown(fields[name], now);
-                if (!on) delete now[name];
-                self.body.querySelector('[data-row="' + CSS.escape(name) + '"]').style.display = on ? '' : 'none';
+                self.body.querySelector('[data-row="' + CSS.escape(name) + '"]').style.display = hidden[name] ? 'none' : '';
             });
         };
         this.body.onchange = refresh;
@@ -678,7 +694,7 @@
             if (r.current === r.proposed) {
                 html += '<p class="text-muted">' + esc(t.unchanged) + '</p>';
             } else {
-                html += '<pre class="wizard-diff border rounded p-2 small" style="max-height:50vh;overflow:auto">' + diffHTML(r.current, r.proposed) + '</pre>' +
+                html += '<pre class="wizard-diff border rounded p-2 small" style="max-height:50vh;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere">' + diffHTML(r.current, r.proposed) + '</pre>' +
                     '<button class="btn btn-primary btn-sm" data-act="write">' + esc(t.write) + '</button>';
             }
             self.body.innerHTML = html;
