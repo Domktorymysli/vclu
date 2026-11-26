@@ -131,11 +131,8 @@ func (p dialPolicy) dialContext(ctx context.Context, network, addr string) (net.
 			if err != nil {
 				return fmt.Errorf("refused %s: not an IP address", address)
 			}
-			if p.ownAddr != nil && p.ownAddr(ip.WithZone("").Unmap()) {
-				n, _ := strconv.Atoi(port)
-				if ports := p.ownPortList(); ports == nil || slices.Contains(ports, n) {
-					return fmt.Errorf("refused %s: an address of this vclu", address)
-				}
+			if err := p.allowsPort(ip, port); err != nil {
+				return err
 			}
 			if err := p.allows(host, ip); err != nil {
 				return err
@@ -148,6 +145,19 @@ func (p dialPolicy) dialContext(ctx context.Context, network, addr string) (net.
 		},
 	}
 	return d.DialContext(ctx, network, target)
+}
+
+// allowsPort refuses this machine's addresses on vclu's own ports (all of them when not set).
+func (p dialPolicy) allowsPort(ip netip.Addr, port string) error {
+	ip = ip.WithZone("").Unmap()
+	if p.ownAddr == nil || !p.ownAddr(ip) {
+		return nil
+	}
+	n, _ := strconv.Atoi(port)
+	if ports := p.ownPortList(); ports == nil || slices.Contains(ports, n) {
+		return fmt.Errorf("refused %s: an address of this vclu", net.JoinHostPort(ip.String(), port))
+	}
+	return nil
 }
 
 func (p dialPolicy) ownPortList() []int {
