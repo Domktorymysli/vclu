@@ -1419,7 +1419,7 @@ function PluginSandbox:buildAPI(sandbox)
         end
     end
 
-    -- udp, tcp, grenton_raw, tftp and serial: handles live in Go, which checks the grant again
+    -- udp, tcp, clu, tftp and serial: handles live in Go, which checks the grant again
     local function requireIO(name, key)
         if not sandbox.permissions[key] then
             error(name .. " needs \"" .. name .. "\" in the permissions of " .. pluginId
@@ -1450,7 +1450,7 @@ function PluginSandbox:buildAPI(sandbox)
         sandbox.ioHandles[id] = nil
     end
 
-    -- A UDP socket of the plugin's own, under udp or grenton_raw; nil, err when the port cannot be bound
+    -- A UDP socket of the plugin's own, under udp or clu; nil, err when the port cannot be bound
     local function udpSocket(opts, perm)
         local port = type(opts) == "table" and tonumber(opts.port) or 0
         local id, err = __go_pluginio_udp_open(pluginId, port, perm)
@@ -2182,7 +2182,7 @@ function PluginSandbox:mask(pluginId, text)
     return sandbox and maskSecrets(sandbox, text) or text
 end
 
---- Called before a request goes to a CLU: plugin code needs grenton_raw on API 2; an API 1
+--- Called before a request goes to a CLU: plugin code needs clu on API 2; an API 1
 -- plugin is warned once. Module code passes.
 function PluginSandbox.checkCluRequest()
     if type(__go_clu_caller) ~= "function" then return end

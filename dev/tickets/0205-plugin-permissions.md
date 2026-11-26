@@ -294,16 +294,45 @@ running: the manifest names the plugin API it is written for, and the stricter c
       `_` fields hidden), module functions a plugin calls run after it in order, a house object
       reaches the plugin read-only, a stopped plugin's handles refuse (`plugin_boundary_test.go`);
       the official plugins' README code runs on handles (`TestOfficialPluginsSmoke`).
+- [ ] The manifest of plugin API 2 before it is frozen (decision 26.11, `pluginy-2.0.md` §13):
+      every permission an object with its parameters, `true` only where no parameter does not mean
+      "everything" (`lan`, `mqtt` wide with `why`; `modbus`; never `internet`, `udp`, `tcp`), `why`
+      required for a wide one and for `clu`, `tftp`, `serial`; `lan.ports` cover HTTP and WebSocket;
+      `udp.ports` and `udp.broadcast`; `mqtt.subscribe`/`publish` limit the plugin's topics; the top-level
+      `udp`, `tcp`, `websocket`, `internetWhy` and `minVcluVersion` are refused with where they went
+      (`TestManifestPermissions`, `TestManifestTopLevel`, `TestPluginHTTPLANPorts`, `TestMQTTTopicsInTheGrant`).
+- [ ] Fail-closed: an unknown permission, field, action field or form field type refuses the plugin
+      at download and at load as needing a newer vclu; `"permissions"` is required on API 2;
+      `requires.vclu` (`>=X.Y.Z`) is checked; `plugin:has(name)` answers what this vclu offers
+      (`TestManifestRequiresVclu`, `TestManifestFormFieldTypes`, `TestPluginHas`).
+- [ ] Actions are declared in `plugin.json` (`name`, `description`, `params`, `confirm`); `plugin:action(name, fn)`
+      takes only a declared one; `confirm` is enforced over HTTP (409, `?confirmed=true`) and MCP
+      (`confirmed`); an action an update adds waits (`TestManifestActions`, `TestActionsInTheGrant`,
+      `TestAppActionConfirm`).
+- [ ] Grants take the permissions' shape (`lan.ports`/`anyPort`, `udp.ports`/`broadcast`, `mqtt`, `modbus.hosts`,
+      `clu.hosts`/`discovery`, `actions`), never wider than plugin.json; older grants (`grenton_raw`,
+      `websocketPorts`, `broadcastPorts`) are read and pinned once (`TestGrantsMigratedOnFirstLoad`,
+      `TestLimitsFromTheGrant`, `TestPluginModbusHosts`).
+- [ ] A plugin's KV store: a key up to 128 characters, a value up to 256 KiB, the store up to 1 MiB
+      (`TestPluginKVLimits`).
+- [ ] The install dialog: each permission in one sentence with its parameters and why, wide ones
+      and those only the user allows marked, combinations warned about (house and internet, `clu`
+      with `tftp` or internet), the actions with `confirm`; `seen` from the preview sent back.
 - [ ] `go test ./...` and `go test -race ./...` pass.
 - [ ] A changelog entry in `changelog.d/0205-plugin-permissions.md`.
 - [ ] `DEVELOPMENT.md` in `vclu-plugins` documents `permissions`, the event prefix and the id rule,
       with the vclu version that introduces them.
 
 ## Contract impact
-Contract change in the plugin API (CONTRIBUTING.md), versioned: `api` and `permissions` (with the
-`internet` host list, `udp` and `tcp`), `udp.broadcastPorts`, `tcp.ports` and `websocket.lanPorts` are new manifest fields, and `plugin:websocket` a new method under the existing `internet` and `lan`. API 1 (no `api`) keeps the old contract. API 2: the shared globals `HTTP`,
-`HttpClient` and `MQTT` leave the sandbox (`plugin:httpRequest`, `plugin:mqttSubscribe` replace
-them), event names and expose paths get the plugin's prefix, and only declared permissions apply.
-On every version objects a plugin did not create become read-only and ids are lower case. No
-official plugin needs a code change; their manifests move to `"api": 2`. A decision
-record is not needed: the contract is the plugin API itself and the PR carries the migration notes.
+Contract change in the plugin API (CONTRIBUTING.md), versioned. `api`, `requires.vclu`,
+`permissions` (each permission an object: `internet.hosts`, `lan.ports`, `udp.ports`/`broadcast`,
+`tcp.ports`, `mqtt.subscribe`/`publish`, `why`; `clu` for what an earlier draft called
+`grenton_raw`) and `actions` are the manifest of plugin API 2, frozen with the release; later
+additions inside API 2 are new keys a vclu without them refuses as "needs a newer vclu", found
+with `plugin:has`. `plugin:websocket` is a method under `internet` and `lan`. API 1 (no `api`) keeps
+the old contract. API 2: the shared globals `HTTP`, `HttpClient` and `MQTT` leave the sandbox
+(`plugin:httpRequest`, `plugin:mqttSubscribe` replace them), event names and expose paths get the
+plugin's prefix, and only declared permissions apply. On every version objects a plugin did not
+create become read-only and ids are lower case. The official plugins move to `"api": 2` with the
+new manifest (vclu-plugins). A decision record is not needed: the contract is the plugin API
+itself and the PR carries the migration notes.

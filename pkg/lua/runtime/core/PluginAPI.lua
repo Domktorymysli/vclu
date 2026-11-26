@@ -474,13 +474,13 @@ function Plugin:action(name, spec, fn)
 end
 
 -- ============================================
--- udp, tcp, grenton_raw, tftp, serial: only in a plugin's sandbox, with the permission
+-- udp, tcp, clu, tftp, serial: only in a plugin's sandbox, with the permission
 -- ============================================
 
 --- A UDP socket for devices on the local network (permission udp); not to the CLU's ports
 -- @param opts table|nil {port = 0}: 0 for any free port
--- @return table|nil socket:send(ip, port, bytes), socket:broadcast(port, bytes) to a port in
---   plugin.json's "udp": {"broadcastPorts": [...]}, socket:onReceive(function(bytes, ip, port) end),
+-- @return table|nil socket:send(ip, port, bytes) to a port in plugin.json's permissions.udp.ports,
+--   socket:broadcast(port, bytes) to one in udp.broadcast, socket:onReceive(function(bytes, ip, port) end),
 --   socket:close(); nil, err if not bound
 -- @usage local s = plugin:udpSocket() s:onReceive(function(b, ip) end) s:broadcast(7000, '{"t":"scan"}')
 function Plugin:udpSocket(opts)
@@ -488,7 +488,7 @@ function Plugin:udpSocket(opts)
 end
 
 --- A TCP connection to a device on the local network (permission tcp), to a port in
--- plugin.json's "tcp": {"ports": [...]}
+-- plugin.json's permissions.tcp.ports
 -- @param opts table {host = "192.168.1.20", port = 23, timeout = 5}: an IPv4 address, seconds 1-30
 -- @return table|nil conn:send(bytes) after onConnect, conn:onConnect(function() end),
 --   conn:onReceive(function(bytes) end), conn:onClose(function(reason) end) when the device or
@@ -499,7 +499,7 @@ function Plugin:tcpConnect(opts)
 end
 
 --- A WebSocket client (ws:// or wss://) to where the plugin's HTTP may go: internet hosts on
--- the permissions.internet list, local ones with lan; no permission of its own
+-- the permissions.internet list, local ones with lan on its ports; no permission of its own
 -- @param url string "wss://example.com/events"
 -- @param opts table|nil {headers = {Authorization = "..."}, protocols = {"json"}, timeout = 10}
 -- @return table|nil ws:send(data, {binary = true}?) after onOpen, ws:onOpen(function(protocol) end),
@@ -510,7 +510,7 @@ function Plugin:websocket(url, opts)
     return sandboxAPI(self, "websocket").websocket(url, opts)
 end
 
---- A UDP socket of the plugin's own (permission grenton_raw)
+--- A UDP socket of the plugin's own (permission clu)
 -- @param opts table|nil {port = 0}: 0 for any free port
 -- @return table|nil socket:send(ip, port, bytes), socket:broadcast(port, bytes),
 --   socket:onReceive(function(bytes, ip, port) end), socket:close(); nil, err if not bound
@@ -519,7 +519,7 @@ function Plugin:grentonSocket(opts)
     return sandboxAPI(self, "grentonSocket").grentonSocket(opts)
 end
 
---- The CLU cipher, AES-CBC (permission grenton_raw)
+--- The CLU cipher, AES-CBC (permission clu)
 -- @param key string 16 bytes raw or base64, as in the CLU's configuration
 -- @param iv string 16 bytes raw or base64
 -- @return table cipher:encrypt(bytes), cipher:decrypt(bytes): bytes or nil, err

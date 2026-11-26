@@ -72,7 +72,7 @@ can reach is a shared mutable table: `string`, `table` and `math` are its own co
 (identity fields read-only, sandbox hidden), and other plugins and registry objects are read-only
 proxies whose only callable methods are reads (`get`, `getX`, `isX`, `hasX`), `pairs` included;
 their `_` fields are hidden. A read that would ask a CLU (`RemoteObject:get(index)`, `CLU_REMOTE`)
-needs `grenton_raw` on API 2 (`PluginSandbox.checkCluRequest`: the proxy's owner, else the plugin on
+needs `clu` on API 2 (`PluginSandbox.checkCluRequest`: the proxy's owner, else the plugin on
 the stack). On API 2 a plugin's expose handles refuse `:remote`, `:roles`, `:pin` and `:confirm`: the
 user's module sets them.
 Functions a plugin puts on its instance (`create`, `init`, `get`) get its proxy as `self` also when
@@ -117,18 +117,28 @@ overruns in 10 min suspend it: `Loader.Suspend` unloads it, `LoadPlugin` and `Lo
 skip it until `Resume` (POST `/api/plugins/:id/resume`); runtime only, a restart clears it.
 
 ## Permissions
-`plugin.json` declares what a plugin reaches:
-`"permissions": {"internet": ["api.example.com", "*.example.net"], "lan": true, "mqtt": true, "modbus": true}`.
-`lan` is HTTP to local addresses,
+`plugin.json` declares what a plugin reaches (`manifest.go`), each permission an object with its
+parameters, `true` short for one without any where that does not mean "everything", `why` (a
+`LocalText`) required for a wide one:
+`"permissions": {"internet": {"hosts": ["api.example.com"]}, "lan": {"ports": [80]}, "udp": {"ports": [7000], "broadcast": [7000]}, "tcp": {"ports": [23]}, "mqtt": {"subscribe": ["z2m/#"], "publish": ["z2m/+/set"]}, "modbus": true, "clu": {"why": "..."}, "tftp": {"why": "..."}, "serial": {"why": "..."}}`.
+Every object decodes with unknown fields refused; an unknown permission, field, action field or
+form field type refuses the plugin as `ErrNewerVclu` (at download and at load), so a plugin never
+runs with less than it was written for. `"permissions"` is required on API 2 (`{}` for none);
+top-level keys of earlier drafts (`udp`, `tcp`, `websocket`, `internetWhy`, `minVcluVersion`)
+refuse it with where they went. `requires.vclu` (`>=X.Y.Z`) is checked against `SetVcluVersion`.
+Actions are declared in `"actions"` (`ManifestActions`); `plugin:action(name, fn)` takes only a
+declared one and its `confirm` is enforced in `PluginSandbox:callAction` (`confirmed`). Names kept
+for later: `ReservedPermissions`.
+`lan` is HTTP and WebSocket to local addresses, on `lan.ports` (`HTTPManager.SetLAN`,
+`dialPolicy.pluginLANPort`; without the list any port but those of another permission),
 checked in Go after DNS resolution, including this machine's own networks (`pkg/lua/http_lan.go`),
 but never the ports vclu listens on at this machine's addresses (`LuaEngine.SetOwnTCPPorts`, set in
 `cmd/vclu`; without it every port of this machine); `mqtt` and `modbus` give the plugin API
 and the `Modbus` table. A plugin on API 1 (no `"api"`) asks for all three; on API 2 for what it
 declares, nothing without the field (`permissions.go`).
 
-`internet` (API 2; API 1 reaches any host, outside the grants) lists host names, `*.domain` for
-the subdomains (not the domain itself), exact IP addresses, or `"*"` (string or `["*"]`) for any
-host. A scheme, path, port, user or `*` elsewhere refuses the manifest at download and at load
+`internet.hosts` (API 2; API 1 reaches any host, outside the grants) lists host names, `*.domain` for
+the subdomains (not the domain itself), exact IP addresses, or `["*"]` (with `why`) for any host. A scheme, path, port, user or `*` elsewhere refuses the manifest at download and at load
 (`internet.go`). The URL's host name is checked before the request and on every redirect
 (`dialPolicy.checkURL`), and again in the dialer: an address that is local after DNS needs `lan`
 (and its hosts), any other needs the name on the list. A plugin with `lan` reaches local names
@@ -148,8 +158,10 @@ lists at most 64. An update that asks for more runs without it, logs it and list
 `GET /api/plugins/installed` until `POST /api/plugins/:id/permissions` allows it (the plugins
 page: "Allow", or the shield button for the details).
 
-A grant is set when its key is present and can be narrowed:
-`{"lan": {"hosts": ["192.168.1.20", "10.0.0.0/24"]}, "mqtt": {"subscribe": ["shelly/#"], "publish": []}, "modbus": {}}`.
+A grant takes the shape of the permissions (`config.PluginGrants`; older `grenton_raw`,
+`websocketPorts` and `broadcastPorts` are read and pinned again), is set when its key is present
+and can be narrowed, never past plugin.json (`WithinRequest`):
+`{"lan": {"hosts": ["192.168.1.20"], "ports": [80]}, "mqtt": {"subscribe": ["shelly/#"], "publish": []}, "modbus": {"hosts": ["192.168.0.9"]}, "clu": {"hosts": [...], "discovery": true}, "actions": ["add"]}`.
 No list allows any host or topic, an empty list none. Hosts are checked in the dialer after DNS
 (`dialPolicy`), topics in the sandbox's `plugin:mqttSubscribe`/`mqttPublish` (a subscription
 must lie inside an allowed filter: `shelly/#` covers `shelly/+/status`, `+` does not cover `#`).
@@ -159,45 +171,43 @@ sandbox gives them only while `lan` (`mqtt`) is allowed in full, without lists. 
 another repository resets grants to what installing gives; without the old files nothing is
 allowed until the user does. `POST .../permissions` refuses unknown keys.
 
-`grenton_raw`, `tftp` and `serial` (#240) reach a CLU's commands, files on devices and the device
+`clu` (formerly `grenton_raw`), `tftp` and `serial` (#240) reach a CLU's commands, files on devices and the device
 on a port: `Grants()` leaves them out, so neither installing nor recording grants from the files
-allows them, only the user in the panel. Their grants are `{"grenton_raw": {"hosts": [...]},
+allows them, only the user in the panel. Their grants are `{"clu": {"hosts": [...], "discovery": false},
 "tftp": {"hosts": [...]}, "serial": {"ports": ["/dev/ttyUSB0"]}}`; without `ports` the plugin
 opens no port. The handles live in Go (`pkg/lua/plugin_io.go`, `PluginIO`), keyed by plugin id,
 which checks the grant again: the plugin's socket and TFTP client refuse this machine's addresses
 and anything outside the local network, the socket cannot bind ports vCLU reserved
-(`ReserveUDPPorts`), a broadcast goes only to the CLU port, where the server drops datagrams from
+(`ReserveUDPPorts`), a broadcast goes only to the CLU port (with `clu.hosts` only when `discovery`), where the server drops datagrams from
 plugin sockets (`FromPlugin`). Data comes back through `__vclu_plugin_io` on the run loop, queued per
 handle so a slow callback does not stop the reader. `PluginSandbox:cleanup` releases everything
 the plugin opened; a reload closes all of it.
 
 `udp` (API 2) is UDP to devices on the local network, for protocols such as a split air
-conditioner's: granted on install like `lan`, narrowed like `grenton_raw` (`{"udp": {"hosts": [...]}}`,
+conditioner's: granted on install like `lan`, narrowed like `clu` (`{"udp": {"hosts": [...]}}`,
 limits `udpHosts`). `plugin:udpSocket` opens the same handle as `grentonSocket` but marked `udp`:
-`SendUDP` refuses the CLU ports 1234 and 69 (those need `grenton_raw` or `tftp`) and the ports vCLU
-listens on, and a broadcast goes only to the ports in plugin.json's `"udp": {"broadcastPorts": [7000]}`
-(at most 8, never 1234 or 69, only with `"udp": true` in permissions: `udp.go`, checked at download
-and at load), and never with a host list. A `grenton_raw` socket keeps its rules.
+`SendUDP` refuses the CLU ports 1234 and 69 (those need `clu` or `tftp`) and the ports vclu
+listens on, sends only to `udp.ports` and broadcasts only to `udp.broadcast` (at most 8, never 1234
+or 69), and never with a host list. A `clu` socket keeps its rules.
 
 `tcp` (API 2) is a TCP client to devices on the local network (a local Tuya socket, telnet):
 granted on install like `udp`, narrowed by hosts (limits `tcpHosts`). plugin.json lists the ports in
-`"tcp": {"ports": [23]}` (required with the permission, at most 8, never a port of another
-permission: `tcp.go`). `plugin:tcpConnect` (`pkg/lua/plugin_tcp.go`) connects in the background and
+`"tcp": {"ports": [23]}` (required, at most 8, never a port of another permission). `plugin:tcpConnect` (`pkg/lua/plugin_tcp.go`) connects in the background and
 answers through the handle's queue (`connect`, data, `close` with a reason); sends go through a
 writer with a time limit. `SetGrant` closes connections a new grant does not allow; `SetTCPTaken`
 keeps the MQTT broker vclu uses out of reach. `lib/telnet.lua` is pure Lua over such a connection,
 given to plugins as the global `Telnet`.
 
-The grant records the ports of `udp` and `tcp` (`HostsGrant.BroadcastPorts`, `.Ports`; the
-manifest's reach `Permissions` as `BroadcastPorts`/`TCPPorts`, never parsed from "permissions"):
-`allowedBy` splits them like internet hosts, a port an update adds is pending (and the
-permission's name with it) and the sandbox gets only the allowed ones. A nil list is a grant from
-before ports were recorded: it allows the listed ports and `recordPorts` writes them at load.
+The grant records the lists of `lan`, `udp`, `tcp`, `mqtt` and the actions (`LANGrant.Ports` or
+`AnyPort`, `HostsGrant.Ports`/`.Broadcast`, `MQTTGrant`, `Actions`): `allowedBy` splits them like
+internet hosts, what an update adds is pending (and the permission's name with it; actions in
+`pendingActions`) and the sandbox gets only the allowed ones. A nil list is a grant from before the
+lists were recorded: it allows what plugin.json asks for and `pinGrant` writes it at load. MQTT
+filters a grant does not touch at all are new (`splitTopics`, `filterCovers`).
 
 `plugin:websocket` (`pkg/lua/plugin_ws.go`) has no permission of its own: it dials through the
 plugin's HTTP `dialPolicy` (internet list, `lan` and its hosts) plus a refusal of this vclu's
-addresses and, for a local address, `wsLANPort`: only the ports of plugin.json's
-`"websocket": {"lanPorts": [80]}` (`websocket.go`, as `tcp.ports`; the `lan` grant records them in
-`websocketPorts`), never a port of another permission or the MQTT broker's host, and gorilla/websocket does TLS after that dial. The handle lives in `PluginIO` like a
+addresses and, for a local address, `wsLANPort`: only `lan.ports` (any without the list), never a
+port of another permission or the MQTT broker's host, and gorilla/websocket does TLS after that dial. The handle lives in `PluginIO` like a
 `tcp` connection (queue, writer, 16 handles); `HTTPManager.SetOnPolicy` lets a changed `lan` or
 internet list close the connections it no longer allows.
