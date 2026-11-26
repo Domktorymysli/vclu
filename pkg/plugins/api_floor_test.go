@@ -26,7 +26,7 @@ func writePluginFiles(t *testing.T, l *Loader, id, version, manifest string) {
 
 func recordedAPI(t *testing.T, l *Loader, id string) int {
 	t.Helper()
-	inst, ok := l.installedEntry(id)
+	inst, ok, _ := l.installedEntry(id)
 	if !ok {
 		t.Fatalf("%s not installed", id)
 	}
@@ -39,7 +39,7 @@ func TestRecordedAPIGuardsTheFiles(t *testing.T) {
 	l := permissionsLoader(t, nil, []config.InstalledPlugin{{ID: "@jan/cloud", Enabled: true}})
 	l.SetLuaExecutor(&noLua{})
 	writePluginFiles(t, l, "@jan/cloud", "1.0.0", `{"id":"cloud","version":"1.0.0","api":2,"permissions":{}}`)
-	if got := l.APIFloor("@jan/cloud"); got != 2 {
+	if got, _ := l.APIFloor("@jan/cloud"); got != 2 {
 		t.Errorf("floor before recording %d, want 2 from the files", got)
 	}
 	_ = l.LoadPlugin("@jan/cloud", nil)
@@ -62,7 +62,7 @@ func TestRecordedAPIGuardsTheFiles(t *testing.T) {
 func TestAPIFloorOnlyForInstalled(t *testing.T) {
 	l := permissionsLoader(t, nil, nil)
 	writePluginFiles(t, l, "@jan/cloud", "1.0.0", `{"id":"cloud","version":"1.0.0","api":2}`)
-	if got := l.APIFloor("@jan/cloud"); got != 0 {
+	if got, _ := l.APIFloor("@jan/cloud"); got != 0 {
 		t.Errorf("floor %d for a plugin not installed, want 0", got)
 	}
 }

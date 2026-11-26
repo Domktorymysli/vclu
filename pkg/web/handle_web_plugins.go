@@ -365,7 +365,12 @@ func (s *Server) handlePluginsAPIPreview(c *gin.Context) {
 	// an update to a lower plugin API is refused: the panel says so before installing
 	var downgradeFrom int
 	if fullID := c.Query("fullId"); fullID != "" && plugins.ValidPluginID(fullID) {
-		if floor := loader.APIFloor(fullID); floor > preview.API {
+		floor, err := loader.APIFloor(fullID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if floor > preview.API {
 			downgradeFrom = floor
 		}
 	}
@@ -405,7 +410,12 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 		return
 	}
 
-	masterConfig, _ := config.ReadMasterConfig(s.serverDir)
+	// an unreadable configuration hides where an installed plugin came from and what it may do
+	masterConfig, err := config.ReadMasterConfig(s.serverDir)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 	if masterConfig == nil {
 		masterConfig = &config.VCLUConfig{}
 	}

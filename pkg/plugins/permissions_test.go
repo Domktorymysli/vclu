@@ -63,7 +63,7 @@ func TestEffectivePermissions(t *testing.T) {
 		{"@vclu/not-installed", 2, nil, Permissions{}, false},
 	}
 	for _, c := range cases {
-		got, _, official := l.effectivePermissions(c.id, PluginManifest{API: c.api, Permissions: c.declared})
+		got, _, official, _ := l.effectivePermissions(c.id, PluginManifest{API: c.api, Permissions: c.declared})
 		if !reflect.DeepEqual(got, c.want) || official != c.official {
 			t.Errorf("%s (api %d, declared %v): got %+v official=%v, want %+v official=%v", c.id, c.api, c.declared, got, official, c.want, c.official)
 		}
@@ -143,7 +143,7 @@ func TestEffectivePermissionsAllowedByGrants(t *testing.T) {
 		{"@jan/not-installed", 2, *lanMQTT},
 	}
 	for _, c := range cases {
-		if got, _, _ := l.effectivePermissions(c.id, PluginManifest{API: c.api, Permissions: lanMQTT}); !reflect.DeepEqual(got, c.want) {
+		if got, _, _, _ := l.effectivePermissions(c.id, PluginManifest{API: c.api, Permissions: lanMQTT}); !reflect.DeepEqual(got, c.want) {
 			t.Errorf("%s (api %d): got %+v, want %+v", c.id, c.api, got, c.want)
 		}
 	}
@@ -217,12 +217,12 @@ func TestEffectivePermissionsLimits(t *testing.T) {
 		{ID: "@jan/full", Grants: &config.PluginGrants{LAN: &config.LANGrant{}}},
 	})
 	m := PluginManifest{API: 2, Permissions: &Permissions{LAN: true, MQTT: true}}
-	_, limits, _ := l.effectivePermissions("@jan/shelly", m)
+	_, limits, _, _ := l.effectivePermissions("@jan/shelly", m)
 	data, _ := json.Marshal(limits)
 	if string(data) != `{"internetHosts":[],"lanHosts":["192.168.1.20"],"mqttSubscribe":["shelly/#"],"mqttPublish":[]}` {
 		t.Errorf("limits: %s", data)
 	}
-	_, limits, _ = l.effectivePermissions("@jan/full", m)
+	_, limits, _, _ = l.effectivePermissions("@jan/full", m)
 	if data, _ := json.Marshal(limits); string(data) != `{"internetHosts":[]}` {
 		t.Errorf("limits allowed in full: %s", data)
 	}
@@ -286,7 +286,7 @@ func TestSensitivePermissionsLimits(t *testing.T) {
 		Serial:     &config.SerialGrant{Ports: []string{"/dev/ttyUSB0"}},
 	}}})
 	m := PluginManifest{API: 2, Permissions: &Permissions{GrentonRaw: true, TFTP: true, Serial: true}}
-	perms, limits, _ := l.effectivePermissions("@jan/clu", m)
+	perms, limits, _, _ := l.effectivePermissions("@jan/clu", m)
 	if !reflect.DeepEqual(perms, *m.Permissions) {
 		t.Errorf("permissions: %+v", perms)
 	}

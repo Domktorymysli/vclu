@@ -105,7 +105,7 @@ func TestUDPLimitsAndBroadcastPorts(t *testing.T) {
 		UDP: &config.HostsGrant{Hosts: []string{"192.168.1.40"}},
 	}}})
 	m := PluginManifest{API: 2, Permissions: &Permissions{UDP: true}, UDP: &ManifestUDP{BroadcastPorts: []int{7000}}}
-	perms, limits, _ := l.effectivePermissions("@jan/gree", m)
+	perms, limits, _, _ := l.effectivePermissions("@jan/gree", m)
 	if !perms.UDP {
 		t.Errorf("permissions: %+v", perms)
 	}

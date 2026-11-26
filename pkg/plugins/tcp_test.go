@@ -102,7 +102,7 @@ func TestTCPLimitsAndPorts(t *testing.T) {
 		TCP: &config.HostsGrant{Hosts: []string{"192.168.1.41"}},
 	}}})
 	m := PluginManifest{API: 2, Permissions: &Permissions{TCP: true}, TCP: &ManifestTCP{Ports: []int{23}}}
-	perms, limits, _ := l.effectivePermissions("@jan/tv", m)
+	perms, limits, _, _ := l.effectivePermissions("@jan/tv", m)
 	if !perms.TCP {
 		t.Errorf("permissions: %+v", perms)
 	}

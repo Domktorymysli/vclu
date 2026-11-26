@@ -71,7 +71,7 @@ func TestReview_OfficialEntryFrom112(t *testing.T) {
 	}
 	mc, _ := config.ReadMasterConfig(l.serverDir)
 	l.pinOlderEntries(mc)
-	inst, _ := l.installedEntry("@vclu/weather")
+	inst, _, _ := l.installedEntry("@vclu/weather")
 	if inst.RepositoryURL != normRepoURL(config.OfficialPluginsRepoURL) || inst.API != 2 {
 		t.Fatalf("pinned %+v", inst)
 	}

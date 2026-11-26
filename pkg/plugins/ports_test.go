@@ -69,12 +69,12 @@ func TestPortsReachTheSandboxAndOldGrantsRecordThem(t *testing.T) {
 		{ID: "@jan/gree", Grants: &config.PluginGrants{UDP: &config.HostsGrant{}}},
 	})
 	tuya := PluginManifest{API: 2, Permissions: &Permissions{TCP: true}, TCP: &ManifestTCP{Ports: []int{6668, 23}}}
-	if perms, _, _ := l.effectivePermissions("@jan/tuya", tuya); !reflect.DeepEqual(perms.TCPPorts, []int{6668}) {
+	if perms, _, _, _ := l.effectivePermissions("@jan/tuya", tuya); !reflect.DeepEqual(perms.TCPPorts, []int{6668}) {
 		t.Errorf("tuya ports: %v", perms.TCPPorts)
 	}
 
 	gree := PluginManifest{API: 2, Permissions: &Permissions{UDP: true}, UDP: &ManifestUDP{BroadcastPorts: []int{7000}}}
-	if perms, _, _ := l.effectivePermissions("@jan/gree", gree); !reflect.DeepEqual(perms.BroadcastPorts, []int{7000}) {
+	if perms, _, _, _ := l.effectivePermissions("@jan/gree", gree); !reflect.DeepEqual(perms.BroadcastPorts, []int{7000}) {
 		t.Errorf("gree ports from an old grant: %v", perms.BroadcastPorts)
 	}
 	mc, err := config.ReadMasterConfig(l.serverDir)
@@ -85,7 +85,7 @@ func TestPortsReachTheSandboxAndOldGrantsRecordThem(t *testing.T) {
 		t.Fatalf("recorded: %+v", g.UDP)
 	}
 	gree.UDP.BroadcastPorts = []int{7000, 7001}
-	if perms, _, _ := l.effectivePermissions("@jan/gree", gree); !reflect.DeepEqual(perms.BroadcastPorts, []int{7000}) {
+	if perms, _, _, _ := l.effectivePermissions("@jan/gree", gree); !reflect.DeepEqual(perms.BroadcastPorts, []int{7000}) {
 		t.Errorf("after an update adding 7001: %v", perms.BroadcastPorts)
 	}
 

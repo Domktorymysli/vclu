@@ -17,34 +17,42 @@ func APIDowngrade(pluginID string, from, to int) error {
 	return fmt.Errorf("%s: this version %w from %d to %d, which would drop its limits; uninstall it and install it again if you want it", pluginID, ErrAPIDowngrade, from, to)
 }
 
-// installedEntry: the plugin's entry in .vclu.json, if installed.
-func (l *Loader) installedEntry(pluginID string) (config.InstalledPlugin, bool) {
+// installedEntry: the plugin's entry in .vclu.json, if installed; an error when the file
+// cannot be read, which callers treat as the narrower case, never as "not installed".
+func (l *Loader) installedEntry(pluginID string) (config.InstalledPlugin, bool, error) {
 	mc, err := config.ReadMasterConfig(l.serverDir)
-	if err != nil || mc == nil || mc.Plugins == nil {
-		return config.InstalledPlugin{}, false
+	if err != nil {
+		return config.InstalledPlugin{}, false, err
+	}
+	if mc == nil || mc.Plugins == nil {
+		return config.InstalledPlugin{}, false, nil
 	}
 	for _, inst := range mc.Plugins.Installed {
 		if inst.ID == pluginID {
-			return inst, true
+			return inst, true, nil
 		}
 	}
-	return config.InstalledPlugin{}, false
+	return config.InstalledPlugin{}, false, nil
 }
 
 // APIFloor: the lowest plugin API an update of an installed plugin may have, the recorded
 // one or, for an entry from before it was recorded, that of the files on disk; 0 when not installed.
-func (l *Loader) APIFloor(pluginID string) int {
-	inst, ok := l.installedEntry(pluginID)
+// An unreadable configuration is an error: the floor is not known, so nothing is downloaded.
+func (l *Loader) APIFloor(pluginID string) (int, error) {
+	inst, ok, err := l.installedEntry(pluginID)
+	if err != nil {
+		return 0, fmt.Errorf("plugin %s: %w", pluginID, err)
+	}
 	if !ok {
-		return 0
+		return 0, nil
 	}
 	if inst.API > 0 {
-		return inst.API
+		return inst.API, nil
 	}
 	if m, err := l.diskManifest(pluginID); err == nil {
-		return manifestAPI(m)
+		return manifestAPI(m), nil
 	}
-	return 0
+	return 0, nil
 }
 
 // DiskAPI: the plugin API of the files on disk.

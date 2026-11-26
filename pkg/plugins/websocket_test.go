@@ -76,7 +76,7 @@ func TestWebSocketPortsInTheLANGrant(t *testing.T) {
 	}
 
 	l := permissionsLoader(t, nil, []config.InstalledPlugin{{ID: "@jan/shelly", Grants: &config.PluginGrants{LAN: &config.LANGrant{}}}})
-	if perms, _, _ := l.effectivePermissions("@jan/shelly", m); !reflect.DeepEqual(perms.WebSocketPorts, []int{80, 8123}) {
+	if perms, _, _, _ := l.effectivePermissions("@jan/shelly", m); !reflect.DeepEqual(perms.WebSocketPorts, []int{80, 8123}) {
 		t.Errorf("an old grant: %v", perms.WebSocketPorts)
 	}
 	mc, err := config.ReadMasterConfig(l.serverDir)

@@ -152,7 +152,7 @@ func TestEffectivePermissionsInternet(t *testing.T) {
 		{ID: "@jan/upd", Grants: &config.PluginGrants{Internet: &config.InternetGrant{Hosts: []string{"a.com"}}}},
 	})
 	hosts := func(id string, m PluginManifest) string {
-		_, limits, _ := l.effectivePermissions(id, m)
+		_, limits, _, _ := l.effectivePermissions(id, m)
 		data, _ := json.Marshal(limits.InternetHosts)
 		return string(data)
 	}

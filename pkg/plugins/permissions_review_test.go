@@ -64,7 +64,7 @@ func TestReviewUpdateNewTCPPortWaits(t *testing.T) {
 	v1 := PluginManifest{API: 2, Permissions: &Permissions{TCP: true}, TCP: &ManifestTCP{Ports: []int{23}}}
 	l := permissionsLoader(t, nil, []config.InstalledPlugin{{ID: "@jan/tv", Grants: requestedPermissions(v1).Grants()}})
 	v2 := PluginManifest{API: 2, Permissions: &Permissions{TCP: true}, TCP: &ManifestTCP{Ports: []int{23, 3306}}}
-	perms, _, _ := l.effectivePermissions("@jan/tv", v2)
+	perms, _, _, _ := l.effectivePermissions("@jan/tv", v2)
 	if !perms.TCP || slices.Contains(perms.TCPPorts, 3306) || !slices.Contains(perms.TCPPorts, 23) {
 		t.Errorf("the update's new port should wait, the old one work: %+v", perms)
 	}

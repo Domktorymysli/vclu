@@ -308,10 +308,14 @@ func limitsOf(g *config.PluginGrants) Limits {
 
 // effectivePermissions: what the plugin may reach, how the user narrowed it, and whether
 // it is official (that names its events): what it asks for, as far as the user allowed it.
-func (l *Loader) effectivePermissions(pluginID string, manifest PluginManifest) (Permissions, Limits, bool) {
+func (l *Loader) effectivePermissions(pluginID string, manifest PluginManifest) (Permissions, Limits, bool, error) {
 	official := l.isOfficial(pluginID)
 	requested := requestedPermissions(manifest)
-	grants := l.grants(pluginID)
+	grants, err := l.grants(pluginID)
+	if err != nil {
+		// without the grants the plugin would get all it asks for: it does not run until they are readable
+		return Permissions{}, Limits{}, false, fmt.Errorf("plugin %s: its permissions cannot be read: %w", pluginID, err)
+	}
 	if manifestAPI(manifest) < 2 {
 		log.Printf("[PLUGINS] %s is on plugin API 1: lan, mqtt and modbus without a declaration (\"api\": 2 in plugin.json limits it to its permissions)", pluginID)
 		if allowed, _ := requested.allowedBy(grants); !slices.Equal(allowed.Names(), requested.Names()) || limitsOf(grants).narrows() {
@@ -344,21 +348,17 @@ func (l *Loader) effectivePermissions(pluginID string, manifest PluginManifest) 
 	if manifestAPI(manifest) >= 2 {
 		limits.InternetHosts = append([]string{}, allowed.Internet...) // empty: no internet
 	}
-	return allowed, limits, official
+	return allowed, limits, official, nil
 }
 
-// grants: what the user allowed the installed plugin, nil when the config does not say.
-func (l *Loader) grants(pluginID string) *config.PluginGrants {
-	mc, err := config.ReadMasterConfig(l.serverDir)
-	if err != nil || mc == nil || mc.Plugins == nil {
-		return nil
+// grants: what the user allowed the installed plugin, nil when the config does not say
+// (installed by hand, or before grants); an error when .vclu.json cannot be read.
+func (l *Loader) grants(pluginID string) (*config.PluginGrants, error) {
+	inst, ok, err := l.installedEntry(pluginID)
+	if err != nil || !ok {
+		return nil, err
 	}
-	for _, installed := range mc.Plugins.Installed {
-		if installed.ID == pluginID {
-			return installed.Grants
-		}
-	}
-	return nil
+	return inst.Grants, nil
 }
 
 func (l *Loader) diskManifest(pluginID string) (PluginManifest, error) {

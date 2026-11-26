@@ -388,7 +388,10 @@ func (l *Loader) downloadPlugin(repo config.PluginRepository, pluginID, newerTha
 
 	safeDir := safePluginDir(pluginID)
 	// read before the lock moves to the new files
-	floor := l.APIFloor(pluginID)
+	floor, err := l.APIFloor(pluginID)
+	if err != nil {
+		return err
+	}
 
 	// Determine version subdir: tagged plugins get versioned dir, untagged get "latest"
 	version := listing.Version
@@ -799,7 +802,11 @@ func (l *Loader) LoadPlugin(pluginID string, pluginConfig map[string]interface{}
 		return err
 	}
 	// files replaced by hand with a version on a lower API do not run with fewer limits
-	if inst, ok := l.installedEntry(pluginID); ok {
+	inst, ok, err := l.installedEntry(pluginID)
+	if err != nil {
+		return fmt.Errorf("plugin %s: %w", pluginID, err)
+	}
+	if ok {
 		if inst.API > api {
 			return APIDowngrade(pluginID, inst.API, api)
 		}
@@ -818,7 +825,10 @@ func (l *Loader) LoadPlugin(pluginID string, pluginConfig map[string]interface{}
 	}
 
 	// 1. Create sandbox for the plugin
-	perms, limits, official := l.effectivePermissions(pluginID, manifest)
+	perms, limits, official, err := l.effectivePermissions(pluginID, manifest)
+	if err != nil {
+		return err
+	}
 	limitsJSON, _ := json.Marshal(limits)
 	// declared dashboards by id, with the name they get unless the user's module renames them
 	dashboards := map[string]map[string]string{}
@@ -943,7 +953,10 @@ func (l *Loader) LoadAllEnabled() error {
 	l.loadedMu.Unlock()
 
 	masterConfig, err := config.ReadMasterConfig(l.serverDir)
-	if err != nil || masterConfig == nil || masterConfig.Plugins == nil {
+	if err != nil {
+		return fmt.Errorf("plugins not loaded: %w", err)
+	}
+	if masterConfig == nil || masterConfig.Plugins == nil {
 		return nil // No plugins configured
 	}
 	l.pinOlderEntries(masterConfig)
