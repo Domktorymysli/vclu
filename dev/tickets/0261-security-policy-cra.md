@@ -47,7 +47,7 @@ never details of an unfixed vulnerability.
 - [ ] `SECURITY.md` states the support period: which releases get security fixes and for how long (at least the latest release; the period for a future LTS line is named or left as "to be announced").
 - [ ] `SECURITY.md` states response times: acknowledgement, first assessment, and that an actively exploited vulnerability is handled and reported as the CRA requires.
 - [ ] `SECURITY.md` names an e-mail contact (`security@vclu.pl`) next to GitHub private reporting, for reporters without a GitHub account.
-- [ ] `SECURITY.md` scope covers the vclu cloud (pairing, tunnel, remote dashboards, voice) and the mobile apps; official plugins (`@vclu/*`) are in scope, community plugins are their authors'.
+- [ ] `SECURITY.md` scope covers the vclu cloud (pairing, tunnel, remote dashboards) and the mobile apps; official plugins (`@vclu/*`) are in scope, community plugins are their authors'.
 - [ ] `SECURITY.md` says how fixes are announced: a GitHub security advisory (with a CVE when it applies) and a "Security" line in the release notes.
 - [ ] `SECURITY.md` says how users verify what they install: checksums of the release assets, the signed APT repository.
 - [ ] Every release attaches an SBOM (SPDX or CycloneDX) of the binaries and `.deb` packages, besides the images; `gh release view vX.Y.Z` lists them.
