@@ -119,9 +119,9 @@ func TestPluginDeviceUDPTargets(t *testing.T) {
 	if err := io.SendUDP(a, "@t/a", "255.255.255.255", 7000, []byte("x")); err != nil && strings.Contains(err.Error(), "refused") {
 		t.Errorf("broadcast to a declared port: %v", err)
 	}
-	// the grant taken away (settings changed before a reload): the open socket stops
+	// the grant taken away (settings changed before a reload): the open socket closes
 	io.SetGrant("@t/a", pluginIOGrant{})
-	if err := io.SendUDP(a, "@t/a", "192.168.1.10", 7000, []byte("x")); err == nil || !strings.Contains(err.Error(), `"udp"`) {
+	if err := io.SendUDP(a, "@t/a", "192.168.1.10", 7000, []byte("x")); err == nil || !strings.Contains(err.Error(), "socket closed") {
 		t.Errorf("after the grant went: %v", err)
 	}
 }

@@ -235,13 +235,13 @@ func isBroadcast(ip netip.Addr) bool {
 }
 
 // SetGrant: what the plugin may open. Called by PluginSandbox:create for every plugin; a
-// TCP connection the new grant does not allow closes.
+// handle the new grant does not allow closes.
 func (p *PluginIO) SetGrant(plugin string, g pluginIOGrant) {
 	p.mu.Lock()
 	p.grants[plugin] = g
 	var gone []*ioHandle
 	for _, h := range p.handles {
-		if h.plugin == plugin && h.kind == "tcp" && h.tcp != nil && p.tcpAllowed(g, h.tcp.remote) != nil {
+		if h.plugin == plugin && !handleAllowed(p, g, h) {
 			gone = append(gone, h)
 		}
 	}
@@ -249,6 +249,21 @@ func (p *PluginIO) SetGrant(plugin string, g pluginIOGrant) {
 	for _, h := range gone {
 		p.close(h)
 	}
+}
+
+// handleAllowed: g still allows the open handle. Caller holds p.mu.
+func handleAllowed(p *PluginIO, g pluginIOGrant, h *ioHandle) bool {
+	switch h.kind {
+	case "tcp":
+		return h.tcp == nil || p.tcpAllowed(g, h.tcp.remote) == nil
+	case "udp":
+		return h.perm == "" || (h.perm == "udp" && g.udp) || (h.perm == "grenton_raw" && g.grentonRaw)
+	case "tftp":
+		return g.tftp
+	case "serial":
+		return g.serial && (h.path == "" || slices.ContainsFunc(g.serialPorts, func(a string) bool { return realPath(a) == h.path }))
+	}
+	return true
 }
 
 // Release closes everything the plugin opened and forgets its grant.
@@ -554,6 +569,9 @@ func (p *PluginIO) SendUDP(id int, plugin, host string, port int, data []byte) e
 	g, ownPort := p.grants[plugin], p.reserved[port]
 	p.mu.Unlock()
 	hosts := g.rawHosts
+	if h.perm != "udp" && !g.grentonRaw {
+		return needs(false, plugin, "grenton_raw")
+	}
 	if h.perm == "udp" {
 		hosts = g.udpHosts
 		if !g.udp {
