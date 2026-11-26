@@ -1188,6 +1188,53 @@ PluginsManager.prototype.checkPluginDocs = function() {
     });
 };
 
+// A repository's documentation is shown as text and plain formatting only: marked keeps the
+// HTML a markdown file carries, and nothing from a repository runs on this page.
+var DOC_TAGS = {a: 1, p: 1, br: 1, hr: 1, h1: 1, h2: 1, h3: 1, h4: 1, h5: 1, h6: 1, strong: 1, b: 1, em: 1, i: 1,
+    u: 1, s: 1, del: 1, sup: 1, sub: 1, code: 1, pre: 1, kbd: 1, blockquote: 1, ul: 1, ol: 1, li: 1,
+    table: 1, thead: 1, tbody: 1, tr: 1, th: 1, td: 1, img: 1};
+var DOC_ATTRS = {a: ['href', 'title'], img: ['src', 'alt', 'title'], th: ['align'], td: ['align'], ol: ['start']};
+// what a link or an image may point at: http(s), mail, a fragment or a relative path
+var DOC_URL = /^(?:https?:|mailto:|#|\.{0,2}\/|[^:]*$)/i;
+var DOC_DROP = {script: 1, style: 1, iframe: 1, object: 1, embed: 1, svg: 1, math: 1, template: 1, noscript: 1, frame: 1, frameset: 1};
+
+function sanitizeDocNode(node) {
+    Array.prototype.slice.call(node.childNodes).forEach(function(child) {
+        if (child.nodeType === 3) return;
+        if (child.nodeType !== 1) { child.remove(); return; }
+        var tag = child.tagName.toLowerCase();
+        if (DOC_DROP[tag]) { child.remove(); return; }
+        sanitizeDocNode(child);
+        if (!DOC_TAGS[tag]) {
+            // an element not listed goes, its text stays
+            while (child.firstChild) node.insertBefore(child.firstChild, child);
+            child.remove();
+            return;
+        }
+        Array.prototype.slice.call(child.attributes).forEach(function(attr) {
+            var name = attr.name.toLowerCase();
+            var ok = (DOC_ATTRS[tag] || []).indexOf(name) >= 0 &&
+                (name !== 'href' && name !== 'src' || DOC_URL.test(attr.value.trim()));
+            if (!ok) child.removeAttribute(attr.name);
+        });
+        if (tag === 'a') {
+            child.setAttribute('target', '_blank');
+            child.setAttribute('rel', 'noopener noreferrer');
+        }
+    });
+}
+
+// showDocHTML puts the rendered markdown into el, sanitized; the nodes move over without
+// another parse of their text.
+function showDocHTML(el, html) {
+    var parsed = new DOMParser().parseFromString(html, 'text/html');
+    sanitizeDocNode(parsed.body);
+    el.textContent = '';
+    while (parsed.body.firstChild) {
+        el.appendChild(document.adoptNode(parsed.body.firstChild));
+    }
+}
+
 /**
  * Show plugin documentation
  * @param {string} pluginId - Plugin ID
@@ -1207,13 +1254,15 @@ PluginsManager.prototype.showDoc = function(pluginId, docIndex) {
 
     // Render nav if multiple docs
     if (plugin.docs.length > 1) {
-        var navHtml = '';
+        this.elements.docNav.textContent = '';
         plugin.docs.forEach(function(d, i) {
             var active = i === docIndex ? 'btn-primary' : 'btn-outline-secondary';
-            navHtml += '<button class="btn btn-sm ' + active + ' me-1" onclick="pluginsManager.showDoc(\'' +
-                      pluginId + '\', ' + i + ')">' + d.title + '</button>';
+            var navBtn = document.createElement('button');
+            navBtn.className = 'btn btn-sm ' + active + ' me-1';
+            navBtn.textContent = d.title || ('#' + (i + 1));
+            navBtn.onclick = function() { self.showDoc(pluginId, i); };
+            self.elements.docNav.appendChild(navBtn);
         });
-        this.elements.docNav.innerHTML = navHtml;
         this.elements.docNav.style.display = 'block';
     } else {
         this.elements.docNav.style.display = 'none';
@@ -1230,7 +1279,7 @@ PluginsManager.prototype.showDoc = function(pluginId, docIndex) {
                 self.elements.docError.textContent = data.error;
                 self.elements.docError.style.display = 'block';
             } else {
-                self.elements.docContent.innerHTML = marked.parse(data.content || '');
+                showDocHTML(self.elements.docContent, marked.parse(data.content || ''));
                 self.elements.docContent.style.display = 'block';
             }
         })
