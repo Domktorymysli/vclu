@@ -1,6 +1,7 @@
 package lua
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -268,4 +269,31 @@ func TestReviewExecOtherPluginsInstanceThroughItsObjects(t *testing.T) {
 		}
 	}
 	mustLua(t, engine, `tostring(_registry["`+path+`"] ~= nil)`, "true")
+}
+
+// Crypto and bit on bad input from a plugin: an error or nil, err, never a panic.
+func TestReviewExecCryptoBadInput(t *testing.T) {
+	engine := sandboxEngine(t, "@t/a", "")
+	k := `string.rep("k", 16)`
+	for _, code := range []string{
+		`return Crypto.aesCbcDecrypt(` + k + `, "short", string.rep("x", 16))`,
+		`return Crypto.aesCbcDecrypt(` + k + `, string.rep("i", 16), string.rep("x", 16))`,
+		`return Crypto.aesEcbDecrypt(` + k + `, "")`,
+		`return Crypto.aesEcbDecrypt(` + k + `, string.rep("x", 15), "none")`,
+		`return Crypto.aesGcmDecrypt(` + k + `, string.rep("n", 12), "x")`,
+		`return Crypto.aesGcmEncrypt("short", string.rep("n", 12), "x")`,
+		`return Crypto.hmac("sha512", "k", "x")`,
+		`return Crypto.random(0/0)`,
+		`return Crypto.random(1e300)`,
+		`return Crypto.fromBase64("@@@")`,
+		`return Crypto.fromHex("zz")`,
+		`return bit.tohex(1, -2^31)`,
+		`return bit.lshift(1, -1)`,
+		`return bit.band(0/0, 1/0)`,
+	} {
+		r, e := runPlugin(t, engine, "@t/a", `local ok, a, b = pcall(function() `+code+` end) return tostring(ok) .. "|" .. tostring(a) .. "|" .. tostring(b)`)
+		if e != "nil" || strings.Contains(r, "runtime error") || strings.Contains(r, "goroutine") {
+			t.Errorf("%s: r=%s e=%s", code, r, e)
+		}
+	}
 }
