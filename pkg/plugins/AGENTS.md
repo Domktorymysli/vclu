@@ -70,7 +70,11 @@ options and refuse a duplicate with an error in the log instead of replacing ano
 can reach is a shared mutable table: `string`, `table` and `math` are its own copies, `Logger`,
 `JSON` and expose handles are facades bound to the real object, its own instance is a proxy
 (identity fields read-only, sandbox hidden), and other plugins and registry objects are read-only
-proxies whose only callable methods are reads (`get`, `getX`, `isX`, `hasX`), `pairs` included.
+proxies whose only callable methods are reads (`get`, `getX`, `isX`, `hasX`), `pairs` included;
+their `_` fields are hidden. A read that would ask a CLU (`RemoteObject:get(index)`, `CLU_REMOTE`)
+needs `grenton_raw` on API 2 (`PluginSandbox.checkCluRequest`: the proxy's owner, else the plugin on
+the stack). On API 2 a plugin's expose handles refuse `:remote`, `:roles`, `:pin` and `:confirm`: the
+user's module sets them.
 Functions a plugin puts on its instance (`create`, `init`, `get`) get its proxy as `self` also when
 the core or a module calls them on the real instance. Arguments of those read methods are numbers,
 strings and booleans only. Event payloads reach a plugin read-only. Timers, pollers, events, MQTT

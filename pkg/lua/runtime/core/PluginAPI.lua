@@ -790,7 +790,8 @@ end
 -- @param obj table Object to expose (must implement get(0) at minimum)
 -- @param objType string Type: switch, light, dimmer, sensor, motion, occupancy, temperature, humidity, cover, scene, number, button
 -- @param options table Optional settings: name, path, id, readonly, hidden, mqtt, homekit, group
--- @return ExposedHandle Handle for managing the exposed object
+-- @return ExposedHandle Handle for managing the exposed object; on API 2 its :remote, :roles, :pin and
+--   :confirm are the user's module's (Plugin.getPlugin(id):getExposed()), not the plugin's
 -- @usage
 --   local handle = plugin:expose(mySwitch, "switch", { name = "Living Room Light" })
 --   handle:unexpose()  -- to remove later

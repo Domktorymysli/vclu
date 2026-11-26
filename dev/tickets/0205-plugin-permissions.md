@@ -240,6 +240,16 @@ running: the manifest names the plugin API it is written for, and the stricter c
       `TestPortsSeenAtInstall`).
 - [ ] A permission taken away closes the plugin's handles that needed it (UDP, serial, TFTP, TCP,
       WebSocket) (`TestReviewHandlesClosedWhenGrantDrops`, `TestReviewRawSendChecksGrant`).
+- [ ] On API 2 plugin code without `grenton_raw` sends no request to a CLU: a read by index on a
+      Grenton object or a `CLU_REMOTE` read is refused, also as a tail call; reads of known state
+      work; API 1 is warned once; modules are not affected (`TestReviewExecRemoteReadFromPlugin`,
+      `TestCluRequestAPI1AndModules`).
+- [ ] Objects a plugin did not create show no `_` fields, also through `pairs`, and their read
+      methods still work (`TestProxyHidesOwnFields`).
+- [ ] On API 2 a plugin's expose handles refuse `:remote`, `:roles`, `:pin` and `:confirm`; the
+      user's module sets them on the same handle; API 1 unchanged (`TestHandleRemoteIsTheUsers`).
+- [ ] `lib/telnet` hands text without a line end past 64 KiB to `onLine` and refuses a bad prompt
+      pattern when it is set (`TestTelnetLibLimits`).
 - [ ] `go test ./...` and `go test -race ./...` pass.
 - [ ] A changelog entry in `changelog.d/0205-plugin-permissions.md`.
 - [ ] `DEVELOPMENT.md` in `vclu-plugins` documents `permissions`, the event prefix and the id rule,
