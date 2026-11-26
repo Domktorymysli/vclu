@@ -182,9 +182,15 @@ func checkFields(where string, fields map[string]FormField, rows bool) error {
 		if rows && f.Type == "secret" {
 			return fmt.Errorf("form: %s: a device field cannot be a secret", at)
 		}
-		for other := range f.ShowIf {
+		for other, want := range f.ShowIf {
 			if _, ok := fields[other]; !ok || other == name {
 				return fmt.Errorf("form: %s: showIf names %q, not another field here", at, other)
+			}
+			// a list or an object would be a condition this vclu does not read
+			switch want.(type) {
+			case string, float64, bool:
+			default:
+				return fmt.Errorf("form: %s: showIf.%s: a text, number or true/false: %w", at, other, ErrNewerVclu)
 			}
 		}
 	}

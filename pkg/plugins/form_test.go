@@ -2,6 +2,7 @@ package plugins
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,6 +25,20 @@ func TestParseFormRefusesBadDeclarations(t *testing.T) {
 		if _, err := ParseForm([]byte(raw)); err == nil {
 			t.Errorf("%s: accepted", what)
 		}
+	}
+}
+
+// A showIf condition other than one value (a list, an operator) is for a newer vclu, not read as a value.
+func TestParseFormShowIfConditionForNewerVclu(t *testing.T) {
+	for _, want := range []string{`["a", "b"]`, `{"not": "a"}`, `null`} {
+		raw := `{"settings": {"mode": {"type": "string"}, "a": {"type": "string", "showIf": {"mode": ` + want + `}}}}`
+		if _, err := ParseForm([]byte(raw)); !errors.Is(err, ErrNewerVclu) {
+			t.Errorf("showIf %s: %v", want, err)
+		}
+	}
+	if _, err := ParseForm([]byte(`{"settings": {"on": {"type": "boolean"}, "n": {"type": "number"},
+		"a": {"type": "string", "showIf": {"on": true, "n": 2}}}}`)); err != nil {
+		t.Fatal(err)
 	}
 }
 
