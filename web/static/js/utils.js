@@ -12,7 +12,8 @@ window.VCLU = (function() {
     function esc(str) {
         if (str === null || str === undefined) return '';
         _escDiv.textContent = String(str);
-        return _escDiv.innerHTML;
+        // innerHTML leaves quotes as they are: esc() also goes into attributes
+        return _escDiv.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
     // esc() with each standalone word "vclu" in <span class="vclu"> (first letter in the
