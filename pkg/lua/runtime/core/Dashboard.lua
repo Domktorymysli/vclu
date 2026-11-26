@@ -3901,7 +3901,7 @@ function DashboardAPI.remoteCamera(cam, role, onlyJSON)
     end
     for _, id in ipairs(_dashboardOrder) do
         local dash = _dashboards[id] and (not only or only[id]) and resolveFor(id, role)
-        if dash then
+        if dash and not dash._plugin then -- a plugin's dashboard has no camera of the house
             for _, sec in ipairs(dash._sections) do
                 for _, w in ipairs(sec.widgets) do
                     if w.type == 'image' then

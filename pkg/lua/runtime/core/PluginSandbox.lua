@@ -463,9 +463,10 @@ end
 
 local function pack(...) return { n = select("#", ...), ... } end
 
--- Widget methods that reach the house by name (areas, covers by path, the house calendar):
--- a plugin's dashboard shows only what the plugin gives it
-local DASH_DENY = { new = true, area = true, floor = true, room = true, covers = true, calendar = true }
+-- Widget methods that reach the house by name (areas, covers by path, the house calendar and
+-- its schedules, metrics): a plugin's dashboard shows only what the plugin gives it
+local DASH_DENY = { new = true, area = true, floor = true, room = true, covers = true, calendar = true,
+    schedule = true, chart = true, bars = true }
 
 -- An error raised in the core names the plugin's call, not the core's file
 local function coreError(e)
@@ -1772,7 +1773,7 @@ function PluginSandbox:callAction(pluginId, name, paramsJSON)
         if type(v) ~= p.type or (p.type == "number" and v - v ~= 0) then
             return actionAnswer("param " .. k .. " is a " .. p.type .. ", got " .. type(v), "invalid")
         end
-        if p.type == "string" and #v > MAX_ACTION_STRING then
+        if p.type == "string" and select(2, v:gsub("[^\128-\191]", "")) > MAX_ACTION_STRING then
             return actionAnswer("param " .. k .. " is longer than " .. MAX_ACTION_STRING .. " characters", "invalid")
         end
         given[k] = v

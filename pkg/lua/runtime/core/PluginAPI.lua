@@ -460,8 +460,8 @@ end
 
 --- A dashboard of the plugin's own: the builder of Dashboard.new (name, icon, auth, poll,
 -- section, widgets, build). Its id is <shortId>_<id> ("-" as "_"), at /d/<that id>; auth is
--- "session" unless set. Widgets reaching the house by name (area, floor, room, covers, calendar)
--- are not available. Removed when the plugin stops.
+-- "session" unless set. Widgets reaching the house by name (area, floor, room, covers, calendar,
+-- schedule, chart, bars) are not available. Removed when the plugin stops.
 -- @param id string Lower-case letters, digits and _
 -- @return table DashboardBuilder
 -- @usage plugin:dashboard("lista"):name("Zakupy"):section("Lista", "cart"):button("clear", "Wyczyść", "trash", function() items = {} end):build()

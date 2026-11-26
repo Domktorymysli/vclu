@@ -26,7 +26,8 @@ MQTT/HA read those. The sandbox masks the plugin's secret values (4+ characters)
 builder marks the owner; `Dashboard.API.list()` gives it as `plugin`). Functions the plugin passes
 (also inside opts/fns tables) are wrapped: errors go to the plugin's log, once per message, and
 back to the page. The raw builder and sections never reach the plugin; `area`, `floor`, `room`,
-`covers` and `calendar` are refused, as they resolve house objects by name.
+`covers`, `calendar`, `schedule`, `chart` and `bars` are refused, as they resolve house objects by name; a
+camera image on it never reaches remote viewers.
 
 A plugin declares its dashboards in plugin.json: `"dashboards": [{"id": "lista", "name": "Zakupy" | {"pl", "en"},
 "description"?: text | {"pl", "en"}}]` (id `[a-z0-9_]{1,64}`, at most 8, unique; a malformed list refuses the

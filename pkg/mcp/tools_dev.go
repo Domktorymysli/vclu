@@ -744,7 +744,7 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 			"expose":    "expose(obj, type, { name, path, area, description })",
 			"apps": "in a plugin (no permission): plugin:dashboard(id) → the builder of Dashboard.new at /d/<shortId>_<id> ('-' as '_'), " +
 				"id declared in plugin.json \"dashboards\" (API 2), auth 'session' or 'pin' only (no public, pin code, remote or roles: those are the user's, dashboardAccess), " +
-				"its callbacks run as the plugin, no area/floor/room/covers/calendar, an id taken by a module or another plugin is refused; " +
+				"its callbacks run as the plugin, no area/floor/room/covers/calendar/schedule/chart/bars, an id taken by a module or another plugin is refused; " +
 				"plugin:action(name, {description = text|{pl, en}, params = {p = {type = 'string'|'number'|'boolean', description, required}}}, fn(params) → result | nil, err), " +
 				"at most 32, params checked (unknown refused, strings up to 1000 characters); agents call them with vclu_app_actions / vclu_app_action, " +
 				"HTTP GET /api/plugins/actions, POST /api/plugins/:id/actions/:name. Both go when the plugin stops",
