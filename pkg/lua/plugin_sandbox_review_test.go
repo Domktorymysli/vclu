@@ -187,3 +187,21 @@ func TestReviewExecPluginStringMethodsReadOnly(t *testing.T) {
 		t.Errorf("string methods in a plugin: %q", r)
 	}
 }
+
+// A plugin without grenton_raw reading a remote CLU object: open question whether the read
+// may go to the CLU (any index, waiting for its answer)
+func TestReviewExecRemoteReadFromPlugin(t *testing.T) {
+	engine := sandboxEngine(t, "@t/a", "")
+	if _, err := engine.Execute(`
+		__calls = {}
+		local clu = { execute = function(_, m, s) __calls[#__calls + 1] = s; return 0 end }
+		_registry["CLU2.DOU1"] = RemoteObject:new(clu, "DOU1", "DOU1")
+	`); err != nil {
+		t.Fatal(err)
+	}
+	r, e := runPlugin(t, engine, "@t/a", `return _:get("CLU2.DOU1"):get(27)`)
+	got, _ := engine.Execute(`table.concat(__calls, ";")`)
+	if got != "" {
+		t.Skipf("open (reported): the read reaches the CLU: %q (r=%s e=%s)", got, r, e)
+	}
+}

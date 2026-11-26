@@ -125,3 +125,46 @@ func TestReviewExecFiredTimeoutForgotten(t *testing.T) {
 	pumpTimers(engine, 200*time.Millisecond)
 	mustLua(t, engine, `(function() local n = 0 for _ in pairs(PluginSandbox.sandboxes["@t/a"].timers) do n = n + 1 end return n end)()`, "1")
 }
+
+// A poller with an initial delay, stopped and started again before it ends, or stopped
+// with the plugin: no tick after the stop, no interval left behind.
+func TestReviewExecPollerInitialDelayStopped(t *testing.T) {
+	engine := sandboxEngine(t, "@t/a", "")
+	engine.StartTimers()
+	defer engine.StopTimers()
+	before := activeTimers(engine)
+	if _, e := runPlugin(t, engine, "@t/a", `
+		p = Plugin:new("a", {})
+		ticks = { n = 0 }
+		poll = p:poller("x", { interval = 30, initialDelay = 50, onTick = function(done) ticks.n = ticks.n + 1; done() end })
+		poll:start(); poll:stop(); poll:start()
+		other = p:poller("y", { interval = 30, initialDelay = 50, onTick = function(done) ticks.n = ticks.n + 1000; done() end })
+		other:start()
+	`); e != "nil" {
+		t.Fatal(e)
+	}
+	if _, err := engine.Execute(`__ticks = PluginSandbox.sandboxes["@t/a"].environment.ticks`); err != nil {
+		t.Fatal(err)
+	}
+	pumpTimers(engine, 10*time.Millisecond)
+	// the second poller stops with the plugin before its delay ends
+	if _, err := engine.Execute(`PluginSandbox.sandboxes["@t/a"].environment.other:stop()`); err != nil {
+		t.Fatal(err)
+	}
+	pumpTimers(engine, 200*time.Millisecond)
+	if _, err := engine.Execute(`PluginSandbox.sandboxes["@t/a"].environment.poll:stop()`); err != nil {
+		t.Fatal(err)
+	}
+	at, _ := engine.Execute(`__ticks.n`)
+	pumpTimers(engine, 200*time.Millisecond)
+	after, _ := engine.Execute(`__ticks.n`)
+	if at != after {
+		t.Errorf("ticks after stop: %s -> %s", at, after)
+	}
+	if n := activeTimers(engine); n != before {
+		t.Errorf("timers left: %d, want %d", n, before)
+	}
+	if len(after) >= 4 {
+		t.Errorf("the poller stopped in its delay ticked: %s", after)
+	}
+}

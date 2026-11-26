@@ -1046,7 +1046,10 @@ function PluginHelpers.createPoller(pluginId, name, opts)
 
         -- Initial delay or immediate execution
         if self._initialDelay > 0 then
-            __go_setTimeout(function()
+            -- kept, so a stop before it ends cancels it
+            self._delayTimerId = __go_setTimeout(function()
+                self._delayTimerId = nil
+                if not self._running then return end
                 self:_executeTick()
                 scheduleTick()
             end, self._initialDelay)
@@ -1071,6 +1074,10 @@ function PluginHelpers.createPoller(pluginId, name, opts)
         if self._timerId then
             __go_clearTimer(self._timerId)
             self._timerId = nil
+        end
+        if self._delayTimerId then
+            __go_clearTimer(self._delayTimerId)
+            self._delayTimerId = nil
         end
         if self._timeoutTimerId then
             __go_clearTimer(self._timeoutTimerId)
