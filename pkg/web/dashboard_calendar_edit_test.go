@@ -275,3 +275,42 @@ func TestScheduleByOnlyForEditors(t *testing.T) {
 		t.Errorf("empty colours: %s", r.raw)
 	}
 }
+
+// The app sends an edit on the LAN and, when the answer is lost, the same actionId through the
+// cloud: the person is cloud:<id> on both ways, so the repeat gets the first answer and the
+// event is added once.
+func TestCalendarAddRepeatedLANThenTunnel(t *testing.T) {
+	dashCache.Invalidate()
+	actionReplay = &actionReplays{byID: make(map[string]*actionAnswer), now: time.Now}
+	engine := lua.NewLuaEngine()
+	t.Cleanup(engine.Close)
+	if _, err := engine.Execute(calendarEditDashboards); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{serverDir: t.TempDir(), sessions: newSessionStore(), luaExecutor: engine, calendarLimiter: newCalendarLimiter(), live: newLiveFeeds()}
+	t.Cleanup(s.live.shutdown)
+	gin.SetMode(gin.TestMode)
+	s.SetLocalAccess(newLocal(t, t.TempDir()))
+	m := members(1, "member", install12)
+	m.Members[0].Roles = []string{"rodzice"}
+	s.local.SetMembers(m)
+	g, err := s.local.Issue("cloud:12", install12)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := `{"widgetId":"c","action":"add","actionId":"a1b2c3d4-0000-4000-8000-000000000001","value":{"title":"Wizyta","date":"` + time.Now().AddDate(0, 0, 2).Format("2006-01-02") + `"}}`
+	req := httptest.NewRequest(http.MethodPost, "/api/dashboard/kal/action", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+g.Token)
+	w := httptest.NewRecorder()
+	s.LocalHandler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("on the LAN: %d %s", w.Code, w.Body)
+	}
+	r := do(s.TunnelHandler(), "POST", "/api/dashboard/kal/action", "member", body)
+	if r.code != http.StatusOK || r.raw != w.Body.String() {
+		t.Errorf("the repeat through the cloud: %d %s, the first %s", r.code, r.raw, w.Body)
+	}
+	if out, _ := engine.Execute(`local n = 0 for _, ev in ipairs(dom._events) do if ev.title == 'Wizyta' then n = n + 1 end end return n`); out != "1" {
+		t.Errorf("added %s times", out)
+	}
+}
