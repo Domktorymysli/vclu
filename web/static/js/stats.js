@@ -10,36 +10,50 @@
     let loopLagChart = null;
     let diskFreeChart = null;
 
-    // Chart.js default configuration for dark theme
-    const chartDefaults = {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-            legend: {
-                display: false
-            }
-        },
-        scales: {
-            x: {
-                grid: {
-                    color: 'rgba(255, 255, 255, 0.1)'
-                },
-                ticks: {
-                    color: 'rgba(255, 255, 255, 0.7)',
-                    maxTicksLimit: 12
+    // Axis text and grid lines follow the theme: white on a light page is invisible
+    function axisColors() {
+        const dark = VCLU.isDark();
+        return {
+            grid: dark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+            text: dark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.65)'
+        };
+    }
+
+    // Chart.js default configuration
+    function chartDefaults() {
+        const c = axisColors();
+        return {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: false
                 }
             },
-            y: {
-                grid: {
-                    color: 'rgba(255, 255, 255, 0.1)'
+            scales: {
+                x: {
+                    grid: { color: c.grid },
+                    ticks: { color: c.text, maxTicksLimit: 12 }
                 },
-                ticks: {
-                    color: 'rgba(255, 255, 255, 0.7)'
-                },
-                beginAtZero: true
+                y: {
+                    grid: { color: c.grid },
+                    ticks: { color: c.text },
+                    beginAtZero: true
+                }
             }
-        }
-    };
+        };
+    }
+
+    // Recolour the axes of charts already drawn when the theme is toggled
+    function applyTheme(chart) {
+        if (!chart) return;
+        const c = axisColors();
+        const { x, y } = chart.options.scales;
+        x.grid.color = y.grid.color = c.grid;
+        x.ticks.color = y.ticks.color = c.text;
+        if (y.title) y.title.color = c.text;
+        chart.update('none');
+    }
 
     // Format number with K/M suffix
     function formatNumber(n) {
@@ -109,6 +123,7 @@
         const labels = data.map(d => fmt(d.t));
         const values = data.map(d => d.v);
 
+        const defaults = chartDefaults();
         const config = {
             type: 'line',
             data: {
@@ -125,9 +140,9 @@
                 }]
             },
             options: {
-                ...chartDefaults,
+                ...defaults,
                 plugins: {
-                    ...chartDefaults.plugins,
+                    ...defaults.plugins,
                     tooltip: {
                         mode: 'index',
                         intersect: false,
@@ -139,17 +154,17 @@
                     }
                 },
                 scales: {
-                    ...chartDefaults.scales,
+                    ...defaults.scales,
                     y: {
-                        ...chartDefaults.scales.y,
+                        ...defaults.scales.y,
                         title: {
                             display: true,
                             text: unit || '',
-                            color: 'rgba(255, 255, 255, 0.7)',
+                            color: defaults.scales.y.ticks.color,
                             font: { size: 11 }
                         },
                         ticks: {
-                            ...chartDefaults.scales.y.ticks,
+                            ...defaults.scales.y.ticks,
                             callback: function(value) {
                                 return value + (unit ? ' ' + unit : '');
                             }
@@ -506,6 +521,10 @@
         if (downloadBtn) {
             downloadBtn.addEventListener('click', downloadDiagnostic);
         }
+
+        VCLU.onThemeChange(() => {
+            [memoryChart, cmdRateChart, httpRateChart, busyPercentChart, loopLagChart, diskFreeChart].forEach(applyTheme);
+        });
 
         // Auto-refresh every 30 seconds
         setInterval(fetchStats, 30000);
