@@ -173,8 +173,8 @@ readOnlyProxy = function(obj, owner)
 end
 
 -- A shared runtime object (Logger, JSON, an expose handle) whose methods a plugin may
--- call but whose fields it may not replace.
-local function boundFacade(obj)
+-- call but whose fields it may not replace. deny: method name -> function that refuses.
+local function boundFacade(obj, deny)
     local facade
     local methods = {}
     local function out(r)
@@ -185,6 +185,7 @@ local function boundFacade(obj)
     facade = setmetatable({}, {
         __sandboxSource = obj,
         __index = function(_, key)
+            if deny and deny[key] then return deny[key] end
             local val = obj[key]
             if type(val) == "function" then
                 local m = methods[key]
@@ -417,10 +418,23 @@ local INSTANCE_CORE_ONLY = { init = true, cleanup = true }
 -- The plugin's own instance as the plugin holds it. The real instance (in
 -- Plugin.instances, for modules) stays out of its reach: methods are called on it,
 -- and its identity cannot be changed to act as another plugin.
+-- On API 2 who reaches a plugin's device from the cloud is set by the user's module
+local HANDLE_USER_ONLY = {}
+for _, name in ipairs({ "remote", "roles", "pin", "confirm" }) do
+    HANDLE_USER_ONLY[name] = function()
+        error("expose:" .. name .. " is the user's to set, not the plugin's: a module calls it on the handle "
+            .. "(Plugin.getPlugin(id):getExposed() or its own expose of the plugin's object)", 2)
+    end
+end
+
 local function instanceProxy(inner)
     local proxy = {}
     instanceOf[proxy] = inner
     local methods = {}
+    local function handleFacade(h)
+        local api2 = not inner._sandbox or inner._sandbox.apiVersion >= 2
+        return boundFacade(h, api2 and HANDLE_USER_ONLY or nil)
+    end
     local function out(r)
         if r == inner then return proxy end
         if type(r) == "table" and getmetatable(r) ~= nil and not sourceOf(r) then
@@ -431,7 +445,7 @@ local function instanceProxy(inner)
     local overrides = {
         getExposed = function()
             local result = {}
-            for i, h in ipairs(Plugin.getExposed(inner)) do result[i] = boundFacade(h) end
+            for i, h in ipairs(Plugin.getExposed(inner)) do result[i] = handleFacade(h) end
             return result
         end,
         -- a path only under the plugin's id, not a CLU's or another plugin's
@@ -447,7 +461,7 @@ local function instanceProxy(inner)
                 opts.path = prefix .. tostring(opts.path)
             end
             local handle = Plugin.expose(inner, obj, objType, opts)
-            if type(handle) == "table" then return boundFacade(handle) end
+            if type(handle) == "table" then return handleFacade(handle) end
             return handle
         end,
         -- only its own handles, never another module's expose path

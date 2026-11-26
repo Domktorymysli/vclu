@@ -351,3 +351,38 @@ func TestProxyHidesOwnFields(t *testing.T) {
 		t.Errorf("r=%q e=%q", r, e)
 	}
 }
+
+// Who reaches a plugin's device from the cloud is the user's module's to set, on API 2.
+func TestHandleRemoteIsTheUsers(t *testing.T) {
+	engine := sandboxEngine(t, "@t/a", "")
+	r, e := runPlugin(t, engine, "@t/a", `
+		p = Plugin:new("a", {name = "A"})
+		local c = p:control("x", function() return 1 end, function(v) end)
+		local h = p:expose(c, "switch", { id = "x" })
+		local out = {}
+		for _, m in ipairs({ "remote", "roles", "pin", "confirm" }) do
+			local ok, err = pcall(function() return h[m](h, m == "roles" and "domownicy" or m == "pin" and "1234" or nil) end)
+			out[#out + 1] = m .. "=" .. tostring(ok) .. (ok and "" or (tostring(err):find("user's to set") and ":user" or ":" .. tostring(err)))
+		end
+		return table.concat(out, ",")
+	`)
+	if e != "nil" || r != "remote=false:user,roles=false:user,pin=false:user,confirm=false:user" {
+		t.Errorf("r=%q e=%q", r, e)
+	}
+	// the module grants it on the plugin's handle
+	mustLua(t, engine, `
+		local h = Plugin.getPlugin("@t/a"):getExposed()[1]
+		h:remote(); h:roles("domownicy"); h:pin("1234")
+		return h._remote.roles[1] .. ":" .. h._pin`, "domownicy:1234")
+	// API 1 keeps it
+	mustLua(t, engine, `PluginSandbox:create("@t/old", {api = 1, lan = true}) and "ok"`, "ok")
+	if r, e := runPlugin(t, engine, "@t/old", `
+		local p = Plugin:new("old", {name = "Old"})
+		local c = p:control("x", function() return 1 end, function(v) end)
+		local h = p:expose(c, "switch", { id = "y" })
+		h:remote()
+		return "ok"
+	`); r != "ok" || e != "nil" {
+		t.Errorf("API 1: r=%q e=%q", r, e)
+	}
+}
