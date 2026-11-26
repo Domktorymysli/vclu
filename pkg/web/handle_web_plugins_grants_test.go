@@ -284,7 +284,7 @@ func TestPluginsAPIPermissionsRefusesUnknownKeys(t *testing.T) {
 // The panel shows what a plugin asks for before installing it, next to every permission.
 func TestPluginsAPIPreviewReadsTheManifest(t *testing.T) {
 	repo := manifestRepo(t, "rs", "1.2.0",
-		`{"id":"rs","version":"1.2.0","api":2,"permissions":{"internet":["api.example.com"],"lan":true,"serial":true},"files":["init.lua"]}`)
+		`{"id":"rs","version":"1.2.0","api":2,"permissions":{"internet":["api.example.com"],"lan":true,"udp":true,"serial":true},"udp":{"broadcastPorts":[7000]},"files":["init.lua"]}`)
 	dir := t.TempDir()
 	if err := writeTestConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
 		Repositories: []config.PluginRepository{{Name: "test", URL: repo.URL, Enabled: true}},
@@ -314,13 +314,16 @@ func TestPluginsAPIPreviewReadsTheManifest(t *testing.T) {
 		}
 		return strings.Join(parts, ",")
 	}
-	if got := join(out["requested"]); got != "internet,lan,serial" {
-		t.Errorf("requested %q, want internet,lan,serial", got)
+	if got := join(out["requested"]); got != "internet,lan,udp,serial" {
+		t.Errorf("requested %q, want internet,lan,udp,serial", got)
+	}
+	if got, _ := json.Marshal(out["broadcastPorts"]); string(got) != "[7000]" {
+		t.Errorf("broadcastPorts %s", got)
 	}
 	if got := join(out["internet"]); got != "api.example.com" {
 		t.Errorf("internet %q", got)
 	}
-	if got := join(out["all"]); got != "internet,lan,mqtt,modbus,grenton_raw,tftp,serial" {
+	if got := join(out["all"]); got != "internet,lan,udp,mqtt,modbus,grenton_raw,tftp,serial" {
 		t.Errorf("all %q", got)
 	}
 	if code, _ := preview("rs", "nope"); code != http.StatusNotFound {

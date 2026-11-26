@@ -71,12 +71,23 @@ running: the manifest names the plugin API it is written for, and the stricter c
   of @x/foo (permissions.internet)". `mqtt_remote` is covered by the same list later, not here.
 - Plugin ids are lower case `a-z`, digits, `.`, `_`, `-`, without `--` or a `-` at either end, so
   two ids never share a directory or a KV file.
+- UDP to devices (decided 26.11, for a Gree air conditioner plugin: UDP 7000, discovery by
+  broadcast): `"permissions": {"udp": true}` on API 2, apart from `grenton_raw`, which is a CLU's
+  commands. `plugin:udpSocket({port})` has the methods of `grentonSocket` without the cipher. It
+  reaches local addresses only, not this vclu, not the ports vclu listens on, and not the CLU
+  ports 1234 and 69 on any host: those need `grenton_raw` or `tftp`. A broadcast goes only to the
+  ports in `"udp": {"broadcastPorts": [7000]}` (whole ports, at most 8, never 1234 or 69, only
+  with `"udp": true`; otherwise the manifest is refused at download and at load). Installing
+  allows it like `lan` and the confirmation lists the ports; the grant `{"udp": {"hosts": [...]}}`
+  narrows it like `grenton_raw`, and with a host list the plugin does not broadcast. New ports in
+  an update need no new consent.
 
 ## Files
 - `pkg/lua/runtime/core/PluginSandbox.lua`, `PluginAPI.lua`, `PluginHelpers.lua`, `ExposedObjects.lua`
 - `pkg/lua/runtime/objects/RemoteObject.lua` (integer index on `get`/`set`/`execute`)
 - `pkg/lua/http.go`, `pkg/lua/http_lan.go`
-- `pkg/plugins/permissions.go`, `loader.go`, `kvstore.go`, `AGENTS.md`
+- `pkg/plugins/permissions.go`, `loader.go`, `udp.go`, `kvstore.go`, `AGENTS.md`
+- `pkg/lua/plugin_io.go` (`udp` sockets)
 - `pkg/web/handle_web_plugins.go` (an update records its repository; grants), `web/static/js/plugins.js`, `web/templates/plugins.html`
 - `pkg/config/config.go`
 - Tests: `pkg/lua/plugin_sandbox_escape_test.go`, `plugin_sandbox_data_test.go`,
@@ -126,6 +137,16 @@ running: the manifest names the plugin API it is written for, and the stricter c
 - [ ] API 1 is unchanged.
 - [ ] An update adding a host waits for the user.
 - [ ] Every official plugin works with its declared hosts (`TestOfficialPluginsSmoke`).
+- [ ] `udp` without `grenton_raw` opens `plugin:udpSocket`, sends and receives; without `udp`
+      neither Lua nor Go opens one, and `udp` does not open `grentonSocket`
+      (`TestPluginDeviceUDPEcho`, `TestPluginDeviceUDPRefusedWithoutPermission`).
+- [ ] A `udp` socket refuses an address outside the local network or of this vclu, the ports
+      1234 and 69 and vclu's own, a broadcast to a port not in `broadcastPorts`, and any broadcast
+      with a host list; a `grenton_raw` socket keeps its rules (`TestPluginDeviceUDPTargets`,
+      `TestPluginDeviceUDPBroadcastPortsFromSandbox`).
+- [ ] `broadcastPorts` that are not whole ports, repeated, more than 8, 1234 or 69, or without
+      `"udp": true` refuse the manifest (`TestManifestUDPBroadcastPorts`, `TestManifestUDPNeedsThePermission`).
+- [ ] The install confirmation lists `udp` with its broadcast ports (`TestPluginsAPIPreviewReadsTheManifest`).
 - [ ] `go test ./...` and `go test -race ./...` pass.
 - [ ] A changelog entry in `changelog.d/0205-plugin-permissions.md`.
 - [ ] `DEVELOPMENT.md` in `vclu-plugins` documents `permissions`, the event prefix and the id rule,
@@ -133,7 +154,7 @@ running: the manifest names the plugin API it is written for, and the stricter c
 
 ## Contract impact
 Contract change in the plugin API (CONTRIBUTING.md), versioned: `api` and `permissions` (with the
-`internet` host list) are new manifest fields. API 1 (no `api`) keeps the old contract. API 2: the shared globals `HTTP`,
+`internet` host list and `udp`) and `udp.broadcastPorts` are new manifest fields. API 1 (no `api`) keeps the old contract. API 2: the shared globals `HTTP`,
 `HttpClient` and `MQTT` leave the sandbox (`plugin:httpRequest`, `plugin:mqttSubscribe` replace
 them), event names and expose paths get the plugin's prefix, and only declared permissions apply.
 On every version objects a plugin did not create become read-only and ids are lower case. No

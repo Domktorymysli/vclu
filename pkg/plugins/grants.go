@@ -59,7 +59,7 @@ func ValidateGrants(g config.PluginGrants) error {
 	if g.MQTT != nil {
 		lists = append(lists, g.MQTT.Subscribe, g.MQTT.Publish)
 	}
-	for _, h := range []*config.HostsGrant{g.GrentonRaw, g.TFTP} {
+	for _, h := range []*config.HostsGrant{g.UDP, g.GrentonRaw, g.TFTP} {
 		if h != nil {
 			lists = append(lists, h.Hosts)
 		}
@@ -82,7 +82,7 @@ func ValidateGrants(g config.PluginGrants) error {
 			return fmt.Errorf("lan hosts: %w", err)
 		}
 	}
-	for name, h := range map[string]*config.HostsGrant{"grenton_raw": g.GrentonRaw, "tftp": g.TFTP} {
+	for name, h := range map[string]*config.HostsGrant{"udp": g.UDP, "grenton_raw": g.GrentonRaw, "tftp": g.TFTP} {
 		if h == nil {
 			continue
 		}

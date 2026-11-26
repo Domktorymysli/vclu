@@ -511,8 +511,18 @@ function Plugin:action(name, spec, fn)
 end
 
 -- ============================================
--- grenton_raw, tftp, serial: only in a plugin's sandbox, with the permission
+-- udp, grenton_raw, tftp, serial: only in a plugin's sandbox, with the permission
 -- ============================================
+
+--- A UDP socket for devices on the local network (permission udp); not to the CLU's ports
+-- @param opts table|nil {port = 0}: 0 for any free port
+-- @return table|nil socket:send(ip, port, bytes), socket:broadcast(port, bytes) to a port in
+--   plugin.json's "udp": {"broadcastPorts": [...]}, socket:onReceive(function(bytes, ip, port) end),
+--   socket:close(); nil, err if not bound
+-- @usage local s = plugin:udpSocket() s:onReceive(function(b, ip) end) s:broadcast(7000, '{"t":"scan"}')
+function Plugin:udpSocket(opts)
+    return sandboxAPI(self, "udpSocket").udpSocket(opts)
+end
 
 --- A UDP socket of the plugin's own (permission grenton_raw)
 -- @param opts table|nil {port = 0}: 0 for any free port

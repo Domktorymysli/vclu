@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"net/netip"
+	"slices"
 	"sync"
 	"time"
 
@@ -17,8 +18,11 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-// grentonPort: where CLUs listen; the only port a plugin may broadcast to (discovery).
+// grentonPort: where CLUs listen; the only port a grenton_raw socket may broadcast to (discovery).
 const grentonPort = 1234
+
+// tftpPort: the CLU's TFTP; with grentonPort reached only with grenton_raw or tftp, not udp.
+const tftpPort = 69
 
 const (
 	pluginIOMaxHandles = 16       // sockets, ports and transfers of one plugin
@@ -26,7 +30,7 @@ const (
 	pluginTFTPMaxBytes = 16 << 20 // one file
 )
 
-// PluginIO holds what plugins with grenton_raw, tftp or serial opened: their UDP sockets,
+// PluginIO holds what plugins with udp, grenton_raw, tftp or serial opened: their UDP sockets,
 // serial ports and TFTP transfers. Each belongs to one plugin, data reaches Lua through
 // deliver (the run loop) and every handle closes with the plugin.
 type PluginIO struct {
@@ -48,12 +52,16 @@ type pluginIOGrant struct {
 	rawHosts         []netip.Prefix
 	tftpHosts        []netip.Prefix
 	serialPorts      []string
+	udp              bool
+	udpHosts         []netip.Prefix
+	broadcastPorts   []int // udp: from plugin.json
 }
 
 type ioHandle struct {
 	id     int
 	plugin string
 	kind   string // "udp", "serial", "tftp"
+	perm   string // udp: the permission it was opened under, "udp" or "grenton_raw"
 	path   string // serial: resolved path
 	conn   *net.UDPConn
 	port   io.ReadWriteCloser
@@ -407,13 +415,26 @@ func callIO(L *lua.LState, h *ioHandle, e ioEvent) error {
 
 // --- UDP ---
 
-// OpenUDP binds a socket for the plugin, port 0 for any free one.
+// OpenUDP binds a grenton_raw socket for the plugin, port 0 for any free one.
 func (p *PluginIO) OpenUDP(plugin string, port int) (int, error) {
+	return p.openUDP(plugin, port, "grenton_raw")
+}
+
+// OpenDeviceUDP binds a udp socket: devices on the local network, not the CLU's ports.
+func (p *PluginIO) OpenDeviceUDP(plugin string, port int) (int, error) {
+	return p.openUDP(plugin, port, "udp")
+}
+
+func (p *PluginIO) openUDP(plugin string, port int, perm string) (int, error) {
 	if port < 0 || port > 65535 {
 		return 0, fmt.Errorf("port %d out of range", port)
 	}
 	h, err := p.add(plugin, "udp", func(g pluginIOGrant) error {
-		if err := needs(g.grentonRaw, plugin, "grenton_raw"); err != nil {
+		allowed := g.grentonRaw
+		if perm == "udp" {
+			allowed = g.udp
+		}
+		if err := needs(allowed, plugin, perm); err != nil {
 			return err
 		}
 		if p.reserved[port] {
@@ -436,6 +457,7 @@ func (p *PluginIO) OpenUDP(plugin string, port int) (int, error) {
 		return 0, fmt.Errorf("closed")
 	}
 	h.conn = conn
+	h.perm = perm
 	p.markSent(conn.LocalAddr().(*net.UDPAddr).Port)
 	p.mu.Unlock()
 	go p.pump(h)
@@ -456,8 +478,9 @@ func (p *PluginIO) OpenUDP(plugin string, port int) (int, error) {
 	return h.id, nil
 }
 
-// SendUDP sends one datagram from the plugin's socket. A broadcast goes only to the CLU
-// port (discovery), where vCLU's own listener drops it (FromPlugin).
+// SendUDP sends one datagram from the plugin's socket. A grenton_raw socket broadcasts only
+// to the CLU port (discovery), where vCLU's own listener drops it (FromPlugin); a udp one
+// only to the ports in plugin.json, and to no CLU port at all.
 func (p *PluginIO) SendUDP(id int, plugin, host string, port int, data []byte) error {
 	h, err := p.handle(id, plugin)
 	if err != nil || h.conn == nil {
@@ -472,12 +495,27 @@ func (p *PluginIO) SendUDP(id int, plugin, host string, port int, data []byte) e
 		return fmt.Errorf("port %d out of range", port)
 	}
 	p.mu.Lock()
-	hosts := p.grants[plugin].rawHosts
+	g, ownPort := p.grants[plugin], p.reserved[port]
 	p.mu.Unlock()
-	if isBroadcast(ip) {
-		if port != grentonPort {
-			return fmt.Errorf("refused broadcast to port %d: only to the CLU port %d", port, grentonPort)
+	hosts := g.rawHosts
+	if h.perm == "udp" {
+		hosts = g.udpHosts
+		if !g.udp {
+			return needs(false, plugin, "udp")
 		}
+		if port == grentonPort || port == tftpPort {
+			return fmt.Errorf("refused port %d: a CLU port, reached only with grenton_raw or tftp", port)
+		}
+		if ownPort {
+			return fmt.Errorf("refused port %d: a port vclu listens on", port)
+		}
+		if isBroadcast(ip) && !slices.Contains(g.broadcastPorts, port) {
+			return fmt.Errorf("refused broadcast to port %d: not in plugin.json's \"udp\": {\"broadcastPorts\"}", port)
+		}
+	} else if isBroadcast(ip) && port != grentonPort {
+		return fmt.Errorf("refused broadcast to port %d: only to the CLU port %d", port, grentonPort)
+	}
+	if isBroadcast(ip) {
 		if hosts != nil {
 			return fmt.Errorf("refused broadcast: the plugin's settings allow only some hosts")
 		}
@@ -652,14 +690,23 @@ func pushResult(L *lua.LState, v lua.LValue, err error) int {
 }
 
 func registerPluginIOFunctions(L *lua.LState, p *PluginIO) {
-	// __go_pluginio_grant(pluginId, grentonRaw, tftp, serial, rawHosts, tftpHosts, serialPorts)
+	// __go_pluginio_grant(pluginId, grentonRaw, tftp, serial, rawHosts, tftpHosts, serialPorts,
+	//   udp, udpHosts, broadcastPorts)
 	L.SetGlobal("__go_pluginio_grant", L.NewFunction(func(L *lua.LState) int {
 		id := L.CheckString(1)
-		g := pluginIOGrant{grentonRaw: L.ToBool(2), tftp: L.ToBool(3), serial: L.ToBool(4)}
+		g := pluginIOGrant{grentonRaw: L.ToBool(2), tftp: L.ToBool(3), serial: L.ToBool(4), udp: L.ToBool(8)}
 		g.rawHosts = hostsArg(L, 5, id)
 		g.tftpHosts = hostsArg(L, 6, id)
 		if t, ok := L.Get(7).(*lua.LTable); ok {
 			t.ForEach(func(_, v lua.LValue) { g.serialPorts = append(g.serialPorts, v.String()) })
+		}
+		g.udpHosts = hostsArg(L, 9, id)
+		if t, ok := L.Get(10).(*lua.LTable); ok {
+			t.ForEach(func(_, v lua.LValue) {
+				if n, ok := v.(lua.LNumber); ok {
+					g.broadcastPorts = append(g.broadcastPorts, int(n))
+				}
+			})
 		}
 		p.SetGrant(id, g)
 		return 0
@@ -679,9 +726,13 @@ func registerPluginIOFunctions(L *lua.LState, p *PluginIO) {
 		return 0
 	}))
 
-	// __go_pluginio_udp_open(pluginId, port) -> id | nil, err
+	// __go_pluginio_udp_open(pluginId, port, "udp"|"grenton_raw") -> id | nil, err
 	L.SetGlobal("__go_pluginio_udp_open", L.NewFunction(func(L *lua.LState) int {
-		id, err := p.OpenUDP(L.CheckString(1), L.OptInt(2, 0))
+		open := p.OpenUDP
+		if L.OptString(3, "grenton_raw") == "udp" {
+			open = p.OpenDeviceUDP
+		}
+		id, err := open(L.CheckString(1), L.OptInt(2, 0))
 		return pushResult(L, lua.LNumber(id), err)
 	}))
 

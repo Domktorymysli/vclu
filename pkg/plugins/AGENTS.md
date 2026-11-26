@@ -135,3 +135,11 @@ and anything outside the local network, the socket cannot bind ports vCLU reserv
 plugin sockets (`FromPlugin`). Data comes back through `__vclu_plugin_io` on the run loop, queued per
 handle so a slow callback does not stop the reader. `PluginSandbox:cleanup` releases everything
 the plugin opened; a reload closes all of it.
+
+`udp` (API 2) is UDP to devices on the local network, for protocols such as a split air
+conditioner's: granted on install like `lan`, narrowed like `grenton_raw` (`{"udp": {"hosts": [...]}}`,
+limits `udpHosts`). `plugin:udpSocket` opens the same handle as `grentonSocket` but marked `udp`:
+`SendUDP` refuses the CLU ports 1234 and 69 (those need `grenton_raw` or `tftp`) and the ports vCLU
+listens on, and a broadcast goes only to the ports in plugin.json's `"udp": {"broadcastPorts": [7000]}`
+(at most 8, never 1234 or 69, only with `"udp": true` in permissions: `udp.go`, checked at download
+and at load), and never with a host list. A `grenton_raw` socket keeps its rules.

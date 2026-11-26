@@ -302,6 +302,8 @@ type installedPluginView struct {
 	// Internet hosts it asks for (["*"]: any) and of them those not allowed yet
 	Internet        []string `json:"internet,omitempty"`
 	PendingInternet []string `json:"pendingInternet,omitempty"`
+	// with udp: the ports it may broadcast to
+	BroadcastPorts []int `json:"broadcastPorts,omitempty"`
 }
 
 func (s *Server) installedPluginsView(installed []config.InstalledPlugin) []installedPluginView {
@@ -309,7 +311,7 @@ func (s *Server) installedPluginsView(installed []config.InstalledPlugin) []inst
 	loader := plugins.NewLoader(s.serverDir)
 	for _, p := range installed {
 		v := loader.PermissionsView(p)
-		out = append(out, installedPluginView{p, loader.NeedsConfig(p), v.Requested.Names(), v.Pending.Names(), v.Internet, v.Pending.Internet})
+		out = append(out, installedPluginView{p, loader.NeedsConfig(p), v.Requested.Names(), v.Pending.Names(), v.Internet, v.Pending.Internet, v.BroadcastPorts})
 	}
 	return out
 }
@@ -334,16 +336,17 @@ func (s *Server) handlePluginsAPIPreview(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Repository not found"})
 		return
 	}
-	requested, version, err := plugins.NewLoader(s.serverDir).PreviewPermissions(*repo, id)
+	preview, err := plugins.NewLoader(s.serverDir).PreviewPermissions(*repo, id)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("Failed to read the plugin: %v", err)})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"version":   version,
-		"requested": nonNil(requested.Names()),
-		"internet":  nonNil([]string(requested.Internet)),
-		"all":       plugins.AllPermissions.Names(),
+		"version":        preview.Version,
+		"requested":      nonNil(preview.Requested.Names()),
+		"internet":       nonNil([]string(preview.Requested.Internet)),
+		"broadcastPorts": append([]int{}, preview.BroadcastPorts...),
+		"all":            plugins.AllPermissions.Names(),
 	})
 }
 

@@ -27,11 +27,12 @@ const (
 )
 
 // Permissions are what a plugin may reach, declared in plugin.json as "permissions":
-// {"internet": ["api.example.com"], "lan": true, "mqtt": true, "modbus": true}.
+// {"internet": ["api.example.com"], "lan": true, "udp": true, "mqtt": true, "modbus": true}.
 type Permissions struct {
 	// Internet hosts (API 2; API 1 reaches any): nil none, ["*"] any
 	Internet InternetHosts `json:"internet,omitempty"`
 	LAN      bool          `json:"lan,omitempty"`    // HTTP to local addresses (the house's devices)
+	UDP      bool          `json:"udp,omitempty"`    // UDP to local devices, broadcast only to the ports in "udp" (API 2)
 	MQTT     bool          `json:"mqtt,omitempty"`   // subscribe and publish on the broker
 	Modbus   bool          `json:"modbus,omitempty"` // Modbus requests, reads and writes
 	// Only once the user allows them in the panel, never on install:
@@ -88,6 +89,9 @@ func (p Permissions) Names() []string {
 	if p.LAN {
 		out = append(out, "lan")
 	}
+	if p.UDP {
+		out = append(out, "udp")
+	}
 	if p.MQTT {
 		out = append(out, "mqtt")
 	}
@@ -107,7 +111,7 @@ func (p Permissions) Names() []string {
 }
 
 // AllPermissions: every permission a plugin can ask for, as the panel lists them.
-var AllPermissions = Permissions{Internet: InternetHosts{"*"}, LAN: true, MQTT: true, Modbus: true, GrentonRaw: true, TFTP: true, Serial: true}
+var AllPermissions = Permissions{Internet: InternetHosts{"*"}, LAN: true, UDP: true, MQTT: true, Modbus: true, GrentonRaw: true, TFTP: true, Serial: true}
 
 // Only keeps the permissions of p named in names.
 func (p Permissions) Only(names []string) Permissions {
@@ -118,7 +122,7 @@ func (p Permissions) Only(names []string) Permissions {
 	}
 	return Permissions{
 		Internet: internet,
-		LAN:      p.LAN && has("lan"), MQTT: p.MQTT && has("mqtt"), Modbus: p.Modbus && has("modbus"),
+		LAN:      p.LAN && has("lan"), UDP: p.UDP && has("udp"), MQTT: p.MQTT && has("mqtt"), Modbus: p.Modbus && has("modbus"),
 		GrentonRaw: p.GrentonRaw && has("grenton_raw"), TFTP: p.TFTP && has("tftp"), Serial: p.Serial && has("serial"),
 	}
 }
@@ -130,11 +134,11 @@ func (p Permissions) allowedBy(g *config.PluginGrants) (allowed, pending Permiss
 		g = p.Grants()
 	}
 	allowed = Permissions{
-		LAN: p.LAN && g.LAN != nil, MQTT: p.MQTT && g.MQTT != nil, Modbus: p.Modbus && g.Modbus != nil,
+		LAN: p.LAN && g.LAN != nil, UDP: p.UDP && g.UDP != nil, MQTT: p.MQTT && g.MQTT != nil, Modbus: p.Modbus && g.Modbus != nil,
 		GrentonRaw: p.GrentonRaw && g.GrentonRaw != nil, TFTP: p.TFTP && g.TFTP != nil, Serial: p.Serial && g.Serial != nil,
 	}
 	pending = Permissions{
-		LAN: p.LAN && g.LAN == nil, MQTT: p.MQTT && g.MQTT == nil, Modbus: p.Modbus && g.Modbus == nil,
+		LAN: p.LAN && g.LAN == nil, UDP: p.UDP && g.UDP == nil, MQTT: p.MQTT && g.MQTT == nil, Modbus: p.Modbus && g.Modbus == nil,
 		GrentonRaw: p.GrentonRaw && g.GrentonRaw == nil, TFTP: p.TFTP && g.TFTP == nil, Serial: p.Serial && g.Serial == nil,
 	}
 	// hosts allowed before keep working; a new one, or "*", waits
@@ -166,6 +170,9 @@ func (p Permissions) Grants() *config.PluginGrants {
 	if p.LAN {
 		g.LAN = &config.LANGrant{}
 	}
+	if p.UDP {
+		g.UDP = &config.HostsGrant{}
+	}
 	if p.MQTT {
 		g.MQTT = &config.MQTTGrant{}
 	}
@@ -180,6 +187,7 @@ func (p Permissions) Grants() *config.PluginGrants {
 type Limits struct {
 	InternetHosts   []string `json:"internetHosts,omitzero"` // set on API 2 from the allowed hosts
 	LANHosts        []string `json:"lanHosts,omitzero"`
+	UDPHosts        []string `json:"udpHosts,omitzero"`
 	MQTTSubscribe   []string `json:"mqttSubscribe,omitzero"`
 	MQTTPublish     []string `json:"mqttPublish,omitzero"`
 	GrentonRawHosts []string `json:"grentonRawHosts,omitzero"`
@@ -198,6 +206,9 @@ func limitsOf(g *config.PluginGrants) Limits {
 	}
 	if g.LAN != nil {
 		l.LANHosts = g.LAN.Hosts
+	}
+	if g.UDP != nil {
+		l.UDPHosts = g.UDP.Hosts
 	}
 	if g.MQTT != nil {
 		l.MQTTSubscribe, l.MQTTPublish = g.MQTT.Subscribe, g.MQTT.Publish
@@ -280,6 +291,8 @@ type PermissionsView struct {
 	Requested, Pending Permissions
 	// Internet: the hosts the plugin asks for; ["*"] on API 1, which reaches any
 	Internet []string
+	// BroadcastPorts: with udp, the ports it may broadcast to
+	BroadcastPorts []int
 }
 
 func (l *Loader) PermissionsView(p config.InstalledPlugin) PermissionsView {
@@ -289,7 +302,7 @@ func (l *Loader) PermissionsView(p config.InstalledPlugin) PermissionsView {
 	}
 	requested := requestedPermissions(manifest)
 	_, pending := requested.allowedBy(p.Grants)
-	v := PermissionsView{Requested: requested, Pending: pending, Internet: requested.Internet}
+	v := PermissionsView{Requested: requested, Pending: pending, Internet: requested.Internet, BroadcastPorts: manifest.BroadcastPorts()}
 	if manifestAPI(manifest) < 2 {
 		v.Internet = []string{"*"}
 	}

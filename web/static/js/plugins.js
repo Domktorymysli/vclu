@@ -230,7 +230,9 @@ PluginsManager.prototype._renderPluginCard = function(plugin, options) {
             } else if (requested.indexOf(name) >= 0) {
                 cls = 'bg-success'; title = pt('allowed');
             }
-            return '<span class="badge ' + cls + ' me-1" title="' + VCLU.esc(title + ': ' + (PERMISSION_LABELS[name] || name)) + '">' +
+            var label = PERMISSION_LABELS[name] || name;
+            if (name === 'udp' && requested.indexOf('udp') >= 0) label = udpLabel(plugin.broadcastPorts || []);
+            return '<span class="badge ' + cls + ' me-1" title="' + VCLU.esc(title + ': ' + label) + '">' +
                    VCLU.esc(PERMISSION_SHORT[name] || name) + '</span>';
         }).join('') + '</p>';
     }
@@ -423,6 +425,7 @@ PluginsManager.prototype._renderInstalledPlugins = function() {
             pendingPermissions: p.pendingPermissions || [],
             internet: p.internet || [],
             pendingInternet: p.pendingInternet || [],
+            broadcastPorts: p.broadcastPorts || [],
             updateAvailable: available.updateAvailable,
             availableVersion: available.version
         };
@@ -525,7 +528,7 @@ PluginsManager.prototype.install = function(id, repository) {
 
 /**
  * Show every permission, those the plugin asks for in green, and install on confirmation
- * @param {Object} preview - {version, requested, all} from /api/plugins/preview
+ * @param {Object} preview - {version, requested, internet, broadcastPorts, all} from /api/plugins/preview
  */
 PluginsManager.prototype._confirmInstall = function(id, repository, preview) {
     var self = this;
@@ -544,7 +547,8 @@ PluginsManager.prototype._confirmInstall = function(id, repository, preview) {
         var asks = requested.indexOf(perm) >= 0;
         var line = '<li class="mb-1 ' + (asks ? 'text-success fw-semibold' : 'text-muted') + '">' +
                    '<i class="bi ' + (asks ? 'bi-check-circle-fill' : 'bi-circle') + ' me-1"></i>' +
-                   VCLU.esc(perm === 'internet' && asks ? internetLabel(preview.internet || []) : (PERMISSION_LABELS[perm] || perm));
+                   VCLU.esc(perm === 'internet' && asks ? internetLabel(preview.internet || []) :
+                            perm === 'udp' && asks ? udpLabel(preview.broadcastPorts || []) : (PERMISSION_LABELS[perm] || perm));
         var newHosts = (preview.internet || []).filter(function(h) { return hadHosts.indexOf(h) < 0 && hadHosts.indexOf('*') < 0; });
         if (asks && installed && (had.indexOf(perm) < 0 || perm === 'internet' && newHosts.length > 0)) {
             line += ' <span class="badge bg-warning text-dark">' + VCLU.esc(pt('new')) + '</span>';
@@ -664,7 +668,7 @@ PluginsManager.prototype.toggle = function(id, enabled) {
 /**
  * Save what the user allows a plugin and re-render
  * @param {string} id - Plugin ID
- * @param {Object} grants - {internet: {hosts}, lan: {hosts}, mqtt: {subscribe, publish}, modbus: {}, grenton_raw: {hosts},
+ * @param {Object} grants - {internet: {hosts}, lan: {hosts}, udp: {hosts}, mqtt: {subscribe, publish}, modbus: {}, grenton_raw: {hosts},
  *   tftp: {hosts}, serial: {ports}}; a missing key is not allowed
  */
 PluginsManager.prototype._saveGrants = function(id, grants, done) {
@@ -724,6 +728,7 @@ function pt(key) {
 var PERMISSION_LABELS = {
     internet: pt('label_internet'),
     lan: pt('label_lan'),
+    udp: pt('label_udp'),
     mqtt: pt('label_mqtt'),
     modbus: pt('label_modbus'),
     grenton_raw: pt('label_grenton_raw'),
@@ -731,11 +736,12 @@ var PERMISSION_LABELS = {
     serial: pt('label_serial')
 };
 
-var ALL_PERMISSIONS = ['internet', 'lan', 'mqtt', 'modbus', 'grenton_raw', 'tftp', 'serial'];
+var ALL_PERMISSIONS = ['internet', 'lan', 'udp', 'mqtt', 'modbus', 'grenton_raw', 'tftp', 'serial'];
 
 var PERMISSION_SHORT = {
     internet: pt('label_internet'),
     lan: pt('short_lan'),
+    udp: 'UDP',
     mqtt: 'MQTT',
     modbus: 'Modbus',
     grenton_raw: pt('short_grenton_raw'),
@@ -752,6 +758,12 @@ var PERMISSION_WARNINGS = {
 
 // "internet": "*" (any host) is allowed on install like a list, with this in front of it
 var INTERNET_ANY_WARNING = pt('warn_internet_any');
+
+// udp with the ports it may broadcast to (plugin.json "udp")
+function udpLabel(ports) {
+    if (ports.length === 0) return pt('label_udp');
+    return pt('label_udp') + '. ' + pt('udp_broadcast_to', ports.join(', '));
+}
 
 function internetLabel(hosts) {
     if (hosts.indexOf('*') >= 0) return pt('internet_any');
@@ -819,7 +831,10 @@ PluginsManager.prototype.editPermissions = function(id) {
         } else if (name === 'mqtt') {
             html += area('mqtt-subscribe', pt('subscribe_only'), grant && grant.subscribe, pt('any_topic'));
             html += area('mqtt-publish', pt('publish_only'), grant && grant.publish, pt('any_topic'));
-        } else if (name === 'grenton_raw' || name === 'tftp') {
+        } else if (name === 'udp' || name === 'grenton_raw' || name === 'tftp') {
+            if (name === 'udp' && (plugin.broadcastPorts || []).length > 0) {
+                html += '<div class="small text-muted mb-1">' + VCLU.esc(pt('udp_broadcast_to', plugin.broadcastPorts.join(', '))) + '</div>';
+            }
             html += area(name + '-hosts', pt('hosts_only'), grant && grant.hosts, pt('any_local_but_vclu'));
         } else if (name === 'serial') {
             html += area('serial-ports', pt('ports'), grant && grant.ports, pt('ports_none'));
@@ -859,7 +874,7 @@ PluginsManager.prototype.savePermissions = function() {
             grants.lan = {hosts: list('lan-hosts')};
         } else if (name === 'mqtt') {
             grants.mqtt = {subscribe: list('mqtt-subscribe'), publish: list('mqtt-publish')};
-        } else if (name === 'grenton_raw' || name === 'tftp') {
+        } else if (name === 'udp' || name === 'grenton_raw' || name === 'tftp') {
             grants[name] = {hosts: list(name + '-hosts')};
         } else if (name === 'serial') {
             grants.serial = {ports: list('serial-ports')};

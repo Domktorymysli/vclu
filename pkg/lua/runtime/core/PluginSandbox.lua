@@ -731,6 +731,7 @@ function PluginSandbox:create(pluginId, permissions)
     end
     sandbox.permissions = {
         lan = permissions.lan == true,
+        udp = permissions.udp == true,
         mqtt = permissions.mqtt == true,
         modbus = permissions.modbus == true,
         grentonRaw = permissions.grenton_raw == true,
@@ -743,6 +744,7 @@ function PluginSandbox:create(pluginId, permissions)
     local function list(v) return type(v) == "table" and v or nil end
     sandbox.limits = {
         lanHosts = list(limits.lanHosts),
+        udpHosts = list(limits.udpHosts),
         mqttSubscribe = list(limits.mqttSubscribe),
         mqttPublish = list(limits.mqttPublish),
         grentonRawHosts = list(limits.grentonRawHosts),
@@ -767,9 +769,11 @@ function PluginSandbox:create(pluginId, permissions)
         __go_http_set_internet(pluginId, sandbox.limits.internetHosts)
     end
     if type(__go_pluginio_grant) == "function" then
+        -- udp broadcasts only to the ports in plugin.json's "udp"
         __go_pluginio_grant(pluginId, sandbox.permissions.grentonRaw, sandbox.permissions.tftp,
             sandbox.permissions.serial, sandbox.limits.grentonRawHosts, sandbox.limits.tftpHosts,
-            sandbox.limits.serialPorts)
+            sandbox.limits.serialPorts, sandbox.permissions.udp, sandbox.limits.udpHosts,
+            list(permissions.udpBroadcastPorts) or {})
     end
 
     -- Build wrapped API with automatic tracking
@@ -928,7 +932,7 @@ function PluginSandbox:buildAPI(sandbox)
         end
     end
 
-    -- grenton_raw, tftp and serial: handles live in Go, which checks the grant again
+    -- udp, grenton_raw, tftp and serial: handles live in Go, which checks the grant again
     local function requireIO(name, key)
         if not sandbox.permissions[key] then
             error(name .. " needs \"" .. name .. "\" in the permissions of " .. pluginId
@@ -959,11 +963,10 @@ function PluginSandbox:buildAPI(sandbox)
         sandbox.ioHandles[id] = nil
     end
 
-    -- A UDP socket of the plugin's own; returns nil, err when the port cannot be bound
-    api.grentonSocket = function(opts)
-        requireIO("grenton_raw", "grentonRaw")
+    -- A UDP socket of the plugin's own, under udp or grenton_raw; nil, err when the port cannot be bound
+    local function udpSocket(opts, perm)
         local port = type(opts) == "table" and tonumber(opts.port) or 0
-        local id, err = __go_pluginio_udp_open(pluginId, port)
+        local id, err = __go_pluginio_udp_open(pluginId, port, perm)
         if not id then return nil, err end
         local entry = track(id)
         local socket = {}
@@ -976,6 +979,18 @@ function PluginSandbox:buildAPI(sandbox)
         function socket:onReceive(fn) entry.call = ioCallback("UDP", fn) end
         function socket:close() closeIO(id) end
         return socket
+    end
+
+    -- Devices on the local network; broadcast only to the ports in plugin.json's "udp"
+    api.udpSocket = function(opts)
+        requireIO("udp", "udp")
+        return udpSocket(opts, "udp")
+    end
+
+    -- Frames to CLUs: their port, broadcast for discovery
+    api.grentonSocket = function(opts)
+        requireIO("grenton_raw", "grentonRaw")
+        return udpSocket(opts, "grenton_raw")
     end
 
     -- The CLU cipher with a key and IV the plugin brings (raw or base64)

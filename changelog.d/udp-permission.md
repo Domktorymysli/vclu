@@ -1,0 +1,3 @@
+### Plugins
+
+- **UDP to devices on the local network** - a new permission `udp` in `plugin.json` (plugin API 2) gives `plugin:udpSocket()`: a UDP socket with `send`, `broadcast` and `onReceive`, for devices with a local UDP protocol such as air conditioners. It needs no `grenton_raw`: it reaches only local addresses, never this vclu, and not the CLU ports (1234, 69), which stay with `grenton_raw` and `tftp`. A broadcast goes only to the ports the plugin lists in `plugin.json` (`"udp": {"broadcastPorts": [7000]}`, up to 8). Installing allows it like `lan`, with the ports shown in the confirmation; the plugins page can limit it to some hosts, and then the plugin does not broadcast.
