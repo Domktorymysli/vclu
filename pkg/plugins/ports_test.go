@@ -102,3 +102,24 @@ func TestPortsReachTheSandboxAndOldGrantsRecordThem(t *testing.T) {
 		t.Errorf("view: ports %v, pending %v %v", v.TCPPorts, v.Pending.TCPPorts, v.Pending.Names())
 	}
 }
+
+// Installing grants only the ports the confirmation showed; the others wait.
+func TestPortsSeenAtInstall(t *testing.T) {
+	asks := Permissions{TCP: true, LAN: true, UDP: true, TCPPorts: []int{22, 23}, WebSocketPorts: []int{80, 8123}, BroadcastPorts: []int{7000}}
+	g := asks.OnlyPortsSeen([]int{23}, []int{7000}, []int{80}).Grants()
+	allowed, pending := asks.allowedBy(g)
+	if !reflect.DeepEqual(allowed.TCPPorts, []int{23}) || !reflect.DeepEqual(pending.TCPPorts, []int{22}) {
+		t.Errorf("tcp: allowed %v, pending %v", allowed.TCPPorts, pending.TCPPorts)
+	}
+	if !reflect.DeepEqual(allowed.WebSocketPorts, []int{80}) || !reflect.DeepEqual(pending.WebSocketPorts, []int{8123}) {
+		t.Errorf("websocket: allowed %v, pending %v", allowed.WebSocketPorts, pending.WebSocketPorts)
+	}
+	if !reflect.DeepEqual(allowed.BroadcastPorts, []int{7000}) || len(pending.BroadcastPorts) > 0 {
+		t.Errorf("udp: allowed %v, pending %v", allowed.BroadcastPorts, pending.BroadcastPorts)
+	}
+	// nothing shown: the permission granted, its ports all wait
+	_, pending = asks.allowedBy(asks.OnlyPortsSeen(nil, nil, nil).Grants())
+	if !reflect.DeepEqual(pending.TCPPorts, []int{22, 23}) {
+		t.Errorf("nothing shown: pending %v", pending.TCPPorts)
+	}
+}

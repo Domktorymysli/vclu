@@ -187,3 +187,19 @@ func (p Permissions) OnlyHostsSeen(seen []string) Permissions {
 	p.Internet = keep
 	return p
 }
+
+// OnlyPortsSeen keeps of the ports asked for those the user confirmed; the grant records
+// only these, so the rest waits for the user.
+func (p Permissions) OnlyPortsSeen(tcp, broadcast, websocket []int) Permissions {
+	keep := func(asked, seen []int) []int {
+		out := []int{}
+		for _, n := range asked {
+			if slices.Contains(seen, n) {
+				out = append(out, n)
+			}
+		}
+		return out
+	}
+	p.TCPPorts, p.BroadcastPorts, p.WebSocketPorts = keep(p.TCPPorts, tcp), keep(p.BroadcastPorts, broadcast), keep(p.WebSocketPorts, websocket)
+	return p
+}

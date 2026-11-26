@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -77,8 +78,9 @@ func TestPluginsAPIInstallGrantsOnlyWhatWasSeen(t *testing.T) {
 	if strings.Join(pending, ",") != "*" {
 		t.Errorf("pending internet %v, want *", pending)
 	}
-	if grants.TCP != nil {
-		t.Errorf("tcp granted with ports the user did not see")
+	// the port shown is granted, 22 from the files waits
+	if grants.TCP == nil || grants.TCP.Ports == nil || !slices.Equal(*grants.TCP.Ports, []int{23}) {
+		t.Errorf("tcp grant %+v, want only the port shown (23)", grants.TCP)
 	}
 	if grants.LAN == nil {
 		t.Errorf("lan, shown and accepted, not granted")

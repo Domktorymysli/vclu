@@ -601,7 +601,8 @@ PluginsManager.prototype._confirmInstall = function(id, repository, preview) {
     this.elements.installConfirm.onclick = function() {
         modal.hide();
         self._install(id, repository, requested, {internet: preview.internet || [],
-            broadcastPorts: preview.broadcastPorts || [], tcpPorts: preview.tcpPorts || []});
+            broadcastPorts: preview.broadcastPorts || [], tcpPorts: preview.tcpPorts || [],
+            websocketPorts: preview.websocketPorts || []});
     };
     modal.show();
 };

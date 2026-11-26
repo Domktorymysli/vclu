@@ -8,7 +8,6 @@ import (
 	"log"
 	"net/http"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
@@ -383,6 +382,7 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 			Internet       []string `json:"internet"`
 			BroadcastPorts []int    `json:"broadcastPorts"`
 			TCPPorts       []int    `json:"tcpPorts"`
+			WebSocketPorts []int    `json:"websocketPorts"`
 		} `json:"seen"`
 	}
 
@@ -497,14 +497,8 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 	}
 	if req.Seen != nil {
 		// hosts and ports not shown wait for the user, as after an update
-		requested = requested.OnlyHostsSeen(req.Seen.Internet)
-		view := loader.PermissionsView(config.InstalledPlugin{ID: fullId})
-		if !subsetInts(view.TCPPorts, req.Seen.TCPPorts) {
-			requested.TCP = false
-		}
-		if !subsetInts(view.BroadcastPorts, req.Seen.BroadcastPorts) {
-			requested.UDP = false
-		}
+		requested = requested.OnlyHostsSeen(req.Seen.Internet).
+			OnlyPortsSeen(req.Seen.TCPPorts, req.Seen.BroadcastPorts, req.Seen.WebSocketPorts)
 	}
 
 	// Fetched without the lock; the install goes into the file as it is now
@@ -547,15 +541,6 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 
 	s.resolvePluginNotices()
 	c.JSON(http.StatusOK, gin.H{"success": true, "action": action, "fullId": fullId, "version": pluginMeta.Version})
-}
-
-func subsetInts(a, of []int) bool {
-	for _, x := range a {
-		if !slices.Contains(of, x) {
-			return false
-		}
-	}
-	return true
 }
 
 // handlePluginsAPIUninstall uninstalls a plugin
