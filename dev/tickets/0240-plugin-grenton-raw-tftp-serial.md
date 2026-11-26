@@ -1,4 +1,4 @@
-# #240: Plugin permissions `grenton_raw`, `tftp` and `serial`: Grenton frames, file transfer and a serial port
+# #240: Plugin permissions `grenton_raw`, `tftp` and `serial`: direct CLU communication, file transfer and a serial port
 
 - **Type:** feature
 - **Area:** plugins, sandbox
