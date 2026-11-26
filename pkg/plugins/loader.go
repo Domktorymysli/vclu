@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -208,6 +209,7 @@ type Loader struct {
 	pluginsDir  string
 	httpClient  *http.Client
 	luaExecutor LuaExecutor
+	loadedMu    sync.RWMutex // loaded: the web handlers and a suspension change it off the run loop
 	loaded      map[string]*LoadedPlugin
 
 	// updateRetry: when a plugin's files may be updated again (pluginID|config|disk); a failed
@@ -757,7 +759,7 @@ func (l *Loader) LoadPlugin(pluginID string, pluginConfig map[string]interface{}
 		return fmt.Errorf("plugin %s is suspended: it went over its time limit too often; turn it on on the plugins page", pluginID)
 	}
 	// enabled again while running (a toggle sent twice): stopped first, with its cleanup
-	if _, running := l.loaded[pluginID]; running {
+	if l.IsLoaded(pluginID) {
 		_ = l.UnloadPlugin(pluginID)
 	}
 
@@ -861,12 +863,14 @@ func (l *Loader) LoadPlugin(pluginID string, pluginConfig map[string]interface{}
 	_, _ = l.luaExecutor.Execute(fmt.Sprintf(`if __go_plugin_budget_loading then __go_plugin_budget_loading(%s, false) end`, luastr.Quote(pluginID)))
 
 	// Store loaded plugin by fullId
+	l.loadedMu.Lock()
 	l.loaded[pluginID] = &LoadedPlugin{
 		Manifest:  manifest,
 		Config:    pluginConfig,
 		Enabled:   true,
 		LocalPath: localDir,
 	}
+	l.loadedMu.Unlock()
 
 	log.Printf("[PLUGINS] loaded %s v%s (%s)", manifest.Name, manifest.Version, pluginID)
 	return nil
@@ -915,7 +919,9 @@ func (l *Loader) NeedsConfig(p config.InstalledPlugin) bool {
 // This also clears the loaded map to support reloading after Lua reinitialize
 func (l *Loader) LoadAllEnabled() error {
 	// Clear loaded map (supports reloading after Lua reinitialize)
+	l.loadedMu.Lock()
 	l.loaded = make(map[string]*LoadedPlugin)
+	l.loadedMu.Unlock()
 
 	masterConfig, err := config.ReadMasterConfig(l.serverDir)
 	if err != nil || masterConfig == nil || masterConfig.Plugins == nil {
@@ -1021,7 +1027,11 @@ func (l *Loader) findRepository(repos []config.PluginRepository, name string) *c
 
 // UnloadPlugin unloads a plugin and cleans up its sandbox
 func (l *Loader) UnloadPlugin(pluginID string) error {
+	// taken out first: a second unload at the same time finds it gone
+	l.loadedMu.Lock()
 	plugin, exists := l.loaded[pluginID]
+	delete(l.loaded, pluginID)
+	l.loadedMu.Unlock()
 	if !exists {
 		return fmt.Errorf("plugin %s not loaded", pluginID)
 	}
@@ -1036,18 +1046,21 @@ func (l *Loader) UnloadPlugin(pluginID string) error {
 		l.luaExecutor.Execute(sandboxCleanupScript)
 	}
 
-	delete(l.loaded, pluginID)
 	log.Printf("[PLUGINS] unloaded %s", plugin.Manifest.Name)
 	return nil
 }
 
 // GetLoadedPlugins returns all loaded plugins
 func (l *Loader) GetLoadedPlugins() map[string]*LoadedPlugin {
-	return l.loaded
+	l.loadedMu.RLock()
+	defer l.loadedMu.RUnlock()
+	return maps.Clone(l.loaded)
 }
 
 // IsLoaded checks if a plugin is loaded
 func (l *Loader) IsLoaded(pluginID string) bool {
+	l.loadedMu.RLock()
+	defer l.loadedMu.RUnlock()
 	_, exists := l.loaded[pluginID]
 	return exists
 }
