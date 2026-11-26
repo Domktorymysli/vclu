@@ -32,7 +32,7 @@ const (
 )
 
 // PluginIO holds what plugins with udp, tcp, grenton_raw, tftp or serial opened: their UDP sockets,
-// TCP connections, serial ports and TFTP transfers. Each belongs to one plugin, data reaches Lua through
+// TCP connections, serial ports and TFTP transfers, and every plugin's WebSockets. Each belongs to one plugin, data reaches Lua through
 // deliver (the run loop) and every handle closes with the plugin.
 type PluginIO struct {
 	mu       sync.Mutex
@@ -67,23 +67,29 @@ type pluginIOGrant struct {
 type ioHandle struct {
 	id     int
 	plugin string
-	kind   string // "udp", "tcp", "serial", "tftp"
+	kind   string // "udp", "tcp", "ws", "serial", "tftp"
 	perm   string // udp: the permission it was opened under, "udp" or "grenton_raw"
 	path   string // serial: resolved path
 	conn   *net.UDPConn
 	port   io.ReadWriteCloser
 	tcp    *tcpConn
-	q      ioQueue
-	done   chan struct{}
-	once   sync.Once
+	ws     *wsConn
+	// ws: the close frame the plugin asked for; 0 sends 1001 (going away: reload, unload)
+	wsCode   int
+	wsReason string
+	q        ioQueue
+	done     chan struct{}
+	once     sync.Once
 }
 
 type ioEvent struct {
-	what string // tcp: "connect" once it is up; data and err as for the others
+	what string // tcp: "connect" once it is up; ws: "open" (data: protocol), "message"
 	data []byte
-	ip   string
-	port int
-	err  string
+	// ws: a binary message; port is the close code with err
+	binary bool
+	ip     string
+	port   int
+	err    string
 }
 
 // ioQueue keeps what arrived until Lua takes it, so a slow callback does not stop the
@@ -278,7 +284,8 @@ func (p *PluginIO) close(h *ioHandle) {
 	h.once.Do(func() {
 		p.mu.Lock()
 		close(h.done)
-		conn, port, tc := h.conn, h.port, h.tcp
+		conn, port, tc, wc := h.conn, h.port, h.tcp, h.ws
+		code, reason := h.wsCode, h.wsReason
 		if conn != nil {
 			p.markSent(conn.LocalAddr().(*net.UDPAddr).Port)
 		}
@@ -295,6 +302,12 @@ func (p *PluginIO) close(h *ioHandle) {
 		}
 		if tc != nil {
 			tc.close()
+		}
+		if wc != nil {
+			if code == 0 {
+				code, reason = 1001, "going away"
+			}
+			wc.close(code, reason)
 		}
 	})
 }
@@ -424,6 +437,14 @@ func callIO(L *lua.LState, h *ioHandle, e ioEvent) error {
 	data := lua.LValue(lua.LNil)
 	if e.data != nil {
 		data = lua.LString(e.data)
+	}
+	if h.kind == "ws" { // (id, "ws", protocol | message | reason, "open" | "message" | "close", binary | code)
+		if e.err != "" {
+			return L.CallByParam(lua.P{Fn: fn, NRet: 0, Protect: true},
+				lua.LNumber(h.id), lua.LString(h.kind), lua.LString(e.err), lua.LString("close"), lua.LNumber(e.port))
+		}
+		return L.CallByParam(lua.P{Fn: fn, NRet: 0, Protect: true},
+			lua.LNumber(h.id), lua.LString(h.kind), data, lua.LString(e.what), lua.LBool(e.binary))
 	}
 	if h.kind == "tcp" { // (id, "tcp", bytes | reason, "connect" | "data" | "close")
 		what := "data"

@@ -1082,7 +1082,7 @@
       "allow_confirm": "Allow {0} to use {1}?",
       "permissions_button": "Permissions",
       "label_internet": "Internet",
-      "label_lan": "Local network (HTTP to devices in the house)",
+      "label_lan": "Local network (HTTP and WebSocket to devices in the house)",
       "label_udp": "UDP on the local network (e.g. air conditioners)",
       "label_tcp": "TCP connections to devices on the local network (e.g. telnet)",
       "label_mqtt": "MQTT",

@@ -246,6 +246,7 @@ func (le *LuaEngine) initializeLuaState(cluName string) error {
 	registerMQTTFunctions(L, le.mqttManager)
 	registerModbusFunctions(L, le.modbusManager)
 	registerPluginIOFunctions(L, le.pluginIO)
+	registerPluginWSFunctions(L, le.pluginIO, le.httpManager)
 	registerParserFunctions(L)
 	registerKVFunctions(L, le.kvManager)
 	registerGPIOFunctions(L, le.gpioManager)

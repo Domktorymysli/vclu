@@ -93,13 +93,24 @@ running: the manifest names the plugin API it is written for, and the stricter c
   narrows it, and a narrowed or withdrawn grant closes open connections. New ports in an update need
   no new consent. Telnet is not a permission: `Telnet.wrap(conn)` (`lib/telnet.lua`, a global in
   plugins) answers DO with WONT and WILL with DONT, drops subnegotiation and gives lines and prompts.
+- WebSocket client (decided 26.11: Tuya's message service over wss://, Shelly Gen2 and Home
+  Assistant over ws://): no permission of its own. `plugin:websocket(url, {headers, protocols,
+  timeout})` takes `ws://` or `wss://` and dials through the plugin's HTTP rules (the internet host
+  list before DNS and after it, `lan` and its hosts for a local address), and never an address of
+  this vclu; TLS runs after that dial, so wss is checked the same. Headers the handshake sets
+  (Host, Upgrade, Connection, Sec-WebSocket-*) are refused, others pass (Authorization, Origin). It
+  opens in the background (10 s, at most 30), a redirect is an error with its HTTP status, a message
+  from the server is at most 1 MiB (over it the connection closes with 1009), `send` queues 1 MiB
+  for a writer with a time limit. A change of `lan` or the internet list closes the connections it no
+  longer allows (1008); a reload closes with 1001; `close(code, reason)` takes 1000 or 3000-4999.
+  No reconnect in the core. Shares the 16 handles of a plugin.
 
 ## Files
 - `pkg/lua/runtime/core/PluginSandbox.lua`, `PluginAPI.lua`, `PluginHelpers.lua`, `ExposedObjects.lua`
 - `pkg/lua/runtime/objects/RemoteObject.lua` (integer index on `get`/`set`/`execute`)
 - `pkg/lua/http.go`, `pkg/lua/http_lan.go`
 - `pkg/plugins/permissions.go`, `loader.go`, `udp.go`, `kvstore.go`, `AGENTS.md`
-- `pkg/lua/plugin_io.go` (`udp` sockets), `plugin_tcp.go` (`tcp` connections), `runtime/lib/telnet.lua`
+- `pkg/lua/plugin_io.go` (`udp` sockets), `plugin_tcp.go` (`tcp` connections), `plugin_ws.go` (WebSockets), `runtime/lib/telnet.lua`
 - `pkg/plugins/tcp.go`
 - `pkg/web/handle_web_plugins.go` (an update records its repository; grants), `web/static/js/plugins.js`, `web/templates/plugins.html`
 - `pkg/config/config.go`
@@ -173,6 +184,18 @@ running: the manifest names the plugin API it is written for, and the stricter c
       (`TestManifestTCPPorts`, `TestManifestTCPNeedsThePermissionAndPorts`).
 - [ ] `lib/telnet` refuses options, drops commands split across reads and gives lines and prompts
       (`TestTelnetLibBytes`, `TestPluginTelnetLogin`).
+- [ ] `plugin:websocket` opens with the server's protocol and sends and receives text and binary in
+      order; the server closing reaches `onClose` with its code (`TestPluginWSEchoAndClose`).
+- [ ] A WebSocket reaches what the plugin's HTTP reaches: a listed internet host, not another one,
+      a listed name on a local address only with `lan`, a local address only with `lan` and its
+      hosts, never this vclu; API 1 as its HTTP (`TestPluginWSInternetHosts`, `TestPluginWSLAN`,
+      `TestPluginWSAPI1`).
+- [ ] Handshake headers are refused and others reach the server; a message over 1 MiB, a redirect,
+      no answer in time, a timeout over 30 s and a non-ws URL end or refuse it
+      (`TestPluginWSHeaders`, `TestPluginWSLimits`).
+- [ ] `close(code, reason)` sends the code, a reload closes with 1001, 16 handles at most, and a
+      narrowed `lan` closes an open connection (`TestPluginWSCloseReloadAndLimit`,
+      `TestPluginWSGrantWithdrawn`).
 - [ ] `go test ./...` and `go test -race ./...` pass.
 - [ ] A changelog entry in `changelog.d/0205-plugin-permissions.md`.
 - [ ] `DEVELOPMENT.md` in `vclu-plugins` documents `permissions`, the event prefix and the id rule,
@@ -180,7 +203,7 @@ running: the manifest names the plugin API it is written for, and the stricter c
 
 ## Contract impact
 Contract change in the plugin API (CONTRIBUTING.md), versioned: `api` and `permissions` (with the
-`internet` host list, `udp` and `tcp`), `udp.broadcastPorts` and `tcp.ports` are new manifest fields. API 1 (no `api`) keeps the old contract. API 2: the shared globals `HTTP`,
+`internet` host list, `udp` and `tcp`), `udp.broadcastPorts` and `tcp.ports` are new manifest fields, and `plugin:websocket` a new method under the existing `internet` and `lan`. API 1 (no `api`) keeps the old contract. API 2: the shared globals `HTTP`,
 `HttpClient` and `MQTT` leave the sandbox (`plugin:httpRequest`, `plugin:mqttSubscribe` replace
 them), event names and expose paths get the plugin's prefix, and only declared permissions apply.
 On every version objects a plugin did not create become read-only and ids are lower case. No

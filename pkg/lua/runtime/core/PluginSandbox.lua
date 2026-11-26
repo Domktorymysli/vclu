@@ -11,16 +11,17 @@ PluginSandbox.ioHandles = {}  -- Go handle id -> {call} of a plugin's socket, po
 
 -- Data for plugins' sockets, ports and transfers (pkg/lua/plugin_io.go): udp (bytes, ip,
 -- port), serial (bytes), either (nil, err) once when it fails; tftp (bytes, err) once;
--- tcp ("connect" | "data" | "close", bytes | reason).
+-- tcp ("connect" | "data" | "close", bytes | reason); ws ("open" | "message" | "close",
+-- protocol | message | reason, binary | code).
 function __vclu_plugin_io(id, kind, data, second, port)
     local h = PluginSandbox.ioHandles[id]
     if not h then return end
-    if kind == "tcp" then
+    if kind == "tcp" or kind == "ws" then
         if second == "close" then
             PluginSandbox.ioHandles[id] = nil
             h.sandbox.ioHandles[id] = nil
         end
-        if h.call then h.call(second, data) end
+        if h.call then h.call(second, data, port) end
         return
     end
     if kind == "tftp" or data == nil then -- a transfer's answer, or a socket or port that failed
@@ -1033,6 +1034,51 @@ function PluginSandbox:buildAPI(sandbox)
             closeIO(id)
         end
         return conn
+    end
+
+    -- A WebSocket client where the plugin's HTTP may go (permissions.internet, lan); it
+    -- opens (or fails) in the callbacks, nil, err when refused
+    api.websocket = function(url, opts)
+        if type(url) ~= "string" then
+            error("plugin:websocket: url is a ws:// or wss:// string", 2)
+        end
+        if opts ~= nil and type(opts) ~= "table" then
+            error("plugin:websocket: opts is a table {headers = {...}, protocols = {...}, timeout = seconds}", 2)
+        end
+        opts = opts or {}
+        local id, err = __go_pluginio_ws_open(pluginId, url, type(opts.headers) == "table" and opts.headers or nil,
+            type(opts.protocols) == "table" and opts.protocols or nil, tonumber(opts.timeout) or 0)
+        if not id then return nil, err end
+        local on, state = {}, "connecting"
+        track(id).call = function(what, data, extra)
+            if what == "open" then
+                state = "open"
+                if on.open then on.open(data) end
+            elseif what == "close" then
+                state = "closed"
+                if on.close then on.close(extra, data) end
+            elseif on.message then
+                on.message(data, extra)
+            end
+        end
+        local ws = {}
+        function ws:send(data, sendOpts)
+            local binary = type(sendOpts) == "table" and sendOpts.binary == true
+            return __go_pluginio_ws_send(id, pluginId, tostring(data), binary)
+        end
+        function ws:onOpen(fn) on.open = ioCallback("WebSocket", fn) end
+        function ws:onMessage(fn) on.message = ioCallback("WebSocket", fn) end
+        function ws:onClose(fn) on.close = ioCallback("WebSocket", fn) end
+        function ws:isOpen() return state == "open" end
+        function ws:close(code, reason)
+            local ok, cerr = __go_pluginio_ws_close(id, pluginId, tonumber(code) or 1000, reason and tostring(reason) or "")
+            if not ok then return nil, cerr end
+            state = "closed"
+            PluginSandbox.ioHandles[id] = nil
+            sandbox.ioHandles[id] = nil
+            return true
+        end
+        return ws
     end
 
     -- Frames to CLUs: their port, broadcast for discovery

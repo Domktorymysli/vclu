@@ -535,6 +535,18 @@ function Plugin:tcpConnect(opts)
     return sandboxAPI(self, "tcpConnect").tcpConnect(opts)
 end
 
+--- A WebSocket client (ws:// or wss://) to where the plugin's HTTP may go: internet hosts on
+-- the permissions.internet list, local ones with lan; no permission of its own
+-- @param url string "wss://example.com/events"
+-- @param opts table|nil {headers = {Authorization = "..."}, protocols = {"json"}, timeout = 10}
+-- @return table|nil ws:send(data, {binary = true}?) after onOpen, ws:onOpen(function(protocol) end),
+--   ws:onMessage(function(data, binary) end), ws:onClose(function(code, reason) end),
+--   ws:isOpen(), ws:close(code?, reason?); nil, err if refused
+-- @usage local ws = plugin:websocket("wss://example.com/events") ws:onMessage(function(m) end)
+function Plugin:websocket(url, opts)
+    return sandboxAPI(self, "websocket").websocket(url, opts)
+end
+
 --- A UDP socket of the plugin's own (permission grenton_raw)
 -- @param opts table|nil {port = 0}: 0 for any free port
 -- @return table|nil socket:send(ip, port, bytes), socket:broadcast(port, bytes),

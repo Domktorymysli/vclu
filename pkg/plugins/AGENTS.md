@@ -152,3 +152,9 @@ answers through the handle's queue (`connect`, data, `close` with a reason); sen
 writer with a time limit. `SetGrant` closes connections a new grant does not allow; `SetTCPTaken`
 keeps the MQTT broker vclu uses out of reach. `lib/telnet.lua` is pure Lua over such a connection,
 given to plugins as the global `Telnet`.
+
+`plugin:websocket` (`pkg/lua/plugin_ws.go`) has no permission of its own: it dials through the
+plugin's HTTP `dialPolicy` (internet list, `lan` and its hosts) plus a refusal of this vclu's
+addresses, and gorilla/websocket does TLS after that dial. The handle lives in `PluginIO` like a
+`tcp` connection (queue, writer, 16 handles); `HTTPManager.SetOnPolicy` lets a changed `lan` or
+internet list close the connections it no longer allows.

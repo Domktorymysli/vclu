@@ -78,7 +78,8 @@ type dialPolicy struct {
 	restricted bool           // internet hosts only those in internet
 	internet   plugins.InternetHosts
 	isLocal    func(netip.Addr) bool
-	resolve    map[string]string // tests: a name's address instead of DNS
+	resolve    map[string]string     // tests: a name's address instead of DNS
+	own        func(netip.Addr) bool // set: this machine's addresses refused (a plugin's WebSocket)
 }
 
 func (p dialPolicy) notListed(host string) error {
@@ -126,23 +127,31 @@ func (p dialPolicy) dialContext(ctx context.Context, network, addr string) (net.
 			if err != nil {
 				return fmt.Errorf("refused %s: not an IP address", address)
 			}
-			ip = ip.WithZone("").Unmap()
-			if !p.isLocal(ip) {
-				if p.restricted && !p.internet.Allows(host) {
-					return p.notListed(host)
-				}
-				return nil
-			}
-			if p.noLAN {
-				return fmt.Errorf(`refused %s: a local address needs "lan" in the plugin's permissions`, h)
-			}
-			if p.narrowed && !slices.ContainsFunc(p.lanHosts, func(n netip.Prefix) bool { return n.Contains(ip) }) {
-				return fmt.Errorf("refused %s: not among the hosts allowed in the plugin's settings", h)
-			}
-			return nil
+			return p.allows(host, ip)
 		},
 	}
 	return d.DialContext(ctx, network, target)
+}
+
+// allows: the address host resolved to may be reached, as the dialer decides after DNS.
+func (p dialPolicy) allows(host string, ip netip.Addr) error {
+	ip = ip.WithZone("").Unmap()
+	if p.own != nil && p.own(ip) {
+		return fmt.Errorf("refused %s: an address of this vclu", ip)
+	}
+	if !p.isLocal(ip) {
+		if p.restricted && !p.internet.Allows(host) {
+			return p.notListed(host)
+		}
+		return nil
+	}
+	if p.noLAN {
+		return fmt.Errorf(`refused %s: a local address needs "lan" in the plugin's permissions`, ip)
+	}
+	if p.narrowed && !slices.ContainsFunc(p.lanHosts, func(n netip.Prefix) bool { return n.Contains(ip) }) {
+		return fmt.Errorf("refused %s: not among the hosts allowed in the plugin's settings", ip)
+	}
+	return nil
 }
 
 func defaultIsLocal(ip netip.Addr) bool { return isLocalAddr(ip) || onHostNetwork(ip) }

@@ -27,7 +27,8 @@ type HTTPManager struct {
 	asyncResponses map[string]*asyncHTTPResponse
 	asyncInFlight  map[string]bool
 	asyncMu        sync.Mutex
-	onRequest      func(hasError bool) // callback for metrics
+	onRequest      func(hasError bool)     // callback for metrics
+	onPolicy       func(instanceID string) // an instance's lan or internet changed
 	// instances (plugin ids) that may not connect to local addresses
 	noLAN map[string]bool
 	// instances that may connect only to these local addresses
@@ -73,6 +74,7 @@ func NewHTTPManager() *HTTPManager {
 // SetInternet limits an instance's internet hosts to hosts (empty: none); nil allows any.
 func (hm *HTTPManager) SetInternet(instanceID string, hosts plugins.InternetHosts) {
 	hm.mu.Lock()
+	defer hm.policyChanged(instanceID)
 	defer hm.mu.Unlock()
 	if hosts == nil {
 		delete(hm.internet, instanceID)
@@ -84,6 +86,7 @@ func (hm *HTTPManager) SetInternet(instanceID string, hosts plugins.InternetHost
 // SetLANAllowed sets whether an instance may connect to local addresses.
 func (hm *HTTPManager) SetLANAllowed(instanceID string, allowed bool) {
 	hm.mu.Lock()
+	defer hm.policyChanged(instanceID)
 	defer hm.mu.Unlock()
 	if allowed {
 		delete(hm.noLAN, instanceID)
@@ -95,11 +98,28 @@ func (hm *HTTPManager) SetLANAllowed(instanceID string, allowed bool) {
 // SetLANHosts narrows an instance's local addresses to hosts; nil allows any.
 func (hm *HTTPManager) SetLANHosts(instanceID string, hosts []netip.Prefix) {
 	hm.mu.Lock()
+	defer hm.policyChanged(instanceID)
 	defer hm.mu.Unlock()
 	if hosts == nil {
 		delete(hm.lanHosts, instanceID)
 	} else {
 		hm.lanHosts[instanceID] = hosts
+	}
+}
+
+// SetOnPolicy: called, without the lock, after an instance's lan or internet changed.
+func (hm *HTTPManager) SetOnPolicy(fn func(instanceID string)) {
+	hm.mu.Lock()
+	hm.onPolicy = fn
+	hm.mu.Unlock()
+}
+
+func (hm *HTTPManager) policyChanged(instanceID string) {
+	hm.mu.RLock()
+	fn := hm.onPolicy
+	hm.mu.RUnlock()
+	if fn != nil {
+		fn(instanceID)
 	}
 }
 
@@ -110,17 +130,29 @@ func (hm *HTTPManager) SetOnRequest(fn func(hasError bool)) {
 	hm.mu.Unlock()
 }
 
+// policy: where the instance may connect now, as its HTTP does.
+func (hm *HTTPManager) policy(instanceID string) dialPolicy {
+	hm.mu.Lock()
+	defer hm.mu.Unlock()
+	return hm.policyLocked(instanceID)
+}
+
+func (hm *HTTPManager) policyLocked(instanceID string) dialPolicy {
+	hosts, narrowed := hm.lanHosts[instanceID]
+	internet, restricted := hm.internet[instanceID]
+	return dialPolicy{
+		plugin: instanceID, noLAN: hm.noLAN[instanceID], narrowed: narrowed, lanHosts: hosts,
+		restricted: restricted, internet: internet, isLocal: hm.isLocal, resolve: hm.testResolve,
+	}
+}
+
 // getOrCreateClient gets or creates an HTTP client for the given instance
 func (hm *HTTPManager) getOrCreateClient(instanceID string, timeout int, verifySSL, followRedirects bool) (*http.Client, dialPolicy) {
 	hm.mu.Lock()
 	defer hm.mu.Unlock()
 
-	hosts, narrowed := hm.lanHosts[instanceID]
-	internet, restricted := hm.internet[instanceID]
-	policy := dialPolicy{
-		plugin: instanceID, noLAN: hm.noLAN[instanceID], narrowed: narrowed, lanHosts: hosts,
-		restricted: restricted, internet: internet, isLocal: hm.isLocal, resolve: hm.testResolve,
-	}
+	policy := hm.policyLocked(instanceID)
+	hosts, narrowed, restricted, internet := policy.lanHosts, policy.narrowed, policy.restricted, policy.internet
 	// Generate cache key based on settings
 	cacheKey := fmt.Sprintf("%s_%d_%v_%v_%v_%v_%v_%v_%q", instanceID, timeout, verifySSL, followRedirects,
 		policy.noLAN, narrowed, hosts, restricted, internet)
