@@ -75,3 +75,36 @@ func TestReviewExecModbusAfterCleanup(t *testing.T) {
 	mustLua(t, engine, `__mb.n`, "1")
 	mustLua(t, engine, `__f32()`, "12.5")
 }
+
+// The shared MQTT client keeps one callback per topic: a plugin neither takes a module's
+// topic nor, when it stops, removes one a module subscribed to since.
+func TestReviewExecMqttTopicOfAModule(t *testing.T) {
+	engine := sandboxEngine(t, "@t/a", `{mqtt = true}`)
+	if _, err := engine.Execute(`
+		__got = { n = 0 }
+		MQTT:subscribe("dom/x", function() __got.n = __got.n + 1 end)
+	`); err != nil {
+		t.Fatal(err)
+	}
+	_, e := runPlugin(t, engine, "@t/a", `p = Plugin:new("a", {}); p:mqttSubscribe("dom/x", function() end)`)
+	if e == "nil" {
+		t.Error("a module's topic taken over")
+	}
+	if _, e := runPlugin(t, engine, "@t/a", `
+		p:mqttSubscribe("dom/y", function() end)
+		p:mqttSubscribe("dom/y", function() end)
+		p:mqttSubscribe("dom/z", function() end)
+	`); e != "nil" {
+		t.Fatalf("own topics: %s", e)
+	}
+	if _, err := engine.Execute(`
+		MQTT:subscribe("dom/z", function() __got.n = __got.n + 10 end)
+		PluginSandbox:cleanup("@t/a")
+		MQTT:_dispatchMessage("dom/x", "1")
+		MQTT:_dispatchMessage("dom/z", "1")
+	`); err != nil {
+		t.Fatal(err)
+	}
+	mustLua(t, engine, `__got.n`, "11")
+	mustLua(t, engine, `tostring(MQTT._subscriptions["dom/y"])`, "nil")
+}

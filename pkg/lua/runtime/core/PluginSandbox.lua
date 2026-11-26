@@ -256,6 +256,21 @@ local function topicAllowed(allowed, topic)
     return false
 end
 
+-- The callback the shared MQTT client calls for topic, nil when none
+local function mqttHolder(topic)
+    local subs = MQTT and MQTT._subscriptions
+    if type(subs) ~= "table" or type(topic) ~= "string" then return nil end
+    local full = MQTT._applyPrefix and MQTT:_applyPrefix(topic) or topic
+    return subs[full] and subs[full].callback
+end
+
+local function ownsMqtt(sandbox, callback)
+    for _, sub in ipairs(sandbox.mqttSubscriptions) do
+        if sub.callback == callback then return true end
+    end
+    return false
+end
+
 -- A shared class (HTTP, MQTT) for plugin API 1: its constructors and functions work
 -- as on the real one, its fields cannot be replaced
 local function classFacade(class)
@@ -947,6 +962,11 @@ function PluginSandbox:buildAPI(sandbox)
         end
 
         if MQTT and MQTT.subscribe then
+            -- one callback per topic: a module's (or another plugin's) is not replaced
+            local held = mqttHolder(topic)
+            if held and not ownsMqtt(sandbox, held) then
+                error("MQTT " .. tostring(topic) .. " is subscribed already by a module or another plugin", 2)
+            end
             MQTT:subscribe(topic, wrappedCallback)
             table.insert(sandbox.mqttSubscriptions, {
                 topic = topic,
@@ -1912,8 +1932,9 @@ function PluginSandbox:cleanup(pluginId)
     -- 3. Remove MQTT subscriptions
     local mqttCount = 0
     for _, sub in ipairs(sandbox.mqttSubscriptions) do
-        if MQTT and MQTT.unsubscribe then
-            MQTT:unsubscribe(sub.topic, sub.callback)
+        -- only while the topic is still its own: a module may have subscribed since
+        if MQTT and MQTT.unsubscribe and mqttHolder(sub.topic) == sub.callback then
+            MQTT:unsubscribe(sub.topic)
             mqttCount = mqttCount + 1
         end
     end
