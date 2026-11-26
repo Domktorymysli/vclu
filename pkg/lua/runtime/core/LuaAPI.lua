@@ -47,7 +47,7 @@ function LuaAPI.syncRemoteConfig(config)
     end
     RemoteSubscription.config.enabled = config.enabled
     RemoteSubscription.config.ttl = config.ttl or 60
-    RemoteSubscription.config.batchSize = config.batchSize or 4
+    RemoteSubscription.config.batchSize = config.batchSize or 8
     RemoteSubscription.config.batchDelay = config.batchDelay or 50
     -- Convert array to hash map for O(1) lookup
     local wl = {}

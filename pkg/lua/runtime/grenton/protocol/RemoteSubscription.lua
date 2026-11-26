@@ -20,7 +20,7 @@ RemoteSubscription = {}
 -- @field enabled boolean Whether auto-subscription is enabled (default: true)
 RemoteSubscription.config = {
     ttl = 60,                        -- Default TTL in seconds
-    batchSize = 4,                   -- Entries per subscription
+    batchSize = 8,                   -- Entries per subscription (fewer sessions held per CLU)
     batchDelay = 50,                 -- ms delay between batches (30-100)
     objectTypes = {"DOUT", "DIN", "DIMM"},  -- Types to subscribe (legacy)
     enabled = false,                 -- Disabled by default; user must configure via UI
@@ -777,8 +777,11 @@ function RemoteSubscription.refreshAll()
                 count = count + 1
             else
                 failed = failed + 1
-                Logger:getShared():warn("[RemoteSub] Refresh failed for %s: %s", entry.key, tostring(ok and err or result))
-                RemoteSubscription.activeSubscriptions[entry.key] = nil
+                Logger:getShared():warn("[RemoteSub] Refresh failed for %s: %s — destroying to avoid an orphan", entry.key, tostring(ok and err or result))
+                -- Free the session on the CLU instead of dropping it silently: otherwise it lingers
+                -- until TTL while finish()'s autoSubscribe re-registers the objects under a fresh
+                -- sessionID. destroy() also removes it from activeSubscriptions (same key).
+                RemoteSubscription.destroy(entry.sub.cluIP, entry.sub.sessionID)
             end
         end
 
@@ -1024,11 +1027,28 @@ function RemoteSubscription.destroyAll()
     RemoteSubscription.polled = {}
     Logger:getShared():info("[RemoteSub] Destroying all subscriptions...")
 
-    for key, sub in pairs(RemoteSubscription.activeSubscriptions) do
-        RemoteSubscription.destroy(sub.cluIP, sub.sessionID)
+    -- Snapshot sessions (sorted for a deterministic send order), then clear local state.
+    local subs = {}
+    for _, sub in pairs(RemoteSubscription.activeSubscriptions) do
+        subs[#subs + 1] = { cluIP = sub.cluIP, sessionID = sub.sessionID }
     end
-
+    table.sort(subs, function(a, b) return a.sessionID < b.sessionID end)
     RemoteSubscription.activeSubscriptions = {}
+
+    -- Space the clientDestroy packets: a CLU drops a burst sent back-to-back (the same reason
+    -- refreshAll spaces its renews). Without this most clientDestroy are lost and the sessions
+    -- linger on the CLU until their TTL.
+    local delay = math.max(RemoteSubscription.RENEW_MIN_SPACING_MS,
+        math.min(100, RemoteSubscription.config.batchDelay or 50))
+    local function step(i)
+        local s = subs[i]
+        if not s then return end
+        RemoteSubscription.destroy(s.cluIP, s.sessionID)
+        if subs[i + 1] then
+            EventBus:getShared():setTimeout(function() step(i + 1) end, delay)
+        end
+    end
+    step(1)
 end
 
 return RemoteSubscription

@@ -1290,3 +1290,77 @@ func TestRemoteSubscription_BatchSizeRange(t *testing.T) {
 		t.Errorf("batchSize() for 0 1 2 8 28 29 100 \"16\" nil = %s, want %s", got, want)
 	}
 }
+
+// TestRefreshAll_FailedRenewDestroysOrphan is a regression test for #276: a renew whose
+// noreply clientRegister fails must send a clientDestroy for that session (freeing it on the
+// CLU) instead of dropping it from activeSubscriptions silently. Otherwise the session lingers
+// on the CLU until its TTL while the fallback autoSubscribe re-registers the object under a
+// fresh sessionID.
+func TestRefreshAll_FailedRenewDestroysOrphan(t *testing.T) {
+	engine, _ := setupSubscriptionEngine(t, 12)
+	defer engine.Close()
+
+	mustExec(t, engine, "RemoteSubscription.autoSubscribe()")
+	stubTimeouts(t, engine)
+	mustExec(t, engine, `
+		local orig = __go_send_command_noreply
+		__go_send_command_noreply = function(ip, script)
+			if script:match("clientRegister%('.-', %d+, 2,") then return false, "boom" end
+			return orig(ip, script)
+		end
+		_destroyCalls = {}
+		RemoteSubscription.refreshAll()
+	`)
+	runStubTimeouts(t, engine)
+
+	// A clientDestroy for the failed session (sid 2) was sent — same (vcluIP, 4344, sid) key
+	// as its register, so the CLU frees that very session.
+	if got := mustExec(t, engine, `
+		for _, c in ipairs(_destroyCalls) do if c.sid == 2 then return "yes" end end
+		return "no"
+	`); got != "yes" {
+		t.Errorf("failed renew should send clientDestroy for session 2, got %s", got)
+	}
+	// ...and session 2 is gone locally (no active subscription keeps its ID; the fallback
+	// autoSubscribe re-registers the objects under new IDs, never reusing 2).
+	if got := mustExec(t, engine, `
+		for _, s in pairs(RemoteSubscription.activeSubscriptions) do
+			if s.sessionID == 2 then return "present" end
+		end
+		return "gone"
+	`); got != "gone" {
+		t.Errorf("failed session 2 should be removed from activeSubscriptions, got %s", got)
+	}
+}
+
+// TestDestroyAll_SpacesClientDestroy is a regression test for #276: destroyAll must space its
+// clientDestroy packets through a timer chain (the same way refreshAll spaces its renews),
+// because a CLU drops a back-to-back burst and the sessions would then linger until their TTL.
+// Draining the timers between sends is required; they do not all go out in one synchronous burst.
+func TestDestroyAll_SpacesClientDestroy(t *testing.T) {
+	engine, _ := setupSubscriptionEngine(t, 12)
+	defer engine.Close()
+
+	mustExec(t, engine, `
+		RemoteSubscription.autoSubscribe()
+		RemoteSubscription.config.batchDelay = 80
+		_destroyCalls = {}
+	`)
+	stubTimeouts(t, engine)
+	mustExec(t, engine, "RemoteSubscription.destroyAll()")
+
+	// Only the first destroy goes out synchronously; the rest wait on the chained timers.
+	if got := mustExec(t, engine, "return #_destroyCalls .. '/' .. #_timeouts"); got != "1/1" {
+		t.Errorf("destroyAll should send one destroy and chain the rest (sent/pending = 1/1), got %s", got)
+	}
+
+	runStubTimeouts(t, engine)
+
+	// All three sessions destroyed, each spaced by batchDelay.
+	if got := mustExec(t, engine, "return tostring(#_destroyCalls)"); got != "3" {
+		t.Errorf("all 3 sessions should be destroyed after the chain drains, got %s", got)
+	}
+	if got := mustExec(t, engine, "return table.concat(_timeoutDelays, ',')"); got != "80,80" {
+		t.Errorf("destroys should be spaced by batchDelay, got delays %q", got)
+	}
+}
