@@ -3186,9 +3186,10 @@
         }
     }
 
-    // An item's change or a new one; the answer carries the list as it is now
+    // An item's change or a new one; the answer carries the list as it is now. The add field
+    // hears every answer (a toggle sent meanwhile must not leave it sending); items only the latest
     function listAction(el, w, action, value, done) {
-        executeAction(w.id, action, value, null, false, false, function(res) {
+        executeAction(w.id, action, value, null, false, false, function(res, stale) {
             if (res.error) {
                 el._listKey = null; // a poll draws the items again, without the change shown early
                 if (done) done(res.error);
@@ -3196,7 +3197,7 @@
                 return;
             }
             if (done) done(null);
-            if (Array.isArray(res.items)) updateWidget(w.id, { items: res.items, total: res.total }, true);
+            if (!stale && Array.isArray(res.items)) updateWidget(w.id, { items: res.items, total: res.total }, true);
         });
     }
 
@@ -4629,7 +4630,8 @@
     // onFail: called when the action is refused or does not reach the server;
     // held: the press lasted the widget's hold (the server refuses it without)
     // confirmed: the person said yes to the widget's confirm (required through vclu cloud)
-    // onAnswer: called with the latest action's answer, {error} when it did not reach the server
+    // onAnswer(answer, stale): every action's answer, {error} when it did not reach the server; stale
+    // when a later action on the widget was sent meanwhile (its answer decides what is shown)
     function executeAction(widgetId, action, value, onFail, held, confirmed, onAnswer) {
         var body = { widgetId: widgetId, action: action };
         if (value !== undefined) body.value = value;
@@ -4651,12 +4653,15 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body)
         }).then(function(result) {
+            // a dashboard gone meanwhile ran nothing: the text stays in its field
+            var answer = result && result._notFound ? { error: T.notSent } : (result || {});
             // tapped again meanwhile: a later answer decides, an earlier one would undo it
             if (!latest()) {
+                if (onAnswer) onAnswer(answer, true);
                 if (result && result.message) VCLU.showToast(result.message, 'success');
                 return;
             }
-            if (onAnswer) onAnswer(result || {});
+            if (onAnswer) onAnswer(answer, false);
             if (result && result.error) {
                 revert();
                 return;
@@ -4668,8 +4673,8 @@
                 VCLU.showToast(result.message, 'success');
             }
         }).catch(function() {
+            if (onAnswer) onAnswer({ error: T.notSent }, !latest());
             if (!latest()) return;
-            if (onAnswer) onAnswer({ error: T.notSent });
             revert();
         });
 
