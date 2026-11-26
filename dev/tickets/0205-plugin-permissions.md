@@ -275,6 +275,15 @@ running: the manifest names the plugin API it is written for, and the stricter c
       and is refused before DNS (`TestNumericHost`, `TestHTTPManagerInternetHosts`).
 - [ ] The tests pass without a network: no lookup of a real name, UDP sends to made-up hosts
       accept a refusal by the system's network.
+- [ ] Installing takes the plugin API the confirmation showed: files on another API are refused
+      (409 `changed_since_preview`) and nothing is installed (`TestInstallRefusesAnotherAPIThanSeen`).
+- [ ] A repository address keeps its path's case except on GitHub, so two repositories on one
+      server differing only by it are two sources (`TestRepoAddressPathCase`).
+- [ ] Installs run one at a time from the checks to the saved entry, and a reload fetches files
+      under the same lock: the same id from two repositories at once, or two ids sharing a module
+      file, install only one (`TestInstallsTogetherSameID`, `TestInstallsTogetherSharedModuleName`).
+- [ ] The plugins page offers an update only as the installer would take it and shows "source
+      moved" when it would refuse (`TestReview_AvailableMatchesInstallForOldEntry`).
 - [ ] `go test ./...` and `go test -race ./...` pass.
 - [ ] A changelog entry in `changelog.d/0205-plugin-permissions.md`.
 - [ ] `DEVELOPMENT.md` in `vclu-plugins` documents `permissions`, the event prefix and the id rule,
