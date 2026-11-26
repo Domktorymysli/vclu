@@ -101,6 +101,8 @@ type Peripheral struct {
 	Type   string // OM type name, e.g. "Thermostat"
 	Class  int    // object class in om.lua, 0 when vCLU does not know the type
 	Events []Binding
+	// Features set in the project (index -> initValue), read for Modbus objects only
+	Features map[int]string
 }
 
 // Binding is an event with the commands OM runs on it.
@@ -147,6 +149,19 @@ var peripheralClasses = map[string]int{
 	// an HTTP GATE's
 	"HttpListener": 120,
 	"HttpRequest":  121,
+	// a GATE MODBUS's (object_modbus_*.xml); their features go to om.lua for the Modbus map
+	"Modbus":               200,
+	"ModbusValue":          201,
+	"ModbusSlaveConfigRTU": 202,
+	"ModbusRTU":            203,
+	"ModbusSlaveRTU":       204,
+	"ModbusClient":         205,
+	"ModbusServer":         206,
+}
+
+// isModbus tells whether an om.lua class is a GATE MODBUS's Modbus object.
+func isModbus(class int) bool {
+	return class >= 200 && class <= 206
 }
 
 // Patterns of what goes into om.lua: anything else is left out, so a value from
@@ -454,6 +469,14 @@ func (p *Project) readCLU(s *stream, n *node) CLU {
 		per.Class = peripheralClasses[per.Type]
 		if per.Class == 0 {
 			p.warn(fmt.Sprintf("%s: %s is a %q, a type vCLU does not know; listed for the agent, not registered", label, per.Name, per.Type))
+		}
+		if isModbus(per.Class) {
+			per.Features = map[int]string{}
+			for _, f := range s.items(pn, "features") {
+				if i, err := atoi(s.text(f, "index")); err == nil && s.text(f, "initValue") != "" {
+					per.Features[i] = s.text(f, "initValue")
+				}
+			}
 		}
 		per.Events = p.readEvents(s, pn, "events", label+" "+per.Name)
 		c.Peripherals = append(c.Peripherals, per)

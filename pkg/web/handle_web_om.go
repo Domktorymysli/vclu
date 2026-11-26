@@ -27,7 +27,7 @@ import (
 // handleAPIOMUpload handles OM file upload via API (.lua, diagnostic pack .zip, project .omp)
 //
 //	@Summary		Upload OM file
-//	@Description	Accepts a single om.lua file, a diagnostic-pack ZIP containing CLU*/om.lua entries, or an Object Manager project (.omp, or a project ZIP with system.xml); the vCLU's own serial is skipped. Each CLU is parsed, stored as om_<serial>.lua, a proxy_<serial>.lua is generated and an entry is added to .vclu.json; then the Lua runtime reloads once (reloaded, reloadError, moduleErrors in the response). A project, also the one inside a diagnostic pack, is written for the agent to ai/om/ (event bindings, scripts); what could not be read is listed in warnings. A project removes the stored CLUs it does not have only with removeMissing=true (as the page sends after its preview is confirmed); without it they are kept and listed in notInProject. The stored files are copied to workspace/backups/om/ first (backup). The upload itself is not kept.
+//	@Description	Accepts a single om.lua file, a diagnostic-pack ZIP containing CLU*/om.lua entries, or an Object Manager project (.omp, or a project ZIP with system.xml); the vCLU's own serial is skipped. Each CLU is parsed, stored as om_<serial>.lua, a proxy_<serial>.lua is generated and an entry is added to .vclu.json; then the Lua runtime reloads once (reloaded, reloadError, moduleErrors in the response). A project, also the one inside a diagnostic pack, is written for the agent to ai/om/ (event bindings, scripts); a GATE MODBUS's om.lua gives its Modbus registers in ai/modbus/CLU<serial>.md (modbus: how many objects); what could not be read is listed in warnings. A project removes the stored CLUs it does not have only with removeMissing=true (as the page sends after its preview is confirmed); without it they are kept and listed in notInProject. The stored files are copied to workspace/backups/om/ first (backup). The upload itself is not kept.
 //	@Tags			grenton
 //	@Accept			mpfd
 //	@Produce		json
@@ -470,6 +470,12 @@ func (s *Server) processOMFile(content []byte, originalName string) (gin.H, erro
 		return nil, fmt.Errorf("failed to save file")
 	}
 
+	// the Modbus map for the agent, from the kept copy (a GATE MODBUS keeps its Modbus settings)
+	modbus, err := s.writeModbusMap(text, serial)
+	if err != nil {
+		warnings = append(warnings, parsed.CLU.ID+": "+err.Error())
+	}
+
 	// Generate proxy.lua
 	proxyCode := omparser.GenerateProxy(parsed, omparser.DefaultConfig())
 	proxyFilename := fmt.Sprintf("proxy_%d.lua", serial)
@@ -514,7 +520,33 @@ func (s *Server) processOMFile(content []byte, originalName string) (gin.H, erro
 		"moduleCount":  len(parsed.Modules),
 		"luaError":     luaErr,
 		"warnings":     warnings,
+		"modbus":       modbus,
 	}, nil
+}
+
+// writeModbusMap writes the Modbus map of a GATE MODBUS from its om.lua to ai/modbus/<CLU>.md
+// and returns how many Modbus objects it has; one without Modbus objects removes it. The map
+// follows the registry: without settings every object is a sensor and the map says why.
+func (s *Server) writeModbusMap(content string, serial uint64) (int, error) {
+	path := modbusMapPath(s.serverDir, serial)
+	m := omparser.ReadModbus(content)
+	if m == nil || len(m.Objects) == 0 {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return 0, fmt.Errorf("%s: %v", omparser.ModbusDocsDir, err)
+		}
+		return 0, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return 0, fmt.Errorf("%s: %v", omparser.ModbusDocsDir, err)
+	}
+	if err := writeFileAtomic(path, []byte(m.Doc()), 0644); err != nil {
+		return 0, fmt.Errorf("%s: %v", omparser.ModbusDocsDir, err)
+	}
+	return len(m.Objects), nil
+}
+
+func modbusMapPath(root string, serial uint64) string {
+	return filepath.Join(root, filepath.FromSlash(omparser.ModbusDocsDir), fmt.Sprintf("CLU%d.md", serial))
 }
 
 // handleAPIOMList returns list of OM files
@@ -621,6 +653,7 @@ func (s *Server) removeOMFile(serial uint64, filename string) error {
 	}
 	// the proxy may not exist
 	_ = os.Remove(filepath.Join(importsDir, fmt.Sprintf("proxy_%d.lua", serial)))
+	_ = os.Remove(modbusMapPath(s.serverDir, serial))
 	if err := config.DeleteOMFileAndCleanSync(s.serverDir, serial); err != nil {
 		return fmt.Errorf("failed to update config")
 	}

@@ -781,5 +781,8 @@ func ValidateDraft(content string) *ValidationReport {
 		}
 	}
 
+	// 4. Alarms, locks and gates sent to the cloud without a PIN or a confirmation (warn only)
+	report.Warnings = append(report.Warnings, remoteWarnings(content)...)
+
 	return report
 }

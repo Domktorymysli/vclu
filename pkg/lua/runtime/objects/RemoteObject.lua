@@ -205,8 +205,8 @@ end
 -- secret features), kept here so a script cannot replace or remove one
 local guards = setmetatable({}, {__mode = "k"})
 
---- Gives obj its guard, once: fn(obj, kind, index) returns why a get, set or execute is
--- refused, or nil. A second guard for the same object is an error.
+--- Gives obj its guard, once: fn(obj, kind, index, ...) returns why a get, set or execute
+-- is refused, or nil; a set or execute passes its value or arguments after the index. A second guard for the same object is an error.
 -- @param obj RemoteObject The object
 -- @param fn function The guard
 function RemoteObject._setGuard(obj, fn)
@@ -221,17 +221,18 @@ end
 -- @param obj table The object
 -- @param kind string "get", "set" or "execute"
 -- @param index number The feature or method number
+-- @param ... any The value of a set, the arguments of an execute
 -- @return string|nil
-local function refusal(obj, kind, index)
+local function refusal(obj, kind, index, ...)
     local fn = type(obj) == "table" and guards[obj]
-    return fn and fn(obj, kind, index) or nil
+    return fn and fn(obj, kind, index, ...) or nil
 end
 RemoteObject.refusal = refusal
 
 -- Every command and read of a remote object goes through get, set or execute, so a guard
 -- asked here holds for every way in
-local function guard(self, kind, index)
-    local refused = refusal(self, kind, index)
+local function guard(self, kind, index, ...)
+    local refused = refusal(self, kind, index, ...)
     if refused then error(refused, 3) end
 end
 
@@ -258,7 +259,7 @@ end
 -- @param index number The property index to set
 -- @param value any The value to set
 function RemoteObject:set(index, value)
-    guard(self, "set", index)
+    guard(self, "set", index, value)
     -- a new command overrides what an earlier timed one would do
     if StateChange then StateChange.forgetExpected(self) end
     self._clu:executeNoReply(0, self._objId .. ":set(" .. checkIndex(index) .. ", " .. RemoteObject.literal(value) .. ")")
@@ -271,7 +272,7 @@ end
 -- @param index number The method index to execute
 -- @param ... any Arguments to pass to the remote method
 function RemoteObject:execute(index, ...)
-    guard(self, "execute", index)
+    guard(self, "execute", index, ...)
     if StateChange then StateChange.forgetExpected(self) end
     local args = {...}
     local argsStr = ""

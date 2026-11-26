@@ -1,0 +1,470 @@
+-- FwType 00000001
+-- FwVersion 00000578
+-- HwType 00000012
+-- HwVersion 00000002
+
+
+-- setVar type support
+_type = {}
+CLU500000001 = GATE:new(5000, 0xC0A80A0A, 0xFFFFFF00, 0xC0A80A01, "", "")
+-- NAME_CLU MODBAS=CLU500000001
+
+CLU520000002 = OBJECT:new(1, 0xC0A80A0B, "CLU520000002")
+CLU700003 = OBJECT:new(1, 0xC0A80A0C, "CLU700003")
+CLU521000004 = OBJECT:new(1, 0xC0A80A0D, "CLU521000004")
+
+MOD9001 = GATE:new(200, "MOD9001")
+-- NAME_PERIPHERY rekuperacja_stan=MOD9001
+MOD9002 = GATE:new(200, "MOD9002")
+-- NAME_PERIPHERY rekuperacja_temperatura_wyciagu=MOD9002
+MOD9003 = GATE:new(200, "MOD9003")
+-- NAME_PERIPHERY rekuperacja_temperatura_na_zewnatrz=MOD9003
+MOD9004 = GATE:new(200, "MOD9004")
+-- NAME_PERIPHERY rekuperacja_temperatura_nawiewu=MOD9004
+MOD9005 = GATE:new(200, "MOD9005")
+-- NAME_PERIPHERY rekuperacja_zatkanie_filtra=MOD9005
+MOD9006 = GATE:new(200, "MOD9006")
+-- NAME_PERIPHERY rekuperacja_wzgledna_wilgotnosc=MOD9006
+MOD9007 = GATE:new(200, "MOD9007")
+-- NAME_PERIPHERY rekuperacja_przeplyw_nawiewu=MOD9007
+MOD9008 = GATE:new(200, "MOD9008")
+-- NAME_PERIPHERY rekuperacja_przeplyw_wywiewu=MOD9008
+MOD9009 = GATE:new(200, "MOD9009")
+-- NAME_PERIPHERY rekuperacja_tryb_pracy=MOD9009
+MOD9010 = GATE:new(200, "MOD9010")
+-- NAME_PERIPHERY rekuperacja_temperatura_panela=MOD9010
+MOD9011 = GATE:new(200, "MOD9011")
+-- NAME_PERIPHERY rekuperacja_panel_wilgotnosc=MOD9011
+TIM9001 = GATE:new(6, "TIM9001")
+-- NAME_PERIPHERY PRACA_REKUPERACJI_WZGLEDEM_WILGOTNOSCI=TIM9001
+MOD9012 = GATE:new(203, "MOD9012")
+-- NAME_PERIPHERY MODBAS_WILGOTNOSC_SCHODY=MOD9012
+MOD9013 = GATE:new(203, "MOD9013")
+-- NAME_PERIPHERY MODBAS_TEMPERATURA_SCHODY=MOD9013
+MOD9014 = GATE:new(203, "MOD9014")
+-- NAME_PERIPHERY MODBAS_TEMPERATURA_LAZIENKA=MOD9014
+MOD9015 = GATE:new(203, "MOD9015")
+-- NAME_PERIPHERY MODBAS_WILGOTNOSC_LAZIENKA=MOD9015
+-- REMOVED MOD9016 = GATE:new(203, "MOD9016")
+-- NAME_PERIPHERY MODBAS_TEMPERATURA_STRYCH=MOD9016
+-- REMOVED MOD9017 = GATE:new(203, "MOD9017")
+-- NAME_PERIPHERY MODBAS_WILGOTNOSC_STRYCH=MOD9017
+MOD9018 = GATE:new(203, "MOD9018")
+-- NAME_PERIPHERY MODBAS_CZUJNIK_ZMIANA_ADRESU=MOD9018
+
+-- MODULES
+
+-- IO_MODULES
+
+TRYB_PRACY = "0" -- string
+_type["TRYB_PRACY"] = "string"
+DIAGNOSTYKA_WILGOTNOSC_DOM = 0 -- number
+_type["DIAGNOSTYKA_WILGOTNOSC_DOM"] = "number"
+DIAGNOSTYKA_WILGOTNOSC_ZEWN = 0 -- number
+_type["DIAGNOSTYKA_WILGOTNOSC_ZEWN"] = "number"
+DIAGNOSTYKA_TEMP_DOM = 0 -- number
+_type["DIAGNOSTYKA_TEMP_DOM"] = "number"
+DIAGNOSTYKA_TEMP_ZEWN = "0" -- string
+_type["DIAGNOSTYKA_TEMP_ZEWN"] = "string"
+DIAGNOSTYKA_PUNKT_ROSY_DOM = 0 -- number
+_type["DIAGNOSTYKA_PUNKT_ROSY_DOM"] = "number"
+DIAGNOSTYKA_PUNKT_ROSY_ZEWN = 0 -- number
+_type["DIAGNOSTYKA_PUNKT_ROSY_ZEWN"] = "number"
+DIAGNOSTYKA_OSUSZANIE = "0" -- string
+_type["DIAGNOSTYKA_OSUSZANIE"] = "string"
+DIAGNOSTYKA_SEZON = "0" -- string
+_type["DIAGNOSTYKA_SEZON"] = "string"
+DIAGNOSTYKA_WILGOTNOSC_REKU = 0 -- number
+_type["DIAGNOSTYKA_WILGOTNOSC_REKU"] = "number"
+DIAGNOSTYKA_WILGOTNOSC_KLATKA = 0 -- number
+_type["DIAGNOSTYKA_WILGOTNOSC_KLATKA"] = "number"
+DIAGNOSTYKA_TEMP_KLATKA = 0 -- number
+_type["DIAGNOSTYKA_TEMP_KLATKA"] = "number"
+DIAGNOSTYKA_TEMP_SYPIALNIA = 0 -- number
+_type["DIAGNOSTYKA_TEMP_SYPIALNIA"] = "number"
+DIAGNOSTYKA_TEMP_ZEWN_SUROWA = 0 -- number
+_type["DIAGNOSTYKA_TEMP_ZEWN_SUROWA"] = "number"
+DIAGNOSTYKA_WILGOTNOSC_LAZIENKA = 0 -- number
+_type["DIAGNOSTYKA_WILGOTNOSC_LAZIENKA"] = "number"
+DIAGNOSTYKA_TEMP_LAZIENKA = 0 -- number
+_type["DIAGNOSTYKA_TEMP_LAZIENKA"] = "number"
+INFORMACJE_REKUPERACJA = "0" -- string
+_type["INFORMACJE_REKUPERACJA"] = "string"
+INFORMACJE_REKUPERACJA2 = "0" -- string
+_type["INFORMACJE_REKUPERACJA2"] = "string"
+INFORMACJE_REKUPERACJA3 = "0" -- string
+_type["INFORMACJE_REKUPERACJA3"] = "string"
+DIAGNOSTYKA_TEMP_ZEWN_POMPA = "0" -- string
+_type["DIAGNOSTYKA_TEMP_ZEWN_POMPA"] = "string"
+
+function toboolean(value)
+    local valueType = type(value)
+    if valueType == "boolean" then
+      return value
+    elseif valueType == "number" then
+      return value ~= 0
+    elseif valueType == "string" then
+      local numeric = tonumber(value)
+      if numeric ~= nil then
+         return numeric ~= 0
+      elseif value == "false" then
+         return false
+      end
+      return value and true
+    elseif valueType == "nil" then
+      return false
+    end
+    return value and true
+end
+
+function setVar(name, value)
+    t = _type[name]
+    if(t == "string") then
+        _G[name] = tostring(value)
+    elseif(t == "number") then
+        _G[name] = tonumber(value)
+    elseif(t == "boolean") then
+        _G[name] = toboolean(value)
+    else
+        _G[name] = value
+    end
+end
+
+function getVar(name)
+	return _G[name]
+end
+
+function EventsFor_CLU500000001_1()
+	PRACA_REKUPERACJI_WZGLEDEM_WILGOTNOSCI(nil)
+	TIM9001:execute(0)
+end
+CLU500000001:add_event(1, EventsFor_CLU500000001_1)
+
+function EventsFor_MOD9009_0()
+	rekuperacja_nazwy_stanu(nil)
+end
+MOD9009:add_event(0, EventsFor_MOD9009_0)
+
+function EventsFor_TIM9001_0()
+	PRACA_REKUPERACJI_WZGLEDEM_WILGOTNOSCI(nil)
+end
+TIM9001:add_event(0, EventsFor_TIM9001_0)
+
+function EventsFor_TIM9001_1()
+	PRACA_REKUPERACJI_WZGLEDEM_WILGOTNOSCI(nil)
+end
+TIM9001:add_event(1, EventsFor_TIM9001_1)
+
+
+
+function OnInit()
+
+-- INIT_CLU_OBJECTS
+CLU500000001:set(1, 1000)
+CLU500000001:set(14, 0)
+CLU500000001:set(18, 1)
+CLU500000001:set(20, 5000)
+CLU500000001:set(21, 1)
+CLU500000001:set(2, "8.8.8.8")
+CLU500000001:set(3, "8.8.4.4")
+CLU500000001:set(23, 0)
+CLU500000001:set(24, 0)
+CLU500000001:set(27, 0)
+CLU500000001:set(25, 0)
+MOD9001:set(0, 100)
+MOD9001:set(1, 1)
+MOD9001:set(2, 0)
+MOD9001:set(3, 19200)
+MOD9001:set(4, 1)
+MOD9001:set(5, 0)
+MOD9001:set(6, 16)
+MOD9001:set(8, 2000)
+MOD9001:set(9, 1000)
+MOD9001:set(10, 1)
+MOD9001:set(11, 0)
+MOD9001:set(12, 2)
+MOD9001:set(14, 0)
+MOD9001:set(16, 0)
+MOD9001:set(17, 2)
+MOD9002:set(0, 100)
+MOD9002:set(1, 0)
+MOD9002:set(2, 902)
+MOD9002:set(3, 19200)
+MOD9002:set(4, 1)
+MOD9002:set(5, 0)
+MOD9002:set(6, 16)
+MOD9002:set(8, 2000)
+MOD9002:set(9, 1000)
+MOD9002:set(10, 10)
+MOD9002:set(11, 0)
+MOD9002:set(12, 2)
+MOD9002:set(14, 0)
+MOD9002:set(16, 0)
+MOD9002:set(17, 2)
+MOD9003:set(0, 100)
+MOD9003:set(1, 0)
+MOD9003:set(2, 903)
+MOD9003:set(3, 19200)
+MOD9003:set(4, 1)
+MOD9003:set(5, 0)
+MOD9003:set(6, 16)
+MOD9003:set(8, 2000)
+MOD9003:set(9, 1000)
+MOD9003:set(10, 10)
+MOD9003:set(11, 0)
+MOD9003:set(12, 2)
+MOD9003:set(14, 0)
+MOD9003:set(16, 0)
+MOD9003:set(17, 2)
+MOD9004:set(0, 100)
+MOD9004:set(1, 0)
+MOD9004:set(2, 901)
+MOD9004:set(3, 19200)
+MOD9004:set(4, 1)
+MOD9004:set(5, 0)
+MOD9004:set(6, 16)
+MOD9004:set(8, 2000)
+MOD9004:set(9, 1000)
+MOD9004:set(10, 10)
+MOD9004:set(11, 0)
+MOD9004:set(12, 2)
+MOD9004:set(14, 0)
+MOD9004:set(16, 0)
+MOD9004:set(17, 2)
+MOD9005:set(0, 100)
+MOD9005:set(1, 0)
+MOD9005:set(2, 916)
+MOD9005:set(3, 19200)
+MOD9005:set(4, 1)
+MOD9005:set(5, 0)
+MOD9005:set(6, 16)
+MOD9005:set(8, 2000)
+MOD9005:set(9, 1000)
+MOD9005:set(10, 1)
+MOD9005:set(11, 0)
+MOD9005:set(12, 2)
+MOD9005:set(14, 0)
+MOD9005:set(16, 0)
+MOD9005:set(17, 2)
+MOD9006:set(0, 100)
+MOD9006:set(1, 0)
+MOD9006:set(2, 946)
+MOD9006:set(3, 19200)
+MOD9006:set(4, 1)
+MOD9006:set(5, 0)
+MOD9006:set(6, 16)
+MOD9006:set(8, 2000)
+MOD9006:set(9, 1000)
+MOD9006:set(10, 1)
+MOD9006:set(11, 0)
+MOD9006:set(12, 2)
+MOD9006:set(14, 0)
+MOD9006:set(16, 0)
+MOD9006:set(17, 2)
+MOD9007:set(0, 100)
+MOD9007:set(1, 0)
+MOD9007:set(2, 905)
+MOD9007:set(3, 19200)
+MOD9007:set(4, 1)
+MOD9007:set(5, 0)
+MOD9007:set(6, 32)
+MOD9007:set(8, 2000)
+MOD9007:set(9, 1000)
+MOD9007:set(10, 1)
+MOD9007:set(11, 1)
+MOD9007:set(12, 2)
+MOD9007:set(14, 0)
+MOD9007:set(16, 0)
+MOD9007:set(17, 2)
+MOD9008:set(0, 100)
+MOD9008:set(1, 0)
+MOD9008:set(2, 907)
+MOD9008:set(3, 19200)
+MOD9008:set(4, 1)
+MOD9008:set(5, 0)
+MOD9008:set(6, 32)
+MOD9008:set(8, 2000)
+MOD9008:set(9, 1000)
+MOD9008:set(10, 1)
+MOD9008:set(11, 1)
+MOD9008:set(12, 2)
+MOD9008:set(14, 0)
+MOD9008:set(16, 0)
+MOD9008:set(17, 2)
+MOD9009:set(0, 100)
+MOD9009:set(1, 1)
+MOD9009:set(2, 4)
+MOD9009:set(3, 19200)
+MOD9009:set(4, 1)
+MOD9009:set(5, 0)
+MOD9009:set(6, 16)
+MOD9009:set(8, 2000)
+MOD9009:set(9, 1000)
+MOD9009:set(10, 1)
+MOD9009:set(11, 0)
+MOD9009:set(12, 2)
+MOD9009:set(14, 1)
+MOD9009:set(16, 0)
+MOD9009:set(17, 2)
+MOD9010:set(0, 100)
+MOD9010:set(1, 0)
+MOD9010:set(2, 945)
+MOD9010:set(3, 19200)
+MOD9010:set(4, 1)
+MOD9010:set(5, 0)
+MOD9010:set(6, 16)
+MOD9010:set(8, 2000)
+MOD9010:set(9, 1000)
+MOD9010:set(10, 10)
+MOD9010:set(11, 0)
+MOD9010:set(12, 2)
+MOD9010:set(14, 0)
+MOD9010:set(16, 0)
+MOD9010:set(17, 2)
+MOD9011:set(0, 100)
+MOD9011:set(1, 0)
+MOD9011:set(2, 946)
+MOD9011:set(3, 19200)
+MOD9011:set(4, 1)
+MOD9011:set(5, 0)
+MOD9011:set(6, 16)
+MOD9011:set(8, 2000)
+MOD9011:set(9, 1000)
+MOD9011:set(10, 1)
+MOD9011:set(11, 0)
+MOD9011:set(12, 2)
+MOD9011:set(14, 0)
+MOD9011:set(16, 0)
+MOD9011:set(17, 2)
+TIM9001:set(0, 60000)
+TIM9001:set(1, 1)
+MOD9012:set(0, 9600)
+MOD9012:set(1, 0)
+MOD9012:set(2, 0)
+MOD9012:set(5, 1)
+MOD9012:set(6, 300)
+MOD9012:set(7, 3000)
+MOD9012:set(8, 2)
+MOD9012:set(10, 3)
+MOD9012:set(11, 0)
+MOD9012:set(12, 1)
+MOD9012:set(14, 1)
+MOD9012:set(15, 16)
+MOD9012:set(16, 1)
+MOD9012:set(17, 0)
+MOD9012:set(18, 0)
+MOD9012:set(19, "10")
+MOD9012:set(20, 0)
+MOD9012:set(21, "0")
+MOD9013:set(0, 9600)
+MOD9013:set(1, 0)
+MOD9013:set(2, 0)
+MOD9013:set(5, 1)
+MOD9013:set(6, 300)
+MOD9013:set(7, 3000)
+MOD9013:set(8, 1)
+MOD9013:set(10, 3)
+MOD9013:set(11, 0)
+MOD9013:set(12, 1)
+MOD9013:set(14, 1)
+MOD9013:set(15, 16)
+MOD9013:set(16, 1)
+MOD9013:set(17, 0)
+MOD9013:set(18, 0)
+MOD9013:set(19, "10")
+MOD9013:set(20, 0)
+MOD9013:set(21, "0")
+MOD9014:set(0, 9600)
+MOD9014:set(1, 0)
+MOD9014:set(2, 0)
+MOD9014:set(5, 9)
+MOD9014:set(6, 300)
+MOD9014:set(7, 3000)
+MOD9014:set(8, 1)
+MOD9014:set(10, 3)
+MOD9014:set(11, 0)
+MOD9014:set(12, 1)
+MOD9014:set(14, 1)
+MOD9014:set(15, 16)
+MOD9014:set(16, 1)
+MOD9014:set(17, 0)
+MOD9014:set(18, 0)
+MOD9014:set(19, "10")
+MOD9014:set(20, 0)
+MOD9014:set(21, "0")
+MOD9015:set(0, 9600)
+MOD9015:set(1, 0)
+MOD9015:set(2, 0)
+MOD9015:set(5, 9)
+MOD9015:set(6, 300)
+MOD9015:set(7, 3000)
+MOD9015:set(8, 2)
+MOD9015:set(10, 3)
+MOD9015:set(11, 0)
+MOD9015:set(12, 1)
+MOD9015:set(14, 1)
+MOD9015:set(15, 16)
+MOD9015:set(16, 1)
+MOD9015:set(17, 0)
+MOD9015:set(18, 0)
+MOD9015:set(19, "10")
+MOD9015:set(20, 0)
+MOD9015:set(21, "0")
+-- REMOVED MOD9016:set(0, 9600)
+-- REMOVED MOD9016:set(1, 0)
+-- REMOVED MOD9016:set(2, 0)
+-- REMOVED MOD9016:set(5, 4)
+-- REMOVED MOD9016:set(6, 300)
+-- REMOVED MOD9016:set(7, 3000)
+-- REMOVED MOD9016:set(8, 1)
+-- REMOVED MOD9016:set(10, 3)
+-- REMOVED MOD9016:set(11, 0)
+-- REMOVED MOD9016:set(12, 1)
+-- REMOVED MOD9016:set(14, 1)
+-- REMOVED MOD9016:set(15, 16)
+-- REMOVED MOD9016:set(16, 1)
+-- REMOVED MOD9016:set(17, 0)
+-- REMOVED MOD9016:set(18, 0)
+-- REMOVED MOD9016:set(19, "10")
+-- REMOVED MOD9016:set(20, 0)
+-- REMOVED MOD9016:set(21, "0")
+-- REMOVED MOD9017:set(0, 9600)
+-- REMOVED MOD9017:set(1, 0)
+-- REMOVED MOD9017:set(2, 0)
+-- REMOVED MOD9017:set(5, 7)
+-- REMOVED MOD9017:set(6, 300)
+-- REMOVED MOD9017:set(7, 3000)
+-- REMOVED MOD9017:set(8, 2)
+-- REMOVED MOD9017:set(10, 3)
+-- REMOVED MOD9017:set(11, 0)
+-- REMOVED MOD9017:set(12, 1)
+-- REMOVED MOD9017:set(14, 1)
+-- REMOVED MOD9017:set(15, 16)
+-- REMOVED MOD9017:set(16, 3)
+-- REMOVED MOD9017:set(17, 0)
+-- REMOVED MOD9017:set(18, 0)
+-- REMOVED MOD9017:set(19, "10")
+-- REMOVED MOD9017:set(20, 0)
+-- REMOVED MOD9017:set(21, "0")
+MOD9018:set(0, 9600)
+MOD9018:set(1, 0)
+MOD9018:set(2, 0)
+MOD9018:set(5, 1)
+MOD9018:set(6, 300)
+MOD9018:set(7, 3000)
+MOD9018:set(8, 257)
+MOD9018:set(10, 2)
+MOD9018:set(11, 0)
+MOD9018:set(12, 1)
+MOD9018:set(14, 1)
+MOD9018:set(15, 16)
+MOD9018:set(16, 1)
+MOD9018:set(17, 0)
+MOD9018:set(18, 0)
+MOD9018:set(19, "1")
+MOD9018:set(20, 0)
+MOD9018:set(21, "0")
+
+end
+
+CLU500000001:add_event(0, OnInit)

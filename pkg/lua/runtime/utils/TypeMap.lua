@@ -50,6 +50,12 @@ TypeMap.grentonToExpose = {
     GATE_JABLOTRON_OUTPUT = "switch",
     GATE_SATEL_ZONE = "switch",
     GATE_JABLOTRON_SECTION = "switch",
+    -- A GATE MODBUS's objects (RemoteGateModbus.lua): a register read only as a read-only
+    -- number (an HA sensor), a bit or input as a DIN; switches and numbers by expose() only
+    GATE_MODBUS_SENSOR = "number",
+    GATE_MODBUS_BINARY_SENSOR = "sensor",
+    GATE_MODBUS_SWITCH = "switch",
+    GATE_MODBUS_NUMBER = "number",
 }
 
 -- Expose type to Home Assistant component mapping

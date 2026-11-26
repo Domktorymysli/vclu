@@ -119,6 +119,14 @@ func (c ObjectClass) String() string {
 		return "GATE_JABLOTRON_OUTPUT"
 	case ClassGateJablotronDevice:
 		return "GATE_JABLOTRON_DEVICE"
+	case ClassModbus:
+		return "MODBUS"
+	case ClassModbusValue:
+		return "MODBUS_VALUE"
+	case ClassModbusRTU:
+		return "MODBUS_RTU"
+	case ClassModbusClient:
+		return "MODBUS_CLIENT"
 	default:
 		return "UNKNOWN"
 	}
@@ -190,6 +198,8 @@ type GrentonObject struct {
 	Index    int         // Index on the module (0-7 typically)
 	HasTilt  bool        // ROLLER_SHUTTER with slats: om.lua sets LamelMoveTimeout above 0
 	Fv01     bool        // ROLLER_SHUTTER on fv01 firmware (om.lua sets feature 1 MaxTime): no position, no slats
+	// A GATE MODBUS object's kind (ModbusSensor...), from its settings
+	ModbusKind string
 }
 
 // CLUReference represents a reference to another CLU
@@ -214,6 +224,10 @@ type ParsedOM struct {
 	Events     []EventHandler           // Event handlers
 	ObjectMap  map[string]GrentonObject // Quick lookup by ID
 	Warnings   []string                 // What was left out and why (never a value of the file)
+	// A GATE MODBUS's Modbus objects with their settings, also those not registered, and
+	// whether om.lua has settings (OnInit or a set feature)
+	Modbus         []ModbusObject
+	ModbusSettings bool
 }
 
 // NewParsedOM creates a new ParsedOM with initialized maps

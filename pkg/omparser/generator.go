@@ -118,6 +118,8 @@ func GenerateProxy(parsed *ParsedOM, config GeneratorConfig) string {
 	for _, g := range gateAlarmProxies {
 		generateObjectsForClass(&sb, parsed, namespace, names, g.class, g.proxy)
 	}
+	// A GATE MODBUS's objects (Parse keeps them only on a GATE MODBUS), by their kind
+	generateModbusObjects(&sb, parsed, namespace, names)
 
 	// Register objects in _registry for lookup (use registerObject for name indexing)
 	if config.RegisterObjects {
@@ -129,6 +131,11 @@ func GenerateProxy(parsed *ParsedOM, config GeneratorConfig) string {
 		for _, g := range gateAlarmProxies {
 			if !g.class.IsExposable() {
 				objects = append(objects, parsed.GetObjectsByClass(g.class)...)
+			}
+		}
+		for _, obj := range parsed.Objects {
+			if obj.ModbusKind != "" {
+				objects = append(objects, obj)
 			}
 		}
 		for _, obj := range objects {
@@ -156,6 +163,39 @@ var gateAlarmProxies = []struct {
 	{ClassGateJablotronSection, "RemoteGateJablotronSection"},
 	{ClassGateJablotronOutput, "RemoteGateJablotronOutput"},
 	{ClassGateJablotronDevice, "RemoteGateJablotronDevice"},
+}
+
+// modbusProxies are the Lua classes of a GATE MODBUS's objects by kind
+// (pkg/lua/runtime/objects/RemoteGateModbus.lua).
+var modbusProxies = map[string]string{
+	ModbusSensor:       "RemoteGateModbusSensor",
+	ModbusBinarySensor: "RemoteGateModbusBinarySensor",
+	ModbusSwitch:       "RemoteGateModbusSwitch",
+	ModbusNumber:       "RemoteGateModbusNumber",
+}
+
+// generateModbusObjects writes a GATE MODBUS's objects: the class by the object's kind, its
+// Modbus class as the last argument (the features differ between them).
+func generateModbusObjects(sb *strings.Builder, parsed *ParsedOM, namespace string, names map[string]string) {
+	first := true
+	for _, obj := range parsed.Objects {
+		proxy := modbusProxies[obj.ModbusKind]
+		if proxy == "" {
+			continue
+		}
+		if first {
+			sb.WriteString("-- GATE MODBUS objects\n")
+			first = false
+		}
+		nameArg := "nil"
+		if obj.Name != "" {
+			nameArg = `"` + luaEscape(obj.Name) + `"`
+		}
+		fmt.Fprintf(sb, "%s.%s = %s:new(_clu, \"%s\", %s, %d)\n", namespace, names[obj.ID], proxy, obj.ID, nameArg, obj.Class)
+	}
+	if !first {
+		sb.WriteString("\n")
+	}
 }
 
 func generateObjectsForClass(sb *strings.Builder, parsed *ParsedOM, namespace string, names map[string]string, class ObjectClass, proxyClass string) {
