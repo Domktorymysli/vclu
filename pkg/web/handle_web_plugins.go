@@ -206,6 +206,7 @@ func (s *Server) handlePluginsAPIAvailable(c *gin.Context) {
 			"installed":        a.Installed,
 			"installedVersion": a.InstalledVersion,
 			"updateAvailable":  a.UpdateAvailable,
+			"sourceMoved":      a.SourceMoved,
 		})
 	}
 
@@ -224,6 +225,7 @@ type availablePlugin struct {
 	Installed        bool
 	InstalledVersion string
 	UpdateAvailable  bool // the registry's version is newer than the installed one
+	SourceMoved      bool // the repository the plugin came from has another address now
 }
 
 // availablePlugins reads the registries of mc's enabled repositories (the defaults without
@@ -267,6 +269,7 @@ func availablePlugins(ctx context.Context, mc *config.VCLUConfig) ([]availablePl
 			a.Installed, a.InstalledVersion = ok, inst.Version
 			// another repository listing the same id is not an update of this plugin
 			a.UpdateAvailable = ok && plugins.FromRepository(inst, repo) && newerVersion(p.Version, inst.Version)
+			a.SourceMoved = ok && plugins.SourceMoved(inst, repo)
 			out = append(out, a)
 		}
 	}
@@ -460,8 +463,15 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 
 	// An installed plugin is updated only from the repository it came from; another one listing
 	// the same id is another publisher's plugin
+	sourceCheck := plugins.NewLoader(s.serverDir)
 	for _, inst := range masterConfig.Plugins.Installed {
-		if inst.ID == fullId && !plugins.FromRepository(inst, *targetRepo) {
+		if inst.ID != fullId {
+			continue
+		}
+		if ok, moved := sourceCheck.FromSource(inst, *targetRepo); moved {
+			c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("%s was installed from %s at another address; the repository of that name has moved, so it is not updated from there. Uninstall it first to install it from the new address (its settings will have to be entered again)", fullId, inst.Repository), "code": "source_moved"})
+			return
+		} else if !ok {
 			from := inst.Repository
 			if from == "" {
 				from = "the official repository"
@@ -531,6 +541,7 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 				// an entry from before repositories were recorded gets it now)
 				masterConfig.Plugins.Installed[i].Version = pluginMeta.Version
 				masterConfig.Plugins.Installed[i].Repository = targetRepo.Name
+				masterConfig.Plugins.Installed[i].RepositoryURL = plugins.RepoURL(targetRepo.URL)
 				masterConfig.Plugins.Installed[i].InstalledAt = time.Now().Format(time.RFC3339)
 				if api > masterConfig.Plugins.Installed[i].API {
 					masterConfig.Plugins.Installed[i].API = api
@@ -542,13 +553,14 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 
 		// Add to installed
 		masterConfig.Plugins.Installed = append(masterConfig.Plugins.Installed, config.InstalledPlugin{
-			ID:          fullId,
-			Version:     pluginMeta.Version,
-			Enabled:     true,
-			Repository:  req.Repository,
-			API:         api,
-			InstalledAt: time.Now().Format(time.RFC3339),
-			Config:      make(map[string]interface{}),
+			ID:            fullId,
+			Version:       pluginMeta.Version,
+			Enabled:       true,
+			Repository:    req.Repository,
+			RepositoryURL: plugins.RepoURL(targetRepo.URL),
+			API:           api,
+			InstalledAt:   time.Now().Format(time.RFC3339),
+			Config:        make(map[string]interface{}),
 			// Installing is allowing what the plugin asks for now
 			Grants: requested.Grants(),
 		})

@@ -1075,6 +1075,8 @@
       "uses_none": "Ten plugin nie korzysta z żadnego z nich.",
       "update_keeps": "Aktualizacja zachowuje to, na co zezwoliłeś; nowe uprawnienia czekają na Twoją zgodę.",
       "api_downgrade": "Ta wersja obniża API pluginu z {0} do {1} i zdjęłaby jego ograniczenia. Jeśli chcesz ją mimo to, odinstaluj plugin i zainstaluj go od nowa.",
+      "source_moved": "Źródło zmieniło adres",
+      "source_moved_title": "Repozytorium, z którego zainstalowano plugin, ma teraz inny adres; aktualizacja jest zablokowana. Odinstaluj plugin, jeśli chcesz go z nowego adresu.",
       "not_used": "Nieużywane",
       "asked_not_allowed": "Wymagane, jeszcze bez zgody",
       "allowed": "Dozwolone",

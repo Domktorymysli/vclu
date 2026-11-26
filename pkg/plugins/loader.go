@@ -981,6 +981,10 @@ func (l *Loader) LoadAllEnabled() error {
 				continue
 			}
 
+			if !FromRepository(installed, *repo) {
+				errors = append(errors, fmt.Sprintf("%s: repository %s has another address than the plugin came from; not downloaded", installed.ID, installed.Repository))
+				continue
+			}
 			if err := l.DownloadPlugin(*repo, installed.ID); err != nil {
 				errors = append(errors, fmt.Sprintf("%s: %v", installed.ID, err))
 				continue
@@ -997,6 +1001,8 @@ func (l *Loader) LoadAllEnabled() error {
 				log.Printf("[PLUGINS] %s %s on disk, %s in config; not newer in config, loading %s", installed.ID, local, installed.Version, local)
 			} else if repo == nil {
 				log.Printf("[PLUGINS] WARNING: %s %s on disk, %s in config, repository %s not found; loading %s", installed.ID, local, installed.Version, installed.Repository, local)
+			} else if from, _ := l.FromSource(installed, *repo); !from {
+				log.Printf("[PLUGINS] WARNING: %s %s on disk, %s in config, repository %s has another address than the plugin came from; loading %s", installed.ID, local, installed.Version, installed.Repository, local)
 			} else if key := installed.ID + "|" + installed.Version + "|" + local; !l.updateDue(key) {
 				// checked lately without result: not on every reload (offline, repository behind)
 			} else if err := l.downloadPlugin(*repo, installed.ID, local); err != nil {

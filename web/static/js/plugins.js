@@ -208,6 +208,9 @@ PluginsManager.prototype._renderPluginCard = function(plugin, options) {
         if (plugin.configured === false) {
             statusBadge += ' <span class="badge bg-warning text-dark">not configured</span>';
         }
+        if (plugin.sourceMoved) {
+            statusBadge += ' <span class="badge bg-warning text-dark" title="' + VCLU.esc(pt('source_moved_title')) + '">' + VCLU.esc(pt('source_moved')) + '</span>';
+        }
         if (plugin.usage && plugin.usage.suspended) {
             statusBadge += ' <span class="badge bg-danger" title="' + VCLU.esc(pt('suspended_title')) + '">' + VCLU.esc(pt('suspended')) + '</span>';
         }
@@ -450,6 +453,7 @@ PluginsManager.prototype._renderInstalledPlugins = function() {
             pendingWebsocketPorts: p.pendingWebsocketPorts || [],
             usage: p.usage || null,
             updateAvailable: available.updateAvailable,
+            sourceMoved: (self.availablePlugins || []).some(function(a) { return a.fullId === p.id && a.sourceMoved; }),
             availableVersion: available.version
         };
         html += self._renderPluginCard(pluginData, { isInstalled: true });

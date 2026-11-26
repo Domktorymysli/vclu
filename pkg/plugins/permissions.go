@@ -504,14 +504,54 @@ func IsOfficialRepo(repo config.PluginRepository) bool {
 }
 
 // FromRepository is whether repo may update the installed plugin: only the repository it came
-// from. An entry from before repositories were recorded takes an @vclu id only from the
-// official one.
+// from, by its address once recorded. An entry from before repositories were recorded takes an
+// @vclu id only from the official one.
 func FromRepository(installed config.InstalledPlugin, repo config.PluginRepository) bool {
+	if installed.RepositoryURL != "" {
+		return sameRepoURL(installed.RepositoryURL, repo.URL)
+	}
 	if installed.Repository != "" {
 		return installed.Repository == repo.Name
 	}
 	namespace, _ := parseFullId(installed.ID)
 	return namespace != "vclu" || IsOfficialRepo(repo)
+}
+
+// SourceMoved: repo has the name the plugin was installed from, at another address.
+func SourceMoved(installed config.InstalledPlugin, repo config.PluginRepository) bool {
+	return installed.Repository == repo.Name && installed.RepositoryURL != "" && !sameRepoURL(installed.RepositoryURL, repo.URL)
+}
+
+// RepoURL: a repository address as recorded for an installed plugin.
+func RepoURL(u string) string { return normRepoURL(u) }
+
+// FromSource is FromRepository with, for an entry from before addresses were recorded, the
+// address the installed files were downloaded from (their .complete marker); moved is set
+// when the name matches but the address does not.
+func (l *Loader) FromSource(installed config.InstalledPlugin, repo config.PluginRepository) (ok, moved bool) {
+	if !FromRepository(installed, repo) {
+		return false, SourceMoved(installed, repo)
+	}
+	if installed.RepositoryURL == "" {
+		if from := l.downloadedFrom(installed.ID); from != "" && from != normRepoURL(repo.URL) {
+			return false, true
+		}
+	}
+	return true, false
+}
+
+// downloadedFrom: the repository address in the .complete marker of the installed files, "" when
+// there is none (untagged or installed by hand).
+func (l *Loader) downloadedFrom(pluginID string) string {
+	data, err := os.ReadFile(filepath.Join(l.resolvePluginDir(pluginID), ".complete"))
+	if err != nil {
+		return ""
+	}
+	_, url, ok := strings.Cut(string(data), "\n")
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(url)
 }
 
 func sameRepoURL(a, b string) bool {

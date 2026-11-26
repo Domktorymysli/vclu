@@ -334,6 +334,8 @@ type InstalledPlugin struct {
 	Version    string `json:"version"`              // Installed version
 	Enabled    bool   `json:"enabled"`              // Whether plugin is active
 	Repository string `json:"repository,omitempty"` // Which repo it came from
+	// RepositoryURL: that repository's address when installed; an update comes only from it
+	RepositoryURL string `json:"repositoryUrl,omitempty"`
 	// API: the plugin API of the installed version; an update never goes below it
 	API         int                    `json:"api,omitempty"`
 	InstalledAt string                 `json:"installedAt,omitempty"` // ISO timestamp
