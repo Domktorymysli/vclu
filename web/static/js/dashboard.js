@@ -39,7 +39,7 @@
     var typeIcons = {
         button: 'play-fill', toggle: 'power', slider: 'sliders', status: 'info-circle', link: 'link-45deg',
         chart: 'graph-up', select: 'list-ul', image: 'image', cover: 'arrows-expand', covers: 'window', dimmer: 'lightbulb',
-        color: 'palette', calendar: 'calendar3', player: 'music-note-beamed', forecast: 'cloud-sun',
+        color: 'palette', calendar: 'calendar3', schedule: 'calendar-week', player: 'music-note-beamed', forecast: 'cloud-sun',
         room: 'door-open', thermostat: 'thermometer-half', table: 'table', gauge: 'speedometer2', gate: 'door-closed', bars: 'bar-chart', colorTemp: 'lightbulb', energy: 'lightning-charge',
         latency: 'speedometer2', input: 'input-cursor-text', list: 'list-check'
     };
@@ -668,6 +668,8 @@
             renderImage(el, w, head);
         } else if (w.type === 'calendar') {
             renderCalendar(el, w, head);
+        } else if (w.type === 'schedule') {
+            renderSchedule(el, w, head);
         } else if (w.type === 'player') {
             renderPlayer(el, w, head);
         } else if (w.type === 'forecast') {
@@ -1062,6 +1064,303 @@
         return el;
     }
 
+    // ---- Schedule widget: the week of an editable calendar schedule ----
+    var schedules = {}; // widgetId -> {refresh, values(data)}
+    var WEEK_DAYS = ['mo', 'tu', 'we', 'th', 'fr', 'sa', 'su'];
+
+    function hmMin(s) { var p = s.split(':'); return +p[0] * 60 + +p[1]; }
+    // "by" of a saved week or an added event: the name vCLU knows, else what kind of caller it was
+    function actorLabel(by, byName) {
+        if (byName) return byName;
+        var s = String(by || '');
+        if (s.indexOf('user:') === 0) return s.slice(5);
+        if (s.indexOf('dashboard:') === 0) return T.byDashboard;
+        if (s.indexOf('automation:') === 0) return T.byModule;
+        if (s.indexOf('mcp') === 0 || s.indexOf('agent:') === 0) return T.byAgent;
+        return s;
+    }
+    // a function, so a "$&" in a name stays as typed
+    function fill(text, who) { return text.replace('{who}', function () { return who; }); }
+    // "Ania, 24.11" (with the time when asked)
+    function whoWhen(by, byName, at, withTime) {
+        var out = actorLabel(by, byName);
+        if (at) {
+            var d = new Date(at * 1000);
+            out += ', ' + d.toLocaleDateString(locale, { day: 'numeric', month: 'numeric' });
+            if (withTime) out += ' ' + d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
+        }
+        return out;
+    }
+    function minHm(m) { return pad2(Math.floor(m / 60)) + ':' + pad2(m % 60); }
+    // Monday..Sunday in the viewer's language (2026-11-23 is a Monday)
+    function weekdayName(i) {
+        try { return new Date(2026, 10, 23 + i).toLocaleDateString(locale, { weekday: 'short' }); }
+        catch (e) { return WEEK_DAYS[i]; }
+    }
+
+    function renderSchedule(el, w, head) {
+        el.style.cursor = 'default';
+        if (!w.span) el.style.gridColumn = '1 / -1';
+        var st = { data: null, edit: null, brush: null, seq: 0, busy: false };
+        var SCHED_STEP = w.step || 30; // minutes one tap paints
+
+        var bar = calEl('div', 'dash-cal-bar dash-sched-bar');
+        bar.appendChild(head);
+        var tools = calEl('div', 'dash-cal-tools');
+        bar.appendChild(tools);
+        var palette = calEl('div', 'dash-sched-palette');
+        var grid = calEl('div', 'dash-sched-grid');
+        var foot = calEl('div', 'dash-sched-foot');
+        el.appendChild(bar);
+        el.appendChild(palette);
+        el.appendChild(grid);
+        el.appendChild(foot);
+
+        function colorOf(v) {
+            var d = st.data;
+            if (!d || v == null || v === d.default) return null;
+            var c = d.colors && resolveColor(d.colors[v]);
+            return c || 'hsl(' + calHue(String(v)) + ', 55%, 50%)';
+        }
+
+        // a day's minutes -> value (null: the default) and back to intervals
+        function toMinutes(list) {
+            var m = new Array(1440);
+            (list || []).forEach(function(iv) {
+                for (var i = hmMin(iv.from), end = hmMin(iv.to); i < end; i++) m[i] = iv.value;
+            });
+            return m;
+        }
+        function toIntervals(m) {
+            var out = [], i = 0;
+            while (i < 1440) {
+                var v = m[i], a = i;
+                while (i < 1440 && m[i] === v) i++;
+                if (v != null) out.push({ from: minHm(a), to: i === 1440 ? '24:00' : minHm(i), value: v });
+            }
+            return out;
+        }
+
+        function button(cls, text, onClick) {
+            var b = calEl('button', cls, text);
+            b.type = 'button';
+            b.addEventListener('click', function(ev) { ev.stopPropagation(); onClick(); });
+            return b;
+        }
+
+        function drawTools() {
+            tools.innerHTML = '';
+            var d = st.data;
+            if (!d || !d.editable) return;
+            if (!st.edit) {
+                tools.appendChild(button('dash-cal-today', T.schedEdit, startEdit));
+                return;
+            }
+            if (d.edited) tools.appendChild(button('dash-cal-today', T.schedReset, function() { save('reset'); }));
+            tools.appendChild(button('dash-cal-today', T.schedCancel, function() { st.edit = null; draw(); }));
+            tools.appendChild(button('dash-cal-today dash-sched-save', T.schedSave, function() { save('set'); }));
+        }
+
+        function drawPalette() {
+            palette.innerHTML = '';
+            palette.hidden = !st.edit;
+            if (!st.edit) return;
+            var d = st.data;
+            var values = (d.values || []).filter(function(v) { return v !== d.default; });
+            values.push(d.default);
+            values.forEach(function(v) {
+                var b = button('dash-sched-swatch', String(v), function() { st.brush = v; drawPalette(); });
+                var c = colorOf(v);
+                if (c) b.style.setProperty('--seg', c);
+                else b.classList.add('neutral');
+                if (st.brush === v) b.classList.add('active');
+                b.setAttribute('aria-pressed', st.brush === v ? 'true' : 'false');
+                palette.appendChild(b);
+            });
+        }
+
+        function paintAt(day, cell) {
+            var m = st.edit[day], v = st.brush === st.data.default ? undefined : st.brush;
+            for (var i = cell * SCHED_STEP; i < (cell + 1) * SCHED_STEP; i++) m[i] = v;
+        }
+
+        function drawGrid() {
+            grid.innerHTML = '';
+            var d = st.data;
+            if (!d) return;
+            var week = d.week || {};
+            WEEK_DAYS.forEach(function(day, di) {
+                var row = calEl('div', 'dash-sched-row');
+                row.appendChild(calEl('div', 'dash-sched-day', weekdayName(di)));
+                var line = calEl('div', 'dash-sched-line');
+                line.dataset.day = day;
+                var list = st.edit ? toIntervals(st.edit[day]) : (week[day] || []);
+                list.forEach(function(iv) {
+                    var a = hmMin(iv.from), b = hmMin(iv.to);
+                    var seg = calEl('div', 'dash-cal-seg-v', String(iv.value));
+                    seg.style.left = (a / 1440 * 100) + '%';
+                    seg.style.width = ((b - a) / 1440 * 100) + '%';
+                    seg.style.setProperty('--seg', colorOf(iv.value));
+                    seg.title = iv.value + '  ' + iv.from + '\u2013' + iv.to;
+                    line.appendChild(seg);
+                });
+                if (st.edit) line.classList.add('editing');
+                row.appendChild(line);
+                grid.appendChild(row);
+            });
+            var ticks = calEl('div', 'dash-sched-row dash-sched-ticks');
+            ticks.appendChild(calEl('div'));
+            var axis = calEl('div', 'dash-cal-sched-axis');
+            [0, 6, 12, 18, 24].forEach(function(h) {
+                var t = calEl('span', null, pad2(h));
+                t.style.left = (h / 24 * 100) + '%';
+                axis.appendChild(t);
+            });
+            ticks.appendChild(axis);
+            grid.appendChild(ticks);
+        }
+
+        // painting: a tap or a drag over the lines, with a mouse or a finger
+        var painting = false;
+        function cellAt(ev) {
+            var target = document.elementFromPoint(ev.clientX, ev.clientY);
+            var line = target && target.closest && target.closest('.dash-sched-line');
+            if (!line || !grid.contains(line)) return null;
+            var r = line.getBoundingClientRect();
+            var x = Math.min(Math.max(ev.clientX - r.left, 0), r.width - 0.01);
+            return { day: line.dataset.day, cell: Math.floor(x / r.width * (1440 / SCHED_STEP)) };
+        }
+        function paintEvent(ev) {
+            var at = cellAt(ev);
+            if (!at) return;
+            paintAt(at.day, at.cell);
+            drawGrid();
+        }
+        grid.addEventListener('pointerdown', function(ev) {
+            if (!st.edit) return;
+            painting = true;
+            ev.preventDefault();
+            paintEvent(ev);
+        });
+        grid.addEventListener('pointermove', function(ev) { if (painting && st.edit) paintEvent(ev); });
+        ['pointerup', 'pointercancel', 'pointerleave'].forEach(function(n) {
+            grid.addEventListener(n, function() { painting = false; });
+        });
+
+        function drawFoot() {
+            foot.innerHTML = '';
+            var d = st.data;
+            if (!d) return;
+            if (d.fixed && d.fixed.length) {
+                var fx = calEl('div', 'dash-sched-fixed');
+                fx.appendChild(calEl('span', 'dash-sched-fixed-title', T.schedFixed));
+                d.fixed.forEach(function(f) {
+                    var every = Array.isArray(f.every) ? f.every.join(', ') : (f.every || f.date || f.dates || '');
+                    var hours = Array.isArray(f.hours) ? f.hours.join('\u2013') : (f.hours || f.time || '');
+                    fx.appendChild(calEl('span', 'dash-sched-fixed-item', String(every) + (hours ? ' ' + hours : '') + ' \u2192 ' + f.value));
+                });
+                foot.appendChild(fx);
+            }
+            if (d.edited && d.by) foot.appendChild(calEl('div', 'dash-sched-note', fill(T.schedSavedBy, whoWhen(d.by, d.byName, d.at, true))));
+            if (!d.editable) foot.appendChild(calEl('div', 'dash-sched-note', T.schedViewOnly));
+        }
+
+        function draw() {
+            el.classList.toggle('editing', !!st.edit);
+            drawTools();
+            drawPalette();
+            drawGrid();
+            drawFoot();
+        }
+
+        function startEdit() {
+            var d = st.data;
+            st.edit = {};
+            WEEK_DAYS.forEach(function(day) { st.edit[day] = toMinutes((d.week || {})[day]); });
+            st.base = d.version;
+            if (st.brush == null || (d.values || []).indexOf(st.brush) < 0) {
+                st.brush = (d.values || []).filter(function(v) { return v !== d.default; })[0];
+            }
+            draw();
+        }
+
+        function save(action) {
+            if (st.busy) return;
+            var value = { version: st.base };
+            if (action === 'set') {
+                value.week = {};
+                WEEK_DAYS.forEach(function(day) { value.week[day] = toIntervals(st.edit[day]); });
+            }
+            st.busy = true;
+            fetch('/api/dashboard/' + dashId + '/action', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ widgetId: w.id, action: action, value: value, actionId: newActionId() })
+            }).then(function(resp) {
+                return resp.json().catch(function() { return {}; }).then(function(data) { return { status: resp.status, data: data }; });
+            }).then(function(r) {
+                st.busy = false;
+                if (r.status === 200 && r.data.success) {
+                    VCLU.showToast(T.schedSaved, 'success');
+                    st.edit = null;
+                    load();
+                } else if (r.status === 409) {
+                    VCLU.showToast(T.schedConflict, 'warning');
+                    st.edit = null;
+                    if (r.data.week) { r.data.week.editable = st.data.editable; st.data = r.data.week; }
+                    load();
+                } else {
+                    VCLU.showToast((r.data && r.data.error) || ('HTTP ' + r.status), 'danger');
+                }
+            }).catch(function() {
+                st.busy = false;
+                VCLU.showToast(T.schedSaveFailed, 'danger');
+            });
+        }
+
+        function load() {
+            var my = ++st.seq;
+            fetch('/api/dashboard/' + dashId + '/schedule?widget=' + encodeURIComponent(w.id)).then(function(resp) {
+                return resp.json().catch(function() { return {}; }).then(function(data) {
+                    if (!resp.ok) return { error: (data && data.error) || ('HTTP ' + resp.status) };
+                    return data;
+                });
+            }).then(function(data) {
+                if (my !== st.seq) return;
+                if (data.error) {
+                    el.classList.add('has-error');
+                    foot.textContent = data.error;
+                    return;
+                }
+                el.classList.remove('has-error');
+                st.data = data;
+                if (!st.edit) draw();
+            }).catch(function() {
+                if (my === st.seq) el.classList.add('has-error');
+            });
+        }
+
+        schedules[w.id] = {
+            refresh: load,
+            // another save (a second tab, the app) shows here, unless this one is being edited
+            values: function(v) {
+                if (v && st.data && v.version != null && v.version !== st.data.version && !st.edit) load();
+            }
+        };
+        load();
+    }
+
+    // An id for an action a client may send again (action_replay.go)
+    function newActionId() {
+        if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+        var b = new Uint8Array(16);
+        (window.crypto || window.msCrypto).getRandomValues(b);
+        b[6] = (b[6] & 0x0f) | 0x40;
+        b[8] = (b[8] & 0x3f) | 0x80;
+        var h = Array.prototype.map.call(b, function(x) { return (x + 0x100).toString(16).slice(1); }).join('');
+        return h.slice(0, 8) + '-' + h.slice(8, 12) + '-' + h.slice(12, 16) + '-' + h.slice(16, 20) + '-' + h.slice(20);
+    }
+
     // ---- Calendar widget: a month grid and the day of a tapped date ----
     var calendars = {}; // widgetId -> {refresh}
 
@@ -1223,7 +1522,7 @@
             var my = ++st.seq;
             segMonth.classList.toggle('active', st.view === 'month');
             segDay.classList.toggle('active', st.view === 'day');
-            var url = '/api/dashboard/' + dashId + '/calendar?widget=' + encodeURIComponent(w.id) + '&from=' + r[0] + '&to=' + r[1];
+            var url = '/api/dashboard/' + dashId + '/calendar?widget=' + encodeURIComponent(w.id) + '&from=' + r[0] + '&to=' + r[1] + '&skipped=1';
             // a refused request (400, 403, 404) carries {error}: shown in the widget
             fetch(url).then(function(resp) {
                 return resp.json().catch(function() { return {}; }).then(function(data) {
@@ -1320,7 +1619,7 @@
                 else if (d.getDay() === 0 || d.getDay() === 6) cell.classList.add('weekend');
                 cell.appendChild(calEl('span', 'dash-cal-num', String(d.getDate())));
                 if (info.holidayName && st.show.holidays) cell.appendChild(calEl('span', 'dash-cal-holname', info.holidayName));
-                var its = itemsOn(date);
+                var its = itemsOn(date).filter(function(x) { return !x.skipped; });
                 var list = calEl('div', 'dash-cal-chips');
                 for (var k = 0; k < its.length && k < 3; k++) {
                     var chip = calEl('div', 'dash-cal-chip' + (its[k].paused ? ' paused' : ''), its[k].title);
@@ -1380,9 +1679,14 @@
             }
             if (notes.childNodes.length) wrap.appendChild(notes);
             if (st.data.schedules && st.data.schedules.length) wrap.appendChild(drawSchedules(st.data.schedules, st.day === st.data.today));
+            var editable = !!st.data.editable;
             var its = itemsOn(st.day);
-            var allDay = its.filter(function(x) { return x.allDay; });
-            var timed = its.filter(function(x) { return !x.allDay; });
+            if (!editable) its = its.filter(function(x) { return !x.skipped; });
+            // who may edit gets every event as a row, with its buttons
+            var allDay = editable ? [] : its.filter(function(x) { return x.allDay; });
+            var timed = editable ? its : its.filter(function(x) { return !x.allDay; });
+            if (editable) wrap.appendChild(st.form ? eventForm(st.form) : calEl('div', 'dash-cal-addrow'));
+            if (editable && !st.form) wrap.lastChild.appendChild(button('dash-cal-today', '+ ' + T.calAdd, function() { st.form = { date: st.day }; draw(); }));
             if (allDay.length) {
                 var row = calEl('div', 'dash-cal-allday');
                 allDay.forEach(function(it) {
@@ -1409,7 +1713,8 @@
                 if (it.ends ? it.ends <= nowTs : it.at < nowTs) row.classList.add('past');
                 if (it.at <= nowTs && it.ends && it.ends > nowTs) row.classList.add('now');
                 if (it.paused) row.classList.add('paused');
-                var time = tm(it.at) + (it.ends ? '–' + tm(it.ends) : '');
+                if (it.skipped) row.classList.add('skipped');
+                var time = it.allDay ? T.calAllDay : tm(it.at) + (it.ends ? '–' + tm(it.ends) : '');
                 row.appendChild(calEl('div', 'dash-cal-time', time));
                 var name = calEl('div', 'dash-cal-name');
                 if (it.icon) {
@@ -1417,7 +1722,11 @@
                     name.appendChild(ic);
                 }
                 name.appendChild(document.createTextNode(it.title));
+                if (it.added && it.added.by) {
+                    name.appendChild(calEl('span', 'dash-cal-added', fill(T.calAddedBy, whoWhen(it.added.by, it.added.byName, it.added.at))));
+                }
                 row.appendChild(name);
+                if (editable) { row.classList.add('editable'); row.appendChild(itemActions(it)); }
                 listEl.appendChild(row);
             });
             if (isToday && !lineDrawn && timed.length) nowLine();
@@ -1428,6 +1737,137 @@
             }
             wrap.appendChild(listEl);
             body.appendChild(wrap);
+        }
+
+        function button(cls, text, onClick) {
+            var b = calEl('button', cls, text);
+            b.type = 'button';
+            b.addEventListener('click', function(ev) { ev.stopPropagation(); onClick(); });
+            return b;
+        }
+
+        // An action on the calendar (add, update, remove, skip, unskip); the range again after it
+        function calAction(action, value, done) {
+            fetch('/api/dashboard/' + dashId + '/action', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ widgetId: w.id, action: action, value: value, actionId: newActionId() })
+            }).then(function(resp) {
+                return resp.json().catch(function() { return {}; }).then(function(data) { return { ok: resp.ok, data: data, status: resp.status }; });
+            }).then(function(r) {
+                if (r.ok && r.data.success) {
+                    if (done) done();
+                    load();
+                } else {
+                    VCLU.showToast((r.data && r.data.error) || ('HTTP ' + r.status), 'danger');
+                }
+            }).catch(function() { VCLU.showToast(T.calFailed, 'danger'); });
+        }
+
+        // Skip or bring back a day of any event; change or remove a person's own one
+        function itemActions(it) {
+            var box = calEl('div', 'dash-cal-actions');
+            if (it.skipped) {
+                box.appendChild(calIconBtn('arrow-counterclockwise', T.calUnskip, function() { calAction('unskip', { id: it.id, date: st.day }); }));
+            } else {
+                box.appendChild(calIconBtn('slash-circle', T.calSkip, function() { calAction('skip', { id: it.id, date: st.day }); }));
+            }
+            if (it.source === 'user' && it.edit) {
+                box.appendChild(calIconBtn('pencil', T.calEditEvent, function() {
+                    var f = { id: it.id, title: it.edit.title, date: it.edit.date || st.day, time: it.edit.time,
+                        duration: it.edit.duration, every: it.edit.every, from: it.edit.from, to: it.edit.to };
+                    st.form = f;
+                    draw();
+                }));
+                var del = calIconBtn('trash', T.calRemove, function() {
+                    // the second tap removes: no dialog in a wall tablet's page
+                    if (!del.classList.contains('armed')) {
+                        del.classList.add('armed');
+                        setTimeout(function() { del.classList.remove('armed'); }, 3000);
+                        return;
+                    }
+                    calAction('remove', { id: it.id });
+                });
+                box.appendChild(del);
+            }
+            return box;
+        }
+
+        function minutesOf(t) { var p = (t || '').split(':'); return p.length === 2 ? +p[0] * 60 + +p[1] : null; }
+        function durationText(min) { return (min >= 60 ? Math.floor(min / 60) + 'h' : '') + (min % 60 ? (min % 60) + 'm' : ''); }
+        function durationMin(d) {
+            var m = /^(?:(\d+)h)?(?:(\d+)m)?$/.exec(d || '');
+            return m && (m[1] || m[2]) ? (+(m[1] || 0)) * 60 + (+(m[2] || 0)) : null;
+        }
+        var DAY_CODES = ['su', 'mo', 'tu', 'we', 'th', 'fr', 'sa'];
+
+        // Adding or changing a person's own event: title, all day or from-to, repeat
+        function eventForm(f) {
+            var box = calEl('form', 'dash-cal-form');
+            var title = calEl('input', 'dash-cal-input');
+            title.type = 'text';
+            title.maxLength = 80;
+            title.placeholder = T.calTitle;
+            title.value = f.title || '';
+            var allDay = calEl('input');
+            allDay.type = 'checkbox';
+            allDay.checked = !!f.id && !f.time; // a new event starts timed
+            var fromT = calEl('input', 'dash-cal-input');
+            fromT.type = 'time';
+            fromT.value = f.time || '10:00';
+            var toT = calEl('input', 'dash-cal-input');
+            toT.type = 'time';
+            var dm = durationMin(f.duration);
+            toT.value = minHm((minutesOf(fromT.value) + (dm == null ? 60 : dm)) % 1440);
+            var repeat = calEl('select', 'dash-cal-input');
+            [['none', T.calOnce], ['day', T.calDaily], ['week', T.calWeekly]].forEach(function(o) {
+                var opt = calEl('option', null, o[1]);
+                opt.value = o[0];
+                repeat.appendChild(opt);
+            });
+            repeat.value = f.every === 'day' ? 'day' : (f.every ? 'week' : 'none');
+            function sync() { fromT.disabled = toT.disabled = allDay.checked; }
+            allDay.addEventListener('change', sync);
+            sync();
+            var allLabel = calEl('label', 'dash-cal-check');
+            allLabel.appendChild(allDay);
+            allLabel.appendChild(document.createTextNode(' ' + T.calAllDay));
+            var times = calEl('div', 'dash-cal-form-row');
+            times.appendChild(allLabel);
+            times.appendChild(fromT);
+            times.appendChild(calEl('span', null, '–'));
+            times.appendChild(toT);
+            times.appendChild(repeat);
+            var buttons = calEl('div', 'dash-cal-form-row');
+            buttons.appendChild(button('dash-cal-today', T.schedCancel, function() { st.form = null; draw(); }));
+            var save = button('dash-cal-today dash-sched-save', T.schedSave, function() { submit(); });
+            buttons.appendChild(save);
+            box.appendChild(title);
+            box.appendChild(times);
+            box.appendChild(buttons);
+            box.addEventListener('submit', function(ev) { ev.preventDefault(); submit(); });
+            function submit() {
+                var day = f.date || st.day;
+                var v = { title: title.value.trim() };
+                if (!v.title) { title.focus(); return; }
+                if (!allDay.checked) {
+                    var a = minutesOf(fromT.value), b = minutesOf(toT.value);
+                    if (a == null || b == null) return;
+                    var len = (b - a + 1440) % 1440;
+                    v.time = fromT.value;
+                    if (len > 0) v.duration = durationText(len);
+                }
+                if (repeat.value === 'none') v.date = day;
+                else {
+                    v.every = repeat.value === 'day' ? 'day' : DAY_CODES[parseYmd(day).getDay()];
+                    v.from = f.from || day;
+                    if (f.to) v.to = f.to;
+                }
+                if (f.id) v.id = f.id;
+                calAction(f.id ? 'update' : 'add', v, function() { st.form = null; });
+            }
+            setTimeout(function() { title.focus(); }, 0);
+            return box;
         }
 
         // A schedule as a 24 h bar: one segment per value, the current time marked
@@ -1487,7 +1927,8 @@
             return box;
         }
 
-        calendars[w.id] = { refresh: load };
+        // the minute's refresh leaves an open form alone; navigation and saving load anyway
+        calendars[w.id] = { refresh: function() { if (!st.form) load(); } };
         load();
         startChartTimer('cal-' + w.id, load, 60000);
     }
@@ -3969,6 +4410,7 @@
         }
 
         if (el.dataset.type === 'chip') return updateChip(el, wDef, data);
+        if (el.dataset.type === 'schedule' && schedules[wid]) schedules[wid].values(data);
 
         // Disabled state
         if (data.disabled !== undefined) {

@@ -18,8 +18,8 @@ Only public API is listed — internal/private functions are omitted.
 - [ExposedObjects](#exposedobjects) (26 functions)
 - [core.Registry](#coreregistry) (10 functions)
 - [core.Metrics](#coremetrics) (1 functions)
-- [core.Calendar](#corecalendar) (39 functions)
-- [Dashboard](#dashboard) (87 functions)
+- [core.Calendar](#corecalendar) (47 functions)
+- [Dashboard](#dashboard) (89 functions)
 - [lib.panel](#libpanel) (55 functions)
 - [objects.RemotePanel](#objectsremotepanel) (6 functions)
 - [GPIO_DOUT](#gpio_dout) (1 functions)
@@ -1081,6 +1081,22 @@ Add an event (start, end and reminder events). @api public
 
 Add a schedule: windows { every, hours, value, ... }, a default value, values = { ... } (the allowed values, required when they are text), and optionally a title and colors = { value = color } for the dashboard. @api public
 
+### `ScheduleHandle:editable(on)`
+
+The schedule just added can be edited from a dashboard: its weekly hours, as far as :roles() allows (see Cal:week).
+
+### `ScheduleHandle:roles(...)`
+
+Who may edit the schedule through a dashboard: people given one of these home roles in vclu cloud (and its owner and admins). Without it everyone the dashboard lets act.
+
+### `Builder:editable(on)`
+
+People may add their own events and skip a day of any event from a dashboard, as far as :roles() allows. Right after Calendar.new().
+
+### `Builder:roles(...)`
+
+Who may change the calendar's events through a dashboard: people given one of these home roles in vclu cloud (and its owner and admins). After :editable().
+
 ### `Builder:build()`
 
 Register the calendar and start it. Replaces a calendar with the same id. @api public
@@ -1095,7 +1111,7 @@ All calendars in the order they were built. @api public
 
 ### `Cal:on(kind, id, fn) → function unsubscribe`
 
-Subscribe: on(kind, fn) or on(kind, id, fn); kinds start, end, reminder, change, ready. At one moment end comes before start; an end from skip, pause or remove has e.cancelled = true.
+Subscribe: on(kind, fn) or on(kind, id, fn); kinds start, end, reminder, change, ready, edit. At one moment end comes before start; an end from skip, pause or remove has e.cancelled = true. edit fires after a change made while running (a week saved or reset, an event added, removed, skipped, a pause): e = { calendar, id, kind = 'schedule' | 'event', action, title, origin, actor }.
 
 **Returns:** function unsubscribe
 
@@ -1167,11 +1183,31 @@ Whether a date ('YYYY-MM-DD', a timestamp or today) is a workday. @api public Wh
 
 Whether a date ('YYYY-MM-DD', a timestamp or today) is a workday. @api public Whether a date is a public holiday. @api public Whether the clock is trusted and the calendar fires events. @api public
 
+### `Cal:week(id)`
+
+The week of an editable schedule: { format, version, edited, by, at, week = { mo = { {from, to, value}, ... }, ..., su }, fixed (the module's other windows), values, default, colors, title, roles }. week is the saved one, or the module's weekly windows.
+
+### `Cal:setWeek(id, week, opts) → number the new version`
+
+Save a week for an editable schedule (the module's fixed windows stay after it): setWeek(id, { mo = { { from = '06:00', to = '08:00', value = 'komfort' } }, ... }, { version = n }). With version, raises when the week changed since. The value applies at once.
+
+**Returns:** number the new version
+
+### `Cal:resetWeek(id, opts) → number the new version`
+
+Back to the module's hours. resetWeek(id, { version = n }) as setWeek.
+
+**Returns:** number the new version
+
 ### `Cal:add(opts) → string id`
 
 Add a user event (saved, survives a restart). Fields as in :event without functions.
 
 **Returns:** string id
+
+### `Cal:update(id, opts)`
+
+Change a user event: its fields again, as in add (the id stays). An occurrence going on ends first. @api public
 
 ### `Cal:remove(id)`
 
@@ -1294,6 +1330,16 @@ Add a calendar widget to this section: a month grid and the day of a tapped date
 - `label` (string) — Display label
 - `cal` (table) — Calendar from Calendar.new(...):build(), or its id
 - `opts` (table) — Optional: {view="month"|"day", tags={...}, schedules={ids drawn as 24 h bars in the day view} or true for all of the calendar's, holidays=true (holiday names, on by default), namedays=false (name days in the day view), sun=true (sunrise and sunset in the day view, with :location()), span=n, visible=function()->bool}; what is off is not sent to the browser
+
+### `SectionHandle:schedule(id, label, cal, scheduleId, opts)`
+
+Add a schedule widget to this section: the week of an editable calendar schedule, edited on the page by who the schedule's :roles() allow.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `cal` (table) — Calendar from Calendar.new(...):build(), or its id
+- `scheduleId` (string) — An editable schedule of the calendar (:schedule(...):editable())
+- `opts` (table) — Optional: {span=n, visible=function()->bool, disabled=function()->bool, remote=false|'readonly'}
 
 ### `SectionHandle:select(id, label, icon, options, getValue, onSelect, opts)`
 
@@ -1701,6 +1747,16 @@ Add a calendar widget to the current section: a month grid and the day of a tapp
 - `label` (string) — Display label
 - `cal` (table) — Calendar from Calendar.new(...):build(), or its id
 - `opts` (table) — Optional: {view="month"|"day", tags={...}, schedules={ids drawn as 24 h bars in the day view} or true for all of the calendar's, holidays=true (holiday names, on by default), namedays=false (name days in the day view), sun=true (sunrise and sunset in the day view, with :location()), span=n, visible=function()->bool}; what is off is not sent to the browser
+
+### `DashboardBuilder:schedule(id, label, cal, scheduleId, opts)`
+
+Add a schedule widget to the current section: the week of an editable calendar schedule, edited on the page by who the schedule's :roles() allow.
+
+- `id` (string) — Unique widget identifier
+- `label` (string) — Display label
+- `cal` (table) — Calendar from Calendar.new(...):build(), or its id
+- `scheduleId` (string) — An editable schedule of the calendar (:schedule(...):editable())
+- `opts` (table) — Optional: {span=n, visible=function()->bool, disabled=function()->bool, remote=false|'readonly'}
 
 ### `DashboardBuilder:select(id, label, icon, options, getValue, onSelect, opts)`
 

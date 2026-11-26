@@ -19,6 +19,15 @@ SectionHandle.__index = SectionHandle
 
 local CALENDAR_WIDGET_KEYS = { view = true, tags = true, schedules = true, holidays = true, namedays = true, sun = true, span = true,
     visible = true, remote = true }
+local SCHEDULE_WIDGET_KEYS = { span = true, visible = true, disabled = true, remote = true, step = true }
+-- Minutes one tap paints: 10 for watering, 60 for a tariff; divides the day and the half hour.
+local SCHEDULE_STEPS = { [5] = true, [10] = true, [15] = true, [30] = true, [60] = true }
+-- What a page may keep on a calendar: events ahead (one-off or repeating, not yet over) and how
+-- far back and ahead a day may be skipped. The module's own cal:add is not bounded.
+local CAL_PAGE_EVENTS = 200
+local CAL_SKIP_BACK, CAL_SKIP_AHEAD = 62, 366
+-- What a page may set on an event it adds to an editable calendar or changes; the rest is the module's.
+local CAL_EVENT_KEYS = { title = true, date = true, time = true, duration = true, every = true, from = true, to = true }
 
 -- "a", "b": the sorted keys of a set, or "none".
 local function quoted(set)
@@ -146,6 +155,29 @@ local function calendarWidget(id, label, cal, opts)
         end
     end
     return { id = id, type = 'calendar', label = label, calendar = calId, opts = opts }
+end
+
+-- A schedule widget: the week of an editable schedule. It keeps the calendar's id too.
+local function scheduleWidget(id, label, cal, scheduleId, opts)
+    local calId = type(cal) == 'table' and cal.id or cal
+    local where = 'schedule widget "' .. tostring(id) .. '"'
+    if type(calId) ~= 'string' then error(where .. ': expected a calendar or its id', 3) end
+    if type(scheduleId) ~= 'string' then error(where .. ': expected the id of an editable schedule of the calendar', 3) end
+    opts = opts or {}
+    if type(opts) ~= 'table' then error(where .. ': opts must be a table', 3) end
+    for k in pairs(opts) do
+        if not SCHEDULE_WIDGET_KEYS[k] then
+            error(where .. ': unknown option "' .. tostring(k) .. '" (' .. quoted(SCHEDULE_WIDGET_KEYS) .. ')', 3)
+        end
+    end
+    if opts.disabled ~= nil and type(opts.disabled) ~= 'function' then error(where .. ': opts.disabled must be a function', 3) end
+    if opts.step ~= nil and not SCHEDULE_STEPS[opts.step] then error(where .. ': opts.step must be 5, 10, 15, 30 or 60 (minutes)', 3) end
+    local c = Calendar and Calendar.get(calId)
+    if c then
+        local ok, err = pcall(c.week, c, scheduleId)
+        if not ok then error(where .. ': ' .. tostring(err):gsub('^[^\n]-:%d+: ', ''), 3) end
+    end
+    return { id = id, type = 'schedule', label = label, calendar = calId, schedule = scheduleId, opts = opts }
 end
 
 -- A colour widget given a light object (RemoteRGBLight) instead of fns. Reads come from what
@@ -1470,22 +1502,23 @@ end
 -- Text input and an editable list (small apps: a shopping list)
 -- ==========================================================================
 
-local INPUT_KEYS = { placeholder = true, button = true, maxLength = true, disabled = true, visible = true, span = true,
+local TextW = {}
+TextW.INPUT_KEYS = { placeholder = true, button = true, maxLength = true, disabled = true, visible = true, span = true,
     remote = true }
-local LIST_KEYS = { onToggle = true, onDelete = true, onAdd = true, placeholder = true, empty = true, icon = true,
+TextW.LIST_KEYS = { onToggle = true, onDelete = true, onAdd = true, placeholder = true, empty = true, icon = true,
     maxItems = true, maxLength = true, disabled = true, visible = true, span = true, remote = true }
-local TEXT_MAX = 1000
-local LIST_MAX_ITEMS = 1000
+TextW.TEXT_MAX = 1000
+TextW.LIST_MAX_ITEMS = 1000
 
 -- The options both share: a whitelist, placeholder, maxLength (1-1000, default 200), disabled
-local function textOpts(where, opts, keys)
+function TextW.textOpts(where, opts, keys)
     for k in pairs(opts) do
         if not keys[k] then error(where .. ': unknown option "' .. tostring(k) .. '" (' .. quoted(keys) .. ')', 4) end
     end
     if opts.placeholder ~= nil and type(opts.placeholder) ~= 'string' then error(where .. ': opts.placeholder must be a string', 4) end
     local n = opts.maxLength
-    if n ~= nil and (type(n) ~= 'number' or n % 1 ~= 0 or n < 1 or n > TEXT_MAX) then
-        error(where .. ': opts.maxLength must be a whole number 1-' .. TEXT_MAX, 4)
+    if n ~= nil and (type(n) ~= 'number' or n % 1 ~= 0 or n < 1 or n > TextW.TEXT_MAX) then
+        error(where .. ': opts.maxLength must be a whole number 1-' .. TextW.TEXT_MAX, 4)
     end
     if opts.disabled ~= nil and type(opts.disabled) ~= 'function' then error(where .. ': opts.disabled must be a function', 4) end
     return n or 200
@@ -1501,7 +1534,7 @@ local function inputWidget(id, label, icon, onSubmit, opts)
     if type(onSubmit) ~= 'function' then error(where .. ': onSubmit must be a function(text), got ' .. type(onSubmit), 3) end
     if opts == nil then opts = {} end
     if type(opts) ~= 'table' then error(where .. ': opts must be a table', 3) end
-    local max = textOpts(where, opts, INPUT_KEYS)
+    local max = TextW.textOpts(where, opts, TextW.INPUT_KEYS)
     if opts.button ~= nil and type(opts.button) ~= 'string' then error(where .. ': opts.button must be a string', 3) end
     return { id = id, type = 'input', label = label, icon = icon or 'input-cursor-text', onSubmit = onSubmit,
         maxLength = max, opts = opts }
@@ -1514,7 +1547,7 @@ local function listWidget(id, label, getItems, opts)
     if type(getItems) ~= 'function' then error(where .. ': getItems must be a function returning a list of items, got ' .. type(getItems), 3) end
     if opts == nil then opts = {} end
     if type(opts) ~= 'table' then error(where .. ': opts must be a table', 3) end
-    local max = textOpts(where, opts, LIST_KEYS)
+    local max = TextW.textOpts(where, opts, TextW.LIST_KEYS)
     for _, k in ipairs({ 'onToggle', 'onDelete', 'onAdd' }) do
         if opts[k] ~= nil and type(opts[k]) ~= 'function' then error(where .. ': opts.' .. k .. ' must be a function', 3) end
     end
@@ -1523,15 +1556,15 @@ local function listWidget(id, label, getItems, opts)
         error(where .. ': opts.icon must be a Bootstrap icon name (letters, digits and -)', 3)
     end
     local n = opts.maxItems
-    if n ~= nil and (type(n) ~= 'number' or n % 1 ~= 0 or n < 1 or n > LIST_MAX_ITEMS) then
-        error(where .. ': opts.maxItems must be a whole number 1-' .. LIST_MAX_ITEMS, 3)
+    if n ~= nil and (type(n) ~= 'number' or n % 1 ~= 0 or n < 1 or n > TextW.LIST_MAX_ITEMS) then
+        error(where .. ': opts.maxItems must be a whole number 1-' .. TextW.LIST_MAX_ITEMS, 3)
     end
     return { id = id, type = 'list', label = label, icon = opts.icon or 'list-check', fn = getItems,
         maxItems = n or 100, maxLength = max, opts = opts }
 end
 
 -- getItems() checked: {list = items as given, shown = what the page gets, total} or {error}
-local function listRead(w)
+function TextW.listRead(w)
     local where = 'section:list("' .. tostring(w.id) .. '")'
     local ok, list = pcall(w.fn)
     if not ok then return { error = tostring(list) } end
@@ -1563,14 +1596,14 @@ local function listRead(w)
 end
 
 -- What a poll sends: {items, total} or {error}
-local function listState(w)
-    local r = listRead(w)
+function TextW.listState(w)
+    local r = TextW.listRead(w)
     if r.error then return { error = r.error } end
     return { items = r.shown, total = r.total }
 end
 
 -- Text from the page: control characters as spaces, trimmed; nil and why when refused
-local function textValue(w, value)
+function TextW.textValue(w, value)
     if type(value) ~= 'string' then return nil, 'Value must be text' end
     local s = value:gsub('%c', ' '):match('^%s*(.-)%s*$')
     if s == '' then return nil, 'Empty text' end
@@ -1581,7 +1614,7 @@ local function textValue(w, value)
 end
 
 -- onSubmit/onAdd: false or nil with a message refuses (the message under the field), a string is a toast
-local function submitText(fn, text)
+function TextW.submitText(fn, text)
     local ok, ret, msg = pcall(fn, text)
     if not ok then return { error = tostring(ret), field = true } end
     if ret == false or (ret == nil and msg ~= nil) then
@@ -1986,6 +2019,19 @@ end
 -- @api public
 function SectionHandle:calendar(id, label, cal, opts)
     self._builder:_addWidget(self._sectionIndex, calendarWidget(id, label, cal, opts))
+    return self
+end
+
+--- Add a schedule widget to this section: the week of an editable calendar schedule, edited
+-- on the page by who the schedule's :roles() allow.
+-- @param id string Unique widget identifier
+-- @param label string Display label
+-- @param cal table Calendar from Calendar.new(...):build(), or its id
+-- @param scheduleId string An editable schedule of the calendar (:schedule(...):editable())
+-- @param opts table Optional: {span=n, visible=function()->bool, disabled=function()->bool, remote=false|'readonly'}
+-- @api public
+function SectionHandle:schedule(id, label, cal, scheduleId, opts)
+    self._builder:_addWidget(self._sectionIndex, scheduleWidget(id, label, cal, scheduleId, opts))
     return self
 end
 
@@ -2899,6 +2945,22 @@ function DashboardBuilder:calendar(id, label, cal, opts)
     return self
 end
 
+--- Add a schedule widget to the current section: the week of an editable calendar schedule,
+-- edited on the page by who the schedule's :roles() allow.
+-- @param id string Unique widget identifier
+-- @param label string Display label
+-- @param cal table Calendar from Calendar.new(...):build(), or its id
+-- @param scheduleId string An editable schedule of the calendar (:schedule(...):editable())
+-- @param opts table Optional: {span=n, visible=function()->bool, disabled=function()->bool, remote=false|'readonly'}
+-- @api public
+function DashboardBuilder:schedule(id, label, cal, scheduleId, opts)
+    if not self._currentSection then
+        error('Call :section() before adding widgets (dash:floor() ends the current section)', 2)
+    end
+    self:_addWidget(self._currentSection, scheduleWidget(id, label, cal, scheduleId, opts))
+    return self
+end
+
 --- Add a select widget to the current section.
 -- @param id string Unique widget identifier
 -- @param label string Display label
@@ -3678,6 +3740,74 @@ local function resolveDashboard(id, bare)
     return bare and result or expandAreas(result)
 end
 
+-- ---------- schedule widget ----------
+
+-- The calendar and the week of a schedule widget, or nil and the error.
+local function scheduleOf(w)
+    local cal = Calendar and Calendar.get(w.calendar)
+    if not cal then return nil, nil, 'calendar "' .. w.calendar .. '" not built' end
+    local ok, wk = pcall(cal.week, cal, w.schedule)
+    if not ok then return nil, nil, (tostring(wk):gsub('^[^\n]-:%d+: ', '')) end
+    return cal, wk
+end
+
+-- Values of a schedule widget: the value now and the next change as text (for a client that
+-- does not know the type), the value and the week's version.
+local function scheduleState(w)
+    local cal, wk, err = scheduleOf(w)
+    if not cal then return { error = err } end
+    local now = cal:value(w.schedule)
+    if now == nil then return { value = '…', version = wk.version } end
+    local text = tostring(now)
+    local n = cal:nextChange(w.schedule)
+    if n then
+        local at = datetime.fromTimestamp(n.at)
+        local fmt = cal:day(n.at).date == cal:day().date and '15:04' or '02.01 15:04'
+        text = text .. ' → ' .. tostring(n.value) .. ' ' .. datetime.format(at, fmt)
+    end
+    return { value = text, now = now, color = cal:color(w.schedule), version = wk.version }
+end
+
+-- The request's context as Go passes it: role (the membership role through the cloud, nil for
+-- the house), roles (the home roles as JSON text, when the house knows them), client (a client
+-- of the device API), valueJSON (an action's value as JSON text).
+local function ctxRoles(ctx)
+    if type(ctx.roles) ~= 'string' then return nil end
+    local ok, list = pcall(JSON.decode, ctx.roles)
+    if ok and type(list) == 'table' then return list end
+    return nil
+end
+
+-- Whether this viewer may change what widget w shows (a schedule's week, a calendar's events)
+-- that names roles (nil: none); the same answer for the flag the page shows and for the action.
+local function mayEdit(dash, w, roles, ctx)
+    if safeDisabled(w.opts) then return false end
+    if ctx.role == nil then
+        -- the house: a page anyone on the LAN opens does not get round the roles
+        return roles == nil or dash._auth == 'pin' or dash._auth == 'session'
+    end
+    if ctx.client == true or dash._readonly[w] then return false end
+    if roles == nil or ctx.role == 'owner' or ctx.role == 'admin' then return true end
+    for _, r in ipairs(ctxRoles(ctx) or {}) do
+        for _, x in ipairs(roles) do
+            if r == x then return true end
+        end
+    end
+    return false
+end
+
+local function mayEditSchedule(dash, w, wk, ctx) return mayEdit(dash, w, wk.roles, ctx) end
+
+local function mayEditCalendar(dash, w, cal, ctx) return cal.editable and mayEdit(dash, w, cal.roles, ctx) end
+
+local function findWidget(dash, widgetId, wtype)
+    for _, sec in ipairs(dash._sections) do
+        for _, x in ipairs(sec.widgets) do
+            if x.id == widgetId and (wtype == nil or x.type == wtype) then return x end
+        end
+    end
+end
+
 -- Remote viewers (vclu cloud, docs/protocol.md in vclu-cloud, section 8). Go passes the role
 -- only for requests through the cloud's tunnel or with a local token; nil is the house.
 
@@ -3872,7 +4002,9 @@ local CALENDAR_DAY_MAX = 300  -- events in one day view
 --- Occurrences of a calendar widget's calendar for the days from..to ('YYYY-MM-DD', at most 42)
 -- @return string JSON {today, now, ready, days=[{date, weekday, workday, holiday}], items=[...]},
 --   or {error, status} with the HTTP status of a bad request
-function DashboardAPI.calendarRange(id, widgetId, from, to, role)
+function DashboardAPI.calendarRange(id, widgetId, from, to, role, ctx)
+    ctx = type(ctx) == 'table' and ctx or {}
+    ctx.role = role
     local function fail(status, msg) return JSON.encode({ error = msg, status = status }) end
     local dash = resolveFor(id, role)
     if not dash then return fail(404, 'Dashboard not found') end
@@ -3908,7 +4040,10 @@ function DashboardAPI.calendarRange(id, widgetId, from, to, role)
         d = cal:day(d.ends)
     end
     local items = {}
-    local ok, list = pcall(cal.between, cal, a.date, b.date, { tags = w.opts.tags })
+    -- who may edit also sees the skipped days, to bring them back, when the page asks: a client
+    -- that does not know them would draw them as events
+    local editable = mayEditCalendar(dash, w, cal, ctx)
+    local ok, list = pcall(cal.between, cal, a.date, b.date, { tags = w.opts.tags, skipped = editable and ctx.skipped == true or nil })
     if not ok then
         Logger:getShared():error('[DASHBOARD] %s calendar %s: %s', tostring(id), tostring(widgetId), tostring(list))
         return fail(500, 'calendar unavailable')
@@ -3927,8 +4062,19 @@ function DashboardAPI.calendarRange(id, widgetId, from, to, role)
             end
         end
         if keep then
-            items[#items + 1] = { id = e.id, title = e.title, icon = e.icon, at = e.at, ends = e.ends,
-                allDay = e.allDay, date = e.date, last = e.last, paused = e.paused, source = e.source }
+            local item = { id = e.id, title = e.title, icon = e.icon, at = e.at, ends = e.ends,
+                allDay = e.allDay, date = e.date, last = e.last, paused = e.paused, source = e.source, skipped = e.skipped }
+            -- the fields of a person's own event, for the page's form
+            if editable and e.source == 'user' then
+                local o = cal:_saved(e.id)
+                if o then
+                    item.edit = {}
+                    for k in pairs(CAL_EVENT_KEYS) do item.edit[k] = o[k] end
+                end
+                local who = cal:_who(e.id)
+                if who and who.by then item.added = { by = who.by, at = who.at } end
+            end
+            items[#items + 1] = item
         end
     end
     -- schedules as 24 h bars: only for a single day (the day view)
@@ -3950,7 +4096,188 @@ function DashboardAPI.calendarRange(id, widgetId, from, to, role)
         end
     end
     return JSON.encode({ today = today.date, now = math.floor(__go_time_ms() / 1000), zone = __go_calendar_zone(),
-        ready = cal:isReady(), days = days, items = items, schedules = schedules })
+        ready = cal:isReady(), days = days, items = items, schedules = schedules, editable = editable or nil })
+end
+
+--- The week of a schedule widget for this viewer: Cal:week's fields, editable (whether this
+-- viewer may change it) and segments (the values in effect today and the next 6 days).
+-- @param ctx table|nil {role, roles, client} as for executeAction
+-- @return string JSON, or {error, status}
+function DashboardAPI.scheduleWeek(id, widgetId, ctx)
+    ctx = type(ctx) == 'table' and ctx or {}
+    local function fail(status, msg) return JSON.encode({ error = msg, status = status }) end
+    local dash = resolveFor(id, ctx.role)
+    if not dash then return fail(404, 'Dashboard not found') end
+    local w = findWidget(dash, widgetId, 'schedule')
+    if not w then return fail(403, 'schedule widget not on this dashboard') end
+    if dashHidden(id, dash)[w] then return fail(403, 'schedule widget is hidden') end
+    local cal, wk, err = scheduleOf(w)
+    if not cal then return fail(404, err) end
+    wk.editable = mayEditSchedule(dash, w, wk, ctx)
+    wk.roles = nil   -- who may is the house's business, the flag is enough
+    if not wk.editable then wk.by = nil end   -- who saved: only for who may save too
+    wk.now = cal:value(w.schedule)
+    wk.zone = __go_calendar_zone()
+    if cal:isReady() then
+        local today = cal:day()
+        local last = today
+        for _ = 1, 6 do last = cal:day(last.ends) end
+        local ok, segs = pcall(cal.segments, cal, w.schedule, today.date, last.date)
+        if ok then wk.segments = segs end
+    end
+    return JSON.encode(wk)
+end
+
+-- A schedule widget's set and reset: every answer has its HTTP status.
+local function scheduleAction(id, dash, w, action, ctx)
+    local function fail(status, msg, extra)
+        local out = extra or {}
+        out.error, out.status = msg, status
+        return JSON.encode(out)
+    end
+    if dashHidden(id, dash)[w] then return fail(403, 'Widget is hidden') end
+    if action ~= 'set' and action ~= 'reset' then return fail(400, 'Invalid action for schedule (set, reset)') end
+    local cal, wk, err = scheduleOf(w)
+    if not cal then return fail(404, err) end
+    if not mayEditSchedule(dash, w, wk, ctx) then return fail(403, 'not allowed to edit this schedule') end
+    local value
+    if type(ctx.valueJSON) == 'string' then
+        local ok, v = pcall(JSON.decode, ctx.valueJSON)
+        if ok then value = v end
+    end
+    if type(value) ~= 'table' or type(value.version) ~= 'number' then
+        return fail(400, 'value expected as { week, version }')
+    end
+    if value.version ~= wk.version then
+        wk.roles = nil
+        return fail(409, 'the week changed', { week = wk })
+    end
+    local ok, res
+    if action == 'set' then
+        ok, res = pcall(cal.setWeek, cal, w.schedule, value.week, { version = value.version })
+    else
+        ok, res = pcall(cal.resetWeek, cal, w.schedule, { version = value.version })
+    end
+    if not ok then return fail(400, (tostring(res):gsub('^[^\n]-:%d+: ', ''))) end
+    return JSON.encode({ success = true, value = { version = res } })
+end
+
+local CAL_EVERY = { day = true, mo = true, tu = true, we = true, th = true, fr = true, sa = true, su = true }
+
+local function calendarEventOpts(w, v)
+    if type(v) ~= 'table' then return nil, 'value expected as { title, date, ... }' end
+    local opts = {}
+    for k, x in pairs(v) do
+        if k ~= 'id' then
+            if not CAL_EVENT_KEYS[k] then return nil, 'unknown field "' .. tostring(k) .. '" (title, date, time, duration, every, from, to)' end
+            opts[k] = x
+        end
+    end
+    -- characters, not bytes: 80 Polish letters fit as the page allows them
+    if type(opts.title) ~= 'string' or opts.title == '' or select(2, opts.title:gsub('[^\128-\191]', '')) > 80 then
+        return nil, 'title expected, at most 80 characters'
+    end
+    for _, k in ipairs({ 'date', 'time', 'duration', 'from', 'to' }) do
+        if opts[k] ~= nil and type(opts[k]) ~= 'string' then return nil, k .. ' must be text' end
+    end
+    for _, k in ipairs({ 'date', 'from', 'to' }) do
+        if opts[k] ~= nil and not opts[k]:match('^%d%d%d%d%-%d%d%-%d%d$') and not opts[k]:match('^%d%d%d%d%-%d%d%-%d%d%.%.%d%d%d%d%-%d%d%-%d%d$') then
+            return nil, k .. ' expected as YYYY-MM-DD'
+        end
+    end
+    if opts.every ~= nil then
+        local list = type(opts.every) == 'table' and opts.every or { opts.every }
+        if #list == 0 or #list > 7 then return nil, 'every expects day or weekdays' end
+        for _, e in ipairs(list) do
+            if not CAL_EVERY[e] then return nil, 'every expects day or weekdays (mo..su)' end
+        end
+    end
+    local tags = w.opts.tags
+    if tags ~= nil then opts.tags = type(tags) == 'table' and tags or { tags } end
+    return opts
+end
+
+-- Whether a calendar widget shows an event: all of them, or those with one of its tags.
+local function shownOn(w, ev)
+    local tags = w.opts.tags
+    if tags == nil then return true end
+    for _, t in ipairs(type(tags) == 'table' and tags or { tags }) do
+        for _, et in ipairs(ev.tags or {}) do
+            if t == et then return true end
+        end
+    end
+    return false
+end
+
+-- User events not over yet; an event of another shape (a module's cal:add) counts as ahead.
+local function liveUserEvents(cal)
+    local today, n = cal:day().date, 0
+    for _, ev in ipairs(cal._events) do
+        local who = ev.source == 'user' and cal:_who(ev.id)
+        if who and who.page then
+            local last = cal:_lastDay(ev.id)
+            if last == nil or last >= today then n = n + 1 end
+        end
+    end
+    return n
+end
+
+local function skipInReach(cal, date)
+    if not date:match('^%d%d%d%d%-%d%d%-%d%d$') then return true end   -- the calendar names the error
+    local noon = cal:day().starts + 12 * 3600
+    return date >= cal:day(noon - CAL_SKIP_BACK * 86400).date and date <= cal:day(noon + CAL_SKIP_AHEAD * 86400).date
+end
+
+-- A calendar widget's add, update, remove, skip and unskip: every answer has its HTTP status.
+local function calendarAction(id, dash, w, action, value, ctx)
+    local function fail(status, msg) return JSON.encode({ error = msg, status = status }) end
+    if dashHidden(id, dash)[w] then return fail(403, 'Widget is hidden') end
+    local cal = Calendar.get(w.calendar)
+    if not cal then return fail(404, 'calendar "' .. w.calendar .. '" not built') end
+    if not mayEditCalendar(dash, w, cal, ctx) then return fail(403, 'not allowed to edit this calendar') end
+    if type(ctx.valueJSON) == 'string' then
+        local okJ, v = pcall(JSON.decode, ctx.valueJSON)
+        value = okJ and v or nil
+    end
+    if type(value) ~= 'table' then return fail(400, 'value expected as a table') end
+    local function clean(err) return (tostring(err):gsub('^[^\n]-:%d+: ', '')) end
+    local evId = value.id
+    local ev = evId ~= nil and cal._byId[evId]
+    if action ~= 'add' and (type(evId) ~= 'string' or not ev or not ev.rule or not shownOn(w, ev)) then return fail(404, 'no such event') end
+    local ok, res
+    if action == 'add' or action == 'update' then
+        if action == 'update' and ev.source ~= 'user' then return fail(403, 'the module\'s events change in the module') end
+        local opts, err = calendarEventOpts(w, value)
+        if not opts then return fail(400, err) end
+        if action == 'update' then
+            -- what the page does not set (remind, icon, tags of a module's cal:add) stays; hours
+            -- is the page's time or all day
+            local saved = cal:_saved(evId) or {}
+            for k, x in pairs(saved) do
+                if not CAL_EVENT_KEYS[k] and k ~= 'hours' then opts[k] = x end
+            end
+            opts.tags = saved.tags
+        end
+        if action == 'add' then cal:_prune() end
+        if action == 'add' and liveUserEvents(cal) >= CAL_PAGE_EVENTS then
+            return fail(400, 'the calendar has ' .. CAL_PAGE_EVENTS .. ' events ahead: remove some first')
+        end
+        if action == 'add' then ok, res = pcall(cal.add, cal, opts) else ok, res = pcall(cal.update, cal, evId, opts) end
+        if action == 'add' and ok then cal:_markPage(res) end
+    elseif action == 'remove' then
+        if ev.source ~= 'user' then return fail(403, 'the module\'s events change in the module') end
+        ok, res = pcall(cal.remove, cal, evId)
+    elseif action == 'skip' or action == 'unskip' then
+        if type(value.date) ~= 'string' then return fail(400, 'date expected as YYYY-MM-DD') end
+        if not skipInReach(cal, value.date) then
+            return fail(400, 'a day from ' .. CAL_SKIP_BACK .. ' days back to ' .. CAL_SKIP_AHEAD .. ' days ahead')
+        end
+        ok, res = pcall(cal[action], cal, evId, value.date)
+    else
+        return fail(400, 'Invalid action for calendar (add, update, remove, skip, unskip)')
+    end
+    if not ok then return fail(400, clean(res)) end
+    return JSON.encode({ success = true, value = { id = action == 'add' and res or evId } })
 end
 
 --- List all dashboards with widget details
@@ -4098,6 +4425,11 @@ function DashboardAPI.getDefinition(id, role)
                 widget.compareLabel = w.opts.compareLabel
             end
 
+            if w.type == 'schedule' then
+                widget.calendar, widget.schedule, widget.format = w.calendar, w.schedule, 1
+                widget.step = w.opts.step or 30
+            end
+
             if w.type == 'calendar' then
                 widget.calendar = w.calendar
                 widget.view = w.opts.view or 'month'
@@ -4204,7 +4536,7 @@ function DashboardAPI.getDefinition(id, role)
             -- List: its items as a poll gives them, and which controls it has
             if w.type == 'list' then
                 if live then
-                    for k, v in pairs(listState(w)) do widget[k] = v end
+                    for k, v in pairs(TextW.listState(w)) do widget[k] = v end
                 end
                 widget.placeholder, widget.empty, widget.maxLength = w.opts.placeholder, w.opts.empty or '—', w.maxLength
                 widget.capabilities = { toggle = w.opts.onToggle ~= nil, delete = w.opts.onDelete ~= nil, add = w.opts.onAdd ~= nil }
@@ -4454,12 +4786,16 @@ function DashboardAPI.getValues(id, role)
                 local entry = tableState(id, w)
                 entry.disabled = safeDisabled(w.opts)
                 result[w.id] = entry
+            elseif w.type == 'schedule' then
+                local entry = scheduleState(w)
+                entry.disabled = safeDisabled(w.opts)
+                result[w.id] = entry
             elseif w.type == 'player' or w.type == 'forecast' then
                 local entry = w.type == 'player' and playerState(w) or forecastState(w)
                 entry.disabled = safeDisabled(w.opts)
                 result[w.id] = entry
             elseif w.type == 'list' then
-                local entry = listState(w)
+                local entry = TextW.listState(w)
                 entry.disabled = safeDisabled(w.opts)
                 result[w.id] = entry
             elseif w.type == 'gauge' then
@@ -4597,6 +4933,9 @@ function DashboardAPI.executeAction(id, widgetId, action, value, ctx)
         return JSON.encode({ error = 'Widget not found' })
     end
 
+    if widget.type == 'schedule' then return scheduleAction(id, dash, widget, action, type(ctx) == 'table' and ctx or {}) end
+    if widget.type == 'calendar' then return calendarAction(id, dash, widget, action, value, type(ctx) == 'table' and ctx or {}) end
+
     -- A hidden widget is not on the page to tap, and its disabled() is not read
     local hidden = dashHidden(id, dash)
     if hidden[widget] then
@@ -4683,17 +5022,17 @@ function DashboardAPI.executeAction(id, widgetId, action, value, ctx)
 
     elseif widget.type == 'input' then
         if action ~= 'submit' then return JSON.encode({ error = 'Invalid action for input' }) end
-        local text, why = textValue(widget, value)
+        local text, why = TextW.textValue(widget, value)
         if not text then return JSON.encode({ error = why, field = true }) end
-        return JSON.encode(submitText(widget.onSubmit, text))
+        return JSON.encode(TextW.submitText(widget.onSubmit, text))
 
     elseif widget.type == 'list' then
         local result
         if action == 'add' then
             if type(widget.opts.onAdd) ~= 'function' then return JSON.encode({ error = 'No onAdd function' }) end
-            local text, why = textValue(widget, value)
+            local text, why = TextW.textValue(widget, value)
             if not text then return JSON.encode({ error = why, field = true }) end
-            result = submitText(widget.opts.onAdd, text)
+            result = TextW.submitText(widget.opts.onAdd, text)
         elseif action == 'toggle' or action == 'delete' then
             local fn = widget.opts[action == 'toggle' and 'onToggle' or 'onDelete']
             if type(fn) ~= 'function' then
@@ -4705,7 +5044,7 @@ function DashboardAPI.executeAction(id, widgetId, action, value, ctx)
             local done = type(value) == 'table' and value.done
             if action == 'toggle' and type(done) ~= 'boolean' then return JSON.encode({ error = 'Value must be {id, done}' }) end
             -- the id must be one getItems() gives now; the callback gets it as getItems gave it
-            local items = listRead(widget)
+            local items = TextW.listRead(widget)
             if items.error then return JSON.encode({ error = items.error }) end
             local itemId
             for _, it in ipairs(items.list) do
@@ -4722,7 +5061,7 @@ function DashboardAPI.executeAction(id, widgetId, action, value, ctx)
         end
         -- the list as it is now, so the page shows the change without waiting for a poll
         if result.success then
-            local st = listState(widget)
+            local st = TextW.listState(widget)
             result.items, result.total = st.items, st.total
         end
         return JSON.encode(result)
@@ -5068,28 +5407,29 @@ end
 -- Plugins' dashboards: who may open them is the user's (Plugin:dashboardAccess)
 -- ==========================================================================
 
-local ACCESS_KEYS = { name = true, auth = true, pin = true, remote = true }
-local ACCESS_AUTH = { session = true, pin = true, public = true, off = true }
-local ACCESS_REMOTE_KEYS = { pin = true, roles = true }
+local DashAccess = {}
+DashAccess.KEYS = { name = true, auth = true, pin = true, remote = true }
+DashAccess.AUTH = { session = true, pin = true, public = true, off = true }
+DashAccess.REMOTE_KEYS = { pin = true, roles = true }
 
-local function chars(s)
+function DashAccess.chars(s)
     return select(2, s:gsub('[^\128-\191]', ''))
 end
 
 -- The checked grant, or nil and why
-local function accessSpec(opts)
+function DashAccess.spec(opts)
     if type(opts) ~= 'table' then return nil, 'opts is a table {name, auth, pin, remote}' end
     for k in pairs(opts) do
-        if not ACCESS_KEYS[k] then return nil, 'unknown option "' .. tostring(k) .. '" (name, auth, pin, remote)' end
+        if not DashAccess.KEYS[k] then return nil, 'unknown option "' .. tostring(k) .. '" (name, auth, pin, remote)' end
     end
     local a = {}
     if opts.name ~= nil then
-        if type(opts.name) ~= 'string' or opts.name == '' or chars(opts.name) > 60 or opts.name:find('[%c]') then
+        if type(opts.name) ~= 'string' or opts.name == '' or DashAccess.chars(opts.name) > 60 or opts.name:find('[%c]') then
             return nil, 'name is a text of 1 to 60 characters on one line'
         end
         a.name = opts.name
     end
-    if opts.auth ~= nil and not ACCESS_AUTH[opts.auth] then
+    if opts.auth ~= nil and not DashAccess.AUTH[opts.auth] then
         return nil, 'auth is "session", "pin", "public" or "off"'
     end
     a.auth = opts.auth
@@ -5104,7 +5444,7 @@ local function accessSpec(opts)
         if r == true then r = {} end
         if type(r) ~= 'table' then return nil, 'remote is false, true or {pin, roles}' end
         for k in pairs(r) do
-            if not ACCESS_REMOTE_KEYS[k] then return nil, 'remote: unknown option "' .. tostring(k) .. '" (pin, roles)' end
+            if not DashAccess.REMOTE_KEYS[k] then return nil, 'remote: unknown option "' .. tostring(k) .. '" (pin, roles)' end
         end
         if r.pin ~= nil and type(r.pin) ~= 'boolean' then return nil, 'remote.pin is true or false' end
         local roles = r.roles
@@ -5144,7 +5484,7 @@ end
 -- Plugin:dashboardAccess: stores the grant for the plugin's declared dashboard and applies it
 -- to the dashboard if built; true, or nil and why
 function Dashboard._grantPlugin(pluginId, id, opts)
-    local a, err = accessSpec(opts)
+    local a, err = DashAccess.spec(opts)
     if not a then return nil, err end
     _dashboardAccess[pluginId] = _dashboardAccess[pluginId] or {}
     _dashboardAccess[pluginId][id] = a
