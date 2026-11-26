@@ -600,7 +600,8 @@ PluginsManager.prototype._confirmInstall = function(id, repository, preview) {
     var modal = new bootstrap.Modal(this.elements.installModal);
     this.elements.installConfirm.onclick = function() {
         modal.hide();
-        self._install(id, repository, requested);
+        self._install(id, repository, requested, {internet: preview.internet || [],
+            broadcastPorts: preview.broadcastPorts || [], tcpPorts: preview.tcpPorts || []});
     };
     modal.show();
 };
@@ -608,14 +609,15 @@ PluginsManager.prototype._confirmInstall = function(id, repository, preview) {
 /**
  * Install after the confirmation
  * @param {Array} accept - the permissions the user saw and confirmed
+ * @param {Object} seen - the hosts and ports shown with them
  */
-PluginsManager.prototype._install = function(id, repository, accept) {
+PluginsManager.prototype._install = function(id, repository, accept, seen) {
     var self = this;
     fetch('/api/plugins/install', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         // the Installed tab passes the full id; the repository knows the short one
-        body: JSON.stringify({id: id.replace(/^@[^\/]+\//, ''), repository: repository, accept: accept})
+        body: JSON.stringify({id: id.replace(/^@[^\/]+\//, ''), repository: repository, accept: accept, seen: seen})
     })
     .then(function(r) { return r.json(); })
     .then(function(data) {

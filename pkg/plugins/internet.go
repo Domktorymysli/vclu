@@ -167,3 +167,23 @@ func (h InternetHosts) Allows(host string) bool {
 func (h InternetHosts) covers(entry string) bool {
 	return h.Any() || slices.Contains(h, entry)
 }
+
+// OnlyHostsSeen keeps of the internet hosts asked for those the user confirmed; "*" only
+// when that was confirmed. The rest waits for the user.
+func (p Permissions) OnlyHostsSeen(seen []string) Permissions {
+	ok, err := NormalizeInternetHosts(seen)
+	if err != nil {
+		ok = nil
+	}
+	var keep InternetHosts
+	for _, h := range p.Internet {
+		if h == "*" && !ok.Any() {
+			continue
+		}
+		if ok.covers(h) {
+			keep = append(keep, h)
+		}
+	}
+	p.Internet = keep
+	return p
+}

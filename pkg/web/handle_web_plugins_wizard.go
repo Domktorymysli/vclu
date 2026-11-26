@@ -341,8 +341,9 @@ func (s *Server) handlePluginsAPIDiscover(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"rows": rows, "dropped": dropped})
 }
 
-func codeHash(code string) string {
-	sum := sha256.Sum256([]byte(code))
+// codeHash covers the file on disk too: a module changed after the diff is not written over.
+func codeHash(current, proposed string) string {
+	sum := sha256.Sum256([]byte(current + "\x00" + proposed))
 	return hex.EncodeToString(sum[:])
 }
 
@@ -366,7 +367,7 @@ func (s *Server) handlePluginsAPIModuleCode(c *gin.Context) {
 		"path":     "modules/plugins/" + plugins.ModuleName(id) + ".lua",
 		"current":  current,
 		"proposed": plugins.ModuleText(id, proposed),
-		"hash":     codeHash(plugins.ModuleText(id, proposed)),
+		"hash":     codeHash(current, plugins.ModuleText(id, proposed)),
 	})
 }
 
@@ -389,8 +390,13 @@ func (s *Server) handlePluginsAPIWriteModuleCode(c *gin.Context) {
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
 		return
 	}
-	if codeHash(plugins.ModuleText(id, proposed)) != req.Hash {
-		c.JSON(http.StatusConflict, gin.H{"error": "the proposed code changed: look at the diff again"})
+	current, err := plugins.ReadModuleCode(s.serverDir, id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read the module"})
+		return
+	}
+	if codeHash(current, plugins.ModuleText(id, proposed)) != req.Hash {
+		c.JSON(http.StatusConflict, gin.H{"error": "the module or the proposed code changed: look at the diff again"})
 		return
 	}
 	if strings.TrimSpace(proposed) == "" {
