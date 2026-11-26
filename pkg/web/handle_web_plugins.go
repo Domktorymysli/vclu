@@ -463,6 +463,16 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 
 	// An installed plugin is updated only from the repository it came from; another one listing
 	// the same id is another publisher's plugin
+	// two plugins whose wizards would write the same module are not installed together
+	var ids []string
+	for _, inst := range masterConfig.Plugins.Installed {
+		ids = append(ids, inst.ID)
+	}
+	if other := plugins.ModuleNameTaken(fullId, ids); other != "" {
+		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("%s cannot be installed next to %s: their wizards would write the same module, modules/plugins/%s.lua", fullId, other, plugins.ModuleName(fullId)), "code": "module_name"})
+		return
+	}
+
 	sourceCheck := plugins.NewLoader(s.serverDir)
 	for _, inst := range masterConfig.Plugins.Installed {
 		if inst.ID != fullId {

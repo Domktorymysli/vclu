@@ -2,6 +2,7 @@ package web
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -101,5 +102,39 @@ func TestPluginsAPIUpdateOldEntryChecksTheFiles(t *testing.T) {
 	setRepos(t, dir, config.PluginRepository{Name: "test", URL: other.URL, Enabled: true})
 	if w := callInstall(t, s, `{"id":"cloud","repository":"test"}`); w.Code != http.StatusConflict {
 		t.Fatalf("update of an old entry from another address: %d %s, want 409", w.Code, w.Body.String())
+	}
+}
+
+// Two plugins whose wizards would write the same module file are not installed together.
+func TestPluginsAPIInstallRefusesASharedModuleName(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/plugins.json":
+			_, _ = w.Write([]byte(`{"namespace":"jan","plugins":[{"id":"b.c","version":"1.0.0","path":"plugins/bc1"},{"id":"b_c","version":"1.0.0","path":"plugins/bc2"}]}`))
+		case "/plugins/bc1/plugin.json":
+			_, _ = w.Write([]byte(`{"id":"b.c","version":"1.0.0","api":2,"permissions":{}}`))
+		case "/plugins/bc2/plugin.json":
+			_, _ = w.Write([]byte(`{"id":"b_c","version":"1.0.0","api":2,"permissions":{}}`))
+		case "/plugins/bc1/init.lua", "/plugins/bc2/init.lua":
+			_, _ = w.Write([]byte("return {}\n"))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer repo.Close()
+	dir := t.TempDir()
+	if err := writeTestConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
+		Repositories: []config.PluginRepository{{Name: "test", URL: repo.URL, Enabled: true}},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{serverDir: dir}
+	if w := callInstall(t, s, `{"id":"b.c","repository":"test"}`); w.Code != http.StatusOK {
+		t.Fatalf("install b.c: %d %s", w.Code, w.Body.String())
+	}
+	w := callInstall(t, s, `{"id":"b_c","repository":"test"}`)
+	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "module_name") {
+		t.Fatalf("install b_c next to b.c: %d %s, want 409 module_name", w.Code, w.Body.String())
 	}
 }

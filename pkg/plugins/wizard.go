@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/Domktorymysli/vclu/pkg/config"
 	"github.com/Domktorymysli/vclu/pkg/luastr"
 )
 
@@ -138,6 +139,33 @@ func ModuleName(pluginID string) string {
 	return name
 }
 
+// ModuleNameTaken: another of ids whose module file name is pluginID's ("" when none). Names are
+// kept as they are (modules written already), so two such plugins are not installed together.
+func ModuleNameTaken(pluginID string, ids []string) string {
+	name := ModuleName(pluginID)
+	for _, id := range ids {
+		if id != pluginID && ModuleName(id) == name {
+			return id
+		}
+	}
+	return ""
+}
+
+// moduleOwner: the plugin whose wizard wrote the module at path, from its header; "" if none.
+func moduleOwner(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	first, _, _ := strings.Cut(string(data), "\n")
+	rest, ok := strings.CutPrefix(first, "-- Written by the wizard of ")
+	if !ok {
+		return ""
+	}
+	id, _, _ := strings.Cut(rest, ". ")
+	return id
+}
+
 // ModulePath: modules/plugins/<name>.lua under serverDir.
 func ModulePath(serverDir, pluginID string) string {
 	return filepath.Join(serverDir, "modules", "plugins", ModuleName(pluginID)+".lua")
@@ -148,6 +176,19 @@ func ModulePath(serverDir, pluginID string) string {
 func WriteModuleCode(serverDir, pluginID, code string) error {
 	if !ValidPluginID(pluginID) || ModuleName(pluginID) == "init" { // init.lua is the list
 		return fmt.Errorf("invalid plugin id")
+	}
+	// another plugin's module under the same file name is not written over
+	if owner := moduleOwner(ModulePath(serverDir, pluginID)); owner != "" && owner != pluginID {
+		return fmt.Errorf("%s is the module of %s", "modules/plugins/"+ModuleName(pluginID)+".lua", owner)
+	}
+	if mc, err := config.ReadMasterConfig(serverDir); err == nil && mc != nil && mc.Plugins != nil {
+		var ids []string
+		for _, inst := range mc.Plugins.Installed {
+			ids = append(ids, inst.ID)
+		}
+		if other := ModuleNameTaken(pluginID, ids); other != "" {
+			return fmt.Errorf("%s and %s would share modules/plugins/%s.lua", pluginID, other, ModuleName(pluginID))
+		}
 	}
 	dir := filepath.Join(serverDir, "modules", "plugins")
 	if err := os.MkdirAll(dir, 0o755); err != nil {

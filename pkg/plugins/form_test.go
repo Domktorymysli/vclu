@@ -1,10 +1,13 @@
 package plugins
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Domktorymysli/vclu/pkg/config"
 )
 
 func TestParseFormRefusesBadDeclarations(t *testing.T) {
@@ -109,6 +112,49 @@ func TestModuleNamesNeverMeet(t *testing.T) {
 	}
 	if ModuleName("@vclu/shelly") != "vclu__shelly" {
 		t.Fatal(ModuleName("@vclu/shelly"))
+	}
+	// names kept as they are meet for these; ModuleNameTaken finds the other one
+	for _, pair := range [][2]string{{"@a/b.c", "@a/b_c"}, {"@a__b/c", "@a/b__c"}, {"@a.b/c", "@a_b/c"}} {
+		if !ValidPluginID(pair[0]) || !ValidPluginID(pair[1]) {
+			continue
+		}
+		if ModuleName(pair[0]) != ModuleName(pair[1]) {
+			t.Errorf("%s and %s: %s, %s", pair[0], pair[1], ModuleName(pair[0]), ModuleName(pair[1]))
+		}
+		if got := ModuleNameTaken(pair[1], []string{"@vclu/shelly", pair[0], pair[1]}); got != pair[0] {
+			t.Errorf("ModuleNameTaken(%s) = %q, want %s", pair[1], got, pair[0])
+		}
+	}
+	if got := ModuleNameTaken("@vclu/shelly", []string{"@vclu/shelly", "@vclu/shelly.plus"}); got != "" {
+		t.Errorf("ModuleNameTaken(@vclu/shelly) = %q, want none", got)
+	}
+}
+
+// The wizard does not write over the module of another plugin with the same file name.
+func TestWriteModuleCodeKeepsAnotherPluginsModule(t *testing.T) {
+	dir := t.TempDir()
+	if err := WriteModuleCode(dir, "@a/b.c", "x = 1\n"); err != nil {
+		t.Fatal(err)
+	}
+	err := WriteModuleCode(dir, "@a/b_c", "x = 2\n")
+	if err == nil || !strings.Contains(err.Error(), "@a/b.c") {
+		t.Fatalf("second wizard: %v, want refused naming @a/b.c", err)
+	}
+	data, _ := os.ReadFile(ModulePath(dir, "@a/b.c"))
+	if !strings.Contains(string(data), "x = 1") {
+		t.Errorf("module written over: %s", data)
+	}
+	// its own module is rewritten
+	if err := WriteModuleCode(dir, "@a/b.c", "x = 3\n"); err != nil {
+		t.Errorf("own module: %v", err)
+	}
+	// both installed, the module not written yet: refused too
+	dir2 := t.TempDir()
+	mc := config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{Installed: []config.InstalledPlugin{{ID: "@a/b.c"}, {ID: "@a/b_c"}}}}
+	data, _ = json.Marshal(mc)
+	_ = os.WriteFile(filepath.Join(dir2, ".vclu.json"), data, 0o600)
+	if err := WriteModuleCode(dir2, "@a/b_c", "x = 4\n"); err == nil {
+		t.Error("two installed plugins sharing a module file: written")
 	}
 }
 
