@@ -108,7 +108,7 @@ func (s *Server) checkPluginUpdates(ctx context.Context) {
 		s.setPluginUpdates(nil)
 		return
 	}
-	found, _ := availablePlugins(ctx, mc)
+	found, _ := availablePlugins(ctx, mc, s.serverDir)
 	s.pluginNotices(found)
 }
 

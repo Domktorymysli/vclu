@@ -136,7 +136,7 @@ func TestAvailablePluginsCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	found, errs := availablePlugins(ctx, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
-		Repositories: []config.PluginRepository{{Name: "a", URL: reg.URL, Enabled: true}, {Name: "b", URL: reg.URL, Enabled: true}}}})
+		Repositories: []config.PluginRepository{{Name: "a", URL: reg.URL, Enabled: true}, {Name: "b", URL: reg.URL, Enabled: true}}}}, "")
 	if len(found) != 0 || strings.Join(errs, ";") != "a: context canceled;b: context canceled" || requests.Load() != 0 {
 		t.Errorf("found %+v, errors %v, %d requests", found, errs, requests.Load())
 	}
@@ -186,7 +186,7 @@ func TestAvailablePluginsUpdateFromSourceOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	found, errs := availablePlugins(context.Background(), mc)
+	found, errs := availablePlugins(context.Background(), mc, "")
 	if len(found) != 2 || len(errs) != 0 {
 		t.Fatalf("found %+v, errors %v", found, errs)
 	}

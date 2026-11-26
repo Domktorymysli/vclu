@@ -132,5 +132,39 @@ func TestReview_UpdateSameAPIKeepsRecords(t *testing.T) {
 // The list offers an update to an older entry whose files came from another address, which the
 // install then refuses (source_moved) without the card saying so.
 func TestReview_AvailableMatchesInstallForOldEntry(t *testing.T) {
-	t.Skip("known: availablePlugins uses FromRepository, not the .complete marker (FromSource); UX only, the install refuses")
+	gin.SetMode(gin.TestMode)
+	var v1, m1, v2, m2 atomic.Value
+	v1.Store("1.0.0")
+	m1.Store(`{"id":"cloud","version":"1.0.0","api":2,"permissions":{}}`)
+	v2.Store("1.1.0")
+	m2.Store(`{"id":"cloud","version":"1.1.0","api":2,"permissions":{}}`)
+	first := pluginRepoServer(t, &v1, &m1)
+	other := pluginRepoServer(t, &v2, &m2)
+	dir := t.TempDir()
+	if err := writeTestConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
+		Repositories: []config.PluginRepository{{Name: "test", URL: first.URL, Enabled: true}},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{serverDir: dir}
+	if w := callInstall(t, s, `{"id":"cloud","repository":"test"}`); w.Code != http.StatusOK {
+		t.Fatalf("install: %d %s", w.Code, w.Body.String())
+	}
+	// no address in the entry; the files' marker names the first repository
+	if err := config.UpdateMasterConfig(dir, func(mc *config.VCLUConfig) error {
+		mc.Plugins.Installed[0].RepositoryURL = ""
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	setRepos(t, dir, config.PluginRepository{Name: "test", URL: other.URL, Enabled: true})
+
+	mc, _ := config.ReadMasterConfig(dir)
+	found, _ := availablePlugins(t.Context(), mc, dir)
+	if len(found) != 1 || found[0].UpdateAvailable || !found[0].SourceMoved {
+		t.Errorf("listing %+v, want source moved and no update", found)
+	}
+	if w := callInstall(t, s, `{"id":"cloud","repository":"test"}`); w.Code != http.StatusConflict {
+		t.Errorf("install: %d %s, want 409 as the listing says", w.Code, w.Body.String())
+	}
 }

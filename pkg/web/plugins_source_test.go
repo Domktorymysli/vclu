@@ -55,7 +55,7 @@ func TestPluginsAPIUpdateOnlyFromTheSameAddress(t *testing.T) {
 		t.Errorf("version %s after the refusal, want 1.0.0", got.Version)
 	}
 	mc, _ := config.ReadMasterConfig(dir)
-	found, _ := availablePlugins(t.Context(), mc)
+	found, _ := availablePlugins(t.Context(), mc, dir)
 	if len(found) != 1 || !found[0].SourceMoved || found[0].UpdateAvailable {
 		t.Errorf("listing %+v, want source moved and no update", found)
 	}

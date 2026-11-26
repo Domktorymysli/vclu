@@ -137,7 +137,7 @@ func TestPluginsAPIInstallNamespaceFromRepositoryName(t *testing.T) {
 	found, errs := availablePlugins(context.Background(), &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
 		Repositories: []config.PluginRepository{{Name: "Community Repo", URL: repo.URL, Enabled: true}},
 		Installed:    []config.InstalledPlugin{{ID: "@community-repo/solax", Version: "1.0.0", Repository: "Community Repo"}},
-	}})
+	}}, "")
 	if len(errs) != 0 || len(found) != 1 || found[0].FullID != "@community-repo/solax" || found[0].Namespace != "community-repo" || !found[0].Installed {
 		t.Errorf("available: %+v, errors %v", found, errs)
 	}

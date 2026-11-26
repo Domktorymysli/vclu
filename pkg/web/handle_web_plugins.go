@@ -185,7 +185,7 @@ func (s *Server) handlePluginsAPIRemoveRepository(c *gin.Context) {
 // handlePluginsAPIAvailable fetches available plugins from all enabled repositories
 func (s *Server) handlePluginsAPIAvailable(c *gin.Context) {
 	masterConfig, _ := config.ReadMasterConfig(s.serverDir)
-	found, errors := availablePlugins(c.Request.Context(), masterConfig)
+	found, errors := availablePlugins(c.Request.Context(), masterConfig, s.serverDir)
 
 	var allPlugins []gin.H
 	for _, a := range found {
@@ -229,8 +229,13 @@ type availablePlugin struct {
 }
 
 // availablePlugins reads the registries of mc's enabled repositories (the defaults without
-// a plugins section); errors are per repository.
-func availablePlugins(ctx context.Context, mc *config.VCLUConfig) ([]availablePlugin, []string) {
+// a plugins section); errors are per repository. With serverDir, an update is offered as the
+// installer would take it (FromSource, the downloaded files' marker included).
+func availablePlugins(ctx context.Context, mc *config.VCLUConfig, serverDir string) ([]availablePlugin, []string) {
+	var source *plugins.Loader
+	if serverDir != "" {
+		source = plugins.NewLoader(serverDir)
+	}
 	var repos []config.PluginRepository
 	if mc != nil && mc.Plugins != nil {
 		repos = mc.Plugins.Repositories
@@ -268,8 +273,12 @@ func availablePlugins(ctx context.Context, mc *config.VCLUConfig) ([]availablePl
 			inst, ok := installed[a.FullID]
 			a.Installed, a.InstalledVersion = ok, inst.Version
 			// another repository listing the same id is not an update of this plugin
-			a.UpdateAvailable = ok && plugins.FromRepository(inst, repo) && newerVersion(p.Version, inst.Version)
-			a.SourceMoved = ok && plugins.SourceMoved(inst, repo)
+			from, moved := ok && plugins.FromRepository(inst, repo), ok && plugins.SourceMoved(inst, repo)
+			if ok && source != nil {
+				from, moved = source.FromSource(inst, repo)
+			}
+			a.UpdateAvailable = from && newerVersion(p.Version, inst.Version)
+			a.SourceMoved = moved
 			out = append(out, a)
 		}
 	}
