@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Domktorymysli/vclu/pkg/luastr"
 )
@@ -105,7 +106,25 @@ func (l *Loader) ModuleCode(pluginID string) (string, error) {
 	if len(r.Code) > maxModuleCode {
 		return "", fmt.Errorf("moduleCode: longer than %d KiB", maxModuleCode>>10)
 	}
-	return strings.ReplaceAll(r.Code, "\r", ""), nil
+	code := strings.ReplaceAll(r.Code, "\r", "")
+	if err := checkModuleCode(code); err != nil {
+		return "", err
+	}
+	return code, nil
+}
+
+// checkModuleCode: the code is read in a diff before it runs, so nothing in it may hide or
+// reorder what the diff shows.
+func checkModuleCode(code string) error {
+	if !utf8.ValidString(code) {
+		return fmt.Errorf("moduleCode: not UTF-8")
+	}
+	for i, line := range strings.Split(code, "\n") {
+		if strings.ContainsFunc(line, hiddenRune) {
+			return fmt.Errorf("moduleCode: line %d has control or bidi characters", i+1)
+		}
+	}
+	return nil
 }
 
 // ModuleName: the plugin's module under modules/plugins/, from its full id. Ids have no
@@ -127,7 +146,7 @@ func ModulePath(serverDir, pluginID string) string {
 // WriteModuleCode writes the plugin's module and the require lines that load it:
 // modules/plugins/init.lua requires each plugin's module, modules/init.lua requires plugins.
 func WriteModuleCode(serverDir, pluginID, code string) error {
-	if !ValidPluginID(pluginID) {
+	if !ValidPluginID(pluginID) || ModuleName(pluginID) == "init" { // init.lua is the list
 		return fmt.Errorf("invalid plugin id")
 	}
 	dir := filepath.Join(serverDir, "modules", "plugins")

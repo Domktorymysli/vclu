@@ -12,6 +12,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // DevicesKey: where the confirmed device rows sit in a plugin's config.
@@ -195,6 +197,7 @@ func (f *Form) Check(settings map[string]any, devices []map[string]any) (FormVal
 			return v, fmt.Errorf("%s: not in the form", name)
 		}
 	}
+	shown := visibleFields(f.Settings, settings)
 	for name, field := range f.Settings {
 		val, given := settings[name]
 		if field.Type == "secret" {
@@ -208,7 +211,7 @@ func (f *Form) Check(settings map[string]any, devices []map[string]any) (FormVal
 			v.Secrets[name] = s
 			continue
 		}
-		if !visible(field, settings) {
+		if !shown[name] {
 			continue
 		}
 		out, err := checkValue(field, val, given)
@@ -261,8 +264,9 @@ func (d *DeviceList) checkRow(row map[string]any) (map[string]any, error) {
 			return nil, fmt.Errorf("%s: not a device field", name)
 		}
 	}
+	shown := visibleFields(d.Fields, row)
 	for name, field := range d.Fields {
-		if !visible(field, row) {
+		if !shown[name] {
 			continue
 		}
 		val, given := row[name]
@@ -301,10 +305,44 @@ func (d *DeviceList) DiscoveredRows(rows []map[string]any) (ok []map[string]any,
 	return ok, dropped
 }
 
-// visible: showIf holds, so the field is asked (a hidden field is neither required nor kept).
-func visible(f FormField, values map[string]any) bool {
+// hiddenRune: control, line separator and bidi characters, which a field or a diff in the
+// panel does not show as they act; a tab is allowed.
+func hiddenRune(r rune) bool {
+	switch {
+	case r == '\t':
+		return false
+	case unicode.IsControl(r), r == '\u2028', r == '\u2029', r == '\u061c', r == '\u200e', r == '\u200f',
+		r >= '\u202a' && r <= '\u202e', r >= '\u2066' && r <= '\u2069':
+		return true
+	}
+	return false
+}
+
+// visibleFields: the fields whose showIf holds, a field hidden by a hidden one hidden too (the
+// panel counts a hidden field as unset), so neither required nor kept.
+func visibleFields(fields map[string]FormField, values map[string]any) map[string]bool {
+	on := map[string]bool{}
+	for name := range fields {
+		on[name] = true
+	}
+	for changed := true; changed; {
+		changed = false
+		for name, f := range fields {
+			if on[name] && !showIfHolds(f, values, on) {
+				on[name], changed = false, true
+			}
+		}
+	}
+	return on
+}
+
+func showIfHolds(f FormField, values map[string]any, on map[string]bool) bool {
 	for other, want := range f.ShowIf {
-		if fmt.Sprint(values[other]) != fmt.Sprint(want) {
+		var v any
+		if on[other] {
+			v = values[other]
+		}
+		if fmt.Sprint(v) != fmt.Sprint(want) {
 			return false
 		}
 	}
@@ -356,6 +394,10 @@ func checkValue(f FormField, val any, given bool) (any, error) {
 	s = strings.TrimSpace(s)
 	if len(s) > maxFormValue {
 		return nil, fmt.Errorf("longer than %d characters", maxFormValue)
+	}
+	// one line, as the panel's inputs: plugins put these values into module code
+	if !utf8.ValidString(s) || strings.ContainsFunc(s, func(r rune) bool { return r == '\n' || hiddenRune(r) }) {
+		return nil, fmt.Errorf("control characters")
 	}
 	switch f.kind() {
 	case "enum":
