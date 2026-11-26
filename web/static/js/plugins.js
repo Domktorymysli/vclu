@@ -1167,37 +1167,40 @@ PluginsManager.prototype._configureSimple = function(id) {
 PluginsManager.prototype._renderConfigForm = function(configSchema, currentConfig) {
     var html = '<div id="configFieldsList">';
 
-    Object.keys(configSchema).forEach(function(key) {
-        var field = configSchema[key];
-        var currentValue = currentConfig[key] !== undefined ? currentConfig[key] : (field.default || '');
+    // plugin.json comes from the repository: every text of it is escaped
+    Object.keys(configSchema).forEach(function(rawKey) {
+        var field = configSchema[rawKey] || {};
+        var key = VCLU.esc(rawKey);
+        var currentValue = currentConfig[rawKey] !== undefined ? currentConfig[rawKey] : (field.default || '');
+        var value = VCLU.esc(String(currentValue));
         var required = field.required ? '<span class="text-danger">*</span>' : '';
 
         html += '<div class="mb-3 config-field">';
         html += '<label class="form-label">' + key + ' ' + required + '</label>';
 
-        if (field.enum) {
+        if (Array.isArray(field.enum)) {
             html += '<select class="form-select form-select-sm config-value" data-key="' + key + '">';
             field.enum.forEach(function(opt) {
                 var selected = currentValue === opt ? 'selected' : '';
-                html += '<option value="' + opt + '" ' + selected + '>' + opt + '</option>';
+                html += '<option value="' + VCLU.esc(String(opt)) + '" ' + selected + '>' + VCLU.esc(String(opt)) + '</option>';
             });
             html += '</select>';
         } else if (field.type === 'number') {
             html += '<input type="number" class="form-control form-control-sm config-value" data-key="' +
-                   key + '" value="' + currentValue + '">';
+                   key + '" value="' + value + '">';
         } else if (field.type === 'boolean') {
             var checked = currentValue === true || currentValue === 'true' ? 'checked' : '';
             html += '<div class="form-check"><input type="checkbox" class="form-check-input config-value" data-key="' +
                    key + '" ' + checked + '></div>';
         } else {
-            var inputType = key.toLowerCase().includes('password') || key.toLowerCase().includes('apikey') ?
+            var inputType = rawKey.toLowerCase().includes('password') || rawKey.toLowerCase().includes('apikey') ?
                            'password' : 'text';
             html += '<input type="' + inputType + '" class="form-control form-control-sm config-value" data-key="' +
-                   key + '" value="' + currentValue + '">';
+                   key + '" value="' + value + '">';
         }
 
         if (field.description) {
-            html += '<small class="text-muted">' + field.description + '</small>';
+            html += '<small class="text-muted">' + VCLU.esc(localText(field.description)) + '</small>';
         }
         html += '</div>';
     });
@@ -1214,12 +1217,13 @@ PluginsManager.prototype._renderSimpleConfigForm = function(config) {
     config = config || {};
     var html = '<div id="configFieldsList">';
 
-    Object.keys(config).forEach(function(key) {
+    Object.keys(config).forEach(function(rawKey) {
+        var key = VCLU.esc(rawKey), value = VCLU.esc(String(config[rawKey]));
         html += '<div class="mb-2 row g-2 config-field">' +
                 '<div class="col-5"><input type="text" class="form-control form-control-sm config-key" value="' +
                 key + '" readonly></div>' +
                 '<div class="col-5"><input type="text" class="form-control form-control-sm config-value" data-key="' +
-                key + '" value="' + config[key] + '"></div></div>';
+                key + '" value="' + value + '"></div></div>';
     });
 
     html += '</div>';
