@@ -997,52 +997,16 @@ func (l *Loader) LoadAllEnabled() error {
 			continue
 		}
 
-		// Check if plugin files are available. This has to happen before the
-		// configuration check below, which needs the manifest.
-		localDir := l.resolvePluginDir(installed.ID)
-		manifestPath := filepath.Join(localDir, "plugin.json")
-		// Grants from the files on disk, before an update below may ask for more
-		if installed.Grants == nil {
-			l.recordGrants(installed.ID)
+		// The files, under the install lock and from the entry as it is now: the panel may
+		// install, update or remove it meanwhile
+		fresh, skip, msg := l.syncFiles(installed.ID)
+		if msg != "" {
+			errors = append(errors, msg)
 		}
-		if _, err := os.Stat(manifestPath); os.IsNotExist(err) {
-			// Try to download from repository
-			repo := l.findRepository(masterConfig.Plugins.Repositories, installed.Repository)
-			if repo == nil {
-				errors = append(errors, fmt.Sprintf("%s: repository %s not found", installed.ID, installed.Repository))
-				continue
-			}
-
-			if !FromRepository(installed, *repo) {
-				errors = append(errors, fmt.Sprintf("%s: repository %s has another address than the plugin came from; not downloaded", installed.ID, installed.Repository))
-				continue
-			}
-			if err := l.DownloadPlugin(*repo, installed.ID); err != nil {
-				errors = append(errors, fmt.Sprintf("%s: %v", installed.ID, err))
-				continue
-			}
-			localDir = l.resolvePluginDir(installed.ID)
-			if installed.Grants == nil {
-				l.recordGrants(installed.ID)
-			}
-		} else if local := l.localVersion(installed.ID, localDir); installed.Version != "" && local != "" && local != installed.Version {
-			// An update from the panel writes the version; the files follow here (#112). Only an
-			// update: files newer than the config (installed by hand) are kept and loaded.
-			repo := l.findRepository(masterConfig.Plugins.Repositories, installed.Repository)
-			if cmp, ok := compareVersions(local, installed.Version); !ok || cmp > 0 {
-				log.Printf("[PLUGINS] %s %s on disk, %s in config; not newer in config, loading %s", installed.ID, local, installed.Version, local)
-			} else if repo == nil {
-				log.Printf("[PLUGINS] WARNING: %s %s on disk, %s in config, repository %s not found; loading %s", installed.ID, local, installed.Version, installed.Repository, local)
-			} else if from, _ := l.FromSource(installed, *repo); !from {
-				log.Printf("[PLUGINS] WARNING: %s %s on disk, %s in config, repository %s has another address than the plugin came from; loading %s", installed.ID, local, installed.Version, installed.Repository, local)
-			} else if key := installed.ID + "|" + installed.Version + "|" + local; !l.updateDue(key) {
-				// checked lately without result: not on every reload (offline, repository behind)
-			} else if err := l.downloadPlugin(*repo, installed.ID, local, 0); err != nil {
-				l.updateLater(key)
-				// LoadPlugin resolves the directory again, so it takes what is on disk
-				log.Printf("[PLUGINS] WARNING: %s %s on disk, %s in config, not updated (%v); loading %s, next check in %v", installed.ID, local, installed.Version, err, local, updateRetryAfter)
-			}
+		if skip {
+			continue
 		}
+		installed = fresh
 
 		// Skip plugins that ask for configuration and have none. A plugin that
 		// declares none is a factory driven from user modules, so there is
@@ -1070,6 +1034,75 @@ func (l *Loader) LoadAllEnabled() error {
 	}
 
 	return nil
+}
+
+// syncFiles brings the installed plugin's files in line with its entry, read again under the
+// install lock: missing files downloaded, an update from the panel fetched. skip: not loaded,
+// with msg saying why when it is an error.
+func (l *Loader) syncFiles(pluginID string) (installed config.InstalledPlugin, skip bool, msg string) {
+	defer LockInstalls()()
+	mc, err := config.ReadMasterConfig(l.serverDir)
+	if err != nil {
+		return installed, true, fmt.Sprintf("%s: %v", pluginID, err)
+	}
+	ok := false
+	if mc != nil && mc.Plugins != nil {
+		for _, inst := range mc.Plugins.Installed {
+			if inst.ID == pluginID {
+				installed, ok = inst, true
+				break
+			}
+		}
+	}
+	if !ok || !installed.Enabled {
+		return installed, true, "" // removed or turned off meanwhile
+	}
+	repos := mc.Plugins.Repositories
+	// Check if plugin files are available. This has to happen before the
+	// configuration check below, which needs the manifest.
+	localDir := l.resolvePluginDir(installed.ID)
+	manifestPath := filepath.Join(localDir, "plugin.json")
+	// Grants from the files on disk, before an update below may ask for more
+	if installed.Grants == nil {
+		l.recordGrants(installed.ID)
+	}
+	if _, err := os.Stat(manifestPath); os.IsNotExist(err) {
+		// Try to download from repository
+		repo := l.findRepository(repos, installed.Repository)
+		if repo == nil {
+			return installed, true, fmt.Sprintf("%s: repository %s not found", installed.ID, installed.Repository)
+		}
+
+		if !FromRepository(installed, *repo) {
+			return installed, true, fmt.Sprintf("%s: repository %s has another address than the plugin came from; not downloaded", installed.ID, installed.Repository)
+		}
+		if err := l.DownloadPlugin(*repo, installed.ID); err != nil {
+			return installed, true, fmt.Sprintf("%s: %v", installed.ID, err)
+		}
+		localDir = l.resolvePluginDir(installed.ID)
+		if installed.Grants == nil {
+			l.recordGrants(installed.ID)
+		}
+	} else if local := l.localVersion(installed.ID, localDir); installed.Version != "" && local != "" && local != installed.Version {
+		// An update from the panel writes the version; the files follow here (#112). Only an
+		// update: files newer than the config (installed by hand) are kept and loaded.
+		repo := l.findRepository(repos, installed.Repository)
+		if cmp, ok := compareVersions(local, installed.Version); !ok || cmp > 0 {
+			log.Printf("[PLUGINS] %s %s on disk, %s in config; not newer in config, loading %s", installed.ID, local, installed.Version, local)
+		} else if repo == nil {
+			log.Printf("[PLUGINS] WARNING: %s %s on disk, %s in config, repository %s not found; loading %s", installed.ID, local, installed.Version, installed.Repository, local)
+		} else if from, _ := l.FromSource(installed, *repo); !from {
+			log.Printf("[PLUGINS] WARNING: %s %s on disk, %s in config, repository %s has another address than the plugin came from; loading %s", installed.ID, local, installed.Version, installed.Repository, local)
+		} else if key := installed.ID + "|" + installed.Version + "|" + local; !l.updateDue(key) {
+			// checked lately without result: not on every reload (offline, repository behind)
+		} else if err := l.downloadPlugin(*repo, installed.ID, local, 0); err != nil {
+			l.updateLater(key)
+			// LoadPlugin resolves the directory again, so it takes what is on disk
+			log.Printf("[PLUGINS] WARNING: %s %s on disk, %s in config, not updated (%v); loading %s, next check in %v", installed.ID, local, installed.Version, err, local, updateRetryAfter)
+		}
+	}
+
+	return installed, false, ""
 }
 
 // findRepository finds an enabled repository by name

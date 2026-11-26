@@ -415,6 +415,9 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
 		return
 	}
+	// one install at a time, from the checks to the saved entry: another one cannot slip in
+	// between with a stale configuration
+	defer plugins.LockInstalls()()
 
 	// an unreadable configuration hides where an installed plugin came from and what it may do
 	masterConfig, err := config.ReadMasterConfig(s.serverDir)
@@ -614,6 +617,9 @@ func (s *Server) handlePluginsAPIUninstall(c *gin.Context) {
 	defer dashCache.Invalidate() // a plugin started or stopped brings or takes its dashboards
 	pluginID := c.Param("id")
 
+	// the install lock only for the entry: unloading below waits for the Lua loop, which may
+	// be fetching files under it
+	unlock := plugins.LockInstalls()
 	err := config.UpdateMasterConfig(s.serverDir, func(masterConfig *config.VCLUConfig) error {
 		if masterConfig.Plugins == nil {
 			return errPluginNotFound
@@ -636,6 +642,7 @@ func (s *Server) handlePluginsAPIUninstall(c *gin.Context) {
 		masterConfig.Plugins.Installed = newInstalled
 		return nil
 	})
+	unlock()
 	if ce, ok := asConfigError(err); ok {
 		c.JSON(ce.status, gin.H{"error": ce.msg})
 		return
