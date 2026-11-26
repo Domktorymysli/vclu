@@ -866,6 +866,9 @@ func capRange(requested string, drawn []string) string {
 	return widest.String()
 }
 
+// dashActionBodyMax caps an action's request body
+const dashActionBodyMax = 64 << 10
+
 // handleAPIDashboardAction executes a widget action
 func (s *Server) handleAPIDashboardAction(c *gin.Context) {
 	id := c.Param("id")
@@ -877,6 +880,8 @@ func (s *Server) handleAPIDashboardAction(c *gin.Context) {
 	if !s.checkDashboardAuth(c, id) {
 		return
 	}
+	// an action is a few values; a text field's is at most 1000 characters
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, dashActionBodyMax)
 
 	var req struct {
 		WidgetID  string      `json:"widgetId"`

@@ -390,13 +390,13 @@ func TestUpdateCheckOffResolves(t *testing.T) {
 func TestPluginNotices(t *testing.T) {
 	e, n := newNotifyEnv(t)
 	if err := writeTestConfig(e.dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{Installed: []config.InstalledPlugin{
-		{ID: "@vclu/weather", Version: "1.2.0"}, {ID: "@vclu/old", Version: "2.0.0"}}}}); err != nil {
+		{ID: "@jan/weather", Version: "1.2.0"}, {ID: "@jan/old", Version: "2.0.0"}}}}); err != nil {
 		t.Fatal(err)
 	}
 	found := []availablePlugin{
-		{Meta: PluginMetadata{Name: "Weather", Version: "1.10.0"}, FullID: "@vclu/weather", Installed: true, InstalledVersion: "1.2.0", UpdateAvailable: newerVersion("1.10.0", "1.2.0")},
-		{Meta: PluginMetadata{Name: "Old", Version: "1.9.0"}, FullID: "@vclu/old", Installed: true, InstalledVersion: "2.0.0", UpdateAvailable: newerVersion("1.9.0", "2.0.0")},
-		{Meta: PluginMetadata{Name: "New", Version: "1.0.0"}, FullID: "@vclu/new"},
+		{Meta: PluginMetadata{Name: "Weather", Version: "1.10.0"}, FullID: "@jan/weather", Installed: true, InstalledVersion: "1.2.0", UpdateAvailable: newerVersion("1.10.0", "1.2.0")},
+		{Meta: PluginMetadata{Name: "Old", Version: "1.9.0"}, FullID: "@jan/old", Installed: true, InstalledVersion: "2.0.0", UpdateAvailable: newerVersion("1.9.0", "2.0.0")},
+		{Meta: PluginMetadata{Name: "New", Version: "1.0.0"}, FullID: "@jan/new"},
 	}
 	e.s.pluginNotices(found)
 	list, _, _ := n.List()
@@ -405,7 +405,7 @@ func TestPluginNotices(t *testing.T) {
 		t.Fatalf("%+v", list)
 	}
 	if err := writeTestConfig(e.dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{Installed: []config.InstalledPlugin{
-		{ID: "@vclu/weather", Version: "1.10.0"}}}}); err != nil {
+		{ID: "@jan/weather", Version: "1.10.0"}}}}); err != nil {
 		t.Fatal(err)
 	}
 	e.s.resolvePluginNotices()
@@ -423,7 +423,7 @@ func TestPluginUpdatesOneEntry(t *testing.T) {
 	var installed []config.InstalledPlugin
 	var found []availablePlugin
 	for i := 0; i < 31; i++ {
-		id := fmt.Sprintf("@vclu/p%02d", i)
+		id := fmt.Sprintf("@jan/p%02d", i)
 		installed = append(installed, config.InstalledPlugin{ID: id, Version: "1.0.0"})
 		if i < 30 {
 			found = append(found, availablePlugin{Meta: PluginMetadata{Name: fmt.Sprintf("P%02d", i), Version: "1.1.0"}, FullID: id,
@@ -455,7 +455,7 @@ func TestPluginUpdatesOneEntry(t *testing.T) {
 		t.Fatalf("after one installed: %+v unread %d, %d deliveries", list, unread, len(deliveries))
 	}
 	// a new one: unread again, told once
-	found = append(found, availablePlugin{Meta: PluginMetadata{Name: "P30", Version: "2.0.0"}, FullID: "@vclu/p30",
+	found = append(found, availablePlugin{Meta: PluginMetadata{Name: "P30", Version: "2.0.0"}, FullID: "@jan/p30",
 		Installed: true, InstalledVersion: "1.0.0", UpdateAvailable: true})
 	e.s.pluginNotices(found)
 	list, unread, _ = n.List()
@@ -479,12 +479,12 @@ func TestPluginCheckOff(t *testing.T) {
 	var requests atomic.Int32
 	reg := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
-		_, _ = w.Write([]byte(`{"namespace":"vclu","plugins":[{"id":"weather","name":"Weather","version":"2.0.0"}]}`))
+		_, _ = w.Write([]byte(`{"namespace":"jan","plugins":[{"id":"weather","name":"Weather","version":"2.0.0"}]}`))
 	}))
 	defer reg.Close()
 	if err := writeTestConfig(e.dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
 		Repositories: []config.PluginRepository{{Name: "test", URL: reg.URL, Enabled: true}},
-		Installed:    []config.InstalledPlugin{{ID: "@vclu/weather", Version: "1.0.0"}}}}); err != nil {
+		Installed:    []config.InstalledPlugin{{ID: "@jan/weather", Version: "1.0.0", Repository: "test"}}}}); err != nil {
 		t.Fatal(err)
 	}
 	e.s.checkPluginUpdates(context.Background())
@@ -523,16 +523,16 @@ func TestRegistrySizeLimit(t *testing.T) {
 func TestPluginsReloadedResolves(t *testing.T) {
 	e, n := newNotifyEnv(t)
 	if err := writeTestConfig(e.dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{Installed: []config.InstalledPlugin{
-		{ID: "@vclu/weather", Version: "1.2.0"}}}}); err != nil {
+		{ID: "@jan/weather", Version: "1.2.0"}}}}); err != nil {
 		t.Fatal(err)
 	}
-	e.s.pluginNotices([]availablePlugin{{Meta: PluginMetadata{Name: "Weather", Version: "1.10.0"}, FullID: "@vclu/weather",
+	e.s.pluginNotices([]availablePlugin{{Meta: PluginMetadata{Name: "Weather", Version: "1.10.0"}, FullID: "@jan/weather",
 		Installed: true, InstalledVersion: "1.2.0", UpdateAvailable: true}})
-	e.s.PluginsReloaded(map[string]string{"@vclu/weather": "1.9.0"})
+	e.s.PluginsReloaded(map[string]string{"@jan/weather": "1.9.0"})
 	if list, _, _ := n.List(); len(list) != 1 {
 		t.Fatalf("an older version resolved it: %+v", list)
 	}
-	e.s.PluginsReloaded(map[string]string{"@vclu/weather": "1.10.0"})
+	e.s.PluginsReloaded(map[string]string{"@jan/weather": "1.10.0"})
 	if list, _, _ := n.List(); len(list) != 0 {
 		t.Fatalf("loaded 1.10.0, still %+v", list)
 	}
@@ -573,12 +573,12 @@ func TestUpdateAnsweredSources(t *testing.T) {
 	reg := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
 		<-hold
-		_, _ = w.Write([]byte(`{"namespace":"vclu","plugins":[{"id":"weather","name":"Weather","version":"2.0.0"}]}`))
+		_, _ = w.Write([]byte(`{"namespace":"jan","plugins":[{"id":"weather","name":"Weather","version":"2.0.0"}]}`))
 	}))
 	defer reg.Close()
 	if err := writeTestConfig(e.dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
 		Repositories: []config.PluginRepository{{Name: "test", URL: reg.URL, Enabled: true}},
-		Installed:    []config.InstalledPlugin{{ID: "@vclu/weather", Version: "1.0.0"}}}}); err != nil {
+		Installed:    []config.InstalledPlugin{{ID: "@jan/weather", Version: "1.0.0", Repository: "test"}}}}); err != nil {
 		t.Fatal(err)
 	}
 	answer := &updatecheck.Answer{Current: "1.12.0", UpdateAvailable: true, Latest: &updatecheck.Release{Version: "1.13.0"}}

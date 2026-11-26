@@ -236,12 +236,22 @@ local function guard(self, kind, index, ...)
     if refused then error(refused, 3) end
 end
 
+-- The index goes into Lua code run on the CLU: an integer, nothing else
+local function checkIndex(index)
+    local n = tonumber(index)
+    if not n or n ~= math.floor(n) then
+        error("index must be an integer, got " .. tostring(index), 3)
+    end
+    return string.format("%d", n)
+end
+
 --- Gets a value from the remote object by index.
 -- @param index number The property index to retrieve
 -- @return any The value from the remote object
 function RemoteObject:get(index)
     guard(self, "get", index)
-    return self._clu:execute(0, self._objId .. ":get(" .. index .. ")")
+    if PluginSandbox then PluginSandbox.checkCluRequest() end
+    return self._clu:execute(0, self._objId .. ":get(" .. checkIndex(index) .. ")")
 end
 
 --- Sets a value on the remote object by index (fire-and-forget).
@@ -252,7 +262,7 @@ function RemoteObject:set(index, value)
     guard(self, "set", index, value)
     -- a new command overrides what an earlier timed one would do
     if StateChange then StateChange.forgetExpected(self) end
-    self._clu:executeNoReply(0, self._objId .. ":set(" .. index .. ", " .. RemoteObject.literal(value) .. ")")
+    self._clu:executeNoReply(0, self._objId .. ":set(" .. checkIndex(index) .. ", " .. RemoteObject.literal(value) .. ")")
     if index == 0 and self.updateState then
         self:updateState(value)
     end
@@ -271,9 +281,9 @@ function RemoteObject:execute(index, ...)
         argsStr = argsStr .. RemoteObject.literal(v)
     end
     if argsStr ~= "" then
-        self._clu:executeNoReply(0, self._objId .. ":execute(" .. index .. ", " .. argsStr .. ")")
+        self._clu:executeNoReply(0, self._objId .. ":execute(" .. checkIndex(index) .. ", " .. argsStr .. ")")
     else
-        self._clu:executeNoReply(0, self._objId .. ":execute(" .. index .. ")")
+        self._clu:executeNoReply(0, self._objId .. ":execute(" .. checkIndex(index) .. ")")
     end
 end
 

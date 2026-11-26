@@ -584,6 +584,15 @@ setmetatable(ExposedObjects._noUnsubscribeWarned, { __mode = "k" })
 setmetatable(ExposedObjects._hidden, { __mode = "k" })
 setmetatable(ExposedObjects._dropped, { __mode = "k" })
 
+-- The HA unique_id of a path (StatePublisher builds it the same way)
+local function haKey(path)
+    local base, id = path:match("^([^:]+):(.+)$")
+    if not base or not id then
+        base, id = "vclu", path
+    end
+    return (string.lower(base .. "_" .. id):gsub("[^%w]", "_"))
+end
+
 --- Generate a stable path for an object
 -- @param obj table Object to expose
 -- @param objType string Object type
@@ -732,6 +741,20 @@ function ExposedObjects:expose(obj, objType, options)
         end
         -- Same object, same path - idempotent
         return existing
+    end
+
+    -- MQTT topics and HA unique_ids lower-case the path and turn every other character
+    -- into "_": two paths alike after that would share one entity and its commands
+    -- (a plugin's on either side is refused, two of the user's are a warning)
+    local key = haKey(path)
+    for other, h in pairs(self._objects) do
+        if other ~= path and h:isExposed() and haKey(other) == key then
+            local msg = "path '" .. path .. "' would share its MQTT topic with '" .. other .. "'"
+            if pluginId or other:sub(1, 1) == "@" or path:sub(1, 1) == "@" then
+                error("ExposedObjects:expose() - " .. msg)
+            end
+            if Logger then Logger:getShared():warn("[ExposedObjects] %s", msg) end
+        end
     end
 
     -- Create handle

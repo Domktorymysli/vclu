@@ -749,16 +749,16 @@ function MQTT:_topicMatches(topic, pattern)
         return true
     end
 
-    -- Split into levels
-    local topicLevels = {}
-    for level in topic:gmatch("[^/]+") do
-        table.insert(topicLevels, level)
+    -- Split into levels; an empty one ("home//temp", "/a") is a level too
+    local function levels(s)
+        local out = {}
+        for level in (s .. "/"):gmatch("([^/]*)/") do
+            table.insert(out, level)
+        end
+        return out
     end
-
-    local patternLevels = {}
-    for level in pattern:gmatch("[^/]+") do
-        table.insert(patternLevels, level)
-    end
+    local topicLevels = levels(topic)
+    local patternLevels = levels(pattern)
 
     -- Check each level
     for i, patLevel in ipairs(patternLevels) do

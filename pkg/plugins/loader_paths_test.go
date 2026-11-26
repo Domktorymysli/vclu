@@ -1,6 +1,8 @@
 package plugins
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -209,4 +211,33 @@ func TestResolvePluginDirIgnoresInvalidID(t *testing.T) {
 	if dir := loader.resolvePluginDir("@vclu/../../../victim"); !loader.insidePluginsDir(dir) {
 		t.Errorf("resolvePluginDir left the plugins directory: %s", dir)
 	}
+}
+
+// A repository's display name becomes a namespace an id accepts.
+func TestNamespaceFromName(t *testing.T) {
+	for name, want := range map[string]string{
+		"Community Repo":        "community-repo",
+		"jan":                   "jan",
+		"Jan's  Plugins!":       "jan-s-plugins",
+		"  --Moje_Pluginy 2-- ": "moje-pluginy-2",
+		"vCLU Official":         "vclu-official",
+		"a..b--c":               "a-b-c",
+		"Łódź":                  "lodz",
+		"Wtyczki Kraków":        "wtyczki-krakow",
+		"!!!":                   "repo-" + hexHash("!!!"),
+		"日本":                    "repo-" + hexHash("日本"),
+	} {
+		got := NamespaceFromName(name)
+		if got != want {
+			t.Errorf("NamespaceFromName(%q) = %q, want %q", name, got, want)
+		}
+		if got != "" && (!validIDPart(got) || !validPluginID("@"+got+"/x")) {
+			t.Errorf("NamespaceFromName(%q) = %q, not a valid namespace", name, got)
+		}
+	}
+}
+
+func hexHash(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:4])
 }

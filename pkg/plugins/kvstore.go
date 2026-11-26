@@ -1,6 +1,7 @@
 package plugins
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // KVEntry represents a single key-value entry with metadata
@@ -100,6 +102,10 @@ func (m *KVStoreManager) createStore(pluginID string) *PluginKVStore {
 // sanitizePluginID converts plugin ID to safe filename
 // @vclu/weather -> vclu--weather
 func sanitizePluginID(pluginID string) string {
+	// an id the loader refuses gets a name no valid id has (".x-" and hex)
+	if !validPluginID(pluginID) {
+		return ".x-" + hex.EncodeToString([]byte(pluginID))
+	}
 	s := strings.TrimPrefix(pluginID, "@")
 	s = strings.ReplaceAll(s, "/", "--")
 	s = strings.ReplaceAll(s, "\\", "--")
@@ -194,10 +200,31 @@ func (s *PluginKVStore) Get(key string) (interface{}, bool) {
 	return entry.Value, true
 }
 
-// Set stores a value in the store
+// Limits of a plugin's store ("@ns/id"; a module's store has none): its file, a key, a value.
+const (
+	MaxPluginKVFile  = 1 << 20
+	MaxPluginKVKey   = 128
+	MaxPluginKVValue = 256 << 10
+)
+
+// Set stores a value in the store. A plugin's store refuses a key, a value or a file over its
+// limits; secure only keeps the value out of the logs, the file is not encrypted.
 func (s *PluginKVStore) Set(key string, value interface{}, secure bool, ttl int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	limited := strings.HasPrefix(s.pluginID, "@")
+	if limited {
+		if utf8.RuneCountInString(key) > MaxPluginKVKey {
+			return fmt.Errorf("kv: a key is up to %d characters", MaxPluginKVKey)
+		}
+		if raw, err := json.Marshal(value); err != nil {
+			return fmt.Errorf("kv: %w", err)
+		} else if len(raw) > MaxPluginKVValue {
+			return fmt.Errorf("kv: a value is up to %d KiB", MaxPluginKVValue>>10)
+		}
+	}
+	previous, had := s.data[key]
 
 	now := time.Now().Unix()
 
@@ -213,6 +240,16 @@ func (s *PluginKVStore) Set(key string, value interface{}, secure bool, ttl int6
 	}
 
 	s.data[key] = entry
+	if limited {
+		if all, err := json.Marshal(s.data); err == nil && len(all) > MaxPluginKVFile {
+			if had {
+				s.data[key] = previous
+			} else {
+				delete(s.data, key)
+			}
+			return fmt.Errorf("kv: the plugin's store is up to %d KiB", MaxPluginKVFile>>10)
+		}
+	}
 
 	// Log (redact secure values)
 	if secure {

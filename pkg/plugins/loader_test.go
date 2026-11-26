@@ -52,10 +52,9 @@ func TestDownloadPlugin_CacheHit(t *testing.T) {
 	loader, tmpDir := newTestLoader(t)
 
 	// Pre-create versioned dir with .complete marker
-	sd := safePluginDir("@vclu/weather")
+	sd := safePluginDir("@test/weather")
 	versionDir := filepath.Join(tmpDir, "plugins", sd, "1.0.1")
 	os.MkdirAll(versionDir, 0755)
-	os.WriteFile(filepath.Join(versionDir, ".complete"), []byte("weather-v1.0.1"), 0644)
 	os.WriteFile(filepath.Join(versionDir, "plugin.json"), []byte(`{"id":"weather"}`), 0644)
 
 	// Server that tracks if plugin files were requested
@@ -72,15 +71,49 @@ func TestDownloadPlugin_CacheHit(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer ts.Close()
+	_ = os.WriteFile(filepath.Join(versionDir, ".complete"), []byte(completeStamp("weather-v1.0.1", ts.URL)), 0644)
 
 	loader.httpClient = ts.Client()
 
-	err := loader.DownloadPlugin(configRepo("test", ts.URL), "@vclu/weather")
+	err := loader.DownloadPlugin(configRepo("test", ts.URL), "@test/weather")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if called {
 		t.Error("server was called for plugin files — cache should have been used")
+	}
+}
+
+// The same id and tag cached from another repository is not a hit: the files come again.
+func TestDownloadPluginCacheOtherRepository(t *testing.T) {
+	loader, tmpDir := newTestLoader(t)
+	versionDir := filepath.Join(tmpDir, "plugins", safePluginDir("@test/weather"), "1.0.1")
+	_ = os.MkdirAll(versionDir, 0755)
+	_ = os.WriteFile(filepath.Join(versionDir, "plugin.json"), []byte(`{"id":"weather"}`), 0644)
+	_ = os.WriteFile(filepath.Join(versionDir, "init.lua"), []byte("return 'fork'\n"), 0644)
+	_ = os.WriteFile(filepath.Join(versionDir, ".complete"), []byte(completeStamp("weather-v1.0.1", "https://github.com/someone/fork")), 0644)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/plugins.json":
+			_, _ = w.Write([]byte(`{"version":1,"name":"test","description":"t","url":"x",
+				"plugins":[{"id":"weather","name":"Weather","version":"1.0.1","path":"plugins/weather","tag":"weather-v1.0.1"}]}`))
+		case "/plugins/weather/plugin.json":
+			_, _ = w.Write([]byte(`{"id":"weather","name":"Weather","version":"1.0.1","main":"init.lua"}`))
+		case "/plugins/weather/init.lua":
+			_, _ = w.Write([]byte("return 'official'\n"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+	loader.httpClient = ts.Client()
+
+	if err := loader.DownloadPlugin(configRepo("test", ts.URL), "@test/weather"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(versionDir, "init.lua")); string(got) != "return 'official'\n" {
+		t.Errorf("init.lua %q, want the files of this repository", got)
 	}
 }
 
@@ -100,13 +133,13 @@ func TestDownloadPlugin_AtomicWrite(t *testing.T) {
 
 	loader.httpClient = ts.Client()
 
-	err := loader.DownloadPlugin(configRepo("test", ts.URL), "@vclu/weather")
+	err := loader.DownloadPlugin(configRepo("test", ts.URL), "@test/weather")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	// Check .complete marker exists
-	sd := safePluginDir("@vclu/weather")
+	sd := safePluginDir("@test/weather")
 	completeFile := filepath.Join(tmpDir, "plugins", sd, "1.0.0", ".complete")
 	if _, err := os.Stat(completeFile); os.IsNotExist(err) {
 		t.Error(".complete marker not created")
@@ -122,9 +155,9 @@ func TestDownloadPlugin_AtomicWrite(t *testing.T) {
 
 	// Check lock file was written
 	lock := loader.ReadLockFile()
-	entry, ok := lock["@vclu/weather"]
+	entry, ok := lock["@test/weather"]
 	if !ok {
-		t.Fatal("lock file missing entry for @vclu/weather")
+		t.Fatal("lock file missing entry for @test/weather")
 	}
 	if entry.Version != "1.0.0" || entry.GitTag != "weather-v1.0.0" {
 		t.Errorf("lock entry mismatch: %+v", entry)
@@ -156,7 +189,7 @@ func TestDownloadPlugin_404Fallback(t *testing.T) {
 
 	err := loader.DownloadPlugin(
 		configRepo("test", "https://github.com/user/repo"),
-		"@vclu/weather",
+		"@test/weather",
 	)
 	if err != nil {
 		t.Fatalf("expected fallback to main, got error: %v", err)
@@ -167,7 +200,7 @@ func TestDownloadPlugin_CleanupOldVersions(t *testing.T) {
 	loader, tmpDir := newTestLoader(t)
 
 	// Pre-create an old version
-	sd := safePluginDir("@vclu/weather")
+	sd := safePluginDir("@test/weather")
 	oldDir := filepath.Join(tmpDir, "plugins", sd, "0.9.0")
 	os.MkdirAll(oldDir, 0755)
 	os.WriteFile(filepath.Join(oldDir, "plugin.json"), []byte("old"), 0644)
@@ -184,7 +217,7 @@ func TestDownloadPlugin_CleanupOldVersions(t *testing.T) {
 
 	loader.httpClient = ts.Client()
 
-	err := loader.DownloadPlugin(configRepo("test", ts.URL), "@vclu/weather")
+	err := loader.DownloadPlugin(configRepo("test", ts.URL), "@test/weather")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -245,10 +278,10 @@ func TestLockFile_ReadWrite(t *testing.T) {
 	entry := LockEntry{
 		Version:  "1.0.1",
 		GitTag:   "weather-v1.0.1",
-		Path:     "vclu--weather/1.0.1",
+		Path:     "test--weather/1.0.1",
 		LockedAt: "2026-03-26T21:00:00Z",
 	}
-	lock["@vclu/weather"] = entry
+	lock["@test/weather"] = entry
 	loader.WriteLockFile(lock)
 
 	// Read it back
@@ -256,8 +289,8 @@ func TestLockFile_ReadWrite(t *testing.T) {
 	if len(lock2) != 1 {
 		t.Fatalf("expected 1 entry, got %d", len(lock2))
 	}
-	got := lock2["@vclu/weather"]
-	if got.Version != "1.0.1" || got.GitTag != "weather-v1.0.1" || got.Path != "vclu--weather/1.0.1" {
+	got := lock2["@test/weather"]
+	if got.Version != "1.0.1" || got.GitTag != "weather-v1.0.1" || got.Path != "test--weather/1.0.1" {
 		t.Errorf("lock entry mismatch: %+v", got)
 	}
 }
@@ -266,7 +299,7 @@ func TestLockFile_AtomicWrite(t *testing.T) {
 	loader, tmpDir := newTestLoader(t)
 
 	lock := LockFile{
-		"@vclu/weather": {Version: "1.0.0", Path: "vclu--weather/1.0.0", LockedAt: "2026-01-01T00:00:00Z"},
+		"@test/weather": {Version: "1.0.0", Path: "test--weather/1.0.0", LockedAt: "2026-01-01T00:00:00Z"},
 	}
 	loader.WriteLockFile(lock)
 
@@ -292,17 +325,17 @@ func TestResolvePluginDir_FromLockFile(t *testing.T) {
 	loader, tmpDir := newTestLoader(t)
 
 	// Create versioned dir
-	sd := safePluginDir("@vclu/weather")
+	sd := safePluginDir("@test/weather")
 	versionDir := filepath.Join(tmpDir, "plugins", sd, "1.0.1")
 	os.MkdirAll(versionDir, 0755)
 	os.WriteFile(filepath.Join(versionDir, "plugin.json"), []byte(`{}`), 0644)
 
 	// Write lock file pointing to it
 	loader.WriteLockFile(LockFile{
-		"@vclu/weather": {Version: "1.0.1", Path: "vclu--weather/1.0.1"},
+		"@test/weather": {Version: "1.0.1", Path: "test--weather/1.0.1"},
 	})
 
-	dir := loader.resolvePluginDir("@vclu/weather")
+	dir := loader.resolvePluginDir("@test/weather")
 	if dir != versionDir {
 		t.Errorf("expected %s, got %s", versionDir, dir)
 	}
@@ -312,12 +345,12 @@ func TestResolvePluginDir_ScansFallback(t *testing.T) {
 	loader, tmpDir := newTestLoader(t)
 
 	// Create versioned dir without lock file
-	sd := safePluginDir("@vclu/weather")
+	sd := safePluginDir("@test/weather")
 	versionDir := filepath.Join(tmpDir, "plugins", sd, "2.0.0")
 	os.MkdirAll(versionDir, 0755)
 	os.WriteFile(filepath.Join(versionDir, "plugin.json"), []byte(`{}`), 0644)
 
-	dir := loader.resolvePluginDir("@vclu/weather")
+	dir := loader.resolvePluginDir("@test/weather")
 	if dir != versionDir {
 		t.Errorf("expected %s, got %s", versionDir, dir)
 	}
@@ -327,12 +360,12 @@ func TestResolvePluginDir_OldFlatDir(t *testing.T) {
 	loader, tmpDir := newTestLoader(t)
 
 	// Create old-style flat dir (migration compat)
-	sd := safePluginDir("@vclu/weather")
+	sd := safePluginDir("@test/weather")
 	flatDir := filepath.Join(tmpDir, "plugins", sd)
 	os.MkdirAll(flatDir, 0755)
 	os.WriteFile(filepath.Join(flatDir, "plugin.json"), []byte(`{}`), 0644)
 
-	dir := loader.resolvePluginDir("@vclu/weather")
+	dir := loader.resolvePluginDir("@test/weather")
 	if dir != flatDir {
 		t.Errorf("expected %s, got %s", flatDir, dir)
 	}
@@ -457,12 +490,12 @@ func TestExamplePlugin_FullLifecycle(t *testing.T) {
 	repo := configRepo("vCLU Official", "https://github.com/Domktorymysli/vclu-plugins")
 
 	// --- Step 1: First download from tag ---
-	err := loader.DownloadPlugin(repo, "@vclu/example")
+	err := loader.DownloadPlugin(repo, "@test/example")
 	if err != nil {
 		t.Fatalf("step 1: download failed: %v", err)
 	}
 
-	sd := safePluginDir("@vclu/example")
+	sd := safePluginDir("@test/example")
 	versionDir := filepath.Join(tmpDir, "plugins", sd, "2.1.0")
 
 	// Versioned dir with .complete marker
@@ -483,15 +516,15 @@ func TestExamplePlugin_FullLifecycle(t *testing.T) {
 	if err := json.Unmarshal(manifestData, &manifest); err != nil {
 		t.Fatalf("step 1: invalid plugin.json: %v", err)
 	}
-	if manifest.Version != "2.1.0" || manifest.Name != "Example Plugin" {
+	if manifest.Version != "2.1.0" || manifest.Name.In("pl") != "Example Plugin" {
 		t.Errorf("step 1: manifest mismatch: %s v%s", manifest.Name, manifest.Version)
 	}
 
 	// Lock file written
 	lock := loader.ReadLockFile()
-	entry, ok := lock["@vclu/example"]
+	entry, ok := lock["@test/example"]
 	if !ok {
-		t.Fatal("step 1: lock file missing @vclu/example")
+		t.Fatal("step 1: lock file missing @test/example")
 	}
 	if entry.Version != "2.1.0" || entry.GitTag != "example-v2.1.0" || entry.Path != sd+"/2.1.0" {
 		t.Errorf("step 1: lock entry: %+v", entry)
@@ -513,7 +546,7 @@ func TestExamplePlugin_FullLifecycle(t *testing.T) {
 		Transport: &redirectTransport{targetURL: ts2.URL},
 	}
 
-	err = loader.DownloadPlugin(repo, "@vclu/example")
+	err = loader.DownloadPlugin(repo, "@test/example")
 	if err != nil {
 		t.Fatalf("step 2: cache hit failed: %v", err)
 	}
@@ -537,7 +570,7 @@ func TestExamplePlugin_FullLifecycle(t *testing.T) {
 		Transport: &redirectTransport{targetURL: ts3.URL},
 	}
 
-	err = loader.DownloadPlugin(repo, "@vclu/example")
+	err = loader.DownloadPlugin(repo, "@test/example")
 	if err != nil {
 		t.Fatalf("step 3: upgrade failed: %v", err)
 	}
@@ -555,13 +588,13 @@ func TestExamplePlugin_FullLifecycle(t *testing.T) {
 
 	// Lock file updated
 	lock = loader.ReadLockFile()
-	entry = lock["@vclu/example"]
+	entry = lock["@test/example"]
 	if entry.Version != "3.0.0" || entry.GitTag != "example-v3.0.0" {
 		t.Errorf("step 3: lock not updated: %+v", entry)
 	}
 
 	// --- Step 4: resolvePluginDir finds the versioned dir ---
-	resolved := loader.resolvePluginDir("@vclu/example")
+	resolved := loader.resolvePluginDir("@test/example")
 	if resolved != newDir {
 		t.Errorf("step 4: resolvePluginDir = %s, want %s", resolved, newDir)
 	}
@@ -587,13 +620,13 @@ func TestExamplePlugin_GitHubFallback(t *testing.T) {
 	}
 	repo := configRepo("vCLU Official", "https://github.com/Domktorymysli/vclu-plugins")
 
-	err := loader.DownloadPlugin(repo, "@vclu/example")
+	err := loader.DownloadPlugin(repo, "@test/example")
 	if err != nil {
 		t.Fatalf("fallback to main should succeed: %v", err)
 	}
 
 	// Plugin downloaded despite tag 404
-	sd := safePluginDir("@vclu/example")
+	sd := safePluginDir("@test/example")
 	versionDir := filepath.Join(tmpDir, "plugins", sd, "2.1.0")
 	if _, err := os.Stat(filepath.Join(versionDir, "init.lua")); os.IsNotExist(err) {
 		t.Error("plugin files should exist after fallback")

@@ -88,7 +88,12 @@ local _registry_methods = {
     -- @return table|nil The object if found
     get = function(self, pathOrName)
         local path = resolvePath(pathOrName)
-        return self[path]
+        local obj = self[path]
+        -- a plugin (API 2) as Plugin.getPlugin gives it, its exposed object as a handle
+        if type(obj) == "table" and PluginSandbox and PluginSandbox.moduleView then
+            return PluginSandbox.moduleView(obj)
+        end
+        return obj
     end,
 
     --- Read an object's value by name or path.

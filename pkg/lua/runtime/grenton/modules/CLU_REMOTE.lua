@@ -59,6 +59,7 @@ local function warnReturn(id, script)
 end
 
 function CLU_REMOTE:execute(method, script)
+    if PluginSandbox then PluginSandbox.checkCluRequest() end
     local targetIP = numericIPToString(self.address)
     Logger:getShared():info("CLU_REMOTE:execute -> " .. targetIP .. ": " .. tostring(script))
     warnReturn(self.id, script)
@@ -81,6 +82,7 @@ end
 -- Used by set/execute on Remote* objects (switchOn, toggle, etc.)
 -- where the response is not needed — state comes back via subscriptions.
 function CLU_REMOTE:executeNoReply(method, script)
+    if PluginSandbox then PluginSandbox.checkCluRequest() end
     local targetIP = numericIPToString(self.address)
     Logger:getShared():debug("CLU_REMOTE:executeNoReply -> " .. targetIP .. ": " .. tostring(script))
 
@@ -99,6 +101,7 @@ CLU_REMOTE._idPrefix = string.format("%d.%d.", os.time(), math.floor(os.clock() 
 -- answer comes (err set on a timeout). Without the async sender it falls back to
 -- fire-and-forget and calls done("", nil) at once.
 function CLU_REMOTE:executeAsync(script, done)
+    if PluginSandbox then PluginSandbox.checkCluRequest() end
     local targetIP = numericIPToString(self.address)
     Logger:getShared():debug("CLU_REMOTE:executeAsync -> " .. targetIP .. ": " .. tostring(script))
     warnReturn(self.id, script)
@@ -149,6 +152,7 @@ end
 -- Sends a script and waits for the answer, like execute but logged at debug. No result
 -- and no error is the sandbox, which records the script and does not answer
 function CLU_REMOTE:_ask(what, script)
+    if PluginSandbox then PluginSandbox.checkCluRequest() end
     if not __go_send_command then return nil, "command sender not configured" end
     Logger:getShared():debug("CLU_REMOTE %s <- %s", tostring(self.id), script)
     local result, err = __go_send_command(numericIPToString(self.address), script)

@@ -5,16 +5,19 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"net/netip"
 	"sync"
 	"time"
 
 	lua "github.com/yuin/gopher-lua"
 
 	"github.com/Domktorymysli/vclu/pkg/httpdigest"
+	"github.com/Domktorymysli/vclu/pkg/plugins"
 )
 
 // HTTPManager manages HTTP client instances for Lua
@@ -24,7 +27,23 @@ type HTTPManager struct {
 	asyncResponses map[string]*asyncHTTPResponse
 	asyncInFlight  map[string]bool
 	asyncMu        sync.Mutex
-	onRequest      func(hasError bool) // callback for metrics
+	onRequest      func(hasError bool)     // callback for metrics
+	onPolicy       func(instanceID string) // an instance's lan or internet changed
+	// instances (plugin ids) that may not connect to local addresses
+	noLAN map[string]bool
+	// instances that may connect only to these local addresses
+	lanHosts map[string][]netip.Prefix
+	// plugin instances that reach local addresses only on these ports (plugin.json's lan.ports)
+	lanPorts map[string][]int
+	// instances (API 2 plugins) that may reach only these internet hosts
+	internet map[string]plugins.InternetHosts
+	// plugin instances (their lan was set): not to vclu's own ports on this machine
+	plugins  map[string]bool
+	ownAddr  func(netip.Addr) bool // tests replace it
+	ownPorts func() []int          // vclu's TCP ports (SetOwnPorts); nil: every port
+	// tests: what counts as local, and names resolved without DNS
+	isLocal     func(netip.Addr) bool
+	testResolve map[string]string
 }
 
 // asyncResponseTTL bounds how long a response nobody collected (the waiter timed out or was
@@ -51,6 +70,109 @@ func NewHTTPManager() *HTTPManager {
 		clients:        make(map[string]*http.Client),
 		asyncResponses: make(map[string]*asyncHTTPResponse),
 		asyncInFlight:  make(map[string]bool),
+		noLAN:          make(map[string]bool),
+		lanHosts:       make(map[string][]netip.Prefix),
+		lanPorts:       make(map[string][]int),
+		internet:       make(map[string]plugins.InternetHosts),
+		plugins:        make(map[string]bool),
+		ownAddr:        ownAddr,
+		isLocal:        defaultIsLocal,
+	}
+}
+
+// SetInternet limits an instance's internet hosts to hosts (empty: none); nil allows any.
+func (hm *HTTPManager) SetInternet(instanceID string, hosts plugins.InternetHosts) {
+	hm.mu.Lock()
+	defer hm.policyChanged(instanceID)
+	defer hm.mu.Unlock()
+	if hosts == nil {
+		delete(hm.internet, instanceID)
+	} else {
+		hm.internet[instanceID] = hosts
+	}
+}
+
+// SetLANAllowed sets whether an instance may connect to local addresses.
+func (hm *HTTPManager) SetLANAllowed(instanceID string, allowed bool) {
+	hm.mu.Lock()
+	defer hm.policyChanged(instanceID)
+	defer hm.mu.Unlock()
+	hm.plugins[instanceID] = true
+	if allowed {
+		delete(hm.noLAN, instanceID)
+	} else {
+		hm.noLAN[instanceID] = true
+	}
+}
+
+// SetLANHosts narrows an instance's local addresses to hosts; nil allows any.
+func (hm *HTTPManager) SetLANHosts(instanceID string, hosts []netip.Prefix) {
+	hm.mu.Lock()
+	defer hm.policyChanged(instanceID)
+	defer hm.mu.Unlock()
+	if hosts == nil {
+		delete(hm.lanHosts, instanceID)
+	} else {
+		hm.lanHosts[instanceID] = hosts
+	}
+}
+
+// SetOwnPorts: the TCP ports vclu listens on (panel, MQTT broker, HomeKit); a plugin's HTTP
+// does not reach them on this machine's addresses. Without it, no port of this machine.
+func (hm *HTTPManager) SetOwnPorts(fn func() []int) {
+	hm.mu.Lock()
+	hm.ownPorts = fn
+	hm.mu.Unlock()
+}
+
+// currentOwnPorts: as set now (a cached client's dialer reads it on every dial); nil: every port.
+func (hm *HTTPManager) currentOwnPorts() []int {
+	hm.mu.RLock()
+	fn := hm.ownPorts
+	hm.mu.RUnlock()
+	if fn == nil {
+		return nil
+	}
+	return fn()
+}
+
+// SetLAN sets lan, its hosts and its ports at once, so no request sees the new permission
+// with the old lists; nil ports: any local port.
+func (hm *HTTPManager) SetLAN(instanceID string, allowed bool, hosts []netip.Prefix, ports []int) {
+	hm.mu.Lock()
+	defer hm.policyChanged(instanceID)
+	defer hm.mu.Unlock()
+	hm.plugins[instanceID] = true
+	if allowed {
+		delete(hm.noLAN, instanceID)
+	} else {
+		hm.noLAN[instanceID] = true
+	}
+	if hosts == nil {
+		delete(hm.lanHosts, instanceID)
+	} else {
+		hm.lanHosts[instanceID] = hosts
+	}
+	if ports == nil {
+		delete(hm.lanPorts, instanceID)
+	} else {
+		hm.lanPorts[instanceID] = ports
+	}
+}
+
+// SetOnPolicy: called, without the lock, after an instance's lan or internet changed.
+func (hm *HTTPManager) SetOnPolicy(fn func(instanceID string)) {
+	hm.mu.Lock()
+	hm.onPolicy = fn
+	hm.mu.Unlock()
+}
+
+func (hm *HTTPManager) policyChanged(instanceID string) {
+	hm.mu.RLock()
+	fn := hm.onPolicy
+	hm.mu.RUnlock()
+	if fn != nil {
+		fn(instanceID)
 	}
 }
 
@@ -61,17 +183,43 @@ func (hm *HTTPManager) SetOnRequest(fn func(hasError bool)) {
 	hm.mu.Unlock()
 }
 
+// policy: where the instance may connect now, as its HTTP does.
+func (hm *HTTPManager) policy(instanceID string) dialPolicy {
+	hm.mu.Lock()
+	defer hm.mu.Unlock()
+	return hm.policyLocked(instanceID)
+}
+
+func (hm *HTTPManager) policyLocked(instanceID string) dialPolicy {
+	hosts, narrowed := hm.lanHosts[instanceID]
+	internet, restricted := hm.internet[instanceID]
+	p := dialPolicy{
+		plugin: instanceID, noLAN: hm.noLAN[instanceID], narrowed: narrowed, lanHosts: hosts,
+		restricted: restricted, internet: internet, isLocal: hm.isLocal, resolve: hm.testResolve,
+	}
+	if hm.plugins[instanceID] {
+		p.ownAddr, p.ownPorts = hm.ownAddr, hm.currentOwnPorts
+		ports, listed := hm.lanPorts[instanceID]
+		p.lanPorts, p.lanPortsListed = ports, listed
+		p.lanPort = p.pluginLANPort
+	}
+	return p
+}
+
 // getOrCreateClient gets or creates an HTTP client for the given instance
-func (hm *HTTPManager) getOrCreateClient(instanceID string, timeout int, verifySSL, followRedirects bool) *http.Client {
+func (hm *HTTPManager) getOrCreateClient(instanceID string, timeout int, verifySSL, followRedirects bool) (*http.Client, dialPolicy) {
 	hm.mu.Lock()
 	defer hm.mu.Unlock()
 
+	policy := hm.policyLocked(instanceID)
+	hosts, narrowed, restricted, internet := policy.lanHosts, policy.narrowed, policy.restricted, policy.internet
 	// Generate cache key based on settings
-	cacheKey := fmt.Sprintf("%s_%d_%v_%v", instanceID, timeout, verifySSL, followRedirects)
+	cacheKey := fmt.Sprintf("%s_%d_%v_%v_%v_%v_%v_%v_%q_%v_%v_%v", instanceID, timeout, verifySSL, followRedirects,
+		policy.noLAN, narrowed, hosts, restricted, internet, policy.ownAddr != nil, policy.lanPortsListed, policy.lanPorts)
 
 	// Return existing client if available
 	if client, ok := hm.clients[cacheKey]; ok {
-		return client
+		return client, policy
 	}
 
 	// Create new client with specified settings
@@ -83,6 +231,9 @@ func (hm *HTTPManager) getOrCreateClient(instanceID string, timeout int, verifyS
 		MaxIdleConnsPerHost: 5,
 		IdleConnTimeout:     30 * time.Second,
 	}
+	if policy.noLAN || narrowed || restricted || policy.resolve != nil || policy.ownAddr != nil {
+		transport.DialContext = policy.dialContext
+	}
 
 	client := &http.Client{
 		Timeout:   time.Duration(timeout) * time.Millisecond,
@@ -93,10 +244,18 @@ func (hm *HTTPManager) getOrCreateClient(instanceID string, timeout int, verifyS
 		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
 		}
+	} else if restricted {
+		// every redirect's host is checked as the request's
+		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return errors.New("stopped after 10 redirects")
+			}
+			return policy.checkURL(req.URL)
+		}
 	}
 
 	hm.clients[cacheKey] = client
-	return client
+	return client, policy
 }
 
 // Request performs a synchronous HTTP request
@@ -110,7 +269,7 @@ func (hm *HTTPManager) RequestContext(ctx context.Context, instanceID, method, u
 }
 
 func (hm *HTTPManager) request(ctx context.Context, instanceID, method, url string, headers map[string]string, body string, timeout int, verifySSL, followRedirects bool, digest *digestAuth) (int, string, map[string]string, error) {
-	client := hm.getOrCreateClient(instanceID, timeout, verifySSL, followRedirects)
+	client, policy := hm.getOrCreateClient(instanceID, timeout, verifySSL, followRedirects)
 	if digest != nil && timeout > 0 {
 		// both requests of the exchange within one timeout, as Lua waits for one; 0 is no
 		// timeout, as the client's
@@ -128,6 +287,10 @@ func (hm *HTTPManager) request(ctx context.Context, instanceID, method, url stri
 	if err != nil {
 		hm.recordRequest(true)
 		return 0, "", nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	if err := policy.checkURL(req.URL); err != nil {
+		hm.recordRequest(true)
+		return 0, "", nil, err
 	}
 
 	// Set headers
@@ -243,7 +406,7 @@ func registerHTTPFunctions(L *lua.LState, hm *HTTPManager) {
 			headers = make(map[string]string)
 		}
 
-		ctx := L.Context()
+		ctx := baseContext(L.Context()) // the request's goroutines may not ask the Lua-only budget
 		if ctx == nil {
 			ctx = context.Background()
 		}
@@ -286,6 +449,53 @@ func registerHTTPFunctions(L *lua.LState, hm *HTTPManager) {
 
 		hm.asyncRequest(instanceID, requestID, method, url, headers, body, timeout, verifySSL, followRedirects, optDigest(L, 10))
 
+		return 0
+	}))
+
+	// __go_http_set_lan(instanceId, allowed, hosts, ports): PluginSandbox sets it for each plugin,
+	// the hosts the user narrowed it to (a table of strings, nil: any local address) and the
+	// local ports plugin.json's lan.ports allows (a table of numbers, nil: any port)
+	L.SetGlobal("__go_http_set_lan", L.NewFunction(func(L *lua.LState) int {
+		id := L.CheckString(1)
+		var hosts []netip.Prefix
+		if t, ok := L.Get(3).(*lua.LTable); ok {
+			var names []string
+			t.ForEach(func(_, v lua.LValue) { names = append(names, v.String()) })
+			parsed, err := plugins.ParseHosts(names)
+			if err != nil {
+				log.Printf("[HTTP] %s: %v; no local address allowed", id, err)
+				parsed = []netip.Prefix{}
+			}
+			hosts = parsed
+		}
+		var ports []int
+		if t, ok := L.Get(4).(*lua.LTable); ok {
+			ports = []int{}
+			t.ForEach(func(_, v lua.LValue) {
+				if n, ok := v.(lua.LNumber); ok {
+					ports = append(ports, int(n))
+				}
+			})
+		}
+		hm.SetLAN(id, L.ToBool(2), hosts, ports)
+		return 0
+	}))
+
+	// __go_http_set_internet(instanceId, hosts): the internet hosts of an API 2 plugin (a
+	// table, empty: none); nil any
+	L.SetGlobal("__go_http_set_internet", L.NewFunction(func(L *lua.LState) int {
+		id := L.CheckString(1)
+		var hosts plugins.InternetHosts
+		if t, ok := L.Get(2).(*lua.LTable); ok {
+			var names []string
+			t.ForEach(func(_, v lua.LValue) { names = append(names, v.String()) })
+			parsed, err := plugins.NormalizeInternetHosts(names)
+			if err != nil {
+				log.Printf("[HTTP] %s: %v; no internet host allowed", id, err)
+			}
+			hosts = append(plugins.InternetHosts{}, parsed...)
+		}
+		hm.SetInternet(id, hosts)
 		return 0
 	}))
 

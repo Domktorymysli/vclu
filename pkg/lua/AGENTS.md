@@ -57,6 +57,21 @@ every next VM instruction raises, also inside `pcall`, so:
 Cost: a `select` per VM instruction, about 12% on a compute loop (`BenchmarkCallbackLimit`).
 Contract: `callback_limit_test.go`.
 
+Plugin code has a budget inside that limit (`plugin_budget.go`): 2 s of one callback, 10 s while
+the loader runs its init (`__go_plugin_budget_loading`), `plugins.callbackTimeoutMs` in the master
+config. With a plugin registered, `runLimited` (also without a limit) and `withOwnTimeout` put a
+`budgetCtx` on the state: every 4096 instructions its `Done` walks the stack, charges the time since
+the last sample to the plugin whose environment owns the innermost plugin frame (a module's frame
+above it is the module's time; runtime files and `<string>` pass through), and once the plugin is
+over, `Done` is closed only while that plugin has a frame on the stack, so its `pcall`s cannot hold
+it and the module that called it goes on. A Go call runs between two instructions, where the samples
+see nothing (a callback of a few instructions is never sampled): the string library's functions, the
+plugin's copy and the methods of every string (`isolateStringMethods`), are `timedGoFunction`s, and
+each call's time less what the samples charged inside it is the plugin's. Only the Lua goroutine may ask it: Go code passing the
+context on uses `baseContext(L.Context())`. 3 overruns in 10 min suspend the plugin
+(`SetOnPluginSuspend`: the loader unloads it and keeps it off until `/api/plugins/:id/resume`).
+Cost: nothing measurable on a module's loop (`BenchmarkPluginBudget`). Contract: `plugin_budget_test.go`.
+
 ## Test harnesses
 `newPersistEngine` (`persist_test.go`), `newHistoryEngine` with a step clock (`history_test.go`),
 an `httptest` stand-in for httpbin (`fake_httpbin_test.go`). Reuse them.

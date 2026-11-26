@@ -19,7 +19,7 @@ local PluginHelpers = require("PluginHelpers")
 Plugin = {}
 Plugin.__index = Plugin
 Plugin.instances = {}
-Plugin.apiVersion = 1
+Plugin.apiVersion = 2 -- the highest plugin API this runtime runs (PluginAPIMax in pkg/plugins)
 
 --- Create a new plugin instance
 -- @param id string Plugin identifier (short id). If __plugin_id is set by loader, it will be used as fullId.
@@ -75,9 +75,11 @@ function Plugin:new(id, metadata)
 end
 
 --- Set initialization callback
--- @param callback function Function called when plugin is loaded with config
+-- @param callback function Called when the plugin is loaded: callback(config, info), info =
+--   { version, previousVersion }; previousVersion is set on the first start after an update,
+--   until an init succeeds (a place to move old settings or KV data)
 -- @return Plugin self for chaining
--- @usage plugin:onInit(function(config) print("Loaded with config:", config) end)
+-- @usage plugin:onInit(function(config, info) if info.previousVersion then migrate(info.previousVersion) end end)
 function Plugin:onInit(callback)
     self._initCallback = callback
     return self
@@ -94,10 +96,11 @@ end
 
 --- Initialize the plugin with config
 -- @param config table Configuration values from user
-function Plugin:init(config)
+-- @param info table { version, previousVersion } from the loader
+function Plugin:init(config, info)
     self.config = config or {}
     if self._initCallback then
-        self._initCallback(self.config)
+        self._initCallback(self.config, info or { version = self.version })
     end
 end
 
@@ -227,22 +230,14 @@ function Plugin:on(eventName, callback)
     return self
 end
 
---- Emit an event
--- @param eventName string Name of the event
--- @param ... any Event arguments
--- @usage plugin:emit("weather:updated", data)
-function Plugin:emit(eventName, ...)
-    if self._sandbox and self._sandbox.api then
-        self._sandbox.api.emit(eventName, ...)
-    elseif EventBus then
-        EventBus:emit(eventName, ...)
-    end
-end
-
 --- Log a message with plugin prefix
 -- @param level string Log level (info, warn, error, debug)
 -- @param message string Message to log
 function Plugin:log(level, message)
+    -- in a sandbox through its logger, which masks the plugin's secrets
+    if self._sandbox and self._sandbox.api then
+        return self._sandbox.api.log(level, message)
+    end
     -- Use shortId for cleaner log output
     local prefix = "[" .. (self.shortId or self.id):upper() .. "] "
     if level == "error" then
@@ -342,31 +337,6 @@ function Plugin:httpPost(url, data, callback)
     end
 end
 
---- Make an HTTP request with full options (method, headers, body, timeout)
--- Uses sandbox API if available for pcall protection
--- @param options table Request options {method, url, headers, body, timeout}
--- @param callback function Callback with (response, error)
--- @usage plugin:httpRequest({
---     method = "GET",
---     url = "https://api.example.com/data",
---     headers = { ["Authorization"] = "Basic xxx" },
---     timeout = 5000
--- }, function(resp, err) end)
-function Plugin:httpRequest(options, callback)
-    if self._sandbox and self._sandbox.api and self._sandbox.api.httpRequest then
-        self._sandbox.api.httpRequest(options, callback)
-        return
-    end
-
-    -- Fallback - use httpGet/httpPost without custom headers
-    local method = (options.method or "GET"):upper()
-    if method == "POST" then
-        self:httpPost(options.url, options.body, callback)
-    else
-        self:httpGet(options.url, callback)
-    end
-end
-
 --- Publish to MQTT
 -- Uses sandbox API if available
 -- @param topic string MQTT topic
@@ -388,7 +358,7 @@ function Plugin:mqttPublish(topic, payload, options)
     end
 
     if MQTT and MQTT.publish then
-        MQTT:publish(topic, payloadStr, options.retain or false, options.qos or 0)
+        MQTT:publish(topic, payloadStr, options.qos or 0, options.retain or false)
     end
 end
 
@@ -411,6 +381,174 @@ function Plugin:mqttSubscribe(topic, callback)
 end
 
 -- ============================================
+-- Wizard: secrets, discover, module code
+-- ============================================
+
+--- A secret field of the plugin's form (a token, a password); nil when not set
+-- @param name string The field name in form.json
+-- @return string|nil
+-- @usage local token = plugin:secret("apiToken")
+function Plugin:secret(name)
+    if not self._sandbox then error("secret is only for plugins", 2) end
+    local secrets = self._sandbox.secrets or {}
+    return secrets[name]
+end
+
+--- Finds devices for step 2 of the wizard: fn(config, done), then done(rows) or done(nil, err).
+-- Rows have the fields of "devices" in form.json; the user picks which to keep.
+-- @param fn function
+-- @usage plugin:discover(function(cfg, done) done({ {id = "1", name = "Lamp"} }) end)
+function Plugin:discover(fn)
+    if type(fn) ~= "function" then error("discover(fn): fn is a function", 2) end
+    self._discover = fn
+    return self
+end
+
+--- Lua for a module from the saved devices (step 3): fn(config, devices) returns the code.
+-- The user sees a diff and confirms before vclu writes modules/plugins/<plugin>.lua.
+-- @param fn function
+function Plugin:moduleCode(fn)
+    if type(fn) ~= "function" then error("moduleCode(fn): fn is a function", 2) end
+    self._moduleCode = fn
+    return self
+end
+
+local function sandboxAPI(self, name)
+    if not (self._sandbox and self._sandbox.api) then
+        error(name .. " is only for plugins", 3)
+    end
+    return self._sandbox.api
+end
+
+-- ============================================
+-- Apps: the plugin's own dashboards and actions (no permission)
+-- ============================================
+
+--- A dashboard of the plugin's own: the builder of Dashboard.new (name, icon, auth, poll,
+-- section, widgets, build). Its id is <shortId>_<id> ("-" as "_"), at /d/<that id>; auth is
+-- "session" unless set. Widgets reaching the house by name (area, floor, room, covers, calendar,
+-- schedule, chart, bars) are not available. Removed when the plugin stops.
+-- @param id string Lower-case letters, digits and _
+-- @return table DashboardBuilder
+-- @usage plugin:dashboard("lista"):name("Zakupy"):section("Lista", "cart"):button("clear", "Wyczyść", "trash", function() items = {} end):build()
+function Plugin:dashboard(id)
+    return sandboxAPI(self, "dashboard").dashboard(id)
+end
+
+--- Who may open a dashboard the plugin declares in plugin.json "dashboards": called from a
+-- module, never from a plugin. Overrides what the plugin set, now and whenever it builds the
+-- dashboard again (a plugin reload keeps it); a Lua reload clears it, the module grants it again.
+-- @param id string The id in plugin.json "dashboards"
+-- @param opts table {name = text, auth = "session"|"pin"|"public"|"off" ("off": not served, not listed), pin = "1234" (for auth "pin" or remote.pin), remote = false|true|{pin = bool, roles = {"domownicy", ...} or function returning them}}
+-- @usage Plugin.getPlugin("@vclu/zakupy"):dashboardAccess("lista", { name = "Zakupy", auth = "public", remote = { roles = { "domownicy" } } })
+-- @api public
+function Plugin:dashboardAccess(id, opts)
+    if type(self) ~= "table" or getmetatable(self) ~= Plugin then
+        error("dashboardAccess: call it on a plugin, Plugin.getPlugin(id):dashboardAccess(...)", 2)
+    end
+    -- a plugin's own code (its environment) never grants itself or another plugin anything
+    local env = getfenv and getfenv(2)
+    for _, sb in pairs((PluginSandbox and PluginSandbox.sandboxes) or {}) do
+        if env ~= nil and sb.environment == env then
+            error("dashboardAccess is the user's: a module grants access to a plugin's dashboards, not the plugin", 2)
+        end
+    end
+    local sandbox = self._sandbox
+    local declared = sandbox and sandbox.declaredDashboards or {}
+    if type(id) ~= "string" or not declared[id] then
+        error("dashboardAccess: " .. tostring(self.id) .. " declares no dashboard " .. tostring(id)
+            .. ' (plugin.json "dashboards")', 2)
+    end
+    local ok, err = Dashboard._grantPlugin(self.id, id, opts)
+    if not ok then error("dashboardAccess(" .. id .. "): " .. err, 2) end
+    return self
+end
+
+--- A named action agents and voice assistants call (HTTP POST /api/plugins/:id/actions/:name,
+-- MCP vclu_app_action). On API 2 the action is declared in plugin.json "actions" (description,
+-- params, confirm) and the code only binds it: plugin:action(name, fn). fn(params) gets the
+-- checked params and returns the result (text, number, true/false or a plain table) or nil, err.
+-- @param name string An action declared in plugin.json
+-- @param spec table|function On API 2 the function; on API 1 {description, params}, then fn
+-- @param fn function fn(params) -> result | nil, err (API 1)
+-- @usage plugin:action("add", function(p) return add(p.item) end)
+function Plugin:action(name, spec, fn)
+    sandboxAPI(self, "action").action(name, spec, fn)
+    return self
+end
+
+-- ============================================
+-- udp, tcp, clu, tftp, serial: only in a plugin's sandbox, with the permission
+-- ============================================
+
+--- A UDP socket for devices on the local network (permission udp); not to the CLU's ports
+-- @param opts table|nil {port = 0}: 0 for any free port
+-- @return table|nil socket:send(ip, port, bytes) to a port in plugin.json's permissions.udp.ports,
+--   socket:broadcast(port, bytes) to one in udp.broadcast, socket:onReceive(function(bytes, ip, port) end),
+--   socket:close(); nil, err if not bound
+-- @usage local s = plugin:udpSocket() s:onReceive(function(b, ip) end) s:broadcast(7000, '{"t":"scan"}')
+function Plugin:udpSocket(opts)
+    return sandboxAPI(self, "udpSocket").udpSocket(opts)
+end
+
+--- A TCP connection to a device on the local network (permission tcp), to a port in
+-- plugin.json's permissions.tcp.ports
+-- @param opts table {host = "192.168.1.20", port = 23, timeout = 5}: an IPv4 address, seconds 1-30
+-- @return table|nil conn:send(bytes) after onConnect, conn:onConnect(function() end),
+--   conn:onReceive(function(bytes) end), conn:onClose(function(reason) end) when the device or
+--   the network ends it, conn:isOpen(), conn:close(); nil, err if refused
+-- @usage local c = plugin:tcpConnect({host = "192.168.1.20", port = 23}) c:onConnect(function() c:send("hi\r\n") end)
+function Plugin:tcpConnect(opts)
+    return sandboxAPI(self, "tcpConnect").tcpConnect(opts)
+end
+
+--- A WebSocket client (ws:// or wss://) to where the plugin's HTTP may go: internet hosts on
+-- the permissions.internet list, local ones with lan on its ports; no permission of its own
+-- @param url string "wss://example.com/events"
+-- @param opts table|nil {headers = {Authorization = "..."}, protocols = {"json"}, timeout = 10}
+-- @return table|nil ws:send(data, {binary = true}?) after onOpen, ws:onOpen(function(protocol) end),
+--   ws:onMessage(function(data, binary) end), ws:onClose(function(code, reason) end),
+--   ws:isOpen(), ws:close(code?, reason?); nil, err if refused
+-- @usage local ws = plugin:websocket("wss://example.com/events") ws:onMessage(function(m) end)
+function Plugin:websocket(url, opts)
+    return sandboxAPI(self, "websocket").websocket(url, opts)
+end
+
+--- A UDP socket of the plugin's own (permission clu)
+-- @param opts table|nil {port = 0}: 0 for any free port
+-- @return table|nil socket:send(ip, port, bytes), socket:broadcast(port, bytes),
+--   socket:onReceive(function(bytes, ip, port) end), socket:close(); nil, err if not bound
+-- @usage local s = plugin:grentonSocket() s:onReceive(function(b, ip) end) s:broadcast(1234, frame)
+function Plugin:grentonSocket(opts)
+    return sandboxAPI(self, "grentonSocket").grentonSocket(opts)
+end
+
+--- The CLU cipher, AES-CBC (permission clu)
+-- @param key string 16 bytes raw or base64, as in the CLU's configuration
+-- @param iv string 16 bytes raw or base64
+-- @return table cipher:encrypt(bytes), cipher:decrypt(bytes): bytes or nil, err
+function Plugin:grentonCipher(key, iv)
+    return sandboxAPI(self, "grentonCipher").grentonCipher(key, iv)
+end
+
+--- A TFTP client (permission tftp)
+-- @param ip string the device
+-- @param opts table|nil {port = 69}
+-- @return table client:get(name, function(bytes, err) end), client:put(name, bytes, function(ok, err) end)
+function Plugin:tftp(ip, opts)
+    return sandboxAPI(self, "tftp").tftp(ip, opts)
+end
+
+--- A serial port the user assigned to the plugin (permission serial)
+-- @param path string e.g. "/dev/ttyUSB0"
+-- @param opts table|nil {baud = 9600, data = 8, parity = "none"|"even"|"odd", stop = 1}
+-- @return table|nil port:write(bytes), port:onData(function(bytes, err) end), port:close();
+--   nil, err if it cannot be opened. onData gets (nil, err) once when the port fails.
+function Plugin:serialOpen(path, opts)
+    return sandboxAPI(self, "serialOpen").serialOpen(path, opts)
+end
+
+-- ============================================
 -- NEW API: HTTP, URL, Auth helpers
 -- ============================================
 
@@ -418,7 +556,21 @@ end
 -- @param opts table Request options (see PluginHelpers.httpRequest)
 -- @param callback function Callback(response, err)
 function Plugin:httpRequest(opts, callback)
+    if self._sandbox and self._sandbox.api then
+        return self._sandbox.api.httpRequest(opts, callback)
+    end
     PluginHelpers.httpRequest(self.id, opts, callback)
+end
+
+--- What this vclu offers a plugin: a method ("websocket"), a permission it knows
+-- ("permission:udp", "permission:lan.ports") or a form field type ("form:host"); never errors
+-- @param name string
+-- @return boolean
+function Plugin:has(name)
+    if self._sandbox and self._sandbox.api and self._sandbox.api.has then
+        return self._sandbox.api.has(name)
+    end
+    return PluginHelpers.has(name)
 end
 
 --- Build URL with sorted query parameters
@@ -457,6 +609,9 @@ end
 -- @return string|nil JSON string
 -- @return string|nil Error message
 function Plugin:encodeJson(data)
+    if self._sandbox and self._sandbox.api then
+        return self._sandbox.api.encodeJson(data)
+    end
     return PluginHelpers.encodeJson(data)
 end
 
@@ -497,6 +652,9 @@ end
 -- @param opts table Poller options
 -- @return table Poller object
 function Plugin:poller(name, opts)
+    if self._sandbox and self._sandbox.api then
+        return self._sandbox.api.createPoller(name, opts)
+    end
     return PluginHelpers.createPoller(self.id, name, opts)
 end
 
@@ -560,6 +718,9 @@ end
 -- @return boolean|string true=emitted, false=dropped, "pending"=queued
 function Plugin:emit(eventName, data, opts)
     if opts and (opts.throttle or opts.coalesce or opts.leading ~= nil or opts.trailing) then
+        if self._sandbox and self._sandbox.api then
+            self._sandbox.api.checkEvent(eventName)
+        end
         -- Use throttled emit
         local emitFn = function(event, payload)
             if self._sandbox and self._sandbox.api then
@@ -590,6 +751,9 @@ end
 -- @param fields table Optional fields (logged as key=value)
 -- @param redact boolean Redact secrets (default true)
 function Plugin:logSafe(level, msg, fields, redact)
+    if self._sandbox and self._sandbox.api then
+        return self._sandbox.api.logSafe(level, msg, fields, redact)
+    end
     PluginHelpers.logSafe(Logger, self.shortId or self.id, level, msg, fields, redact)
 end
 
@@ -604,7 +768,8 @@ end
 -- @param obj table Object to expose (must implement get(0) at minimum)
 -- @param objType string Type: switch, light, dimmer, sensor, motion, occupancy, temperature, humidity, cover, scene, number, button
 -- @param options table Optional settings: name, path, id, readonly, hidden, mqtt, homekit, group
--- @return ExposedHandle Handle for managing the exposed object
+-- @return ExposedHandle Handle for managing the exposed object; on API 2 its :remote, :roles, :pin and
+--   :confirm are the user's module's (Plugin.getPlugin(id):getExposed()), not the plugin's
 -- @usage
 --   local handle = plugin:expose(mySwitch, "switch", { name = "Living Room Light" })
 --   handle:unexpose()  -- to remove later
@@ -1017,29 +1182,45 @@ end
 
 -- Initialize plugin from config (called by Go loader)
 -- pluginId is the fullId (e.g., "@vclu/weather")
-function Plugin.initFromConfig(pluginId, config)
+function Plugin.initFromConfig(pluginId, config, info)
     local instance = Plugin.instances[pluginId]
-    if instance then
-        instance:init(config)
+    if instance and instance._sandbox and PluginSandbox then
+        -- the loader logs and shows the error: without the plugin's secrets
+        local ok, err = pcall(instance.init, instance, config, info)
+        if not ok then error(PluginSandbox:mask(pluginId, tostring(err)), 0) end
+    elseif instance then
+        instance:init(config, info)
     else
         Logger:warn("[PLUGIN] Cannot init unknown plugin: " .. pluginId)
     end
 end
 
--- Get plugin instance by fullId or shortId
--- Note: Use Plugin.getPlugin() instead of Plugin.get() to avoid conflict with instance method
-function Plugin.getPlugin(pluginId)
+-- The instance by fullId or shortId, as the core holds it
+function Plugin._lookup(pluginId)
     -- Try fullId first
     if Plugin.instances[pluginId] then
         return Plugin.instances[pluginId]
     end
-    -- Try to find by shortId
+    -- By shortId: the official one, else the only one; two others are ambiguous
+    local found
     for id, instance in pairs(Plugin.instances) do
         if instance.shortId == pluginId then
-            return instance
+            if instance.namespace == "vclu" then return instance end
+            if found then return nil end
+            found = instance
         end
     end
-    return nil
+    return found
+end
+
+-- Get a plugin by fullId or shortId. On plugin API 2 a module gets its facade: the plugin's
+-- methods and the core's get, on, getExposed, dashboardAccess; values cross as copies,
+-- objects with functions as handles (PluginSandbox.moduleFacade).
+-- Note: Use Plugin.getPlugin() instead of Plugin.get() to avoid conflict with instance method
+function Plugin.getPlugin(pluginId)
+    local instance = Plugin._lookup(pluginId)
+    if instance and PluginSandbox and PluginSandbox.moduleView then return PluginSandbox.moduleView(instance) end
+    return instance
 end
 
 -- List all registered plugins

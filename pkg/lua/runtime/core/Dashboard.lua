@@ -6,6 +6,9 @@
 -- Global registry (cleared on module reload, rebuilt by build() calls)
 _dashboards = _dashboards or {}
 _dashboardOrder = _dashboardOrder or {}
+-- What modules grant plugins' dashboards (Plugin:dashboardAccess): [plugin id][declared id].
+-- A plugin reload keeps it; a Lua reload starts empty and the modules grant it again.
+_dashboardAccess = _dashboardAccess or {}
 
 -- ==========================================================================
 -- SectionHandle - proxy for adding widgets to a specific section
@@ -1274,7 +1277,10 @@ local function playerWidget(id, label, src, opts)
                 error(where .. ': unknown key "' .. tostring(k) .. '" in src (' .. table.concat(PLAYER_FNS, ', ') .. ')', 3)
             end
             if type(v) ~= 'function' then error(where .. ': src.' .. k .. ' must be a function', 3) end
-            fns[k] = v
+        end
+        -- by name: a plugin's table of functions is a handle, which pairs does not walk
+        for _, name in ipairs(PLAYER_FNS) do
+            if type(src[name]) == 'function' then fns[name] = src[name] end
         end
     end
     return { id = id, type = 'player', label = label, icon = opts.icon or 'music-note-beamed', fns = fns, opts = opts }
@@ -1493,6 +1499,133 @@ local function tableWidget(id, label, rows, opts)
     end
     if opts.disabled ~= nil and type(opts.disabled) ~= 'function' then error(where .. ': opts.disabled must be a function', 3) end
     return { id = id, type = 'table', label = label, icon = opts.icon or 'table', fn = rows, columns = columns, opts = opts }
+end
+
+-- ==========================================================================
+-- Text input and an editable list (small apps: a shopping list)
+-- ==========================================================================
+
+local TextW = {}
+TextW.INPUT_KEYS = { placeholder = true, button = true, maxLength = true, disabled = true, visible = true, span = true,
+    remote = true }
+TextW.LIST_KEYS = { onToggle = true, onDelete = true, onAdd = true, placeholder = true, empty = true, icon = true,
+    maxItems = true, maxLength = true, disabled = true, visible = true, span = true, remote = true }
+TextW.TEXT_MAX = 1000
+TextW.LIST_MAX_ITEMS = 1000
+
+-- The options both share: a whitelist, placeholder, maxLength (1-1000, default 200), disabled
+function TextW.textOpts(where, opts, keys)
+    for k in pairs(opts) do
+        if not keys[k] then error(where .. ': unknown option "' .. tostring(k) .. '" (' .. quoted(keys) .. ')', 4) end
+    end
+    if opts.placeholder ~= nil and type(opts.placeholder) ~= 'string' then error(where .. ': opts.placeholder must be a string', 4) end
+    local n = opts.maxLength
+    if n ~= nil and (type(n) ~= 'number' or n % 1 ~= 0 or n < 1 or n > TextW.TEXT_MAX) then
+        error(where .. ': opts.maxLength must be a whole number 1-' .. TextW.TEXT_MAX, 4)
+    end
+    if opts.disabled ~= nil and type(opts.disabled) ~= 'function' then error(where .. ': opts.disabled must be a function', 4) end
+    return n or 200
+end
+
+local function inputWidget(id, label, icon, onSubmit, opts)
+    local where = 'section:input("' .. tostring(id) .. '")'
+    if type(id) ~= 'string' or id == '' then error('section:input: id must be a non-empty string', 3) end
+    if type(label) ~= 'string' then error(where .. ': label must be a string', 3) end
+    if icon ~= nil and (type(icon) ~= 'string' or not icon:match('^[%w%-]+$')) then
+        error(where .. ': icon must be a Bootstrap icon name (letters, digits and -) or nil', 3)
+    end
+    if type(onSubmit) ~= 'function' then error(where .. ': onSubmit must be a function(text), got ' .. type(onSubmit), 3) end
+    if opts == nil then opts = {} end
+    if type(opts) ~= 'table' then error(where .. ': opts must be a table', 3) end
+    local max = TextW.textOpts(where, opts, TextW.INPUT_KEYS)
+    if opts.button ~= nil and type(opts.button) ~= 'string' then error(where .. ': opts.button must be a string', 3) end
+    return { id = id, type = 'input', label = label, icon = icon or 'input-cursor-text', onSubmit = onSubmit,
+        maxLength = max, opts = opts }
+end
+
+local function listWidget(id, label, getItems, opts)
+    local where = 'section:list("' .. tostring(id) .. '")'
+    if type(id) ~= 'string' or id == '' then error('section:list: id must be a non-empty string', 3) end
+    if type(label) ~= 'string' then error(where .. ': label must be a string', 3) end
+    if type(getItems) ~= 'function' then error(where .. ': getItems must be a function returning a list of items, got ' .. type(getItems), 3) end
+    if opts == nil then opts = {} end
+    if type(opts) ~= 'table' then error(where .. ': opts must be a table', 3) end
+    local max = TextW.textOpts(where, opts, TextW.LIST_KEYS)
+    for _, k in ipairs({ 'onToggle', 'onDelete', 'onAdd' }) do
+        if opts[k] ~= nil and type(opts[k]) ~= 'function' then error(where .. ': opts.' .. k .. ' must be a function', 3) end
+    end
+    if opts.empty ~= nil and type(opts.empty) ~= 'string' then error(where .. ': opts.empty must be a string', 3) end
+    if opts.icon ~= nil and (type(opts.icon) ~= 'string' or not opts.icon:match('^[%w%-]+$')) then
+        error(where .. ': opts.icon must be a Bootstrap icon name (letters, digits and -)', 3)
+    end
+    local n = opts.maxItems
+    if n ~= nil and (type(n) ~= 'number' or n % 1 ~= 0 or n < 1 or n > TextW.LIST_MAX_ITEMS) then
+        error(where .. ': opts.maxItems must be a whole number 1-' .. TextW.LIST_MAX_ITEMS, 3)
+    end
+    return { id = id, type = 'list', label = label, icon = opts.icon or 'list-check', fn = getItems,
+        maxItems = n or 100, maxLength = max, opts = opts }
+end
+
+-- getItems() checked: {list = items as given, shown = what the page gets, total} or {error}
+function TextW.listRead(w)
+    local where = 'section:list("' .. tostring(w.id) .. '")'
+    local ok, list = pcall(w.fn)
+    if not ok then return { error = tostring(list) } end
+    if list == nil then list = {} end
+    if type(list) ~= 'table' then return { error = where .. ': getItems must return a list, got ' .. type(list) } end
+    local n, keys = 0, 0
+    for _ in ipairs(list) do n = n + 1 end
+    for _ in pairs(list) do keys = keys + 1 end
+    if keys ~= n then return { error = where .. ': getItems must return a list (keys 1..n without holes)' } end
+    local shown, seen = {}, {}
+    for i, it in ipairs(list) do
+        local at = where .. ': item ' .. i
+        if type(it) ~= 'table' then return { error = at .. ' must be a table, got ' .. type(it) } end
+        local idv = it.id
+        if not (type(idv) == 'string' or (type(idv) == 'number' and idv - idv == 0)) then
+            return { error = at .. ': id must be a string or a number' }
+        end
+        local key = tostring(idv)
+        if seen[key] then return { error = at .. ': id "' .. key .. '" is used twice' } end
+        seen[key] = true
+        if type(it.label) ~= 'string' then return { error = at .. ': label must be a string' } end
+        if it.done ~= nil and type(it.done) ~= 'boolean' then return { error = at .. ': done must be a boolean or nil' } end
+        if it.note ~= nil and type(it.note) ~= 'string' then return { error = at .. ': note must be a string or nil' } end
+        if i <= w.maxItems then
+            shown[i] = { id = idv, label = it.label, done = it.done == true, note = it.note }
+        end
+    end
+    return { list = list, shown = shown, total = n }
+end
+
+-- What a poll sends: {items, total} or {error}
+function TextW.listState(w)
+    local r = TextW.listRead(w)
+    if r.error then return { error = r.error } end
+    return { items = r.shown, total = r.total }
+end
+
+-- Text from the page: control characters as spaces, trimmed; nil and why when refused
+function TextW.textValue(w, value)
+    if type(value) ~= 'string' then return nil, 'Value must be text' end
+    local s = value:gsub('%c', ' '):match('^%s*(.-)%s*$')
+    if s == '' then return nil, 'Empty text' end
+    -- characters, not bytes: a UTF-8 continuation byte is not one
+    local _, chars = s:gsub('[^\128-\191]', '')
+    if chars > w.maxLength then return nil, 'Text longer than ' .. w.maxLength .. ' characters' end
+    return s
+end
+
+-- onSubmit/onAdd: false or nil with a message refuses (the message under the field), a string is a toast
+function TextW.submitText(fn, text)
+    local ok, ret, msg = pcall(fn, text)
+    if not ok then return { error = tostring(ret), field = true } end
+    if ret == false or (ret == nil and msg ~= nil) then
+        return { error = msg ~= nil and tostring(msg) or 'Not accepted', field = true }
+    end
+    local result = { success = true }
+    if type(ret) == 'string' then result.message = ret end
+    return result
 end
 
 -- ==========================================================================
@@ -2157,6 +2290,39 @@ function SectionHandle:gauge(id, label, getValue, opts)
         error('section:gauge("' .. tostring(id) .. '"): a gauge goes in a section, not the header', 2)
     end
     self._builder:_addWidget(self._sectionIndex, gaugeWidget(id, label, getValue, opts))
+    return self
+end
+
+--- Add a text field with a send button: onSubmit(text) gets the trimmed text (empty text is not sent).
+-- onSubmit may return false, "message" (or nil, "message") to refuse: the message shows under the field
+-- and the text stays; otherwise the field clears (a returned string is a toast).
+-- @param id string Unique widget identifier
+-- @param label string Display label
+-- @param icon string|nil Bootstrap icon name (default "input-cursor-text")
+-- @param onSubmit function Called with the text: function(text) -> nil | string | false, message
+-- @param opts table Optional: {placeholder=string, button=string (a text button; default an icon), maxLength=1-1000 (default 200, checked by vCLU too), disabled=function()->bool, visible=function()->bool, span=n}
+-- @api public
+function SectionHandle:input(id, label, icon, onSubmit, opts)
+    if self._builder._sections[self._sectionIndex]._isHeader then
+        error('section:input("' .. tostring(id) .. '"): a text field goes in a section, not the header', 2)
+    end
+    self._builder:_addWidget(self._sectionIndex, inputWidget(id, label, icon, onSubmit, opts))
+    return self
+end
+
+--- Add an editable list: items from getItems(), a checkbox with onToggle, a delete button with onDelete,
+-- a text field below with onAdd (as section:input's onSubmit). Items keep the order getItems gives;
+-- done ones are struck through. An item id the page sends is checked against getItems() before a callback runs.
+-- @param id string Unique widget identifier
+-- @param label string Display label
+-- @param getItems function Returns the items: function() -> { {id=string|number, label=string, done=bool?, note=string?}, ... }
+-- @param opts table Optional: {onToggle=function(itemId, done), onDelete=function(itemId), onAdd=function(text) -> nil | string | false, message, placeholder=string, empty=string (no items, default "—"), icon=string (default "list-check"), maxItems=1-1000 (shown, default 100), maxLength=1-1000 (onAdd's text, default 200), disabled=function()->bool, visible=function()->bool, span=n}
+-- @api public
+function SectionHandle:list(id, label, getItems, opts)
+    if self._builder._sections[self._sectionIndex]._isHeader then
+        error('section:list("' .. tostring(id) .. '"): a list goes in a section, not the header', 2)
+    end
+    self._builder:_addWidget(self._sectionIndex, listWidget(id, label, getItems, opts))
     return self
 end
 
@@ -3033,6 +3199,45 @@ function DashboardBuilder:gauge(id, label, getValue, opts)
     return self
 end
 
+--- Add to the current section a text field with a send button: onSubmit(text) gets the trimmed text (empty text is not sent).
+-- onSubmit may return false, "message" (or nil, "message") to refuse: the message shows under the field
+-- and the text stays; otherwise the field clears (a returned string is a toast).
+-- @param id string Unique widget identifier
+-- @param label string Display label
+-- @param icon string|nil Bootstrap icon name (default "input-cursor-text")
+-- @param onSubmit function Called with the text: function(text) -> nil | string | false, message
+-- @param opts table Optional: {placeholder=string, button=string (a text button; default an icon), maxLength=1-1000 (default 200, checked by vCLU too), disabled=function()->bool, visible=function()->bool, span=n}
+-- @api public
+function DashboardBuilder:input(id, label, icon, onSubmit, opts)
+    if not self._currentSection then
+        error('Call :section() before adding widgets (dash:floor() ends the current section)', 2)
+    end
+    if self._sections[self._currentSection]._isHeader then
+        error('section:input("' .. tostring(id) .. '"): a text field goes in a section, not the header', 2)
+    end
+    self:_addWidget(self._currentSection, inputWidget(id, label, icon, onSubmit, opts))
+    return self
+end
+
+--- Add an editable list to the current section: items from getItems(), a checkbox with onToggle, a delete button with onDelete,
+-- a text field below with onAdd (as section:input's onSubmit). Items keep the order getItems gives;
+-- done ones are struck through. An item id the page sends is checked against getItems() before a callback runs.
+-- @param id string Unique widget identifier
+-- @param label string Display label
+-- @param getItems function Returns the items: function() -> { {id=string|number, label=string, done=bool?, note=string?}, ... }
+-- @param opts table Optional: {onToggle=function(itemId, done), onDelete=function(itemId), onAdd=function(text) -> nil | string | false, message, placeholder=string, empty=string (no items, default "—"), icon=string (default "list-check"), maxItems=1-1000 (shown, default 100), maxLength=1-1000 (onAdd's text, default 200), disabled=function()->bool, visible=function()->bool, span=n}
+-- @api public
+function DashboardBuilder:list(id, label, getItems, opts)
+    if not self._currentSection then
+        error('Call :section() before adding widgets (dash:floor() ends the current section)', 2)
+    end
+    if self._sections[self._currentSection]._isHeader then
+        error('section:list("' .. tostring(id) .. '"): a list goes in a section, not the header', 2)
+    end
+    self:_addWidget(self._currentSection, listWidget(id, label, getItems, opts))
+    return self
+end
+
 --- Add a colour temperature slider (warm to cool white) to the current section.
 -- @param id string Unique widget identifier
 -- @param label string Display label
@@ -3518,7 +3723,7 @@ end
 -- bare: without filling area sections (auth and PIN need no widgets)
 local function resolveDashboard(id, bare)
     local entry = _dashboards[id]
-    if not entry then return nil end
+    if not entry or entry._off then return nil end -- a plugin's dashboard its user turned off
     if not entry._isDynamic then return bare and entry or expandAreas(entry) end
 
     -- Dynamic: create fresh builder, call user function, auto-build
@@ -3699,7 +3904,7 @@ function DashboardAPI.remoteCamera(cam, role, onlyJSON)
     end
     for _, id in ipairs(_dashboardOrder) do
         local dash = _dashboards[id] and (not only or only[id]) and resolveFor(id, role)
-        if dash then
+        if dash and not dash._plugin then -- a plugin's dashboard has no camera of the house
             for _, sec in ipairs(dash._sections) do
                 for _, w in ipairs(sec.widgets) do
                     if w.type == 'image' then
@@ -4113,6 +4318,7 @@ function DashboardAPI.list()
                 name = dash._name,
                 icon = dash._icon,
                 auth = dash._auth,
+                plugin = dash._plugin, -- set by plugin:dashboard
                 widgetCount = widgetCount,
                 widgets = widgets,
             })
@@ -4325,6 +4531,20 @@ function DashboardAPI.getDefinition(id, role)
                 widget.desc = w.opts.desc
             end
 
+            -- Text input: its texts and limit; no value
+            if w.type == 'input' then
+                widget.placeholder, widget.button, widget.maxLength = w.opts.placeholder, w.opts.button, w.maxLength
+            end
+
+            -- List: its items as a poll gives them, and which controls it has
+            if w.type == 'list' then
+                if live then
+                    for k, v in pairs(TextW.listState(w)) do widget[k] = v end
+                end
+                widget.placeholder, widget.empty, widget.maxLength = w.opts.placeholder, w.opts.empty or '—', w.maxLength
+                widget.capabilities = { toggle = w.opts.onToggle ~= nil, delete = w.opts.onDelete ~= nil, add = w.opts.onAdd ~= nil }
+            end
+
             -- Gauge: value and target as a poll gives them, its range and how it is drawn
             if w.type == 'gauge' then
                 if live then
@@ -4484,6 +4704,7 @@ function DashboardAPI.getDefinition(id, role)
             local tabs = {}
             for _, otherId in ipairs(_dashboardOrder) do
                 local otherDb = _dashboards[otherId]
+                if otherDb and otherDb._off then otherDb = nil end
                 if otherDb and role ~= nil and not resolveFor(otherId, role, true) then
                     otherDb = nil -- not for this remote viewer
                 end
@@ -4574,6 +4795,10 @@ function DashboardAPI.getValues(id, role)
                 result[w.id] = entry
             elseif w.type == 'player' or w.type == 'forecast' then
                 local entry = w.type == 'player' and playerState(w) or forecastState(w)
+                entry.disabled = safeDisabled(w.opts)
+                result[w.id] = entry
+            elseif w.type == 'list' then
+                local entry = TextW.listState(w)
                 entry.disabled = safeDisabled(w.opts)
                 result[w.id] = entry
             elseif w.type == 'gauge' then
@@ -4796,6 +5021,52 @@ function DashboardAPI.executeAction(id, widgetId, action, value, ctx)
         end
         local result = { success = true, value = value }
         if type(ret) == 'string' then result.message = ret end
+        return JSON.encode(result)
+
+    elseif widget.type == 'input' then
+        if action ~= 'submit' then return JSON.encode({ error = 'Invalid action for input' }) end
+        local text, why = TextW.textValue(widget, value)
+        if not text then return JSON.encode({ error = why, field = true }) end
+        return JSON.encode(TextW.submitText(widget.onSubmit, text))
+
+    elseif widget.type == 'list' then
+        local result
+        if action == 'add' then
+            if type(widget.opts.onAdd) ~= 'function' then return JSON.encode({ error = 'No onAdd function' }) end
+            local text, why = TextW.textValue(widget, value)
+            if not text then return JSON.encode({ error = why, field = true }) end
+            result = TextW.submitText(widget.opts.onAdd, text)
+        elseif action == 'toggle' or action == 'delete' then
+            local fn = widget.opts[action == 'toggle' and 'onToggle' or 'onDelete']
+            if type(fn) ~= 'function' then
+                return JSON.encode({ error = 'No ' .. (action == 'toggle' and 'onToggle' or 'onDelete') .. ' function' })
+            end
+            local key = type(value) == 'table' and value.id
+            if type(key) == 'number' then key = tostring(key) end
+            if type(key) ~= 'string' then return JSON.encode({ error = 'Value must be {id}' }) end
+            local done = type(value) == 'table' and value.done
+            if action == 'toggle' and type(done) ~= 'boolean' then return JSON.encode({ error = 'Value must be {id, done}' }) end
+            -- the id must be one getItems() gives now; the callback gets it as getItems gave it
+            local items = TextW.listRead(widget)
+            if items.error then return JSON.encode({ error = items.error }) end
+            local itemId
+            for _, it in ipairs(items.list) do
+                if tostring(it.id) == key then itemId = it.id; break end
+            end
+            if itemId == nil then return JSON.encode({ error = 'Unknown item' }) end
+            local ok, ret
+            if action == 'toggle' then ok, ret = pcall(fn, itemId, done) else ok, ret = pcall(fn, itemId) end
+            if not ok then return JSON.encode({ error = tostring(ret) }) end
+            result = { success = true }
+            if type(ret) == 'string' then result.message = ret end
+        else
+            return JSON.encode({ error = 'Invalid action for list' })
+        end
+        -- the list as it is now, so the page shows the change without waiting for a poll
+        if result.success then
+            local st = TextW.listState(widget)
+            result.items, result.total = st.items, st.total
+        end
         return JSON.encode(result)
 
     elseif widget.type == 'status' or widget.type == 'gauge' then
@@ -5133,6 +5404,97 @@ function Dashboard.periodLabel(period)
         evening = "Wieczór", night = "Noc",
     }
     return labels[period] or period
+end
+
+-- ==========================================================================
+-- Plugins' dashboards: who may open them is the user's (Plugin:dashboardAccess)
+-- ==========================================================================
+
+local DashAccess = {}
+DashAccess.KEYS = { name = true, auth = true, pin = true, remote = true }
+DashAccess.AUTH = { session = true, pin = true, public = true, off = true }
+DashAccess.REMOTE_KEYS = { pin = true, roles = true }
+
+function DashAccess.chars(s)
+    return select(2, s:gsub('[^\128-\191]', ''))
+end
+
+-- The checked grant, or nil and why
+function DashAccess.spec(opts)
+    if type(opts) ~= 'table' then return nil, 'opts is a table {name, auth, pin, remote}' end
+    for k in pairs(opts) do
+        if not DashAccess.KEYS[k] then return nil, 'unknown option "' .. tostring(k) .. '" (name, auth, pin, remote)' end
+    end
+    local a = {}
+    if opts.name ~= nil then
+        if type(opts.name) ~= 'string' or opts.name == '' or DashAccess.chars(opts.name) > 60 or opts.name:find('[%c]') then
+            return nil, 'name is a text of 1 to 60 characters on one line'
+        end
+        a.name = opts.name
+    end
+    if opts.auth ~= nil and not DashAccess.AUTH[opts.auth] then
+        return nil, 'auth is "session", "pin", "public" or "off"'
+    end
+    a.auth = opts.auth
+    if opts.pin ~= nil then
+        if type(opts.pin) ~= 'string' or not opts.pin:match('^%d%d%d%d$') then
+            return nil, 'pin is a text of 4 digits, e.g. "1234"'
+        end
+        a.pin = opts.pin
+    end
+    local r = opts.remote
+    if r ~= nil and r ~= false then
+        if r == true then r = {} end
+        if type(r) ~= 'table' then return nil, 'remote is false, true or {pin, roles}' end
+        for k in pairs(r) do
+            if not DashAccess.REMOTE_KEYS[k] then return nil, 'remote: unknown option "' .. tostring(k) .. '" (pin, roles)' end
+        end
+        if r.pin ~= nil and type(r.pin) ~= 'boolean' then return nil, 'remote.pin is true or false' end
+        local roles = r.roles
+        if roles == nil then
+            roles = {}
+        elseif type(roles) == 'table' then
+            local list = {}
+            for i, v in ipairs(roles) do list[i] = v end
+            local bad = badRole(list)
+            if bad then return nil, 'remote.roles: invalid role "' .. bad .. '" (a-z, 0-9, - and _, as in the cloud)' end
+            roles = list
+        elseif type(roles) ~= 'function' then
+            return nil, 'remote.roles is a list of roles or a function returning them'
+        end
+        a.remote = { pin = r.pin == true, roles = roles, poll = REMOTE_POLL }
+    end
+    if (a.auth == 'pin' or (a.remote and a.remote.pin)) and not a.pin then
+        return nil, 'a PIN is asked for: give pin = "1234"'
+    end
+    return a
+end
+
+-- Sets a plugin's dashboard from what the plugin chose (_pluginOwn) and what the user granted
+function Dashboard._applyAccess(b)
+    local own = b._pluginOwn
+    if not own then return end
+    local a = (_dashboardAccess[b._plugin] or {})[b._pluginDash]
+    local off = a ~= nil and a.auth == 'off'
+    b._off = off or nil
+    b._name = (a and a.name) or own.name
+    b._auth = (a and not off and a.auth) or own.auth
+    b._pin = a and a.pin or nil
+    local r = not off and a and a.remote
+    b._remote = r and { pin = r.pin, roles = r.roles, poll = r.poll } or nil
+end
+
+-- Plugin:dashboardAccess: stores the grant for the plugin's declared dashboard and applies it
+-- to the dashboard if built; true, or nil and why
+function Dashboard._grantPlugin(pluginId, id, opts)
+    local a, err = DashAccess.spec(opts)
+    if not a then return nil, err end
+    _dashboardAccess[pluginId] = _dashboardAccess[pluginId] or {}
+    _dashboardAccess[pluginId][id] = a
+    for _, d in pairs(_dashboards) do
+        if d._plugin == pluginId and d._pluginDash == id then Dashboard._applyAccess(d) end
+    end
+    return true
 end
 
 -- Attach API for Go calls

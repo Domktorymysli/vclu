@@ -197,6 +197,22 @@ EventBus:getShared():setTimeout(function()
 end, 5000)
 ```
 
+## Who opens a plugin's dashboard (dashboardAccess)
+
+A plugin builds its dashboards (declared in its plugin.json `"dashboards"`, see `vclu_runtime_schema`
+plugins[].dashboards) behind login; who else opens them is set in a module. The plugin wizard's
+Dashboards step writes this to `modules/plugins/<ns>__<id>.lua`; by hand it is the same call.
+
+```lua
+local zakupy = Plugin.getPlugin("@vclu/zakupy")
+if zakupy then
+    -- the kitchen tablet without login, the vclu app for two roles, with a PIN there
+    zakupy:dashboardAccess("lista", { name = "Zakupy", auth = "public", pin = "4321",
+        remote = { pin = true, roles = { "domownicy", "gosia" } } })
+end
+-- auth = "off": not served (404) and not listed
+```
+
 ## Noisy sensor: reporting threshold
 
 A 1-Wire thermometer jumps 22.1 <-> 22.2. `filter` passes to history,
@@ -1119,6 +1135,57 @@ local rooms = {
 - `nil` or `{}` from `rows` shows "brak danych". opts: `icon` (default `table`), `disabled`, `visible`, `span`,
   `size`. Two columns wide by default, full width on a phone.
 
+### Text input and editable list
+
+`:input(id, label, icon, onSubmit, opts)` is a text field with a send button; `:list(id, label,
+getItems, opts)` an editable list. Together they make a small app such as a shopping list:
+
+```lua
+local st = persist('zakupy', { items = {}, next = 1 })
+
+:section('Zakupy', 'cart')
+  :list('zakupy', 'Lista zakupów', function() return st.items end, {
+      onAdd = function(text)
+        if #st.items >= 50 then return false, 'Lista jest pełna' end
+        local items = st.items
+        items[#items + 1] = { id = st.next, label = text }
+        st.next = st.next + 1
+        st.items = items
+      end,
+      onToggle = function(id, done)
+        for _, it in ipairs(st.items) do if it.id == id then it.done = done end end
+        st:save()
+      end,
+      onDelete = function(id)
+        local items = st.items
+        for i, it in ipairs(items) do if it.id == id then table.remove(items, i); break end end
+        st.items = items
+      end,
+      placeholder = 'Dodaj produkt…', empty = 'Nic do kupienia',
+  })
+  :input('notatka', 'Notatka dla domowników', 'chat-text', function(text)
+      Logger:getShared():info('[NOTATKA] %s', text)
+      return 'Wysłano'                   -- a string is a toast
+  end, { placeholder = 'Napisz…', maxLength = 140 })
+```
+
+- **Text** (onSubmit, onAdd): trimmed, control characters as spaces; empty text is not sent, text
+  longer than `maxLength` (default 200, at most 1000, counted in characters) is refused by vclu.
+  Return `false, 'message'` (or `nil, 'message'`) to refuse: the message shows under the field and
+  the text stays; otherwise the field clears. An error in the function shows the same way.
+- **getItems** returns `{ { id = string|number, label = string, done = bool?, note = string? }, ... }`,
+  read on every poll and after each change; ids must be unique. Done items are struck through,
+  in the order given. A bad item or an error is the tile's error.
+- **onToggle(id, done)** adds a checkbox, **onDelete(id)** a delete button, **onAdd(text)** a field
+  below the items; without them the list is read-only. The id the page sends must be one
+  `getItems()` gives at that moment (compared as text); the function gets it as `getItems` gave it.
+- opts: input `placeholder`, `button` (a text button; default a send icon), `maxLength`, `disabled`,
+  `visible`, `span`; list `placeholder`, `empty` (default `—`), `icon` (default `list-check`),
+  `maxItems` (shown, default 100, the state line counts all), `maxLength`, `disabled`, `visible`,
+  `span`. Unknown options fail at the module's line. Not in the header.
+- Like a toggle, they act for whoever opens the dashboard: use `:auth('pin')` or `'session'` for
+  anything that matters; `remote = 'readonly'` shows them without controls through vclu cloud.
+
 ### Gauge (arc or bar)
 
 `:gauge(id, label, getValue, opts)` shows a number between `min` and `max` on a 240° arc with the
@@ -1713,6 +1780,18 @@ stopped and the rest of vCLU goes on:
 - A stopped `every()` keeps its schedule, so a loop in it is stopped again on every tick.
 - The Grenton subscription and Object Manager's code (`om.lua`, `user.lua`) have no limit.
 - The limit is `lua.callbackTimeoutSeconds` in `.vclu.json`, read at start (negative: none).
+
+## Tokens and passwords stay out of the registry
+
+Keep a token in a local variable of the module. Fields of registry objects, exposed objects,
+event payloads, dashboards and logs are read by plugins, by agents and by MQTT/Home Assistant.
+
+```lua
+local token = "..."   -- a local: only this module's code sees it
+
+local status = VirtualText:new("BOT_STATUS", { initial = "OK" })
+status:expose()       -- the object carries the state, never the token
+```
 
 ## Directory convention
 

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/netip"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -287,6 +288,8 @@ func NewServer(serverDir string, localIP net.IP, macAddr net.HardwareAddr) (*Ser
 
 	// Create Lua engine
 	luaEngine := lua.NewLuaEngine()
+	luaEngine.PluginIO().ReserveUDPPorts(CommandPort, ClientReportPort, tftp.DefaultPort)
+	luaEngine.PluginIO().SetTCPTaken(func() map[netip.AddrPort]string { return mqttBrokerAddr(serverDir) })
 
 	// Inject GPIO manager into Lua engine
 	luaEngine.SetGPIOManager(lua.NewGPIOManager(gpioCtrl))
@@ -605,6 +608,9 @@ func (s *Server) handleBroadcastCommands() {
 			continue
 		}
 
+		if s.fromPlugin(remoteAddr) {
+			continue
+		}
 		data := buffer[:n]
 		s.processBroadcastCommand(data, remoteAddr)
 	}
@@ -631,9 +637,18 @@ func (s *Server) handleUnicastCommands() {
 			continue
 		}
 
+		if s.fromPlugin(remoteAddr) {
+			continue
+		}
 		data := buffer[:n]
 		s.processUnicastCommand(data, remoteAddr)
 	}
+}
+
+// fromPlugin: a datagram from a plugin's own socket on this machine (clu); a
+// plugin's discovery broadcast must not reach the vCLU it runs in.
+func (s *Server) fromPlugin(addr *net.UDPAddr) bool {
+	return s.luaEngine != nil && s.luaEngine.PluginIO().FromPlugin(addr)
 }
 
 // processBroadcastCommand processes a broadcast command
@@ -895,4 +910,25 @@ func stripStoredGateSettings(importsDir string) {
 	if files > 0 {
 		log.Printf("[OM] removed %d GATE settings from %d stored om.lua copies", lines, files)
 	}
+}
+
+// mqttBrokerAddr: the external broker vclu connects to, given by IP, which a plugin's tcp
+// does not reach (it has the mqtt permission for that).
+func mqttBrokerAddr(serverDir string) map[netip.AddrPort]string {
+	c := config.GetMQTTClientConfig(serverDir)
+	if c == nil || !c.Enabled {
+		return nil
+	}
+	ip, err := netip.ParseAddr(c.Host)
+	if err != nil {
+		return nil
+	}
+	port := c.Port
+	if port == 0 {
+		port = 1883
+	}
+	if port < 1 || port > 65535 {
+		return nil
+	}
+	return map[netip.AddrPort]string{netip.AddrPortFrom(ip.Unmap(), uint16(port)): "mqtt"}
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Domktorymysli/vclu/pkg/notify"
+	"github.com/Domktorymysli/vclu/pkg/plugins"
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -707,6 +708,8 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 				"gauge":      "section:gauge(id, label, getValueFn, {min=0, max=100, unit, decimals=0-6, style='arc'|'bar', thresholds={{value, color}, ...}, target=n|fn, icon, disabled, visible, span, size, color}) — a read-only value on a 240° arc (the number in the middle) or a horizontal bar (the number at its right); return a finite number or a decimal string (nil shows —; an error, NaN or anything else is the tile's error); thresholds ascending, from each value on the fill and the tile take its colour (accent, success, warning, danger, info, primary, #hex, rgb(), hsl(); warning and danger make the tile an alarm), color is the fill below the first; target draws a marker (a function is re-read on every poll, nil hides it); a value outside min..max is drawn at the end and shown as it is; unknown options and min >= max fail at build",
 				"bars":       "section:bars(id, label, metricPath, {range='7d' (a duration up to '31d'), bucket='1h'|'1d' (default '1d' from a 2-day range, else '1h'), agg='avg'|'sum'|'max'|'min'|'delta', unit, decimals=0-6, color, compare=metricPath2, compareLabel, visible, span, size, refresh=seconds (>= 30)}) — one bar per hour or day of the house's zone (midnight to midnight, a DST day is 23 or 25 h), aggregated by the server from metric() samples, kept metrics.retentionDays in .vclu.json (default 7; '30d' needs 31; days before it show 'brak danych'); avg = mean of the samples, sum depends on the sampling interval; delta = what a growing counter (kWh meter) added in the bar: a single bad reading (down, or a spike up) adds nothing, a value lower for 3 samples or an hour is a reset and counting goes on from it, a rise between bars is split between them by time, one across a gap longer than 1.5 bars is left out; compare draws a second bar beside each; an hour or day without samples is a gap, not 0; the newest bar is marked as still filling; the page reads only the widget's own series (/api/dashboard/<id>/bars?widget=), not the raw metric",
 				"energy":     "section:energy(id, label, {pv=fn, grid=fn, battery=fn, batterySoc=fn, home=fn, unit='W'|'kW', invert={grid, battery}, today={pv, grid_import, grid_export, home}, icon, disabled, visible, span}) — each fn returns the power now (W; kW with unit='kW') or nil; pv >= 0, grid + from the grid / - to it, battery + charging / - discharging (invert flips one that counts the other way); a node without its fn is left out; home without one is pv + grid - battery (at least 0; PV nil counts as 0), a measured home scales the lines into it; today fns give kWh shown under the nodes; a failing or non-number fn shows '—' on its node only; nodes with dots on the lines between them, faster and thicker with more power; two columns wide by default",
+				"input":      "section:input(id, label, icon?, onSubmitFn, {placeholder, button='text' (default a send icon), maxLength=1-1000 (200), disabled, visible, span}) — a text field: onSubmitFn(text) gets it trimmed (empty not sent, longer refused by vclu); return false, 'message' (or nil, 'message') to refuse: shown under the field, the text stays; otherwise the field clears (a returned string is a toast)",
+				"list":       "section:list(id, label, getItemsFn, {onToggle=fn(itemId, done), onDelete=fn(itemId), onAdd=fn(text) (as input's onSubmit), placeholder, empty='—', icon='list-check', maxItems=1-1000 (100 shown), maxLength, disabled, visible, span}) — an editable list (a shopping list): getItemsFn() -> {{id=string|number (unique), label, done=bool?, note=string?}, ...} read on every poll and after each change; a checkbox only with onToggle, a delete button only with onDelete, a field below only with onAdd; an item id from the page must be one getItems gives now (compared as text), the function gets it as getItems gave it; done items struck through, order as given; keep the items in persist() to survive a restart",
 				"latency":    "section:latency(id, label, icon?, {span, size}) — the page's round trip to vCLU, measured by the page (WebSocket ping, or a poll's time while it polls): '24 ms', red over 300 ms, 'offline' without a connection; no function, nothing in getValues; also in the header as a chip",
 				"calendar":   "section:calendar(id, label, calendar or its id, {view='month'|'day', tags, schedules={ids} or true for all, holidays=true, namedays=false, sun=true, visible}) (what is off is not sent; a viewer hides the rest) — month grid, a tapped day shows the day with a 24 h bar per schedule; full width; on a calendar built with Calendar.new(id):editable():roles(...) who the roles allow (the same rules as a schedule widget) adds their own events in the day view (title, all day or from-to, once, every day or every week), changes and removes them, and skips or brings back a day of any event; an event added on a widget with tags gets them",
 				"schedule":   "section:schedule(id, label, calendar or its id, scheduleId, {span, visible, disabled, remote, step}) — the week of an editable schedule (:schedule(...):editable()): seven rows of 24 h; who :roles() allows (and the cloud's owner and admins) taps Edit, paints values in steps of step minutes (5, 10, 15, 30 (default) or 60: 10 for watering) and saves; the house on a public page cannot edit a schedule with roles (auth('pin') or 'session' can); a device API client never; a save from another tab is a conflict, the page loads the current week; the module's other windows are listed as fixed; full width",
@@ -729,11 +732,27 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 			"forward": "Notifications.on(function(n) if not n.resolved and n.level ~= 'info' then Cloud.notify{title=n.title, body=n.body, tag=n.key} end end)",
 			"sandbox": "vclu_draft_test delivers no notifications",
 		},
+		"crypto": map[string]any{
+			"Crypto": "binary in and out as Lua strings: sha256(s), sha1(s), md5(s), hmac('sha256'|'sha1'|'md5', key, s); aesGcmEncrypt(key, nonce12, plain[, aad]) → cipher..tag16, aesGcmDecrypt(...) → plain | nil, err; aesEcbEncrypt/Decrypt(key, s[, 'pkcs7'|'none']), aesCbcEncrypt/Decrypt(key, iv16, s[, padding]) (bad padding raises; it does not detect a wrong key); random(1..1024); toHex, fromHex, toBase64(s[, urlSafe]), fromBase64 → nil, err on bad input; keys 16/24/32 bytes",
+			"bit":    "subset of LuaJIT BitOp, 32-bit signed: band, bor, bxor, bnot, lshift, rshift, arshift, tohex(x[, n]); no tobit/rol/ror/bswap",
+			"note":   "modules and plugins (API 1 and 2), no permission",
+		},
 		"pluginAPI": map[string]any{
 			"getPlugin": "Plugin.getPlugin('@vclu/name')",
 			"sensors":   "plugin:get('id') → obj with :get()",
 			"controls":  "plugin:get('id') → obj with :get() and :set(value)",
 			"expose":    "expose(obj, type, { name, path, area, description })",
+			"apps": "in a plugin (no permission): plugin:dashboard(id) → the builder of Dashboard.new at /d/<shortId>_<id> ('-' as '_'), " +
+				"id declared in plugin.json \"dashboards\" (API 2), auth 'session' or 'pin' only (no public, pin code, remote or roles: those are the user's, dashboardAccess), " +
+				"its callbacks run as the plugin, no area/floor/room/covers/calendar/schedule/chart/bars, an id taken by a module or another plugin is refused; " +
+				"plugin:action(name, fn(params) → result | nil, err) for an action declared in plugin.json \"actions\" ({name, description = text|{pl, en}, " +
+				"params = {p = {type = 'string'|'number'|'boolean', description, required}}, confirm}), at most 32, params checked (unknown refused, strings up to 1000 characters); " +
+				"confirm: true runs only once the user agreed (vclu_app_action confirmed); agents call them with vclu_app_actions / vclu_app_action, " +
+				"HTTP GET /api/plugins/actions, POST /api/plugins/:id/actions/:name. Both go when the plugin stops",
+			"dashboardAccess": "in a module (never a plugin): Plugin.getPlugin('@vclu/zakupy'):dashboardAccess('lista', {name = text, auth = 'session'|'pin'|'public'|'off', " +
+				"pin = '1234' (for auth 'pin' or remote.pin), remote = false|true|{pin = bool, roles = {'domownicy'} | fn → roles}}) — who opens a dashboard the plugin declares " +
+				"(plugins[].dashboards below); 'off' = not served, not listed; overrides the plugin's choice now and on each rebuild, kept over a plugin reload, gone on Lua reload " +
+				"(the module grants it again); the plugin wizard's Dashboards step writes it to modules/plugins/<ns>__<id>.lua",
 		},
 		"filesystem": map[string]any{
 			"autoLoaded":     "modules/*.lua flat files only",
@@ -744,6 +763,7 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 
 	// Dynamic: build plugins array from config + plugin.json
 	installed := s.config.GetInstalledPlugins()
+	actions := s.appActionsByPlugin()
 	if len(installed) > 0 {
 		var pluginsInfo []map[string]any
 		for _, p := range installed {
@@ -760,6 +780,9 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 				if err == nil {
 					var manifest map[string]any
 					if json.Unmarshal([]byte(content), &manifest) == nil {
+						if d, ok := manifest["dashboards"].([]any); ok && len(d) > 0 {
+							info["dashboards"] = d // ids for dashboardAccess
+						}
 						if exports, ok := manifest["exports"].(map[string]any); ok {
 							if sensors, ok := exports["sensors"]; ok {
 								info["sensors"] = sensors
@@ -772,6 +795,9 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 				}
 			}
 
+			if a := actions[p.ID]; len(a) > 0 {
+				info["actions"] = a
+			}
 			pluginsInfo = append(pluginsInfo, info)
 		}
 		schema["plugins"] = pluginsInfo
@@ -779,6 +805,23 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 
 	s.recordActivity("vclu_runtime_schema", "", true, start, "", ctx)
 	return toolJSON(schema)
+}
+
+// appActionsByPlugin: the running plugins' actions by plugin id (vclu_app_actions has them too)
+func (s *MCPServer) appActionsByPlugin() map[string][]plugins.Action {
+	out := map[string][]plugins.Action{}
+	if s.executor == nil {
+		return out
+	}
+	raw, err := s.executor.Execute(plugins.ListActionsScript(""))
+	if err != nil {
+		return out
+	}
+	list, _ := plugins.ParseActions(raw)
+	for _, a := range list {
+		out[a.Plugin] = append(out[a.Plugin], a)
+	}
+	return out
 }
 
 // safePluginDirName converts a plugin ID to its safe directory name.

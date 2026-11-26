@@ -53,7 +53,8 @@ func TestSandbox_MemoryLimit(t *testing.T) {
 // make the guard force a GC on every tick (that would load production).
 func TestSandbox_MemoryGuardBacksOff(t *testing.T) {
 	old := sandboxMemoryLimit
-	sandboxMemoryLimit = 64 << 20
+	// the runtime alone holds about 35 MB and the draft 30 MB: under 80 MB, but its garbage is not
+	sandboxMemoryLimit = 80 << 20
 	defer func() { sandboxMemoryLimit = old }()
 
 	se, ws, _ := newTestSandbox(t)
@@ -73,9 +74,10 @@ func TestSandbox_MemoryGuardBacksOff(t *testing.T) {
 	if len(res.Errors) > 0 {
 		t.Fatalf("a draft under the limit was stopped: %v", res.Errors)
 	}
-	// false alarms happened (the back-off path ran), but not on every tick
-	if gcs < 2 || gcs > 12 {
-		t.Errorf("guard forced %d GCs in 1.5 s, want 2..12", gcs)
+	// false alarms happened (the back-off path ran), but not on every tick (75 in 1.5 s);
+	// about 6 is usual at 80 MB, more runtime Lua raises it
+	if gcs < 2 || gcs > 30 {
+		t.Errorf("guard forced %d GCs in 1.5 s, want 2..30", gcs)
 	}
 }
 

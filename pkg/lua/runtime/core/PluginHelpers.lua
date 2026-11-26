@@ -60,18 +60,10 @@ end
 --- Base64 encode a string
 -- @param data string String to encode
 -- @return string Base64 encoded string
+-- taken at load: a module replacing Crypto.toBase64 does not see plugins' credentials
+local toBase64 = Crypto.toBase64
 function PluginHelpers.base64Encode(data)
-    local b = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
-    return ((data:gsub('.', function(x)
-        local r, byte = '', x:byte()
-        for i = 8, 1, -1 do r = r .. (byte % 2 ^ i - byte % 2 ^ (i - 1) > 0 and '1' or '0') end
-        return r
-    end) .. '0000'):gsub('%d%d%d?%d?%d?%d?', function(x)
-        if (#x < 6) then return '' end
-        local c = 0
-        for i = 1, 6 do c = c + (x:sub(i, i) == '1' and 2 ^ (6 - i) or 0) end
-        return b:sub(c + 1, c + 1)
-    end) .. ({'', '==', '='})[#data % 3 + 1])
+    return toBase64(data)
 end
 
 --- Calculate Levenshtein distance between two strings
@@ -565,11 +557,18 @@ end
 -- HTTP REQUEST
 -- ============================================
 
+-- A plugin's own logger (PluginSandbox), which masks its secrets; else the shared one
+local function loggerFor(pluginId)
+    local sb = PluginSandbox and PluginSandbox.sandboxes and PluginSandbox.sandboxes[pluginId]
+    return sb and sb.log or Logger
+end
+
 --- Make HTTP request with retry, parseJson, errCode support
 -- @param pluginId string Plugin identifier
 -- @param opts table Request options
 -- @param callback function Callback(response, err)
-function PluginHelpers.httpRequest(pluginId, opts, callback)
+-- @param alive function|nil false once the plugin is disabled: no more attempts or callbacks
+function PluginHelpers.httpRequest(pluginId, opts, callback, alive)
     -- Validate required fields
     if not opts then
         error("httpRequest: opts is required")
@@ -693,7 +692,7 @@ function PluginHelpers.httpRequest(pluginId, opts, callback)
     -- Log function
     local function logRequest(msg, fields)
         if Logger then
-            PluginHelpers.logSafe(Logger, pluginId, logLevel, msg, fields, logRedact)
+            PluginHelpers.logSafe(loggerFor(pluginId), pluginId, logLevel, msg, fields, logRedact)
         end
     end
 
@@ -755,6 +754,7 @@ function PluginHelpers.httpRequest(pluginId, opts, callback)
 
     -- Perform single request attempt
     local function doRequest(attempt)
+        if alive and not alive() then return end
         local attemptStart = os.clock() * 1000
 
         logRequest("HTTP " .. method .. " " .. url .. " (attempt " .. attempt .. ")", nil)
@@ -792,6 +792,7 @@ function PluginHelpers.httpRequest(pluginId, opts, callback)
         local maxPolls = math.ceil(timeout / 50) + 20
 
         local function pollResponse()
+            if alive and not alive() then return end
             pollCount = pollCount + 1
 
             -- Ask for this request's own response: nil until it is ready.
@@ -1045,7 +1046,10 @@ function PluginHelpers.createPoller(pluginId, name, opts)
 
         -- Initial delay or immediate execution
         if self._initialDelay > 0 then
-            __go_setTimeout(function()
+            -- kept, so a stop before it ends cancels it
+            self._delayTimerId = __go_setTimeout(function()
+                self._delayTimerId = nil
+                if not self._running then return end
                 self:_executeTick()
                 scheduleTick()
             end, self._initialDelay)
@@ -1070,6 +1074,10 @@ function PluginHelpers.createPoller(pluginId, name, opts)
         if self._timerId then
             __go_clearTimer(self._timerId)
             self._timerId = nil
+        end
+        if self._delayTimerId then
+            __go_clearTimer(self._delayTimerId)
+            self._delayTimerId = nil
         end
         if self._timeoutTimerId then
             __go_clearTimer(self._timeoutTimerId)
@@ -1263,7 +1271,7 @@ function PluginHelpers.createPoller(pluginId, name, opts)
                 end
 
                 if Logger then
-                    Logger:warn("[" .. self._pluginId .. "] Poller '" .. self._name .. "' tick exception: " .. tostring(tickErr))
+                    loggerFor(self._pluginId):warn("[" .. self._pluginId .. "] Poller '" .. self._name .. "' tick exception: " .. tostring(tickErr))
                 end
 
                 if self._onError then
@@ -1307,7 +1315,7 @@ function PluginHelpers.emitThrottled(pluginId, emitFn, event, data, opts)
     if throttle <= 0 then
         local ok, err = pcall(emitFn, event, data)
         if not ok and Logger then
-            Logger:error("[" .. pluginId .. "] Emit error: " .. tostring(err))
+            loggerFor(pluginId):error("[" .. pluginId .. "] Emit error: " .. tostring(err))
         end
         return true
     end
@@ -1334,7 +1342,7 @@ function PluginHelpers.emitThrottled(pluginId, emitFn, event, data, opts)
             -- Safe emit with pcall
             local ok, err = pcall(emitFn, event, data)
             if not ok and Logger then
-                Logger:error("[" .. pluginId .. "] Emit error: " .. tostring(err))
+                loggerFor(pluginId):error("[" .. pluginId .. "] Emit error: " .. tostring(err))
             end
 
             -- Schedule trailing emit if enabled
@@ -1350,7 +1358,7 @@ function PluginHelpers.emitThrottled(pluginId, emitFn, event, data, opts)
                     if state.buffer and state.emitFn then
                         local ok2, err2 = pcall(state.emitFn, state.eventName, state.buffer)
                         if not ok2 and Logger then
-                            Logger:error("[" .. pluginId .. "] Trailing emit error: " .. tostring(err2))
+                            loggerFor(pluginId):error("[" .. pluginId .. "] Trailing emit error: " .. tostring(err2))
                         end
                     end
                     state.pending = false
@@ -1376,7 +1384,7 @@ function PluginHelpers.emitThrottled(pluginId, emitFn, event, data, opts)
                 if state.buffer and state.emitFn then
                     local ok2, err2 = pcall(state.emitFn, state.eventName, state.buffer)
                     if not ok2 and Logger then
-                        Logger:error("[" .. pluginId .. "] Trailing emit error: " .. tostring(err2))
+                        loggerFor(pluginId):error("[" .. pluginId .. "] Trailing emit error: " .. tostring(err2))
                     end
                     state.lastEmit = os.time() * 1000
                 end
@@ -1517,6 +1525,27 @@ end
 -- ============================================
 -- MODULE EXPORT
 -- ============================================
+
+-- What plugin:has answers: the permissions (and their fields) and form field types this vclu
+-- reads; a method is any function of the Plugin class
+PluginHelpers.KNOWN = {
+    ["permission:internet"] = true, ["permission:internet.hosts"] = true,
+    ["permission:lan"] = true, ["permission:lan.ports"] = true,
+    ["permission:udp"] = true, ["permission:udp.ports"] = true, ["permission:udp.broadcast"] = true,
+    ["permission:tcp"] = true, ["permission:tcp.ports"] = true,
+    ["permission:mqtt"] = true, ["permission:mqtt.subscribe"] = true, ["permission:mqtt.publish"] = true,
+    ["permission:modbus"] = true, ["permission:clu"] = true, ["permission:tftp"] = true, ["permission:serial"] = true,
+    ["form:string"] = true, ["form:number"] = true, ["form:boolean"] = true, ["form:enum"] = true,
+    ["form:secret"] = true, ["form:host"] = true, ["form:object"] = true,
+}
+
+--- Whether this vclu offers name to plugins (plugin:has); never errors
+function PluginHelpers.has(name)
+    if type(name) ~= "string" then return false end
+    if PluginHelpers.KNOWN[name] then return true end
+    if name:find(":", 1, true) then return false end
+    return Plugin ~= nil and type(rawget(Plugin, name)) == "function" and name:sub(1, 1) ~= "_"
+end
 
 if Logger then
     Logger:info("[CORE] PluginHelpers loaded")

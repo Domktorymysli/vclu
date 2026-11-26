@@ -21,7 +21,7 @@ import (
 
 const mcpInstructionsBase = `vCLU Smart Home Controller.
 
-Control layer: Use vclu_devices to list available devices, then vclu_device_set or vclu_device_execute to control them. Use vclu_scenes to list scenes and vclu_scene_execute to run them.
+Control layer: Use vclu_devices to list available devices, then vclu_device_set or vclu_device_execute to control them. Use vclu_scenes to list scenes and vclu_scene_execute to run them. Installed apps (plugins such as a shopping list) offer actions: vclu_app_actions lists them, vclu_app_action runs one ("add milk to the list" → the list's add action).
 
 Dev Mode tools (vclu_read_file, vclu_list_files, vclu_grep, vclu_logs, vclu_config, vclu_registry): explore code, search files, read logs, and inspect the full device registry. These require Dev Mode to be enabled in the dashboard. Start with vclu_registry() to discover devices, then vclu_read_file("ai/house.md") for house documentation; ai/om/index.md, when the Object Manager project was imported, gives the CLUs' event bindings and scripts. ai/modbus/CLU<serial>.md, when a GATE MODBUS was imported, maps its Modbus registers (registry objects, read through the GATE). vclu_read_file takes offset/limit (lines) to read part of a file. vclu_logs leaves out DEBUG lines: pass level "debug" to see a module's Logger:debug.
 

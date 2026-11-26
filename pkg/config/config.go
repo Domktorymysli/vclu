@@ -311,6 +311,13 @@ type VCLUPluginsConfig struct {
 
 	// Installed plugins with their configuration
 	Installed []InstalledPlugin `json:"installed,omitempty"`
+
+	// Strict loads only plugins on plugin API 2 or later (they declare their permissions)
+	Strict bool `json:"strict,omitempty"`
+
+	// CallbackTimeoutMs: plugin code's time in one callback (default 2000); a module has the
+	// callback limit
+	CallbackTimeoutMs int `json:"callbackTimeoutMs,omitempty"`
 }
 
 // PluginRepository represents a source of plugins
@@ -323,12 +330,122 @@ type PluginRepository struct {
 
 // InstalledPlugin represents an installed plugin and its configuration
 type InstalledPlugin struct {
-	ID          string                 `json:"id"`                    // Plugin ID (e.g., "weather")
-	Version     string                 `json:"version"`               // Installed version
-	Enabled     bool                   `json:"enabled"`               // Whether plugin is active
-	Repository  string                 `json:"repository,omitempty"`  // Which repo it came from
-	InstalledAt string                 `json:"installedAt,omitempty"` // ISO timestamp
-	Config      map[string]interface{} `json:"config,omitempty"`      // Plugin-specific config (simple key-value)
+	ID         string `json:"id"`                   // Plugin ID (e.g., "weather")
+	Version    string `json:"version"`              // Installed version
+	Enabled    bool   `json:"enabled"`              // Whether plugin is active
+	Repository string `json:"repository,omitempty"` // Which repo it came from
+	// RepositoryURL: that repository's address when installed; an update comes only from it
+	RepositoryURL string `json:"repositoryUrl,omitempty"`
+	// API: the plugin API of the installed version; an update never goes below it
+	API int `json:"api,omitempty"`
+	// StartedVersion: the version whose init last succeeded; another one is onInit's previousVersion
+	StartedVersion string                 `json:"startedVersion,omitempty"`
+	InstalledAt    string                 `json:"installedAt,omitempty"` // ISO timestamp
+	Config         map[string]interface{} `json:"config,omitempty"`      // Plugin-specific config (simple key-value)
+	Grants         *PluginGrants          `json:"grants,omitempty"`      // What the user allowed; nil: what plugin.json asks for
+}
+
+// PluginGrants is what the user allowed a plugin, in the shape of plugin.json's permissions.
+// A plugin gets what plugin.json asks for and this allows; an update that asks for more
+// (a host, port, topic filter, action or permission) waits for the user. A permission is
+// allowed when its field is set; its lists narrow it, and nil lists of ports, topic filters
+// and actions are recorded from plugin.json the first time the plugin loads.
+type PluginGrants struct {
+	Internet *InternetGrant `json:"internet,omitempty"` // API 2; API 1 reaches any host
+	LAN      *LANGrant      `json:"lan,omitempty"`
+	UDP      *HostsGrant    `json:"udp,omitempty"` // UDP to local devices; Hosts narrow it
+	TCP      *HostsGrant    `json:"tcp,omitempty"` // TCP to local devices; Hosts narrow it
+	MQTT     *MQTTGrant     `json:"mqtt,omitempty"`
+	Modbus   *ModbusGrant   `json:"modbus,omitempty"`
+	// clu, tftp and serial reach CLUs, files on devices and the device on a port:
+	// installing does not allow them, the user does
+	CLU    *CLUGrant    `json:"clu,omitempty"`
+	TFTP   *HostsGrant  `json:"tftp,omitempty"`
+	Serial *SerialGrant `json:"serial,omitempty"`
+	// Actions: the declared actions agents and voice may call; nil: not recorded yet
+	Actions *[]string `json:"actions,omitempty"`
+	// ConfirmedActions: those allowed as asking for confirmation; an update dropping it waits
+	ConfirmedActions *[]string `json:"confirmedActions,omitempty"`
+}
+
+// UnmarshalJSON also reads grants written before plugin.json's permissions became objects:
+// grenton_raw is clu, and port lists recorded for WebSockets or broadcasts only are recorded
+// again from plugin.json.
+func (g *PluginGrants) UnmarshalJSON(data []byte) error {
+	type plain PluginGrants
+	var v struct {
+		plain
+		GrentonRaw *HostsGrant `json:"grenton_raw,omitempty"`
+	}
+	if err := json.Unmarshal(data, &v); err != nil {
+		return err
+	}
+	*g = PluginGrants(v.plain)
+	if g.CLU == nil && v.GrentonRaw != nil {
+		g.CLU = &CLUGrant{Hosts: v.GrentonRaw.Hosts}
+	}
+	// udp.broadcastPorts: where the user let it broadcast, now udp.broadcast
+	var old struct {
+		UDP *struct {
+			BroadcastPorts *[]int `json:"broadcastPorts"`
+		} `json:"udp"`
+	}
+	if g.UDP != nil && g.UDP.Broadcast == nil && json.Unmarshal(data, &old) == nil && old.UDP != nil && old.UDP.BroadcastPorts != nil {
+		g.UDP.Broadcast = old.UDP.BroadcastPorts
+	}
+	return nil
+}
+
+// InternetGrant: the internet hosts of the plugin's request the user allowed ("*" any);
+// a host the plugin asks for beyond them waits for the user.
+type InternetGrant struct {
+	Hosts []string `json:"hosts"`
+}
+
+// LANGrant: Hosts are IP addresses or CIDR prefixes; without the list any local address.
+// Ports: the local ports its HTTP and WebSockets reach; AnyPort when plugin.json asks for any
+// and the user allowed that.
+type LANGrant struct {
+	Hosts   []string `json:"hosts,omitzero"`
+	Ports   *[]int   `json:"ports,omitempty"`
+	AnyPort bool     `json:"anyPort,omitempty"`
+}
+
+// MQTTGrant: topic filters (+, #) the plugin may subscribe to and publish on, within those
+// plugin.json declares; an empty list none.
+type MQTTGrant struct {
+	Subscribe []string `json:"subscribe,omitzero"`
+	Publish   []string `json:"publish,omitzero"`
+	// SubscribeAsked, PublishAsked: the filters plugin.json asked for when the user allowed
+	// them; an update asking past them waits. Nil: those granted.
+	SubscribeAsked []string `json:"subscribeAsked,omitzero"`
+	PublishAsked   []string `json:"publishAsked,omitzero"`
+}
+
+// ModbusGrant: Hosts narrow the gateways the plugin reaches, as LANGrant's.
+type ModbusGrant struct {
+	Hosts []string `json:"hosts,omitzero"`
+}
+
+// HostsGrant: hosts (IP addresses or CIDR prefixes) of the local network the plugin may
+// reach; without the list any, never vclu's own addresses. Ports (udp and tcp) and Broadcast
+// (udp): those of plugin.json the user allowed.
+type HostsGrant struct {
+	Hosts     []string `json:"hosts,omitzero"`
+	Ports     *[]int   `json:"ports,omitempty"`
+	Broadcast *[]int   `json:"broadcast,omitempty"`
+}
+
+// CLUGrant: the CLUs a plugin with clu reaches; a list of hosts stops broadcasts unless
+// Discovery is set.
+type CLUGrant struct {
+	Hosts     []string `json:"hosts,omitzero"`
+	Discovery bool     `json:"discovery,omitempty"`
+}
+
+// SerialGrant: the ports the user assigned to the plugin; without one it opens none.
+type SerialGrant struct {
+	Ports []string `json:"ports,omitzero"`
 }
 
 // Example .vclu.json plugins section:
@@ -352,6 +469,9 @@ type InstalledPlugin struct {
 //   }
 // }
 
+// OfficialPluginsRepoURL is the repository of the official plugins.
+const OfficialPluginsRepoURL = "https://github.com/Domktorymysli/vclu-plugins"
+
 // DefaultPluginsConfig returns default plugins configuration
 func DefaultPluginsConfig() *VCLUPluginsConfig {
 	return &VCLUPluginsConfig{
@@ -359,7 +479,7 @@ func DefaultPluginsConfig() *VCLUPluginsConfig {
 		Repositories: []PluginRepository{
 			{
 				Name:    "vCLU Official",
-				URL:     "https://github.com/Domktorymysli/vclu-plugins",
+				URL:     OfficialPluginsRepoURL,
 				Enabled: true,
 				Default: true,
 			},

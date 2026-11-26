@@ -1,14 +1,19 @@
 package plugins
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -34,21 +39,30 @@ func (l *Loader) executeAsPlugin(pluginID, script string) (string, error) {
 	return l.luaExecutor.Execute(script)
 }
 
-// PluginManifest represents plugin.json structure
+// PluginManifest represents plugin.json structure (manifest.go reads it)
 type PluginManifest struct {
 	ID           string              `json:"id"`
-	Name         string              `json:"name"`
+	Name         LocalText           `json:"name"`
 	Version      string              `json:"version"`
-	Description  string              `json:"description"`
+	Description  LocalText           `json:"description"`
 	Author       string              `json:"author"`
 	Homepage     string              `json:"homepage,omitempty"`
 	License      string              `json:"license,omitempty"`
-	MinVCLU      string              `json:"minVcluVersion,omitempty"`
 	Tags         []string            `json:"tags,omitempty"`
 	Dependencies []string            `json:"dependencies,omitempty"`
 	ConfigSchema []ConfigFieldSchema `json:"configSchema,omitempty"`
 	Docs         []PluginDoc         `json:"docs,omitempty"`
 	Files        []string            `json:"files,omitempty"` // Additional files to download (default: ["init.lua"])
+	API          int                 `json:"api,omitempty"`   // plugin API version; 0 = 1
+	Permissions  *Permissions        `json:"permissions,omitempty"`
+	Requires     *ManifestRequires   `json:"requires,omitempty"`
+	Form         string              `json:"form,omitempty"` // the wizard's form file, next to plugin.json
+	// Dashboards the plugin builds with plugin:dashboard; access is the user's (dashboards.go)
+	Dashboards ManifestDashboards `json:"dashboards,omitempty"`
+	// Actions agents and voice call (plugin:action names one of them)
+	Actions ManifestActions `json:"actions,omitempty"`
+
+	unknownKeys []string
 }
 
 // PluginDoc represents a documentation file in plugin.json
@@ -88,6 +102,8 @@ type PluginListing struct {
 	Path        string   `json:"path"`
 	Categories  []string `json:"tags,omitempty"` // JSON: "tags" (category tags, not git tags)
 	GitTag      string   `json:"tag,omitempty"`  // JSON: "tag" (git tag for immutable download)
+	// SHA256: file name -> hex digest of each file the version downloads, plugin.json too
+	SHA256 map[string]string `json:"sha256,omitempty"`
 }
 
 // LockEntry represents a single plugin entry in the lock file
@@ -131,12 +147,49 @@ func validPathName(name string) bool {
 	return pathNameRe.MatchString(name) && !strings.Contains(name, "..")
 }
 
+// idPartRe: a namespace or short id. Lower case and no "--" or edge "-", so the
+// directory and KV file names ("ns--id") of two ids never meet, also on a
+// case-insensitive file system.
+var idPartRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$`)
+
+func validIDPart(part string) bool {
+	return idPartRe.MatchString(part) && !strings.Contains(part, "--") && !strings.Contains(part, "..")
+}
+
+// polishLetters keep a Polish repository name readable as a namespace ("Łódź" -> "lodz").
+var polishLetters = strings.NewReplacer("ą", "a", "ć", "c", "ę", "e", "ł", "l", "ń", "n", "ó", "o", "ś", "s", "ź", "z", "ż", "z")
+
+// NamespaceFromName makes a repository's display name a namespace: "Community Repo" ->
+// "community-repo", for a repository whose index names none. A name with nothing usable
+// gets "repo-" and a hash of the name.
+func NamespaceFromName(name string) string {
+	var b strings.Builder
+	dash := false
+	for _, r := range polishLetters.Replace(strings.ToLower(name)) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			dash = false
+		} else if !dash && b.Len() > 0 {
+			b.WriteByte('-')
+			dash = true
+		}
+	}
+	if ns := strings.TrimRight(b.String(), "-"); validIDPart(ns) {
+		return ns
+	}
+	sum := sha256.Sum256([]byte(name))
+	return "repo-" + hex.EncodeToString(sum[:4])
+}
+
+// ValidPluginID: lower case namespace and id, see validIDPart.
+func ValidPluginID(pluginID string) bool { return validPluginID(pluginID) }
+
 func validPluginID(pluginID string) bool {
 	namespace, shortId := parseFullId(pluginID)
 	if strings.HasPrefix(pluginID, "@") && namespace == "" {
 		return false
 	}
-	return (namespace == "" || validPathName(namespace)) && validPathName(shortId)
+	return (namespace == "" || validIDPart(namespace)) && validIDPart(shortId)
 }
 
 // insidePluginsDir: dir is under the plugins directory, not the directory itself
@@ -160,12 +213,18 @@ type Loader struct {
 	pluginsDir  string
 	httpClient  *http.Client
 	luaExecutor LuaExecutor
+	loadedMu    sync.RWMutex // loaded: the web handlers and a suspension change it off the run loop
 	loaded      map[string]*LoadedPlugin
 
 	// updateRetry: when a plugin's files may be updated again (pluginID|config|disk); a failed
 	// or pointless check is not repeated on every reload (offline, repository behind)
 	updateMu    sync.Mutex
 	updateRetry map[string]time.Time
+
+	// suspended: plugins over their time limit too often (pkg/lua plugin_budget.go), off
+	// until the user turns them on; not kept across a restart
+	suspendMu sync.Mutex
+	suspended map[string]bool
 }
 
 // updateRetryAfter: how long a failed or pointless update check is not repeated
@@ -188,7 +247,33 @@ func NewLoader(serverDir string) *Loader {
 		pluginsDir: pluginsDir,
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 		loaded:     make(map[string]*LoadedPlugin),
+		suspended:  make(map[string]bool),
 	}
+}
+
+// Suspend unloads a plugin that went over its time limit too often and keeps it off,
+// reloads included, until Resume.
+func (l *Loader) Suspend(pluginID string) {
+	l.suspendMu.Lock()
+	l.suspended[pluginID] = true
+	l.suspendMu.Unlock()
+	if l.IsLoaded(pluginID) {
+		_ = l.UnloadPlugin(pluginID)
+	}
+}
+
+// Resume lets a suspended plugin load again; loading it is the caller's.
+func (l *Loader) Resume(pluginID string) {
+	l.suspendMu.Lock()
+	delete(l.suspended, pluginID)
+	l.suspendMu.Unlock()
+}
+
+// IsSuspended: the plugin is off for going over its time limit.
+func (l *Loader) IsSuspended(pluginID string) bool {
+	l.suspendMu.Lock()
+	defer l.suspendMu.Unlock()
+	return l.suspended[pluginID]
 }
 
 // SetLuaExecutor sets the Lua executor for running plugin code
@@ -196,32 +281,9 @@ func (l *Loader) SetLuaExecutor(executor LuaExecutor) {
 	l.luaExecutor = executor
 }
 
-// FetchRepositoryIndex fetches plugins.json from a repository URL
+// FetchRepositoryIndex fetches plugins.json (or a root plugin.json) from a repository URL
 func (l *Loader) FetchRepositoryIndex(repo config.PluginRepository) (*RepositoryIndex, error) {
-	resolver := DefaultResolver(repo.URL)
-	pluginsURL := resolver.RawFileURL(repo.URL, "", "plugins.json")
-
-	resp, err := l.httpClient.Get(pluginsURL)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch repository: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	var index RepositoryIndex
-	if err := json.Unmarshal(body, &index); err != nil {
-		return nil, fmt.Errorf("invalid JSON: %w", err)
-	}
-
-	return &index, nil
+	return FetchIndex(l.httpClient, repo)
 }
 
 // downloadMu serialises downloads: the panel and the runtime each have a Loader on one
@@ -231,12 +293,97 @@ var downloadMu sync.Mutex
 // DownloadPlugin downloads a plugin from a repository
 // pluginID can be fullId (@vclu/weather) or short id (weather)
 func (l *Loader) DownloadPlugin(repo config.PluginRepository, pluginID string) error {
-	return l.downloadPlugin(repo, pluginID, "")
+	return l.downloadPlugin(repo, pluginID, "", 0)
+}
+
+// DownloadPluginSeen downloads it only when its plugin API is still the one the user's
+// confirmation showed (ErrChangedSincePreview otherwise); the installed version stays.
+func (l *Loader) DownloadPluginSeen(repo config.PluginRepository, pluginID string, seenAPI int) error {
+	return l.downloadPlugin(repo, pluginID, "", seenAPI)
+}
+
+// ErrChangedSincePreview: the files to install are not what the confirmation showed.
+var ErrChangedSincePreview = errors.New("changed since the confirmation")
+
+// Preview: what a plugin's version asks for, before it is installed.
+type Preview struct {
+	Requested Permissions
+	Version   string
+	API       int // the plugin API of that version
+	Actions   ManifestActions
+	// Dashboards: those plugin.json announces, shown before installing
+	Dashboards ManifestDashboards
+	// RequiresVclu: the vclu version it needs (">=X.Y.Z"); NeedsNewer when this one is older
+	RequiresVclu string
+	NeedsNewer   bool
+}
+
+// PreviewPermissions reads the plugin.json of the version the repository lists, from the
+// same place a download takes it, and returns what the plugin asks for, so the user sees
+// it before installing.
+func (l *Loader) PreviewPermissions(repo config.PluginRepository, pluginID string) (Preview, error) {
+	if !validPluginID(pluginID) {
+		return Preview{}, fmt.Errorf("invalid plugin id %q", pluginID)
+	}
+	namespace, shortId := parseFullId(pluginID)
+	index, err := l.FetchRepositoryIndex(repo)
+	if err != nil {
+		return Preview{}, fmt.Errorf("failed to fetch repository index: %w", err)
+	}
+	// a short id takes the namespace the repository gives, as installing does
+	if namespace == "" {
+		if namespace = index.Namespace; namespace == "" {
+			namespace = NamespaceFromName(repo.Name)
+		}
+	}
+	if !NamespaceAllowed(namespace, repo) {
+		return Preview{}, fmt.Errorf("@%s/%s from %s: %w", namespace, shortId, repo.Name, ErrReservedNamespace)
+	}
+	var listing *PluginListing
+	for i := range index.Plugins {
+		if index.Plugins[i].ID == shortId {
+			listing = &index.Plugins[i]
+			break
+		}
+	}
+	if listing == nil {
+		return Preview{}, fmt.Errorf("plugin %s not found in repository", shortId)
+	}
+	resolver := DefaultResolver(repo.URL)
+	read := func(tag string) (PluginManifest, error) {
+		var m PluginManifest
+		url := strings.TrimSuffix(resolver.RawFileURL(repo.URL, tag, listing.Path), "/") + "/plugin.json"
+		resp, err := l.httpClient.Get(url)
+		if err != nil {
+			return m, err
+		}
+		defer func() { _ = resp.Body.Close() }()
+		if resp.StatusCode != http.StatusOK {
+			return m, fmt.Errorf("plugin.json: HTTP %d", resp.StatusCode)
+		}
+		err = json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&m)
+		return m, err
+	}
+	// a tag that cannot be read falls back to main, as in downloadPlugin
+	m, err := read(listing.GitTag)
+	if err != nil && listing.GitTag != "" {
+		m, err = read("")
+	}
+	if err != nil {
+		return Preview{}, err
+	}
+	pv := Preview{Requested: requestedPermissions(m), Version: listing.Version, API: manifestAPI(m), Actions: m.Actions, Dashboards: m.Dashboards}
+	if m.Requires != nil {
+		pv.RequiresVclu = m.Requires.Vclu
+	}
+	pv.NeedsNewer = m.checkRequires() != nil
+	return pv, nil
 }
 
 // downloadPlugin downloads the version the repository lists; with newerThan, only when that
-// version is newer (errNotNewer otherwise), so an update never goes back.
-func (l *Loader) downloadPlugin(repo config.PluginRepository, pluginID, newerThan string) error {
+// version is newer (errNotNewer otherwise), so an update never goes back; with seenAPI, only
+// on that plugin API.
+func (l *Loader) downloadPlugin(repo config.PluginRepository, pluginID, newerThan string, seenAPI int) error {
 	downloadMu.Lock()
 	defer downloadMu.Unlock()
 
@@ -244,7 +391,10 @@ func (l *Loader) downloadPlugin(repo config.PluginRepository, pluginID, newerTha
 		return fmt.Errorf("invalid plugin id %q", pluginID)
 	}
 	// Parse fullId to get short id for repository lookup
-	_, shortId := parseFullId(pluginID)
+	namespace, shortId := parseFullId(pluginID)
+	if !NamespaceAllowed(namespace, repo) {
+		return fmt.Errorf("%s from %s: %w", pluginID, repo.Name, ErrReservedNamespace)
+	}
 
 	// Fetch repository index
 	index, err := l.FetchRepositoryIndex(repo)
@@ -271,6 +421,11 @@ func (l *Loader) downloadPlugin(repo config.PluginRepository, pluginID, newerTha
 	}
 
 	safeDir := safePluginDir(pluginID)
+	// read before the lock moves to the new files
+	floor, err := l.APIFloor(pluginID)
+	if err != nil {
+		return err
+	}
 
 	// Determine version subdir: tagged plugins get versioned dir, untagged get "latest"
 	version := listing.Version
@@ -290,9 +445,19 @@ func (l *Loader) downloadPlugin(repo config.PluginRepository, pluginID, newerTha
 		Path:    safeDir + "/" + version,
 	}
 
-	// Cache hit: immutable tag already downloaded
+	// The marker names the tag and the repository: the same id and version from another
+	// repository (a fork, then back to official) is not the same files
+	stamp := completeStamp(listing.GitTag, repo.URL)
+
+	// Cache hit: immutable tag already downloaded from this repository
 	if listing.GitTag != "" {
-		if _, err := os.Stat(completeMarker); err == nil {
+		if got, err := os.ReadFile(completeMarker); err == nil && string(got) == stamp && checkHashes(targetDir, *listing, repo) == nil {
+			if err := checkAPIFloor(pluginID, filepath.Join(targetDir, "plugin.json"), floor); err != nil {
+				return err
+			}
+			if err := checkSeenAPI(pluginID, filepath.Join(targetDir, "plugin.json"), seenAPI); err != nil {
+				return err
+			}
 			log.Printf("[PLUGINS] cached %s/%s, skipping download", safeDir, version)
 			// The lock may still name an older dir (a lost lock write)
 			if cur := l.ReadLockFile()[pluginID]; cur.Path != lockEntry.Path || cur.Version != lockEntry.Version {
@@ -313,20 +478,39 @@ func (l *Loader) downloadPlugin(repo config.PluginRepository, pluginID, newerTha
 	resolver := DefaultResolver(repo.URL)
 
 	// Try with git tag first, fallback to main on failure
-	baseURL := resolver.RawFileURL(repo.URL, listing.GitTag, listing.Path)
-	dlErr := l.downloadAllFiles(baseURL, tmpDir)
+	baseURL := strings.TrimSuffix(resolver.RawFileURL(repo.URL, listing.GitTag, listing.Path), "/")
+	dlErr := l.downloadAllFiles(baseURL, tmpDir, listing.SHA256)
+	fromTag := dlErr == nil && listing.GitTag != ""
 	if dlErr != nil && listing.GitTag != "" {
 		log.Printf("[PLUGINS] WARNING: tag %s fetch failed (%v), retrying from main", listing.GitTag, dlErr)
 		os.RemoveAll(tmpDir)
 		if err := os.MkdirAll(tmpDir, 0755); err != nil {
 			return fmt.Errorf("failed to create temp directory: %w", err)
 		}
-		baseURL = resolver.RawFileURL(repo.URL, "", listing.Path)
-		dlErr = l.downloadAllFiles(baseURL, tmpDir)
+		baseURL = strings.TrimSuffix(resolver.RawFileURL(repo.URL, "", listing.Path), "/")
+		dlErr = l.downloadAllFiles(baseURL, tmpDir, listing.SHA256)
 	}
 	if dlErr != nil {
 		os.RemoveAll(tmpDir)
 		return fmt.Errorf("failed to download plugin: %w", dlErr)
+	}
+	if err := checkHashes(tmpDir, *listing, repo); err != nil {
+		_ = os.RemoveAll(tmpDir)
+		return fmt.Errorf("%s %s: %w", pluginID, listing.Version, err)
+	}
+	// A manifest this vclu cannot read, or one for a newer plugin API, would not load: the
+	// installed version stays
+	if err := checkDownloadedManifest(filepath.Join(tmpDir, "plugin.json")); err != nil {
+		_ = os.RemoveAll(tmpDir)
+		return fmt.Errorf("%s %s: %w", pluginID, listing.Version, err)
+	}
+	if err := checkAPIFloor(pluginID, filepath.Join(tmpDir, "plugin.json"), floor); err != nil {
+		_ = os.RemoveAll(tmpDir)
+		return err
+	}
+	if err := checkSeenAPI(pluginID, filepath.Join(tmpDir, "plugin.json"), seenAPI); err != nil {
+		_ = os.RemoveAll(tmpDir)
+		return err
 	}
 
 	// Atomic rename: tmp → target
@@ -336,9 +520,11 @@ func (l *Loader) downloadPlugin(repo config.PluginRepository, pluginID, newerTha
 		return fmt.Errorf("failed to finalize download: %w", err)
 	}
 
-	// Mark as complete (only for tagged versions — untagged always re-download)
-	if listing.GitTag != "" {
-		os.WriteFile(completeMarker, []byte(listing.GitTag), 0644)
+	// Mark as complete (only files of the tag: untagged and those from main always re-download)
+	if fromTag {
+		if err := os.WriteFile(completeMarker, []byte(stamp), 0644); err != nil {
+			log.Printf("[PLUGINS] WARNING: %s: no cache marker (%v), the next update downloads it again", pluginID, err)
+		}
 	}
 
 	// Cleanup old versions (after successful download)
@@ -352,8 +538,15 @@ func (l *Loader) downloadPlugin(repo config.PluginRepository, pluginID, newerTha
 	return nil
 }
 
+// maxPluginFile bounds one downloaded plugin file, maxPluginFiles how many plugin.json lists:
+// a repository is not trusted with the disk.
+const (
+	maxPluginFile  = 4 << 20
+	maxPluginFiles = 64
+)
+
 // downloadAllFiles downloads plugin.json and all files listed in the manifest
-func (l *Loader) downloadAllFiles(baseURL, localDir string) error {
+func (l *Loader) downloadAllFiles(baseURL, localDir string, sums map[string]string) error {
 	// 1. Download plugin.json (always required)
 	manifestURL := baseURL + "/plugin.json"
 	manifestPath := filepath.Join(localDir, "plugin.json")
@@ -361,10 +554,13 @@ func (l *Loader) downloadAllFiles(baseURL, localDir string) error {
 		return fmt.Errorf("failed to download plugin.json: %w", err)
 	}
 
-	// 2. Parse manifest to get file list
+	// 2. Parse manifest to get file list; with digests, only the plugin.json they name
 	manifestData, err := os.ReadFile(manifestPath)
 	if err != nil {
 		return fmt.Errorf("failed to read plugin.json: %w", err)
+	}
+	if sums != nil && !sumMatches(sums["plugin.json"], manifestData) {
+		return fmt.Errorf("%w: plugin.json", ErrHashMismatch)
 	}
 
 	var manifest PluginManifest
@@ -376,6 +572,12 @@ func (l *Loader) downloadAllFiles(baseURL, localDir string) error {
 	files := manifest.Files
 	if len(files) == 0 {
 		files = []string{"init.lua"}
+	}
+	if manifest.Form != "" && !slices.Contains(files, manifest.Form) {
+		files = append(files, manifest.Form)
+	}
+	if len(files) > maxPluginFiles {
+		return fmt.Errorf("plugin.json lists %d files, at most %d", len(files), maxPluginFiles)
 	}
 
 	// 4. Download all files from the list
@@ -445,8 +647,14 @@ func (l *Loader) downloadFile(url, localPath string) error {
 	}
 	defer out.Close()
 
-	_, err = io.Copy(out, resp.Body)
-	return err
+	n, err := io.Copy(out, io.LimitReader(resp.Body, maxPluginFile+1))
+	if err != nil {
+		return err
+	}
+	if n > maxPluginFile {
+		return fmt.Errorf("larger than %d bytes", maxPluginFile)
+	}
+	return nil
 }
 
 // resolvePluginDir returns the local directory for a plugin's files.
@@ -625,6 +833,13 @@ func (l *Loader) LoadPlugin(pluginID string, pluginConfig map[string]interface{}
 	if l.luaExecutor == nil {
 		return fmt.Errorf("Lua executor not set")
 	}
+	if l.IsSuspended(pluginID) {
+		return fmt.Errorf("plugin %s is suspended: it went over its time limit too often; turn it on on the plugins page", pluginID)
+	}
+	// enabled again while running (a toggle sent twice): stopped first, with its cleanup
+	if l.IsLoaded(pluginID) {
+		_ = l.UnloadPlugin(pluginID)
+	}
 
 	localDir := l.resolvePluginDir(pluginID)
 
@@ -647,13 +862,68 @@ func (l *Loader) LoadPlugin(pluginID string, pluginConfig map[string]interface{}
 		return fmt.Errorf("failed to read init.lua: %w", err)
 	}
 
+	api, err := l.checkAPI(pluginID, manifest)
+	if err != nil {
+		return err
+	}
+	// files replaced by hand with a version on a lower API do not run with fewer limits
+	inst, ok, err := l.installedEntry(pluginID)
+	if err != nil {
+		return fmt.Errorf("plugin %s: %w", pluginID, err)
+	}
+	if ok {
+		if inst.API > api {
+			return APIDowngrade(pluginID, inst.API, api)
+		}
+		if inst.API < api {
+			l.recordAPI(pluginID, api)
+		}
+	}
+	if err := manifest.checkRequires(); err != nil {
+		return fmt.Errorf("plugin %s: %w", pluginID, err)
+	}
+	if err := checkFormFile(localDir, manifest); err != nil {
+		return fmt.Errorf("plugin %s: %w", pluginID, err)
+	}
+	if keys := manifest.UnknownKeys(); len(keys) > 0 {
+		log.Printf("[PLUGINS] %s: plugin.json has keys this vclu does not read: %s", pluginID, strings.Join(keys, ", "))
+	}
+
 	// 1. Create sandbox for the plugin
-	createSandboxScript := fmt.Sprintf(`PluginSandbox:create(%s)`, luastr.Quote(pluginID))
+	perms, limits, official, err := l.effectivePermissions(pluginID, manifest)
+	if err != nil {
+		return err
+	}
+	limitsJSON, _ := json.Marshal(limits)
+	// declared dashboards by id, with the name they get unless the user's module renames them
+	dashboards := map[string]map[string]string{}
+	for _, d := range manifest.Dashboards {
+		dashboards[d.ID] = map[string]string{"name": d.Name.In("pl")}
+	}
+	dashJSON, _ := json.Marshal(dashboards)
+	// the ports the user allowed of those plugin.json lists; lan's nil: any port
+	broadcastJSON, _ := json.Marshal(append([]int{}, perms.BroadcastPorts...))
+	udpJSON, _ := json.Marshal(append([]int{}, perms.UDPPorts...))
+	tcpJSON, _ := json.Marshal(append([]int{}, perms.TCPPorts...))
+	lanJSON := []byte("null")
+	if perms.LANPorts != nil {
+		lanJSON, _ = json.Marshal(perms.LANPorts)
+	}
+	// the declared actions: those the user allowed run, the others wait
+	actions := map[string]map[string]any{}
+	for _, a := range manifest.Actions {
+		actions[a.Name] = map[string]any{"description": a.Description, "params": a.Params, "confirm": a.Confirm,
+			"allowed": slices.Contains(perms.Actions, a.Name)}
+	}
+	actionsJSON, _ := json.Marshal(actions)
+	createSandboxScript := fmt.Sprintf(`PluginSandbox:create(%s, {api = %d, lan = %t, udp = %t, tcp = %t, mqtt = %t, modbus = %t, grenton_raw = %t, tftp = %t, serial = %t, official = %t, limits = JSON:decode(%s), dashboards = JSON:decode(%s), udpBroadcastPorts = JSON:decode(%s), udpPorts = JSON:decode(%s), tcpPorts = JSON:decode(%s), lanPorts = JSON:decode(%s), actions = JSON:decode(%s)})`,
+		luastr.Quote(pluginID), api, perms.LAN, perms.UDP, perms.TCP, perms.MQTT, perms.Modbus, perms.CLU, perms.TFTP, perms.Serial, official, luastr.Quote(string(limitsJSON)), luastr.Quote(string(dashJSON)), luastr.Quote(string(broadcastJSON)), luastr.Quote(string(udpJSON)), luastr.Quote(string(tcpJSON)), luastr.Quote(string(lanJSON)), luastr.Quote(string(actionsJSON)))
 	if _, err := l.luaExecutor.Execute(createSandboxScript); err != nil {
 		return fmt.Errorf("failed to create sandbox: %w", err)
 	}
 
-	// 2. Set plugin config in sandbox
+	// 2. Set plugin config in sandbox; the wizard's dashboards step is not the plugin's
+	pluginConfig = withoutKey(pluginConfig, DashboardsKey)
 	configJSON, _ := json.Marshal(pluginConfig)
 	setConfigScript := fmt.Sprintf(`PluginSandbox:setConfig(%s, JSON:decode(%s), %s)`,
 		luastr.Quote(pluginID), luastr.Quote(string(configJSON)), luastr.Quote(localDir))
@@ -661,9 +931,22 @@ func (l *Loader) LoadPlugin(pluginID string, pluginConfig map[string]interface{}
 		return fmt.Errorf("failed to set plugin config: %w", err)
 	}
 
-	// 3. Execute init.lua in sandbox
+	secrets, err := PluginSecrets(l.serverDir, pluginID)
+	if err != nil {
+		log.Printf("[PLUGINS] %s: secrets: %v", pluginID, err)
+	}
+	if len(secrets) > 0 { // a new sandbox starts without any
+		secretsJSON, _ := json.Marshal(secrets)
+		if _, err := l.luaExecutor.Execute(fmt.Sprintf(`PluginSandbox:setSecrets(%s, JSON:decode(%s))`,
+			luastr.Quote(pluginID), luastr.Quote(string(secretsJSON)))); err != nil {
+			return fmt.Errorf("failed to set plugin secrets: %w", err)
+		}
+	}
+
+	// 3. Execute init.lua in sandbox; it and init run under the load budget
 	code := strings.ReplaceAll(string(initCode), "\r", "")
 	executeScript := executeLua + "\n" + fmt.Sprintf(`execute(%s, %s)`, luastr.Quote(pluginID), luastr.Quote(code))
+	_, _ = l.luaExecutor.Execute(fmt.Sprintf(`if __go_plugin_budget_loading then __go_plugin_budget_loading(%s, true) end`, luastr.Quote(pluginID)))
 
 	if _, err := l.executeAsPlugin(pluginID, executeScript); err != nil {
 		// Cleanup sandbox on failure
@@ -672,9 +955,15 @@ func (l *Loader) LoadPlugin(pluginID string, pluginConfig map[string]interface{}
 		return fmt.Errorf("failed to execute init.lua: %w", err)
 	}
 
-	// 4. Initialize plugin with config (triggers onInit callback)
-	initConfigScript := fmt.Sprintf(`Plugin.initFromConfig(%s, JSON:decode(%s))`,
-		luastr.Quote(pluginID), luastr.Quote(string(configJSON)))
+	// 4. Initialize plugin with config (triggers onInit callback); after an update it hears
+	// the version it was before, until an init succeeds
+	info := map[string]string{"version": manifest.Version}
+	if ok && inst.StartedVersion != "" && inst.StartedVersion != manifest.Version {
+		info["previousVersion"] = inst.StartedVersion
+	}
+	infoJSON, _ := json.Marshal(info)
+	initConfigScript := fmt.Sprintf(`Plugin.initFromConfig(%s, JSON:decode(%s), JSON:decode(%s))`,
+		luastr.Quote(pluginID), luastr.Quote(string(configJSON)), luastr.Quote(string(infoJSON)))
 	if _, err := l.executeAsPlugin(pluginID, initConfigScript); err != nil {
 		// Cleanup sandbox on failure
 		cleanupScript := fmt.Sprintf(`PluginSandbox:cleanup(%s)`, luastr.Quote(pluginID))
@@ -682,21 +971,41 @@ func (l *Loader) LoadPlugin(pluginID string, pluginConfig map[string]interface{}
 		return fmt.Errorf("failed to init plugin with config: %w", err)
 	}
 
+	_, _ = l.luaExecutor.Execute(fmt.Sprintf(`if __go_plugin_budget_loading then __go_plugin_budget_loading(%s, false) end`, luastr.Quote(pluginID)))
+	if ok && inst.StartedVersion != manifest.Version {
+		l.recordStarted(pluginID, manifest.Version)
+	}
+
 	// Store loaded plugin by fullId
+	l.loadedMu.Lock()
 	l.loaded[pluginID] = &LoadedPlugin{
 		Manifest:  manifest,
 		Config:    pluginConfig,
 		Enabled:   true,
 		LocalPath: localDir,
 	}
+	l.loadedMu.Unlock()
 
-	log.Printf("[PLUGINS] loaded %s v%s (%s)", manifest.Name, manifest.Version, pluginID)
+	log.Printf("[PLUGINS] loaded %s v%s (%s)", manifest.Name.In("pl"), manifest.Version, pluginID)
 	return nil
 }
 
+func withoutKey(m map[string]interface{}, key string) map[string]interface{} {
+	if _, ok := m[key]; !ok {
+		return m
+	}
+	out := make(map[string]interface{}, len(m))
+	for k, v := range m {
+		if k != key {
+			out[k] = v
+		}
+	}
+	return out
+}
+
 // pluginDeclaresConfig reports whether a plugin asks the user for configuration.
-// Manifests carry it either as the "config" object or the older "configSchema"
-// array; a plugin with neither is configured from code, not from a form.
+// Manifests carry it as a "form" file, the "config" object or the older "configSchema"
+// array; a plugin with none is configured from code, not from a form.
 func pluginDeclaresConfig(localDir string) bool {
 	data, err := os.ReadFile(filepath.Join(localDir, "plugin.json"))
 	if err != nil {
@@ -706,11 +1015,12 @@ func pluginDeclaresConfig(localDir string) bool {
 	var probe struct {
 		Config       map[string]json.RawMessage `json:"config"`
 		ConfigSchema []json.RawMessage          `json:"configSchema"`
+		Form         string                     `json:"form"`
 	}
 	if err := json.Unmarshal(data, &probe); err != nil {
 		return true
 	}
-	return len(probe.Config) > 0 || len(probe.ConfigSchema) > 0
+	return len(probe.Config) > 0 || len(probe.ConfigSchema) > 0 || probe.Form != ""
 }
 
 // NeedsConfig reports whether an installed plugin asks for configuration and has none:
@@ -723,54 +1033,47 @@ func (l *Loader) NeedsConfig(p config.InstalledPlugin) bool {
 // This also clears the loaded map to support reloading after Lua reinitialize
 func (l *Loader) LoadAllEnabled() error {
 	// Clear loaded map (supports reloading after Lua reinitialize)
+	l.loadedMu.Lock()
 	l.loaded = make(map[string]*LoadedPlugin)
+	l.loadedMu.Unlock()
 
 	masterConfig, err := config.ReadMasterConfig(l.serverDir)
-	if err != nil || masterConfig == nil || masterConfig.Plugins == nil {
+	if err != nil {
+		return fmt.Errorf("plugins not loaded: %w", err)
+	}
+	if masterConfig == nil || masterConfig.Plugins == nil {
 		return nil // No plugins configured
 	}
+	l.pinOlderEntries(masterConfig)
 
 	var errors []string
 	loadedCount := 0
 
 	for _, installed := range masterConfig.Plugins.Installed {
+		if installed.Enabled && l.IsSuspended(installed.ID) {
+			log.Printf("[PLUGINS] %s stays off: suspended for going over its time limit", installed.ID)
+			continue
+		}
 		if !installed.Enabled {
 			continue
 		}
-
-		// Check if plugin files are available. This has to happen before the
-		// configuration check below, which needs the manifest.
-		localDir := l.resolvePluginDir(installed.ID)
-		manifestPath := filepath.Join(localDir, "plugin.json")
-		if _, err := os.Stat(manifestPath); os.IsNotExist(err) {
-			// Try to download from repository
-			repo := l.findRepository(masterConfig.Plugins.Repositories, installed.Repository)
-			if repo == nil {
-				errors = append(errors, fmt.Sprintf("%s: repository %s not found", installed.ID, installed.Repository))
-				continue
-			}
-
-			if err := l.DownloadPlugin(*repo, installed.ID); err != nil {
-				errors = append(errors, fmt.Sprintf("%s: %v", installed.ID, err))
-				continue
-			}
-			localDir = l.resolvePluginDir(installed.ID)
-		} else if local := l.localVersion(installed.ID, localDir); installed.Version != "" && local != "" && local != installed.Version {
-			// An update from the panel writes the version; the files follow here (#112). Only an
-			// update: files newer than the config (installed by hand) are kept and loaded.
-			repo := l.findRepository(masterConfig.Plugins.Repositories, installed.Repository)
-			if cmp, ok := compareVersions(local, installed.Version); !ok || cmp > 0 {
-				log.Printf("[PLUGINS] %s %s on disk, %s in config; not newer in config, loading %s", installed.ID, local, installed.Version, local)
-			} else if repo == nil {
-				log.Printf("[PLUGINS] WARNING: %s %s on disk, %s in config, repository %s not found; loading %s", installed.ID, local, installed.Version, installed.Repository, local)
-			} else if key := installed.ID + "|" + installed.Version + "|" + local; !l.updateDue(key) {
-				// checked lately without result: not on every reload (offline, repository behind)
-			} else if err := l.downloadPlugin(*repo, installed.ID, local); err != nil {
-				l.updateLater(key)
-				// LoadPlugin resolves the directory again, so it takes what is on disk
-				log.Printf("[PLUGINS] WARNING: %s %s on disk, %s in config, not updated (%v); loading %s, next check in %v", installed.ID, local, installed.Version, err, local, updateRetryAfter)
-			}
+		if !validPluginID(installed.ID) {
+			// Ids must be lower case now; an install from before that is not loaded
+			log.Printf("[ERROR] [PLUGINS] %s is not loaded: plugin ids are lower case now; uninstall it and install it again (it gets a lower-case id, its settings have to be entered again)", installed.ID)
+			errors = append(errors, fmt.Sprintf("%s: id not lower case", installed.ID))
+			continue
 		}
+
+		// The files, under the install lock and from the entry as it is now: the panel may
+		// install, update or remove it meanwhile
+		fresh, skip, msg := l.syncFiles(installed.ID)
+		if msg != "" {
+			errors = append(errors, msg)
+		}
+		if skip {
+			continue
+		}
+		installed = fresh
 
 		// Skip plugins that ask for configuration and have none. A plugin that
 		// declares none is a factory driven from user modules, so there is
@@ -800,6 +1103,75 @@ func (l *Loader) LoadAllEnabled() error {
 	return nil
 }
 
+// syncFiles brings the installed plugin's files in line with its entry, read again under the
+// install lock: missing files downloaded, an update from the panel fetched. skip: not loaded,
+// with msg saying why when it is an error.
+func (l *Loader) syncFiles(pluginID string) (installed config.InstalledPlugin, skip bool, msg string) {
+	defer LockInstalls()()
+	mc, err := config.ReadMasterConfig(l.serverDir)
+	if err != nil {
+		return installed, true, fmt.Sprintf("%s: %v", pluginID, err)
+	}
+	ok := false
+	if mc != nil && mc.Plugins != nil {
+		for _, inst := range mc.Plugins.Installed {
+			if inst.ID == pluginID {
+				installed, ok = inst, true
+				break
+			}
+		}
+	}
+	if !ok || !installed.Enabled {
+		return installed, true, "" // removed or turned off meanwhile
+	}
+	repos := mc.Plugins.Repositories
+	// Check if plugin files are available. This has to happen before the
+	// configuration check below, which needs the manifest.
+	localDir := l.resolvePluginDir(installed.ID)
+	manifestPath := filepath.Join(localDir, "plugin.json")
+	// Grants from the files on disk, before an update below may ask for more
+	if installed.Grants == nil {
+		l.recordGrants(installed.ID)
+	}
+	if _, err := os.Stat(manifestPath); os.IsNotExist(err) {
+		// Try to download from repository
+		repo := l.findRepository(repos, installed.Repository)
+		if repo == nil {
+			return installed, true, fmt.Sprintf("%s: repository %s not found", installed.ID, installed.Repository)
+		}
+
+		if !FromRepository(installed, *repo) {
+			return installed, true, fmt.Sprintf("%s: repository %s has another address than the plugin came from; not downloaded", installed.ID, installed.Repository)
+		}
+		if err := l.DownloadPlugin(*repo, installed.ID); err != nil {
+			return installed, true, fmt.Sprintf("%s: %v", installed.ID, err)
+		}
+		if installed.Grants == nil {
+			// as the panel's update without the old files: what the fetched files ask for waits
+			l.recordEmptyGrants(installed.ID)
+		}
+	} else if local := l.localVersion(installed.ID, localDir); installed.Version != "" && local != "" && local != installed.Version {
+		// An update from the panel writes the version; the files follow here (#112). Only an
+		// update: files newer than the config (installed by hand) are kept and loaded.
+		repo := l.findRepository(repos, installed.Repository)
+		if cmp, ok := compareVersions(local, installed.Version); !ok || cmp > 0 {
+			log.Printf("[PLUGINS] %s %s on disk, %s in config; not newer in config, loading %s", installed.ID, local, installed.Version, local)
+		} else if repo == nil {
+			log.Printf("[PLUGINS] WARNING: %s %s on disk, %s in config, repository %s not found; loading %s", installed.ID, local, installed.Version, installed.Repository, local)
+		} else if from, _ := l.FromSource(installed, *repo); !from {
+			log.Printf("[PLUGINS] WARNING: %s %s on disk, %s in config, repository %s has another address than the plugin came from; loading %s", installed.ID, local, installed.Version, installed.Repository, local)
+		} else if key := installed.ID + "|" + installed.Version + "|" + local; !l.updateDue(key) {
+			// checked lately without result: not on every reload (offline, repository behind)
+		} else if err := l.downloadPlugin(*repo, installed.ID, local, 0); err != nil {
+			l.updateLater(key)
+			// LoadPlugin resolves the directory again, so it takes what is on disk
+			log.Printf("[PLUGINS] WARNING: %s %s on disk, %s in config, not updated (%v); loading %s, next check in %v", installed.ID, local, installed.Version, err, local, updateRetryAfter)
+		}
+	}
+
+	return installed, false, ""
+}
+
 // findRepository finds an enabled repository by name
 func (l *Loader) findRepository(repos []config.PluginRepository, name string) *config.PluginRepository {
 	for i := range repos {
@@ -812,7 +1184,11 @@ func (l *Loader) findRepository(repos []config.PluginRepository, name string) *c
 
 // UnloadPlugin unloads a plugin and cleans up its sandbox
 func (l *Loader) UnloadPlugin(pluginID string) error {
+	// taken out first: a second unload at the same time finds it gone
+	l.loadedMu.Lock()
 	plugin, exists := l.loaded[pluginID]
+	delete(l.loaded, pluginID)
+	l.loadedMu.Unlock()
 	if !exists {
 		return fmt.Errorf("plugin %s not loaded", pluginID)
 	}
@@ -827,18 +1203,21 @@ func (l *Loader) UnloadPlugin(pluginID string) error {
 		l.luaExecutor.Execute(sandboxCleanupScript)
 	}
 
-	delete(l.loaded, pluginID)
-	log.Printf("[PLUGINS] unloaded %s", plugin.Manifest.Name)
+	log.Printf("[PLUGINS] unloaded %s", plugin.Manifest.Name.In("pl"))
 	return nil
 }
 
 // GetLoadedPlugins returns all loaded plugins
 func (l *Loader) GetLoadedPlugins() map[string]*LoadedPlugin {
-	return l.loaded
+	l.loadedMu.RLock()
+	defer l.loadedMu.RUnlock()
+	return maps.Clone(l.loaded)
 }
 
 // IsLoaded checks if a plugin is loaded
 func (l *Loader) IsLoaded(pluginID string) bool {
+	l.loadedMu.RLock()
+	defer l.loadedMu.RUnlock()
 	_, exists := l.loaded[pluginID]
 	return exists
 }
@@ -847,3 +1226,66 @@ func (l *Loader) IsLoaded(pluginID string) bool {
 func (l *Loader) GetPluginDir() string {
 	return l.pluginsDir
 }
+
+// checkDownloadedManifest: the manifest decodes as this vclu reads it and its plugin API is
+// one this vclu runs.
+func checkDownloadedManifest(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var m PluginManifest
+	if err := json.Unmarshal(data, &m); err != nil {
+		return fmt.Errorf("plugin.json is not valid for this vclu: %w", err)
+	}
+	if api := manifestAPI(m); api > PluginAPIMax {
+		return fmt.Errorf("needs plugin API %d; this vclu runs up to %d, update vclu first", api, PluginAPIMax)
+	} else if api < PluginAPIMin {
+		return fmt.Errorf("plugin API %d is not supported (this vclu runs %d to %d)", api, PluginAPIMin, PluginAPIMax)
+	}
+	if err := m.checkRequires(); err != nil {
+		return err
+	}
+	return checkFormFile(filepath.Dir(path), m)
+}
+
+// checkAPIFloor: the manifest at path is on plugin API floor or higher.
+func checkAPIFloor(pluginID, path string, floor int) error {
+	if floor == 0 {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var m PluginManifest
+	if err := json.Unmarshal(data, &m); err != nil {
+		return fmt.Errorf("plugin.json is not valid for this vclu: %w", err)
+	}
+	if api := manifestAPI(m); api < floor {
+		return APIDowngrade(pluginID, floor, api)
+	}
+	return nil
+}
+
+// checkSeenAPI: the manifest at path is on plugin API seen (0: not checked).
+func checkSeenAPI(pluginID, path string, seen int) error {
+	if seen == 0 {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var m PluginManifest
+	if err := json.Unmarshal(data, &m); err != nil {
+		return fmt.Errorf("plugin.json is not valid for this vclu: %w", err)
+	}
+	if api := manifestAPI(m); api != seen {
+		return fmt.Errorf("%s: plugin API %d, the confirmation showed %d: %w", pluginID, api, seen, ErrChangedSincePreview)
+	}
+	return nil
+}
+
+// completeStamp is what a downloaded version's .complete holds: its tag and repository.
+func completeStamp(tag, repoURL string) string { return tag + "\n" + normRepoURL(repoURL) }

@@ -63,17 +63,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-go@v5
         with:
           go-version: "1.26"
 
+      # older code has unchecked errors and dead code; only issues new against the base fail.
+      # Compared in git: GitHub gives no patch of a pull request past 20000 lines.
+      - name: Base to compare with
+        id: base
+        run: |
+          base="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if ! git cat-file -e "$base^{commit}" 2>/dev/null; then base=$(git rev-parse HEAD~1); fi
+          echo "rev=$base" >> "$GITHUB_OUTPUT"
+
       - uses: golangci/golangci-lint-action@v8
         with:
           version: latest
-          args: --timeout 3m
-          # older code has unchecked errors and dead code; only new issues fail
-          only-new-issues: true
+          args: --timeout 3m --new-from-rev=${{ steps.base.outputs.rev }}
 
   # Reachable known vulnerabilities fail unless reviewed in .github/govulncheck-accepted.txt
   vulncheck:

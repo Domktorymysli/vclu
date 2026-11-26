@@ -4,22 +4,26 @@ import "strings"
 
 // Messages: the panel translates Msg (web/locales, "notify.*") with Params.
 const (
-	MsgUpdate        = "notify.update.available" // version
-	MsgPluginUpdates = "notify.plugin.updates"   // count, plugins (up to 3 names, "+N"), updates (JSON)
-	MsgModule        = "notify.module.failed"    // module
-	MsgLog           = "notify.log.error"        // source
-	MsgLogin         = "notify.login.failed"     // ip
-	MsgLockLogin     = "notify.lock.login"       // ip, until
-	MsgLockPIN       = "notify.lock.pin"         // dashboard, until
-	MsgLockToken     = "notify.lock.token"       // ip
-	MsgLockDevice    = "notify.lock.device"      // device, until
-	MsgSuppressed    = "notify.suppressed"       // count, source
+	MsgUpdate        = "notify.update.available"   // version
+	MsgPluginUpdates = "notify.plugin.updates"     // count, plugins (up to 3 names, "+N"), updates (JSON)
+	MsgPluginPerms   = "notify.plugin.permissions" // count, plugins (up to 3 ids, "+N")
+	MsgPluginSuspend = "notify.plugin.suspended"   // plugin
+	MsgModule        = "notify.module.failed"      // module
+	MsgLog           = "notify.log.error"          // source
+	MsgLogin         = "notify.login.failed"       // ip
+	MsgLockLogin     = "notify.lock.login"         // ip, until
+	MsgLockPIN       = "notify.lock.pin"           // dashboard, until
+	MsgLockToken     = "notify.lock.token"         // ip
+	MsgLockDevice    = "notify.lock.device"        // device, until
+	MsgSuppressed    = "notify.suppressed"         // count, source
 )
 
 // english are the title and body of each message, for a client without the panel's texts.
 var english = map[string][2]string{
 	MsgUpdate:        {"vclu {version} is available", "A new version of vclu is out."},
 	MsgPluginUpdates: {"Plugin updates: {count} ({plugins})", "Newer versions of installed plugins are out."},
+	MsgPluginPerms:   {"Plugins waiting for permissions: {count} ({plugins})", "They ask for permissions you have not allowed yet and run without them until you allow them on the plugins page."},
+	MsgPluginSuspend: {"Plugin {plugin} suspended", "Its code went over the time limit 3 times in 10 minutes; it stays off until you turn it on on the plugins page."},
 	MsgModule:        {"Module {module} did not load", ""},
 	MsgLog:           {"Error in the log: {source}", ""},
 	MsgLogin:         {"Failed login to the panel", "From {ip}."},

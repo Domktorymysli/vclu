@@ -63,6 +63,7 @@
                                             <td>
                                                 <i class="bi bi-{{index . "icon"}} me-1"></i>
                                                 {{index . "name"}}
+                                                {{with index . "plugin"}}<span class="badge bg-info-subtle text-info-emphasis ms-1" title="plugin"><i class="bi bi-puzzle me-1"></i>{{.}}</span>{{end}}
                                             </td>
                                             <td><code>{{index . "id"}}</code></td>
                                             <td>{{index . "widgetCount"}}</td>

@@ -3,9 +3,12 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -58,7 +61,7 @@ func (s *Server) handlePlugins(c *gin.Context) {
 	}
 
 	data["repositories"] = pluginsConfig.Repositories
-	data["installed"] = pluginsConfig.Installed
+	data["installed"] = s.installedPluginsView(pluginsConfig.Installed)
 
 	// Add translations
 	trans := s.getTranslations(c)
@@ -182,7 +185,7 @@ func (s *Server) handlePluginsAPIRemoveRepository(c *gin.Context) {
 // handlePluginsAPIAvailable fetches available plugins from all enabled repositories
 func (s *Server) handlePluginsAPIAvailable(c *gin.Context) {
 	masterConfig, _ := config.ReadMasterConfig(s.serverDir)
-	found, errors := availablePlugins(c.Request.Context(), masterConfig)
+	found, errors := availablePlugins(c.Request.Context(), masterConfig, s.serverDir)
 
 	var allPlugins []gin.H
 	for _, a := range found {
@@ -203,6 +206,7 @@ func (s *Server) handlePluginsAPIAvailable(c *gin.Context) {
 			"installed":        a.Installed,
 			"installedVersion": a.InstalledVersion,
 			"updateAvailable":  a.UpdateAvailable,
+			"sourceMoved":      a.SourceMoved,
 		})
 	}
 
@@ -221,11 +225,17 @@ type availablePlugin struct {
 	Installed        bool
 	InstalledVersion string
 	UpdateAvailable  bool // the registry's version is newer than the installed one
+	SourceMoved      bool // the repository the plugin came from has another address now
 }
 
 // availablePlugins reads the registries of mc's enabled repositories (the defaults without
-// a plugins section); errors are per repository.
-func availablePlugins(ctx context.Context, mc *config.VCLUConfig) ([]availablePlugin, []string) {
+// a plugins section); errors are per repository. With serverDir, an update is offered as the
+// installer would take it (FromSource, the downloaded files' marker included).
+func availablePlugins(ctx context.Context, mc *config.VCLUConfig, serverDir string) ([]availablePlugin, []string) {
+	var source *plugins.Loader
+	if serverDir != "" {
+		source = plugins.NewLoader(serverDir)
+	}
 	var repos []config.PluginRepository
 	if mc != nil && mc.Plugins != nil {
 		repos = mc.Plugins.Repositories
@@ -233,10 +243,10 @@ func availablePlugins(ctx context.Context, mc *config.VCLUConfig) ([]availablePl
 		repos = config.DefaultPluginsConfig().Repositories
 	}
 
-	installed := map[string]string{} // full id -> version
+	installed := map[string]config.InstalledPlugin{} // full id -> entry
 	if mc != nil && mc.Plugins != nil {
 		for _, inst := range mc.Plugins.Installed {
-			installed[inst.ID] = inst.Version
+			installed[inst.ID] = inst
 		}
 	}
 	var out []availablePlugin
@@ -256,12 +266,28 @@ func availablePlugins(ctx context.Context, mc *config.VCLUConfig) ([]availablePl
 		}
 		namespace := registry.Namespace
 		if namespace == "" {
-			namespace = repo.Name // fallback to repo name
+			namespace = plugins.NamespaceFromName(repo.Name)
+		}
+		if !plugins.NamespaceAllowed(namespace, repo) {
+			errors = append(errors, fmt.Sprintf("%s: %v", repo.Name, plugins.ErrReservedNamespace))
+			continue
+		}
+		// a namespace no id can have ("VCLU", look-alike letters) is not shown as one
+		if !plugins.ValidPluginID("@" + namespace + "/x") {
+			errors = append(errors, fmt.Sprintf("%s: namespace %q is not valid", repo.Name, namespace))
+			continue
 		}
 		for _, p := range registry.Plugins {
 			a := availablePlugin{Meta: p, Repo: repo, FullID: fmt.Sprintf("@%s/%s", namespace, p.ID), Namespace: namespace}
-			a.InstalledVersion, a.Installed = installed[a.FullID]
-			a.UpdateAvailable = a.Installed && newerVersion(p.Version, a.InstalledVersion)
+			inst, ok := installed[a.FullID]
+			a.Installed, a.InstalledVersion = ok, inst.Version
+			// another repository listing the same id is not an update of this plugin
+			from, moved := ok && plugins.FromRepository(inst, repo), ok && plugins.SourceMoved(inst, repo)
+			if ok && source != nil {
+				from, moved = source.FromSource(inst, repo)
+			}
+			a.UpdateAvailable = from && newerVersion(p.Version, inst.Version)
+			a.SourceMoved = moved
 			out = append(out, a)
 		}
 	}
@@ -280,19 +306,125 @@ func newerVersion(v, installed string) bool {
 func (s *Server) handlePluginsAPIInstalled(c *gin.Context) {
 	masterConfig, _ := config.ReadMasterConfig(s.serverDir)
 
-	type installedPlugin struct {
-		config.InstalledPlugin
-		NeedsConfig bool `json:"needsConfig"`
-	}
-	installed := []installedPlugin{}
+	var installed []config.InstalledPlugin
 	if masterConfig != nil && masterConfig.Plugins != nil {
-		loader := plugins.NewLoader(s.serverDir)
-		for _, p := range masterConfig.Plugins.Installed {
-			installed = append(installed, installedPlugin{p, loader.NeedsConfig(p)})
+		installed = masterConfig.Plugins.Installed
+	}
+	c.JSON(http.StatusOK, gin.H{"installed": s.installedPluginsView(installed)})
+}
+
+// installedPluginView is an installed plugin as the plugins page and API show it.
+type installedPluginView struct {
+	config.InstalledPlugin
+	NeedsConfig bool `json:"needsConfig"`
+	// Permissions the plugin asks for, and of them those the user has not allowed
+	// (POST /plugins/:id/permissions)
+	RequestedPermissions []string `json:"requestedPermissions,omitempty"`
+	PendingPermissions   []string `json:"pendingPermissions,omitempty"`
+	// Internet hosts it asks for (["*"]: any) and of them those not allowed yet
+	Internet        []string `json:"internet,omitempty"`
+	PendingInternet []string `json:"pendingInternet,omitempty"`
+	// plugin.json's permissions with their ports, topic filters and why, and of them what
+	// waits (an update added it); wide ones, the combinations to warn about, its plugin API
+	Permissions *plugins.Permissions `json:"permissions,omitempty"`
+	Pending     *plugins.Permissions `json:"pending,omitempty"`
+	Wide        []string             `json:"wide,omitempty"`
+	Warnings    []string             `json:"warnings,omitempty"`
+	API         int                  `json:"pluginApi,omitempty"`
+	// the actions it declares, and of them those not allowed yet
+	Actions        plugins.ManifestActions `json:"actions,omitempty"`
+	PendingActions []string                `json:"pendingActions,omitempty"`
+	// its time on the run loop, and whether it is off for going over its limit
+	Usage *pluginUsageView `json:"usage,omitempty"`
+}
+
+func (s *Server) installedPluginsView(installed []config.InstalledPlugin) []installedPluginView {
+	out := []installedPluginView{}
+	loader := plugins.NewLoader(s.serverDir)
+	usage := s.pluginUsage()
+	for _, p := range installed {
+		v := loader.PermissionsView(p)
+		requested, pending := v.Requested, v.Pending
+		view := installedPluginView{InstalledPlugin: p, NeedsConfig: loader.NeedsConfig(p), RequestedPermissions: requested.Names(),
+			PendingPermissions: pending.Names(), Internet: v.Internet, PendingInternet: pending.Internet,
+			Permissions: &requested, Pending: &pending, Wide: requested.Wide(), Warnings: requested.Warnings(), API: v.API,
+			Actions: v.Actions, PendingActions: pending.Actions}
+		if u, ok := usage[p.ID]; ok {
+			view.Usage = &u
+		}
+		out = append(out, view)
+	}
+	return out
+}
+
+// handlePluginsAPIPreview: what a plugin of a repository asks for, read from its plugin.json
+// before installing, and every permission there is, for the confirmation in the panel.
+func (s *Server) handlePluginsAPIPreview(c *gin.Context) {
+	id, repository := c.Query("id"), c.Query("repository")
+	masterConfig, _ := config.ReadMasterConfig(s.serverDir)
+	repos := config.DefaultPluginsConfig().Repositories
+	if masterConfig != nil && masterConfig.Plugins != nil {
+		repos = masterConfig.Plugins.Repositories
+	}
+	var repo *config.PluginRepository
+	for i := range repos {
+		if repos[i].Name == repository && repos[i].Enabled {
+			repo = &repos[i]
+			break
 		}
 	}
-
-	c.JSON(http.StatusOK, gin.H{"installed": installed})
+	if repo == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Repository not found"})
+		return
+	}
+	loader := plugins.NewLoader(s.serverDir)
+	preview, err := loader.PreviewPermissions(*repo, id)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("Failed to read the plugin: %v", err)})
+		return
+	}
+	// an update to a lower plugin API is refused: the panel says so before installing
+	var downgradeFrom int
+	if fullID := c.Query("fullId"); fullID != "" && plugins.ValidPluginID(fullID) {
+		floor, err := loader.APIFloor(fullID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if floor > preview.API {
+			downgradeFrom = floor
+		}
+	}
+	// API 1 reaches any internet host outside the grants: the dialog shows it as "*"
+	requested, internet := preview.Requested.Names(), []string(preview.Requested.Internet)
+	if preview.API < 2 {
+		requested, internet = append([]string{"internet"}, requested...), []string{"*"}
+	}
+	actions := preview.Actions
+	if actions == nil {
+		actions = plugins.ManifestActions{}
+	}
+	dashboards := preview.Dashboards
+	if dashboards == nil {
+		dashboards = plugins.ManifestDashboards{}
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"version":       preview.Version,
+		"api":           preview.API,
+		"downgradeFrom": downgradeFrom,
+		"requiresVclu":  preview.RequiresVclu,
+		"needsNewer":    preview.NeedsNewer,
+		"requested":     nonNil(requested),
+		"internet":      nonNil(internet),
+		"permissions":   preview.Requested,
+		"wide":          nonNil(preview.Requested.Wide()),
+		"risky":         preview.Requested.Risky(),
+		"warnings":      preview.Requested.Warnings(),
+		"actions":       actions,
+		"dashboards":    dashboards,
+		"seen":          plugins.SeenOf(preview.Requested, preview.API), // sent back with the install
+		"all":           plugins.AllPermissions.Names(),
+	})
 }
 
 // handlePluginsAPIInstall installs a plugin
@@ -301,14 +433,32 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 		ID         string `json:"id"`         // short id (e.g., "weather")
 		FullID     string `json:"fullId"`     // full id (e.g., "@vclu/weather")
 		Repository string `json:"repository"` // repository name
+		// The permissions the user confirmed (GET /plugins/preview); a new plugin gets only
+		// these, the rest waits as on an update. Required: nothing installs unconfirmed.
+		Accept *[]string `json:"accept"`
+		// What the confirmation showed for them; the files may say otherwise. Required too
+		Seen *plugins.Seen `json:"seen"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
 		return
 	}
+	// installing and updating is a person's decision on the confirmation, also with an API key
+	if req.Accept == nil || req.Seen == nil || req.Seen.API < 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "install needs accept and seen from /api/plugins/preview: the permissions and what the confirmation showed", "code": "consent_required"})
+		return
+	}
+	// one install at a time, from the checks to the saved entry: another one cannot slip in
+	// between with a stale configuration
+	defer plugins.LockInstalls()()
 
-	masterConfig, _ := config.ReadMasterConfig(s.serverDir)
+	// an unreadable configuration hides where an installed plugin came from and what it may do
+	masterConfig, err := config.ReadMasterConfig(s.serverDir)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 	if masterConfig == nil {
 		masterConfig = &config.VCLUConfig{}
 	}
@@ -340,7 +490,7 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 	// Get namespace
 	namespace := registry.Namespace
 	if namespace == "" {
-		namespace = req.Repository
+		namespace = plugins.NamespaceFromName(req.Repository)
 	}
 
 	var pluginMeta *PluginMetadata
@@ -359,11 +509,92 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 	// Build fullId
 	fullId := fmt.Sprintf("@%s/%s", namespace, req.ID)
 
+	if !plugins.ValidPluginID(fullId) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid plugin id %q", fullId)})
+		return
+	}
+	if !plugins.NamespaceAllowed(namespace, *targetRepo) {
+		c.JSON(http.StatusForbidden, gin.H{"error": fmt.Sprintf("%s from %s: %v", fullId, targetRepo.Name, plugins.ErrReservedNamespace), "code": "reserved_namespace"})
+		return
+	}
+
+	// An installed plugin is updated only from the repository it came from; another one listing
+	// the same id is another publisher's plugin
+	// two plugins whose wizards would write the same module are not installed together
+	var ids []string
+	for _, inst := range masterConfig.Plugins.Installed {
+		ids = append(ids, inst.ID)
+	}
+	if other := plugins.ModuleNameTaken(fullId, ids); other != "" {
+		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("%s cannot be installed next to %s: their wizards would write the same module, modules/plugins/%s.lua", fullId, other, plugins.ModuleName(fullId)), "code": "module_name"})
+		return
+	}
+
+	sourceCheck := plugins.NewLoader(s.serverDir)
+	for _, inst := range masterConfig.Plugins.Installed {
+		if inst.ID != fullId {
+			continue
+		}
+		if ok, moved := sourceCheck.FromSource(inst, *targetRepo); moved {
+			c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("%s was installed from %s at another address; the repository of that name has moved, so it is not updated from there. Uninstall it first to install it from the new address (its settings will have to be entered again)", fullId, inst.Repository), "code": "source_moved"})
+			return
+		} else if !ok {
+			from := inst.Repository
+			if from == "" {
+				from = "the official repository"
+			}
+			c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("%s is installed from %s; to install it from %s, uninstall it first (its settings will have to be entered again)", fullId, from, targetRepo.Name)})
+			return
+		}
+	}
+
+	// What the files on disk ask for before an update: an installation from before grants
+	// keeps that, and an update asking for more waits for the user
+	loader := plugins.NewLoader(s.serverDir)
+	previous, previousErr := loader.RequestedPermissions(fullId)
+	// Recorded before the download, so a reload meanwhile cannot take the new files' request;
+	// without the old files nothing is known and everything waits for the user
+	err = config.UpdateMasterConfig(s.serverDir, func(masterConfig *config.VCLUConfig) error {
+		if masterConfig.Plugins == nil {
+			return nil
+		}
+		for i := range masterConfig.Plugins.Installed {
+			if inst := &masterConfig.Plugins.Installed[i]; inst.ID == fullId && inst.Grants == nil {
+				if previousErr == nil {
+					inst.Grants = previous.Grants()
+				} else {
+					inst.Grants = &config.PluginGrants{}
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save config"})
+		return
+	}
+	if previousErr == nil {
+		// a grant from before ports were recorded keeps the old files' ports, not the update's
+		loader.PinPorts(fullId, previous)
+	}
+
 	// The files first: the config then never names a version that is not on disk (#112)
-	if err := plugins.NewLoader(s.serverDir).DownloadPlugin(*targetRepo, fullId); err != nil {
+	if err := loader.DownloadPluginSeen(*targetRepo, fullId, req.Seen.API); err != nil {
+		if errors.Is(err, plugins.ErrAPIDowngrade) {
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error(), "code": "api_downgrade"})
+			return
+		}
+		if errors.Is(err, plugins.ErrChangedSincePreview) {
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error(), "code": "changed_since_preview"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to download plugin: %v", err)})
 		return
 	}
+	api, _ := loader.DiskAPI(fullId)
+	requested, _ := loader.RequestedPermissions(fullId)
+	// hosts and ports not shown wait for the user, as after an update
+	requested = requested.Only(*req.Accept).OnlyHostsSeen(req.Seen.Internet).OnlySeen(*req.Seen)
 
 	// Fetched without the lock; the install goes into the file as it is now
 	action := "installed"
@@ -375,9 +606,15 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 		// Check if already installed
 		for i, inst := range masterConfig.Plugins.Installed {
 			if inst.ID == fullId {
-				// Update version
+				// Update version; the repository is the one the files come from (checked above;
+				// an entry from before repositories were recorded gets it now)
 				masterConfig.Plugins.Installed[i].Version = pluginMeta.Version
+				masterConfig.Plugins.Installed[i].Repository = targetRepo.Name
+				masterConfig.Plugins.Installed[i].RepositoryURL = plugins.RepoURL(targetRepo.URL)
 				masterConfig.Plugins.Installed[i].InstalledAt = time.Now().Format(time.RFC3339)
+				if api > masterConfig.Plugins.Installed[i].API {
+					masterConfig.Plugins.Installed[i].API = api
+				}
 				action = "updated"
 				return nil
 			}
@@ -385,12 +622,16 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 
 		// Add to installed
 		masterConfig.Plugins.Installed = append(masterConfig.Plugins.Installed, config.InstalledPlugin{
-			ID:          fullId,
-			Version:     pluginMeta.Version,
-			Enabled:     true,
-			Repository:  req.Repository,
-			InstalledAt: time.Now().Format(time.RFC3339),
-			Config:      make(map[string]interface{}),
+			ID:            fullId,
+			Version:       pluginMeta.Version,
+			Enabled:       true,
+			Repository:    req.Repository,
+			RepositoryURL: plugins.RepoURL(targetRepo.URL),
+			API:           api,
+			InstalledAt:   time.Now().Format(time.RFC3339),
+			Config:        make(map[string]interface{}),
+			// Installing is allowing what the plugin asks for now
+			Grants: requested.Grants(),
 		})
 		return nil
 	})
@@ -405,8 +646,12 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 
 // handlePluginsAPIUninstall uninstalls a plugin
 func (s *Server) handlePluginsAPIUninstall(c *gin.Context) {
+	defer dashCache.Invalidate() // a plugin started or stopped brings or takes its dashboards
 	pluginID := c.Param("id")
 
+	// the install lock only for the entry: unloading below waits for the Lua loop, which may
+	// be fetching files under it
+	unlock := plugins.LockInstalls()
 	err := config.UpdateMasterConfig(s.serverDir, func(masterConfig *config.VCLUConfig) error {
 		if masterConfig.Plugins == nil {
 			return errPluginNotFound
@@ -429,6 +674,7 @@ func (s *Server) handlePluginsAPIUninstall(c *gin.Context) {
 		masterConfig.Plugins.Installed = newInstalled
 		return nil
 	})
+	unlock()
 	if ce, ok := asConfigError(err); ok {
 		c.JSON(ce.status, gin.H{"error": ce.msg})
 		return
@@ -438,12 +684,22 @@ func (s *Server) handlePluginsAPIUninstall(c *gin.Context) {
 		return
 	}
 
+	// its dashboards and actions go with it
+	if s.pluginController != nil && s.pluginController.IsLoaded(pluginID) {
+		if err := s.pluginController.UnloadPlugin(pluginID); err != nil {
+			log.Printf("[PLUGINS] %s: unloading: %v", pluginID, err)
+		}
+	}
+	if err := plugins.DeletePluginSecrets(s.serverDir, pluginID); err != nil {
+		log.Printf("[PLUGINS] %s: forgetting secrets: %v", pluginID, err)
+	}
 	s.resolvePluginNotices()
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
 // handlePluginsAPIToggle enables/disables a plugin
 func (s *Server) handlePluginsAPIToggle(c *gin.Context) {
+	defer dashCache.Invalidate() // a plugin started or stopped brings or takes its dashboards
 	pluginID := c.Param("id")
 
 	var req struct {
@@ -478,6 +734,7 @@ func (s *Server) handlePluginsAPIToggle(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save config"})
 		return
 	}
+	s.resolvePluginNotices() // a disabled plugin no longer waits for permissions
 
 	// Load or unload the plugin immediately if controller is available
 	if s.pluginController != nil {
@@ -507,8 +764,105 @@ func (s *Server) handlePluginsAPIToggle(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
+// serialPortPatterns: where serial ports show up on Linux; by-id names survive replugging.
+var serialPortPatterns = []string{"/dev/serial/by-id/*", "/dev/ttyUSB*", "/dev/ttyACM*", "/dev/ttyAMA*", "/dev/ttyS0"}
+
+// handlePluginsAPISerialPorts lists the serial ports on this machine, to assign one to a plugin.
+func (s *Server) handlePluginsAPISerialPorts(c *gin.Context) {
+	ports := []string{}
+	for _, pattern := range serialPortPatterns {
+		matches, _ := filepath.Glob(pattern)
+		ports = append(ports, matches...)
+	}
+	c.JSON(http.StatusOK, gin.H{"ports": ports})
+}
+
+// strictGrants is config.PluginGrants without its UnmarshalJSON (which also reads older keys).
+type strictGrants config.PluginGrants
+
+// handlePluginsAPIPermissions sets what the user allows a plugin
+// and loads the plugin again with it. The plugin still gets only what its plugin.json asks for.
+func (s *Server) handlePluginsAPIPermissions(c *gin.Context) {
+	defer dashCache.Invalidate() // a plugin started or stopped brings or takes its dashboards
+	pluginID := c.Param("id")
+
+	// Unknown keys refused: {"lan": {"host": [...]}} would otherwise allow any host (the type
+	// without PluginGrants' reading of older keys, so the decoder checks every field)
+	var strict strictGrants
+	dec := json.NewDecoder(c.Request.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&strict); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request: " + err.Error()})
+		return
+	}
+	req := config.PluginGrants(strict)
+	if err := plugins.ValidateGrants(req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// never more than plugin.json asks for: without it nothing says what that is, and a grant
+	// saved in full would wait for a later version asking for it
+	if _, err := installedEntry(s.serverDir, pluginID); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Plugin not found"})
+		return
+	}
+	requested, err := plugins.NewLoader(s.serverDir).RequestedPermissions(pluginID)
+	if err != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("permissions not changed: the plugin's plugin.json cannot be read: %v", err)})
+		return
+	}
+	grants := plugins.WithinRequest(req, requested)
+
+	var installed config.InstalledPlugin
+	err = config.UpdateMasterConfig(s.serverDir, func(masterConfig *config.VCLUConfig) error {
+		if masterConfig.Plugins == nil {
+			return errPluginNotFound
+		}
+		for i := range masterConfig.Plugins.Installed {
+			if masterConfig.Plugins.Installed[i].ID == pluginID {
+				masterConfig.Plugins.Installed[i].Grants = &grants
+				installed = masterConfig.Plugins.Installed[i]
+				return nil
+			}
+		}
+		return errPluginNotFound
+	})
+	if ce, ok := asConfigError(err); ok {
+		c.JSON(ce.status, gin.H{"error": ce.msg})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save config"})
+		return
+	}
+	s.resolvePluginNotices() // the bell's "waiting for permissions"
+
+	if s.pluginController != nil && installed.Enabled && s.pluginController.IsLoaded(pluginID) {
+		if err := s.pluginController.UnloadPlugin(pluginID); err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": true,
+				"warning": fmt.Sprintf("Permissions saved but plugin failed to unload: %v", err),
+			})
+			return
+		}
+		if err := s.pluginController.LoadPlugin(pluginID, installed.Config); err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": true,
+				"warning": fmt.Sprintf("Permissions saved but plugin failed to load: %v", err),
+			})
+			return
+		}
+	}
+
+	v := plugins.NewLoader(s.serverDir).PermissionsView(installed)
+	c.JSON(http.StatusOK, gin.H{"success": true, "pendingPermissions": v.Pending.Names(), "pendingInternet": v.Pending.Internet,
+		"pending": v.Pending, "pendingActions": v.Pending.Actions})
+}
+
 // handlePluginsAPIConfig updates plugin configuration
 func (s *Server) handlePluginsAPIConfig(c *gin.Context) {
+	defer dashCache.Invalidate() // a plugin started or stopped brings or takes its dashboards
 	pluginID := c.Param("id")
 
 	var req struct {
@@ -633,7 +987,7 @@ func (s *Server) handlePluginsAPIGetSchema(c *gin.Context) {
 // fetchPluginSchema fetches plugin.json from repository
 func fetchPluginSchema(repo config.PluginRepository, pluginPath, gitTag string) (map[string]interface{}, error) {
 	resolver := plugins.DefaultResolver(repo.URL)
-	pluginURL := resolver.RawFileURL(repo.URL, gitTag, pluginPath+"/plugin.json")
+	pluginURL := resolver.RawFileURL(repo.URL, gitTag, plugins.RepoFilePath(pluginPath, "plugin.json"))
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Get(pluginURL)
@@ -646,7 +1000,7 @@ func fetchPluginSchema(repo config.PluginRepository, pluginPath, gitTag string) 
 		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := readRepoFile(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
@@ -736,7 +1090,7 @@ func (s *Server) handlePluginsAPIGetDoc(c *gin.Context) {
 // fetchPluginDoc fetches a documentation file from repository
 func fetchPluginDoc(repo config.PluginRepository, pluginPath, docFile, gitTag string) (string, error) {
 	resolver := plugins.DefaultResolver(repo.URL)
-	docURL := resolver.RawFileURL(repo.URL, gitTag, pluginPath+"/"+docFile)
+	docURL := resolver.RawFileURL(repo.URL, gitTag, plugins.RepoFilePath(pluginPath, docFile))
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Get(docURL)
@@ -749,12 +1103,24 @@ func fetchPluginDoc(repo config.PluginRepository, pluginPath, docFile, gitTag st
 		return "", fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := readRepoFile(resp.Body)
 	if err != nil {
 		return "", fmt.Errorf("failed to read response: %w", err)
 	}
 
 	return string(body), nil
+}
+
+// maxRepoFile bounds a plugin.json or a documentation file read from a repository.
+const maxRepoFile = 1 << 20
+
+// readRepoFile reads a repository file up to maxRepoFile.
+func readRepoFile(r io.Reader) ([]byte, error) {
+	body, err := io.ReadAll(io.LimitReader(r, maxRepoFile+1))
+	if err == nil && len(body) > maxRepoFile {
+		err = fmt.Errorf("larger than %d bytes", maxRepoFile)
+	}
+	return body, err
 }
 
 // fetchPluginsFromRepo fetches plugins.json from a repository
@@ -767,46 +1133,39 @@ func fetchPluginsFromRepo(repo config.PluginRepository) ([]PluginMetadata, error
 }
 
 // maxRegistrySize bounds a repository's plugins.json.
-const maxRegistrySize = 2 << 20
+const maxRegistrySize = plugins.MaxIndexSize
 
-// fetchRegistryFromRepo fetches full plugins.json registry from a repository
+// fetchRegistryFromRepo fetches full plugins.json registry from a repository; a
+// repository with only a root plugin.json is a registry of one plugin
 func fetchRegistryFromRepo(repo config.PluginRepository) (*PluginRegistryResponse, error) {
 	return fetchRegistryFromRepoCtx(context.Background(), repo)
 }
 
 func fetchRegistryFromRepoCtx(ctx context.Context, repo config.PluginRepository) (*PluginRegistryResponse, error) {
-	resolver := plugins.DefaultResolver(repo.URL)
-	pluginsURL := resolver.RawFileURL(repo.URL, "", "plugins.json")
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pluginsURL, nil)
+	index, err := plugins.FetchIndexCtx(ctx, &http.Client{Timeout: 10 * time.Second}, repo)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch: %w", err)
+		return nil, err
 	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch: %w", err)
+	registry := &PluginRegistryResponse{
+		Version:     index.Version,
+		Name:        index.Name,
+		Namespace:   index.Namespace,
+		Description: index.Description,
+		URL:         index.URL,
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+	for _, p := range index.Plugins {
+		registry.Plugins = append(registry.Plugins, PluginMetadata{
+			ID:          p.ID,
+			Name:        p.Name,
+			Version:     p.Version,
+			Description: p.Description,
+			Author:      p.Author,
+			Path:        p.Path,
+			Tags:        p.Categories,
+			GitTag:      p.GitTag,
+		})
 	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxRegistrySize+1))
-	if err == nil && len(body) > maxRegistrySize {
-		err = fmt.Errorf("larger than %d bytes", maxRegistrySize)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	var registry PluginRegistryResponse
-	if err := json.Unmarshal(body, &registry); err != nil {
-		return nil, fmt.Errorf("invalid JSON: %w", err)
-	}
-
-	return &registry, nil
+	return registry, nil
 }
 
 // buildPluginRepoUrl builds a URL to the plugin's directory in the repository

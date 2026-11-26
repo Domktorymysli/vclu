@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -117,6 +118,9 @@ type LuaEngine struct {
 	httpServerManager   *HTTPServerManager
 	mqttManager         *MQTTManager
 	modbusManager       *ModbusManager
+	pluginIO            *PluginIO
+	ownTCPPorts         func() []int  // vclu's listening ports, kept from plugins' HTTP
+	pluginBudget        *pluginBudget // plugin code's time per callback, kept across reloads
 	kvManager           *plugins.KVStoreManager
 	gpioManager         *GPIOManager
 	satelManager        *SatelManager
@@ -146,6 +150,7 @@ type LuaEngine struct {
 	drainDone   chan struct{}    // closed on shutdown — unblocks waiting submitters
 	drainOnce   sync.Once        // drainDone is closed from several paths
 	loopDone    chan struct{}    // closed when RunLoop has returned
+	loopStarted atomic.Bool      // RunLoop was called: Close waits for loopDone
 
 	// Runtime busy tracking for runtime:busy_percent metric
 	busyTimeNs   atomic.Int64 // nanoseconds spent in callbacks since start
@@ -183,13 +188,42 @@ func NewLuaEngineWithRuntimePath(cluName string, runtimePath string) *LuaEngine 
 	return le
 }
 
+// isolateStringMethods: strings find their methods in the string library through a table
+// of their own, so ("").__index is not the library a plugin could change for everyone. The
+// methods are timed (plugin_budget.go): a plugin's call is charged to it, a module's costs a clock read.
+func isolateStringMethods(L *lua.LState) {
+	lib, ok := L.GetGlobal("string").(*lua.LTable)
+	if !ok {
+		return
+	}
+	methods := L.NewTable()
+	lib.ForEach(func(k, v lua.LValue) {
+		if f, ok := v.(*lua.LFunction); ok {
+			methods.RawSet(k, timedFunction(L, f))
+		}
+	})
+	methods.RawSetString("__index", lua.LFalse)
+	fallback := L.NewTable()
+	fallback.RawSetString("__index", lib)
+	L.SetMetatable(methods, fallback)
+	mt := L.NewTable()
+	mt.RawSetString("__index", methods)
+	L.SetMetatable(lua.LString(""), mt)
+}
+
 // initializeLuaState creates and configures a fresh Lua state
 // This is the common initialization used by both NewLuaEngineWithRuntimePath and Reinitialize
 func (le *LuaEngine) initializeLuaState(cluName string) error {
 	L := lua.NewState()
+	isolateStringMethods(L)
 	RegisterErrorLevel(L)
 	registerCoroutineContext(L)
 	le.registerLimitFunctions(L)
+	if le.pluginBudget == nil {
+		le.pluginBudget = newPluginBudget(le.runtimePath)
+	}
+	le.pluginBudget.reset()
+	registerPluginBudgetFunctions(L, le.pluginBudget)
 
 	// Keep os and package libraries for CLU runtime
 	// os.time, os.date needed by CLU modules
@@ -214,6 +248,7 @@ func (le *LuaEngine) initializeLuaState(cluName string) error {
 	le.timerManager = NewTimerManager()
 
 	le.httpManager = NewHTTPManager()
+	le.applyOwnTCPPorts()
 
 	// Create HTTP server manager (but don't stop existing - preserve across reinit)
 	if le.httpServerManager == nil {
@@ -230,6 +265,13 @@ func (le *LuaEngine) initializeLuaState(cluName string) error {
 		le.modbusManager = NewModbusManager()
 	}
 
+	// Plugins' sockets and ports belong to the old state's sandboxes: close them
+	if le.pluginIO == nil {
+		le.pluginIO = NewPluginIO()
+		le.pluginIO.deliver = le.executeFast
+	}
+	le.pluginIO.CloseAll()
+
 	// Register safe functions (including timer functions)
 	registerSafeFunctions(L)
 	registerTimerFunctions(L, le.timerManager)
@@ -237,6 +279,8 @@ func (le *LuaEngine) initializeLuaState(cluName string) error {
 	registerHTTPServerFunctions(L, le.httpServerManager)
 	registerMQTTFunctions(L, le.mqttManager)
 	registerModbusFunctions(L, le.modbusManager)
+	registerPluginIOFunctions(L, le.pluginIO)
+	registerPluginWSFunctions(L, le.pluginIO, le.httpManager)
 	registerParserFunctions(L)
 	registerKVFunctions(L, le.kvManager)
 	registerGPIOFunctions(L, le.gpioManager)
@@ -1426,6 +1470,7 @@ func (le *LuaEngine) drainAllQueuesWithError(err error) {
 // RunLoop runs the main event loop, processing timers, HTTP server requests, and work queues.
 // This blocks until Stop is called.
 func (le *LuaEngine) RunLoop(stopChan <-chan struct{}) {
+	le.loopStarted.Store(true)
 	le.engineState.Store(int32(stateRunning))
 	defer close(le.loopDone)
 
@@ -1698,18 +1743,17 @@ func (le *LuaEngine) ProcessHTTPServer() int {
 // If stateInit (RunLoop never started), we close directly.
 func (le *LuaEngine) Close() {
 	prev := engineState(le.engineState.Load())
-	if prev == stateClosed || prev == stateFailed {
-		return
-	}
-
-	// RunLoop owns the state until it returns: wait for it (it drains the
-	// queues and flushes persist) before closing the state underneath it
-	if prev == stateRunning || prev == stateStopping {
+	// RunLoop owns the state until it returns: wait for it (it drains the queues and
+	// flushes persist), also when it has already marked the state closed on its way out
+	if le.loopStarted.Load() {
 		select {
 		case <-le.loopDone:
 		case <-time.After(5 * time.Second):
 			log.Printf("[LUA] Close: RunLoop did not stop within 5 s")
 		}
+	}
+	if prev == stateClosed || prev == stateFailed {
+		return
 	}
 
 	// If stateInit (RunLoop never started), close drainDone and transition directly
@@ -1738,6 +1782,9 @@ func (le *LuaEngine) Close() {
 	if le.modbusManager != nil {
 		le.modbusManager.Close()
 	}
+	if le.pluginIO != nil {
+		le.pluginIO.CloseAll()
+	}
 	if le.httpServerManager != nil {
 		le.httpServerManager.Stop()
 	}
@@ -1751,6 +1798,7 @@ func (le *LuaEngine) Close() {
 		if prev == stateInit {
 			flushPersist(state) // RunLoop never ran, nobody flushed
 		}
+		budgets.Delete(state)
 		state.Close()
 	}
 }
@@ -1784,6 +1832,7 @@ func (le *LuaEngine) reinitializeInner(cluName string) error {
 	if le.state != nil {
 		releaseOutputs(le.state)
 		flushPersist(le.state)
+		budgets.Delete(le.state)
 		le.state.Close()
 		le.state = nil
 	}
@@ -2118,6 +2167,34 @@ func (le *LuaEngine) processGPIOOnLoop() {
 // ProcessGPIO is the public wrapper for tests.
 func (le *LuaEngine) ProcessGPIO() {
 	le.processGPIOOnLoop()
+}
+
+// SetOwnTCPPorts: the TCP ports vclu listens on (panel, MQTT broker, HomeKit), read again on
+// every Lua load; with the Lua HTTP server's, a plugin's HTTP does not reach them here.
+func (le *LuaEngine) SetOwnTCPPorts(fn func() []int) {
+	le.ownTCPPorts = fn
+	le.applyOwnTCPPorts()
+}
+
+func (le *LuaEngine) applyOwnTCPPorts() {
+	if le.httpManager == nil || le.ownTCPPorts == nil {
+		return
+	}
+	ports := le.ownTCPPorts()
+	le.httpManager.SetOwnPorts(func() []int {
+		if sm := le.httpServerManager; sm != nil && sm.IsRunning() {
+			sm.mu.RLock()
+			p := sm.config.Port
+			sm.mu.RUnlock()
+			return append(slices.Clip(ports), p)
+		}
+		return ports
+	})
+}
+
+// PluginIO: plugins' UDP sockets, serial ports and TFTP transfers.
+func (le *LuaEngine) PluginIO() *PluginIO {
+	return le.pluginIO
 }
 
 // GetMQTTManager returns the MQTT manager instance.

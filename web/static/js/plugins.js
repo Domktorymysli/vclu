@@ -39,6 +39,14 @@ PluginsManager.prototype.init = function() {
         addRepoModal: document.getElementById('addRepoModal'),
         configModal: document.getElementById('configModal'),
         docModal: document.getElementById('docModal'),
+        permissionsModal: document.getElementById('permissionsModal'),
+        permissionsPluginId: document.getElementById('permissionsPluginId'),
+        permissionsFields: document.getElementById('permissionsFields'),
+        installModal: document.getElementById('installModal'),
+        installPluginName: document.getElementById('installPluginName'),
+        installPermissions: document.getElementById('installPermissions'),
+        installNote: document.getElementById('installNote'),
+        installConfirm: document.getElementById('installConfirm'),
         configPluginId: document.getElementById('configPluginId'),
         configFields: document.getElementById('configFields'),
         docTitle: document.getElementById('docTitle'),
@@ -97,6 +105,21 @@ PluginsManager.prototype._loadInstalledPluginsData = function() {
  */
 PluginsManager.prototype.setInstalledPlugins = function(plugins) {
     this.installedPlugins = plugins || {};
+};
+
+/**
+ * Reload installed plugins from the server (permissions an update asks for) and re-render
+ */
+PluginsManager.prototype.refreshInstalled = function() {
+    var self = this;
+    fetch('/api/plugins/installed')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            (data.installed || []).forEach(function(p) {
+                self.installedPlugins[p.id] = p;
+            });
+            self._renderInstalledPlugins();
+        });
 };
 
 /**
@@ -185,6 +208,56 @@ PluginsManager.prototype._renderPluginCard = function(plugin, options) {
         if (plugin.configured === false) {
             statusBadge += ' <span class="badge bg-warning text-dark">not configured</span>';
         }
+        if (plugin.sourceMoved) {
+            statusBadge += ' <span class="badge bg-warning text-dark" title="' + VCLU.esc(pt('source_moved_title')) + '">' + VCLU.esc(pt('source_moved')) + '</span>';
+        }
+        if (plugin.usage && plugin.usage.suspended) {
+            statusBadge += ' <span class="badge bg-danger" title="' + VCLU.esc(pt('suspended_title')) + '">' + VCLU.esc(pt('suspended')) + '</span>';
+        }
+        var waitingAll = (plugin.pendingPermissions || []).concat(plugin.pendingActions || []);
+        if (waitingAll.length > 0) {
+            statusBadge += ' <span class="badge bg-danger" title="' + VCLU.esc(pt('asks_for_title')) + '">' + VCLU.esc(pt('asks_for')) + ' ' +
+                           VCLU.esc(waitingAll.join(', ')) + '</span>';
+        }
+    }
+
+    // Every permission, the ones the plugin uses in green (installed plugins only: the
+    // repository index does not say, the install confirmation reads it from plugin.json)
+    var permsHtml = '';
+    if (options.isInstalled) {
+        var requested = plugin.requestedPermissions || [];
+        var pending = plugin.pendingPermissions || [];
+        permsHtml = '<p class="mb-2 small">' + ALL_PERMISSIONS.map(function(name) {
+            var cls = 'bg-transparent border border-secondary text-body-secondary', title = pt('not_used');
+            if (name === 'internet') {
+                return internetBadge(plugin.internet || [], plugin.pendingInternet || []);
+            }
+            if (pending.indexOf(name) >= 0) {
+                cls = 'bg-warning text-dark'; title = pt('asked_not_allowed');
+            } else if (requested.indexOf(name) >= 0) {
+                cls = 'bg-success'; title = pt('allowed');
+            }
+            var perms = plugin.permissions || {};
+            var label = requested.indexOf(name) >= 0 ? permissionSentence(name, perms[name]) : (PERMISSION_LABELS[name] || name);
+            if ((plugin.wide || []).indexOf(name) >= 0) title += ' (' + pt('wide') + ')';
+            return '<span class="badge ' + cls + ' me-1" title="' + VCLU.esc(title + ': ' + label) + '">' +
+                   VCLU.esc(PERMISSION_SHORT[name] || name) + '</span>';
+        }).join('') + '</p>';
+        if ((plugin.actions || []).length > 0) {
+            permsHtml += '<p class="mb-2 small text-body-secondary">' + VCLU.esc(pt('actions_label')) + ': ' +
+                         plugin.actions.map(function(a) {
+                             var waits = (plugin.pendingActions || []).indexOf(a.name) >= 0;
+                             return '<span class="badge ' + (waits ? 'bg-warning text-dark' : 'bg-secondary') + ' me-1" title="' +
+                                    VCLU.esc(localText(a.description) + (a.confirm ? ' (' + pt('action_confirm') + ')' : '')) + '">' +
+                                    VCLU.esc(a.name) + '</span>';
+                         }).join('') + '</p>';
+        }
+        if (plugin.api === 1) permsHtml += '<p class="mb-2 small text-danger">' + VCLU.esc(pt('api1_note')) + '</p>';
+        // its time on the run loop, on average since it was loaded
+        if (plugin.usage && enabled) {
+            permsHtml += '<p class="mb-2 small text-body-secondary">' + VCLU.esc(pt('cpu', plugin.usage.cpuMsPerMin)) +
+                         (plugin.usage.overruns ? ' · ' + VCLU.esc(pt('overruns', plugin.usage.overruns)) : '') + '</p>';
+        }
     }
 
     // Link buttons
@@ -210,6 +283,28 @@ PluginsManager.prototype._renderPluginCard = function(plugin, options) {
                      'onclick="pluginsManager.configure(\'' + VCLU.esc(id) + '\')" ' +
                      'data-bs-toggle="tooltip" data-bs-placement="top" title="Configure">' +
                      '<i class="bi bi-gear"></i></button>';
+        // Turn on a plugin suspended for going over its time limit
+        if (plugin.usage && plugin.usage.suspended) {
+            actionBtns += '<button class="btn btn-sm btn-danger me-1" ' +
+                         'onclick="pluginsManager.resume(\'' + VCLU.esc(id) + '\')" ' +
+                         'data-bs-toggle="tooltip" data-bs-placement="top" title="' + VCLU.esc(pt('resume_title')) + '">' +
+                         '<i class="bi bi-play-circle"></i> ' + VCLU.esc(pt('resume')) + '</button>';
+        }
+        // Allow what an update asks for
+        if ((plugin.pendingPermissions || []).length + (plugin.pendingActions || []).length > 0) {
+            actionBtns += '<button class="btn btn-sm btn-danger me-1" ' +
+                         'onclick="pluginsManager.allowPermissions(\'' + VCLU.esc(id) + '\')" ' +
+                         'data-bs-toggle="tooltip" data-bs-placement="top" title="' + VCLU.esc(pt('allow')) + ': ' +
+                         VCLU.esc(plugin.pendingPermissions.join(', ')) + '">' +
+                         '<i class="bi bi-shield-check"></i> ' + VCLU.esc(pt('allow')) + '</button>';
+        }
+        // Permissions (what the plugin may reach on the LAN and MQTT)
+        if (plugin.requestedPermissions && plugin.requestedPermissions.length > 0) {
+            actionBtns += '<button class="btn btn-sm btn-outline-secondary me-1" ' +
+                         'onclick="pluginsManager.editPermissions(\'' + VCLU.esc(id) + '\')" ' +
+                         'data-bs-toggle="tooltip" data-bs-placement="top" title="' + VCLU.esc(pt('permissions_button')) + '">' +
+                         '<i class="bi bi-shield-lock"></i></button>';
+        }
         // Enable/Disable toggle
         if (enabled) {
             actionBtns += '<button class="btn btn-sm btn-outline-warning me-1" ' +
@@ -266,6 +361,7 @@ PluginsManager.prototype._renderPluginCard = function(plugin, options) {
            '<p class="card-text small mb-2">' + VCLU.esc(description) + '</p>' +
            '<p class="card-text small mb-2"><span class="text-muted">By:</span> ' + VCLU.esc(author) + '</p>' +
            tagsHtml +
+           permsHtml +
            '</div>' +
            '<div class="card-footer bg-transparent d-flex justify-content-between align-items-center">' +
            '<div>' + linkBtns + '</div>' +
@@ -328,9 +424,15 @@ PluginsManager.prototype._renderInstalledPlugins = function() {
     }
 
     // Find available versions for update indicators
+    // Several repositories may list one id: the one offering the update (only the plugin's
+    // own repository does), else the plugin's own repository, else the first
+    var installedRepo = {};
+    plugins.forEach(function(p) { installedRepo[p.id] = p.repository; });
+    var rank = function(a) { return a.updateAvailable ? 2 : (a.repository === installedRepo[a.fullId] ? 1 : 0); };
     var availableMap = {};
     this.availablePlugins.forEach(function(p) {
-        availableMap[p.fullId] = p;
+        var cur = availableMap[p.fullId];
+        if (!cur || rank(p) > rank(cur)) availableMap[p.fullId] = p;
     });
 
     var html = '<div class="row">';
@@ -349,7 +451,20 @@ PluginsManager.prototype._renderInstalledPlugins = function() {
             tags: available.tags || [],
             enabled: p.enabled,
             configured: !p.needsConfig,
+            requestedPermissions: p.requestedPermissions || [],
+            pendingPermissions: p.pendingPermissions || [],
+            internet: p.internet || [],
+            pendingInternet: p.pendingInternet || [],
+            permissions: p.permissions || {},
+            pending: p.pending || {},
+            wide: p.wide || [],
+            warnings: p.warnings || [],
+            actions: p.actions || [],
+            pendingActions: p.pendingActions || [],
+            usage: p.usage || null,
+            api: p.api || 0,
             updateAvailable: available.updateAvailable,
+            sourceMoved: (self.availablePlugins || []).some(function(a) { return a.fullId === p.id && a.sourceMoved; }),
             availableVersion: available.version
         };
         html += self._renderPluginCard(pluginData, { isInstalled: true });
@@ -384,7 +499,8 @@ PluginsManager.prototype.addRepository = function() {
     .then(function(r) { return r.json(); })
     .then(function(data) {
         if (data.error) {
-            VCLU.showToast(data.error, 'danger');
+            // the files differ from what the confirmation showed: it has to be seen again
+            VCLU.showToast(data.code === 'changed_since_preview' ? pt('changed_since_preview') : data.error, 'danger');
         } else {
             location.reload();
         }
@@ -435,16 +551,124 @@ PluginsManager.prototype.switchTab = function(tabName) {
  */
 PluginsManager.prototype.install = function(id, repository) {
     var self = this;
+    var shortId = id.replace(/^@[^\/]+\//, '');
+    // what the plugin asks for, from its plugin.json, before anything is downloaded
+    var fullId = /^@/.test(id) ? '&fullId=' + encodeURIComponent(id) : '';
+    fetch('/api/plugins/preview?id=' + encodeURIComponent(shortId) + '&repository=' + encodeURIComponent(repository) + fullId)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.error) {
+                VCLU.showToast(data.error, 'danger');
+                return;
+            }
+            self._confirmInstall(id, repository, data);
+        })
+        .catch(function(err) { VCLU.showToast(err.message, 'danger'); });
+};
+
+/**
+ * Show every permission, those the plugin asks for in green, and install on confirmation
+ * @param {Object} preview - {version, api, downgradeFrom, needsNewer, requiresVclu, requested, internet, permissions, wide,
+ *   warnings, actions, dashboards, seen, all} from /api/plugins/preview
+ */
+PluginsManager.prototype._confirmInstall = function(id, repository, preview) {
+    var self = this;
+    var shortId = id.replace(/^@[^\/]+\//, '');
+    var installed = Object.values(this.installedPlugins).filter(function(p) {
+        return p.id === id || p.id.replace(/^@[^\/]+\//, '') === shortId && p.repository === repository;
+    })[0];
+    var requested = preview.requested || [];
+    var name = (this.availablePlugins || []).filter(function(p) { return p.id === shortId && p.repository === repository; })
+        .map(function(p) { return p.name; })[0] || shortId;
+
+    this.elements.installPluginName.textContent = (installed ? pt('update') : pt('install')) + ' ' + name + ' v' + (preview.version || '?');
+    var asked = preview.permissions || {};
+    var had = installed ? (installed.permissions || {}) : null;
+    var html = (preview.all || ALL_PERMISSIONS).map(function(perm) {
+        var asks = requested.indexOf(perm) >= 0;
+        var line = '<li class="mb-1 ' + (asks ? 'text-success fw-semibold' : 'text-muted') + '">' +
+                   '<i class="bi ' + (asks ? 'bi-check-circle-fill' : 'bi-circle') + ' me-1"></i>' +
+                   VCLU.esc(asks ? permissionSentence(perm, perm === 'internet' && (preview.api || 1) < 2 ? {hosts: ['*']} : asked[perm]) : (PERMISSION_LABELS[perm] || perm));
+        if (asks && (preview.wide || []).indexOf(perm) >= 0) {
+            line += ' <span class="badge bg-warning text-dark" title="' + VCLU.esc(pt('wide_title')) + '">' + VCLU.esc(pt('wide')) + '</span>';
+        }
+        if (asks && PERMISSION_WARNINGS[perm]) {
+            line += ' <span class="badge bg-danger" title="' + VCLU.esc(pt('risky_title')) + '">' + VCLU.esc(pt('risky')) + '</span>';
+        }
+        if (asks && had && asksMore(perm, asked[perm], had[perm], installed)) {
+            line += ' <span class="badge bg-warning text-dark">' + VCLU.esc(pt('new')) + '</span>';
+        }
+        if (asks && perm === 'internet' && (preview.internet || []).indexOf('*') >= 0) {
+            line += '<div class="small text-danger fw-normal ms-3"><i class="bi bi-exclamation-triangle"></i> ' +
+                    VCLU.esc(INTERNET_ANY_WARNING) + '</div>';
+        }
+        if (asks && PERMISSION_WARNINGS[perm]) {
+            line += '<div class="small text-danger fw-normal ms-3"><i class="bi bi-exclamation-triangle"></i> ' +
+                    VCLU.esc(PERMISSION_WARNINGS[perm] + ' ' + pt('off_until_allowed')) + '</div>';
+        }
+        return line + '</li>';
+    }).join('');
+    // combinations: reading the house and reaching the internet, full control of a CLU
+    var hosts = (preview.internet || []).indexOf('*') >= 0 ? pt('any_server') : (preview.internet || []).join(', ');
+    (preview.warnings || []).forEach(function(w) {
+        html += '<li class="mb-1 small text-danger"><i class="bi bi-exclamation-octagon me-1"></i>' + VCLU.esc(pt('warn_' + w, hosts)) + '</li>';
+    });
+    if ((preview.actions || []).length > 0) {
+        html += '<li class="mt-2 mb-1 fw-semibold">' + VCLU.esc(pt('actions_title')) + '</li>' + preview.actions.map(function(a) {
+            var isNew = installed && !(installed.actions || []).some(function(x) { return x.name === a.name; });
+            return '<li class="mb-1 small ms-3"><code>' + VCLU.esc(a.name) + '</code> ' + VCLU.esc(localText(a.description)) +
+                   (a.confirm ? ' <span class="badge bg-info text-dark">' + VCLU.esc(pt('action_confirm')) + '</span>' : '') +
+                   (isNew ? ' <span class="badge bg-warning text-dark">' + VCLU.esc(pt('new')) + '</span>' : '') + '</li>';
+        }).join('');
+    }
+    if ((preview.dashboards || []).length > 0) {
+        html += '<li class="mt-2 mb-1 fw-semibold">' + VCLU.esc(pt('dashboards_title')) + '</li>' + preview.dashboards.map(function(d) {
+            return '<li class="mb-1 small ms-3"><i class="bi bi-grid-1x2 me-1"></i>' + VCLU.esc(localText(d.name) || d.id) + '</li>';
+        }).join('');
+    }
+    this.elements.installPermissions.innerHTML = html;
+
+    var notes = [];
+    if (requested.length === 0) notes.push(pt('uses_none'));
+    if (installed) notes.push(pt('update_keeps'));
+    if ((preview.api || 1) < 2) notes.push(pt('api1_note'));
+    // a version on a lower plugin API would drop its limits: installed only from scratch
+    var downgrade = installed && preview.downgradeFrom > 0 || preview.needsNewer;
+    if (installed && preview.downgradeFrom > 0) notes = [pt('api_downgrade', preview.downgradeFrom, preview.api || 1)];
+    if (preview.needsNewer) notes = [pt('needs_newer', preview.requiresVclu || '')];
+    this.elements.installNote.textContent = notes.join(' ');
+    this.elements.installNote.classList.toggle('text-danger', !!downgrade);
+    this.elements.installNote.classList.toggle('text-muted', !downgrade);
+    this.elements.installConfirm.textContent = installed ? pt('update') : pt('install');
+    this.elements.installConfirm.hidden = !!downgrade;
+
+    var modal = new bootstrap.Modal(this.elements.installModal);
+    this.elements.installConfirm.onclick = function() {
+        modal.hide();
+        // what this dialog showed goes back: the grant gets only that, the rest waits
+        self._install(id, repository, requested, preview.seen || {api: preview.api || 1});
+    };
+    modal.show();
+};
+
+/**
+ * Install after the confirmation
+ * @param {Array} accept - the permissions the user saw and confirmed
+ * @param {Object} seen - the hosts and ports shown with them
+ */
+PluginsManager.prototype._install = function(id, repository, accept, seen) {
+    var self = this;
     fetch('/api/plugins/install', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         // the Installed tab passes the full id; the repository knows the short one
-        body: JSON.stringify({id: id.replace(/^@[^\/]+\//, ''), repository: repository})
+        body: JSON.stringify({id: id.replace(/^@[^\/]+\//, ''), repository: repository, accept: accept, seen: seen})
     })
     .then(function(r) { return r.json(); })
     .then(function(data) {
         if (data.error) {
-            VCLU.showToast(data.error, 'danger');
+            // the files differ from what the confirmation showed: it has to be seen again
+            VCLU.showToast(data.code === 'changed_since_preview' ? pt('changed_since_preview') : data.error, 'danger');
         } else {
             // Installed plugins are keyed by full id; an update keeps config and enabled
             var existing = self.installedPlugins[data.fullId];
@@ -459,6 +683,8 @@ PluginsManager.prototype.install = function(id, repository) {
                     config: {}
                 };
             }
+            // What the update asks for comes from the server
+            self.refreshInstalled();
             // Refresh available will also re-render installed
             self.refreshAvailable();
             self.switchTab('installed');
@@ -493,6 +719,26 @@ PluginsManager.prototype.uninstall = function(id) {
  * @param {string} id - Plugin ID
  * @param {boolean} enabled - New enabled state
  */
+/**
+ * Turn on a plugin suspended for going over its time limit
+ * @param {string} id - Plugin ID
+ */
+PluginsManager.prototype.resume = function(id) {
+    var self = this;
+    fetch('/api/plugins/' + encodeURIComponent(id) + '/resume', {method: 'POST'})
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.error) {
+                VCLU.showToast(data.error, 'danger');
+                return;
+            }
+            if (data.warning) VCLU.showToast(data.warning, 'warning');
+            var plugin = self.installedPlugins[id];
+            if (plugin && plugin.usage) plugin.usage.suspended = false;
+            self._renderInstalledPlugins();
+        });
+};
+
 PluginsManager.prototype.toggle = function(id, enabled) {
     var self = this;
     fetch('/api/plugins/' + encodeURIComponent(id) + '/toggle', {
@@ -503,7 +749,8 @@ PluginsManager.prototype.toggle = function(id, enabled) {
     .then(function(r) { return r.json(); })
     .then(function(data) {
         if (data.error) {
-            VCLU.showToast(data.error, 'danger');
+            // the files differ from what the confirmation showed: it has to be seen again
+            VCLU.showToast(data.code === 'changed_since_preview' ? pt('changed_since_preview') : data.error, 'danger');
         } else {
             // Update local state and re-render
             if (self.installedPlugins[id]) {
@@ -515,10 +762,386 @@ PluginsManager.prototype.toggle = function(id, enabled) {
 };
 
 /**
+ * Save what the user allows a plugin and re-render
+ * @param {string} id - Plugin ID
+ * @param {Object} grants - {internet: {hosts}, lan: {hosts, ports | anyPort}, udp: {hosts, ports, broadcast}, tcp: {hosts, ports},
+ *   mqtt: {subscribe, publish}, modbus: {hosts}, clu: {hosts, discovery}, tftp: {hosts}, serial: {ports}, actions: [names]};
+ *   a missing key is not allowed
+ */
+PluginsManager.prototype._saveGrants = function(id, grants, done) {
+    var self = this;
+    fetch('/api/plugins/' + encodeURIComponent(id) + '/permissions', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(grants)
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.error) {
+            // the files differ from what the confirmation showed: it has to be seen again
+            VCLU.showToast(data.code === 'changed_since_preview' ? pt('changed_since_preview') : data.error, 'danger');
+            return;
+        }
+        if (data.warning) VCLU.showToast(data.warning, 'warning');
+        var plugin = self.installedPlugins[id];
+        if (plugin) {
+            plugin.grants = grants;
+            plugin.pendingPermissions = data.pendingPermissions || [];
+            plugin.pendingInternet = data.pendingInternet || [];
+            plugin.pending = data.pending || {};
+            plugin.pendingActions = data.pendingActions || [];
+        }
+        self._renderInstalledPlugins();
+        if (done) done();
+    });
+};
+
+/**
+ * Allow what the plugin asks for and the user has not allowed yet
+ * @param {string} id - Plugin ID
+ */
+PluginsManager.prototype.allowPermissions = function(id) {
+    var plugin = this.installedPlugins[id];
+    if (!plugin) return;
+    var pendingNames = plugin.pendingPermissions || [];
+    var pendingActions = plugin.pendingActions || [];
+    if (pendingNames.length === 0 && pendingActions.length === 0) return;
+    var warnings = pendingNames.filter(function(name) { return PERMISSION_WARNINGS[name]; })
+        .map(function(name) { return '\n\n' + name + ': ' + PERMISSION_WARNINGS[name]; }).join('');
+    var pendingHosts = plugin.pendingInternet || [];
+    if (pendingHosts.length > 0) {
+        warnings += '\n\n' + internetLabel(pendingHosts) + (pendingHosts.indexOf('*') >= 0 ? ': ' + INTERNET_ANY_WARNING : '');
+    }
+    pendingNames.forEach(function(name) {
+        if (name !== 'internet') warnings += '\n\n' + permissionSentence(name, (plugin.permissions || {})[name]);
+    });
+    if (pendingActions.length > 0) warnings += '\n\n' + pt('actions_waiting', pendingActions.join(', '));
+    if (!confirm(pt('allow_confirm', id, pendingNames.concat(pendingActions).join(', ')) + warnings)) return;
+    var grants = Object.assign({}, plugin.grants || {});
+    pendingNames.forEach(function(name) {
+        // what it asks for now, the hosts the user narrowed it to kept
+        grants[name] = grantFor(name, plugin, grants[name]);
+    });
+    grants.actions = (plugin.actions || []).map(function(a) { return a.name; });
+    this._saveGrants(id, grants);
+};
+
+// Texts from web/locales (plugins.perm), rendered into PLUGINS_I18N by plugins.html;
+// {0}, {1} take the arguments
+function pt(key) {
+    var s = (window.PLUGINS_I18N && PLUGINS_I18N[key]) || key;
+    var args = arguments;
+    return s.replace(/\{(\d)\}/g, function(m, n) { return args[+n + 1] !== undefined ? args[+n + 1] : m; });
+}
+
+var PERMISSION_LABELS = {
+    internet: pt('label_internet'),
+    lan: pt('label_lan'),
+    udp: pt('label_udp'),
+    tcp: pt('label_tcp'),
+    mqtt: pt('label_mqtt'),
+    modbus: pt('label_modbus'),
+    clu: pt('label_clu'),
+    tftp: pt('label_tftp'),
+    serial: pt('label_serial')
+};
+
+var ALL_PERMISSIONS = ['internet', 'lan', 'udp', 'tcp', 'mqtt', 'modbus', 'clu', 'tftp', 'serial'];
+
+var PERMISSION_SHORT = {
+    internet: pt('label_internet'),
+    lan: pt('short_lan'),
+    udp: 'UDP',
+    tcp: 'TCP',
+    mqtt: 'MQTT',
+    modbus: 'Modbus',
+    clu: pt('short_clu'),
+    tftp: 'TFTP',
+    serial: pt('short_serial')
+};
+
+// Allowed only by the user, never on install
+var PERMISSION_WARNINGS = {
+    clu: pt('warn_clu'),
+    tftp: pt('warn_tftp'),
+    serial: pt('warn_serial')
+};
+
+// "internet": {"hosts": ["*"]} (any host) is allowed on install like a list, with this in front of it
+var INTERNET_ANY_WARNING = pt('warn_internet_any');
+
+// A text of plugin.json: a string or {pl, en}, in the panel's language
+function localText(t) {
+    if (!t) return '';
+    if (typeof t === 'string') return t;
+    var lang = (window.PLUGINS_I18N && PLUGINS_I18N.lang) || 'pl';
+    return t[lang] || t.pl || t.en || '';
+}
+
+// One sentence for a permission as plugin.json declares it (perm: its object), with why
+function permissionSentence(name, perm) {
+    perm = perm || {};
+    var s = PERMISSION_LABELS[name] || name;
+    if (name === 'internet') s = internetLabel(perm.hosts || []);
+    if (name === 'lan') s += '. ' + (perm.ports ? pt('tcp_ports', perm.ports.join(', ')) : pt('lan_any_port'));
+    if (name === 'udp') {
+        s += '. ' + pt('tcp_ports', (perm.ports || []).join(', '));
+        if (perm.broadcast && perm.broadcast.length) s += '. ' + pt('udp_broadcast_to', perm.broadcast.join(', '));
+    }
+    if (name === 'tcp') s += '. ' + pt('tcp_ports', (perm.ports || []).join(', '));
+    if (name === 'mqtt') {
+        if (!perm.subscribe && !perm.publish) {
+            s += '. ' + pt('mqtt_any');
+        } else {
+            var parts = [];
+            if (perm.subscribe && perm.subscribe.length) parts.push(pt('mqtt_reads', perm.subscribe.join(', ')));
+            if (perm.publish && perm.publish.length) parts.push(pt('mqtt_publishes', perm.publish.join(', ')));
+            s += '. ' + parts.join('; ');
+        }
+    }
+    var why = localText(perm.why);
+    return why ? s + '. ' + pt('why', why) : s;
+}
+
+// The update asks for more of a permission than the installed version: a new one, a host, a
+// port, a topic filter, or no list where there was one
+function asksMore(name, asked, had, installed) {
+    if (!had) return true;
+    asked = asked || {};
+    var more = function(a, b) { return (a || []).some(function(x) { return (b || []).indexOf(x) < 0; }); };
+    if (name === 'internet') return (installed.internet || []).indexOf('*') < 0 && more(asked.hosts, had.hosts);
+    if (name === 'lan') return had.ports && (!asked.ports || more(asked.ports, had.ports));
+    if (name === 'udp') return more(asked.ports, had.ports) || more(asked.broadcast, had.broadcast);
+    if (name === 'tcp') return more(asked.ports, had.ports);
+    if (name === 'mqtt') return (had.subscribe || had.publish) && (!asked.subscribe && !asked.publish ||
+        more(asked.subscribe, had.subscribe) || more(asked.publish, had.publish));
+    return false;
+}
+
+// A grant for permission name as the plugin asks for it now, keeping the hosts the user set
+function grantFor(name, plugin, previous) {
+    var perm = (plugin.permissions || {})[name] || {};
+    var g = previous ? Object.assign({}, previous) : {};
+    if (name === 'lan') {
+        if (perm.ports) { g.ports = perm.ports.slice(); delete g.anyPort; } else { g.anyPort = true; delete g.ports; }
+    } else if (name === 'udp') {
+        g.ports = (perm.ports || []).slice(); g.broadcast = (perm.broadcast || []).slice();
+    } else if (name === 'tcp') {
+        g.ports = (perm.ports || []).slice();
+    } else if (name === 'mqtt') {
+        var any = !perm.subscribe && !perm.publish;
+        g.subscribe = any ? ['#'] : (perm.subscribe || []).slice();
+        g.publish = any ? ['#'] : (perm.publish || []).slice();
+    } else if (name === 'internet') {
+        g = {hosts: plugin.internet || []};
+    }
+    return g;
+}
+
+// The ports a permission lists, those an update added and not allowed yet marked
+function portsHtml(plugin, name) {
+    var perm = (plugin.permissions || {})[name] || {};
+    var waiting = (plugin.pending || {})[name] || {};
+    var lists = name === 'udp' ? [['ports', 'tcp_ports'], ['broadcast', 'udp_broadcast_to']] : [['ports', 'tcp_ports']];
+    var html = '';
+    lists.forEach(function(l) {
+        var list = perm[l[0]] || [];
+        if (list.length === 0) return;
+        var w = waiting[l[0]] || [];
+        html += '<div class="small mb-1">' + VCLU.esc(pt(l[1], '')) + list.map(function(port) {
+            var waits = w.indexOf(port) >= 0;
+            return '<span class="badge ' + (waits ? 'bg-warning text-dark' : 'bg-secondary') + ' ms-1"' +
+                   (waits ? ' title="' + VCLU.esc(pt('not_allowed_yet')) + '"' : '') + '>' + port + '</span>';
+        }).join('') + '</div>';
+        if (w.length > 0) {
+            html += '<div class="small text-muted mb-1">' + VCLU.esc(pt('ports_waiting', w.join(', '))) + ' ' +
+                    VCLU.esc(pt('internet_save_allows')) + '</div>';
+        }
+    });
+    if (name === 'lan' && !perm.ports) {
+        html += '<div class="small mb-1">' + VCLU.esc(pt('lan_any_port')) + ' <span class="badge bg-warning text-dark">' + VCLU.esc(pt('wide')) + '</span></div>';
+        if ((plugin.pendingPermissions || []).indexOf('lan') >= 0 && !waiting.ports) {
+            html += '<div class="small text-muted mb-1">' + VCLU.esc(pt('any_port_waiting')) + ' ' + VCLU.esc(pt('internet_save_allows')) + '</div>';
+        }
+    }
+    return html;
+}
+
+function internetLabel(hosts) {
+    if (hosts.indexOf('*') >= 0) return pt('internet_any');
+    return pt('internet_connects_to', hosts.join(', '));
+}
+
+// The internet badge of an installed plugin: its hosts, "*" with a warning, none in grey
+function internetBadge(hosts, pending) {
+    var cls = 'bg-transparent border border-secondary text-body-secondary', title = pt('not_used') + ': ' + pt('label_internet');
+    if (pending.length > 0) {
+        cls = 'bg-warning text-dark'; title = pt('asked_not_allowed') + ': ' + pending.join(', ');
+    } else if (hosts.indexOf('*') >= 0) {
+        cls = 'bg-danger'; title = internetLabel(hosts) + ': ' + INTERNET_ANY_WARNING;
+    } else if (hosts.length > 0) {
+        cls = 'bg-success'; title = internetLabel(hosts);
+    }
+    var text = hosts.indexOf('*') >= 0 ? pt('internet_any_short') : pt('label_internet');
+    return '<span class="badge ' + cls + ' me-1" title="' + VCLU.esc(title) + '">' + VCLU.esc(text) + '</span>';
+}
+
+/**
+ * Edit what a plugin may use: each permission it asks for, and lists that narrow it
+ * @param {string} id - Plugin ID
+ */
+PluginsManager.prototype.editPermissions = function(id) {
+    var plugin = this.installedPlugins[id];
+    if (!plugin) return;
+    this.currentPermissionsPlugin = id;
+    this.elements.permissionsPluginId.textContent = id;
+    // Without grants the plugin has what it asks for, in full, but what needs the user
+    var grants = plugin.grants;
+    var lines = function(list) { return VCLU.esc((list || []).join('\n')); };
+    var area = function(field, label, list, placeholder) {
+        return '<label class="form-label small mb-1" for="perm-' + field + '">' + VCLU.esc(label) + '</label>' +
+               '<textarea class="form-control form-control-sm mb-2" rows="2" id="perm-' + field + '" ' +
+               'placeholder="' + VCLU.esc(placeholder) + '">' + lines(list) + '</textarea>';
+    };
+    var html = '';
+    (plugin.requestedPermissions || []).forEach(function(name) {
+        var grant = grants ? grants[name] : (PERMISSION_WARNINGS[name] ? null : {});
+        html += '<div class="border rounded p-2 mb-2">' +
+                '<div class="form-check mb-1"><input class="form-check-input" type="checkbox" id="perm-' + name + '"' +
+                (grant ? ' checked' : '') + '><label class="form-check-label" for="perm-' + name + '">' +
+                VCLU.esc(PERMISSION_LABELS[name] || name) + '</label></div>';
+        if (PERMISSION_WARNINGS[name]) {
+            html += '<div class="small text-danger mb-1"><i class="bi bi-exclamation-triangle"></i> ' +
+                    VCLU.esc(PERMISSION_WARNINGS[name]) + '</div>';
+        }
+        if (name === 'internet') {
+            var pendingHosts = plugin.pendingInternet || [];
+            html += '<div class="small mb-1">' + (plugin.internet || []).map(function(h) {
+                var waits = pendingHosts.indexOf(h) >= 0 || pendingHosts.indexOf('*') >= 0 && h === '*';
+                return '<span class="badge ' + (waits ? 'bg-warning text-dark' : 'bg-secondary') + ' me-1"' +
+                       (waits ? ' title="' + VCLU.esc(pt('not_allowed_yet')) + '"' : '') + '>' + VCLU.esc(h === '*' ? pt('any_server') : h) + '</span>';
+            }).join('') + '</div>';
+            if ((plugin.internet || []).indexOf('*') >= 0) {
+                html += '<div class="small text-danger mb-1"><i class="bi bi-exclamation-triangle"></i> ' +
+                        VCLU.esc(INTERNET_ANY_WARNING) + '</div>';
+            }
+            if (pendingHosts.length > 0) {
+                html += '<div class="small text-muted">' + VCLU.esc(pt('internet_save_allows')) + '</div>';
+            }
+        } else if (name === 'lan') {
+            html += portsHtml(plugin, name);
+            html += area('lan-hosts', pt('hosts_only'), grant && grant.hosts, pt('any_local'));
+        } else if (name === 'mqtt') {
+            var asked = (plugin.permissions || {}).mqtt || {};
+            if (asked.subscribe || asked.publish) html += '<div class="small mb-1">' + VCLU.esc(permissionSentence('mqtt', asked)) + '</div>';
+            html += area('mqtt-subscribe', pt('subscribe_only'), grant && grant.subscribe, (asked.subscribe || [pt('any_topic')]).join(', '));
+            html += area('mqtt-publish', pt('publish_only'), grant && grant.publish, (asked.publish || [pt('any_topic')]).join(', '));
+        } else if (name === 'modbus') {
+            html += area('modbus-hosts', pt('modbus_hosts'), grant && grant.hosts, pt('any_local_but_vclu'));
+        } else if (name === 'udp' || name === 'tcp' || name === 'clu' || name === 'tftp') {
+            html += portsHtml(plugin, name);
+            html += area(name + '-hosts', pt('hosts_only'), grant && grant.hosts, pt('any_local_but_vclu'));
+            if (name === 'clu') {
+                html += '<div class="form-check small"><input class="form-check-input" type="checkbox" id="perm-clu-discovery"' +
+                        (grant && grant.discovery ? ' checked' : '') + '><label class="form-check-label" for="perm-clu-discovery">' +
+                        VCLU.esc(pt('clu_discovery')) + '</label></div>';
+            }
+        } else if (name === 'serial') {
+            html += area('serial-ports', pt('ports'), grant && grant.ports, pt('ports_none'));
+            html += '<div class="small text-muted" id="perm-serial-available"></div>';
+        }
+        var why = localText(((plugin.permissions || {})[name] || {}).why);
+        if (why) html += '<div class="small text-body-secondary">' + VCLU.esc(pt('why', why)) + '</div>';
+        html += '</div>';
+    });
+    if ((plugin.actions || []).length > 0) {
+        var allowedActions = grants && grants.actions ? grants.actions : null;
+        html += '<div class="border rounded p-2 mb-2"><div class="mb-1">' + VCLU.esc(pt('actions_label')) + '</div>' +
+                plugin.actions.map(function(a) {
+                    var on = allowedActions ? allowedActions.indexOf(a.name) >= 0 : true;
+                    var waits = (plugin.pendingActions || []).indexOf(a.name) >= 0;
+                    return '<div class="form-check small"><input class="form-check-input perm-action" type="checkbox" data-action="' +
+                           VCLU.esc(a.name) + '" id="perm-action-' + VCLU.esc(a.name) + '"' + (on || waits ? ' checked' : '') + '>' +
+                           '<label class="form-check-label" for="perm-action-' + VCLU.esc(a.name) + '"><code>' + VCLU.esc(a.name) + '</code> ' +
+                           VCLU.esc(localText(a.description)) + (a.confirm ? ' (' + VCLU.esc(pt('action_confirm')) + ')' : '') +
+                           (waits ? ' <span class="badge bg-warning text-dark">' + VCLU.esc(pt('not_allowed_yet')) + '</span>' : '') +
+                           '</label></div>';
+                }).join('') + '</div>';
+    }
+    this.elements.permissionsFields.innerHTML = html;
+    if ((plugin.requestedPermissions || []).indexOf('serial') >= 0) {
+        fetch('/api/plugins/serial-ports')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var el = document.getElementById('perm-serial-available');
+                if (el) el.textContent = (data.ports && data.ports.length) ? pt('ports_here', data.ports.join(', ')) : pt('ports_none_here');
+            });
+    }
+    new bootstrap.Modal(this.elements.permissionsModal).show();
+};
+
+PluginsManager.prototype.savePermissions = function() {
+    var self = this;
+    var id = this.currentPermissionsPlugin;
+    var plugin = this.installedPlugins[id];
+    if (!plugin) return;
+    var list = function(field) {
+        var el = document.getElementById('perm-' + field);
+        var items = el ? el.value.split('\n').map(function(s) { return s.trim(); }).filter(Boolean) : [];
+        return items.length > 0 ? items : undefined;
+    };
+    var grants = {};
+    (plugin.requestedPermissions || []).forEach(function(name) {
+        var box = document.getElementById('perm-' + name);
+        if (!box || !box.checked) return;
+        if (name === 'internet') {
+            grants.internet = {hosts: plugin.internet || []};
+        } else if (name === 'lan') {
+            grants.lan = grantFor('lan', plugin, {hosts: list('lan-hosts')});
+        } else if (name === 'mqtt') {
+            // empty: what plugin.json declares; the server keeps a grant within it
+            var mq = grantFor('mqtt', plugin, null);
+            grants.mqtt = {subscribe: list('mqtt-subscribe') || mq.subscribe, publish: list('mqtt-publish') || mq.publish};
+        } else if (name === 'modbus') {
+            grants.modbus = {hosts: list('modbus-hosts')};
+        } else if (name === 'udp' || name === 'tcp' || name === 'tftp') {
+            grants[name] = grantFor(name, plugin, {hosts: list(name + '-hosts')});
+        } else if (name === 'clu') {
+            var disc = document.getElementById('perm-clu-discovery');
+            grants.clu = {hosts: list('clu-hosts'), discovery: !!(disc && disc.checked)};
+        } else if (name === 'serial') {
+            grants.serial = {ports: list('serial-ports')};
+        } else {
+            grants[name] = {};
+        }
+    });
+    if ((plugin.actions || []).length > 0) {
+        grants.actions = Array.prototype.slice.call(document.querySelectorAll('.perm-action'))
+            .filter(function(b) { return b.checked; }).map(function(b) { return b.getAttribute('data-action'); });
+    }
+    this._saveGrants(id, grants, function() {
+        var modal = bootstrap.Modal.getInstance(self.elements.permissionsModal);
+        if (modal) modal.hide();
+    });
+};
+
+/**
  * Configure a plugin
  * @param {string} id - Plugin ID
  */
 PluginsManager.prototype.configure = function(id) {
+    var self = this;
+    // a plugin with a form gets the wizard; others the simple form below
+    var p = this.installedPlugins[id] || {};
+    var listed = (this.availablePlugins || []).filter(function(a) { return a.fullId === id; })[0] || {};
+    PluginWizard.open(id, {name: listed.name || p.name, version: p.version}).then(function(opened) {
+        if (!opened) self._configureSimple(id);
+    }).catch(function(err) {
+        VCLU.showToast(err.message, 'danger');
+    });
+};
+
+PluginsManager.prototype._configureSimple = function(id) {
     var self = this;
     this.currentConfigPlugin = id;
     this.elements.configPluginId.textContent = id;
@@ -549,37 +1172,40 @@ PluginsManager.prototype.configure = function(id) {
 PluginsManager.prototype._renderConfigForm = function(configSchema, currentConfig) {
     var html = '<div id="configFieldsList">';
 
-    Object.keys(configSchema).forEach(function(key) {
-        var field = configSchema[key];
-        var currentValue = currentConfig[key] !== undefined ? currentConfig[key] : (field.default || '');
+    // plugin.json comes from the repository: every text of it is escaped
+    Object.keys(configSchema).forEach(function(rawKey) {
+        var field = configSchema[rawKey] || {};
+        var key = VCLU.esc(rawKey);
+        var currentValue = currentConfig[rawKey] !== undefined ? currentConfig[rawKey] : (field.default || '');
+        var value = VCLU.esc(String(currentValue));
         var required = field.required ? '<span class="text-danger">*</span>' : '';
 
         html += '<div class="mb-3 config-field">';
         html += '<label class="form-label">' + key + ' ' + required + '</label>';
 
-        if (field.enum) {
+        if (Array.isArray(field.enum)) {
             html += '<select class="form-select form-select-sm config-value" data-key="' + key + '">';
             field.enum.forEach(function(opt) {
                 var selected = currentValue === opt ? 'selected' : '';
-                html += '<option value="' + opt + '" ' + selected + '>' + opt + '</option>';
+                html += '<option value="' + VCLU.esc(String(opt)) + '" ' + selected + '>' + VCLU.esc(String(opt)) + '</option>';
             });
             html += '</select>';
         } else if (field.type === 'number') {
             html += '<input type="number" class="form-control form-control-sm config-value" data-key="' +
-                   key + '" value="' + currentValue + '">';
+                   key + '" value="' + value + '">';
         } else if (field.type === 'boolean') {
             var checked = currentValue === true || currentValue === 'true' ? 'checked' : '';
             html += '<div class="form-check"><input type="checkbox" class="form-check-input config-value" data-key="' +
                    key + '" ' + checked + '></div>';
         } else {
-            var inputType = key.toLowerCase().includes('password') || key.toLowerCase().includes('apikey') ?
+            var inputType = rawKey.toLowerCase().includes('password') || rawKey.toLowerCase().includes('apikey') ?
                            'password' : 'text';
             html += '<input type="' + inputType + '" class="form-control form-control-sm config-value" data-key="' +
-                   key + '" value="' + currentValue + '">';
+                   key + '" value="' + value + '">';
         }
 
         if (field.description) {
-            html += '<small class="text-muted">' + field.description + '</small>';
+            html += '<small class="text-muted">' + VCLU.esc(localText(field.description)) + '</small>';
         }
         html += '</div>';
     });
@@ -596,12 +1222,13 @@ PluginsManager.prototype._renderSimpleConfigForm = function(config) {
     config = config || {};
     var html = '<div id="configFieldsList">';
 
-    Object.keys(config).forEach(function(key) {
+    Object.keys(config).forEach(function(rawKey) {
+        var key = VCLU.esc(rawKey), value = VCLU.esc(String(config[rawKey]));
         html += '<div class="mb-2 row g-2 config-field">' +
                 '<div class="col-5"><input type="text" class="form-control form-control-sm config-key" value="' +
                 key + '" readonly></div>' +
                 '<div class="col-5"><input type="text" class="form-control form-control-sm config-value" data-key="' +
-                key + '" value="' + config[key] + '"></div></div>';
+                key + '" value="' + value + '"></div></div>';
     });
 
     html += '</div>';
@@ -641,7 +1268,8 @@ PluginsManager.prototype.saveConfig = function() {
     .then(function(r) { return r.json(); })
     .then(function(data) {
         if (data.error) {
-            VCLU.showToast(data.error, 'danger');
+            // the files differ from what the confirmation showed: it has to be seen again
+            VCLU.showToast(data.code === 'changed_since_preview' ? pt('changed_since_preview') : data.error, 'danger');
         } else {
             // Update local state
             if (self.installedPlugins[self.currentConfigPlugin]) {
@@ -676,6 +1304,53 @@ PluginsManager.prototype.checkPluginDocs = function() {
     });
 };
 
+// A repository's documentation is shown as text and plain formatting only: marked keeps the
+// HTML a markdown file carries, and nothing from a repository runs on this page.
+var DOC_TAGS = {a: 1, p: 1, br: 1, hr: 1, h1: 1, h2: 1, h3: 1, h4: 1, h5: 1, h6: 1, strong: 1, b: 1, em: 1, i: 1,
+    u: 1, s: 1, del: 1, sup: 1, sub: 1, code: 1, pre: 1, kbd: 1, blockquote: 1, ul: 1, ol: 1, li: 1,
+    table: 1, thead: 1, tbody: 1, tr: 1, th: 1, td: 1, img: 1};
+var DOC_ATTRS = {a: ['href', 'title'], img: ['src', 'alt', 'title'], th: ['align'], td: ['align'], ol: ['start']};
+// what a link or an image may point at: http(s), mail, a fragment or a relative path
+var DOC_URL = /^(?:https?:|mailto:|#|\.{0,2}\/|[^:]*$)/i;
+var DOC_DROP = {script: 1, style: 1, iframe: 1, object: 1, embed: 1, svg: 1, math: 1, template: 1, noscript: 1, frame: 1, frameset: 1};
+
+function sanitizeDocNode(node) {
+    Array.prototype.slice.call(node.childNodes).forEach(function(child) {
+        if (child.nodeType === 3) return;
+        if (child.nodeType !== 1) { child.remove(); return; }
+        var tag = child.tagName.toLowerCase();
+        if (DOC_DROP[tag]) { child.remove(); return; }
+        sanitizeDocNode(child);
+        if (!DOC_TAGS[tag]) {
+            // an element not listed goes, its text stays
+            while (child.firstChild) node.insertBefore(child.firstChild, child);
+            child.remove();
+            return;
+        }
+        Array.prototype.slice.call(child.attributes).forEach(function(attr) {
+            var name = attr.name.toLowerCase();
+            var ok = (DOC_ATTRS[tag] || []).indexOf(name) >= 0 &&
+                (name !== 'href' && name !== 'src' || DOC_URL.test(attr.value.trim()));
+            if (!ok) child.removeAttribute(attr.name);
+        });
+        if (tag === 'a') {
+            child.setAttribute('target', '_blank');
+            child.setAttribute('rel', 'noopener noreferrer');
+        }
+    });
+}
+
+// showDocHTML puts the rendered markdown into el, sanitized; the nodes move over without
+// another parse of their text.
+function showDocHTML(el, html) {
+    var parsed = new DOMParser().parseFromString(html, 'text/html');
+    sanitizeDocNode(parsed.body);
+    el.textContent = '';
+    while (parsed.body.firstChild) {
+        el.appendChild(document.adoptNode(parsed.body.firstChild));
+    }
+}
+
 /**
  * Show plugin documentation
  * @param {string} pluginId - Plugin ID
@@ -695,13 +1370,15 @@ PluginsManager.prototype.showDoc = function(pluginId, docIndex) {
 
     // Render nav if multiple docs
     if (plugin.docs.length > 1) {
-        var navHtml = '';
+        this.elements.docNav.textContent = '';
         plugin.docs.forEach(function(d, i) {
             var active = i === docIndex ? 'btn-primary' : 'btn-outline-secondary';
-            navHtml += '<button class="btn btn-sm ' + active + ' me-1" onclick="pluginsManager.showDoc(\'' +
-                      pluginId + '\', ' + i + ')">' + d.title + '</button>';
+            var navBtn = document.createElement('button');
+            navBtn.className = 'btn btn-sm ' + active + ' me-1';
+            navBtn.textContent = d.title || ('#' + (i + 1));
+            navBtn.onclick = function() { self.showDoc(pluginId, i); };
+            self.elements.docNav.appendChild(navBtn);
         });
-        this.elements.docNav.innerHTML = navHtml;
         this.elements.docNav.style.display = 'block';
     } else {
         this.elements.docNav.style.display = 'none';
@@ -718,7 +1395,7 @@ PluginsManager.prototype.showDoc = function(pluginId, docIndex) {
                 self.elements.docError.textContent = data.error;
                 self.elements.docError.style.display = 'block';
             } else {
-                self.elements.docContent.innerHTML = marked.parse(data.content || '');
+                showDocHTML(self.elements.docContent, marked.parse(data.content || ''));
                 self.elements.docContent.style.display = 'block';
             }
         })

@@ -20,6 +20,9 @@ const pluginCheckTimeout = 2 * time.Minute
 // pluginUpdatesKey is the one state of every plugin with a newer version.
 const pluginUpdatesKey = "plugin-updates"
 
+// pluginPermissionsKey is the one state of every plugin asking for more than the user allowed.
+const pluginPermissionsKey = "plugin-permissions"
+
 // SetNotifier wires the panel's bell; nil leaves it empty. Notices of versions older than the
 // running one are resolved at once.
 func (s *Server) SetNotifier(n *notify.Store) {
@@ -105,7 +108,7 @@ func (s *Server) checkPluginUpdates(ctx context.Context) {
 		s.setPluginUpdates(nil)
 		return
 	}
-	found, _ := availablePlugins(ctx, mc)
+	found, _ := availablePlugins(ctx, mc, s.serverDir)
 	s.pluginNotices(found)
 }
 
@@ -157,6 +160,7 @@ func (s *Server) resolvePluginNoticesWith(loaded map[string]string) {
 	if s.notifier == nil {
 		return
 	}
+	s.permissionNotice()
 	pending := s.pendingPluginUpdates()
 	if len(pending) == 0 {
 		return
@@ -251,5 +255,39 @@ func (s *Server) notifyLock(msg, key string, params map[string]string, wait time
 	s.notifier.Add(notify.Entry{
 		Kind: notify.KindEvent, Source: notify.SourceLock, Level: notify.LevelWarning,
 		Key: "lock:" + key, Msg: msg, Params: params, Link: "/settings",
+	})
+}
+
+// permissionNotice is a state while enabled plugins ask for permissions the user has not
+// allowed (an update asked for more; it runs without them); it goes away once allowed.
+func (s *Server) permissionNotice() {
+	if !s.notifier.Enabled(notify.SourcePlugin) {
+		return
+	}
+	mc, err := config.ReadMasterConfig(s.serverDir)
+	if err != nil {
+		return
+	}
+	var ids []string
+	if mc != nil && mc.Plugins != nil {
+		loader := plugins.NewLoader(s.serverDir)
+		for _, p := range mc.Plugins.Installed {
+			if p.Enabled && len(loader.PendingPermissions(p)) > 0 {
+				ids = append(ids, p.ID)
+			}
+		}
+	}
+	if len(ids) == 0 {
+		s.notifier.Resolve(func(e notify.Entry) bool { return e.Key == pluginPermissionsKey })
+		return
+	}
+	sort.Strings(ids)
+	shown := strings.Join(ids[:min(3, len(ids))], ", ")
+	if len(ids) > 3 {
+		shown += " +" + strconv.Itoa(len(ids)-3)
+	}
+	s.notifier.Add(notify.Entry{
+		Kind: notify.KindState, Source: notify.SourcePlugin, Level: notify.LevelInfo, Key: pluginPermissionsKey,
+		Msg: notify.MsgPluginPerms, Params: map[string]string{"count": strconv.Itoa(len(ids)), "plugins": shown}, Link: "/plugins",
 	})
 }
