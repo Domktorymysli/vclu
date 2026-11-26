@@ -408,14 +408,15 @@ func TestLimitsFromTheGrant(t *testing.T) {
 	}
 }
 
-// Grants written before permissions became objects: grenton_raw is clu; lists recorded for
-// WebSockets or broadcasts only are recorded again from plugin.json.
+// Grants written before permissions became objects: grenton_raw is clu, broadcastPorts is
+// udp.broadcast; the WebSocket list has no counterpart and lan's ports are recorded again
+// from plugin.json.
 func TestOlderGrantsRead(t *testing.T) {
 	var g config.PluginGrants
 	if err := json.Unmarshal([]byte(`{"grenton_raw": {"hosts": ["192.168.0.10"]}, "lan": {"websocketPorts": []}, "udp": {"broadcastPorts": [7000]}}`), &g); err != nil {
 		t.Fatal(err)
 	}
-	if g.CLU == nil || !reflect.DeepEqual(g.CLU.Hosts, []string{"192.168.0.10"}) || g.LAN == nil || g.LAN.Ports != nil || g.UDP == nil || g.UDP.Broadcast != nil {
+	if g.CLU == nil || !reflect.DeepEqual(g.CLU.Hosts, []string{"192.168.0.10"}) || g.LAN == nil || g.LAN.Ports != nil || g.UDP == nil || g.UDP.Broadcast == nil || !reflect.DeepEqual(*g.UDP.Broadcast, []int{7000}) {
 		t.Errorf("read: %+v %+v %+v", g.CLU, g.LAN, g.UDP)
 	}
 	data, _ := json.Marshal(g)

@@ -380,6 +380,15 @@ func (g *PluginGrants) UnmarshalJSON(data []byte) error {
 	if g.CLU == nil && v.GrentonRaw != nil {
 		g.CLU = &CLUGrant{Hosts: v.GrentonRaw.Hosts}
 	}
+	// udp.broadcastPorts: where the user let it broadcast, now udp.broadcast
+	var old struct {
+		UDP *struct {
+			BroadcastPorts *[]int `json:"broadcastPorts"`
+		} `json:"udp"`
+	}
+	if g.UDP != nil && g.UDP.Broadcast == nil && json.Unmarshal(data, &old) == nil && old.UDP != nil && old.UDP.BroadcastPorts != nil {
+		g.UDP.Broadcast = old.UDP.BroadcastPorts
+	}
 	return nil
 }
 
