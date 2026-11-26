@@ -107,6 +107,15 @@ local instanceOf = setmetatable({}, { __mode = "k" })
 -- What a module holds of a plugin (a handle, the instance's facade) -> { obj, inner }
 local handleInfo = setmetatable({}, { __mode = "k" })
 local handleOf = setmetatable({}, { __mode = "k" })     -- plugin object -> the module's handle of it
+-- a plugin's object the core met (exposed, read by another plugin) -> its plugin
+local objectOwner = setmetatable({}, { __mode = "k" })
+local toModule, toPlugin, moduleHandle
+
+local function ownerOf(obj)
+    local h = handleOf[obj]
+    if h then return handleInfo[h].inner end
+    return objectOwner[obj]
+end
 
 -- Another plugin as a plugin sees it: its sensors and controls, read-only. Not its
 -- config, KV store or sandbox.
@@ -114,7 +123,11 @@ local function pluginFacade(obj, owner)
     return {
         id = obj.id, shortId = obj.shortId, namespace = obj.namespace,
         name = obj.name, version = obj.version,
-        get = function(_, id) return readOnlyProxy(obj:get(id), owner) end,
+        get = function(_, id)
+            local s = obj:get(id)
+            if type(s) == "table" and not objectOwner[s] then objectOwner[s] = obj end
+            return readOnlyProxy(s, owner)
+        end,
         listSensorsAndControls = function() return obj:listSensorsAndControls() end,
     }
 end
@@ -410,7 +423,9 @@ end
 
 -- vis: a table for JSON, which the plugin can read back (so without the _fields of a proxy
 -- or a facade). Always a copy: an event's payload is the plugin's no more once emitted.
-local function plain(v, seen, vis)
+-- inner: the emitting plugin, whose functions in a payload cross as a module's boundary functions
+local function plain(v, seen, vis, inner)
+    if type(v) == "function" and inner then return toModule(v, inner) end
     if type(v) ~= "table" then return v end
     local src = sourceOf(v)
     if src then
@@ -421,7 +436,7 @@ local function plain(v, seen, vis)
     if seen[v] then return seen[v] end
     local copy = {}
     seen[v] = copy
-    for k, val in originalPairs(v) do copy[k] = plain(val, seen, vis) end
+    for k, val in originalPairs(v) do copy[k] = plain(val, seen, vis, inner) end
     return copy
 end
 
@@ -510,6 +525,8 @@ local function instanceProxy(inner)
                 opts.path = prefix .. tostring(opts.path)
             end
             local handle = Plugin.expose(inner, obj, objType, opts)
+            -- its own object under its path: a module reaches it as a handle (Registry.get)
+            if type(obj) == "table" and getmetatable(obj) == nil and not objectOwner[obj] then objectOwner[obj] = inner end
             if type(handle) == "table" then return handleFacade(handle) end
             return handle
         end,
@@ -583,11 +600,10 @@ end
 local BOUNDARY_DEPTH = 32
 local facadeOf = setmetatable({}, { __mode = "k" })     -- instance -> its facade
 local callbackOf = setmetatable({}, { __mode = "k" })   -- instance -> { module function -> plugin side }
-local boundaryFnOf = setmetatable({}, { __mode = "k" }) -- plugin function -> module side
+local boundaryFnOf = setmetatable({}, { __mode = "k" }) -- instance -> { plugin function -> module side }
 -- a plugin object's fields the core reads (a sensor's type, id and name for expose)
 local HANDLE_FIELDS = { _type = true, _id = true, _name = true, _isPlugin = true }
 local handleSeq = 0
-local toModule, toPlugin, moduleHandle
 
 -- A handle of a stopped plugin (disabled, suspended, reloaded) does nothing
 local function stoppedCheck(inner, level)
@@ -597,12 +613,14 @@ local function stoppedCheck(inner, level)
     end
 end
 
--- Module functions a plugin calls run after it, in order
-local laterQueue, laterArmed = {}, false
+-- Module functions a plugin calls run after it, in order. A plugin may have this many
+-- waiting: a loop of calls stops at the plugin, not in the modules' time.
+local LATER_LIMIT = 10000
+local laterQueue, laterArmed, laterPending = {}, false, {}
 local function runLater()
     laterArmed = false
     local q = laterQueue
-    laterQueue = {}
+    laterQueue, laterPending = {}, {}
     for i = 1, #q do
         local ok, err = pcall(q[i].fn, unpackArgs(q[i].args, 1, q[i].args.n))
         if not ok and Logger then Logger:warn("[PLUGIN] a module callback given to " .. q[i].from .. ": " .. tostring(err)) end
@@ -613,6 +631,11 @@ local function later(from, fn, args)
         pcall(fn, unpackArgs(args, 1, args.n))
         return
     end
+    local pending = (laterPending[from] or 0) + 1
+    if pending > LATER_LIMIT then
+        error(tostring(from) .. ": " .. LATER_LIMIT .. " calls to modules are pending; let them run first", 3)
+    end
+    laterPending[from] = pending
     laterQueue[#laterQueue + 1] = { fn = fn, args = args, from = from }
     if not laterArmed then
         laterArmed = true
@@ -696,14 +719,20 @@ end
 toModule = function(v, inner, depth, seen)
     local t = type(v)
     if t == "function" then
-        local f = boundaryFnOf[v]
+        -- per plugin: a library function (math, Telnet) is the same value in every sandbox
+        local byFn = boundaryFnOf[inner]
+        if not byFn then
+            byFn = setmetatable({}, { __mode = "k" })
+            boundaryFnOf[inner] = byFn
+        end
+        local f = byFn[v]
         if not f then
             local fn = v
             f = function(...)
                 stoppedCheck(inner)
                 return toModuleResults(inner, fn(toPluginArgs(inner, ...)))
             end
-            boundaryFnOf[v] = f
+            byFn[v] = f
         end
         return f
     end
@@ -711,7 +740,12 @@ toModule = function(v, inner, depth, seen)
     if handleInfo[v] then return v end
     if v == inner or instanceOf[v] == inner then return PluginSandbox.moduleFacade(inner) end
     local src = sourceOf(v)
-    if src then return src end -- a house object the plugin read: the module's own
+    if src then
+        -- a house object the plugin read: the module's own; a plugin's object: that plugin's handle
+        local owner = ownerOf(src)
+        if owner then return moduleHandle(src, owner) end
+        return src
+    end
     if getmetatable(v) ~= nil then return moduleHandle(v, inner) end
     for _, val in originalPairs(v) do
         if type(val) == "function" then return moduleHandle(v, inner) end
@@ -840,17 +874,28 @@ function PluginSandbox.moduleFacade(inner)
     return f
 end
 
--- What Plugin.getPlugin gives a module: the facade on API 2, the instance on API 1
-function PluginSandbox.moduleView(instance)
-    local sb = type(instance) == "table" and instance._sandbox
-    if sb and sb.apiVersion and sb.apiVersion >= 2 then return PluginSandbox.moduleFacade(instance) end
-    return instance
+local function api2(inner)
+    local sb = inner._sandbox
+    return sb and sb.apiVersion and sb.apiVersion >= 2
 end
 
--- The plugin behind a module's facade or handle (the core's own lookups)
+-- What Plugin.getPlugin and _:get give a module: on API 2 a plugin's facade and, of an
+-- object a plugin exposed under its path, its handle; else the object itself
+function PluginSandbox.moduleView(v)
+    if type(v) ~= "table" then return v end
+    if rawget(v, "_isPlugin") then
+        if v._sandbox and api2(v) then return PluginSandbox.moduleFacade(v) end
+        return v
+    end
+    local owner = ownerOf(v)
+    if owner and api2(owner) then return moduleHandle(v, owner) end
+    return v
+end
+
+-- The object behind a module's facade or handle (the core's own lookups)
 function PluginSandbox.instanceBehind(v)
     local held = handleInfo[v]
-    if held then return held.inner end
+    if held then return held.obj end
     return v
 end
 
@@ -1307,7 +1352,7 @@ function PluginSandbox:buildAPI(sandbox)
         checkEventName(eventName)
         local bus = EventBus and EventBus:getShared() or nil
         if bus then
-            bus:emit(eventName, mapResults(plain, ...))
+            bus:emit(eventName, mapResults(function(v) return plain(v, nil, nil, sandbox.instance) end, ...))
         end
     end
 
@@ -1714,7 +1759,7 @@ function PluginSandbox:buildAPI(sandbox)
             if sandbox.dead then return end
             checkEventName(ev)
             local bus = EventBus and EventBus:getShared() or nil
-            if bus then bus:emit(ev, plain(payload)) end
+            if bus then bus:emit(ev, plain(payload, nil, nil, sandbox.instance)) end
         end
         return PluginHelpers.emitThrottled(pluginId, emitFn, event, data, opts)
     end

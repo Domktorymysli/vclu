@@ -1277,7 +1277,10 @@ local function playerWidget(id, label, src, opts)
                 error(where .. ': unknown key "' .. tostring(k) .. '" in src (' .. table.concat(PLAYER_FNS, ', ') .. ')', 3)
             end
             if type(v) ~= 'function' then error(where .. ': src.' .. k .. ' must be a function', 3) end
-            fns[k] = v
+        end
+        -- by name: a plugin's table of functions is a handle, which pairs does not walk
+        for _, name in ipairs(PLAYER_FNS) do
+            if type(src[name]) == 'function' then fns[name] = src[name] end
         end
     end
     return { id = id, type = 'player', label = label, icon = opts.icon or 'music-note-beamed', fns = fns, opts = opts }

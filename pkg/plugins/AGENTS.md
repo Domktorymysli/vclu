@@ -97,7 +97,11 @@ plugin hands out is a handle — its methods, its plain fields as copies, never 
 same object always the same handle; a module function the plugin calls runs after it, in order
 (`later`), returning nothing; a house object (registry, CLU) reaches the plugin read-only, so a
 module gives a path to act on. What a module sets on a handle stays on the handle. A stopped
-plugin's facade and handles refuse ("@ns/id: stopped"). `plugin_boundary_test.go` is the contract.
+plugin's facade and handles refuse ("@ns/id: stopped"). An object a plugin exposed under its own
+path, or another plugin's object it returns, is that plugin's handle too (`_:get`, `ownerOf`); a
+function in an event payload crosses like a method; a plugin with 10000 module calls pending
+(`LATER_LIMIT`) gets an error. `plugin_boundary_test.go` and `plugin_boundary_fable_test.go` are
+the contract.
 
 ## Plugin ids
 A namespace and a short id are lower case, without `--` or a `-` at either end

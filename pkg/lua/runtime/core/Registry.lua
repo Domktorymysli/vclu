@@ -89,8 +89,8 @@ local _registry_methods = {
     get = function(self, pathOrName)
         local path = resolvePath(pathOrName)
         local obj = self[path]
-        -- a plugin (API 2) as Plugin.getPlugin gives it
-        if type(obj) == "table" and rawget(obj, "_isPlugin") and PluginSandbox and PluginSandbox.moduleView then
+        -- a plugin (API 2) as Plugin.getPlugin gives it, its exposed object as a handle
+        if type(obj) == "table" and PluginSandbox and PluginSandbox.moduleView then
             return PluginSandbox.moduleView(obj)
         end
         return obj
