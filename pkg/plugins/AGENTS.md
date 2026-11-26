@@ -87,6 +87,13 @@ A namespace and a short id are lower case, without `--` or a `-` at either end
 case-insensitive file system. Exposed paths of plugins that would share an MQTT topic or HA
 unique_id after its normalization are refused (`ExposedObjects:expose`).
 
+## Time budget
+Plugin code shares the one Lua state: `pkg/lua/plugin_budget.go` gives it 2 s of one callback
+(10 s at load: the loader wraps init.lua and init in `__go_plugin_budget_loading`), told by the
+sandbox's environment, which `PluginSandbox:create` registers and `cleanup` forgets. Three
+overruns in 10 min suspend it: `Loader.Suspend` unloads it, `LoadPlugin` and `LoadAllEnabled`
+skip it until `Resume` (POST `/api/plugins/:id/resume`); runtime only, a restart clears it.
+
 ## Permissions
 `plugin.json` declares what a plugin reaches:
 `"permissions": {"internet": ["api.example.com", "*.example.net"], "lan": true, "mqtt": true, "modbus": true}`.

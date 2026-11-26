@@ -119,7 +119,8 @@ type LuaEngine struct {
 	mqttManager         *MQTTManager
 	modbusManager       *ModbusManager
 	pluginIO            *PluginIO
-	ownTCPPorts         func() []int // vclu's listening ports, kept from plugins' HTTP
+	ownTCPPorts         func() []int  // vclu's listening ports, kept from plugins' HTTP
+	pluginBudget        *pluginBudget // plugin code's time per callback, kept across reloads
 	kvManager           *plugins.KVStoreManager
 	gpioManager         *GPIOManager
 	satelManager        *SatelManager
@@ -193,6 +194,11 @@ func (le *LuaEngine) initializeLuaState(cluName string) error {
 	RegisterErrorLevel(L)
 	registerCoroutineContext(L)
 	le.registerLimitFunctions(L)
+	if le.pluginBudget == nil {
+		le.pluginBudget = newPluginBudget(le.runtimePath)
+	}
+	le.pluginBudget.reset()
+	registerPluginBudgetFunctions(L, le.pluginBudget)
 
 	// Keep os and package libraries for CLU runtime
 	// os.time, os.date needed by CLU modules
@@ -1767,6 +1773,7 @@ func (le *LuaEngine) Close() {
 		if prev == stateInit {
 			flushPersist(state) // RunLoop never ran, nobody flushed
 		}
+		budgets.Delete(state)
 		state.Close()
 	}
 }
@@ -1800,6 +1807,7 @@ func (le *LuaEngine) reinitializeInner(cluName string) error {
 	if le.state != nil {
 		releaseOutputs(le.state)
 		flushPersist(le.state)
+		budgets.Delete(le.state)
 		le.state.Close()
 		le.state = nil
 	}

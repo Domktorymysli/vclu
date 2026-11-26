@@ -314,6 +314,10 @@ type VCLUPluginsConfig struct {
 
 	// Strict loads only plugins on plugin API 2 or later (they declare their permissions)
 	Strict bool `json:"strict,omitempty"`
+
+	// CallbackTimeoutMs: plugin code's time in one callback (default 2000); a module has the
+	// callback limit
+	CallbackTimeoutMs int `json:"callbackTimeoutMs,omitempty"`
 }
 
 // PluginRepository represents a source of plugins

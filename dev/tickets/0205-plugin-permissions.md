@@ -109,6 +109,14 @@ running: the manifest names the plugin API it is written for, and the stricter c
   for a writer with a time limit. A change of `lan` or the internet list closes the connections it no
   longer allows (1008); a reload closes with 1001; `close(code, reason)` takes 1000 or 3000-4999.
   No reconnect in the core. Shares the 16 handles of a plugin.
+- A time budget for plugin code (decided 26.11; a plugin's own Lua state on its own goroutine is
+  the next release's): one Lua state runs everything, so a plugin's code gets 2 s of one callback
+  (10 s for its init.lua and init; `plugins.callbackTimeoutMs` in the master config) inside the
+  60 s callback limit, wherever it is entered (timers, IO and HTTP answers, actions, its dashboard,
+  methods a module calls). Over it the plugin's code stops with "@x/foo: callback over 2 s,
+  stopped" in the log, the caller goes on; `pcall` does not hold it. Three overruns in ten minutes
+  suspend the plugin: unloaded, its card says so and has "Turn on", the bell tells it; a restart
+  clears it. The card shows its CPU time per minute and its overruns. Modules keep 60 s.
 - A plugin's HTTP (decided 26.11) does not reach the ports vclu listens on at this machine's
   addresses (the panel, the MQTT broker and its WebSocket, HomeKit, the Lua HTTP server), with
   `lan`, a host list naming it or a name resolving to it, on every plugin API; another service on
@@ -119,6 +127,7 @@ running: the manifest names the plugin API it is written for, and the stricter c
 - `pkg/lua/runtime/objects/RemoteObject.lua` (integer index on `get`/`set`/`execute`)
 - `pkg/lua/http.go`, `pkg/lua/http_lan.go`
 - `pkg/plugins/permissions.go`, `loader.go`, `udp.go`, `kvstore.go`, `AGENTS.md`
+- `pkg/lua/plugin_budget.go` (time budget), `callback_limit.go`, `pkg/web/handle_web_plugins_budget.go`
 - `pkg/lua/plugin_io.go` (`udp` sockets), `plugin_tcp.go` (`tcp` connections), `plugin_ws.go` (WebSockets), `runtime/lib/telnet.lua`
 - `pkg/plugins/tcp.go`
 - `pkg/web/handle_web_plugins.go` (an update records its repository; grants), `web/static/js/plugins.js`, `web/templates/plugins.html`
@@ -210,6 +219,13 @@ running: the manifest names the plugin API it is written for, and the stricter c
 - [ ] `close(code, reason)` sends the code, a reload closes with 1001, 16 handles at most, and a
       narrowed `lan` closes an open connection (`TestPluginWSCloseReloadAndLimit`,
       `TestPluginWSGrantWithdrawn`).
+- [ ] A plugin's loop in a timer stops at its budget and the next timers run; a module calling a
+      slow plugin method gets the error after the budget and goes on, a module's callback the plugin
+      calls is the module's time; `pcall`, `xpcall` and a Go function calling back do not lift it;
+      three overruns suspend the plugin and its code stops at once until resumed; init.lua gets the
+      load budget; modules keep the callback limit (`TestPluginBudget*`, `TestSuspendedPluginStaysOff`,
+      `TestPluginsAPISuspendedPluginResumes`); the cost on a module's loop is not measurable
+      (`BenchmarkPluginBudget`).
 - [ ] A plugin's HTTP to vclu's own port is refused, by its address or a name resolving to it,
       also with a host list naming it; another port on the machine and a module's request pass
       (`TestHTTPManagerPluginNotToOwnAddress`).

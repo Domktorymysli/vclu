@@ -7,6 +7,7 @@ const (
 	MsgUpdate        = "notify.update.available"   // version
 	MsgPluginUpdates = "notify.plugin.updates"     // count, plugins (up to 3 names, "+N"), updates (JSON)
 	MsgPluginPerms   = "notify.plugin.permissions" // count, plugins (up to 3 ids, "+N")
+	MsgPluginSuspend = "notify.plugin.suspended"   // plugin
 	MsgModule        = "notify.module.failed"      // module
 	MsgLog           = "notify.log.error"          // source
 	MsgLogin         = "notify.login.failed"       // ip
@@ -22,6 +23,7 @@ var english = map[string][2]string{
 	MsgUpdate:        {"vclu {version} is available", "A new version of vclu is out."},
 	MsgPluginUpdates: {"Plugin updates: {count} ({plugins})", "Newer versions of installed plugins are out."},
 	MsgPluginPerms:   {"Plugins waiting for permissions: {count} ({plugins})", "They ask for permissions you have not allowed yet and run without them until you allow them on the plugins page."},
+	MsgPluginSuspend: {"Plugin {plugin} suspended", "Its code went over the time limit 3 times in 10 minutes; it stays off until you turn it on on the plugins page."},
 	MsgModule:        {"Module {module} did not load", ""},
 	MsgLog:           {"Error in the log: {source}", ""},
 	MsgLogin:         {"Failed login to the panel", "From {ip}."},

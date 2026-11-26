@@ -1,0 +1,3 @@
+### Plugins
+
+- **A plugin cannot hold up vclu** - a plugin's code gets 2 seconds of one callback (10 at start; `plugins.callbackTimeoutMs` in the settings file), wherever it runs: timers, answers from devices, actions, its dashboard, methods your modules call. Over it the plugin's code stops with "callback over 2 s" in the log and everything else goes on. A plugin over the limit 3 times in 10 minutes is suspended: it is turned off, the plugins page says so with a "Turn on" button and the bell tells you; a restart clears it. Each plugin's card shows its CPU time per minute. Modules keep the 60 s limit.

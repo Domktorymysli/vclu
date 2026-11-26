@@ -235,6 +235,14 @@ func main() {
 	pluginLoader := plugins.NewLoader(cluDir)
 	pluginLoader.SetLuaExecutor(luaEngine)
 	webSrv.SetPluginController(pluginLoader) // Wire up plugin controller for hot loading
+	// a plugin over its time limit too often goes off until the user turns it on
+	luaEngine.SetOnPluginSuspend(func(id string) {
+		pluginLoader.Suspend(id)
+		webSrv.NotifyPluginSuspended(id)
+	})
+	if mc, _ := config.ReadMasterConfig(cluDir); mc != nil && mc.Plugins != nil && mc.Plugins.CallbackTimeoutMs > 0 {
+		luaEngine.SetPluginTimeBudget(time.Duration(mc.Plugins.CallbackTimeoutMs)*time.Millisecond, 0)
+	}
 
 	// Set up plugins active provider for metrics
 	if metrics := srv.GetMetrics(); metrics != nil {

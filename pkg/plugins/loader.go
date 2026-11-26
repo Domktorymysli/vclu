@@ -214,6 +214,11 @@ type Loader struct {
 	// or pointless check is not repeated on every reload (offline, repository behind)
 	updateMu    sync.Mutex
 	updateRetry map[string]time.Time
+
+	// suspended: plugins over their time limit too often (pkg/lua plugin_budget.go), off
+	// until the user turns them on; not kept across a restart
+	suspendMu sync.Mutex
+	suspended map[string]bool
 }
 
 // updateRetryAfter: how long a failed or pointless update check is not repeated
@@ -236,7 +241,33 @@ func NewLoader(serverDir string) *Loader {
 		pluginsDir: pluginsDir,
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 		loaded:     make(map[string]*LoadedPlugin),
+		suspended:  make(map[string]bool),
 	}
+}
+
+// Suspend unloads a plugin that went over its time limit too often and keeps it off,
+// reloads included, until Resume.
+func (l *Loader) Suspend(pluginID string) {
+	l.suspendMu.Lock()
+	l.suspended[pluginID] = true
+	l.suspendMu.Unlock()
+	if l.IsLoaded(pluginID) {
+		_ = l.UnloadPlugin(pluginID)
+	}
+}
+
+// Resume lets a suspended plugin load again; loading it is the caller's.
+func (l *Loader) Resume(pluginID string) {
+	l.suspendMu.Lock()
+	delete(l.suspended, pluginID)
+	l.suspendMu.Unlock()
+}
+
+// IsSuspended: the plugin is off for going over its time limit.
+func (l *Loader) IsSuspended(pluginID string) bool {
+	l.suspendMu.Lock()
+	defer l.suspendMu.Unlock()
+	return l.suspended[pluginID]
 }
 
 // SetLuaExecutor sets the Lua executor for running plugin code
@@ -722,6 +753,9 @@ func (l *Loader) LoadPlugin(pluginID string, pluginConfig map[string]interface{}
 	if l.luaExecutor == nil {
 		return fmt.Errorf("Lua executor not set")
 	}
+	if l.IsSuspended(pluginID) {
+		return fmt.Errorf("plugin %s is suspended: it went over its time limit too often; turn it on on the plugins page", pluginID)
+	}
 
 	localDir := l.resolvePluginDir(pluginID)
 
@@ -798,9 +832,10 @@ func (l *Loader) LoadPlugin(pluginID string, pluginConfig map[string]interface{}
 		}
 	}
 
-	// 3. Execute init.lua in sandbox
+	// 3. Execute init.lua in sandbox; it and init run under the load budget
 	code := strings.ReplaceAll(string(initCode), "\r", "")
 	executeScript := executeLua + "\n" + fmt.Sprintf(`execute(%s, %s)`, luastr.Quote(pluginID), luastr.Quote(code))
+	_, _ = l.luaExecutor.Execute(fmt.Sprintf(`if __go_plugin_budget_loading then __go_plugin_budget_loading(%s, true) end`, luastr.Quote(pluginID)))
 
 	if _, err := l.executeAsPlugin(pluginID, executeScript); err != nil {
 		// Cleanup sandbox on failure
@@ -818,6 +853,8 @@ func (l *Loader) LoadPlugin(pluginID string, pluginConfig map[string]interface{}
 		l.luaExecutor.Execute(cleanupScript)
 		return fmt.Errorf("failed to init plugin with config: %w", err)
 	}
+
+	_, _ = l.luaExecutor.Execute(fmt.Sprintf(`if __go_plugin_budget_loading then __go_plugin_budget_loading(%s, false) end`, luastr.Quote(pluginID)))
 
 	// Store loaded plugin by fullId
 	l.loaded[pluginID] = &LoadedPlugin{
@@ -885,6 +922,10 @@ func (l *Loader) LoadAllEnabled() error {
 	loadedCount := 0
 
 	for _, installed := range masterConfig.Plugins.Installed {
+		if installed.Enabled && l.IsSuspended(installed.ID) {
+			log.Printf("[PLUGINS] %s stays off: suspended for going over its time limit", installed.ID)
+			continue
+		}
 		if !installed.Enabled {
 			continue
 		}

@@ -208,6 +208,9 @@ PluginsManager.prototype._renderPluginCard = function(plugin, options) {
         if (plugin.configured === false) {
             statusBadge += ' <span class="badge bg-warning text-dark">not configured</span>';
         }
+        if (plugin.usage && plugin.usage.suspended) {
+            statusBadge += ' <span class="badge bg-danger" title="' + VCLU.esc(pt('suspended_title')) + '">' + VCLU.esc(pt('suspended')) + '</span>';
+        }
         if (plugin.pendingPermissions && plugin.pendingPermissions.length > 0) {
             statusBadge += ' <span class="badge bg-danger" title="' + VCLU.esc(pt('asks_for_title')) + '">' + VCLU.esc(pt('asks_for')) + ' ' +
                            VCLU.esc(plugin.pendingPermissions.join(', ')) + '</span>';
@@ -237,6 +240,11 @@ PluginsManager.prototype._renderPluginCard = function(plugin, options) {
             return '<span class="badge ' + cls + ' me-1" title="' + VCLU.esc(title + ': ' + label) + '">' +
                    VCLU.esc(PERMISSION_SHORT[name] || name) + '</span>';
         }).join('') + '</p>';
+        // its time on the run loop, on average since it was loaded
+        if (plugin.usage && enabled) {
+            permsHtml += '<p class="mb-2 small text-body-secondary">' + VCLU.esc(pt('cpu', plugin.usage.cpuMsPerMin)) +
+                         (plugin.usage.overruns ? ' · ' + VCLU.esc(pt('overruns', plugin.usage.overruns)) : '') + '</p>';
+        }
     }
 
     // Link buttons
@@ -262,6 +270,13 @@ PluginsManager.prototype._renderPluginCard = function(plugin, options) {
                      'onclick="pluginsManager.configure(\'' + VCLU.esc(id) + '\')" ' +
                      'data-bs-toggle="tooltip" data-bs-placement="top" title="Configure">' +
                      '<i class="bi bi-gear"></i></button>';
+        // Turn on a plugin suspended for going over its time limit
+        if (plugin.usage && plugin.usage.suspended) {
+            actionBtns += '<button class="btn btn-sm btn-danger me-1" ' +
+                         'onclick="pluginsManager.resume(\'' + VCLU.esc(id) + '\')" ' +
+                         'data-bs-toggle="tooltip" data-bs-placement="top" title="' + VCLU.esc(pt('resume_title')) + '">' +
+                         '<i class="bi bi-play-circle"></i> ' + VCLU.esc(pt('resume')) + '</button>';
+        }
         // Allow what an update asks for
         if (plugin.pendingPermissions && plugin.pendingPermissions.length > 0) {
             actionBtns += '<button class="btn btn-sm btn-danger me-1" ' +
@@ -433,6 +448,7 @@ PluginsManager.prototype._renderInstalledPlugins = function() {
             pendingTcpPorts: p.pendingTcpPorts || [],
             websocketPorts: p.websocketPorts || [],
             pendingWebsocketPorts: p.pendingWebsocketPorts || [],
+            usage: p.usage || null,
             updateAvailable: available.updateAvailable,
             availableVersion: available.version
         };
@@ -655,6 +671,26 @@ PluginsManager.prototype.uninstall = function(id) {
  * @param {string} id - Plugin ID
  * @param {boolean} enabled - New enabled state
  */
+/**
+ * Turn on a plugin suspended for going over its time limit
+ * @param {string} id - Plugin ID
+ */
+PluginsManager.prototype.resume = function(id) {
+    var self = this;
+    fetch('/api/plugins/' + encodeURIComponent(id) + '/resume', {method: 'POST'})
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.error) {
+                VCLU.showToast(data.error, 'danger');
+                return;
+            }
+            if (data.warning) VCLU.showToast(data.warning, 'warning');
+            var plugin = self.installedPlugins[id];
+            if (plugin && plugin.usage) plugin.usage.suspended = false;
+            self._renderInstalledPlugins();
+        });
+};
+
 PluginsManager.prototype.toggle = function(id, enabled) {
     var self = this;
     fetch('/api/plugins/' + encodeURIComponent(id) + '/toggle', {

@@ -1020,7 +1020,8 @@
     },
     "plugin": {
       "updates": "Plugin updates: {count} ({plugins})",
-      "permissions": "Plugins waiting for permissions: {count} ({plugins})"
+      "permissions": "Plugins waiting for permissions: {count} ({plugins})",
+      "suspended": "Plugin {plugin} suspended: over its time limit"
     },
     "module": {
       "failed": "Module {module} failed to load"
@@ -1104,6 +1105,12 @@
       "tcp_ports": "Ports: {0}",
       "ports_waiting": "New ports wait for your permission: {0}.",
       "ws_ports": "WebSocket on the local network to ports: {0}",
+      "suspended": "Suspended: over its time limit",
+      "suspended_title": "The plugin's code went over the time limit of one callback 3 times in 10 minutes and the plugin was turned off. It stays off until vclu restarts or you turn it on.",
+      "resume": "Turn on",
+      "resume_title": "Turn the plugin on again; if it still goes over the limit it is suspended again",
+      "cpu": "CPU: {0} ms/min",
+      "overruns": "over the time limit: {0}",
       "any_server": "any server",
       "not_allowed_yet": "Not allowed yet",
       "internet_save_allows": "Saving with this ticked allows the ones not allowed yet.",

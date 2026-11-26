@@ -1055,6 +1055,7 @@ func (s *Server) setupRoutes() {
 		api.GET("/plugins/:id/module-code", s.handlePluginsAPIModuleCode)
 		api.POST("/plugins/:id/module-code", s.handlePluginsAPIWriteModuleCode)
 		api.POST("/plugins/:id/permissions", s.handlePluginsAPIPermissions)
+		api.POST("/plugins/:id/resume", s.handlePluginsAPIResume)
 		api.GET("/plugins/:id/schema", s.handlePluginsAPIGetSchema)
 		api.GET("/plugins/:id/doc", s.handlePluginsAPIGetDoc)
 		api.GET("/plugins/actions", s.handlePluginsAPIActions)

@@ -41,24 +41,30 @@ func (le *LuaEngine) callbackTimeout() time.Duration {
 // runLimited runs fn with L stopped once limit passes (gopher-lua checks the context
 // between VM instructions). stopped is true when fn failed after the limit.
 // Under an outer context (nested call) fn runs under that one.
+// With plugins loaded it also carries their budget (plugin_budget.go), with or without a limit.
 func runLimited(L *lua.LState, limit time.Duration, fn func() error) (stopped bool, err error) {
 	if L.Context() != nil {
 		return false, fn()
 	}
 	callbackSeq.Add(1)
-	if limit <= 0 {
+	budgeted := budgetOf(L).active()
+	if limit <= 0 && !budgeted {
 		return false, fn()
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), limit)
-	L.SetContext(ctx)
+	ctx, cancel := context.Background(), context.CancelFunc(func() {})
+	if limit > 0 {
+		ctx, cancel = context.WithTimeout(ctx, limit)
+	}
+	L.SetContext(withBudget(L, ctx, nil))
 	defer func() {
 		L.RemoveContext()
 		cancel()
 	}()
 	err = fn()
-	// the context in effect at the end: __vclu_without_limit may have renewed an expired one
+	// the context in effect at the end: __vclu_without_limit may have renewed an expired one;
+	// a plugin over its budget is not the callback's limit (logged by the budget)
 	cur := L.Context()
-	return err != nil && cur != nil && cur.Err() != nil, err
+	return err != nil && cur != nil && baseContext(cur).Err() != nil, err
 }
 
 // withOwnTimeout gives L a deadline of its own, not bound by the callback limit;
@@ -66,7 +72,7 @@ func runLimited(L *lua.LState, limit time.Duration, fn func() error) (stopped bo
 func withOwnTimeout(L *lua.LState, timeout time.Duration) (context.Context, func()) {
 	prev := L.Context()
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	L.SetContext(ctx)
+	L.SetContext(withBudget(L, ctx, prev)) // plugins keep their budget under it
 	return ctx, func() {
 		cancel()
 		if prev != nil {
@@ -127,10 +133,10 @@ func (le *LuaEngine) registerLimitFunctions(L *lua.LState) {
 				return
 			}
 			// the caller gets its limit anew: the time without one is not its own
-			if limit := le.callbackTimeout(); prev.Err() != nil && limit > 0 {
-				var cancel context.CancelFunc
-				prev, cancel = context.WithTimeout(context.Background(), limit)
+			if limit := le.callbackTimeout(); baseContext(prev).Err() != nil && limit > 0 {
+				renewed, cancel := context.WithTimeout(context.Background(), limit)
 				time.AfterFunc(limit, cancel)
+				prev = withBudget(L, renewed, prev)
 			}
 			L.SetContext(prev)
 		}()

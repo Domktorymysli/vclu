@@ -312,15 +312,22 @@ type installedPluginView struct {
 	// with lan: the local ports its WebSockets reach, and those not allowed yet
 	WebSocketPorts        []int `json:"websocketPorts,omitempty"`
 	PendingWebSocketPorts []int `json:"pendingWebsocketPorts,omitempty"`
+	// its time on the run loop, and whether it is off for going over its limit
+	Usage *pluginUsageView `json:"usage,omitempty"`
 }
 
 func (s *Server) installedPluginsView(installed []config.InstalledPlugin) []installedPluginView {
 	out := []installedPluginView{}
 	loader := plugins.NewLoader(s.serverDir)
+	usage := s.pluginUsage()
 	for _, p := range installed {
 		v := loader.PermissionsView(p)
-		out = append(out, installedPluginView{p, loader.NeedsConfig(p), v.Requested.Names(), v.Pending.Names(), v.Internet, v.Pending.Internet,
-			v.BroadcastPorts, v.TCPPorts, v.Pending.BroadcastPorts, v.Pending.TCPPorts, v.WebSocketPorts, v.Pending.WebSocketPorts})
+		view := installedPluginView{p, loader.NeedsConfig(p), v.Requested.Names(), v.Pending.Names(), v.Internet, v.Pending.Internet,
+			v.BroadcastPorts, v.TCPPorts, v.Pending.BroadcastPorts, v.Pending.TCPPorts, v.WebSocketPorts, v.Pending.WebSocketPorts, nil}
+		if u, ok := usage[p.ID]; ok {
+			view.Usage = &u
+		}
+		out = append(out, view)
 	}
 	return out
 }

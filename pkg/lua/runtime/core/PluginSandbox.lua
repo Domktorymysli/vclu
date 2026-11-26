@@ -797,6 +797,10 @@ function PluginSandbox:create(pluginId, permissions)
 
     -- Build isolated Lua environment
     sandbox.environment = self:buildEnvironment(sandbox)
+    -- its frames are told by this environment: plugin code gets its own time budget
+    if type(__go_plugin_budget_register) == "function" then
+        __go_plugin_budget_register(pluginId, sandbox.environment)
+    end
 
     self.sandboxes[pluginId] = sandbox
     Logger:info("[SANDBOX] Created sandbox for: " .. pluginId)
@@ -1804,6 +1808,9 @@ function PluginSandbox:cleanup(pluginId)
 
     -- 0. Sockets, serial ports and transfers, then pollers, exposed objects and the
     -- registry entry of its instance
+    if type(__go_plugin_budget_forget) == "function" then
+        __go_plugin_budget_forget(pluginId)
+    end
     if type(__go_pluginio_release) == "function" then
         __go_pluginio_release(pluginId)
     end

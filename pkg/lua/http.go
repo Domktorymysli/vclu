@@ -376,7 +376,7 @@ func registerHTTPFunctions(L *lua.LState, hm *HTTPManager) {
 			headers = make(map[string]string)
 		}
 
-		ctx := L.Context()
+		ctx := baseContext(L.Context()) // the request's goroutines may not ask the Lua-only budget
 		if ctx == nil {
 			ctx = context.Background()
 		}
