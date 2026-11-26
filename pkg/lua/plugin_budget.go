@@ -48,12 +48,14 @@ type pluginBudget struct {
 	call, load  time.Duration
 	runtimePath string
 	onSuspend   func(pluginID string)
+	proxyReads  map[*lua.FunctionProto]int // the sandbox's proxy read methods -> their owner upvalue
 }
 
 func newPluginBudget(runtimePath string) *pluginBudget {
 	return &pluginBudget{
 		envs: map[*lua.LTable]string{}, byID: map[string]*lua.LTable{}, usage: map[string]*pluginUsage{},
 		call: DefaultPluginCallBudget, load: DefaultPluginLoadBudget, runtimePath: filepath.Clean(runtimePath),
+		proxyReads: map[*lua.FunctionProto]int{},
 	}
 }
 
@@ -81,6 +83,7 @@ func (b *pluginBudget) active() bool {
 func (b *pluginBudget) reset() {
 	b.mu.Lock()
 	b.envs, b.byID = map[*lua.LTable]string{}, map[string]*lua.LTable{}
+	b.proxyReads = map[*lua.FunctionProto]int{}
 	b.mu.Unlock()
 }
 
@@ -359,15 +362,70 @@ func registerPluginBudgetFunctions(L *lua.LState, b *pluginBudget) {
 		b.setLoading(L.CheckString(1), L.ToBool(2))
 		return 0
 	}))
-	// __go_plugin_running() -> pluginId | nil: whose code called, as the budget counts it
-	L.SetGlobal("__go_plugin_running", L.NewFunction(func(L *lua.LState) int {
-		if id := b.owner(L); id != "" {
-			L.Push(lua.LString(id))
-			return 1
+	// __go_proxy_read_method(fn): fn is made like every read method of a read-only proxy
+	L.SetGlobal("__go_proxy_read_method", L.NewFunction(func(L *lua.LState) int {
+		fn := L.CheckFunction(1)
+		for i, name := range fn.Proto.DbgUpvalues {
+			if name == "owner" {
+				b.mu.Lock()
+				b.proxyReads[fn.Proto] = i
+				b.mu.Unlock()
+				return 0
+			}
 		}
-		L.Push(lua.LNil)
-		return 1
+		L.RaiseError("__go_proxy_read_method: no owner upvalue")
+		return 0
 	}))
+	// __go_clu_caller() -> viaProxy, pluginId | nil: whose request to a CLU this is
+	L.SetGlobal("__go_clu_caller", L.NewFunction(func(L *lua.LState) int {
+		proxy, owner := b.cluCaller(L)
+		L.Push(lua.LBool(proxy))
+		L.Push(owner)
+		return 2
+	}))
+}
+
+// cluCaller: a read through a proxy is its owner's (false: not known), from the stack, so an
+// error or a stopped callback leaves nothing behind. Else the plugin whose frame comes first,
+// before a module's frame or a tail call (which hides who called).
+func (b *pluginBudget) cluCaller(L *lua.LState) (bool, lua.LValue) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for level := 0; ; level++ {
+		dbg, ok := L.GetStack(level)
+		if !ok {
+			break
+		}
+		f, err := L.GetInfo("f", dbg, lua.LNil)
+		fn, _ := f.(*lua.LFunction)
+		if err != nil || fn == nil || fn.IsG {
+			continue
+		}
+		if i, ok := b.proxyReads[fn.Proto]; ok && i < len(fn.Upvalues) {
+			owner := fn.Upvalues[i].Value()
+			if owner.Type() != lua.LTString {
+				owner = lua.LNil
+			}
+			return true, owner
+		}
+	}
+	for level := 0; ; level++ {
+		dbg, ok := L.GetStack(level)
+		if !ok {
+			return false, lua.LNil
+		}
+		f, err := L.GetInfo("Sf", dbg, lua.LNil)
+		fn, _ := f.(*lua.LFunction)
+		if err != nil || fn == nil || fn.IsG {
+			continue
+		}
+		if id, ok := b.envs[fn.Env]; ok {
+			return false, lua.LString(id)
+		}
+		if dbg.What == "tail" || b.isModule(dbg.Source) {
+			return false, lua.LNil
+		}
+	}
 }
 
 // SetPluginTimeBudget: plugin code's time in one callback and at load; 0 keeps the default.

@@ -243,9 +243,9 @@ running: the manifest names the plugin API it is written for, and the stricter c
 - [ ] On API 2 plugin code without `grenton_raw` sends no request to a CLU: a read by index on a
       Grenton object or a `CLU_REMOTE` read is refused, also as a tail call; reads of known state
       work; API 1 is warned once; modules are not affected (`TestReviewExecRemoteReadFromPlugin`,
-      `TestCluRequestAPI1AndModules`).
+      `TestCluRequestAPI1AndModules`, `TestReviewCluCheck*`).
 - [ ] Objects a plugin did not create show no `_` fields, also through `pairs`, and their read
-      methods still work (`TestProxyHidesOwnFields`).
+      methods still work, also in JSON (`TestProxyHidesOwnFields`, `TestReviewHiddenFieldsThroughJSON`).
 - [ ] On API 2 a plugin's expose handles refuse `:remote`, `:roles`, `:pin` and `:confirm`; the
       user's module sets them on the same handle; API 1 unchanged (`TestHandleRemoteIsTheUsers`).
 - [ ] `lib/telnet` hands text without a line end past 64 KiB to `onLine` and refuses a bad prompt

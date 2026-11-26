@@ -43,8 +43,6 @@ local function sourceOf(t)
     return type(mt) == "table" and rawget(mt, "__sandboxSource") or nil
 end
 
-local function packResults(...) return { n = select("#", ...), ... } end
-
 -- Applies f to every result of a call, keeping trailing nils.
 local function mapResults(f, ...)
     local n = select("#", ...)
@@ -106,28 +104,56 @@ local function pluginFacade(obj, owner)
     }
 end
 
--- Plugins whose read through a proxy runs now, innermost last (false: not known); a request
--- to a CLU checks it (PluginSandbox.checkCluRequest)
-local proxyCallers = {}
+-- Results of a read as the plugin gets them: tables proxied for the same owner
+local function ownedResults(owner, ...)
+    local n = select("#", ...)
+    if n == 0 then return end
+    local out = { ... }
+    for i = 1, n do out[i] = readOnlyProxy(out[i], owner) end
+    return unpackArgs(out, 1, n)
+end
+
+-- A read method of a proxy. A request to a CLU under it is owner's (false: not known): Go finds
+-- this function on the stack and reads owner (__go_clu_caller, PluginSandbox.checkCluRequest)
+local function readMethod(proxy, obj, key, val, owner)
+    return function(self, ...)
+        if self ~= proxy then
+            error("Read-only: call " .. tostring(key) .. " as a method of its object", 2)
+        end
+        for i = 1, select("#", ...) do
+            local t = type((select(i, ...)))
+            if t ~= "number" and t ~= "string" and t ~= "boolean" and t ~= "nil" then
+                error("Read-only: " .. tostring(key) .. " takes numbers, strings and booleans from a plugin", 2)
+            end
+        end
+        return ownedResults(owner, val(obj, ...))
+    end
+end
+if type(__go_proxy_read_method) == "function" then
+    __go_proxy_read_method(readMethod(nil, nil, nil, nil, false))
+end
 
 -- Read-only proxy for external registry objects: fields read, tables proxied in turn,
 -- read methods called on the real object, every other method refused. owner: the plugin
 -- it was handed to, when known.
 readOnlyProxy = function(obj, owner)
     if type(obj) ~= "table" then return obj end
+    owner = owner or false
     if instanceOf[obj] then return pluginFacade(instanceOf[obj], owner) end
     local src = sourceOf(obj)
     if src then
-        if rawget(getmetatable(obj), "__sandboxReadOnly") then return obj end
+        local mt = getmetatable(obj)
+        -- another plugin's proxy reads as the plugin that reached it
+        if rawget(mt, "__sandboxReadOnly") and rawget(mt, "__sandboxOwner") == owner then return obj end
         obj = src -- a facade with methods of another plugin's object: read-only here
     end
     if isPluginInstance(obj) then return pluginFacade(obj, owner) end
     local proxy
     local methods = {}
-    local function wrap(v) return readOnlyProxy(v, owner) end
     proxy = setmetatable({}, {
         __sandboxSource = obj,
         __sandboxReadOnly = true,
+        __sandboxOwner = owner,
         __index = function(_, key)
             -- an object's _fields are its own state, not for another plugin
             if type(key) == "string" and key:sub(1, 1) == "_" then return nil end
@@ -136,23 +162,7 @@ readOnlyProxy = function(obj, owner)
                 local m = methods[key]
                 if m then return m end
                 if isReadMethod(key) then
-                    m = function(self, ...)
-                        if self ~= proxy then
-                            error("Read-only: call " .. tostring(key) .. " as a method of its object", 2)
-                        end
-                        self = obj
-                        for i = 1, select("#", ...) do
-                            local t = type((select(i, ...)))
-                            if t ~= "number" and t ~= "string" and t ~= "boolean" and t ~= "nil" then
-                                error("Read-only: " .. tostring(key) .. " takes numbers, strings and booleans from a plugin", 2)
-                            end
-                        end
-                        proxyCallers[#proxyCallers + 1] = owner or false
-                        local res = packResults(pcall(val, self, ...))
-                        proxyCallers[#proxyCallers] = nil
-                        if not res[1] then error(res[2], 0) end
-                        return mapResults(wrap, unpackArgs(res, 2, res.n))
-                    end
+                    m = readMethod(proxy, obj, key, val, owner)
                 else
                     m = function()
                         error("Read-only: a plugin cannot call " .. tostring(key)
@@ -173,13 +183,14 @@ readOnlyProxy = function(obj, owner)
 end
 
 -- A shared runtime object (Logger, JSON, an expose handle) whose methods a plugin may
--- call but whose fields it may not replace. deny: method name -> function that refuses.
-local function boundFacade(obj, deny)
+-- call but whose fields it may not replace. deny: method name -> function that refuses;
+-- owner: the plugin it was handed to.
+local function boundFacade(obj, deny, owner)
     local facade
     local methods = {}
     local function out(r)
         if r == obj then return facade end
-        if type(r) == "table" and getmetatable(r) ~= nil then return readOnlyProxy(r) end
+        if type(r) == "table" and getmetatable(r) ~= nil then return readOnlyProxy(r, owner) end
         return r
     end
     facade = setmetatable({}, {
@@ -200,7 +211,7 @@ local function boundFacade(obj, deny)
                 end
                 return m
             end
-            return readOnlyProxy(val)
+            return readOnlyProxy(val, owner)
         end,
         __newindex = function()
             error("Read-only: plugins cannot modify a shared object", 2)
@@ -339,7 +350,7 @@ local function sandboxNext(t, key)
     local k = originalNext(source, sourceOf(key) or key)
     while hidden(k) do k = originalNext(source, k) end
     if k == nil then return nil end
-    return readOnlyProxy(k), t[k]
+    return readOnlyProxy(k, rawget(getmetatable(t), "__sandboxOwner")), t[k]
 end
 
 local function sandboxPairs(t)
@@ -360,16 +371,33 @@ end
 
 -- What leaves the sandbox for Go (JSON) or a module (an event) must not carry proxies,
 -- which look empty there: the sources go instead, copied into the plugin's own tables.
-local function plain(v, seen)
+-- JSON of an object the plugin did not create: a copy without its _fields, as the proxy shows it
+local function visible(t, seen)
+    if seen[t] then return seen[t] end
+    local c = {}
+    seen[t] = c
+    for k, v in originalPairs(t) do
+        if type(k) ~= "string" or k:sub(1, 1) ~= "_" then
+            c[k] = type(v) == "table" and visible(sourceOf(v) or v, seen) or v
+        end
+    end
+    return c
+end
+
+-- vis: a table for JSON, which the plugin can read back
+local function plain(v, seen, vis)
     if type(v) ~= "table" then return v end
     local src = sourceOf(v)
-    if src then return src end
+    if src then
+        if vis and rawget(getmetatable(v), "__sandboxReadOnly") then return visible(src, vis) end
+        return src
+    end
     seen = seen or {}
     if seen[v] then return seen[v] end
     seen[v] = v
     local copy
     for k, val in originalPairs(v) do
-        local pv = plain(val, seen)
+        local pv = plain(val, seen, vis)
         if pv ~= val and not copy then
             copy = shallowCopy(v)
             seen[v] = copy
@@ -400,7 +428,7 @@ end
 local function sandboxUnpack(list, ...)
     local src = sourceOf(list)
     if not src then return unpackArgs(list, ...) end
-    return mapResults(readOnlyProxy, unpackArgs(src, ...))
+    return ownedResults(rawget(getmetatable(list), "__sandboxOwner"), unpackArgs(src, ...))
 end
 
 -- Plugin class functions that are not instance methods
@@ -410,6 +438,7 @@ local INSTANCE_HIDDEN = { _sandbox = true, _exposedHandles = true, timers = true
 local INSTANCE_PROTECTED = {
     id = true, shortId = true, namespace = true, _sandbox = true, _isPlugin = true, _exposedHandles = true,
     timers = true, subscriptions = true, init = true, cleanup = true, stats = true,
+    getExposed = true, -- the user's module sets remote access on what it returns
     dashboardAccess = true, -- a module's grant must reach the core, not the plugin's own function
 }
 -- Called by the loader and the sandbox on the real instance, not by the plugin
@@ -433,12 +462,12 @@ local function instanceProxy(inner)
     local methods = {}
     local function handleFacade(h)
         local api2 = not inner._sandbox or inner._sandbox.apiVersion >= 2
-        return boundFacade(h, api2 and HANDLE_USER_ONLY or nil)
+        return boundFacade(h, api2 and HANDLE_USER_ONLY or nil, inner.id)
     end
     local function out(r)
         if r == inner then return proxy end
         if type(r) == "table" and getmetatable(r) ~= nil and not sourceOf(r) then
-            return boundFacade(r)
+            return boundFacade(r, nil, inner.id)
         end
         return r
     end
@@ -1029,7 +1058,7 @@ function PluginSandbox:buildAPI(sandbox)
         if MQTT and MQTT.publish then
             local payloadStr = payload
             if type(payload) == "table" then
-                payloadStr = JSON:encode(plain(payload))
+                payloadStr = JSON:encode(plain(payload, nil, {}))
             end
             MQTT:publish(topic, payloadStr, qos or 0, retain or false)
         end
@@ -1321,7 +1350,7 @@ function PluginSandbox:buildAPI(sandbox)
     end
 
     api.encodeJson = function(data)
-        return PluginHelpers.encodeJson(plain(data))
+        return PluginHelpers.encodeJson(plain(data, nil, {}))
     end
 
     -- Coercion helpers
@@ -1608,7 +1637,7 @@ function PluginSandbox:buildEnvironment(sandbox)
         -- through the plugin API (plugin:httpRequest, plugin:mqttSubscribe).
         Logger = boundFunctions(maskedLogger(sandbox), { "debug", "info", "warn", "error" }),
         JSON = boundFunctions({
-            encode = function(_, data, ...) return JSON:encode(plain(data), ...) end,
+            encode = function(_, data, ...) return JSON:encode(plain(data, nil, {}), ...) end,
             decode = function(_, ...) return JSON:decode(...) end,
         }, { "encode", "decode" }),
         Modbus = modbus,
@@ -1740,11 +1769,11 @@ end
 --- Called before a request goes to a CLU: plugin code needs grenton_raw on API 2; an API 1
 -- plugin is warned once. Module code passes.
 function PluginSandbox.checkCluRequest()
-    local id = proxyCallers[#proxyCallers] or nil
-    if not id and type(__go_plugin_running) == "function" then id = __go_plugin_running() end
+    if type(__go_clu_caller) ~= "function" then return end
+    local viaProxy, id = __go_clu_caller()
     if not id then
         -- a plugin's read through a proxy it got from somewhere else
-        if #proxyCallers > 0 then error("a plugin reading a CLU needs the grenton_raw permission", 3) end
+        if viaProxy then error("a plugin reading a CLU needs the grenton_raw permission", 3) end
         return
     end
     local sandbox = PluginSandbox.sandboxes[id]
