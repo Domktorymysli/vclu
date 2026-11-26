@@ -490,7 +490,8 @@ PluginsManager.prototype.addRepository = function() {
     .then(function(r) { return r.json(); })
     .then(function(data) {
         if (data.error) {
-            VCLU.showToast(data.error, 'danger');
+            // the files differ from what the confirmation showed: it has to be seen again
+            VCLU.showToast(data.code === 'changed_since_preview' ? pt('changed_since_preview') : data.error, 'danger');
         } else {
             location.reload();
         }
@@ -614,7 +615,7 @@ PluginsManager.prototype._confirmInstall = function(id, repository, preview) {
     var modal = new bootstrap.Modal(this.elements.installModal);
     this.elements.installConfirm.onclick = function() {
         modal.hide();
-        self._install(id, repository, requested, {internet: preview.internet || [],
+        self._install(id, repository, requested, {api: preview.api || 1, internet: preview.internet || [],
             broadcastPorts: preview.broadcastPorts || [], tcpPorts: preview.tcpPorts || [],
             websocketPorts: preview.websocketPorts || []});
     };
@@ -637,7 +638,8 @@ PluginsManager.prototype._install = function(id, repository, accept, seen) {
     .then(function(r) { return r.json(); })
     .then(function(data) {
         if (data.error) {
-            VCLU.showToast(data.error, 'danger');
+            // the files differ from what the confirmation showed: it has to be seen again
+            VCLU.showToast(data.code === 'changed_since_preview' ? pt('changed_since_preview') : data.error, 'danger');
         } else {
             // Installed plugins are keyed by full id; an update keeps config and enabled
             var existing = self.installedPlugins[data.fullId];
@@ -718,7 +720,8 @@ PluginsManager.prototype.toggle = function(id, enabled) {
     .then(function(r) { return r.json(); })
     .then(function(data) {
         if (data.error) {
-            VCLU.showToast(data.error, 'danger');
+            // the files differ from what the confirmation showed: it has to be seen again
+            VCLU.showToast(data.code === 'changed_since_preview' ? pt('changed_since_preview') : data.error, 'danger');
         } else {
             // Update local state and re-render
             if (self.installedPlugins[id]) {
@@ -745,7 +748,8 @@ PluginsManager.prototype._saveGrants = function(id, grants, done) {
     .then(function(r) { return r.json(); })
     .then(function(data) {
         if (data.error) {
-            VCLU.showToast(data.error, 'danger');
+            // the files differ from what the confirmation showed: it has to be seen again
+            VCLU.showToast(data.code === 'changed_since_preview' ? pt('changed_since_preview') : data.error, 'danger');
             return;
         }
         if (data.warning) VCLU.showToast(data.warning, 'warning');
@@ -1148,7 +1152,8 @@ PluginsManager.prototype.saveConfig = function() {
     .then(function(r) { return r.json(); })
     .then(function(data) {
         if (data.error) {
-            VCLU.showToast(data.error, 'danger');
+            // the files differ from what the confirmation showed: it has to be seen again
+            VCLU.showToast(data.code === 'changed_since_preview' ? pt('changed_since_preview') : data.error, 'danger');
         } else {
             // Update local state
             if (self.installedPlugins[self.currentConfigPlugin]) {

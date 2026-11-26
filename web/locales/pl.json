@@ -1076,6 +1076,7 @@
       "update_keeps": "Aktualizacja zachowuje to, na co zezwoliłeś; nowe uprawnienia czekają na Twoją zgodę.",
       "api1_note": "Plugin w starym API (1): ma dostęp bez ograniczeń zgód, także do dowolnego serwera w internecie.",
       "api_downgrade": "Ta wersja obniża API pluginu z {0} do {1} i zdjęłaby jego ograniczenia. Jeśli chcesz ją mimo to, odinstaluj plugin i zainstaluj go od nowa.",
+      "changed_since_preview": "Plugin zmienił się od podglądu; otwórz instalację jeszcze raz.",
       "source_moved": "Źródło zmieniło adres",
       "source_moved_title": "Repozytorium, z którego zainstalowano plugin, ma teraz inny adres; aktualizacja jest zablokowana. Odinstaluj plugin, jeśli chcesz go z nowego adresu.",
       "not_used": "Nieużywane",

@@ -1076,6 +1076,7 @@
       "update_keeps": "An update keeps what you allowed; anything new waits for you to allow it.",
       "api1_note": "A plugin on the old API (1): it reaches what it wants, outside the permissions, any internet server too.",
       "api_downgrade": "This version lowers the plugin API from {0} to {1}, which would drop its limits. If you want it anyway, uninstall the plugin and install it again.",
+      "changed_since_preview": "The plugin changed since the preview; open the installation again.",
       "source_moved": "Source moved",
       "source_moved_title": "The repository this plugin came from has another address now; updates are blocked. Uninstall it to get it from the new address.",
       "not_used": "Not used",

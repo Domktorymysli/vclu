@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -289,8 +290,17 @@ var downloadMu sync.Mutex
 // DownloadPlugin downloads a plugin from a repository
 // pluginID can be fullId (@vclu/weather) or short id (weather)
 func (l *Loader) DownloadPlugin(repo config.PluginRepository, pluginID string) error {
-	return l.downloadPlugin(repo, pluginID, "")
+	return l.downloadPlugin(repo, pluginID, "", 0)
 }
+
+// DownloadPluginSeen downloads it only when its plugin API is still the one the user's
+// confirmation showed (ErrChangedSincePreview otherwise); the installed version stays.
+func (l *Loader) DownloadPluginSeen(repo config.PluginRepository, pluginID string, seenAPI int) error {
+	return l.downloadPlugin(repo, pluginID, "", seenAPI)
+}
+
+// ErrChangedSincePreview: the files to install are not what the confirmation showed.
+var ErrChangedSincePreview = errors.New("changed since the confirmation")
 
 // Preview: what a plugin's version asks for, before it is installed.
 type Preview struct {
@@ -351,8 +361,9 @@ func (l *Loader) PreviewPermissions(repo config.PluginRepository, pluginID strin
 }
 
 // downloadPlugin downloads the version the repository lists; with newerThan, only when that
-// version is newer (errNotNewer otherwise), so an update never goes back.
-func (l *Loader) downloadPlugin(repo config.PluginRepository, pluginID, newerThan string) error {
+// version is newer (errNotNewer otherwise), so an update never goes back; with seenAPI, only
+// on that plugin API.
+func (l *Loader) downloadPlugin(repo config.PluginRepository, pluginID, newerThan string, seenAPI int) error {
 	downloadMu.Lock()
 	defer downloadMu.Unlock()
 
@@ -421,6 +432,9 @@ func (l *Loader) downloadPlugin(repo config.PluginRepository, pluginID, newerTha
 			if err := checkAPIFloor(pluginID, filepath.Join(targetDir, "plugin.json"), floor); err != nil {
 				return err
 			}
+			if err := checkSeenAPI(pluginID, filepath.Join(targetDir, "plugin.json"), seenAPI); err != nil {
+				return err
+			}
 			log.Printf("[PLUGINS] cached %s/%s, skipping download", safeDir, version)
 			// The lock may still name an older dir (a lost lock write)
 			if cur := l.ReadLockFile()[pluginID]; cur.Path != lockEntry.Path || cur.Version != lockEntry.Version {
@@ -463,6 +477,10 @@ func (l *Loader) downloadPlugin(repo config.PluginRepository, pluginID, newerTha
 		return fmt.Errorf("%s %s: %w", pluginID, listing.Version, err)
 	}
 	if err := checkAPIFloor(pluginID, filepath.Join(tmpDir, "plugin.json"), floor); err != nil {
+		_ = os.RemoveAll(tmpDir)
+		return err
+	}
+	if err := checkSeenAPI(pluginID, filepath.Join(tmpDir, "plugin.json"), seenAPI); err != nil {
 		_ = os.RemoveAll(tmpDir)
 		return err
 	}
@@ -1019,7 +1037,7 @@ func (l *Loader) LoadAllEnabled() error {
 				log.Printf("[PLUGINS] WARNING: %s %s on disk, %s in config, repository %s has another address than the plugin came from; loading %s", installed.ID, local, installed.Version, installed.Repository, local)
 			} else if key := installed.ID + "|" + installed.Version + "|" + local; !l.updateDue(key) {
 				// checked lately without result: not on every reload (offline, repository behind)
-			} else if err := l.downloadPlugin(*repo, installed.ID, local); err != nil {
+			} else if err := l.downloadPlugin(*repo, installed.ID, local, 0); err != nil {
 				l.updateLater(key)
 				// LoadPlugin resolves the directory again, so it takes what is on disk
 				log.Printf("[PLUGINS] WARNING: %s %s on disk, %s in config, not updated (%v); loading %s, next check in %v", installed.ID, local, installed.Version, err, local, updateRetryAfter)
@@ -1147,6 +1165,25 @@ func checkAPIFloor(pluginID, path string, floor int) error {
 	}
 	if api := manifestAPI(m); api < floor {
 		return APIDowngrade(pluginID, floor, api)
+	}
+	return nil
+}
+
+// checkSeenAPI: the manifest at path is on plugin API seen (0: not checked).
+func checkSeenAPI(pluginID, path string, seen int) error {
+	if seen == 0 {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var m PluginManifest
+	if err := json.Unmarshal(data, &m); err != nil {
+		return fmt.Errorf("plugin.json is not valid for this vclu: %w", err)
+	}
+	if api := manifestAPI(m); api != seen {
+		return fmt.Errorf("%s: plugin API %d, the confirmation showed %d: %w", pluginID, api, seen, ErrChangedSincePreview)
 	}
 	return nil
 }

@@ -403,6 +403,7 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 		Accept *[]string `json:"accept"`
 		// What the confirmation showed for them; the files may say otherwise
 		Seen *struct {
+			API            int      `json:"api"`
 			Internet       []string `json:"internet"`
 			BroadcastPorts []int    `json:"broadcastPorts"`
 			TCPPorts       []int    `json:"tcpPorts"`
@@ -533,9 +534,17 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 	}
 
 	// The files first: the config then never names a version that is not on disk (#112)
-	if err := loader.DownloadPlugin(*targetRepo, fullId); err != nil {
+	seenAPI := 0
+	if req.Seen != nil {
+		seenAPI = req.Seen.API
+	}
+	if err := loader.DownloadPluginSeen(*targetRepo, fullId, seenAPI); err != nil {
 		if errors.Is(err, plugins.ErrAPIDowngrade) {
 			c.JSON(http.StatusConflict, gin.H{"error": err.Error(), "code": "api_downgrade"})
+			return
+		}
+		if errors.Is(err, plugins.ErrChangedSincePreview) {
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error(), "code": "changed_since_preview"})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to download plugin: %v", err)})
