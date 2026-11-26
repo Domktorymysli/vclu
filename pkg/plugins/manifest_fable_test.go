@@ -307,3 +307,15 @@ func TestFableMigrationPinsThenWaits(t *testing.T) {
 		t.Errorf("pending %+v", pending)
 	}
 }
+
+// Texts shown in the install dialog refuse format characters that change how they read.
+func TestPlainTextRefusesFormatCharacters(t *testing.T) {
+	for _, s := range []string{"Chmura‮Tuya", "a​b", "x⁦y"} {
+		if plainText(s, 200) {
+			t.Errorf("%q accepted", s)
+		}
+	}
+	if !plainText("Chmura Tuya, ąę", 200) {
+		t.Error("plain text refused")
+	}
+}

@@ -462,12 +462,13 @@ function Plugin:dashboardAccess(id, opts)
 end
 
 --- A named action agents and voice assistants call (HTTP POST /api/plugins/:id/actions/:name,
--- MCP vclu_app_action). fn(params) gets the checked params and returns the result (text,
--- number, true/false or a plain table) or nil, err. At most 32 per plugin; removed when it stops.
--- @param name string Lower-case letter, then letters, digits and _
--- @param spec table {description = text|{pl, en}, params = {name = {type = "string"|"number"|"boolean", description, required}}}
--- @param fn function fn(params) -> result | nil, err
--- @usage plugin:action("add", {description = {pl = "Dodaj do listy", en = "Add to the list"}, params = {item = {type = "string", required = true}}}, function(p) return add(p.item) end)
+-- MCP vclu_app_action). On API 2 the action is declared in plugin.json "actions" (description,
+-- params, confirm) and the code only binds it: plugin:action(name, fn). fn(params) gets the
+-- checked params and returns the result (text, number, true/false or a plain table) or nil, err.
+-- @param name string An action declared in plugin.json
+-- @param spec table|function On API 2 the function; on API 1 {description, params}, then fn
+-- @param fn function fn(params) -> result | nil, err (API 1)
+-- @usage plugin:action("add", function(p) return add(p.item) end)
 function Plugin:action(name, spec, fn)
     sandboxAPI(self, "action").action(name, spec, fn)
     return self

@@ -147,7 +147,8 @@ func plainText(s string, n int) bool {
 	if !utf8.ValidString(s) || utf8.RuneCountInString(s) > n {
 		return false
 	}
-	return !strings.ContainsFunc(s, unicode.IsControl)
+	// format characters (right-to-left override, zero width) could hide what the text says
+	return !strings.ContainsFunc(s, func(r rune) bool { return unicode.IsControl(r) || unicode.Is(unicode.Cf, r) })
 }
 
 // RealDashboardID: the dashboard's id at /d/, "<shortId with - as _>_<id>" (PluginSandbox).
