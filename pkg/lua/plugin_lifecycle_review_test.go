@@ -50,3 +50,28 @@ return plugin`, false)
 		t.Errorf("timers after loading twice: %d, want %d", n, before+1)
 	}
 }
+
+// Code a module still holds runs after cleanup but starts no Modbus request.
+func TestReviewExecModbusAfterCleanup(t *testing.T) {
+	engine := sandboxEngine(t, "@t/a", `{modbus = true}`)
+	if _, e := runPlugin(t, engine, "@t/a", `
+		p = Plugin:new("a", {name = "A"})
+		poll = function() Modbus.readHolding({ host = "192.168.1.9", addr = 0, qty = 1 }, function() end) end
+		f32 = function() return Modbus.toFloat32(0x4148, 0) end
+	`); e != "nil" {
+		t.Fatal(e)
+	}
+	if _, err := engine.Execute(`
+		__mb = { n = 0 }
+		__go_modbus_request = function() __mb.n = __mb.n + 1; return true end
+		local env = PluginSandbox.sandboxes["@t/a"].environment
+		env.poll()
+		__poll, __f32 = env.poll, env.f32
+		PluginSandbox:cleanup("@t/a")
+		pcall(__poll)
+	`); err != nil {
+		t.Fatal(err)
+	}
+	mustLua(t, engine, `__mb.n`, "1")
+	mustLua(t, engine, `__f32()`, "12.5")
+}

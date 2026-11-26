@@ -1417,7 +1417,16 @@ function PluginSandbox:buildEnvironment(sandbox)
     -- Modbus only with the permission; without it a clear error instead of nil
     local modbus
     if sandbox.permissions.modbus and Modbus then
+        -- requests stop with the plugin, as its timers do; conversions keep working
         modbus = shallowCopy(Modbus)
+        for name, f in originalPairs(Modbus) do
+            if type(f) == "function" and (name == "request" or name:match("^read") or name:match("^write")) then
+                modbus[name] = function(...)
+                    if sandbox.dead then error("plugin " .. pluginId .. " is disabled", 2) end
+                    return f(...)
+                end
+            end
+        end
     else
         modbus = setmetatable({}, {
             __index = function()
