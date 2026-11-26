@@ -62,6 +62,7 @@ type pluginIOGrant struct {
 	tcp              bool
 	tcpHosts         []netip.Prefix
 	tcpPorts         []int // tcp: from plugin.json
+	wsLANPorts       []int // WebSockets to local addresses: plugin.json's "websocket": {"lanPorts"}
 }
 
 type ioHandle struct {
@@ -759,7 +760,7 @@ func pushResult(L *lua.LState, v lua.LValue, err error) int {
 
 func registerPluginIOFunctions(L *lua.LState, p *PluginIO) {
 	// __go_pluginio_grant(pluginId, grentonRaw, tftp, serial, rawHosts, tftpHosts, serialPorts,
-	//   udp, udpHosts, broadcastPorts, tcp, tcpHosts, tcpPorts)
+	//   udp, udpHosts, broadcastPorts, tcp, tcpHosts, tcpPorts, wsLANPorts)
 	L.SetGlobal("__go_pluginio_grant", L.NewFunction(func(L *lua.LState) int {
 		id := L.CheckString(1)
 		g := pluginIOGrant{grentonRaw: L.ToBool(2), tftp: L.ToBool(3), serial: L.ToBool(4), udp: L.ToBool(8)}
@@ -773,6 +774,7 @@ func registerPluginIOFunctions(L *lua.LState, p *PluginIO) {
 		g.tcp = L.ToBool(11)
 		g.tcpHosts = hostsArg(L, 12, id)
 		g.tcpPorts = portsArg(L, 13)
+		g.wsLANPorts = portsArg(L, 14)
 		p.SetGrant(id, g)
 		return 0
 	}))

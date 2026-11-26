@@ -783,12 +783,13 @@ function PluginSandbox:create(pluginId, permissions)
         __go_http_set_internet(pluginId, sandbox.limits.internetHosts)
     end
     if type(__go_pluginio_grant) == "function" then
-        -- udp broadcasts only to the ports in plugin.json's "udp", tcp connects only to those in "tcp"
+        -- udp broadcasts only to the ports in plugin.json's "udp", tcp connects only to those in
+        -- "tcp", a WebSocket to a local address only to those in "websocket"
         __go_pluginio_grant(pluginId, sandbox.permissions.grentonRaw, sandbox.permissions.tftp,
             sandbox.permissions.serial, sandbox.limits.grentonRawHosts, sandbox.limits.tftpHosts,
             sandbox.limits.serialPorts, sandbox.permissions.udp, sandbox.limits.udpHosts,
             list(permissions.udpBroadcastPorts) or {}, sandbox.permissions.tcp, sandbox.limits.tcpHosts,
-            list(permissions.tcpPorts) or {})
+            list(permissions.tcpPorts) or {}, list(permissions.websocketLanPorts) or {})
     end
 
     -- Build wrapped API with automatic tracking

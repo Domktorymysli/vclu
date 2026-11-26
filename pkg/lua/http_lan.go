@@ -79,10 +79,11 @@ type dialPolicy struct {
 	restricted bool           // internet hosts only those in internet
 	internet   plugins.InternetHosts
 	isLocal    func(netip.Addr) bool
-	resolve    map[string]string     // tests: a name's address instead of DNS
-	own        func(netip.Addr) bool // set: this machine's addresses refused (a plugin's WebSocket)
-	ownAddr    func(netip.Addr) bool // set: on this machine, ownPorts refused (a plugin's HTTP)
-	ownPorts   func() []int          // nil or returning nil: every port
+	resolve    map[string]string                   // tests: a name's address instead of DNS
+	own        func(netip.Addr) bool               // set: this machine's addresses refused (a plugin's WebSocket)
+	ownAddr    func(netip.Addr) bool               // set: on this machine, ownPorts refused (a plugin's HTTP)
+	ownPorts   func() []int                        // nil or returning nil: every port
+	lanPort    func(ip netip.Addr, port int) error // set: a local address only on the ports it allows (a plugin's WebSocket)
 }
 
 func (p dialPolicy) notListed(host string) error {
@@ -136,7 +137,14 @@ func (p dialPolicy) dialContext(ctx context.Context, network, addr string) (net.
 					return fmt.Errorf("refused %s: an address of this vclu", address)
 				}
 			}
-			return p.allows(host, ip)
+			if err := p.allows(host, ip); err != nil {
+				return err
+			}
+			if p.lanPort != nil && p.isLocal(ip.WithZone("").Unmap()) {
+				n, _ := strconv.Atoi(port)
+				return p.lanPort(ip.WithZone("").Unmap(), n)
+			}
+			return nil
 		},
 	}
 	return d.DialContext(ctx, network, target)

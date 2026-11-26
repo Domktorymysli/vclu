@@ -309,6 +309,9 @@ type installedPluginView struct {
 	// of those, the ports an update added and the user has not allowed
 	PendingBroadcastPorts []int `json:"pendingBroadcastPorts,omitempty"`
 	PendingTCPPorts       []int `json:"pendingTcpPorts,omitempty"`
+	// with lan: the local ports its WebSockets reach, and those not allowed yet
+	WebSocketPorts        []int `json:"websocketPorts,omitempty"`
+	PendingWebSocketPorts []int `json:"pendingWebsocketPorts,omitempty"`
 }
 
 func (s *Server) installedPluginsView(installed []config.InstalledPlugin) []installedPluginView {
@@ -317,7 +320,7 @@ func (s *Server) installedPluginsView(installed []config.InstalledPlugin) []inst
 	for _, p := range installed {
 		v := loader.PermissionsView(p)
 		out = append(out, installedPluginView{p, loader.NeedsConfig(p), v.Requested.Names(), v.Pending.Names(), v.Internet, v.Pending.Internet,
-			v.BroadcastPorts, v.TCPPorts, v.Pending.BroadcastPorts, v.Pending.TCPPorts})
+			v.BroadcastPorts, v.TCPPorts, v.Pending.BroadcastPorts, v.Pending.TCPPorts, v.WebSocketPorts, v.Pending.WebSocketPorts})
 	}
 	return out
 }
@@ -353,6 +356,7 @@ func (s *Server) handlePluginsAPIPreview(c *gin.Context) {
 		"internet":       nonNil([]string(preview.Requested.Internet)),
 		"broadcastPorts": append([]int{}, preview.BroadcastPorts...),
 		"tcpPorts":       append([]int{}, preview.TCPPorts...),
+		"websocketPorts": append([]int{}, preview.WebSocketPorts...),
 		"all":            plugins.AllPermissions.Names(),
 	})
 }
@@ -712,7 +716,7 @@ func (s *Server) handlePluginsAPIPermissions(c *gin.Context) {
 
 	v := plugins.NewLoader(s.serverDir).PermissionsView(installed)
 	c.JSON(http.StatusOK, gin.H{"success": true, "pendingPermissions": v.Pending.Names(), "pendingInternet": v.Pending.Internet,
-		"pendingBroadcastPorts": v.Pending.BroadcastPorts, "pendingTcpPorts": v.Pending.TCPPorts})
+		"pendingBroadcastPorts": v.Pending.BroadcastPorts, "pendingTcpPorts": v.Pending.TCPPorts, "pendingWebsocketPorts": v.Pending.WebSocketPorts})
 }
 
 // handlePluginsAPIConfig updates plugin configuration

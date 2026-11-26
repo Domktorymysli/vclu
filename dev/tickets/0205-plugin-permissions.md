@@ -100,7 +100,9 @@ running: the manifest names the plugin API it is written for, and the stricter c
   Assistant over ws://): no permission of its own. `plugin:websocket(url, {headers, protocols,
   timeout})` takes `ws://` or `wss://` and dials through the plugin's HTTP rules (the internet host
   list before DNS and after it, `lan` and its hosts for a local address), and never an address of
-  this vclu; TLS runs after that dial, so wss is checked the same. Headers the handshake sets
+  this vclu; a local address only on the ports in `"websocket": {"lanPorts": [80, 8123]}` (with
+  `lan`, at most 8, never a port of another permission, as `tcp.ports`), never the host of the MQTT
+  broker vclu uses, and the `lan` grant records them (`"websocketPorts"`) like the `tcp` ports; TLS runs after that dial, so wss is checked the same. Headers the handshake sets
   (Host, Upgrade, Connection, Sec-WebSocket-*) are refused, others pass (Authorization, Origin). It
   opens in the background (10 s, at most 30), a redirect is an error with its HTTP status, a message
   from the server is at most 1 MiB (over it the connection closes with 1009), `send` queues 1 MiB
@@ -197,6 +199,11 @@ running: the manifest names the plugin API it is written for, and the stricter c
       a listed name on a local address only with `lan`, a local address only with `lan` and its
       hosts, never this vclu; API 1 as its HTTP (`TestPluginWSInternetHosts`, `TestPluginWSLAN`,
       `TestPluginWSAPI1`).
+- [ ] A WebSocket to a local address needs its port in `websocket.lanPorts`; a port of another
+      permission and the MQTT broker's host are refused; the manifest refuses bad ports and the
+      field without `lan`; the `lan` grant records the ports and an update adding one waits
+      (`TestPluginWSLAN`, `TestPluginWSLANPorts`, `TestManifestWebSocketLANPorts`,
+      `TestWebSocketPortsInTheLANGrant`).
 - [ ] Handshake headers are refused and others reach the server; a message over 1 MiB, a redirect,
       no answer in time, a timeout over 30 s and a non-ws URL end or refuse it
       (`TestPluginWSHeaders`, `TestPluginWSLimits`).
@@ -217,7 +224,7 @@ running: the manifest names the plugin API it is written for, and the stricter c
 
 ## Contract impact
 Contract change in the plugin API (CONTRIBUTING.md), versioned: `api` and `permissions` (with the
-`internet` host list, `udp` and `tcp`), `udp.broadcastPorts` and `tcp.ports` are new manifest fields, and `plugin:websocket` a new method under the existing `internet` and `lan`. API 1 (no `api`) keeps the old contract. API 2: the shared globals `HTTP`,
+`internet` host list, `udp` and `tcp`), `udp.broadcastPorts`, `tcp.ports` and `websocket.lanPorts` are new manifest fields, and `plugin:websocket` a new method under the existing `internet` and `lan`. API 1 (no `api`) keeps the old contract. API 2: the shared globals `HTTP`,
 `HttpClient` and `MQTT` leave the sandbox (`plugin:httpRequest`, `plugin:mqttSubscribe` replace
 them), event names and expose paths get the plugin's prefix, and only declared permissions apply.
 On every version objects a plugin did not create become read-only and ids are lower case. No

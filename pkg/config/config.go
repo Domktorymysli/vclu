@@ -361,6 +361,8 @@ type InternetGrant struct {
 // LANGrant: Hosts are IP addresses or CIDR prefixes; without the list any local address.
 type LANGrant struct {
 	Hosts []string `json:"hosts,omitzero"`
+	// local ports its WebSockets reach; nil (allowed before ports were recorded): plugin.json's
+	WebSocketPorts *[]int `json:"websocketPorts,omitempty"`
 }
 
 // MQTTGrant: topic filters (+, #) the plugin may subscribe to and publish on; without a

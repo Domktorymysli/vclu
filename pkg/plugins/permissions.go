@@ -43,6 +43,7 @@ type Permissions struct {
 	// Ports from plugin.json's "udp" and "tcp", with those permissions (requestedPermissions)
 	BroadcastPorts []int `json:"-"`
 	TCPPorts       []int `json:"-"`
+	WebSocketPorts []int `json:"-"` // "websocket": {"lanPorts"}, with lan
 }
 
 func manifestAPI(m PluginManifest) int {
@@ -76,13 +77,16 @@ func (l *Loader) strict() bool {
 // permissions existed (and any internet host, outside the grants); API 2 for what it declares, nothing without the field.
 func requestedPermissions(manifest PluginManifest) Permissions {
 	if manifestAPI(manifest) < 2 {
-		return Permissions{LAN: true, MQTT: true, Modbus: true}
+		return Permissions{LAN: true, MQTT: true, Modbus: true, WebSocketPorts: manifest.webSocketPorts()}
 	}
 	if manifest.Permissions == nil {
 		return Permissions{}
 	}
 	p := *manifest.Permissions
-	p.BroadcastPorts, p.TCPPorts = nil, nil
+	p.BroadcastPorts, p.TCPPorts, p.WebSocketPorts = nil, nil, nil
+	if p.LAN {
+		p.WebSocketPorts = manifest.webSocketPorts()
+	}
 	if p.UDP && manifest.UDP != nil {
 		p.BroadcastPorts = slices.Clone(manifest.UDP.BroadcastPorts)
 	}
@@ -90,6 +94,13 @@ func requestedPermissions(manifest PluginManifest) Permissions {
 		p.TCPPorts = slices.Clone(manifest.TCP.Ports)
 	}
 	return p
+}
+
+func (m PluginManifest) webSocketPorts() []int {
+	if m.WebSocket == nil {
+		return nil
+	}
+	return slices.Clone(m.WebSocket.LANPorts)
 }
 
 // Names lists the permissions set in p, in a fixed order.
@@ -146,6 +157,9 @@ func (p Permissions) Only(names []string) Permissions {
 	if out.TCP {
 		out.TCPPorts = p.TCPPorts
 	}
+	if out.LAN {
+		out.WebSocketPorts = p.WebSocketPorts
+	}
 	return out
 }
 
@@ -180,6 +194,12 @@ func (p Permissions) allowedBy(g *config.PluginGrants) (allowed, pending Permiss
 		GrentonRaw: p.GrentonRaw && g.GrentonRaw == nil, TFTP: p.TFTP && g.TFTP == nil, Serial: p.Serial && g.Serial == nil,
 	}
 	// ports allowed before keep working; a new one waits, and the permission with it
+	if allowed.LAN {
+		allowed.WebSocketPorts, pending.WebSocketPorts = splitPorts(p.WebSocketPorts, g.LAN.WebSocketPorts)
+		pending.LAN = len(pending.WebSocketPorts) > 0
+	} else if pending.LAN {
+		pending.WebSocketPorts = slices.Clone(p.WebSocketPorts)
+	}
 	if allowed.UDP {
 		allowed.BroadcastPorts, pending.BroadcastPorts = splitPorts(p.BroadcastPorts, g.UDP.BroadcastPorts)
 		pending.UDP = len(pending.BroadcastPorts) > 0
@@ -219,7 +239,8 @@ func (p Permissions) Grants() *config.PluginGrants {
 		g.Internet = &config.InternetGrant{Hosts: slices.Clone([]string(p.Internet))}
 	}
 	if p.LAN {
-		g.LAN = &config.LANGrant{}
+		ports := append([]int{}, p.WebSocketPorts...)
+		g.LAN = &config.LANGrant{WebSocketPorts: &ports}
 	}
 	if p.UDP {
 		ports := append([]int{}, p.BroadcastPorts...)
@@ -358,6 +379,8 @@ type PermissionsView struct {
 	BroadcastPorts []int
 	// TCPPorts: with tcp, the ports it connects to
 	TCPPorts []int
+	// WebSocketPorts: with lan, the local ports its WebSockets reach
+	WebSocketPorts []int
 }
 
 func (l *Loader) PermissionsView(p config.InstalledPlugin) PermissionsView {
@@ -367,7 +390,7 @@ func (l *Loader) PermissionsView(p config.InstalledPlugin) PermissionsView {
 	}
 	requested := requestedPermissions(manifest)
 	_, pending := requested.allowedBy(p.Grants)
-	v := PermissionsView{Requested: requested, Pending: pending, Internet: requested.Internet, BroadcastPorts: requested.BroadcastPorts, TCPPorts: requested.TCPPorts}
+	v := PermissionsView{Requested: requested, Pending: pending, Internet: requested.Internet, BroadcastPorts: requested.BroadcastPorts, TCPPorts: requested.TCPPorts, WebSocketPorts: requested.WebSocketPorts}
 	if manifestAPI(manifest) < 2 {
 		v.Internet = []string{"*"}
 	}
@@ -397,12 +420,13 @@ func (l *Loader) recordGrants(pluginID string) {
 	}
 }
 
-// recordPorts: a udp or tcp grant from before ports were recorded keeps the ports plugin.json
+// recordPorts: a lan, udp or tcp grant from before ports were recorded keeps the ports plugin.json
 // lists now, so an update adding one waits for the user.
 func (l *Loader) recordPorts(pluginID string, requested Permissions, g *config.PluginGrants) {
 	udp := requested.UDP && g.UDP != nil && g.UDP.BroadcastPorts == nil
 	tcp := requested.TCP && g.TCP != nil && g.TCP.Ports == nil
-	if !udp && !tcp {
+	ws := requested.LAN && g.LAN != nil && g.LAN.WebSocketPorts == nil
+	if !udp && !tcp && !ws {
 		return
 	}
 	err := config.UpdateMasterConfig(l.serverDir, func(mc *config.VCLUConfig) error {
@@ -421,6 +445,10 @@ func (l *Loader) recordPorts(pluginID string, requested Permissions, g *config.P
 			if tcp && ig.TCP != nil && ig.TCP.Ports == nil {
 				ports := append([]int{}, requested.TCPPorts...)
 				ig.TCP.Ports = &ports
+			}
+			if ws && ig.LAN != nil && ig.LAN.WebSocketPorts == nil {
+				ports := append([]int{}, requested.WebSocketPorts...)
+				ig.LAN.WebSocketPorts = &ports
 			}
 		}
 		return nil

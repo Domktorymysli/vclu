@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -32,7 +33,7 @@ type wsConn struct {
 	policy func() dialPolicy // where the plugin may connect now
 	mu     sync.Mutex
 	conn   *websocket.Conn // nil until open
-	remote netip.Addr
+	remote netip.AddrPort
 	out    []wsOut
 	size   int
 	wake   chan struct{}
@@ -76,7 +77,38 @@ func (c *wsConn) still() error {
 	if err := p.checkURL(c.url); err != nil {
 		return err
 	}
-	return p.allows(c.url.Hostname(), c.remote)
+	ip := c.remote.Addr()
+	if err := p.allows(c.url.Hostname(), ip); err != nil {
+		return err
+	}
+	if p.lanPort != nil && p.isLocal(ip) {
+		return p.lanPort(ip, int(c.remote.Port()))
+	}
+	return nil
+}
+
+// wsLANPort: a WebSocket to a local address goes only to the ports in plugin.json's
+// "websocket", never to a port of another permission or to the MQTT broker vclu uses.
+func (p *PluginIO) wsLANPort(plugin string) func(netip.Addr, int) error {
+	return func(ip netip.Addr, port int) error {
+		p.mu.Lock()
+		ports, taken := p.grants[plugin].wsLANPorts, p.tcpTaken
+		p.mu.Unlock()
+		if perm, ok := tcpPortOwners[port]; ok {
+			return fmt.Errorf("refused port %d: it belongs to the %s permission", port, perm)
+		}
+		if taken != nil {
+			for to, perm := range taken() {
+				if to.Addr() == ip {
+					return fmt.Errorf("refused %s: vclu uses it with the %s permission", ip, perm)
+				}
+			}
+		}
+		if !slices.Contains(ports, port) {
+			return fmt.Errorf("refused port %d: not in plugin.json's \"websocket\": {\"lanPorts\"}", port)
+		}
+		return nil
+	}
 }
 
 // wsHeaderSetByLibrary: headers the handshake sets itself.
@@ -121,13 +153,13 @@ func (p *PluginIO) OpenWS(plugin, rawURL string, headers map[string]string, prot
 	p.mu.Unlock()
 	go p.pump(h)
 	go func() {
-		var remote netip.Addr
+		var remote netip.AddrPort
 		d := websocket.Dialer{
 			NetDialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 				c, err := pol.dialContext(ctx, network, addr)
 				if err == nil {
 					if a, ok := c.RemoteAddr().(*net.TCPAddr); ok {
-						remote, _ = netip.AddrFromSlice(a.IP)
+						remote = a.AddrPort()
 					}
 				}
 				return c, err
@@ -153,7 +185,7 @@ func (p *PluginIO) OpenWS(plugin, rawURL string, headers map[string]string, prot
 			_ = conn.Close()
 			return
 		}
-		wc.conn, wc.remote = conn, remote.Unmap()
+		wc.conn, wc.remote = conn, netip.AddrPortFrom(remote.Addr().Unmap(), remote.Port())
 		wc.mu.Unlock()
 		h.q.push(ioEvent{what: "open", data: []byte(conn.Subprotocol())}, false)
 		go p.writeWS(h, wc, conn)
@@ -310,6 +342,7 @@ func registerPluginWSFunctions(L *lua.LState, p *PluginIO, hm *HTTPManager) {
 			p.mu.Lock()
 			pol.own = p.own
 			p.mu.Unlock()
+			pol.lanPort = p.wsLANPort(plugin)
 			return pol
 		})
 		return pushResult(L, lua.LNumber(id), err)

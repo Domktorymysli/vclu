@@ -233,6 +233,7 @@ PluginsManager.prototype._renderPluginCard = function(plugin, options) {
             var label = PERMISSION_LABELS[name] || name;
             if (name === 'udp' && requested.indexOf('udp') >= 0) label = udpLabel(plugin.broadcastPorts || []);
             if (name === 'tcp' && requested.indexOf('tcp') >= 0) label = tcpLabel(plugin.tcpPorts || []);
+            if (name === 'lan' && requested.indexOf('lan') >= 0) label = lanLabel(plugin.websocketPorts || []);
             return '<span class="badge ' + cls + ' me-1" title="' + VCLU.esc(title + ': ' + label) + '">' +
                    VCLU.esc(PERMISSION_SHORT[name] || name) + '</span>';
         }).join('') + '</p>';
@@ -430,6 +431,8 @@ PluginsManager.prototype._renderInstalledPlugins = function() {
             tcpPorts: p.tcpPorts || [],
             pendingBroadcastPorts: p.pendingBroadcastPorts || [],
             pendingTcpPorts: p.pendingTcpPorts || [],
+            websocketPorts: p.websocketPorts || [],
+            pendingWebsocketPorts: p.pendingWebsocketPorts || [],
             updateAvailable: available.updateAvailable,
             availableVersion: available.version
         };
@@ -532,7 +535,7 @@ PluginsManager.prototype.install = function(id, repository) {
 
 /**
  * Show every permission, those the plugin asks for in green, and install on confirmation
- * @param {Object} preview - {version, requested, internet, broadcastPorts, tcpPorts, all} from /api/plugins/preview
+ * @param {Object} preview - {version, requested, internet, broadcastPorts, tcpPorts, websocketPorts, all} from /api/plugins/preview
  */
 PluginsManager.prototype._confirmInstall = function(id, repository, preview) {
     var self = this;
@@ -553,9 +556,12 @@ PluginsManager.prototype._confirmInstall = function(id, repository, preview) {
                    '<i class="bi ' + (asks ? 'bi-check-circle-fill' : 'bi-circle') + ' me-1"></i>' +
                    VCLU.esc(perm === 'internet' && asks ? internetLabel(preview.internet || []) :
                             perm === 'udp' && asks ? udpLabel(preview.broadcastPorts || []) :
-                            perm === 'tcp' && asks ? tcpLabel(preview.tcpPorts || []) : (PERMISSION_LABELS[perm] || perm));
+                            perm === 'tcp' && asks ? tcpLabel(preview.tcpPorts || []) :
+                            perm === 'lan' && asks ? lanLabel(preview.websocketPorts || []) : (PERMISSION_LABELS[perm] || perm));
         var newHosts = (preview.internet || []).filter(function(h) { return hadHosts.indexOf(h) < 0 && hadHosts.indexOf('*') < 0; });
-        if (asks && installed && (had.indexOf(perm) < 0 || perm === 'internet' && newHosts.length > 0)) {
+        var ports = PERMISSION_PORTS[perm] && installed ? PERMISSION_PORTS[perm].list : null;
+        var newPorts = ports ? (preview[ports] || []).filter(function(p) { return (installed[ports] || []).indexOf(p) < 0; }) : [];
+        if (asks && installed && (had.indexOf(perm) < 0 || perm === 'internet' && newHosts.length > 0 || newPorts.length > 0)) {
             line += ' <span class="badge bg-warning text-dark">' + VCLU.esc(pt('new')) + '</span>';
         }
         if (asks && perm === 'internet' && (preview.internet || []).indexOf('*') >= 0) {
@@ -787,7 +793,8 @@ function udpLabel(ports) {
 // The ports a permission lists in plugin.json: the plugin's fields and the grant's
 var PERMISSION_PORTS = {
     udp: {list: 'broadcastPorts', pending: 'pendingBroadcastPorts', grant: 'broadcastPorts', text: 'udp_broadcast_to'},
-    tcp: {list: 'tcpPorts', pending: 'pendingTcpPorts', grant: 'ports', text: 'tcp_ports'}
+    tcp: {list: 'tcpPorts', pending: 'pendingTcpPorts', grant: 'ports', text: 'tcp_ports'},
+    lan: {list: 'websocketPorts', pending: 'pendingWebsocketPorts', grant: 'websocketPorts', text: 'ws_ports'}
 };
 
 // Allowing the permission allows the ports it lists now
@@ -813,6 +820,12 @@ function portsHtml(plugin, name) {
                 VCLU.esc(pt('internet_save_allows')) + '</div>';
     }
     return html;
+}
+
+// lan with the local ports its WebSockets reach (plugin.json "websocket")
+function lanLabel(ports) {
+    if (ports.length === 0) return pt('label_lan');
+    return pt('label_lan') + '. ' + pt('ws_ports', ports.join(', '));
 }
 
 // tcp with the ports it connects to (plugin.json "tcp")
@@ -883,6 +896,7 @@ PluginsManager.prototype.editPermissions = function(id) {
                 html += '<div class="small text-muted">' + VCLU.esc(pt('internet_save_allows')) + '</div>';
             }
         } else if (name === 'lan') {
+            html += portsHtml(plugin, name);
             html += area('lan-hosts', pt('hosts_only'), grant && grant.hosts, pt('any_local'));
         } else if (name === 'mqtt') {
             html += area('mqtt-subscribe', pt('subscribe_only'), grant && grant.subscribe, pt('any_topic'));
@@ -925,7 +939,7 @@ PluginsManager.prototype.savePermissions = function() {
         if (name === 'internet') {
             grants.internet = {hosts: plugin.internet || []};
         } else if (name === 'lan') {
-            grants.lan = {hosts: list('lan-hosts')};
+            grants.lan = withPorts({hosts: list('lan-hosts')}, plugin, 'lan');
         } else if (name === 'mqtt') {
             grants.mqtt = {subscribe: list('mqtt-subscribe'), publish: list('mqtt-publish')};
         } else if (name === 'udp' || name === 'tcp' || name === 'grenton_raw' || name === 'tftp') {

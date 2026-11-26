@@ -1103,6 +1103,7 @@
       "udp_broadcast_to": "Broadcast to ports: {0}",
       "tcp_ports": "Ports: {0}",
       "ports_waiting": "New ports wait for your permission: {0}.",
+      "ws_ports": "WebSocket on the local network to ports: {0}",
       "any_server": "any server",
       "not_allowed_yet": "Not allowed yet",
       "internet_save_allows": "Saving with this ticked allows the ones not allowed yet.",

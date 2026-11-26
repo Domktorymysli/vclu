@@ -81,6 +81,9 @@ func ValidateGrants(g config.PluginGrants) error {
 		if _, err := ParseHosts(g.LAN.Hosts); err != nil {
 			return fmt.Errorf("lan hosts: %w", err)
 		}
+		if err := validPorts("lan", g.LAN.WebSocketPorts); err != nil {
+			return err
+		}
 	}
 	for name, h := range map[string]*config.HostsGrant{"udp": g.UDP, "tcp": g.TCP, "grenton_raw": g.GrentonRaw, "tftp": g.TFTP} {
 		if h == nil {

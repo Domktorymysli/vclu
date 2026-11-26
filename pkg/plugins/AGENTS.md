@@ -163,6 +163,8 @@ before ports were recorded: it allows the listed ports and `recordPorts` writes 
 
 `plugin:websocket` (`pkg/lua/plugin_ws.go`) has no permission of its own: it dials through the
 plugin's HTTP `dialPolicy` (internet list, `lan` and its hosts) plus a refusal of this vclu's
-addresses, and gorilla/websocket does TLS after that dial. The handle lives in `PluginIO` like a
+addresses and, for a local address, `wsLANPort`: only the ports of plugin.json's
+`"websocket": {"lanPorts": [80]}` (`websocket.go`, as `tcp.ports`; the `lan` grant records them in
+`websocketPorts`), never a port of another permission or the MQTT broker's host, and gorilla/websocket does TLS after that dial. The handle lives in `PluginIO` like a
 `tcp` connection (queue, writer, 16 handles); `HTTPManager.SetOnPolicy` lets a changed `lan` or
 internet list close the connections it no longer allows.
