@@ -43,6 +43,8 @@ local function sourceOf(t)
     return type(mt) == "table" and rawget(mt, "__sandboxSource") or nil
 end
 
+local function packResults(...) return { n = select("#", ...), ... } end
+
 -- Applies f to every result of a call, keeping trailing nils.
 local function mapResults(f, ...)
     local n = select("#", ...)
@@ -95,28 +97,34 @@ local instanceOf = setmetatable({}, { __mode = "k" })
 
 -- Another plugin as a plugin sees it: its sensors and controls, read-only. Not its
 -- config, KV store or sandbox.
-local function pluginFacade(obj)
+local function pluginFacade(obj, owner)
     return {
         id = obj.id, shortId = obj.shortId, namespace = obj.namespace,
         name = obj.name, version = obj.version,
-        get = function(_, id) return readOnlyProxy(obj:get(id)) end,
+        get = function(_, id) return readOnlyProxy(obj:get(id), owner) end,
         listSensorsAndControls = function() return obj:listSensorsAndControls() end,
     }
 end
 
+-- Plugins whose read through a proxy runs now, innermost last (false: not known); a request
+-- to a CLU checks it (PluginSandbox.checkCluRequest)
+local proxyCallers = {}
+
 -- Read-only proxy for external registry objects: fields read, tables proxied in turn,
--- read methods called on the real object, every other method refused.
-readOnlyProxy = function(obj)
+-- read methods called on the real object, every other method refused. owner: the plugin
+-- it was handed to, when known.
+readOnlyProxy = function(obj, owner)
     if type(obj) ~= "table" then return obj end
-    if instanceOf[obj] then return pluginFacade(instanceOf[obj]) end
+    if instanceOf[obj] then return pluginFacade(instanceOf[obj], owner) end
     local src = sourceOf(obj)
     if src then
         if rawget(getmetatable(obj), "__sandboxReadOnly") then return obj end
         obj = src -- a facade with methods of another plugin's object: read-only here
     end
-    if isPluginInstance(obj) then return pluginFacade(obj) end
+    if isPluginInstance(obj) then return pluginFacade(obj, owner) end
     local proxy
     local methods = {}
+    local function wrap(v) return readOnlyProxy(v, owner) end
     proxy = setmetatable({}, {
         __sandboxSource = obj,
         __sandboxReadOnly = true,
@@ -137,7 +145,11 @@ readOnlyProxy = function(obj)
                                 error("Read-only: " .. tostring(key) .. " takes numbers, strings and booleans from a plugin", 2)
                             end
                         end
-                        return mapResults(readOnlyProxy, val(self, ...))
+                        proxyCallers[#proxyCallers + 1] = owner or false
+                        local res = packResults(pcall(val, self, ...))
+                        proxyCallers[#proxyCallers] = nil
+                        if not res[1] then error(res[2], 0) end
+                        return mapResults(wrap, unpackArgs(res, 2, res.n))
                     end
                 else
                     m = function()
@@ -148,7 +160,7 @@ readOnlyProxy = function(obj)
                 methods[key] = m
                 return m
             end
-            return readOnlyProxy(val)
+            return readOnlyProxy(val, owner)
         end,
         __newindex = function()
             error("Read-only: plugins cannot modify external registry objects", 2)
@@ -911,7 +923,7 @@ function PluginSandbox:buildAPI(sandbox)
     api.on = function(eventName, callback)
         -- modules' listeners get the same payload: the plugin may not change it
         local wrappedCallback = function(...)
-            local ok, err = pcall(callback, mapResults(readOnlyProxy, ...))
+            local ok, err = pcall(callback, mapResults(function(v) return readOnlyProxy(v, pluginId) end, ...))
             if not ok then
                 log:error("[" .. pluginId .. "] Event '" .. eventName .. "' error: " .. tostring(err))
             end
@@ -1218,7 +1230,7 @@ function PluginSandbox:buildAPI(sandbox)
         end
         if type(obj) ~= "table" then return nil end
         if obj == sandbox.instance then return sandbox.instanceProxy end
-        return readOnlyProxy(obj)
+        return readOnlyProxy(obj, pluginId)
     end
 
     -- GET/POST go through httpRequest like every other plugin request: the plugin's own
@@ -1472,7 +1484,7 @@ function PluginSandbox:buildEnvironment(sandbox)
     local function external(obj)
         if obj == nil then return nil end
         if obj == sandbox.instance then return sandbox.instanceProxy end
-        return readOnlyProxy(obj)
+        return readOnlyProxy(obj, pluginId)
     end
     local classFields = {
         apiVersion = Plugin.apiVersion,
@@ -1703,6 +1715,28 @@ end
 function PluginSandbox:mask(pluginId, text)
     local sandbox = self.sandboxes[pluginId]
     return sandbox and maskSecrets(sandbox, text) or text
+end
+
+--- Called before a request goes to a CLU: plugin code needs grenton_raw on API 2; an API 1
+-- plugin is warned once. Module code passes.
+function PluginSandbox.checkCluRequest()
+    local id = proxyCallers[#proxyCallers] or nil
+    if not id and type(__go_plugin_running) == "function" then id = __go_plugin_running() end
+    if not id then
+        -- a plugin's read through a proxy it got from somewhere else
+        if #proxyCallers > 0 then error("a plugin reading a CLU needs the grenton_raw permission", 3) end
+        return
+    end
+    local sandbox = PluginSandbox.sandboxes[id]
+    if not sandbox or sandbox.permissions.grentonRaw then return end
+    if sandbox.apiVersion < 2 then
+        if not sandbox.warnedCluRequest then
+            sandbox.warnedCluRequest = true
+            Logger:warn("[SANDBOX] " .. id .. " reads a CLU; on plugin API 2 that needs the grenton_raw permission")
+        end
+        return
+    end
+    error(id .. ": reading a CLU needs the grenton_raw permission", 3)
 end
 
 --- Set environment variables for a plugin

@@ -329,12 +329,12 @@ func TestPluginEscapeCLUCodeInjection(t *testing.T) {
 		wantRefused(t, what, r, e)
 	}
 	mustLua(t, engine, `tostring(__cmds[1])`, "nil")
-	if _, e := runPlugin(t, engine, "@t/a", `_:get("CLU1.DOU1"):get(0)`); e != "nil" {
+	// a read with an index asks the CLU: grenton_raw only (TestReviewExecRemoteReadFromPlugin)
+	if _, e := runPlugin(t, engine, "@t/a", `_:get("CLU1.DOU1"):get(0)`); !strings.Contains(e, "grenton_raw") {
 		t.Errorf("a read with an index: %s", e)
 	}
-	mustLua(t, engine, `__cmds[1]`, "DOU1:get(0)")
 	// modules: an index from a string still works, code in it does not
-	mustLua(t, engine, `_registry["CLU1.DOU1"]:get("3"); return __cmds[2]`, "DOU1:get(3)")
+	mustLua(t, engine, `_registry["CLU1.DOU1"]:get("3"); return __cmds[1]`, "DOU1:get(3)")
 	if _, err := engine.Execute(`_registry["CLU1.DOU1"]:set("0, 1) DOU2:switchOn(", 1)`); err == nil {
 		t.Error("set with code in the index was sent")
 	}

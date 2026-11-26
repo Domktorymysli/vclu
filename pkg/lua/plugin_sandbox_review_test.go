@@ -200,11 +200,41 @@ func TestReviewExecRemoteReadFromPlugin(t *testing.T) {
 	`); err != nil {
 		t.Fatal(err)
 	}
-	r, e := runPlugin(t, engine, "@t/a", `return _:get("CLU2.DOU1"):get(27)`)
-	got, _ := engine.Execute(`table.concat(__calls, ";")`)
-	if got != "" {
-		t.Skipf("open (reported): the read reaches the CLU: %q (r=%s e=%s)", got, r, e)
+	_, e := runPlugin(t, engine, "@t/a", `return _:get("CLU2.DOU1"):get(27)`)
+	if !strings.Contains(e, "reading a CLU needs the grenton_raw permission") {
+		t.Errorf("error = %q", e)
 	}
+	mustLua(t, engine, `table.concat(__calls, ";")`, "")
+	if _, e := runPlugin(t, engine, "@t/a", `local v = _:get("CLU2.DOU1"):get(1); return v`); !strings.Contains(e, "grenton_raw") {
+		t.Errorf("not a tail call: %q", e)
+	}
+	// the value vclu already knows stays readable
+	if _, e := runPlugin(t, engine, "@t/a", `return _:get("CLU2.DOU1"):getInfo()`); e != "nil" {
+		t.Errorf("getInfo: %s", e)
+	}
+	// with grenton_raw the request goes
+	mustLua(t, engine, `PluginSandbox:create("@t/raw", {api = 2, grenton_raw = true}) and "ok"`, "ok")
+	if _, e := runPlugin(t, engine, "@t/raw", `return _:get("CLU2.DOU1"):get(27)`); e != "nil" {
+		t.Errorf("grenton_raw: %s", e)
+	}
+	mustLua(t, engine, `table.concat(__calls, ";")`, "DOU1:get(27)")
+}
+
+// API 1 keeps reading a CLU, with a warning; module code is not a plugin's.
+func TestCluRequestAPI1AndModules(t *testing.T) {
+	engine := sandboxEngine(t, "@t/old", `{api = 1, lan = true}`)
+	if _, err := engine.Execute(`
+		__calls = {}
+		local clu = { execute = function(_, m, s) __calls[#__calls + 1] = s; return 0 end }
+		_registry["CLU2.DOU1"] = RemoteObject:new(clu, "DOU1", "DOU1")
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if _, e := runPlugin(t, engine, "@t/old", `return _:get("CLU2.DOU1"):get(3)`); e != "nil" {
+		t.Errorf("API 1: %s", e)
+	}
+	mustLua(t, engine, `tostring(PluginSandbox.sandboxes["@t/old"].warnedCluRequest)`, "true")
+	mustLua(t, engine, `_registry["CLU2.DOU1"]:get(4) and table.concat(__calls, ";")`, "DOU1:get(3);DOU1:get(4)")
 }
 
 // An API 1 plugin keeps its expose paths, but not over an object a module or the CLU has.
@@ -257,8 +287,8 @@ func TestReviewExecOtherPluginsInstanceThroughItsObjects(t *testing.T) {
 		t.Fatal(err)
 	}
 	for what, code := range map[string]string{
-		"config through registry": `return _registry["` + path + `"].plugin.config.botToken`,
-		"config through event":    `return got.m.plugin.config.botToken`,
+		"config through registry":   `return _registry["` + path + `"].plugin.config.botToken`,
+		"config through event":      `return got.m.plugin.config.botToken`,
 		"unexpose through registry": `_registry["` + path + `"].handle:unexpose(); return "done"`,
 		"unexpose through event":    `got.m.handle:unexpose(); return "done"`,
 		"exposed list":              `local hs = got.m.plugin:getExposed(); hs[1]:unexpose(); return "done"`,

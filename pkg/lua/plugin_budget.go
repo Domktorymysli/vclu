@@ -359,6 +359,15 @@ func registerPluginBudgetFunctions(L *lua.LState, b *pluginBudget) {
 		b.setLoading(L.CheckString(1), L.ToBool(2))
 		return 0
 	}))
+	// __go_plugin_running() -> pluginId | nil: whose code called, as the budget counts it
+	L.SetGlobal("__go_plugin_running", L.NewFunction(func(L *lua.LState) int {
+		if id := b.owner(L); id != "" {
+			L.Push(lua.LString(id))
+			return 1
+		}
+		L.Push(lua.LNil)
+		return 1
+	}))
 }
 
 // SetPluginTimeBudget: plugin code's time in one callback and at load; 0 keeps the default.

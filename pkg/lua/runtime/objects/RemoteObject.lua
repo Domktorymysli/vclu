@@ -249,6 +249,7 @@ end
 -- @return any The value from the remote object
 function RemoteObject:get(index)
     guard(self, "get", index)
+    if PluginSandbox then PluginSandbox.checkCluRequest() end
     return self._clu:execute(0, self._objId .. ":get(" .. checkIndex(index) .. ")")
 end
 
