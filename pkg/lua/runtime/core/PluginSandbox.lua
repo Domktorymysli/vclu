@@ -90,6 +90,9 @@ end
 
 local readOnlyProxy
 
+-- A plugin's instance proxy -> its real instance: another plugin gets the facade of it
+local instanceOf = setmetatable({}, { __mode = "k" })
+
 -- Another plugin as a plugin sees it: its sensors and controls, read-only. Not its
 -- config, KV store or sandbox.
 local function pluginFacade(obj)
@@ -104,12 +107,19 @@ end
 -- Read-only proxy for external registry objects: fields read, tables proxied in turn,
 -- read methods called on the real object, every other method refused.
 readOnlyProxy = function(obj)
-    if type(obj) ~= "table" or sourceOf(obj) then return obj end
+    if type(obj) ~= "table" then return obj end
+    if instanceOf[obj] then return pluginFacade(instanceOf[obj]) end
+    local src = sourceOf(obj)
+    if src then
+        if rawget(getmetatable(obj), "__sandboxReadOnly") then return obj end
+        obj = src -- a facade with methods of another plugin's object: read-only here
+    end
     if isPluginInstance(obj) then return pluginFacade(obj) end
     local proxy
     local methods = {}
     proxy = setmetatable({}, {
         __sandboxSource = obj,
+        __sandboxReadOnly = true,
         __index = function(_, key)
             local val = obj[sourceOf(key) or key]
             if type(val) == "function" then
@@ -391,6 +401,7 @@ local INSTANCE_CORE_ONLY = { init = true, cleanup = true }
 -- and its identity cannot be changed to act as another plugin.
 local function instanceProxy(inner)
     local proxy = {}
+    instanceOf[proxy] = inner
     local methods = {}
     local function out(r)
         if r == inner then return proxy end

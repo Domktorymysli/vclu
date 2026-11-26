@@ -205,3 +205,67 @@ func TestReviewExecRemoteReadFromPlugin(t *testing.T) {
 		t.Skipf("open (reported): the read reaches the CLU: %q (r=%s e=%s)", got, r, e)
 	}
 }
+
+// An API 1 plugin keeps its expose paths, but not over an object a module or the CLU has.
+func TestReviewExecAPI1ExposeOverRegistryObject(t *testing.T) {
+	engine := sandboxEngine(t, "@t/a", `{api = 1, lan = true}`)
+	if _, err := engine.Execute(`
+		__lamp = { get = function() return 0 end, set = function() end }
+		_registry["CLU220000592.DOU9999"] = __lamp
+	`); err != nil {
+		t.Fatal(err)
+	}
+	r, e := runPlugin(t, engine, "@t/a", `
+		p = Plugin:new("a", {name = "A"})
+		local c = p:control("x", function() return 1 end, function(v) end)
+		local h = p:expose(c, "switch", { path = "CLU220000592.DOU9999" })
+		return h and h:getPath()
+	`)
+	t.Logf("r=%s e=%s", r, e)
+	mustLua(t, engine, `tostring(_registry["CLU220000592.DOU9999"] == __lamp)`, "true")
+}
+
+// Another plugin's own instance and handles, reached through what it exposed or emitted:
+// read-only like any object it did not create.
+func TestReviewExecOtherPluginsInstanceThroughItsObjects(t *testing.T) {
+	engine := sandboxEngine(t, "@t/a", "")
+	if _, err := engine.Execute(`
+		PluginSandbox:create("@t/b", nil)
+		local _, e = PluginSandbox:execute("@t/b", [[
+			local p = Plugin:new("b", {name = "B"})
+			p.config = { botToken = "TOPSECRET-cfg" }
+			local dev = { plugin = p, get = function() return 1 end, set = function() end }
+			dev.handle = p:expose(dev, "switch", { id = "dev" })
+			p:on("t:ask", function() EventBus.emit("@t/b:here", { plugin = p, handle = dev.handle }) end)
+		]])
+		assert(not e, e)
+	`); err != nil {
+		t.Fatal(err)
+	}
+	path, err := engine.Execute(`(function() for k in pairs(_registry) do if type(k) == "string" and k:find("@t/b:", 1, true) then return k end end end)()`)
+	if err != nil || path == "" {
+		t.Fatalf("exposed path: %q %v", path, err)
+	}
+	if _, e := runPlugin(t, engine, "@t/a", `
+		got = {}
+		EventBus.on("@t/b:here", function(m) got.m = m end)
+	`); e != "nil" {
+		t.Fatal(e)
+	}
+	if _, err := engine.Execute(`EventBus:getShared():emit("t:ask")`); err != nil {
+		t.Fatal(err)
+	}
+	for what, code := range map[string]string{
+		"config through registry": `return _registry["` + path + `"].plugin.config.botToken`,
+		"config through event":    `return got.m.plugin.config.botToken`,
+		"unexpose through registry": `_registry["` + path + `"].handle:unexpose(); return "done"`,
+		"unexpose through event":    `got.m.handle:unexpose(); return "done"`,
+		"exposed list":              `local hs = got.m.plugin:getExposed(); hs[1]:unexpose(); return "done"`,
+	} {
+		r, e := runPlugin(t, engine, "@t/a", code)
+		if e == "nil" && r != "nil" {
+			t.Errorf("%s: reached %s", what, r)
+		}
+	}
+	mustLua(t, engine, `tostring(_registry["`+path+`"] ~= nil)`, "true")
+}
