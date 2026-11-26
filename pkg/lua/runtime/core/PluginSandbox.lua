@@ -855,14 +855,16 @@ function PluginSandbox:buildAPI(sandbox)
             Logger:error("[" .. pluginId .. "] setTimeout not available")
             return nil
         end
+        local id
         local wrappedCallback = function(...)
+            sandbox.timers[id] = nil -- fired: nothing left to clear
             local ok, err = pcall(callback, ...)
             if not ok then
                 log:error("[" .. pluginId .. "] Timer error: " .. tostring(err))
             end
         end
 
-        local id = __go_setTimeout(wrappedCallback, ms, "plugin " .. pluginId)
+        id = __go_setTimeout(wrappedCallback, ms, "plugin " .. pluginId)
         sandbox.timers[id] = true
         return id
     end

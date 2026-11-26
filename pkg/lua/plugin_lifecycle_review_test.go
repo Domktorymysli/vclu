@@ -2,6 +2,7 @@ package lua
 
 import (
 	"testing"
+	"time"
 )
 
 // Review of #206: a sandbox made again for the same plugin does not leave the old one running.
@@ -107,4 +108,20 @@ func TestReviewExecMqttTopicOfAModule(t *testing.T) {
 	}
 	mustLua(t, engine, `__got.n`, "11")
 	mustLua(t, engine, `tostring(MQTT._subscriptions["dom/y"])`, "nil")
+}
+
+// A timeout that fired is no longer the plugin's to clear or count.
+func TestReviewExecFiredTimeoutForgotten(t *testing.T) {
+	engine := sandboxEngine(t, "@t/a", "")
+	engine.StartTimers()
+	defer engine.StopTimers()
+	if _, e := runPlugin(t, engine, "@t/a", `
+		p = Plugin:new("a", {})
+		for i = 1, 20 do setTimeout(1, function() end) end
+		setInterval(100000, function() end)
+	`); e != "nil" {
+		t.Fatal(e)
+	}
+	pumpTimers(engine, 200*time.Millisecond)
+	mustLua(t, engine, `(function() local n = 0 for _ in pairs(PluginSandbox.sandboxes["@t/a"].timers) do n = n + 1 end return n end)()`, "1")
 }
