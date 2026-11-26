@@ -289,7 +289,8 @@ running: the manifest names the plugin API it is written for, and the stricter c
       key, and `grenton_raw`, `tftp` and `serial` never come with an install, even accepted
       (`TestInstallNeedsConsent`, `TestInstallNeverGrantsPanelOnlyPermissions`).
 - [ ] On API 2 a module gets a plugin's facade (`Plugin.getPlugin`, `_:get`): its methods and the
-      core's get, on, getExposed, dashboardAccess, not its config, sandbox, store or timers; plain
+      core's get, on, getExposed, dashboardAccess, its id, name and version, no other field; an error
+      crossing is text by contract (enforced with one Lua state per plugin); plain
       data crosses as copies, objects with functions as handles (the same object the same handle,
       `_` fields hidden), module functions a plugin calls run after it in order, a house object
       reaches the plugin read-only, a stopped plugin's handles refuse (`plugin_boundary_test.go`);

@@ -41,7 +41,7 @@ return plugin`, false)
 		t.Fatal(err)
 	}
 	start := time.Now()
-	waitPlugin(t, engine, `Plugin.getPlugin("@jan/spin").after`, "1")
+	waitPlugin(t, engine, `Plugin._lookup("@jan/spin").after`, "1")
 	if d := time.Since(start); d > 3*time.Second {
 		t.Errorf("the next timer ran after %v", d)
 	}

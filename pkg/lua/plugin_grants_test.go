@@ -65,7 +65,7 @@ func TestPluginSandboxLANHosts(t *testing.T) {
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline) && len(results) < 2; {
 		pumpTimers(engine, 50*time.Millisecond)
 		for _, id := range ids {
-			if v, _ := engine.Execute(`tostring(Plugin.getPlugin("` + id + `").result)`); v != "nil" {
+			if v, _ := engine.Execute(`tostring(Plugin._lookup("` + id + `").result)`); v != "nil" {
 				results[id] = v
 			}
 		}
@@ -106,7 +106,7 @@ func TestPluginSandboxMQTTTopics(t *testing.T) {
 	if e != "nil" {
 		t.Fatal(e)
 	}
-	mustLua(t, engine, `Plugin.getPlugin("@t/m").results`,
+	mustLua(t, engine, `Plugin._lookup("@t/m").results`,
 		"shelly/+/status=true shelly=true shelly/#=true home/kitchen/temp=true home/+/temp=true "+
 			"home/kitchen/hum=false home/#=false #=false other/x=false publish=false")
 	mustLua(t, engine, `table.concat(__mqtt, ",")`, "sub shelly/+/status,sub shelly,sub shelly/#,sub home/kitchen/temp,sub home/+/temp")

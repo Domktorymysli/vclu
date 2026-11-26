@@ -107,7 +107,7 @@ func TestPluginUDPEcho(t *testing.T) {
 	`); e != "nil" {
 		t.Fatal(e)
 	}
-	waitPlugin(t, engine, `tostring(Plugin.getPlugin("@t/raw").got)`, "re:\x00\x01ping|127.0.0.1")
+	waitPlugin(t, engine, `tostring(Plugin._lookup("@t/raw").got)`, "re:\x00\x01ping|127.0.0.1")
 }
 
 // Where a plugin's datagrams may go: not this vCLU, not outside the house, only the
@@ -220,13 +220,13 @@ func TestPluginGrentonCipher(t *testing.T) {
 	`); e != "nil" {
 		t.Fatal(e)
 	}
-	mustLua(t, engine, `Plugin.getPlugin("@t/raw").plain`, string(frame))
-	again, _ := engine.Execute(`Plugin.getPlugin("@t/raw").again`)
+	mustLua(t, engine, `Plugin._lookup("@t/raw").plain`, string(frame))
+	again, _ := engine.Execute(`Plugin._lookup("@t/raw").again`)
 	if back, err := ck.Decrypt([]byte(again)); err != nil || !bytes.Equal(back, frame) {
 		t.Errorf("the plugin's encryption does not decrypt in the core: %q, %v", back, err)
 	}
-	mustLua(t, engine, `tostring(Plugin.getPlugin("@t/raw").bad)`, "true")
-	mustLua(t, engine, `tostring(Plugin.getPlugin("@t/raw").shortKey)`, "false")
+	mustLua(t, engine, `tostring(Plugin._lookup("@t/raw").bad)`, "true")
+	mustLua(t, engine, `tostring(Plugin._lookup("@t/raw").shortKey)`, "false")
 }
 
 // TFTP against vCLU's own server: put a file, get it back; a host outside the allowed
@@ -257,9 +257,9 @@ func TestPluginTFTPGetPut(t *testing.T) {
 	`); e != "nil" {
 		t.Fatal(e)
 	}
-	waitPlugin(t, engine, `tostring(Plugin.getPlugin("@t/files").put)`, "true|nil")
-	waitPlugin(t, engine, `tostring(Plugin.getPlugin("@t/files").got)`, "hello\x00world|nil")
-	waitPlugin(t, engine, `tostring(Plugin.getPlugin("@t/files").other):match("not among the hosts") ~= nil`, "true")
+	waitPlugin(t, engine, `tostring(Plugin._lookup("@t/files").put)`, "true|nil")
+	waitPlugin(t, engine, `tostring(Plugin._lookup("@t/files").got)`, "hello\x00world|nil")
+	waitPlugin(t, engine, `tostring(Plugin._lookup("@t/files").other):match("not among the hosts") ~= nil`, "true")
 	if b, _ := os.ReadFile(filepath.Join(dir, "a")); string(b) != "hello\x00world" {
 		t.Errorf("file on the server: %q", b)
 	}
@@ -316,8 +316,8 @@ func TestPluginSerialOverPty(t *testing.T) {
 			_, _ = master.Write(chunk)
 		}
 	}()
-	waitPlugin(t, engine, `tostring(Plugin.getPlugin("@t/rs").n)`, strconv.Itoa(total))
-	mustLua(t, engine, `tostring(Plugin.getPlugin("@t/rs").unassigned):match("not assigned") ~= nil`, "true")
+	waitPlugin(t, engine, `tostring(Plugin._lookup("@t/rs").n)`, strconv.Itoa(total))
+	mustLua(t, engine, `tostring(Plugin._lookup("@t/rs").unassigned):match("not assigned") ~= nil`, "true")
 
 	_, e := runPlugin(t, engine, "@t/other", `
 		local p = Plugin:new("other")
@@ -327,7 +327,7 @@ func TestPluginSerialOverPty(t *testing.T) {
 	if e != "nil" {
 		t.Fatal(e)
 	}
-	mustLua(t, engine, `tostring(Plugin.getPlugin("@t/other").err):match("already open") ~= nil`, "true")
+	mustLua(t, engine, `tostring(Plugin._lookup("@t/other").err):match("already open") ~= nil`, "true")
 }
 
 // The plugin's cleanup closes its sockets and ports: the port is free again.
@@ -403,8 +403,8 @@ func TestPluginTFTPLargeAndEmptyFiles(t *testing.T) {
 	`); e != "nil" {
 		t.Fatal(e)
 	}
-	waitPlugin(t, engine, `tostring(Plugin.getPlugin("@t/files").empty)`, "[]|nil")
-	waitPlugin(t, engine, `tostring(Plugin.getPlugin("@t/files").big)`, strconv.Itoa(len(big))+"|nil")
+	waitPlugin(t, engine, `tostring(Plugin._lookup("@t/files").empty)`, "[]|nil")
+	waitPlugin(t, engine, `tostring(Plugin._lookup("@t/files").big)`, strconv.Itoa(len(big))+"|nil")
 	for deadline := time.Now().Add(2 * time.Second); openHandles(engine.PluginIO()) != 0; time.Sleep(10 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatalf("%d handles left", openHandles(engine.PluginIO()))
@@ -427,7 +427,7 @@ func TestPluginSerialPortGone(t *testing.T) {
 		t.Fatal(e)
 	}
 	_ = master.Close()
-	waitPlugin(t, engine, `tostring(Plugin.getPlugin("@t/rs").calls)`, "1")
+	waitPlugin(t, engine, `tostring(Plugin._lookup("@t/rs").calls)`, "1")
 	for deadline := time.Now().Add(2 * time.Second); openHandles(engine.PluginIO()) != 0; time.Sleep(10 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatalf("%d handles left after the port went", openHandles(engine.PluginIO()))

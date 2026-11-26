@@ -176,7 +176,7 @@ func TestPluginSandboxInternetHosts(t *testing.T) {
 		}
 	}
 	read := func(id, field string) string {
-		v, _ := engine.Execute(`tostring(Plugin.getPlugin("` + id + `").` + field + `)`)
+		v, _ := engine.Execute(`tostring(Plugin._lookup("` + id + `").` + field + `)`)
 		return v
 	}
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {

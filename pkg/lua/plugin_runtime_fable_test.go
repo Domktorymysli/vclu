@@ -179,9 +179,9 @@ func TestFableBlockingGoCallIsCharged(t *testing.T) {
 		t.Fatal(e)
 	}
 	start := time.Now()
-	waitPlugin(t, engine, `Plugin.getPlugin("@t/pm").after`, "1")
+	waitPlugin(t, engine, `Plugin._lookup("@t/pm").after`, "1")
 	t.Logf("two blocking calls took %v", time.Since(start))
-	mustLua(t, engine, `Plugin.getPlugin("@t/pm").done`, "0")
+	mustLua(t, engine, `Plugin._lookup("@t/pm").done`, "0")
 	if u := engine.PluginUsage()["@t/pm"]; u.Overruns != 2 || u.CPU < 600*time.Millisecond {
 		t.Errorf("usage %+v", u)
 	}
@@ -211,7 +211,7 @@ func TestFableTimedCallNotChargedTwice(t *testing.T) {
 	`); e != "nil" {
 		t.Fatal(e)
 	}
-	waitPlugin(t, engine, `Plugin.getPlugin("@t/tw").r`, "ok")
+	waitPlugin(t, engine, `Plugin._lookup("@t/tw").r`, "ok")
 	if u := engine.PluginUsage()["@t/tw"]; u.Overruns != 0 {
 		t.Errorf("usage %+v", u)
 	}

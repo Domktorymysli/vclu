@@ -801,10 +801,9 @@ moduleHandle = function(obj, inner)
 end
 
 -- The plugin as Plugin.getPlugin gives it to a module: its own methods, the core's a module
--- may call, its name and version; not its config, sandbox, store or timers
+-- may call, its name and version; no other field (config, sandbox, store, timers, its state)
 local FACADE_FIELDS = { id = true, shortId = true, namespace = true, name = true, version = true,
     description = true, _isPlugin = true }
-local FACADE_HIDDEN = { config = true, timers = true, subscriptions = true }
 -- the core's methods: "raw" results are the core's (expose handles), "handle" go through toModule
 local FACADE_CORE = { get = "handle", on = "handle", getExposed = "raw", dashboardAccess = "raw",
     listSensorsAndControls = "raw", stats = "raw" }
@@ -848,8 +847,7 @@ function PluginSandbox.moduleFacade(inner)
                     return toModuleResults(inner, coreCall(core, toPluginArgs(inner, ...)))
                 end
             elseif own ~= nil then
-                if private or FACADE_HIDDEN[key] then return nil end
-                return toModule(own, inner)
+                return nil
             elseif type(Plugin[key]) == "function" then
                 m = function()
                     error(tostring(inner.id) .. ":" .. tostring(key) .. " is the plugin's own; a module uses its own "

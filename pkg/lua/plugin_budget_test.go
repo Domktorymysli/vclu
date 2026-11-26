@@ -30,7 +30,7 @@ func TestPluginBudgetStopsALoopInATimer(t *testing.T) {
 		t.Fatal(e)
 	}
 	start := time.Now()
-	waitPlugin(t, engine, `Plugin.getPlugin("@t/loop").after`, "1")
+	waitPlugin(t, engine, `Plugin._lookup("@t/loop").after`, "1")
 	if d := time.Since(start); d > 3*time.Second {
 		t.Errorf("the next timer ran after %v", d)
 	}

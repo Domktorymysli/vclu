@@ -117,7 +117,7 @@ func TestPluginSandboxReadOnlyDataInStdlib(t *testing.T) {
 	if _, err := engine.Execute(`EventBus:getShared():emit("mod:data", { items = {"a", "b"}, n = 1 })`); err != nil {
 		t.Fatal(err)
 	}
-	mustLua(t, engine, `Plugin.getPlugin("@t/a").seen`, `{"items":["a","b"],"n":1}|["a","b"]|a,b`)
+	mustLua(t, engine, `Plugin._lookup("@t/a").seen`, `{"items":["a","b"],"n":1}|["a","b"]|a,b`)
 	mustLua(t, engine, `__relay`, `{"items":["a","b"],"n":2} true`)
 }
 
@@ -147,7 +147,7 @@ func TestPluginSandboxLANGuard(t *testing.T) {
 	for time.Now().Before(deadline) && len(results) < 2 {
 		pumpTimers(engine, 50*time.Millisecond)
 		for _, id := range []string{"@t/nolan", "@t/lan"} {
-			if v, _ := engine.Execute(`tostring(Plugin.getPlugin("` + id + `").result)`); v != "nil" {
+			if v, _ := engine.Execute(`tostring(Plugin._lookup("` + id + `").result)`); v != "nil" {
 				results[id] = v
 			}
 		}

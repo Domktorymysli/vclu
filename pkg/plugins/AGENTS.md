@@ -90,7 +90,8 @@ change to the sandbox keeps them failing.
 `PluginSandbox.moduleFacade` (PluginSandbox.lua): `Plugin.getPlugin(id)` and `_:get("@ns/id")` give a
 module the plugin's facade, never the instance: the plugin's own methods, the core's `get`, `on`,
 `getExposed`, `dashboardAccess`, `listSensorsAndControls`, `stats`, and `id`, `name`, `version`;
-not its config, sandbox, KV store or timers (`plugin:kvGet` and the like refuse). What crosses is
+no other field of the instance (config, sandbox, KV store, timers, its own state; tests read those
+through `Plugin._lookup`), and `plugin:kvGet` and the like refuse. What crosses is
 the contract one Lua state per plugin keeps (pluginy-2.0 §12): numbers, strings, booleans and plain
 tables are copied both ways (depth 32, no cycles); a table with functions (or a metatable) the
 plugin hands out is a handle — its methods, its plain fields as copies, never its `_` fields, the
@@ -99,7 +100,8 @@ same object always the same handle; a module function the plugin calls runs afte
 module gives a path to act on. What a module sets on a handle stays on the handle. A stopped
 plugin's facade and handles refuse ("@ns/id: stopped"). An object a plugin exposed under its own
 path, or another plugin's object it returns, is that plugin's handle too (`_:get`, `ownerOf`); a
-function in an event payload crosses like a method; a plugin with 10000 module calls pending
+function in an event payload crosses like a method; an error crossing is text by contract (a table
+raised by `error()` still crosses as it is until the engine rewrite enforces it); a plugin with 10000 module calls pending
 (`LATER_LIMIT`) gets an error. `plugin_boundary_test.go` and `plugin_boundary_fable_test.go` are
 the contract.
 

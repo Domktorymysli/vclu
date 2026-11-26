@@ -119,11 +119,11 @@ func TestPluginWSEchoAndClose(t *testing.T) {
 	`); e != "nil" {
 		t.Fatal(e)
 	}
-	if got, _ := engine.Execute(`Plugin.getPlugin("@t/ws").early`); !strings.Contains(got, "not open yet") {
+	if got, _ := engine.Execute(`Plugin._lookup("@t/ws").early`); !strings.Contains(got, "not open yet") {
 		t.Errorf("send before open: %s", got)
 	}
-	waitPlugin(t, engine, `Plugin.getPlugin("@t/ws").got`, "t3,b2,t5,")
-	waitPlugin(t, engine, `Plugin.getPlugin("@t/ws").events`, "open:json,true,close:4001:bye,false")
+	waitPlugin(t, engine, `Plugin._lookup("@t/ws").got`, "t3,b2,t5,")
+	waitPlugin(t, engine, `Plugin._lookup("@t/ws").events`, "open:json,true,close:4001:bye,false")
 	waitHandles(t, engine.PluginIO(), 0)
 }
 
@@ -145,8 +145,8 @@ func TestPluginWSInternetHosts(t *testing.T) {
 	`); e != "nil" {
 		t.Fatal(e)
 	}
-	waitPlugin(t, engine, `Plugin.getPlugin("@t/net").state`, "open")
-	mustLua(t, engine, `Plugin.getPlugin("@t/net").refused`, "other.example.com is not on the host list of @t/net (permissions.internet)")
+	waitPlugin(t, engine, `Plugin._lookup("@t/net").state`, "open")
+	mustLua(t, engine, `Plugin._lookup("@t/net").refused`, "other.example.com is not on the host list of @t/net (permissions.internet)")
 
 	// the listed name on a local address
 	hm.isLocal = defaultIsLocal
@@ -157,7 +157,7 @@ func TestPluginWSInternetHosts(t *testing.T) {
 	`); e != "nil" {
 		t.Fatal(e)
 	}
-	waitPlugin(t, engine, `Plugin.getPlugin("@t/net").local_ ~= nil and Plugin.getPlugin("@t/net").local_:find('needs "lan"', 1, true) ~= nil`, "true")
+	waitPlugin(t, engine, `Plugin._lookup("@t/net").local_ ~= nil and Plugin._lookup("@t/net").local_:find('needs "lan"', 1, true) ~= nil`, "true")
 }
 
 // A local server needs lan and its hosts; this vclu's own addresses are refused.
@@ -176,7 +176,7 @@ func TestPluginWSLAN(t *testing.T) {
 			t.Fatal(e)
 		}
 	}
-	result := `Plugin.getPlugin("%s").r`
+	result := `Plugin._lookup("%s").r`
 	cases := []struct {
 		id, perms string
 		own       bool
@@ -221,8 +221,8 @@ func TestPluginWSHeaders(t *testing.T) {
 	`); e != "nil" {
 		t.Fatal(e)
 	}
-	waitPlugin(t, engine, `Plugin.getPlugin("@t/h").got`, "Bearer t|https://app")
-	bad, _ := engine.Execute(`Plugin.getPlugin("@t/h").bad`)
+	waitPlugin(t, engine, `Plugin._lookup("@t/h").got`, "Bearer t|https://app")
+	bad, _ := engine.Execute(`Plugin._lookup("@t/h").bad`)
 	if strings.Count(bad, "set by the WebSocket handshake") != 5 {
 		t.Errorf("handshake headers: %s", bad)
 	}
@@ -256,11 +256,11 @@ func TestPluginWSLimits(t *testing.T) {
 	`); e != "nil" {
 		t.Fatal(e)
 	}
-	waitPlugin(t, engine, `Plugin.getPlugin("@t/lim").big`, "1009 a message over 1048576 bytes")
-	waitPlugin(t, engine, `Plugin.getPlugin("@t/lim").redirect`, "1006 connect: the server answered HTTP 302")
-	waitPlugin(t, engine, `Plugin.getPlugin("@t/lim").slow ~= nil and Plugin.getPlugin("@t/lim").slow:find("1006 connect:", 1, true) == 1`, "true")
-	mustLua(t, engine, `Plugin.getPlugin("@t/lim").long`, "refused:timeout 31s: at most 30s")
-	mustLua(t, engine, `Plugin.getPlugin("@t/lim").scheme`, `refused:"http://127.0.0.1:`+big+`/" is not a ws:// or wss:// URL`)
+	waitPlugin(t, engine, `Plugin._lookup("@t/lim").big`, "1009 a message over 1048576 bytes")
+	waitPlugin(t, engine, `Plugin._lookup("@t/lim").redirect`, "1006 connect: the server answered HTTP 302")
+	waitPlugin(t, engine, `Plugin._lookup("@t/lim").slow ~= nil and Plugin._lookup("@t/lim").slow:find("1006 connect:", 1, true) == 1`, "true")
+	mustLua(t, engine, `Plugin._lookup("@t/lim").long`, "refused:timeout 31s: at most 30s")
+	mustLua(t, engine, `Plugin._lookup("@t/lim").scheme`, `refused:"http://127.0.0.1:`+big+`/" is not a ws:// or wss:// URL`)
 	waitHandles(t, engine.PluginIO(), 0)
 }
 
@@ -279,8 +279,8 @@ func TestPluginWSCloseReloadAndLimit(t *testing.T) {
 	`); e != "nil" {
 		t.Fatal(e)
 	}
-	mustLua(t, engine, `Plugin.getPlugin("@t/c").bad`, "close code 1001: 1000 or 3000-4999")
-	waitPlugin(t, engine, `Plugin.getPlugin("@t/c").closed`, "true,false")
+	mustLua(t, engine, `Plugin._lookup("@t/c").bad`, "close code 1001: 1000 or 3000-4999")
+	waitPlugin(t, engine, `Plugin._lookup("@t/c").closed`, "true,false")
 	cc.wait(t, 4000)
 	waitHandles(t, engine.PluginIO(), 0)
 
@@ -295,8 +295,8 @@ func TestPluginWSCloseReloadAndLimit(t *testing.T) {
 	`); e != "nil" {
 		t.Fatal(e)
 	}
-	waitPlugin(t, engine, `Plugin.getPlugin("@t/c").opened`, "16")
-	mustLua(t, engine, `Plugin.getPlugin("@t/c").refused`, "@t/c has 16 sockets, ports and transfers open, the most a plugin may")
+	waitPlugin(t, engine, `Plugin._lookup("@t/c").opened`, "16")
+	mustLua(t, engine, `Plugin._lookup("@t/c").refused`, "@t/c has 16 sockets, ports and transfers open, the most a plugin may")
 	engine.PluginIO().Release("@t/c")
 	cc.wait(t, 1001)
 	waitHandles(t, engine.PluginIO(), 0)
@@ -315,13 +315,13 @@ func TestPluginWSGrantWithdrawn(t *testing.T) {
 	`); e != "nil" {
 		t.Fatal(e)
 	}
-	waitPlugin(t, engine, `Plugin.getPlugin("@t/g").open`, "true")
+	waitPlugin(t, engine, `Plugin._lookup("@t/g").open`, "true")
 	if _, err := engine.Execute(`__go_http_set_lan("@t/g", true, {"192.168.9.0/24"})`); err != nil {
 		t.Fatal(err)
 	}
 	cc.wait(t, websocket.ClosePolicyViolation)
 	waitHandles(t, engine.PluginIO(), 0)
-	got, _ := engine.Execute(`select(2, Plugin.getPlugin("@t/g").ws:send("x"))`)
+	got, _ := engine.Execute(`select(2, Plugin._lookup("@t/g").ws:send("x"))`)
 	if got != "connection closed" {
 		t.Errorf("send after lan was narrowed: %s", got)
 	}
@@ -366,7 +366,7 @@ func TestPluginWSAPI1(t *testing.T) {
 	`); e != "nil" {
 		t.Fatal(e)
 	}
-	waitPlugin(t, engine, `Plugin.getPlugin("@t/old").n`, "2")
+	waitPlugin(t, engine, `Plugin._lookup("@t/old").n`, "2")
 }
 
 // A WebSocket to a local address goes only to a port plugin.json lists, never to a port of
@@ -403,7 +403,7 @@ func TestPluginWSLANPorts(t *testing.T) {
 		`); e != "nil" {
 			t.Fatal(e)
 		}
-		expr := `Plugin.getPlugin("` + c.id + `").r`
+		expr := `Plugin._lookup("` + c.id + `").r`
 		waitPlugin(t, engine, expr+` ~= "" and (`+expr+`):find(`+strconv.Quote(c.want)+`, 1, true) ~= nil`, "true")
 	}
 }

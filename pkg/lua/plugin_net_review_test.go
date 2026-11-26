@@ -78,7 +78,7 @@ func TestReviewWSOwnPortRefused(t *testing.T) {
 	`); e != "nil" {
 		t.Fatal(e)
 	}
-	expr := `Plugin.getPlugin("@t/wsown").r`
+	expr := `Plugin._lookup("@t/wsown").r`
 	waitPlugin(t, engine, expr+` ~= "" and (`+expr+`):find("an address of this vclu", 1, true) ~= nil`, "true")
 }
 

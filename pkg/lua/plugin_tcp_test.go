@@ -71,11 +71,11 @@ func TestPluginTCPEchoAndClose(t *testing.T) {
 	`); e != "nil" {
 		t.Fatal(e)
 	}
-	if got, _ := engine.Execute(`Plugin.getPlugin("@t/tv").early`); !strings.Contains(got, "not connected yet") {
+	if got, _ := engine.Execute(`Plugin._lookup("@t/tv").early`); !strings.Contains(got, "not connected yet") {
 		t.Errorf("send before the connection is up: %s", got)
 	}
-	waitPlugin(t, engine, `Plugin.getPlugin("@t/tv").got`, "one\ntwo\nthree\n")
-	waitPlugin(t, engine, `Plugin.getPlugin("@t/tv").events`, "connect,true,close:closed by the device,false")
+	waitPlugin(t, engine, `Plugin._lookup("@t/tv").got`, "one\ntwo\nthree\n")
+	waitPlugin(t, engine, `Plugin._lookup("@t/tv").events`, "connect,true,close:closed by the device,false")
 	waitHandles(t, engine.PluginIO(), 0)
 }
 
@@ -146,7 +146,7 @@ func TestPluginTCPTimeoutAndHandleLimit(t *testing.T) {
 	`); e != "nil" {
 		t.Fatal(e)
 	}
-	waitPlugin(t, engine, `tostring(Plugin.getPlugin("@t/slow").reason):match("deadline") and "timed out" or ""`, "timed out")
+	waitPlugin(t, engine, `tostring(Plugin._lookup("@t/slow").reason):match("deadline") and "timed out" or ""`, "timed out")
 
 	io := engine.PluginIO()
 	for i := 0; i < pluginIOMaxHandles; i++ {
@@ -258,7 +258,7 @@ func TestPluginTelnetLogin(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("no login sent")
 	}
-	waitPlugin(t, engine, `Plugin.getPlugin("@t/tn").log`, "line:Welcome|prompt:login: |line:OK \xff|ready")
+	waitPlugin(t, engine, `Plugin._lookup("@t/tn").log`, "line:Welcome|prompt:login: |line:OK \xff|ready")
 }
 
 func waitHandles(t *testing.T, p *PluginIO, want int) {

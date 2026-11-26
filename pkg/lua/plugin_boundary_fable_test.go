@@ -160,7 +160,7 @@ func TestFableDepthLimit(t *testing.T) {
 
 // A non-string error from a plugin reaches the module as text, not the plugin's table
 func TestFableErrorValueIsText(t *testing.T) {
-	t.Skip("design decision: a table raised by error() crosses raw; catching every call costs a pcall per boundary call")
+	t.Skip("contract: an error crossing the boundary is text; enforced with one Lua state per plugin (pluginy-2.0 §12), not now (a pcall per boundary call)")
 	engine := fableEngine(t)
 	out, err := engine.Execute(`
 		local ok, e = pcall(function() Plugin.getPlugin("@t/a"):boom() end)
@@ -176,14 +176,11 @@ func TestFableErrorValueIsText(t *testing.T) {
 	}
 }
 
-// The facade shows a plugin's plain fields as copies (recorded: a design decision to make)
+// The facade shows a plugin's methods, id, name and version, none of its plain fields
 func TestFableFacadePlainFields(t *testing.T) {
 	engine := fableEngine(t)
-	out, err := engine.Execute(`return tostring(Plugin.getPlugin("@t/a").token)`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Logf("pl.token through the facade: %s", out)
+	mustLua(t, engine, `local pl = Plugin.getPlugin("@t/a")
+		return tostring(pl.token) .. " " .. tostring(pl.config) .. " " .. pl.id`, "nil nil @t/a")
 }
 
 // A module's pl:on subscription is tracked in the plugin's sandbox: it dies with the plugin
@@ -232,5 +229,5 @@ func TestFableAPI1ExposedObjectStaysRaw(t *testing.T) {
 		c:expose(o, "number", { path = "@t/c:lamp", mqtt = false, homekit = false })`); e != "nil" {
 		t.Fatal(e)
 	}
-	mustLua(t, engine, `return tostring(_:get("@t/c:lamp")._secret) .. " " .. tostring(Plugin.getPlugin("@t/c")._isPlugin)`, "inside true")
+	mustLua(t, engine, `return tostring(_:get("@t/c:lamp")._secret) .. " " .. tostring(Plugin._lookup("@t/c")._isPlugin)`, "inside true")
 }

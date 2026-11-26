@@ -38,7 +38,7 @@ func TestPluginDeviceUDPEcho(t *testing.T) {
 	`); e != "nil" {
 		t.Fatal(e)
 	}
-	waitPlugin(t, engine, `tostring(Plugin.getPlugin("@t/ac").got)`, `re:{"t":"scan"}|127.0.0.1`)
+	waitPlugin(t, engine, `tostring(Plugin._lookup("@t/ac").got)`, `re:{"t":"scan"}|127.0.0.1`)
 
 	if _, e := runPlugin(t, engine, "@t/ac", `Plugin:new("ac2"):grentonSocket()`); !strings.Contains(e, `needs "clu"`) {
 		t.Errorf("grentonSocket with udp only: %s", e)
@@ -139,10 +139,10 @@ func TestPluginDeviceUDPBroadcastPortsFromSandbox(t *testing.T) {
 	`); e != "nil" {
 		t.Fatal(e)
 	}
-	if got, _ := engine.Execute(`Plugin.getPlugin("@t/ac").other`); !strings.Contains(got, "permissions.udp.broadcast") {
+	if got, _ := engine.Execute(`Plugin._lookup("@t/ac").other`); !strings.Contains(got, "permissions.udp.broadcast") {
 		t.Errorf("broadcast to an undeclared port: %s", got)
 	}
-	if got, _ := engine.Execute(`Plugin.getPlugin("@t/ac").declared`); strings.Contains(got, "refused") {
+	if got, _ := engine.Execute(`Plugin._lookup("@t/ac").declared`); strings.Contains(got, "refused") {
 		t.Errorf("broadcast to the declared port: %s", got)
 	}
 }
