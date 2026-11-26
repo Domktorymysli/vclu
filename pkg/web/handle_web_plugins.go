@@ -306,6 +306,9 @@ type installedPluginView struct {
 	BroadcastPorts []int `json:"broadcastPorts,omitempty"`
 	// with tcp: the ports it connects to
 	TCPPorts []int `json:"tcpPorts,omitempty"`
+	// of those, the ports an update added and the user has not allowed
+	PendingBroadcastPorts []int `json:"pendingBroadcastPorts,omitempty"`
+	PendingTCPPorts       []int `json:"pendingTcpPorts,omitempty"`
 }
 
 func (s *Server) installedPluginsView(installed []config.InstalledPlugin) []installedPluginView {
@@ -313,7 +316,8 @@ func (s *Server) installedPluginsView(installed []config.InstalledPlugin) []inst
 	loader := plugins.NewLoader(s.serverDir)
 	for _, p := range installed {
 		v := loader.PermissionsView(p)
-		out = append(out, installedPluginView{p, loader.NeedsConfig(p), v.Requested.Names(), v.Pending.Names(), v.Internet, v.Pending.Internet, v.BroadcastPorts, v.TCPPorts})
+		out = append(out, installedPluginView{p, loader.NeedsConfig(p), v.Requested.Names(), v.Pending.Names(), v.Internet, v.Pending.Internet,
+			v.BroadcastPorts, v.TCPPorts, v.Pending.BroadcastPorts, v.Pending.TCPPorts})
 	}
 	return out
 }
@@ -707,7 +711,8 @@ func (s *Server) handlePluginsAPIPermissions(c *gin.Context) {
 	}
 
 	v := plugins.NewLoader(s.serverDir).PermissionsView(installed)
-	c.JSON(http.StatusOK, gin.H{"success": true, "pendingPermissions": v.Pending.Names(), "pendingInternet": v.Pending.Internet})
+	c.JSON(http.StatusOK, gin.H{"success": true, "pendingPermissions": v.Pending.Names(), "pendingInternet": v.Pending.Internet,
+		"pendingBroadcastPorts": v.Pending.BroadcastPorts, "pendingTcpPorts": v.Pending.TCPPorts})
 }
 
 // handlePluginsAPIConfig updates plugin configuration

@@ -40,6 +40,9 @@ type Permissions struct {
 	GrentonRaw bool `json:"grenton_raw,omitempty"` // UDP frames and the cipher of CLUs
 	TFTP       bool `json:"tftp,omitempty"`        // reading and replacing files on devices
 	Serial     bool `json:"serial,omitempty"`      // a serial port the user assigns
+	// Ports from plugin.json's "udp" and "tcp", with those permissions (requestedPermissions)
+	BroadcastPorts []int `json:"-"`
+	TCPPorts       []int `json:"-"`
 }
 
 func manifestAPI(m PluginManifest) int {
@@ -75,10 +78,18 @@ func requestedPermissions(manifest PluginManifest) Permissions {
 	if manifestAPI(manifest) < 2 {
 		return Permissions{LAN: true, MQTT: true, Modbus: true}
 	}
-	if manifest.Permissions != nil {
-		return *manifest.Permissions
+	if manifest.Permissions == nil {
+		return Permissions{}
 	}
-	return Permissions{}
+	p := *manifest.Permissions
+	p.BroadcastPorts, p.TCPPorts = nil, nil
+	if p.UDP && manifest.UDP != nil {
+		p.BroadcastPorts = slices.Clone(manifest.UDP.BroadcastPorts)
+	}
+	if p.TCP && manifest.TCP != nil {
+		p.TCPPorts = slices.Clone(manifest.TCP.Ports)
+	}
+	return p
 }
 
 // Names lists the permissions set in p, in a fixed order.
@@ -124,11 +135,34 @@ func (p Permissions) Only(names []string) Permissions {
 	if has("internet") {
 		internet = p.Internet
 	}
-	return Permissions{
+	out := Permissions{
 		Internet: internet,
 		LAN:      p.LAN && has("lan"), UDP: p.UDP && has("udp"), TCP: p.TCP && has("tcp"), MQTT: p.MQTT && has("mqtt"), Modbus: p.Modbus && has("modbus"),
 		GrentonRaw: p.GrentonRaw && has("grenton_raw"), TFTP: p.TFTP && has("tftp"), Serial: p.Serial && has("serial"),
 	}
+	if out.UDP {
+		out.BroadcastPorts = p.BroadcastPorts
+	}
+	if out.TCP {
+		out.TCPPorts = p.TCPPorts
+	}
+	return out
+}
+
+// splitPorts: the asked ports among those granted, and the rest; nil granted (allowed
+// before ports were recorded) allows them all.
+func splitPorts(asked []int, granted *[]int) (allowed, pending []int) {
+	if granted == nil {
+		return slices.Clone(asked), nil
+	}
+	for _, p := range asked {
+		if slices.Contains(*granted, p) {
+			allowed = append(allowed, p)
+		} else {
+			pending = append(pending, p)
+		}
+	}
+	return allowed, pending
 }
 
 // allowedBy: the part of p the grants allow, and what p asks for beyond them. Nil grants
@@ -144,6 +178,19 @@ func (p Permissions) allowedBy(g *config.PluginGrants) (allowed, pending Permiss
 	pending = Permissions{
 		LAN: p.LAN && g.LAN == nil, UDP: p.UDP && g.UDP == nil, TCP: p.TCP && g.TCP == nil, MQTT: p.MQTT && g.MQTT == nil, Modbus: p.Modbus && g.Modbus == nil,
 		GrentonRaw: p.GrentonRaw && g.GrentonRaw == nil, TFTP: p.TFTP && g.TFTP == nil, Serial: p.Serial && g.Serial == nil,
+	}
+	// ports allowed before keep working; a new one waits, and the permission with it
+	if allowed.UDP {
+		allowed.BroadcastPorts, pending.BroadcastPorts = splitPorts(p.BroadcastPorts, g.UDP.BroadcastPorts)
+		pending.UDP = len(pending.BroadcastPorts) > 0
+	} else if pending.UDP {
+		pending.BroadcastPorts = slices.Clone(p.BroadcastPorts)
+	}
+	if allowed.TCP {
+		allowed.TCPPorts, pending.TCPPorts = splitPorts(p.TCPPorts, g.TCP.Ports)
+		pending.TCP = len(pending.TCPPorts) > 0
+	} else if pending.TCP {
+		pending.TCPPorts = slices.Clone(p.TCPPorts)
 	}
 	// hosts allowed before keep working; a new one, or "*", waits
 	var granted InternetHosts
@@ -175,10 +222,12 @@ func (p Permissions) Grants() *config.PluginGrants {
 		g.LAN = &config.LANGrant{}
 	}
 	if p.UDP {
-		g.UDP = &config.HostsGrant{}
+		ports := append([]int{}, p.BroadcastPorts...)
+		g.UDP = &config.HostsGrant{BroadcastPorts: &ports}
 	}
 	if p.TCP {
-		g.TCP = &config.HostsGrant{}
+		ports := append([]int{}, p.TCPPorts...)
+		g.TCP = &config.HostsGrant{Ports: &ports}
 	}
 	if p.MQTT {
 		g.MQTT = &config.MQTTGrant{}
@@ -248,6 +297,9 @@ func (l *Loader) effectivePermissions(pluginID string, manifest PluginManifest) 
 			log.Printf("[PLUGINS] WARNING: %s is on plugin API 1: without lan or mqtt allowed in full in its settings it has no HTTP, HttpClient or MQTT global", pluginID)
 		}
 	}
+	if grants != nil {
+		l.recordPorts(pluginID, requested, grants)
+	}
 	allowed, pending := requested.allowedBy(grants)
 	if names := pending.Names(); len(names) > 0 {
 		log.Printf("[PLUGINS] %s asks for %s, not allowed yet: it runs without it until allowed in the plugin's settings", pluginID, strings.Join(names, ", "))
@@ -315,7 +367,7 @@ func (l *Loader) PermissionsView(p config.InstalledPlugin) PermissionsView {
 	}
 	requested := requestedPermissions(manifest)
 	_, pending := requested.allowedBy(p.Grants)
-	v := PermissionsView{Requested: requested, Pending: pending, Internet: requested.Internet, BroadcastPorts: manifest.BroadcastPorts(), TCPPorts: manifest.TCPPorts()}
+	v := PermissionsView{Requested: requested, Pending: pending, Internet: requested.Internet, BroadcastPorts: requested.BroadcastPorts, TCPPorts: requested.TCPPorts}
 	if manifestAPI(manifest) < 2 {
 		v.Internet = []string{"*"}
 	}
@@ -342,6 +394,39 @@ func (l *Loader) recordGrants(pluginID string) {
 	})
 	if err != nil {
 		log.Printf("[PLUGINS] WARNING: permissions of %s not recorded: %v", pluginID, err)
+	}
+}
+
+// recordPorts: a udp or tcp grant from before ports were recorded keeps the ports plugin.json
+// lists now, so an update adding one waits for the user.
+func (l *Loader) recordPorts(pluginID string, requested Permissions, g *config.PluginGrants) {
+	udp := requested.UDP && g.UDP != nil && g.UDP.BroadcastPorts == nil
+	tcp := requested.TCP && g.TCP != nil && g.TCP.Ports == nil
+	if !udp && !tcp {
+		return
+	}
+	err := config.UpdateMasterConfig(l.serverDir, func(mc *config.VCLUConfig) error {
+		if mc.Plugins == nil {
+			return nil
+		}
+		for i := range mc.Plugins.Installed {
+			ig := mc.Plugins.Installed[i].Grants
+			if mc.Plugins.Installed[i].ID != pluginID || ig == nil {
+				continue
+			}
+			if udp && ig.UDP != nil && ig.UDP.BroadcastPorts == nil {
+				ports := append([]int{}, requested.BroadcastPorts...)
+				ig.UDP.BroadcastPorts = &ports
+			}
+			if tcp && ig.TCP != nil && ig.TCP.Ports == nil {
+				ports := append([]int{}, requested.TCPPorts...)
+				ig.TCP.Ports = &ports
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		log.Printf("[PLUGINS] WARNING: ports of %s not recorded: %v", pluginID, err)
 	}
 }
 

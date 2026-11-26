@@ -155,6 +155,12 @@ writer with a time limit. `SetGrant` closes connections a new grant does not all
 keeps the MQTT broker vclu uses out of reach. `lib/telnet.lua` is pure Lua over such a connection,
 given to plugins as the global `Telnet`.
 
+The grant records the ports of `udp` and `tcp` (`HostsGrant.BroadcastPorts`, `.Ports`; the
+manifest's reach `Permissions` as `BroadcastPorts`/`TCPPorts`, never parsed from "permissions"):
+`allowedBy` splits them like internet hosts, a port an update adds is pending (and the
+permission's name with it) and the sandbox gets only the allowed ones. A nil list is a grant from
+before ports were recorded: it allows the listed ports and `recordPorts` writes them at load.
+
 `plugin:websocket` (`pkg/lua/plugin_ws.go`) has no permission of its own: it dials through the
 plugin's HTTP `dialPolicy` (internet list, `lan` and its hosts) plus a refusal of this vclu's
 addresses, and gorilla/websocket does TLS after that dial. The handle lives in `PluginIO` like a

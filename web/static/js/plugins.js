@@ -428,6 +428,8 @@ PluginsManager.prototype._renderInstalledPlugins = function() {
             pendingInternet: p.pendingInternet || [],
             broadcastPorts: p.broadcastPorts || [],
             tcpPorts: p.tcpPorts || [],
+            pendingBroadcastPorts: p.pendingBroadcastPorts || [],
+            pendingTcpPorts: p.pendingTcpPorts || [],
             updateAvailable: available.updateAvailable,
             availableVersion: available.version
         };
@@ -693,6 +695,10 @@ PluginsManager.prototype._saveGrants = function(id, grants, done) {
             plugin.grants = grants;
             plugin.pendingPermissions = data.pendingPermissions || [];
             plugin.pendingInternet = data.pendingInternet || [];
+            Object.keys(PERMISSION_PORTS).forEach(function(name) {
+                var f = PERMISSION_PORTS[name].pending;
+                plugin[f] = data[f] || [];
+            });
         }
         self._renderInstalledPlugins();
         if (done) done();
@@ -712,9 +718,17 @@ PluginsManager.prototype.allowPermissions = function(id) {
     if (pendingHosts.length > 0) {
         warnings += '\n\n' + internetLabel(pendingHosts) + (pendingHosts.indexOf('*') >= 0 ? ': ' + INTERNET_ANY_WARNING : '');
     }
+    plugin.pendingPermissions.forEach(function(name) {
+        var waiting = PERMISSION_PORTS[name] ? plugin[PERMISSION_PORTS[name].pending] || [] : [];
+        if (waiting.length > 0) warnings += '\n\n' + name + ': ' + pt('ports_waiting', waiting.join(', '));
+    });
     if (!confirm(pt('allow_confirm', id, plugin.pendingPermissions.join(', ')) + warnings)) return;
     var grants = Object.assign({}, plugin.grants || {});
-    plugin.pendingPermissions.forEach(function(name) { grants[name] = {}; });
+    plugin.pendingPermissions.forEach(function(name) {
+        // new ports keep the hosts the permission is narrowed to
+        grants[name] = PERMISSION_PORTS[name] && grants[name] ? Object.assign({}, grants[name]) : {};
+        withPorts(grants[name], plugin, name);
+    });
     // the hosts it asks for, those allowed before among them
     if (plugin.pendingPermissions.indexOf('internet') >= 0) grants.internet = {hosts: plugin.internet || []};
     this._saveGrants(id, grants);
@@ -768,6 +782,37 @@ var INTERNET_ANY_WARNING = pt('warn_internet_any');
 function udpLabel(ports) {
     if (ports.length === 0) return pt('label_udp');
     return pt('label_udp') + '. ' + pt('udp_broadcast_to', ports.join(', '));
+}
+
+// The ports a permission lists in plugin.json: the plugin's fields and the grant's
+var PERMISSION_PORTS = {
+    udp: {list: 'broadcastPorts', pending: 'pendingBroadcastPorts', grant: 'broadcastPorts', text: 'udp_broadcast_to'},
+    tcp: {list: 'tcpPorts', pending: 'pendingTcpPorts', grant: 'ports', text: 'tcp_ports'}
+};
+
+// Allowing the permission allows the ports it lists now
+function withPorts(grant, plugin, name) {
+    var p = PERMISSION_PORTS[name];
+    if (p) grant[p.grant] = (plugin[p.list] || []).slice();
+    return grant;
+}
+
+// The ports, those an update added and not allowed yet marked
+function portsHtml(plugin, name) {
+    var p = PERMISSION_PORTS[name];
+    var list = p ? plugin[p.list] || [] : [];
+    if (list.length === 0) return '';
+    var waiting = plugin[p.pending] || [];
+    var html = '<div class="small mb-1">' + VCLU.esc(pt(p.text, '')) + list.map(function(port) {
+        var waits = waiting.indexOf(port) >= 0;
+        return '<span class="badge ' + (waits ? 'bg-warning text-dark' : 'bg-secondary') + ' ms-1"' +
+               (waits ? ' title="' + VCLU.esc(pt('not_allowed_yet')) + '"' : '') + '>' + port + '</span>';
+    }).join('') + '</div>';
+    if (waiting.length > 0) {
+        html += '<div class="small text-muted mb-1">' + VCLU.esc(pt('ports_waiting', waiting.join(', '))) + ' ' +
+                VCLU.esc(pt('internet_save_allows')) + '</div>';
+    }
+    return html;
 }
 
 // tcp with the ports it connects to (plugin.json "tcp")
@@ -843,12 +888,7 @@ PluginsManager.prototype.editPermissions = function(id) {
             html += area('mqtt-subscribe', pt('subscribe_only'), grant && grant.subscribe, pt('any_topic'));
             html += area('mqtt-publish', pt('publish_only'), grant && grant.publish, pt('any_topic'));
         } else if (name === 'udp' || name === 'tcp' || name === 'grenton_raw' || name === 'tftp') {
-            if (name === 'udp' && (plugin.broadcastPorts || []).length > 0) {
-                html += '<div class="small text-muted mb-1">' + VCLU.esc(pt('udp_broadcast_to', plugin.broadcastPorts.join(', '))) + '</div>';
-            }
-            if (name === 'tcp' && (plugin.tcpPorts || []).length > 0) {
-                html += '<div class="small text-muted mb-1">' + VCLU.esc(pt('tcp_ports', plugin.tcpPorts.join(', '))) + '</div>';
-            }
+            html += portsHtml(plugin, name);
             html += area(name + '-hosts', pt('hosts_only'), grant && grant.hosts, pt('any_local_but_vclu'));
         } else if (name === 'serial') {
             html += area('serial-ports', pt('ports'), grant && grant.ports, pt('ports_none'));
@@ -889,7 +929,7 @@ PluginsManager.prototype.savePermissions = function() {
         } else if (name === 'mqtt') {
             grants.mqtt = {subscribe: list('mqtt-subscribe'), publish: list('mqtt-publish')};
         } else if (name === 'udp' || name === 'tcp' || name === 'grenton_raw' || name === 'tftp') {
-            grants[name] = {hosts: list(name + '-hosts')};
+            grants[name] = withPorts({hosts: list(name + '-hosts')}, plugin, name);
         } else if (name === 'serial') {
             grants.serial = {ports: list('serial-ports')};
         } else {

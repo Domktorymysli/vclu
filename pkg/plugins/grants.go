@@ -89,6 +89,11 @@ func ValidateGrants(g config.PluginGrants) error {
 		if _, err := ParseHosts(h.Hosts); err != nil {
 			return fmt.Errorf("%s hosts: %w", name, err)
 		}
+		for _, ports := range []*[]int{h.BroadcastPorts, h.Ports} {
+			if err := validPorts(name, ports); err != nil {
+				return err
+			}
+		}
 	}
 	if g.Serial != nil {
 		for _, port := range g.Serial.Ports {
@@ -104,6 +109,22 @@ func ValidateGrants(g config.PluginGrants) error {
 					return fmt.Errorf("mqtt: %q is not a topic filter (+ for a whole level, # only at the end)", f)
 				}
 			}
+		}
+	}
+	return nil
+}
+
+// validPorts: a granted list of whole ports 1-65535.
+func validPorts(name string, ports *[]int) error {
+	if ports == nil {
+		return nil
+	}
+	if len(*ports) > maxGrantList {
+		return fmt.Errorf("%s: %d ports, at most %d", name, len(*ports), maxGrantList)
+	}
+	for _, p := range *ports {
+		if p < 1 || p > 65535 {
+			return fmt.Errorf("%s: %d is not a port 1-65535", name, p)
 		}
 	}
 	return nil

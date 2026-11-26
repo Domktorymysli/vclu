@@ -762,8 +762,9 @@ func (l *Loader) LoadPlugin(pluginID string, pluginConfig map[string]interface{}
 		dashboards[d.ID] = map[string]string{"name": d.Name.In("pl")}
 	}
 	dashJSON, _ := json.Marshal(dashboards)
-	broadcastJSON, _ := json.Marshal(append([]int{}, manifest.BroadcastPorts()...))
-	tcpJSON, _ := json.Marshal(append([]int{}, manifest.TCPPorts()...))
+	// the ports the user allowed of those plugin.json lists
+	broadcastJSON, _ := json.Marshal(append([]int{}, perms.BroadcastPorts...))
+	tcpJSON, _ := json.Marshal(append([]int{}, perms.TCPPorts...))
 	createSandboxScript := fmt.Sprintf(`PluginSandbox:create(%s, {api = %d, lan = %t, udp = %t, tcp = %t, mqtt = %t, modbus = %t, grenton_raw = %t, tftp = %t, serial = %t, official = %t, limits = JSON:decode(%s), dashboards = JSON:decode(%s), udpBroadcastPorts = JSON:decode(%s), tcpPorts = JSON:decode(%s)})`,
 		luastr.Quote(pluginID), api, perms.LAN, perms.UDP, perms.TCP, perms.MQTT, perms.Modbus, perms.GrentonRaw, perms.TFTP, perms.Serial, official, luastr.Quote(string(limitsJSON)), luastr.Quote(string(dashJSON)), luastr.Quote(string(broadcastJSON)), luastr.Quote(string(tcpJSON)))
 	if _, err := l.luaExecutor.Execute(createSandboxScript); err != nil {

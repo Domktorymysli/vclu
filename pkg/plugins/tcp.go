@@ -62,8 +62,5 @@ func (m PluginManifest) checkTCP() error {
 
 // TCPPorts: where the plugin may connect, nil when it does not ask for tcp.
 func (m PluginManifest) TCPPorts() []int {
-	if m.TCP == nil || !requestedPermissions(m).TCP {
-		return nil
-	}
-	return slices.Clone(m.TCP.Ports)
+	return requestedPermissions(m).TCPPorts
 }

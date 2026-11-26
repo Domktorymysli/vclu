@@ -60,8 +60,5 @@ func (m PluginManifest) checkUDP() error {
 
 // BroadcastPorts: where the plugin may broadcast, nil when it does not ask for udp.
 func (m PluginManifest) BroadcastPorts() []int {
-	if m.UDP == nil || !requestedPermissions(m).UDP {
-		return nil
-	}
-	return slices.Clone(m.UDP.BroadcastPorts)
+	return requestedPermissions(m).BroadcastPorts
 }

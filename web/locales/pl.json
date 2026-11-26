@@ -1102,6 +1102,7 @@
       "internet_connects_to": "Internet: łączy się z: {0}",
       "udp_broadcast_to": "Rozgłaszanie na porty: {0}",
       "tcp_ports": "Porty: {0}",
+      "ports_waiting": "Nowe porty czekają na zgodę: {0}.",
       "any_server": "dowolny serwer",
       "not_allowed_yet": "Jeszcze bez zgody",
       "internet_save_allows": "Zapisanie z zaznaczonym polem zezwala także na te bez zgody.",

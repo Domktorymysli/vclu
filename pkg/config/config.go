@@ -376,6 +376,10 @@ type ModbusGrant struct{}
 // reach; without the list any, never vCLU's own addresses.
 type HostsGrant struct {
 	Hosts []string `json:"hosts,omitzero"`
+	// udp: the broadcast ports allowed, tcp: the ports; a port plugin.json adds later waits
+	// for the user. Nil (allowed before ports were recorded): those plugin.json lists.
+	BroadcastPorts *[]int `json:"broadcastPorts,omitempty"`
+	Ports          *[]int `json:"ports,omitempty"`
 }
 
 // SerialGrant: the ports the user assigned to the plugin; without one it opens none.

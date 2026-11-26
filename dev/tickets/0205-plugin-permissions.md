@@ -79,8 +79,9 @@ running: the manifest names the plugin API it is written for, and the stricter c
   ports in `"udp": {"broadcastPorts": [7000]}` (whole ports, at most 8, never 1234 or 69, only
   with `"udp": true`; otherwise the manifest is refused at download and at load). Installing
   allows it like `lan` and the confirmation lists the ports; the grant `{"udp": {"hosts": [...]}}`
-  narrows it like `grenton_raw`, and with a host list the plugin does not broadcast. New ports in
-  an update need no new consent.
+  narrows it like `grenton_raw`, and with a host list the plugin does not broadcast. The grant
+  records the ports (`"broadcastPorts": [7000]`): a port an update adds waits for the user like an
+  internet host.
 - TCP to devices and telnet (decided 26.11: a local Tuya socket on 6668, telnet consoles):
   `"permissions": {"tcp": true}` on API 2 with the ports it connects to in `"tcp": {"ports": [23]}`
   (whole ports, at most 8, required with `"tcp": true`, never 1234, 69, 502, 1883 or 8883: those
@@ -90,8 +91,10 @@ running: the manifest names the plugin API it is written for, and the stricter c
   in the background (5 s, at most 30) and answers through `onConnect`, `onReceive` and `onClose`;
   `send` queues (1 MiB) and a writer sends with a time limit, so a slow device does not hold Lua.
   Installing allows it like `lan` and the confirmation lists the ports; `{"tcp": {"hosts": [...]}}`
-  narrows it, and a narrowed or withdrawn grant closes open connections. New ports in an update need
-  no new consent. Telnet is not a permission: `Telnet.wrap(conn)` (`lib/telnet.lua`, a global in
+  narrows it, and a narrowed or withdrawn grant closes open connections. The grant records the
+  ports (`"ports": [23]`): a port an update adds waits for the user, those allowed before keep
+  working, one plugin.json no longer lists is refused; a grant from before ports were recorded
+  gets those plugin.json lists at the next load. Telnet is not a permission: `Telnet.wrap(conn)` (`lib/telnet.lua`, a global in
   plugins) answers DO with WONT and WILL with DONT, drops subnegotiation and gives lines and prompts.
 - WebSocket client (decided 26.11: Tuya's message service over wss://, Shelly Gen2 and Home
   Assistant over ws://): no permission of its own. `plugin:websocket(url, {headers, protocols,
@@ -203,6 +206,10 @@ running: the manifest names the plugin API it is written for, and the stricter c
 - [ ] A plugin's HTTP to vclu's own port is refused, by its address or a name resolving to it,
       also with a host list naming it; another port on the machine and a module's request pass
       (`TestHTTPManagerPluginNotToOwnAddress`).
+- [ ] Installing records the `udp` and `tcp` ports in the grant; an update adding a port shows
+      it waiting and the plugin reaches only the ports allowed before; allowing it gives it; a
+      port plugin.json drops is not reached; an old grant records the listed ports at load
+      (`TestPortsInTheGrant`, `TestPortsReachTheSandboxAndOldGrantsRecordThem`).
 - [ ] `go test ./...` and `go test -race ./...` pass.
 - [ ] A changelog entry in `changelog.d/0205-plugin-permissions.md`.
 - [ ] `DEVELOPMENT.md` in `vclu-plugins` documents `permissions`, the event prefix and the id rule,
