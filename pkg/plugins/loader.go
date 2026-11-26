@@ -756,6 +756,10 @@ func (l *Loader) LoadPlugin(pluginID string, pluginConfig map[string]interface{}
 	if l.IsSuspended(pluginID) {
 		return fmt.Errorf("plugin %s is suspended: it went over its time limit too often; turn it on on the plugins page", pluginID)
 	}
+	// enabled again while running (a toggle sent twice): stopped first, with its cleanup
+	if _, running := l.loaded[pluginID]; running {
+		_ = l.UnloadPlugin(pluginID)
+	}
 
 	localDir := l.resolvePluginDir(pluginID)
 

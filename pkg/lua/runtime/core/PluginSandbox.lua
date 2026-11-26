@@ -715,6 +715,11 @@ end
 -- @param permissions table|nil {api, lan, mqtt, modbus, official} from the loader; nil grants none
 -- @return table The created sandbox
 function PluginSandbox:create(pluginId, permissions)
+    -- a plugin started again without a stop: its old timers, sockets and handlers go first
+    if self.sandboxes[pluginId] then
+        Logger:warn("[SANDBOX] " .. pluginId .. " started again while running; stopping the old one")
+        self:cleanup(pluginId)
+    end
     -- Pre-compute plugin namespace prefix (e.g., "plugins.vclu.weather")
     local namespace, shortId = pluginId:match("^@([^/]+)/(.+)$")
     local pluginKey = shortId or pluginId
