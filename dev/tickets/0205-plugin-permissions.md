@@ -250,6 +250,21 @@ running: the manifest names the plugin API it is written for, and the stricter c
       user's module sets them on the same handle; API 1 unchanged (`TestHandleRemoteIsTheUsers`).
 - [ ] `lib/telnet` hands text without a line end past 64 KiB to `onLine` and refuses a bad prompt
       pattern when it is set (`TestTelnetLibLimits`).
+- [ ] An update to a version on a lower plugin API than the installed one (`api` in the
+      installed entry, from the files for an older entry) is refused at download, the preview says
+      so and the installed version keeps running; uninstalled and installed again it works; files
+      replaced by hand with a lower API do not load (`TestPluginsAPIUpdateRefusesLowerAPI`,
+      `TestRecordedAPIGuardsTheFiles`, `TestAPIFloorOnlyForInstalled`).
+- [ ] An installed plugin records its repository's address (`repositoryUrl`); a repository of the
+      same name at another address does not update it, also on a reload, and the plugins page
+      shows "source moved"; an entry without the address is checked against where its files were
+      downloaded from; `/` or `.git` at the end is the same address
+      (`TestPluginsAPIUpdateOnlyFromTheSameAddress`, `TestPluginsAPIUpdateOldEntryChecksTheFiles`,
+      `TestFromRepositoryByAddress`).
+- [ ] Two plugins whose wizard modules share a file name (`@a/b.c`, `@a/b_c`) are not installed
+      together and a wizard does not write over another plugin's module
+      (`TestModuleNamesNeverMeet`, `TestWriteModuleCodeKeepsAnotherPluginsModule`,
+      `TestPluginsAPIInstallRefusesASharedModuleName`).
 - [ ] `go test ./...` and `go test -race ./...` pass.
 - [ ] A changelog entry in `changelog.d/0205-plugin-permissions.md`.
 - [ ] `DEVELOPMENT.md` in `vclu-plugins` documents `permissions`, the event prefix and the id rule,

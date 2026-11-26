@@ -296,7 +296,7 @@ func (l *Loader) DownloadPlugin(repo config.PluginRepository, pluginID string) e
 type Preview struct {
 	Requested      Permissions
 	Version        string
-	API            int // the plugin API of that version
+	API            int   // the plugin API of that version
 	BroadcastPorts []int // with udp: where it may broadcast
 	TCPPorts       []int // with tcp: where it may connect
 	WebSocketPorts []int // with lan: the local ports its WebSockets reach
