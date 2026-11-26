@@ -306,8 +306,7 @@ func (m *ModbusMap) Doc() string {
 	b.WriteString("Without the GATE, vclu's `Modbus` (a Modbus TCP client, see `vclu_runtime_schema`) reaches a device on the RS485 " +
 		"through an RS485-to-TCP gateway set to the row's line (its host and port are not in the project); a ModbusClient's line is " +
 		"already TCP. `unit` is the slave, `addr` the register as Object Manager has it (check the device's manual for an offset of 1).\n\n")
-	b.WriteString("| Name | ID | Class | vclu | Line | Slave | Register | Read | Write | Data | Endianness | Divisor | Refresh ms | Timeout ms |\n")
-	b.WriteString("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n")
+	var rows strings.Builder
 	var other []string
 	for _, o := range m.Objects {
 		if n := modbusOther[o.Class]; n != "" {
@@ -326,11 +325,16 @@ func (m *ModbusMap) Doc() string {
 		if c := o.get("count"); c != "" && c != "1" {
 			reg += fmt.Sprintf(" (%s)", c)
 		}
-		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n",
+		fmt.Fprintf(&rows, "| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n",
 			cell(orDash(o.Name)), o.ID, modbusClassNames[o.Class], o.Kind(), cell(o.line()), cell(orDash(o.get("slave"))), cell(reg),
 			calls[0], write, cell(o.data()), cell(o.endianness()), cell(orDash(o.get("divisor"))), cell(orDash(o.get("refresh"))), cell(orDash(o.get("timeout"))))
 	}
-	if !m.HasSettings {
+	if rows.Len() > 0 {
+		b.WriteString("| Name | ID | Class | vclu | Line | Slave | Register | Read | Write | Data | Endianness | Divisor | Refresh ms | Timeout ms |\n")
+		b.WriteString("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n")
+		b.WriteString(rows.String())
+	}
+	if !m.HasSettings && rows.Len() > 0 {
 		b.WriteString("\nThis om.lua has no settings: import the GATE's own om.lua, a diagnostic pack or the project.\n")
 	}
 	if len(other) > 0 {

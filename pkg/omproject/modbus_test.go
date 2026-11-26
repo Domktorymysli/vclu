@@ -65,3 +65,17 @@ func TestOMLuaModbusObjects(t *testing.T) {
 		t.Errorf("objects %+v (%v)", parsed.Objects, err)
 	}
 }
+
+// A GATE that is only a Modbus server is named in the map, without an empty table.
+func TestOMLuaModbusServerOnly(t *testing.T) {
+	srv := `<ProgrammablePeripheryCLU><name>serwer</name><nameOnCLU>MOD0009</nameOnCLU><typeName>ModbusServer</typeName><isRemoved>false</isRemoved></ProgrammablePeripheryCLU>`
+	p, err := Read(projectZip(t, map[string]string{"system.xml": modbusProject(srv), "properties.xml": properties,
+		"scripts/Home/setup.lua": "\n"}))
+	if err != nil || len(p.Warnings) != 0 {
+		t.Fatalf("%v %q", err, p.Warnings)
+	}
+	doc := omparser.ReadModbus(p.OMLua(p.CLUs[0])).Doc()
+	if !strings.Contains(doc, "not mapped: serwer MOD0009 (ModbusServer)") || strings.Contains(doc, "| Name |") || strings.Contains(doc, "no settings") {
+		t.Errorf("doc:\n%s", doc)
+	}
+}
