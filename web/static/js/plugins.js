@@ -537,7 +537,8 @@ PluginsManager.prototype.install = function(id, repository) {
     var self = this;
     var shortId = id.replace(/^@[^\/]+\//, '');
     // what the plugin asks for, from its plugin.json, before anything is downloaded
-    fetch('/api/plugins/preview?id=' + encodeURIComponent(shortId) + '&repository=' + encodeURIComponent(repository))
+    var fullId = /^@/.test(id) ? '&fullId=' + encodeURIComponent(id) : '';
+    fetch('/api/plugins/preview?id=' + encodeURIComponent(shortId) + '&repository=' + encodeURIComponent(repository) + fullId)
         .then(function(r) { return r.json(); })
         .then(function(data) {
             if (data.error) {
@@ -551,7 +552,7 @@ PluginsManager.prototype.install = function(id, repository) {
 
 /**
  * Show every permission, those the plugin asks for in green, and install on confirmation
- * @param {Object} preview - {version, requested, internet, broadcastPorts, tcpPorts, websocketPorts, all} from /api/plugins/preview
+ * @param {Object} preview - {version, api, downgradeFrom, requested, internet, broadcastPorts, tcpPorts, websocketPorts, all} from /api/plugins/preview
  */
 PluginsManager.prototype._confirmInstall = function(id, repository, preview) {
     var self = this;
@@ -594,8 +595,14 @@ PluginsManager.prototype._confirmInstall = function(id, repository, preview) {
     var notes = [];
     if (requested.length === 0) notes.push(pt('uses_none'));
     if (installed) notes.push(pt('update_keeps'));
+    // a version on a lower plugin API would drop its limits: installed only from scratch
+    var downgrade = installed && preview.downgradeFrom > 0;
+    if (downgrade) notes = [pt('api_downgrade', preview.downgradeFrom, preview.api || 1)];
     this.elements.installNote.textContent = notes.join(' ');
+    this.elements.installNote.classList.toggle('text-danger', !!downgrade);
+    this.elements.installNote.classList.toggle('text-muted', !downgrade);
     this.elements.installConfirm.textContent = installed ? pt('update') : pt('install');
+    this.elements.installConfirm.hidden = !!downgrade;
 
     var modal = new bootstrap.Modal(this.elements.installModal);
     this.elements.installConfirm.onclick = function() {

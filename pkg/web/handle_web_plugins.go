@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -352,13 +353,23 @@ func (s *Server) handlePluginsAPIPreview(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Repository not found"})
 		return
 	}
-	preview, err := plugins.NewLoader(s.serverDir).PreviewPermissions(*repo, id)
+	loader := plugins.NewLoader(s.serverDir)
+	preview, err := loader.PreviewPermissions(*repo, id)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("Failed to read the plugin: %v", err)})
 		return
 	}
+	// an update to a lower plugin API is refused: the panel says so before installing
+	var downgradeFrom int
+	if fullID := c.Query("fullId"); fullID != "" && plugins.ValidPluginID(fullID) {
+		if floor := loader.APIFloor(fullID); floor > preview.API {
+			downgradeFrom = floor
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"version":        preview.Version,
+		"api":            preview.API,
+		"downgradeFrom":  downgradeFrom,
 		"requested":      nonNil(preview.Requested.Names()),
 		"internet":       nonNil([]string(preview.Requested.Internet)),
 		"broadcastPorts": append([]int{}, preview.BroadcastPorts...),
@@ -488,9 +499,14 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 
 	// The files first: the config then never names a version that is not on disk (#112)
 	if err := loader.DownloadPlugin(*targetRepo, fullId); err != nil {
+		if errors.Is(err, plugins.ErrAPIDowngrade) {
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error(), "code": "api_downgrade"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to download plugin: %v", err)})
 		return
 	}
+	api, _ := loader.DiskAPI(fullId)
 	requested, _ := loader.RequestedPermissions(fullId)
 	if req.Accept != nil {
 		requested = requested.Only(*req.Accept)
@@ -516,6 +532,9 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 				masterConfig.Plugins.Installed[i].Version = pluginMeta.Version
 				masterConfig.Plugins.Installed[i].Repository = targetRepo.Name
 				masterConfig.Plugins.Installed[i].InstalledAt = time.Now().Format(time.RFC3339)
+				if api > masterConfig.Plugins.Installed[i].API {
+					masterConfig.Plugins.Installed[i].API = api
+				}
 				action = "updated"
 				return nil
 			}
@@ -527,6 +546,7 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 			Version:     pluginMeta.Version,
 			Enabled:     true,
 			Repository:  req.Repository,
+			API:         api,
 			InstalledAt: time.Now().Format(time.RFC3339),
 			Config:      make(map[string]interface{}),
 			// Installing is allowing what the plugin asks for now

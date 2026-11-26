@@ -296,6 +296,7 @@ func (l *Loader) DownloadPlugin(repo config.PluginRepository, pluginID string) e
 type Preview struct {
 	Requested      Permissions
 	Version        string
+	API            int // the plugin API of that version
 	BroadcastPorts []int // with udp: where it may broadcast
 	TCPPorts       []int // with tcp: where it may connect
 	WebSocketPorts []int // with lan: the local ports its WebSockets reach
@@ -346,7 +347,7 @@ func (l *Loader) PreviewPermissions(repo config.PluginRepository, pluginID strin
 	if err != nil {
 		return Preview{}, err
 	}
-	return Preview{Requested: requestedPermissions(m), Version: listing.Version, BroadcastPorts: m.BroadcastPorts(), TCPPorts: m.TCPPorts(), WebSocketPorts: m.WebSocketPorts()}, nil
+	return Preview{Requested: requestedPermissions(m), Version: listing.Version, API: manifestAPI(m), BroadcastPorts: m.BroadcastPorts(), TCPPorts: m.TCPPorts(), WebSocketPorts: m.WebSocketPorts()}, nil
 }
 
 // downloadPlugin downloads the version the repository lists; with newerThan, only when that
@@ -386,6 +387,8 @@ func (l *Loader) downloadPlugin(repo config.PluginRepository, pluginID, newerTha
 	}
 
 	safeDir := safePluginDir(pluginID)
+	// read before the lock moves to the new files
+	floor := l.APIFloor(pluginID)
 
 	// Determine version subdir: tagged plugins get versioned dir, untagged get "latest"
 	version := listing.Version
@@ -412,6 +415,9 @@ func (l *Loader) downloadPlugin(repo config.PluginRepository, pluginID, newerTha
 	// Cache hit: immutable tag already downloaded from this repository
 	if listing.GitTag != "" {
 		if got, err := os.ReadFile(completeMarker); err == nil && string(got) == stamp {
+			if err := checkAPIFloor(pluginID, filepath.Join(targetDir, "plugin.json"), floor); err != nil {
+				return err
+			}
 			log.Printf("[PLUGINS] cached %s/%s, skipping download", safeDir, version)
 			// The lock may still name an older dir (a lost lock write)
 			if cur := l.ReadLockFile()[pluginID]; cur.Path != lockEntry.Path || cur.Version != lockEntry.Version {
@@ -452,6 +458,10 @@ func (l *Loader) downloadPlugin(repo config.PluginRepository, pluginID, newerTha
 	if err := checkDownloadedManifest(filepath.Join(tmpDir, "plugin.json")); err != nil {
 		_ = os.RemoveAll(tmpDir)
 		return fmt.Errorf("%s %s: %w", pluginID, listing.Version, err)
+	}
+	if err := checkAPIFloor(pluginID, filepath.Join(tmpDir, "plugin.json"), floor); err != nil {
+		_ = os.RemoveAll(tmpDir)
+		return err
 	}
 
 	// Atomic rename: tmp → target
@@ -788,6 +798,15 @@ func (l *Loader) LoadPlugin(pluginID string, pluginConfig map[string]interface{}
 	if err != nil {
 		return err
 	}
+	// files replaced by hand with a version on a lower API do not run with fewer limits
+	if inst, ok := l.installedEntry(pluginID); ok {
+		if inst.API > api {
+			return APIDowngrade(pluginID, inst.API, api)
+		}
+		if inst.API < api {
+			l.recordAPI(pluginID, api)
+		}
+	}
 	if err := manifest.checkUDP(); err != nil {
 		return fmt.Errorf("plugin %s: %w", pluginID, err)
 	}
@@ -1091,6 +1110,25 @@ func checkDownloadedManifest(path string) error {
 		return err
 	}
 	return m.checkTCP()
+}
+
+// checkAPIFloor: the manifest at path is on plugin API floor or higher.
+func checkAPIFloor(pluginID, path string, floor int) error {
+	if floor == 0 {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var m PluginManifest
+	if err := json.Unmarshal(data, &m); err != nil {
+		return fmt.Errorf("plugin.json is not valid for this vclu: %w", err)
+	}
+	if api := manifestAPI(m); api < floor {
+		return APIDowngrade(pluginID, floor, api)
+	}
+	return nil
 }
 
 // completeStamp is what a downloaded version's .complete holds: its tag and repository.

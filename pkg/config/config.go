@@ -330,10 +330,12 @@ type PluginRepository struct {
 
 // InstalledPlugin represents an installed plugin and its configuration
 type InstalledPlugin struct {
-	ID          string                 `json:"id"`                    // Plugin ID (e.g., "weather")
-	Version     string                 `json:"version"`               // Installed version
-	Enabled     bool                   `json:"enabled"`               // Whether plugin is active
-	Repository  string                 `json:"repository,omitempty"`  // Which repo it came from
+	ID         string `json:"id"`                   // Plugin ID (e.g., "weather")
+	Version    string `json:"version"`              // Installed version
+	Enabled    bool   `json:"enabled"`              // Whether plugin is active
+	Repository string `json:"repository,omitempty"` // Which repo it came from
+	// API: the plugin API of the installed version; an update never goes below it
+	API         int                    `json:"api,omitempty"`
 	InstalledAt string                 `json:"installedAt,omitempty"` // ISO timestamp
 	Config      map[string]interface{} `json:"config,omitempty"`      // Plugin-specific config (simple key-value)
 	Grants      *PluginGrants          `json:"grants,omitempty"`      // What the user allowed; nil: what plugin.json asks for
