@@ -133,6 +133,24 @@ func (hm *HTTPManager) currentOwnPorts() []int {
 	return fn()
 }
 
+// SetLAN sets both at once, so no request sees the new permission with the old hosts.
+func (hm *HTTPManager) SetLAN(instanceID string, allowed bool, hosts []netip.Prefix) {
+	hm.mu.Lock()
+	defer hm.policyChanged(instanceID)
+	defer hm.mu.Unlock()
+	hm.plugins[instanceID] = true
+	if allowed {
+		delete(hm.noLAN, instanceID)
+	} else {
+		hm.noLAN[instanceID] = true
+	}
+	if hosts == nil {
+		delete(hm.lanHosts, instanceID)
+	} else {
+		hm.lanHosts[instanceID] = hosts
+	}
+}
+
 // SetOnPolicy: called, without the lock, after an instance's lan or internet changed.
 func (hm *HTTPManager) SetOnPolicy(fn func(instanceID string)) {
 	hm.mu.Lock()
@@ -426,7 +444,6 @@ func registerHTTPFunctions(L *lua.LState, hm *HTTPManager) {
 	// and the hosts the user narrowed it to (a table of strings, nil: any local address)
 	L.SetGlobal("__go_http_set_lan", L.NewFunction(func(L *lua.LState) int {
 		id := L.CheckString(1)
-		hm.SetLANAllowed(id, L.ToBool(2))
 		var hosts []netip.Prefix
 		if t, ok := L.Get(3).(*lua.LTable); ok {
 			var names []string
@@ -438,7 +455,7 @@ func registerHTTPFunctions(L *lua.LState, hm *HTTPManager) {
 			}
 			hosts = parsed
 		}
-		hm.SetLANHosts(id, hosts)
+		hm.SetLAN(id, L.ToBool(2), hosts)
 		return 0
 	}))
 
