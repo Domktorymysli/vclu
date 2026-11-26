@@ -132,7 +132,7 @@ func StripGateSettings(content string) (string, int) {
 	for i, line := range lines {
 		if m := reGateObject.FindStringSubmatch(strings.TrimSpace(line)); m != nil {
 			class, _ := strconv.Atoi(m[2])
-			if !(modbus && ObjectClass(class).IsModbus()) {
+			if !modbus || !ObjectClass(class).IsModbus() {
 				gate[m[1]] = true
 			}
 		}
