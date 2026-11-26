@@ -27,3 +27,20 @@ func TestFromRepositoryByAddress(t *testing.T) {
 		}
 	}
 }
+
+// Off GitHub a path keeps its case: two repositories on one server differ by it.
+func TestRepoAddressPathCase(t *testing.T) {
+	if sameRepoURL("https://git.example.com/Jan/plugins", "https://git.example.com/jan/plugins") {
+		t.Error("paths differing in case are one repository")
+	}
+	if !sameRepoURL("HTTPS://Git.Example.COM/Jan/plugins.git/", "https://git.example.com/Jan/plugins") {
+		t.Error("scheme and host case make another repository")
+	}
+	if !sameRepoURL("https://GitHub.com/Jan/Plugins", "https://github.com/jan/plugins") {
+		t.Error("GitHub owner/repo case makes another repository")
+	}
+	// recorded before paths kept their case: on GitHub still the same
+	if !sameRepoURL("https://github.com/domktorymysli/vclu-plugins", config.OfficialPluginsRepoURL) {
+		t.Error("an official address recorded in lower case no longer matches")
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -533,7 +534,7 @@ func (l *Loader) FromSource(installed config.InstalledPlugin, repo config.Plugin
 		return false, SourceMoved(installed, repo)
 	}
 	if installed.RepositoryURL == "" {
-		if from := l.downloadedFrom(installed.ID); from != "" && from != normRepoURL(repo.URL) {
+		if from := l.downloadedFrom(installed.ID); from != "" && !sameRepoURL(from, repo.URL) {
 			return false, true
 		}
 	}
@@ -558,8 +559,20 @@ func sameRepoURL(a, b string) bool {
 	return normRepoURL(a) == normRepoURL(b)
 }
 
+// normRepoURL: scheme and host in lower case; the path as given, except on GitHub, whose
+// owner/repo ignore case. A trailing / or .git is dropped.
 func normRepoURL(u string) string {
-	u = strings.ToLower(strings.TrimSpace(u))
+	u = strings.TrimSpace(u)
+	if pu, err := url.Parse(u); err == nil && pu.Scheme != "" && pu.Host != "" {
+		pu.Scheme, pu.Host = strings.ToLower(pu.Scheme), strings.ToLower(pu.Host)
+		if caseFreePath[pu.Hostname()] {
+			pu.Path, pu.RawPath = strings.ToLower(pu.Path), ""
+		}
+		u = pu.String()
+	}
 	u = strings.TrimSuffix(u, "/")
 	return strings.TrimSuffix(u, ".git")
 }
+
+// caseFreePath: hosts whose repository paths ignore case.
+var caseFreePath = map[string]bool{"github.com": true, "www.github.com": true, "raw.githubusercontent.com": true}

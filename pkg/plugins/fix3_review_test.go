@@ -55,7 +55,7 @@ func TestReview_TagOnlyMarkerNamesNoAddress(t *testing.T) {
 	if err := os.WriteFile(marker, []byte(completeStamp("cloud-v1.0.0", "https://a.example/R.git")), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if from := l.downloadedFrom("@jan/cloud"); !strings.HasSuffix(from, "a.example/r") {
+	if from := l.downloadedFrom("@jan/cloud"); !strings.HasSuffix(from, "a.example/R") {
 		t.Errorf("marker names %q", from)
 	}
 }
