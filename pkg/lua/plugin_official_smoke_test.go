@@ -148,13 +148,14 @@ func TestOfficialPluginsSmoke(t *testing.T) {
 				assert(amp, "musiccast create")
 				local rce = Plugin.getPlugin("@vclu/pse-rce"):create({ id = "rce" })
 				assert(rce, "rce create"); local now = rce:now()
-				local tas = Plugin.getPlugin("@vclu/tasmota-switch"):create({ ip = "10.255.255.100", name = "Lampka" })
-				assert(tas, "tasmota create")
+				-- the older switch plugin, in a checkout that still has it (not in the published index)
+				local sw = Plugin.getPlugin("@vclu/tasmota-switch")
+				if sw then assert(sw:create({ ip = "10.255.255.100", name = "Lampka" }), "tasmota-switch create") end
 				local inf = Plugin.getPlugin("@vclu/influx-metrics"):create({ url = "http://10.255.255.50:8086/write?db=vclu", interval = 60, tags = { host = "vclu" } })
 				assert(inf, "influx create"); inf:gauge("temperature", 22.5, { room = "salon" })
 				-- module code of the READMEs: handles of the plugins' objects (API 2)
-				local tasmota = Plugin.getPlugin("@vclu/tasmota")
-				if tasmota then
+				local tasmota = assert(Plugin.getPlugin("@vclu/tasmota"), "@vclu/tasmota is published")
+				do
 					local plug = tasmota:device({ ip = "10.255.255.101" })
 					local lamp = plug:relay(1)
 					expose(lamp, "light", { path = "tasmota.lampa", name = "Lampa", mqtt = false, homekit = false })
@@ -164,8 +165,8 @@ func TestOfficialPluginsSmoke(t *testing.T) {
 					lamp:onChange(function(v, old) end)
 					assert(lamp:get() == nil and plug:isOnline() == false, "tasmota: no reading yet")
 				end
-				local zakupy = Plugin.getPlugin("@vclu/zakupy")
-				if zakupy then zakupy:dashboardAccess("lista", { name = "Zakupy", auth = "session" }) end
+				local zakupy = assert(Plugin.getPlugin("@vclu/zakupy"), "@vclu/zakupy is published")
+				zakupy:dashboardAccess("lista", { name = "Zakupy", auth = "session" })
 				local n = 0
 				for _ in pairs(ExposedObjects._objects or {}) do n = n + 1 end
 				return "factories ok, exposed=" .. n .. " rce:now=" .. tostring(now)

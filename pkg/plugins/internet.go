@@ -198,6 +198,8 @@ type Seen struct {
 	MQTTSubscribe  []string `json:"mqttSubscribe"` // nil: any topic was shown
 	MQTTPublish    []string `json:"mqttPublish"`
 	Actions        []string `json:"actions"`
+	// ConfirmActions: the actions shown as asking for confirmation
+	ConfirmActions []string `json:"confirmActions"`
 	API            int      `json:"api"`
 }
 
@@ -248,7 +250,9 @@ func (p Permissions) OnlySeen(s Seen) Permissions {
 	}
 	var actions []string
 	for _, a := range p.Actions {
-		if slices.Contains(s.Actions, a) {
+		// shown with a confirmation the downloaded files dropped: it waits, as after an update
+		lostConfirm := slices.Contains(s.ConfirmActions, a) && !slices.Contains(p.ConfirmActions, a)
+		if slices.Contains(s.Actions, a) && !lostConfirm {
 			actions = append(actions, a)
 		}
 	}
@@ -259,7 +263,8 @@ func (p Permissions) OnlySeen(s Seen) Permissions {
 // SeenOf is what a confirmation showing p shows: the panel sends it back with the install.
 func SeenOf(p Permissions, api int) Seen {
 	s := Seen{Internet: nonNilStrings([]string(p.Internet)), UDPPorts: nonNilInts(p.UDPPorts), BroadcastPorts: nonNilInts(p.BroadcastPorts),
-		TCPPorts: nonNilInts(p.TCPPorts), MQTTSubscribe: p.MQTTSubscribe, MQTTPublish: p.MQTTPublish, Actions: nonNilStrings(p.Actions), API: api}
+		TCPPorts: nonNilInts(p.TCPPorts), MQTTSubscribe: p.MQTTSubscribe, MQTTPublish: p.MQTTPublish, Actions: nonNilStrings(p.Actions),
+		ConfirmActions: nonNilStrings(p.ConfirmActions), API: api}
 	if p.LANPorts != nil {
 		ports := slices.Clone(p.LANPorts)
 		s.LANPorts = &ports

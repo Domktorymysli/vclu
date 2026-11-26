@@ -63,3 +63,21 @@ func TestMQTTUserNarrowedGrant(t *testing.T) {
 		t.Errorf("outside the narrowed filter: allowed %v, pending %v", allowed.MQTTSubscribe, pending.MQTTSubscribe)
 	}
 }
+
+// The install dialog showed an action asking for confirmation; files that dropped it between
+// the preview and the download do not get it allowed.
+func TestInstallSeenConfirmation(t *testing.T) {
+	shown := Permissions{Actions: []string{"all_off", "status"}, ConfirmActions: []string{"all_off"}}
+	seen := SeenOf(shown, 2)
+	downloaded := Permissions{Actions: []string{"all_off", "status"}}
+	g := downloaded.OnlySeen(seen).Grants()
+	allowed, pending := downloaded.allowedBy(g)
+	if slices.Contains(allowed.Actions, "all_off") || !slices.Contains(pending.Actions, "all_off") || !slices.Contains(allowed.Actions, "status") {
+		t.Errorf("allowed %v, pending %v", allowed.Actions, pending.Actions)
+	}
+	// the same files as shown: allowed
+	g = shown.OnlySeen(seen).Grants()
+	if allowed, pending = shown.allowedBy(g); len(allowed.Actions) != 2 || len(pending.Actions) != 0 {
+		t.Errorf("as shown: allowed %v, pending %v", allowed.Actions, pending.Actions)
+	}
+}
