@@ -120,8 +120,10 @@ allowed: a new host or `"*"` in an update waits (`pendingInternet`), the ones al
 working.
 
 What it asks for is not what it gets: `grants` on the installed entry in `.vclu.json` is what the
-user allowed, and the plugin gets the part of its request the grants allow. Installing from the
-panel allows what the plugin asks for then; an entry without grants (installed by hand, or before
+user allowed, and the plugin gets the part of its request the grants allow. Installing allows
+what the confirmation showed and the user accepted: `POST /api/plugins/install` needs `accept` and
+`seen` (with `api`) from `GET /api/plugins/preview`, with a session as with an API key, and is
+refused without them; an entry without grants (installed by hand, or before
 grants existed) is given what its files on disk ask for on the next load, before an update; with
 no files on disk it gets none of what the fetched files ask for. An entry absent from a
 configuration that lists plugins does not load. A downloaded file is at most 4 MiB, a manifest

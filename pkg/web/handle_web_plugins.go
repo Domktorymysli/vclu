@@ -408,9 +408,9 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 		FullID     string `json:"fullId"`     // full id (e.g., "@vclu/weather")
 		Repository string `json:"repository"` // repository name
 		// The permissions the user confirmed (GET /plugins/preview); a new plugin gets only
-		// these, the rest waits as on an update. Without the field, what it asks for.
+		// these, the rest waits as on an update. Required: nothing installs unconfirmed.
 		Accept *[]string `json:"accept"`
-		// What the confirmation showed for them; the files may say otherwise
+		// What the confirmation showed for them; the files may say otherwise. Required too
 		Seen *struct {
 			API            int      `json:"api"`
 			Internet       []string `json:"internet"`
@@ -422,6 +422,11 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		return
+	}
+	// installing and updating is a person's decision on the confirmation, also with an API key
+	if req.Accept == nil || req.Seen == nil || req.Seen.API < 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "install needs accept and seen from /api/plugins/preview: the permissions and what the confirmation showed", "code": "consent_required"})
 		return
 	}
 	// one install at a time, from the checks to the saved entry: another one cannot slip in
@@ -550,11 +555,7 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 	}
 
 	// The files first: the config then never names a version that is not on disk (#112)
-	seenAPI := 0
-	if req.Seen != nil {
-		seenAPI = req.Seen.API
-	}
-	if err := loader.DownloadPluginSeen(*targetRepo, fullId, seenAPI); err != nil {
+	if err := loader.DownloadPluginSeen(*targetRepo, fullId, req.Seen.API); err != nil {
 		if errors.Is(err, plugins.ErrAPIDowngrade) {
 			c.JSON(http.StatusConflict, gin.H{"error": err.Error(), "code": "api_downgrade"})
 			return
@@ -568,14 +569,9 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 	}
 	api, _ := loader.DiskAPI(fullId)
 	requested, _ := loader.RequestedPermissions(fullId)
-	if req.Accept != nil {
-		requested = requested.Only(*req.Accept)
-	}
-	if req.Seen != nil {
-		// hosts and ports not shown wait for the user, as after an update
-		requested = requested.OnlyHostsSeen(req.Seen.Internet).
-			OnlyPortsSeen(req.Seen.TCPPorts, req.Seen.BroadcastPorts, req.Seen.WebSocketPorts)
-	}
+	// hosts and ports not shown wait for the user, as after an update
+	requested = requested.Only(*req.Accept).OnlyHostsSeen(req.Seen.Internet).
+		OnlyPortsSeen(req.Seen.TCPPorts, req.Seen.BroadcastPorts, req.Seen.WebSocketPorts)
 
 	// Fetched without the lock; the install goes into the file as it is now
 	action := "installed"

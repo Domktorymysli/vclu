@@ -38,7 +38,7 @@ func callInstall(t *testing.T, s *Server, body string) *httptest.ResponseRecorde
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest(http.MethodPost, "/api/plugins/install", strings.NewReader(body))
 	c.Request.Header.Set("Content-Type", "application/json")
-	s.handlePluginsAPIInstall(c)
+	confirmInstall(s, c)
 	return w
 }
 

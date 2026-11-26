@@ -284,6 +284,10 @@ running: the manifest names the plugin API it is written for, and the stricter c
       file, install only one (`TestInstallsTogetherSameID`, `TestInstallsTogetherSharedModuleName`).
 - [ ] The plugins page offers an update only as the installer would take it and shows "source
       moved" when it would refuse (`TestReview_AvailableMatchesInstallForOldEntry`).
+- [ ] Installing and updating need the confirmation: `POST /api/plugins/install` without `accept`
+      or `seen` (with its `api`) is refused with 400 `consent_required`, with a session as with an API
+      key, and `grenton_raw`, `tftp` and `serial` never come with an install, even accepted
+      (`TestInstallNeedsConsent`, `TestInstallNeverGrantsPanelOnlyPermissions`).
 - [ ] `go test ./...` and `go test -race ./...` pass.
 - [ ] A changelog entry in `changelog.d/0205-plugin-permissions.md`.
 - [ ] `DEVELOPMENT.md` in `vclu-plugins` documents `permissions`, the event prefix and the id rule,

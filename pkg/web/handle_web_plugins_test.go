@@ -218,7 +218,7 @@ func TestPluginsAPIInstallUpdateDownloadFails(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodPost, "/api/plugins/install",
 		strings.NewReader(`{"id":"salda-recuperator","repository":"test"}`))
 	c.Request.Header.Set("Content-Type", "application/json")
-	s.handlePluginsAPIInstall(c)
+	confirmInstall(s, c)
 
 	if w.Code == http.StatusOK || !strings.Contains(w.Body.String(), "download") {
 		t.Errorf("status %d: %s, want a download error", w.Code, w.Body.String())
@@ -282,7 +282,7 @@ func postInstallFrom(s *Server, id, repository string) *httptest.ResponseRecorde
 	c.Request = httptest.NewRequest(http.MethodPost, "/api/plugins/install",
 		strings.NewReader(`{"id":"`+id+`","repository":"`+repository+`"}`))
 	c.Request.Header.Set("Content-Type", "application/json")
-	s.handlePluginsAPIInstall(c)
+	confirmInstall(s, c)
 	return w
 }
 
@@ -294,7 +294,7 @@ func postInstall(t *testing.T, s *Server, id string) installAnswer {
 	c.Request = httptest.NewRequest(http.MethodPost, "/api/plugins/install",
 		strings.NewReader(`{"id":"`+id+`","repository":"test"}`))
 	c.Request.Header.Set("Content-Type", "application/json")
-	s.handlePluginsAPIInstall(c)
+	confirmInstall(s, c)
 
 	var resp installAnswer
 	if w.Code != http.StatusOK {

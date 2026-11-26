@@ -363,7 +363,7 @@ func TestPluginsAPIInstallGrantsOnlyWhatWasAccepted(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodPost, "/api/plugins/install",
 		strings.NewReader(`{"id":"shelly","repository":"test","accept":["lan"]}`))
 	c.Request.Header.Set("Content-Type", "application/json")
-	s.handlePluginsAPIInstall(c)
+	confirmInstall(s, c)
 	if w.Code != http.StatusOK {
 		t.Fatalf("install: %d %s", w.Code, w.Body.String())
 	}
@@ -417,7 +417,7 @@ func TestPluginsAPIInternetHostsInstallAndUpdate(t *testing.T) {
 		ctx.Request = httptest.NewRequest(http.MethodPost, "/api/plugins/install",
 			strings.NewReader(`{"id":"cloud","repository":"test","accept":`+c.accept+`}`))
 		ctx.Request.Header.Set("Content-Type", "application/json")
-		s.handlePluginsAPIInstall(ctx)
+		confirmInstall(s, ctx)
 		if w.Code != http.StatusOK {
 			t.Fatalf("install: %d %s", w.Code, w.Body.String())
 		}

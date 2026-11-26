@@ -67,7 +67,7 @@ func TestPluginsAPIInstallGrantsOnlyWhatWasSeen(t *testing.T) {
 	c, _ = gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest(http.MethodPost, "/api/plugins/install", strings.NewReader(string(body)))
 	c.Request.Header.Set("Content-Type", "application/json")
-	s.handlePluginsAPIInstall(c)
+	confirmInstall(s, c)
 	if w.Code != http.StatusOK {
 		t.Fatalf("install: %d %s", w.Code, w.Body.String())
 	}

@@ -43,7 +43,7 @@ func installRequest(s *Server, body map[string]any) *httptest.ResponseRecorder {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest(http.MethodPost, "/api/plugins/install", strings.NewReader(string(b)))
 	c.Request.Header.Set("Content-Type", "application/json")
-	s.handlePluginsAPIInstall(c)
+	confirmInstall(s, c)
 	return w
 }
 
@@ -86,7 +86,7 @@ func TestInstallRefusesAnotherAPIThanSeen(t *testing.T) {
 	}
 }
 
-// Without the field (an older panel) the install goes on as before.
+// Without the field (an older panel) the install is refused: the API it showed is not known.
 func TestInstallWithoutSeenAPI(t *testing.T) {
 	repo, _ := apiSwapRepo(t)
 	dir := t.TempDir()
@@ -97,7 +97,7 @@ func TestInstallWithoutSeenAPI(t *testing.T) {
 	}
 	s := &Server{serverDir: dir}
 	gin.SetMode(gin.TestMode)
-	if w := installRequest(s, map[string]any{"id": "cloud", "repository": "test"}); w.Code != http.StatusOK {
+	if w := rawInstall(s, `{"id":"cloud","repository":"test","accept":["internet"],"seen":{"internet":["a.example.com"]}}`); w.Code != http.StatusBadRequest {
 		t.Fatalf("install: %d %s", w.Code, w.Body.String())
 	}
 }
