@@ -265,6 +265,16 @@ running: the manifest names the plugin API it is written for, and the stricter c
       together and a wizard does not write over another plugin's module
       (`TestModuleNamesNeverMeet`, `TestWriteModuleCodeKeepsAnotherPluginsModule`,
       `TestPluginsAPIInstallRefusesASharedModuleName`).
+- [ ] An unreadable `.vclu.json` loads no plugin, downloads nothing and installs nothing, instead
+      of giving a plugin what its `plugin.json` asks for; a readable entry without grants keeps
+      what installing gives (`TestUnreadableConfigLoadsNothing`, `TestEntryWithoutGrantsAsBefore`).
+- [ ] The install dialog shows a plugin on API 1 as asking for any internet server, with a note
+      that it runs outside the permissions; the plugin card says the same
+      (`TestPluginsAPIPreviewShowsAPI1Internet`).
+- [ ] A host written as a number (`16843009`, `0x7f.1`) is not on the host list unless listed
+      and is refused before DNS (`TestNumericHost`, `TestHTTPManagerInternetHosts`).
+- [ ] The tests pass without a network: no lookup of a real name, UDP sends to made-up hosts
+      accept a refusal by the system's network.
 - [ ] `go test ./...` and `go test -race ./...` pass.
 - [ ] A changelog entry in `changelog.d/0205-plugin-permissions.md`.
 - [ ] `DEVELOPMENT.md` in `vclu-plugins` documents `permissions`, the event prefix and the id rule,
