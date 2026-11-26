@@ -27,9 +27,9 @@ func TestPluginDeviceUDPEcho(t *testing.T) {
 			_, _ = echo.WriteToUDP(append([]byte("re:"), buf[:n]...), from)
 		}
 	}()
-	engine := sandboxEngine(t, "@t/ac", `{api = 2, udp = true}`)
-	loopbackAllowed(engine)
 	port := echo.LocalAddr().(*net.UDPAddr).Port
+	engine := sandboxEngine(t, "@t/ac", `{api = 2, udp = true, udpPorts = {`+strconv.Itoa(port)+`}}`)
+	loopbackAllowed(engine)
 	if _, e := runPlugin(t, engine, "@t/ac", `
 		local p = Plugin:new("ac")
 		local s = assert(p:udpSocket())
@@ -40,7 +40,7 @@ func TestPluginDeviceUDPEcho(t *testing.T) {
 	}
 	waitPlugin(t, engine, `tostring(Plugin.getPlugin("@t/ac").got)`, `re:{"t":"scan"}|127.0.0.1`)
 
-	if _, e := runPlugin(t, engine, "@t/ac", `Plugin:new("ac2"):grentonSocket()`); !strings.Contains(e, `needs "grenton_raw"`) {
+	if _, e := runPlugin(t, engine, "@t/ac", `Plugin:new("ac2"):grentonSocket()`); !strings.Contains(e, `needs "clu"`) {
 		t.Errorf("grentonSocket with udp only: %s", e)
 	}
 	if _, err := engine.PluginIO().OpenUDP("@t/ac", 0); err == nil {
@@ -65,11 +65,11 @@ func TestPluginDeviceUDPTargets(t *testing.T) {
 	io := NewPluginIO()
 	own := freeUDPPort(t)
 	io.ReserveUDPPorts(own)
-	io.SetGrant("@t/a", pluginIOGrant{udp: true, broadcastPorts: []int{7000}})
-	io.SetGrant("@t/b", pluginIOGrant{udp: true, broadcastPorts: []int{7000},
+	io.SetGrant("@t/a", pluginIOGrant{udp: true, udpPorts: []int{7000}, broadcastPorts: []int{7000}})
+	io.SetGrant("@t/b", pluginIOGrant{udp: true, udpPorts: []int{7000}, broadcastPorts: []int{7000},
 		udpHosts: []netip.Prefix{netip.MustParsePrefix("192.168.7.0/24")}})
 	// grenton_raw too: its own socket keeps the CLU rules, the udp one does not get them
-	io.SetGrant("@t/c", pluginIOGrant{udp: true, grentonRaw: true})
+	io.SetGrant("@t/c", pluginIOGrant{udp: true, udpPorts: []int{7000}, grentonRaw: true})
 	open := func(plugin string, raw bool) int {
 		t.Helper()
 		f := io.OpenDeviceUDP
@@ -98,11 +98,11 @@ func TestPluginDeviceUDPTargets(t *testing.T) {
 		{a, "@t/a", "192.168.1.10", 69, "CLU port"},
 		{a, "@t/a", "255.255.255.255", 1234, "CLU port"},
 		{a, "@t/a", "192.168.1.10", own, "vclu listens on"},
-		{a, "@t/a", "255.255.255.255", 7001, "broadcastPorts"},
+		{a, "@t/a", "255.255.255.255", 7001, "permissions.udp.broadcast"},
 		{b, "@t/b", "192.168.8.1", 7000, "not among the hosts"},
 		{b, "@t/b", "255.255.255.255", 7000, "only some hosts"},
 		{c, "@t/c", "192.168.1.10", 1234, "CLU port"},
-		{c, "@t/c", "255.255.255.255", 7000, "broadcastPorts"}, // none declared
+		{c, "@t/c", "255.255.255.255", 7000, "permissions.udp.broadcast"}, // none declared
 		{cRaw, "@t/c", "255.255.255.255", 7000, "only to the CLU port"},
 	} {
 		err := io.SendUDP(x.id, x.plugin, x.ip, x.port, []byte("x"))
@@ -129,7 +129,7 @@ func TestPluginDeviceUDPTargets(t *testing.T) {
 
 // The broadcast ports reach Go from the sandbox: only the declared one passes.
 func TestPluginDeviceUDPBroadcastPortsFromSandbox(t *testing.T) {
-	engine := sandboxEngine(t, "@t/ac", `{api = 2, udp = true, udpBroadcastPorts = {7000}}`)
+	engine := sandboxEngine(t, "@t/ac", `{api = 2, udp = true, udpBroadcastPorts = {7000}, udpPorts = {7000}}`)
 	if _, e := runPlugin(t, engine, "@t/ac", `
 		local p = Plugin:new("ac")
 		local s = assert(p:udpSocket())
@@ -139,7 +139,7 @@ func TestPluginDeviceUDPBroadcastPortsFromSandbox(t *testing.T) {
 	`); e != "nil" {
 		t.Fatal(e)
 	}
-	if got, _ := engine.Execute(`Plugin.getPlugin("@t/ac").other`); !strings.Contains(got, "broadcastPorts") {
+	if got, _ := engine.Execute(`Plugin.getPlugin("@t/ac").other`); !strings.Contains(got, "permissions.udp.broadcast") {
 		t.Errorf("broadcast to an undeclared port: %s", got)
 	}
 	if got, _ := engine.Execute(`Plugin.getPlugin("@t/ac").declared`); strings.Contains(got, "refused") {

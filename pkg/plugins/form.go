@@ -158,7 +158,7 @@ func checkFields(where string, fields map[string]FormField, rows bool) error {
 			return fmt.Errorf("form: %s: a name is a letter, then letters, digits or _", at)
 		}
 		if !formTypes[f.Type] {
-			return fmt.Errorf("form: %s: type %q (string, number, boolean, enum, secret, host, object)", at, f.Type)
+			return fmt.Errorf("form: %s: type %q unknown to this vclu (string, number, boolean, enum, secret, host, object): %w", at, f.Type, ErrNewerVclu)
 		}
 		if f.kind() == "enum" && len(f.options()) == 0 {
 			return fmt.Errorf("form: %s: an enum needs options", at)

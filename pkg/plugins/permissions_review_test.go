@@ -28,10 +28,10 @@ func TestReviewUpdateNewInternetHostWaits(t *testing.T) {
 	}
 }
 
-// Installing never grants grenton_raw, tftp or serial, whatever the accept list says.
+// Installing never grants clu, tftp or serial, whatever the accept list says.
 func TestReviewInstallAcceptNeverGrantsSensitive(t *testing.T) {
-	g := AllPermissions.Only([]string{"lan", "grenton_raw", "tftp", "serial", "bogus"}).Grants()
-	if g.LAN == nil || g.GrentonRaw != nil || g.TFTP != nil || g.Serial != nil || g.Internet != nil || g.TCP != nil {
+	g := AllPermissions.Only([]string{"lan", "clu", "tftp", "serial", "bogus"}).Grants()
+	if g.LAN == nil || g.CLU != nil || g.TFTP != nil || g.Serial != nil || g.Internet != nil || g.TCP != nil {
 		t.Errorf("grants %+v", g)
 	}
 }
@@ -61,9 +61,9 @@ func TestReviewInternetHostsAllows(t *testing.T) {
 // A tcp port or a broadcast port added by an update should wait for the user, as a new
 // internet host does.
 func TestReviewUpdateNewTCPPortWaits(t *testing.T) {
-	v1 := PluginManifest{API: 2, Permissions: &Permissions{TCP: true}, TCP: &ManifestTCP{Ports: []int{23}}}
+	v1 := PluginManifest{API: 2, Permissions: &Permissions{TCP: true, TCPPorts: []int{23}}}
 	l := permissionsLoader(t, nil, []config.InstalledPlugin{{ID: "@jan/tv", Grants: requestedPermissions(v1).Grants()}})
-	v2 := PluginManifest{API: 2, Permissions: &Permissions{TCP: true}, TCP: &ManifestTCP{Ports: []int{23, 3306}}}
+	v2 := PluginManifest{API: 2, Permissions: &Permissions{TCP: true, TCPPorts: []int{23, 3306}}}
 	perms, _, _, _ := l.effectivePermissions("@jan/tv", v2)
 	if !perms.TCP || slices.Contains(perms.TCPPorts, 3306) || !slices.Contains(perms.TCPPorts, 23) {
 		t.Errorf("the update's new port should wait, the old one work: %+v", perms)

@@ -188,9 +188,22 @@ func (p Permissions) OnlyHostsSeen(seen []string) Permissions {
 	return p
 }
 
-// OnlyPortsSeen keeps of the ports asked for those the user confirmed; the grant records
-// only these, so the rest waits for the user.
-func (p Permissions) OnlyPortsSeen(tcp, broadcast, websocket []int) Permissions {
+// Seen is what the install dialog showed: the grant records only that, the rest waits.
+type Seen struct {
+	Internet       []string `json:"internet"`
+	LANPorts       *[]int   `json:"lanPorts"` // nil: any port was shown
+	UDPPorts       []int    `json:"udpPorts"`
+	BroadcastPorts []int    `json:"broadcastPorts"`
+	TCPPorts       []int    `json:"tcpPorts"`
+	MQTTSubscribe  []string `json:"mqttSubscribe"` // nil: any topic was shown
+	MQTTPublish    []string `json:"mqttPublish"`
+	Actions        []string `json:"actions"`
+	API            int      `json:"api"`
+}
+
+// OnlySeen keeps of the ports, topic filters and actions asked for those the user confirmed
+// (internet hosts: OnlyHostsSeen); the grant records only these, so the rest waits.
+func (p Permissions) OnlySeen(s Seen) Permissions {
 	keep := func(asked, seen []int) []int {
 		out := []int{}
 		for _, n := range asked {
@@ -200,6 +213,56 @@ func (p Permissions) OnlyPortsSeen(tcp, broadcast, websocket []int) Permissions 
 		}
 		return out
 	}
-	p.TCPPorts, p.BroadcastPorts, p.WebSocketPorts = keep(p.TCPPorts, tcp), keep(p.BroadcastPorts, broadcast), keep(p.WebSocketPorts, websocket)
+	p = p.clone()
+	if p.LANPorts != nil {
+		if s.LANPorts == nil {
+			p.LANPorts = slices.Clone(p.LANPorts) // any port shown: the listed ones were too
+		} else {
+			p.LANPorts = keep(p.LANPorts, *s.LANPorts)
+		}
+	} else if s.LANPorts != nil {
+		p.LANPorts = slices.Clone(*s.LANPorts) // any port asked, some shown: only those
+	}
+	p.UDPPorts, p.BroadcastPorts, p.TCPPorts = keep(p.UDPPorts, s.UDPPorts), keep(p.BroadcastPorts, s.BroadcastPorts), keep(p.TCPPorts, s.TCPPorts)
+	topics := func(asked, seen []string) []string {
+		if seen == nil {
+			return asked
+		}
+		ask := asked
+		if ask == nil {
+			ask = []string{"#"}
+		}
+		out := []string{}
+		for _, f := range ask {
+			if slices.ContainsFunc(seen, func(x string) bool { return filterCovers(x, f) }) {
+				out = append(out, f)
+			}
+		}
+		return out
+	}
+	if p.MQTT {
+		sub, pub := topics(p.mqttAsk(p.MQTTSubscribe), s.MQTTSubscribe), topics(p.mqttAsk(p.MQTTPublish), s.MQTTPublish)
+		if sub != nil || pub != nil {
+			p.MQTTSubscribe, p.MQTTPublish = nonNilStrings(sub), nonNilStrings(pub)
+		}
+	}
+	var actions []string
+	for _, a := range p.Actions {
+		if slices.Contains(s.Actions, a) {
+			actions = append(actions, a)
+		}
+	}
+	p.Actions = actions
 	return p
+}
+
+// SeenOf is what a confirmation showing p shows: the panel sends it back with the install.
+func SeenOf(p Permissions, api int) Seen {
+	s := Seen{Internet: nonNilStrings([]string(p.Internet)), UDPPorts: nonNilInts(p.UDPPorts), BroadcastPorts: nonNilInts(p.BroadcastPorts),
+		TCPPorts: nonNilInts(p.TCPPorts), MQTTSubscribe: p.MQTTSubscribe, MQTTPublish: p.MQTTPublish, Actions: nonNilStrings(p.Actions), API: api}
+	if p.LANPorts != nil {
+		ports := slices.Clone(p.LANPorts)
+		s.LANPorts = &ports
+	}
+	return s
 }

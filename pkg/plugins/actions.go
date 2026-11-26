@@ -25,9 +25,12 @@ type Action struct {
 	Name        string                 `json:"name"`
 	Description any                    `json:"description"`
 	Params      map[string]ActionParam `json:"params"`
+	// Confirm: plugin.json asks the caller to have the user agree before running it
+	Confirm bool `json:"confirm,omitempty"`
 }
 
-// ActionError is an action's refusal: Code "not_found", "invalid" (params) or "failed".
+// ActionError is an action's refusal: Code "not_found", "invalid" (params), "confirm" (it
+// asks for the user's confirmation and the call did not say it has it) or "failed".
 type ActionError struct {
 	Msg  string
 	Code string
@@ -55,8 +58,9 @@ func ParseActions(out string) ([]Action, error) {
 }
 
 // CallActionScript runs a plugin's action with params; the plugin id and name are quoted,
-// the params go as JSON (nulls left out: a param is given or not).
-func CallActionScript(pluginID, name string, params map[string]any) (string, error) {
+// the params go as JSON (nulls left out: a param is given or not). confirmed: the user agreed,
+// for an action plugin.json marks "confirm".
+func CallActionScript(pluginID, name string, params map[string]any, confirmed bool) (string, error) {
 	clean := map[string]any{}
 	for k, v := range params {
 		if v != nil {
@@ -67,8 +71,8 @@ func CallActionScript(pluginID, name string, params map[string]any) (string, err
 	if err != nil {
 		return "", &ActionError{Msg: "params: " + err.Error(), Code: "invalid"}
 	}
-	return fmt.Sprintf(`return PluginSandbox:callAction(%s, %s, %s)`,
-		luastr.Quote(pluginID), luastr.Quote(name), luastr.Quote(string(raw))), nil
+	return fmt.Sprintf(`return PluginSandbox:callAction(%s, %s, %s, %t)`,
+		luastr.Quote(pluginID), luastr.Quote(name), luastr.Quote(string(raw)), confirmed), nil
 }
 
 // ParseActionResult reads what CallActionScript returned: the result, or an *ActionError.

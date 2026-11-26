@@ -20,8 +20,8 @@ import (
 // the download may differ from the one read for the preview.
 func TestPluginsAPIInstallGrantsOnlyWhatWasSeen(t *testing.T) {
 	var reads atomic.Int32
-	shown := `{"id":"cloud","version":"1.0.0","api":2,"permissions":{"internet":["a.example.com"],"lan":true,"tcp":true},"tcp":{"ports":[23]},"files":["init.lua"]}`
-	other := `{"id":"cloud","version":"1.0.0","api":2,"permissions":{"internet":"*","lan":true,"tcp":true},"tcp":{"ports":[22,23]},"files":["init.lua"]}`
+	shown := `{"id":"cloud","version":"1.0.0","api":2,"permissions":{"internet":{"hosts":["a.example.com"]},"lan":{"why":"devices"},"tcp":{"ports":[23]}},"files":["init.lua"]}`
+	other := `{"id":"cloud","version":"1.0.0","api":2,"permissions":{"internet":{"hosts":["*"],"why":"any"},"lan":{"why":"devices"},"tcp":{"ports":[22,23]}},"files":["init.lua"]}`
 	repo := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/plugins.json":
@@ -54,7 +54,7 @@ func TestPluginsAPIInstallGrantsOnlyWhatWasSeen(t *testing.T) {
 	s.handlePluginsAPIPreview(c)
 	var preview struct {
 		Requested, Internet []string
-		TCPPorts            []int
+		Seen                map[string]any
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &preview); err != nil || strings.Join(preview.Internet, ",") != "a.example.com" {
 		t.Fatalf("preview %s", w.Body.String())
@@ -62,7 +62,7 @@ func TestPluginsAPIInstallGrantsOnlyWhatWasSeen(t *testing.T) {
 
 	// as the panel sends it
 	body, _ := json.Marshal(map[string]any{"id": "cloud", "repository": "test", "accept": preview.Requested,
-		"seen": map[string]any{"internet": preview.Internet, "tcpPorts": preview.TCPPorts, "broadcastPorts": []int{}}})
+		"seen": preview.Seen})
 	w = httptest.NewRecorder()
 	c, _ = gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest(http.MethodPost, "/api/plugins/install", strings.NewReader(string(body)))
@@ -95,7 +95,7 @@ func TestPluginsAPIModuleCodeKeepsAnEditAfterTheDiff(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, body := range map[string]string{
-		"plugin.json": `{"id": "zakupy", "version": "1.0.0", "api": 2, "dashboards": [{"id": "lista", "name": "Zakupy"}]}`,
+		"plugin.json": `{"id": "zakupy", "version": "1.0.0", "api": 2, "permissions": {}, "dashboards": [{"id": "lista", "name": "Zakupy"}]}`,
 		"init.lua":    "return {}",
 		".complete":   "ok",
 	} {

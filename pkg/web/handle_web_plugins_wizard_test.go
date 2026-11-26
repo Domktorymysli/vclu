@@ -22,7 +22,7 @@ func wizardServer(t *testing.T, grants *config.PluginGrants) (*Server, string) {
 		t.Fatal(err)
 	}
 	for name, body := range map[string]string{
-		"plugin.json": `{"id": "clu", "version": "1.0.0", "api": 2, "form": "form.json"}`,
+		"plugin.json": `{"id": "clu", "version": "1.0.0", "api": 2, "permissions": {}, "form": "form.json"}`,
 		"form.json": `{"settings": {"ip": {"type": "host", "required": true}, "token": {"type": "secret"}},
 		  "devices": {"fields": {"id": {"type": "string", "readonly": true}, "ip": {"type": "host"}}}}`,
 		"init.lua":  "return {}",

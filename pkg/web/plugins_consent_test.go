@@ -40,25 +40,23 @@ func withConsent(s *Server, body []byte) []byte {
 		"/api/plugins/preview?id="+url.QueryEscape(id)+"&repository="+url.QueryEscape(repo), nil)
 	s.handlePluginsAPIPreview(c)
 	var p struct {
-		API                      int
-		Requested, Internet      []string
-		BroadcastPorts, TCPPorts []int
-	}
-	var raw struct {
-		WebSocketPorts []int `json:"websocketPorts"`
+		API       int
+		Requested []string
+		Seen      map[string]any
 	}
 	if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &p) != nil {
 		p.API = 1 // no preview: the download fails the same way
 	}
-	_ = json.Unmarshal(w.Body.Bytes(), &raw)
 	if !hasAccept {
 		req["accept"] = nonNil(p.Requested)
 	}
 	if seen == nil {
-		seen = map[string]any{"internet": nonNil(p.Internet), "broadcastPorts": p.BroadcastPorts,
-			"tcpPorts": p.TCPPorts, "websocketPorts": raw.WebSocketPorts}
+		seen = p.Seen
+		if seen == nil {
+			seen = map[string]any{}
+		}
 	}
-	if seen["api"] == nil {
+	if seen["api"] == nil || seen["api"] == float64(0) {
 		seen["api"] = p.API
 	}
 	req["seen"] = seen
@@ -114,7 +112,7 @@ func TestInstallNeedsConsent(t *testing.T) {
 // The permissions only the user enables in the panel never come with an install, even accepted.
 func TestInstallNeverGrantsPanelOnlyPermissions(t *testing.T) {
 	repo := manifestRepo(t, "raw", "1.0.0",
-		`{"id":"raw","version":"1.0.0","api":2,"permissions":{"grenton_raw":true,"tftp":true,"serial":true,"lan":true},"files":["init.lua"]}`)
+		`{"id":"raw","version":"1.0.0","api":2,"permissions":{"clu":{"why":"CLU"},"tftp":{"why":"files"},"serial":{"why":"port"},"lan":{"why":"devices"}},"files":["init.lua"]}`)
 	dir := t.TempDir()
 	if err := writeTestConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
 		Repositories: []config.PluginRepository{{Name: "test", URL: repo.URL, Enabled: true}},
@@ -123,7 +121,7 @@ func TestInstallNeverGrantsPanelOnlyPermissions(t *testing.T) {
 	}
 	s := &Server{serverDir: dir}
 	gin.SetMode(gin.TestMode)
-	w := rawInstall(s, `{"id":"raw","repository":"test","accept":["lan","grenton_raw","tftp","serial"],"seen":{"api":2}}`)
+	w := rawInstall(s, `{"id":"raw","repository":"test","accept":["lan","clu","tftp","serial"],"seen":{"api":2}}`)
 	if w.Code != http.StatusOK {
 		t.Fatalf("install: %d %s", w.Code, w.Body.String())
 	}
@@ -132,7 +130,7 @@ func TestInstallNeverGrantsPanelOnlyPermissions(t *testing.T) {
 		t.Fatalf("entries %+v (%v)", mc.Plugins.Installed, err)
 	}
 	g := mc.Plugins.Installed[0].Grants
-	if g == nil || g.LAN == nil || g.GrentonRaw != nil || g.TFTP != nil || g.Serial != nil {
+	if g == nil || g.LAN == nil || g.CLU != nil || g.TFTP != nil || g.Serial != nil {
 		t.Errorf("grants %+v, want lan only", g)
 	}
 }

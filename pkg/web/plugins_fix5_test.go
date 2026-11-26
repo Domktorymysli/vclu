@@ -23,7 +23,7 @@ func apiSwapRepo(t *testing.T) (*httptest.Server, *atomic.Int32) {
 			_, _ = w.Write([]byte(`{"namespace":"jan","plugins":[{"id":"cloud","version":"1.0.0","path":"plugins/cloud","tag":"cloud-v1.0.0"}]}`))
 		case "/plugins/cloud/plugin.json":
 			if reads.Add(1) == 1 {
-				_, _ = w.Write([]byte(`{"id":"cloud","version":"1.0.0","api":2,"permissions":{"internet":["a.example.com"]},"files":["init.lua"]}`))
+				_, _ = w.Write([]byte(`{"id":"cloud","version":"1.0.0","api":2,"permissions":{"internet":{"hosts":["a.example.com"]}},"files":["init.lua"]}`))
 			} else {
 				_, _ = w.Write([]byte(`{"id":"cloud","version":"1.0.0","files":["init.lua"]}`))
 			}
@@ -116,7 +116,7 @@ func slowRepo(t *testing.T, namespace string, ids ...string) *httptest.Server {
 		for _, id := range ids {
 			switch r.URL.Path {
 			case "/plugins/" + id + "/plugin.json":
-				_, _ = w.Write([]byte(`{"id":"` + id + `","version":"1.0.0","api":2,"files":["init.lua"]}`))
+				_, _ = w.Write([]byte(`{"id":"` + id + `","version":"1.0.0","api":2,"permissions":{},"files":["init.lua"]}`))
 				return
 			case "/plugins/" + id + "/init.lua":
 				time.Sleep(150 * time.Millisecond)

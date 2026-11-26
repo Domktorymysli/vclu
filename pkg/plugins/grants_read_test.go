@@ -15,7 +15,7 @@ func TestUnreadableConfigLoadsNothing(t *testing.T) {
 	narrow := &config.PluginGrants{LAN: &config.LANGrant{Hosts: []string{"192.168.1.5"}}}
 	l := permissionsLoader(t, nil, []config.InstalledPlugin{{ID: "@jan/shelly", Enabled: true, API: 2, Grants: narrow}})
 	l.SetLuaExecutor(&noLua{})
-	writePluginFiles(t, l, "@jan/shelly", "1.0.0", `{"id":"shelly","version":"1.0.0","api":2,"permissions":{"lan":true}}`)
+	writePluginFiles(t, l, "@jan/shelly", "1.0.0", `{"id":"shelly","version":"1.0.0","api":2,"permissions":{"lan":{"why":"devices"}}}`)
 
 	m := PluginManifest{API: 2, Permissions: &Permissions{LAN: true}}
 	if _, limits, _, err := l.effectivePermissions("@jan/shelly", m); err != nil || len(limits.LANHosts) != 1 {

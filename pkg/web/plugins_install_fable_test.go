@@ -19,14 +19,14 @@ import (
 func TestPluginsAPIUpdateKeepsPortsOfOlderGrant(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := manifestRepo(t, "ws", "1.1.0",
-		`{"id":"ws","version":"1.1.0","api":2,"permissions":{"lan":true},"websocket":{"lanPorts":[80,22]},"files":["init.lua"]}`)
+		`{"id":"ws","version":"1.1.0","api":2,"permissions":{"lan":{"ports":[80,22]}},"files":["init.lua"]}`)
 	dir := t.TempDir()
 	old := filepath.Join(dir, "plugins", "jan--ws", "1.0.0")
 	if err := os.MkdirAll(old, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(old, "plugin.json"),
-		[]byte(`{"id":"ws","version":"1.0.0","api":2,"permissions":{"lan":true},"websocket":{"lanPorts":[80]}}`), 0o644); err != nil {
+		[]byte(`{"id":"ws","version":"1.0.0","api":2,"permissions":{"lan":{"ports":[80]}}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := writeTestConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
@@ -41,12 +41,12 @@ func TestPluginsAPIUpdateKeepsPortsOfOlderGrant(t *testing.T) {
 		t.Fatalf("update: %d %s", w.Code, w.Body.String())
 	}
 	got := testInstalled(t, dir, "@jan/ws")
-	if got.Version != "1.1.0" || got.Grants == nil || got.Grants.LAN == nil || got.Grants.LAN.WebSocketPorts == nil ||
-		!slices.Equal(*got.Grants.LAN.WebSocketPorts, []int{80}) {
+	if got.Version != "1.1.0" || got.Grants == nil || got.Grants.LAN == nil || got.Grants.LAN.Ports == nil ||
+		!slices.Equal(*got.Grants.LAN.Ports, []int{80}) {
 		t.Fatalf("after the update %+v, want 1.1.0 with websocket ports [80] recorded", got)
 	}
 	v := plugins.NewLoader(dir).PermissionsView(got)
-	if !slices.Equal(v.Pending.WebSocketPorts, []int{22}) || !slices.Contains(v.Pending.Names(), "lan") {
+	if !slices.Equal(v.Pending.LANPorts, []int{22}) || !slices.Contains(v.Pending.Names(), "lan") {
 		t.Errorf("pending %+v, want websocket port 22 and lan waiting", v.Pending)
 	}
 }

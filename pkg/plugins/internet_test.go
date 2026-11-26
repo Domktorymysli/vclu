@@ -47,14 +47,14 @@ func TestInternetHostsParse(t *testing.T) {
 func TestManifestWithBadInternetHostRefused(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "plugin.json")
-	if err := os.WriteFile(path, []byte(`{"id":"x","api":2,"permissions":{"internet":["https://api.example.com/"]}}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"id":"x","api":2,"permissions":{"internet":{"hosts":["https://api.example.com/"]}}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	err := checkDownloadedManifest(path)
 	if err == nil || !strings.Contains(err.Error(), "internet") || !strings.Contains(err.Error(), "no scheme") {
 		t.Errorf("download: %v", err)
 	}
-	if err := os.WriteFile(path, []byte(`{"id":"x","api":2,"permissions":{"internet":["api.example.com"]},"internetWhy":"ignored"}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"id":"x","api":2,"permissions":{"internet":{"hosts":["api.example.com"],"why":"the service"}}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkDownloadedManifest(path); err != nil {

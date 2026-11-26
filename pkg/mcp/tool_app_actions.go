@@ -17,7 +17,7 @@ const appActionTimeout = 10 * time.Second
 func (s *MCPServer) registerAppActionTools() {
 	s.addTool("vclu_app_actions", "List the actions of the user's installed apps (vclu plugins: a shopping list, "+
 		"a to-do list, a media player...). Each has plugin, name, description (text or {pl, en}) and params "+
-		"({name: {type, description, required}}). When the user asks for something an app does "+
+		"({name: {type, description, required}}); confirm: true means ask the user before running it. When the user asks for something an app does "+
 		"(\"add milk to the shopping list\"), find its action here and call it with vclu_app_action.", s.handleAppActions,
 		map[string]any{
 			"plugin": map[string]any{"type": "string", "description": "Only this app's actions: the plugin id, e.g. @vclu/zakupy (optional)"},
@@ -25,11 +25,13 @@ func (s *MCPServer) registerAppActionTools() {
 
 	s.addTool("vclu_app_action", "Run an action of one of the user's installed apps, as listed by vclu_app_actions: "+
 		"e.g. plugin \"@vclu/zakupy\", action \"add\", params {\"item\": \"milk\"}. Params must match the action's "+
-		"types (string, number, boolean); unknown ones are refused. Returns the app's result.", s.handleAppAction,
+		"types (string, number, boolean); unknown ones are refused. An action listed with confirm: true runs only "+
+		"with confirmed: true, after the user agreed to that exact action. Returns the app's result.", s.handleAppAction,
 		map[string]any{
-			"plugin": map[string]any{"type": "string", "description": "Plugin id from vclu_app_actions, e.g. @vclu/zakupy"},
-			"action": map[string]any{"type": "string", "description": "Action name from vclu_app_actions"},
-			"params": map[string]any{"type": "object", "description": "The action's params by name (optional when it takes none)"},
+			"plugin":    map[string]any{"type": "string", "description": "Plugin id from vclu_app_actions, e.g. @vclu/zakupy"},
+			"action":    map[string]any{"type": "string", "description": "Action name from vclu_app_actions"},
+			"params":    map[string]any{"type": "object", "description": "The action's params by name (optional when it takes none)"},
+			"confirmed": map[string]any{"type": "boolean", "description": "true only after the user agreed to this action (actions with confirm: true)"},
 		}, []string{"plugin", "action"})
 }
 
@@ -81,7 +83,8 @@ func (s *MCPServer) handleAppAction(ctx context.Context, req mcplib.CallToolRequ
 	if s.executor == nil {
 		return toolError("Lua executor not configured"), nil
 	}
-	script, err := plugins.CallActionScript(plugin, action, params)
+	confirmed, _ := args["confirmed"].(bool)
+	script, err := plugins.CallActionScript(plugin, action, params, confirmed)
 	if err != nil {
 		return toolError(err.Error()), nil
 	}

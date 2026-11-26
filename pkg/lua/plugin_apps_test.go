@@ -18,14 +18,7 @@ plugin:dashboard("lista"):name("Zakupy")
 	:button("boom", "Boom", "x", function() error("kaboom") end)
 	:toggle("env", "Env", "x", function() return type(os.execute) == "nil" and type(Plugin.new) == "function" end, function() end)
 	:build()
-plugin:action("add", {
-	description = {pl = "Dodaj", en = "Add"},
-	params = {
-		item = {type = "string", description = "What", required = true},
-		qty = {type = "number"},
-		urgent = {type = "boolean"},
-	},
-}, function(p)
+plugin:action("add", function(p)
 	if p.item == "fail" then return nil, "no such shop" end
 	if p.item == "throw" then error("broken") end
 	if p.item == "fn" then return function() end end
@@ -35,8 +28,16 @@ end)
 return plugin
 `
 
-// the dashboards plugin.json declares, as the loader passes them
-const appsDeclared = `{dashboards = {lista = {name = "Zakupy"}, x = {name = "X"}, a = {name = "A"}, b = {name = "B"}}}`
+// the actions plugin.json declares, as the loader passes them (allowed: in the user's grant)
+const appsActions = `actions = {
+	add = {allowed = true, description = {pl = "Dodaj", en = "Add"}, params = {
+		item = {type = "string", description = "What", required = true}, qty = {type = "number"}, urgent = {type = "boolean"}}},
+	leak = {allowed = true, description = "x"}, echo = {allowed = true, description = "x"}, none = {allowed = true, description = "x"},
+	clear_all = {allowed = true, confirm = true, description = "Clear"}, later = {allowed = false, description = "Waits"},
+}`
+
+// the dashboards and actions plugin.json declares, as the loader passes them
+const appsDeclared = `{dashboards = {lista = {name = "Zakupy"}, x = {name = "X"}, a = {name = "A"}, b = {name = "B"}}, ` + appsActions + `}`
 
 func appsEngine(t *testing.T) *LuaEngine {
 	t.Helper()
@@ -165,8 +166,9 @@ func TestPluginDashboardCallbacks(t *testing.T) {
 	}
 }
 
+// On plugin API 1 without declarations the spec is in the code, checked as plugin.json's would be.
 func TestPluginActionSpec(t *testing.T) {
-	engine := sandboxEngine(t, "@jan/a", "")
+	engine := sandboxEngine(t, "@jan/a", "{api = 1}")
 	runPlugin(t, engine, "@jan/a", `__p = Plugin:new("a", {})`)
 	for what, code := range map[string]string{
 		"name upper":     `__p:action("Add", {description = "x"}, function() end)`,
@@ -243,9 +245,9 @@ func TestPluginActionCall(t *testing.T) {
 	luaOut(t, engine, `PluginSandbox:setSecrets("@jan/zakupy-dom", {token = "tajne-haslo"})`)
 	runPlugin(t, engine, "@jan/zakupy-dom", `
 		local p = Plugin.getPlugin("@jan/zakupy-dom")
-		p:action("leak", {description = "x"}, function() error("token tajne-haslo") end)
-		p:action("echo", {description = "x"}, function() return "tajne-haslo!" end)
-		p:action("none", {description = "x"}, function() end)`)
+		p:action("leak", function() error("token tajne-haslo") end)
+		p:action("echo", function() return "tajne-haslo!" end)
+		p:action("none", function() end)`)
 	if got := call("leak", `{}`); strings.Contains(got, "tajne-haslo") || !strings.Contains(got, "***") {
 		t.Errorf("secret in an error: %s", got)
 	}
@@ -254,6 +256,33 @@ func TestPluginActionCall(t *testing.T) {
 	}
 	if got := call("none", `{}`); got != `{"result":null}` {
 		t.Errorf("nil result: %s", got)
+	}
+
+	// declared in plugin.json: confirm asks first, one not allowed waits, one not declared is refused
+	runPlugin(t, engine, "@jan/zakupy-dom", `
+		local p = Plugin.getPlugin("@jan/zakupy-dom")
+		p:action("clear_all", function() return "cleared" end)
+		p:action("later", function() return "ran" end)`)
+	if got := call("clear_all", `{}`); !strings.Contains(got, `"code":"confirm"`) {
+		t.Errorf("confirm not asked: %s", got)
+	}
+	if got := luaOut(t, engine, `PluginSandbox:callAction("@jan/zakupy-dom", "clear_all", "{}", true)`); got != `{"result":"cleared"}` {
+		t.Errorf("confirmed: %s", got)
+	}
+	if got := call("later", `{}`); !strings.Contains(got, "not_found") || !strings.Contains(got, "allowed yet") {
+		t.Errorf("not allowed yet: %s", got)
+	}
+	list = luaOut(t, engine, `PluginSandbox:listActions()`)
+	if strings.Contains(list, `"later"`) || !strings.Contains(list, `"confirm":true`) {
+		t.Errorf("list: %s", list)
+	}
+	for what, code := range map[string]string{
+		"not declared": `Plugin.getPlugin("@jan/zakupy-dom"):action("drop", function() end)`,
+		"spec in code": `Plugin.getPlugin("@jan/zakupy-dom"):action("add", {description = "x"}, function() end)`,
+		"no function":  `Plugin.getPlugin("@jan/zakupy-dom"):action("add")`,
+	} {
+		r, e := runPlugin(t, engine, "@jan/zakupy-dom", code)
+		wantRefused(t, what, r, e)
 	}
 
 	// cleanup removes the actions and the dashboard
@@ -276,7 +305,8 @@ func TestPluginAppsUnload(t *testing.T) {
 	init := strings.Replace(appsPlugin, `Plugin:new("zakupy-dom", {})`, `Plugin:new("zakupy", {})`, 1)
 	init = strings.Replace(init, `:name("Zakupy")`, "", 1)
 	loader := installTestPlugin(t, dir, "@jan/zakupy", map[string]interface{}{"api": 2,
-		"dashboards": []map[string]any{{"id": "lista", "name": map[string]string{"pl": "Zakupy", "en": "Shopping"}}}}, init, false)
+		"dashboards": []map[string]any{{"id": "lista", "name": map[string]string{"pl": "Zakupy", "en": "Shopping"}}},
+		"actions":    []map[string]any{{"name": "add", "description": "Add", "params": map[string]any{"item": map[string]any{"type": "string", "required": true}, "qty": map[string]any{"type": "number"}, "urgent": map[string]any{"type": "boolean"}}}}}, init, false)
 	engine := apiEngine(t, loader, dir)
 	if err := loader.LoadPlugin("@jan/zakupy", map[string]interface{}{}); err != nil {
 		t.Fatal(err)

@@ -19,10 +19,10 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-// grentonPort: where CLUs listen; the only port a grenton_raw socket may broadcast to (discovery).
+// grentonPort: where CLUs listen; the only port a clu socket may broadcast to (discovery).
 const grentonPort = 1234
 
-// tftpPort: the CLU's TFTP; with grentonPort reached only with grenton_raw or tftp, not udp.
+// tftpPort: the CLU's TFTP; with grentonPort reached only with clu or tftp, not udp.
 const tftpPort = 69
 
 const (
@@ -31,7 +31,7 @@ const (
 	pluginTFTPMaxBytes = 16 << 20 // one file
 )
 
-// PluginIO holds what plugins with udp, tcp, grenton_raw, tftp or serial opened: their UDP sockets,
+// PluginIO holds what plugins with udp, tcp, clu, tftp or serial opened: their UDP sockets,
 // TCP connections, serial ports and TFTP transfers, and every plugin's WebSockets. Each belongs to one plugin, data reaches Lua through
 // deliver (the run loop) and every handle closes with the plugin.
 type PluginIO struct {
@@ -58,11 +58,13 @@ type pluginIOGrant struct {
 	serialPorts      []string
 	udp              bool
 	udpHosts         []netip.Prefix
-	broadcastPorts   []int // udp: from plugin.json
+	udpPorts         []int // udp: the ports it sends to, from plugin.json
+	broadcastPorts   []int // udp: the ports it broadcasts to, among udpPorts
 	tcp              bool
 	tcpHosts         []netip.Prefix
 	tcpPorts         []int // tcp: from plugin.json
-	wsLANPorts       []int // WebSockets to local addresses: plugin.json's "websocket": {"lanPorts"}
+	wsLANPorts       []int // WebSockets to local addresses: plugin.json's lan.ports, nil any
+	cluDiscovery     bool  // clu with rawHosts set: broadcasts to the CLU port all the same
 }
 
 type ioHandle struct {
@@ -486,7 +488,7 @@ func callIO(L *lua.LState, h *ioHandle, e ioEvent) error {
 
 // --- UDP ---
 
-// OpenUDP binds a grenton_raw socket for the plugin, port 0 for any free one.
+// OpenUDP binds a clu socket for the plugin, port 0 for any free one.
 func (p *PluginIO) OpenUDP(plugin string, port int) (int, error) {
 	return p.openUDP(plugin, port, "grenton_raw")
 }
@@ -501,11 +503,11 @@ func (p *PluginIO) openUDP(plugin string, port int, perm string) (int, error) {
 		return 0, fmt.Errorf("port %d out of range", port)
 	}
 	h, err := p.add(plugin, "udp", func(g pluginIOGrant) error {
-		allowed := g.grentonRaw
+		allowed, name := g.grentonRaw, "clu"
 		if perm == "udp" {
-			allowed = g.udp
+			allowed, name = g.udp, "udp"
 		}
-		if err := needs(allowed, plugin, perm); err != nil {
+		if err := needs(allowed, plugin, name); err != nil {
 			return err
 		}
 		if p.reserved[port] {
@@ -549,7 +551,7 @@ func (p *PluginIO) openUDP(plugin string, port int, perm string) (int, error) {
 	return h.id, nil
 }
 
-// SendUDP sends one datagram from the plugin's socket. A grenton_raw socket broadcasts only
+// SendUDP sends one datagram from the plugin's socket. A clu socket broadcasts only
 // to the CLU port (discovery), where vCLU's own listener drops it (FromPlugin); a udp one
 // only to the ports in plugin.json, and to no CLU port at all.
 func (p *PluginIO) SendUDP(id int, plugin, host string, port int, data []byte) error {
@@ -570,7 +572,7 @@ func (p *PluginIO) SendUDP(id int, plugin, host string, port int, data []byte) e
 	p.mu.Unlock()
 	hosts := g.rawHosts
 	if h.perm != "udp" && !g.grentonRaw {
-		return needs(false, plugin, "grenton_raw")
+		return needs(false, plugin, "clu")
 	}
 	if h.perm == "udp" {
 		hosts = g.udpHosts
@@ -578,19 +580,27 @@ func (p *PluginIO) SendUDP(id int, plugin, host string, port int, data []byte) e
 			return needs(false, plugin, "udp")
 		}
 		if port == grentonPort || port == tftpPort {
-			return fmt.Errorf("refused port %d: a CLU port, reached only with grenton_raw or tftp", port)
+			return fmt.Errorf("refused port %d: a CLU port, reached only with clu or tftp", port)
 		}
 		if ownPort {
 			return fmt.Errorf("refused port %d: a port vclu listens on", port)
 		}
 		if isBroadcast(ip) && !slices.Contains(g.broadcastPorts, port) {
-			return fmt.Errorf("refused broadcast to port %d: not in plugin.json's \"udp\": {\"broadcastPorts\"}", port)
+			return fmt.Errorf("refused broadcast to port %d: not in plugin.json's permissions.udp.broadcast", port)
+		}
+		if !isBroadcast(ip) {
+			if err := p.checkTarget(ip, hosts); err != nil {
+				return err
+			}
+			if !slices.Contains(g.udpPorts, port) {
+				return fmt.Errorf("refused port %d: not in plugin.json's permissions.udp.ports", port)
+			}
 		}
 	} else if isBroadcast(ip) && port != grentonPort {
 		return fmt.Errorf("refused broadcast to port %d: only to the CLU port %d", port, grentonPort)
 	}
 	if isBroadcast(ip) {
-		if hosts != nil {
+		if hosts != nil && !(h.perm != "udp" && g.cluDiscovery) {
 			return fmt.Errorf("refused broadcast: the plugin's settings allow only some hosts")
 		}
 	} else if err := p.checkTarget(ip, hosts); err != nil {
@@ -777,8 +787,8 @@ func pushResult(L *lua.LState, v lua.LValue, err error) int {
 }
 
 func registerPluginIOFunctions(L *lua.LState, p *PluginIO) {
-	// __go_pluginio_grant(pluginId, grentonRaw, tftp, serial, rawHosts, tftpHosts, serialPorts,
-	//   udp, udpHosts, broadcastPorts, tcp, tcpHosts, tcpPorts, wsLANPorts)
+	// __go_pluginio_grant(pluginId, clu, tftp, serial, cluHosts, tftpHosts, serialPorts,
+	//   udp, udpHosts, broadcastPorts, tcp, tcpHosts, tcpPorts, lanPorts (nil any), udpPorts, cluDiscovery)
 	L.SetGlobal("__go_pluginio_grant", L.NewFunction(func(L *lua.LState) int {
 		id := L.CheckString(1)
 		g := pluginIOGrant{grentonRaw: L.ToBool(2), tftp: L.ToBool(3), serial: L.ToBool(4), udp: L.ToBool(8)}
@@ -792,9 +802,27 @@ func registerPluginIOFunctions(L *lua.LState, p *PluginIO) {
 		g.tcp = L.ToBool(11)
 		g.tcpHosts = hostsArg(L, 12, id)
 		g.tcpPorts = portsArg(L, 13)
-		g.wsLANPorts = portsArg(L, 14)
+		if _, ok := L.Get(14).(*lua.LTable); ok {
+			g.wsLANPorts = append([]int{}, portsArg(L, 14)...)
+		}
+		g.udpPorts = portsArg(L, 15)
+		g.cluDiscovery = L.ToBool(16)
 		p.SetGrant(id, g)
 		return 0
+	}))
+
+	// __go_plugin_hosts_allow(hosts, host) -> bool: host is an IP address within the list of
+	// addresses and prefixes (a grant's hosts), for checks Lua makes before a request
+	L.SetGlobal("__go_plugin_hosts_allow", L.NewFunction(func(L *lua.LState) int {
+		var names []string
+		if t, ok := L.Get(1).(*lua.LTable); ok {
+			t.ForEach(func(_, v lua.LValue) { names = append(names, v.String()) })
+		}
+		allowed, err := plugins.ParseHosts(names)
+		ip, perr := netip.ParseAddr(L.CheckString(2))
+		ok := err == nil && perr == nil && slices.ContainsFunc(allowed, func(n netip.Prefix) bool { return n.Contains(ip.Unmap()) })
+		L.Push(lua.LBool(ok))
+		return 1
 	}))
 
 	// __go_pluginio_release(pluginId): on the plugin's cleanup

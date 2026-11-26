@@ -22,7 +22,7 @@ const (
 )
 
 // tcpPortOwners: ports of protocols with a permission of their own, on any host.
-var tcpPortOwners = map[int]string{grentonPort: "grenton_raw", tftpPort: "tftp", 502: "modbus", 1883: "mqtt", 8883: "mqtt"}
+var tcpPortOwners = map[int]string{grentonPort: "clu", tftpPort: "tftp", 502: "modbus", 1883: "mqtt", 8883: "mqtt"}
 
 // tcpConn: a plugin's connection; sends queue here and a writer sends them, so a slow
 // device does not hold the Lua loop.

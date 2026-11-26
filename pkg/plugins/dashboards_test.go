@@ -12,7 +12,7 @@ import (
 
 func TestManifestDashboards(t *testing.T) {
 	var m PluginManifest
-	ok := `{"id": "zakupy", "api": 2, "dashboards": [
+	ok := `{"id": "zakupy", "api": 2, "permissions": {}, "dashboards": [
 		{"id": "lista", "name": {"pl": "Zakupy", "en": "Shopping"}, "description": {"pl": "Lista", "en": "List"}},
 		{"id": "kuchnia_2", "name": "Kuchnia"}]}`
 	if err := json.Unmarshal([]byte(ok), &m); err != nil {
@@ -57,7 +57,7 @@ func TestManifestDashboards(t *testing.T) {
 	// refused at download like other manifest errors
 	dir := t.TempDir()
 	path := filepath.Join(dir, "plugin.json")
-	_ = os.WriteFile(path, []byte(`{"id": "x", "api": 2, "dashboards": [{"id": "A", "name": "A"}]}`), 0o644)
+	_ = os.WriteFile(path, []byte(`{"id": "x", "api": 2, "permissions": {}, "dashboards": [{"id": "A", "name": "A"}]}`), 0o644)
 	if err := checkDownloadedManifest(path); err == nil {
 		t.Fatal("download accepted a bad dashboards list")
 	}

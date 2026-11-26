@@ -555,8 +555,9 @@ func TestLoadAllEnabledReportsInvalidID(t *testing.T) {
 func TestCheckDownloadedManifest(t *testing.T) {
 	dir := t.TempDir()
 	for manifest, ok := range map[string]bool{
-		`{"id":"x","api":2}`: true,
-		`{"id":"x"}`:         true,
+		`{"id":"x","api":2,"permissions":{}}`: true,
+		`{"id":"x","api":2}`:                  false, // API 2 declares its permissions, {} for none
+		`{"id":"x"}`:                          true,
 		`{"id":"x","api":` + fmt.Sprint(PluginAPIMax+1) + `}`: false,
 		`{"id":"x","api":3.0}`:                                false,
 		`{"id":"x","api":"2"}`:                                false,

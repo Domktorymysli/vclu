@@ -33,6 +33,8 @@ type HTTPManager struct {
 	noLAN map[string]bool
 	// instances that may connect only to these local addresses
 	lanHosts map[string][]netip.Prefix
+	// plugin instances that reach local addresses only on these ports (plugin.json's lan.ports)
+	lanPorts map[string][]int
 	// instances (API 2 plugins) that may reach only these internet hosts
 	internet map[string]plugins.InternetHosts
 	// plugin instances (their lan was set): not to vclu's own ports on this machine
@@ -70,6 +72,7 @@ func NewHTTPManager() *HTTPManager {
 		asyncInFlight:  make(map[string]bool),
 		noLAN:          make(map[string]bool),
 		lanHosts:       make(map[string][]netip.Prefix),
+		lanPorts:       make(map[string][]int),
 		internet:       make(map[string]plugins.InternetHosts),
 		plugins:        make(map[string]bool),
 		ownAddr:        ownAddr,
@@ -133,8 +136,9 @@ func (hm *HTTPManager) currentOwnPorts() []int {
 	return fn()
 }
 
-// SetLAN sets both at once, so no request sees the new permission with the old hosts.
-func (hm *HTTPManager) SetLAN(instanceID string, allowed bool, hosts []netip.Prefix) {
+// SetLAN sets lan, its hosts and its ports at once, so no request sees the new permission
+// with the old lists; nil ports: any local port.
+func (hm *HTTPManager) SetLAN(instanceID string, allowed bool, hosts []netip.Prefix, ports []int) {
 	hm.mu.Lock()
 	defer hm.policyChanged(instanceID)
 	defer hm.mu.Unlock()
@@ -148,6 +152,11 @@ func (hm *HTTPManager) SetLAN(instanceID string, allowed bool, hosts []netip.Pre
 		delete(hm.lanHosts, instanceID)
 	} else {
 		hm.lanHosts[instanceID] = hosts
+	}
+	if ports == nil {
+		delete(hm.lanPorts, instanceID)
+	} else {
+		hm.lanPorts[instanceID] = ports
 	}
 }
 
@@ -190,6 +199,9 @@ func (hm *HTTPManager) policyLocked(instanceID string) dialPolicy {
 	}
 	if hm.plugins[instanceID] {
 		p.ownAddr, p.ownPorts = hm.ownAddr, hm.currentOwnPorts
+		ports, listed := hm.lanPorts[instanceID]
+		p.lanPorts, p.lanPortsListed = ports, listed
+		p.lanPort = p.pluginLANPort
 	}
 	return p
 }
@@ -202,8 +214,8 @@ func (hm *HTTPManager) getOrCreateClient(instanceID string, timeout int, verifyS
 	policy := hm.policyLocked(instanceID)
 	hosts, narrowed, restricted, internet := policy.lanHosts, policy.narrowed, policy.restricted, policy.internet
 	// Generate cache key based on settings
-	cacheKey := fmt.Sprintf("%s_%d_%v_%v_%v_%v_%v_%v_%q_%v", instanceID, timeout, verifySSL, followRedirects,
-		policy.noLAN, narrowed, hosts, restricted, internet, policy.ownAddr != nil)
+	cacheKey := fmt.Sprintf("%s_%d_%v_%v_%v_%v_%v_%v_%q_%v_%v_%v", instanceID, timeout, verifySSL, followRedirects,
+		policy.noLAN, narrowed, hosts, restricted, internet, policy.ownAddr != nil, policy.lanPortsListed, policy.lanPorts)
 
 	// Return existing client if available
 	if client, ok := hm.clients[cacheKey]; ok {
@@ -440,8 +452,9 @@ func registerHTTPFunctions(L *lua.LState, hm *HTTPManager) {
 		return 0
 	}))
 
-	// __go_http_set_lan(instanceId, allowed): PluginSandbox sets it for each plugin
-	// and the hosts the user narrowed it to (a table of strings, nil: any local address)
+	// __go_http_set_lan(instanceId, allowed, hosts, ports): PluginSandbox sets it for each plugin,
+	// the hosts the user narrowed it to (a table of strings, nil: any local address) and the
+	// local ports plugin.json's lan.ports allows (a table of numbers, nil: any port)
 	L.SetGlobal("__go_http_set_lan", L.NewFunction(func(L *lua.LState) int {
 		id := L.CheckString(1)
 		var hosts []netip.Prefix
@@ -455,7 +468,16 @@ func registerHTTPFunctions(L *lua.LState, hm *HTTPManager) {
 			}
 			hosts = parsed
 		}
-		hm.SetLAN(id, L.ToBool(2), hosts)
+		var ports []int
+		if t, ok := L.Get(4).(*lua.LTable); ok {
+			ports = []int{}
+			t.ForEach(func(_, v lua.LValue) {
+				if n, ok := v.(lua.LNumber); ok {
+					ports = append(ports, int(n))
+				}
+			})
+		}
+		hm.SetLAN(id, L.ToBool(2), hosts, ports)
 		return 0
 	}))
 

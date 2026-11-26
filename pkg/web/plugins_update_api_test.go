@@ -76,7 +76,7 @@ func TestPluginsAPIUpdateRefusesLowerAPI(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	var version, manifest atomic.Value
 	version.Store("1.0.0")
-	manifest.Store(`{"id":"cloud","version":"1.0.0","api":2,"permissions":{"internet":["a.example.com"]},"files":["init.lua"]}`)
+	manifest.Store(`{"id":"cloud","version":"1.0.0","api":2,"permissions":{"internet":{"hosts":["a.example.com"]}},"files":["init.lua"]}`)
 	repo := pluginRepoServer(t, &version, &manifest)
 	dir := t.TempDir()
 	if err := writeTestConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{

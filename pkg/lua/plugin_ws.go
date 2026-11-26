@@ -87,8 +87,8 @@ func (c *wsConn) still() error {
 	return nil
 }
 
-// wsLANPort: a WebSocket to a local address goes only to the ports in plugin.json's
-// "websocket", never to a port of another permission or to the MQTT broker vclu uses.
+// wsLANPort: a WebSocket to a local address goes only to the ports in plugin.json's lan.ports
+// (any without the list), never to a port of another permission or to the MQTT broker vclu uses.
 func (p *PluginIO) wsLANPort(plugin string) func(netip.Addr, int) error {
 	return func(ip netip.Addr, port int) error {
 		p.mu.Lock()
@@ -104,8 +104,8 @@ func (p *PluginIO) wsLANPort(plugin string) func(netip.Addr, int) error {
 				}
 			}
 		}
-		if !slices.Contains(ports, port) {
-			return fmt.Errorf("refused port %d: not in plugin.json's \"websocket\": {\"lanPorts\"}", port)
+		if ports != nil && !slices.Contains(ports, port) {
+			return fmt.Errorf("refused port %d: not in plugin.json's permissions.lan.ports", port)
 		}
 		return nil
 	}

@@ -116,7 +116,7 @@ func TestPluginTCPTargets(t *testing.T) {
 		{"@t/a", "192.168.1.20", 24, 0, `"tcp": {"ports"}`},
 		{"@t/a", "192.168.1.20", 502, 0, "modbus permission"},
 		{"@t/a", "192.168.1.20", 1883, 0, "mqtt permission"},
-		{"@t/a", "192.168.1.20", 1234, 0, "grenton_raw permission"},
+		{"@t/a", "192.168.1.20", 1234, 0, "clu permission"},
 		{"@t/a", "192.168.1.50", 8000, 0, "vclu uses it with the mqtt permission"},
 		{"@t/a", "192.168.1.20", 23, 31 * time.Second, "at most 30s"},
 		{"@t/b", "192.168.8.1", 23, 0, "not among the hosts"},

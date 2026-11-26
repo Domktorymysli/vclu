@@ -645,7 +645,7 @@ func (s *Server) handleUnicastCommands() {
 	}
 }
 
-// fromPlugin: a datagram from a plugin's own socket on this machine (grenton_raw); a
+// fromPlugin: a datagram from a plugin's own socket on this machine (clu); a
 // plugin's discovery broadcast must not reach the vCLU it runs in.
 func (s *Server) fromPlugin(addr *net.UDPAddr) bool {
 	return s.luaEngine != nil && s.luaEngine.PluginIO().FromPlugin(addr)

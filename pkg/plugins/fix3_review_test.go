@@ -44,7 +44,7 @@ func TestReview_RepoAddressForms(t *testing.T) {
 // A marker with the tag only (written by 1.12) names no address: the entry is pinned on load.
 func TestReview_TagOnlyMarkerNamesNoAddress(t *testing.T) {
 	l := permissionsLoader(t, nil, []config.InstalledPlugin{{ID: "@jan/cloud", Repository: "test"}})
-	writePluginFiles(t, l, "@jan/cloud", "1.0.0", `{"id":"cloud","version":"1.0.0","api":2}`)
+	writePluginFiles(t, l, "@jan/cloud", "1.0.0", `{"id":"cloud","version":"1.0.0","api":2,"permissions":{}}`)
 	marker := filepath.Join(l.pluginsDir, "jan--cloud", "1.0.0", ".complete")
 	if err := os.WriteFile(marker, []byte("cloud-v1.0.0"), 0o644); err != nil {
 		t.Fatal(err)
@@ -65,7 +65,7 @@ func TestReview_TagOnlyMarkerNamesNoAddress(t *testing.T) {
 func TestReview_OfficialEntryFrom112(t *testing.T) {
 	repos := config.DefaultPluginsConfig().Repositories
 	l := permissionsLoader(t, repos, []config.InstalledPlugin{{ID: "@vclu/weather", Version: "1.0.0", Repository: repos[0].Name}})
-	writePluginFiles(t, l, "@vclu/weather", "1.0.0", `{"id":"weather","version":"1.0.0","api":2}`)
+	writePluginFiles(t, l, "@vclu/weather", "1.0.0", `{"id":"weather","version":"1.0.0","api":2,"permissions":{}}`)
 	if err := os.WriteFile(filepath.Join(l.pluginsDir, "vclu--weather", "1.0.0", ".complete"), []byte("weather-v1.0.0"), 0o644); err != nil {
 		t.Fatal(err)
 	}

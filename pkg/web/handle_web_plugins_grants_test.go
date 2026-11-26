@@ -66,7 +66,7 @@ func lanOnly(g *config.PluginGrants) bool {
 // Installing allows what the plugin asks for at that moment.
 func TestPluginsAPIInstallRecordsGrants(t *testing.T) {
 	repo := manifestRepo(t, "shelly", "1.0.0",
-		`{"id":"shelly","version":"1.0.0","api":2,"permissions":{"lan":true},"files":["init.lua"]}`)
+		`{"id":"shelly","version":"1.0.0","api":2,"permissions":{"lan":{"why":"devices"}},"files":["init.lua"]}`)
 	dir := t.TempDir()
 	if err := writeTestConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
 		Repositories: []config.PluginRepository{{Name: "test", URL: repo.URL, Enabled: true}},
@@ -85,7 +85,7 @@ func TestPluginsAPIInstallRecordsGrants(t *testing.T) {
 // A plugin that asks for a serial port gets nothing of it on install: it waits for the user.
 func TestPluginsAPIInstallLeavesSerialPending(t *testing.T) {
 	repo := manifestRepo(t, "rs", "1.0.0",
-		`{"id":"rs","version":"1.0.0","api":2,"permissions":{"lan":true,"serial":true},"files":["init.lua"]}`)
+		`{"id":"rs","version":"1.0.0","api":2,"permissions":{"lan":{"why":"devices"},"serial":{"why":"port"}},"files":["init.lua"]}`)
 	dir := t.TempDir()
 	if err := writeTestConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
 		Repositories: []config.PluginRepository{{Name: "test", URL: repo.URL, Enabled: true}},
@@ -106,14 +106,14 @@ func TestPluginsAPIInstallLeavesSerialPending(t *testing.T) {
 // what its old files asked for, the rest is pending until the user allows it.
 func TestPluginsAPIUpdateAskingForMoreWaitsForTheUser(t *testing.T) {
 	repo := manifestRepo(t, "shelly", "1.1.0",
-		`{"id":"shelly","version":"1.1.0","api":2,"permissions":{"lan":true,"mqtt":true},"files":["init.lua"]}`)
+		`{"id":"shelly","version":"1.1.0","api":2,"permissions":{"lan":{"why":"devices"},"mqtt":{"why":"topics"}},"files":["init.lua"]}`)
 	dir := t.TempDir()
 	old := filepath.Join(dir, "plugins", "jan--shelly", "1.0.0")
 	if err := os.MkdirAll(old, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(old, "plugin.json"),
-		[]byte(`{"id":"shelly","version":"1.0.0","api":2,"permissions":{"lan":true}}`), 0o644); err != nil {
+		[]byte(`{"id":"shelly","version":"1.0.0","api":2,"permissions":{"lan":{"why":"devices"}}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := writeTestConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
@@ -177,7 +177,7 @@ func TestPluginsPageShowsPendingPermissions(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(pluginDir, "plugin.json"),
-		[]byte(`{"id":"shelly","version":"1.1.0","api":2,"permissions":{"lan":true,"mqtt":true}}`), 0o644); err != nil {
+		[]byte(`{"id":"shelly","version":"1.1.0","api":2,"permissions":{"lan":{"why":"devices"},"mqtt":{"why":"topics"}}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := writeTestConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
@@ -252,7 +252,7 @@ func updateFrom(t *testing.T, manifest string, entry config.InstalledPlugin) con
 
 // Without the old files nothing says what the user allowed: everything waits for them.
 func TestPluginsAPIUpdateWithoutOldFilesWaits(t *testing.T) {
-	got := updateFrom(t, `{"id":"shelly","version":"1.1.0","api":2,"permissions":{"lan":true},"files":["init.lua"]}`,
+	got := updateFrom(t, `{"id":"shelly","version":"1.1.0","api":2,"permissions":{"lan":{"why":"devices"}},"files":["init.lua"]}`,
 		config.InstalledPlugin{ID: "@jan/shelly", Version: "1.0.0", Enabled: true, Repository: "test"})
 	if g := got.Grants; g == nil || g.LAN != nil || g.MQTT != nil || g.Modbus != nil {
 		t.Errorf("grants without the old files: %+v, want none", g)
@@ -284,7 +284,7 @@ func TestPluginsAPIPermissionsRefusesUnknownKeys(t *testing.T) {
 // The panel shows what a plugin asks for before installing it, next to every permission.
 func TestPluginsAPIPreviewReadsTheManifest(t *testing.T) {
 	repo := manifestRepo(t, "rs", "1.2.0",
-		`{"id":"rs","version":"1.2.0","api":2,"permissions":{"internet":["api.example.com"],"lan":true,"udp":true,"tcp":true,"serial":true},"udp":{"broadcastPorts":[7000]},"tcp":{"ports":[23]},"websocket":{"lanPorts":[80]},"files":["init.lua"]}`)
+		`{"id":"rs","version":"1.2.0","api":2,"permissions":{"internet":{"hosts":["api.example.com"]},"lan":{"ports":[80]},"udp":{"ports":[7000],"broadcast":[7000]},"tcp":{"ports":[23]},"serial":{"why":"port"}},"files":["init.lua"]}`)
 	dir := t.TempDir()
 	if err := writeTestConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
 		Repositories: []config.PluginRepository{{Name: "test", URL: repo.URL, Enabled: true}},
@@ -317,19 +317,23 @@ func TestPluginsAPIPreviewReadsTheManifest(t *testing.T) {
 	if got := join(out["requested"]); got != "internet,lan,udp,tcp,serial" {
 		t.Errorf("requested %q, want internet,lan,udp,tcp,serial", got)
 	}
-	if got, _ := json.Marshal(out["broadcastPorts"]); string(got) != "[7000]" {
-		t.Errorf("broadcastPorts %s", got)
+	if got, _ := json.Marshal(out["permissions"]); !strings.Contains(string(got), `"broadcast":[7000]`) ||
+		!strings.Contains(string(got), `"tcp":{"ports":[23]}`) || !strings.Contains(string(got), `"lan":{"ports":[80]}`) {
+		t.Errorf("permissions %s", got)
 	}
-	if got, _ := json.Marshal(out["tcpPorts"]); string(got) != "[23]" {
-		t.Errorf("tcpPorts %s", got)
+	if got, _ := json.Marshal(out["seen"]); !strings.Contains(string(got), `"lanPorts":[80]`) || !strings.Contains(string(got), `"api":2`) {
+		t.Errorf("seen %s", got)
 	}
-	if got, _ := json.Marshal(out["websocketPorts"]); string(got) != "[80]" {
-		t.Errorf("websocketPorts %s", got)
+	if got, _ := json.Marshal(out["risky"]); string(got) != `["serial"]` {
+		t.Errorf("risky %s", got)
+	}
+	if got, _ := json.Marshal(out["warnings"]); string(got) != `["lan_internet"]` {
+		t.Errorf("warnings %s", got)
 	}
 	if got := join(out["internet"]); got != "api.example.com" {
 		t.Errorf("internet %q", got)
 	}
-	if got := join(out["all"]); got != "internet,lan,udp,tcp,mqtt,modbus,grenton_raw,tftp,serial" {
+	if got := join(out["all"]); got != "internet,lan,udp,tcp,mqtt,modbus,clu,tftp,serial" {
 		t.Errorf("all %q", got)
 	}
 	if code, _ := preview("rs", "nope"); code != http.StatusNotFound {
@@ -348,7 +352,7 @@ func TestPluginsAPIPreviewReadsTheManifest(t *testing.T) {
 // A new plugin gets only what the user confirmed; the rest waits as after an update.
 func TestPluginsAPIInstallGrantsOnlyWhatWasAccepted(t *testing.T) {
 	repo := manifestRepo(t, "shelly", "1.0.0",
-		`{"id":"shelly","version":"1.0.0","api":2,"permissions":{"lan":true,"mqtt":true},"files":["init.lua"]}`)
+		`{"id":"shelly","version":"1.0.0","api":2,"permissions":{"lan":{"why":"devices"},"mqtt":{"why":"topics"}},"files":["init.lua"]}`)
 	dir := t.TempDir()
 	if err := writeTestConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
 		Repositories: []config.PluginRepository{{Name: "test", URL: repo.URL, Enabled: true}},
@@ -404,7 +408,7 @@ func TestPluginsAPIInternetHostsInstallAndUpdate(t *testing.T) {
 		{`["lan"]`, ""},
 	} {
 		repo := manifestRepo(t, "cloud", "1.0.0",
-			`{"id":"cloud","version":"1.0.0","api":2,"permissions":{"internet":["a.example.com"],"lan":true},"files":["init.lua"]}`)
+			`{"id":"cloud","version":"1.0.0","api":2,"permissions":{"internet":{"hosts":["a.example.com"]},"lan":{"why":"devices"}},"files":["init.lua"]}`)
 		dir := t.TempDir()
 		if err := writeTestConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
 			Repositories: []config.PluginRepository{{Name: "test", URL: repo.URL, Enabled: true}},
@@ -433,9 +437,9 @@ func TestPluginsAPIInternetHostsInstallAndUpdate(t *testing.T) {
 	}
 
 	// the update asks for another host and then for any
-	for _, asks := range []string{`["a.example.com","b.example.com"]`, `"*"`} {
+	for _, asks := range []string{`["a.example.com","b.example.com"]`, `["*"]`} {
 		repo := manifestRepo(t, "cloud", "1.1.0",
-			`{"id":"cloud","version":"1.1.0","api":2,"permissions":{"internet":`+asks+`},"files":["init.lua"]}`)
+			`{"id":"cloud","version":"1.1.0","api":2,"permissions":{"internet":{"hosts":`+asks+`,"why":"any"}},"files":["init.lua"]}`)
 		dir := t.TempDir()
 		if err := writeTestConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
 			Repositories: []config.PluginRepository{{Name: "test", URL: repo.URL, Enabled: true}},
@@ -449,7 +453,7 @@ func TestPluginsAPIInternetHostsInstallAndUpdate(t *testing.T) {
 			t.Fatalf("answer %+v", resp)
 		}
 		_, pending, grants := installedInternet(t, s)
-		wantPending := map[bool]string{true: "*", false: "b.example.com"}[asks == `"*"`]
+		wantPending := map[bool]string{true: "*", false: "b.example.com"}[asks == `["*"]`]
 		if grants.Internet == nil || strings.Join(grants.Internet.Hosts, ",") != "a.example.com" || strings.Join(pending, ",") != wantPending {
 			t.Errorf("update to %s: grant %+v pending %v, want %s", asks, grants.Internet, pending, wantPending)
 		}
@@ -459,7 +463,7 @@ func TestPluginsAPIInternetHostsInstallAndUpdate(t *testing.T) {
 		ctx, _ := gin.CreateTestContext(w)
 		ctx.Params = gin.Params{{Key: "id", Value: "@jan/cloud"}}
 		ctx.Request = httptest.NewRequest(http.MethodPost, "/api/plugins/@jan/cloud/permissions",
-			strings.NewReader(`{"internet":{"hosts":`+strings.Replace(asks, `"*"`, `["*"]`, 1)+`}}`))
+			strings.NewReader(`{"internet":{"hosts":`+asks+`}}`))
 		ctx.Request.Header.Set("Content-Type", "application/json")
 		s.handlePluginsAPIPermissions(ctx)
 		if w.Code != http.StatusOK {

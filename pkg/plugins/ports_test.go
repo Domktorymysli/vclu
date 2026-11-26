@@ -16,10 +16,10 @@ func ports(p ...int) *[]int { return &p }
 // those allowed before keep working, and one plugin.json no longer lists is not reached.
 func TestPortsInTheGrant(t *testing.T) {
 	asks := func(tcp, udp []int) Permissions {
-		return Permissions{UDP: true, TCP: true, BroadcastPorts: udp, TCPPorts: tcp}
+		return Permissions{UDP: true, TCP: true, UDPPorts: udp, BroadcastPorts: udp, TCPPorts: tcp}
 	}
 	g := asks([]int{23}, []int{7000}).Grants()
-	if g.TCP == nil || !reflect.DeepEqual(g.TCP.Ports, ports(23)) || g.UDP == nil || !reflect.DeepEqual(g.UDP.BroadcastPorts, ports(7000)) {
+	if g.TCP == nil || !reflect.DeepEqual(g.TCP.Ports, ports(23)) || g.UDP == nil || !reflect.DeepEqual(g.UDP.Broadcast, ports(7000)) {
 		t.Fatalf("install grants: tcp %+v, udp %+v", g.TCP, g.UDP)
 	}
 
@@ -32,12 +32,12 @@ func TestPortsInTheGrant(t *testing.T) {
 		t.Errorf("the permissions keep working and show what waits: allowed %+v, pending %v", allowed, pending.Names())
 	}
 
-	g.TCP.Ports, g.UDP.BroadcastPorts = ports(23, 6668), ports(7000, 7001)
+	g.TCP.Ports, g.UDP.Ports, g.UDP.Broadcast = ports(23, 6668), ports(7000, 7001), ports(7000, 7001)
 	if _, pending = asks([]int{23, 6668}, []int{7000, 7001}).allowedBy(g); len(pending.Names()) > 0 {
 		t.Errorf("allowed: pending %v", pending.Names())
 	}
 	allowed, _ = asks([]int{6668}, nil).allowedBy(g)
-	if !reflect.DeepEqual(allowed.TCPPorts, []int{6668}) || allowed.BroadcastPorts != nil {
+	if !reflect.DeepEqual(allowed.TCPPorts, []int{6668}) || len(allowed.BroadcastPorts) > 0 {
 		t.Errorf("ports plugin.json no longer lists: %+v", allowed)
 	}
 
@@ -68,12 +68,12 @@ func TestPortsReachTheSandboxAndOldGrantsRecordThem(t *testing.T) {
 		{ID: "@jan/tuya", Grants: &config.PluginGrants{TCP: &config.HostsGrant{Ports: ports(6668)}}},
 		{ID: "@jan/gree", Grants: &config.PluginGrants{UDP: &config.HostsGrant{}}},
 	})
-	tuya := PluginManifest{API: 2, Permissions: &Permissions{TCP: true}, TCP: &ManifestTCP{Ports: []int{6668, 23}}}
+	tuya := PluginManifest{API: 2, Permissions: &Permissions{TCP: true, TCPPorts: []int{6668, 23}}}
 	if perms, _, _, _ := l.effectivePermissions("@jan/tuya", tuya); !reflect.DeepEqual(perms.TCPPorts, []int{6668}) {
 		t.Errorf("tuya ports: %v", perms.TCPPorts)
 	}
 
-	gree := PluginManifest{API: 2, Permissions: &Permissions{UDP: true}, UDP: &ManifestUDP{BroadcastPorts: []int{7000}}}
+	gree := PluginManifest{API: 2, Permissions: &Permissions{UDP: true, UDPPorts: []int{7000}, BroadcastPorts: []int{7000}}}
 	if perms, _, _, _ := l.effectivePermissions("@jan/gree", gree); !reflect.DeepEqual(perms.BroadcastPorts, []int{7000}) {
 		t.Errorf("gree ports from an old grant: %v", perms.BroadcastPorts)
 	}
@@ -81,12 +81,12 @@ func TestPortsReachTheSandboxAndOldGrantsRecordThem(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if g := mc.Plugins.Installed[1].Grants; g.UDP == nil || !reflect.DeepEqual(g.UDP.BroadcastPorts, ports(7000)) {
+	if g := mc.Plugins.Installed[1].Grants; g.UDP == nil || !reflect.DeepEqual(g.UDP.Broadcast, ports(7000)) || !reflect.DeepEqual(g.UDP.Ports, ports(7000)) {
 		t.Fatalf("recorded: %+v", g.UDP)
 	}
-	gree.UDP.BroadcastPorts = []int{7000, 7001}
-	if perms, _, _, _ := l.effectivePermissions("@jan/gree", gree); !reflect.DeepEqual(perms.BroadcastPorts, []int{7000}) {
-		t.Errorf("after an update adding 7001: %v", perms.BroadcastPorts)
+	gree.Permissions.UDPPorts, gree.Permissions.BroadcastPorts = []int{7000, 7001}, []int{7000, 7001}
+	if perms, _, _, _ := l.effectivePermissions("@jan/gree", gree); !reflect.DeepEqual(perms.BroadcastPorts, []int{7000}) || !reflect.DeepEqual(perms.UDPPorts, []int{7000}) {
+		t.Errorf("after an update adding 7001: %v %v", perms.UDPPorts, perms.BroadcastPorts)
 	}
 
 	// the panel's view lists what waits
@@ -94,32 +94,11 @@ func TestPortsReachTheSandboxAndOldGrantsRecordThem(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "plugin.json"), []byte(`{"id":"tuya","version":"1.0.0","api":2,"permissions":{"tcp":true},"tcp":{"ports":[6668,23]}}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "plugin.json"), []byte(`{"id":"tuya","version":"1.0.0","api":2,"permissions":{"tcp":{"ports":[6668,23]}}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	v := l.PermissionsView(mc.Plugins.Installed[0])
-	if !reflect.DeepEqual(v.TCPPorts, []int{6668, 23}) || !reflect.DeepEqual(v.Pending.TCPPorts, []int{23}) || strings.Join(v.Pending.Names(), ",") != "tcp" {
-		t.Errorf("view: ports %v, pending %v %v", v.TCPPorts, v.Pending.TCPPorts, v.Pending.Names())
-	}
-}
-
-// Installing grants only the ports the confirmation showed; the others wait.
-func TestPortsSeenAtInstall(t *testing.T) {
-	asks := Permissions{TCP: true, LAN: true, UDP: true, TCPPorts: []int{22, 23}, WebSocketPorts: []int{80, 8123}, BroadcastPorts: []int{7000}}
-	g := asks.OnlyPortsSeen([]int{23}, []int{7000}, []int{80}).Grants()
-	allowed, pending := asks.allowedBy(g)
-	if !reflect.DeepEqual(allowed.TCPPorts, []int{23}) || !reflect.DeepEqual(pending.TCPPorts, []int{22}) {
-		t.Errorf("tcp: allowed %v, pending %v", allowed.TCPPorts, pending.TCPPorts)
-	}
-	if !reflect.DeepEqual(allowed.WebSocketPorts, []int{80}) || !reflect.DeepEqual(pending.WebSocketPorts, []int{8123}) {
-		t.Errorf("websocket: allowed %v, pending %v", allowed.WebSocketPorts, pending.WebSocketPorts)
-	}
-	if !reflect.DeepEqual(allowed.BroadcastPorts, []int{7000}) || len(pending.BroadcastPorts) > 0 {
-		t.Errorf("udp: allowed %v, pending %v", allowed.BroadcastPorts, pending.BroadcastPorts)
-	}
-	// nothing shown: the permission granted, its ports all wait
-	_, pending = asks.allowedBy(asks.OnlyPortsSeen(nil, nil, nil).Grants())
-	if !reflect.DeepEqual(pending.TCPPorts, []int{22, 23}) {
-		t.Errorf("nothing shown: pending %v", pending.TCPPorts)
+	if !reflect.DeepEqual(v.Requested.TCPPorts, []int{6668, 23}) || !reflect.DeepEqual(v.Pending.TCPPorts, []int{23}) || strings.Join(v.Pending.Names(), ",") != "tcp" {
+		t.Errorf("view: ports %v, pending %v %v", v.Requested.TCPPorts, v.Pending.TCPPorts, v.Pending.Names())
 	}
 }

@@ -315,16 +315,16 @@ type installedPluginView struct {
 	// Internet hosts it asks for (["*"]: any) and of them those not allowed yet
 	Internet        []string `json:"internet,omitempty"`
 	PendingInternet []string `json:"pendingInternet,omitempty"`
-	// with udp: the ports it may broadcast to
-	BroadcastPorts []int `json:"broadcastPorts,omitempty"`
-	// with tcp: the ports it connects to
-	TCPPorts []int `json:"tcpPorts,omitempty"`
-	// of those, the ports an update added and the user has not allowed
-	PendingBroadcastPorts []int `json:"pendingBroadcastPorts,omitempty"`
-	PendingTCPPorts       []int `json:"pendingTcpPorts,omitempty"`
-	// with lan: the local ports its WebSockets reach, and those not allowed yet
-	WebSocketPorts        []int `json:"websocketPorts,omitempty"`
-	PendingWebSocketPorts []int `json:"pendingWebsocketPorts,omitempty"`
+	// plugin.json's permissions with their ports, topic filters and why, and of them what
+	// waits (an update added it); wide ones, the combinations to warn about, its plugin API
+	Permissions *plugins.Permissions `json:"permissions,omitempty"`
+	Pending     *plugins.Permissions `json:"pending,omitempty"`
+	Wide        []string             `json:"wide,omitempty"`
+	Warnings    []string             `json:"warnings,omitempty"`
+	API         int                  `json:"pluginApi,omitempty"`
+	// the actions it declares, and of them those not allowed yet
+	Actions        plugins.ManifestActions `json:"actions,omitempty"`
+	PendingActions []string                `json:"pendingActions,omitempty"`
 	// its time on the run loop, and whether it is off for going over its limit
 	Usage *pluginUsageView `json:"usage,omitempty"`
 }
@@ -335,8 +335,11 @@ func (s *Server) installedPluginsView(installed []config.InstalledPlugin) []inst
 	usage := s.pluginUsage()
 	for _, p := range installed {
 		v := loader.PermissionsView(p)
-		view := installedPluginView{p, loader.NeedsConfig(p), v.Requested.Names(), v.Pending.Names(), v.Internet, v.Pending.Internet,
-			v.BroadcastPorts, v.TCPPorts, v.Pending.BroadcastPorts, v.Pending.TCPPorts, v.WebSocketPorts, v.Pending.WebSocketPorts, nil}
+		requested, pending := v.Requested, v.Pending
+		view := installedPluginView{InstalledPlugin: p, NeedsConfig: loader.NeedsConfig(p), RequestedPermissions: requested.Names(),
+			PendingPermissions: pending.Names(), Internet: v.Internet, PendingInternet: pending.Internet,
+			Permissions: &requested, Pending: &pending, Wide: requested.Wide(), Warnings: requested.Warnings(), API: v.API,
+			Actions: v.Actions, PendingActions: pending.Actions}
 		if u, ok := usage[p.ID]; ok {
 			view.Usage = &u
 		}
@@ -388,16 +391,25 @@ func (s *Server) handlePluginsAPIPreview(c *gin.Context) {
 	if preview.API < 2 {
 		requested, internet = append([]string{"internet"}, requested...), []string{"*"}
 	}
+	actions := preview.Actions
+	if actions == nil {
+		actions = plugins.ManifestActions{}
+	}
 	c.JSON(http.StatusOK, gin.H{
-		"version":        preview.Version,
-		"api":            preview.API,
-		"downgradeFrom":  downgradeFrom,
-		"requested":      nonNil(requested),
-		"internet":       nonNil(internet),
-		"broadcastPorts": append([]int{}, preview.BroadcastPorts...),
-		"tcpPorts":       append([]int{}, preview.TCPPorts...),
-		"websocketPorts": append([]int{}, preview.WebSocketPorts...),
-		"all":            plugins.AllPermissions.Names(),
+		"version":       preview.Version,
+		"api":           preview.API,
+		"downgradeFrom": downgradeFrom,
+		"requiresVclu":  preview.RequiresVclu,
+		"needsNewer":    preview.NeedsNewer,
+		"requested":     nonNil(requested),
+		"internet":      nonNil(internet),
+		"permissions":   preview.Requested,
+		"wide":          nonNil(preview.Requested.Wide()),
+		"risky":         preview.Requested.Risky(),
+		"warnings":      preview.Requested.Warnings(),
+		"actions":       actions,
+		"seen":          plugins.SeenOf(preview.Requested, preview.API), // sent back with the install
+		"all":           plugins.AllPermissions.Names(),
 	})
 }
 
@@ -411,13 +423,7 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 		// these, the rest waits as on an update. Required: nothing installs unconfirmed.
 		Accept *[]string `json:"accept"`
 		// What the confirmation showed for them; the files may say otherwise. Required too
-		Seen *struct {
-			API            int      `json:"api"`
-			Internet       []string `json:"internet"`
-			BroadcastPorts []int    `json:"broadcastPorts"`
-			TCPPorts       []int    `json:"tcpPorts"`
-			WebSocketPorts []int    `json:"websocketPorts"`
-		} `json:"seen"`
+		Seen *plugins.Seen `json:"seen"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -570,8 +576,7 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 	api, _ := loader.DiskAPI(fullId)
 	requested, _ := loader.RequestedPermissions(fullId)
 	// hosts and ports not shown wait for the user, as after an update
-	requested = requested.Only(*req.Accept).OnlyHostsSeen(req.Seen.Internet).
-		OnlyPortsSeen(req.Seen.TCPPorts, req.Seen.BroadcastPorts, req.Seen.WebSocketPorts)
+	requested = requested.Only(*req.Accept).OnlyHostsSeen(req.Seen.Internet).OnlySeen(*req.Seen)
 
 	// Fetched without the lock; the install goes into the file as it is now
 	action := "installed"
@@ -754,20 +759,25 @@ func (s *Server) handlePluginsAPISerialPorts(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ports": ports})
 }
 
+// strictGrants is config.PluginGrants without its UnmarshalJSON (which also reads older keys).
+type strictGrants config.PluginGrants
+
 // handlePluginsAPIPermissions sets what the user allows a plugin
 // and loads the plugin again with it. The plugin still gets only what its plugin.json asks for.
 func (s *Server) handlePluginsAPIPermissions(c *gin.Context) {
 	defer dashCache.Invalidate() // a plugin started or stopped brings or takes its dashboards
 	pluginID := c.Param("id")
 
-	// Unknown keys refused: {"lan": {"host": [...]}} would otherwise allow any host
-	var req config.PluginGrants
+	// Unknown keys refused: {"lan": {"host": [...]}} would otherwise allow any host (the type
+	// without PluginGrants' reading of older keys, so the decoder checks every field)
+	var strict strictGrants
 	dec := json.NewDecoder(c.Request.Body)
 	dec.DisallowUnknownFields()
-	if err := dec.Decode(&req); err != nil {
+	if err := dec.Decode(&strict); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request: " + err.Error()})
 		return
 	}
+	req := config.PluginGrants(strict)
 	if err := plugins.ValidateGrants(req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -780,7 +790,11 @@ func (s *Server) handlePluginsAPIPermissions(c *gin.Context) {
 		}
 		for i := range masterConfig.Plugins.Installed {
 			if masterConfig.Plugins.Installed[i].ID == pluginID {
+				// never more than plugin.json asks for: ports, topics and actions only narrow
 				grants := req
+				if requested, err := plugins.NewLoader(s.serverDir).RequestedPermissions(pluginID); err == nil {
+					grants = plugins.WithinRequest(req, requested)
+				}
 				masterConfig.Plugins.Installed[i].Grants = &grants
 				installed = masterConfig.Plugins.Installed[i]
 				return nil
@@ -817,7 +831,7 @@ func (s *Server) handlePluginsAPIPermissions(c *gin.Context) {
 
 	v := plugins.NewLoader(s.serverDir).PermissionsView(installed)
 	c.JSON(http.StatusOK, gin.H{"success": true, "pendingPermissions": v.Pending.Names(), "pendingInternet": v.Pending.Internet,
-		"pendingBroadcastPorts": v.Pending.BroadcastPorts, "pendingTcpPorts": v.Pending.TCPPorts, "pendingWebsocketPorts": v.Pending.WebSocketPorts})
+		"pending": v.Pending, "pendingActions": v.Pending.Actions})
 }
 
 // handlePluginsAPIConfig updates plugin configuration

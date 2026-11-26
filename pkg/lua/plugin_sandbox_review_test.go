@@ -201,11 +201,11 @@ func TestReviewExecRemoteReadFromPlugin(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, e := runPlugin(t, engine, "@t/a", `return _:get("CLU2.DOU1"):get(27)`)
-	if !strings.Contains(e, "reading a CLU needs the grenton_raw permission") {
+	if !strings.Contains(e, "reading a CLU needs the clu permission") {
 		t.Errorf("error = %q", e)
 	}
 	mustLua(t, engine, `table.concat(__calls, ";")`, "")
-	if _, e := runPlugin(t, engine, "@t/a", `local v = _:get("CLU2.DOU1"):get(1); return v`); !strings.Contains(e, "grenton_raw") {
+	if _, e := runPlugin(t, engine, "@t/a", `local v = _:get("CLU2.DOU1"):get(1); return v`); !strings.Contains(e, "clu permission") {
 		t.Errorf("not a tail call: %q", e)
 	}
 	// the value vclu already knows stays readable

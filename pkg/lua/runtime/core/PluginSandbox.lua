@@ -1172,7 +1172,7 @@ function PluginSandbox:create(pluginId, permissions)
         pollers = {},             -- created through the API, stopped on cleanup
         ioHandles = {},           -- Go handle id -> true: sockets, ports, transfers
         dashboards = {},          -- dashboard id -> true, removed on cleanup
-        actions = {},             -- name -> {description, params, fn}
+        actions = {},             -- name -> {description, params, confirm, fn}
         dead = false,             -- set by cleanup
     }
     permissions = type(permissions) == "table" and permissions or {}
@@ -1187,6 +1187,13 @@ function PluginSandbox:create(pluginId, permissions)
             if type(id) == "string" and type(d) == "table" and type(d.name) == "string" then
                 sandbox.declaredDashboards[id] = { name = d.name }
             end
+        end
+    end
+    -- actions in plugin.json (API 2): name -> {description, params, confirm, allowed}
+    sandbox.declaredActions = {}
+    if type(permissions.actions) == "table" then
+        for name, a in pairs(permissions.actions) do
+            if type(name) == "string" and type(a) == "table" then sandbox.declaredActions[name] = a end
         end
     end
     sandbox.permissions = {
@@ -1209,7 +1216,10 @@ function PluginSandbox:create(pluginId, permissions)
         tcpHosts = list(limits.tcpHosts),
         mqttSubscribe = list(limits.mqttSubscribe),
         mqttPublish = list(limits.mqttPublish),
-        grentonRawHosts = list(limits.grentonRawHosts),
+        grentonRawHosts = list(limits.cluHosts),
+        cluDiscovery = limits.cluDiscovery == true,
+        modbusHosts = list(limits.modbusHosts),
+        lanPorts = list(permissions.lanPorts), -- nil: any local port
         tftpHosts = list(limits.tftpHosts),
         serialPorts = list(limits.serialPorts),
         -- internet hosts on API 2 (from the loader; any other caller: none), API 1 any
@@ -1225,19 +1235,20 @@ function PluginSandbox:create(pluginId, permissions)
     end
     -- requests of a plugin carry its id as the HTTP instance (PluginHelpers.httpRequest)
     if type(__go_http_set_lan) == "function" then
-        __go_http_set_lan(pluginId, sandbox.permissions.lan, sandbox.limits.lanHosts)
+        __go_http_set_lan(pluginId, sandbox.permissions.lan, sandbox.limits.lanHosts, sandbox.limits.lanPorts)
     end
     if type(__go_http_set_internet) == "function" then
         __go_http_set_internet(pluginId, sandbox.limits.internetHosts)
     end
     if type(__go_pluginio_grant) == "function" then
-        -- udp broadcasts only to the ports in plugin.json's "udp", tcp connects only to those in
-        -- "tcp", a WebSocket to a local address only to those in "websocket"
+        -- the ports of plugin.json's permissions: udp sends and broadcasts, tcp connects, lan's
+        -- WebSockets reach (nil: any local port)
         __go_pluginio_grant(pluginId, sandbox.permissions.grentonRaw, sandbox.permissions.tftp,
             sandbox.permissions.serial, sandbox.limits.grentonRawHosts, sandbox.limits.tftpHosts,
             sandbox.limits.serialPorts, sandbox.permissions.udp, sandbox.limits.udpHosts,
             list(permissions.udpBroadcastPorts) or {}, sandbox.permissions.tcp, sandbox.limits.tcpHosts,
-            list(permissions.tcpPorts) or {}, list(permissions.websocketLanPorts) or {})
+            list(permissions.tcpPorts) or {}, sandbox.limits.lanPorts, list(permissions.udpPorts) or {},
+            sandbox.limits.cluDiscovery)
     end
 
     -- Build wrapped API with automatic tracking
@@ -1544,13 +1555,13 @@ function PluginSandbox:buildAPI(sandbox)
 
     -- Frames to CLUs: their port, broadcast for discovery
     api.grentonSocket = function(opts)
-        requireIO("grenton_raw", "grentonRaw")
+        requireIO("clu", "grentonRaw")
         return udpSocket(opts, "grenton_raw")
     end
 
     -- The CLU cipher with a key and IV the plugin brings (raw or base64)
     api.grentonCipher = function(key, iv)
-        requireIO("grenton_raw", "grentonRaw")
+        requireIO("clu", "grentonRaw")
         key, iv = tostring(key), tostring(iv)
         local _, err = __go_pluginio_cipher(true, key, iv, "")
         if err then error(err, 2) end
@@ -1640,11 +1651,22 @@ function PluginSandbox:buildAPI(sandbox)
         end, alive)
     end
 
+    -- httpGet and httpPost stay for older plugins; plugin:httpRequest is the one to use
+    local function deprecated(name)
+        if sandbox.deprecatedLogged then return end
+        sandbox.deprecatedLogged = true
+        log:warn("[" .. pluginId .. "] plugin:" .. name .. " is deprecated: use plugin:httpRequest")
+    end
+
     api.httpGet = function(url, callback)
+        deprecated("httpGet")
         simpleRequest({ method = "GET", url = url }, callback)
     end
 
+    api.has = function(name) return PluginHelpers.has(name) end
+
     api.httpPost = function(url, data, callback)
+        deprecated("httpPost")
         local opts = { method = "POST", url = url }
         if type(data) == "table" then opts.json = data else opts.body = data end
         simpleRequest(opts, callback)
@@ -1790,9 +1812,28 @@ function PluginSandbox:buildAPI(sandbox)
         return dashboardFacade(sandbox, raw, log)
     end
 
-    -- A named action agents and voice call: fn(params) returns the result, or nil, err
+    -- A named action agents and voice call: fn(params) returns the result, or nil, err. On API 2
+    -- plugin.json declares it (description, params, confirm): plugin:action(name, fn)
     api.action = function(name, spec, fn)
-        local a = actionSpec(name, spec)
+        local a
+        if sandbox.apiVersion >= 2 or next(sandbox.declaredActions) ~= nil then
+            if fn ~= nil or type(spec) ~= "function" then
+                error("plugin:action(" .. tostring(name) .. ", fn): on plugin API 2 the action is declared in plugin.json's \"actions\"", 0)
+            end
+            fn = spec
+            local d = type(name) == "string" and sandbox.declaredActions[name]
+            if not d then
+                error("plugin:action: " .. tostring(name) .. " is not among plugin.json's \"actions\"", 0)
+            end
+            -- checked by the loader when it read plugin.json
+            a = { description = d.description, params = {}, confirm = d.confirm == true, allowed = d.allowed == true }
+            for pname, p in pairs(type(d.params) == "table" and d.params or {}) do
+                a.params[pname] = { type = p.type, required = p.required == true, description = p.description }
+            end
+        else
+            a = actionSpec(name, spec)
+            a.allowed = true
+        end
         if type(fn) ~= "function" then error("plugin:action(" .. name .. "): fn is a function", 0) end
         if not sandbox.actions[name] then
             local n = 0
@@ -1880,9 +1921,18 @@ function PluginSandbox:buildEnvironment(sandbox)
         modbus = shallowCopy(Modbus)
         for name, f in originalPairs(Modbus) do
             if type(f) == "function" and (name == "request" or name:match("^read") or name:match("^write")) then
-                modbus[name] = function(...)
+                modbus[name] = function(opts, ...)
                     if sandbox.dead then error("plugin " .. pluginId .. " is disabled", 2) end
-                    return f(...)
+                    -- the gateways the user narrowed modbus to (grants): an IP address among them
+                    local hosts = sandbox.limits.modbusHosts
+                    if hosts and type(__go_plugin_hosts_allow) == "function" then
+                        local host = type(opts) == "table" and opts.host or nil
+                        if not __go_plugin_hosts_allow(hosts, tostring(host)) then
+                            error("Modbus to " .. tostring(host) .. ": not among the hosts allowed in "
+                                .. pluginId .. "'s settings", 2)
+                        end
+                    end
+                    return f(opts, ...)
                 end
             end
         end
@@ -2139,7 +2189,7 @@ function PluginSandbox.checkCluRequest()
     local viaProxy, id = __go_clu_caller()
     if not id then
         -- a plugin's read through a proxy it got from somewhere else
-        if viaProxy then error("a plugin reading a CLU needs the grenton_raw permission", 3) end
+        if viaProxy then error("a plugin reading a CLU needs the clu permission", 3) end
         return
     end
     local sandbox = PluginSandbox.sandboxes[id]
@@ -2147,11 +2197,11 @@ function PluginSandbox.checkCluRequest()
     if sandbox.apiVersion < 2 then
         if not sandbox.warnedCluRequest then
             sandbox.warnedCluRequest = true
-            Logger:warn("[SANDBOX] " .. id .. " reads a CLU; on plugin API 2 that needs the grenton_raw permission")
+            Logger:warn("[SANDBOX] " .. id .. " reads a CLU; on plugin API 2 that needs the clu permission")
         end
         return
     end
-    error(id .. ": reading a CLU needs the grenton_raw permission", 3)
+    error(id .. ": reading a CLU needs the clu permission", 3)
 end
 
 --- Set environment variables for a plugin
@@ -2250,12 +2300,14 @@ function PluginSandbox:listActions(pluginId)
     local out = {}
     for _, id in ipairs(ids) do
         local names = {}
-        for name in pairs(self.sandboxes[id].actions) do names[#names + 1] = name end
+        for name, a in pairs(self.sandboxes[id].actions) do
+            if a.allowed then names[#names + 1] = name end -- a declared one the user has not allowed waits
+        end
         table.sort(names)
         for _, name in ipairs(names) do
             local a = self.sandboxes[id].actions[name]
             out[#out + 1] = { plugin = id, name = name, description = a.description,
-                params = next(a.params) and a.params or nil }
+                params = next(a.params) and a.params or nil, confirm = a.confirm or nil }
         end
     end
     return JSON:encode(out)
@@ -2265,11 +2317,15 @@ local function actionAnswer(err, code) return JSON:encode({ error = err, code = 
 
 --- Runs a plugin's action with params (a JSON object): JSON {result} or {error, code}, code
 -- "not_found", "invalid" (params) or "failed" (the action's own error)
-function PluginSandbox:callAction(pluginId, name, paramsJSON)
+function PluginSandbox:callAction(pluginId, name, paramsJSON, confirmed)
     local sb = self.sandboxes[pluginId]
     local a = sb and not sb.dead and sb.actions[name]
-    if not a then
-        return actionAnswer("plugin " .. tostring(pluginId) .. " has no action " .. tostring(name), "not_found")
+    if not a or not a.allowed then
+        return actionAnswer("plugin " .. tostring(pluginId) .. " has no action " .. tostring(name)
+            .. (a and " allowed yet: it waits for the user in the plugin's settings" or ""), "not_found")
+    end
+    if a.confirm and confirmed ~= true then
+        return actionAnswer("action " .. name .. " asks for confirmation: ask the user, then call it again confirmed", "confirm")
     end
     local ok, params = pcall(JSON.decode, JSON, paramsJSON or "{}")
     if not ok or (params ~= nil and type(params) ~= "table") then

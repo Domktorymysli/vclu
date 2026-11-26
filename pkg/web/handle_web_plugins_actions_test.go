@@ -15,9 +15,7 @@ import (
 const actionsPlugin = `
 local p = Plugin:new("zakupy", {})
 local items = {}
-p:action("add", {description = {pl = "Dodaj", en = "Add"}, params = {
-	item = {type = "string", required = true}, qty = {type = "number"},
-}}, function(params)
+p:action("add", function(params)
 	if params.item == "x" then return nil, "no x" end
 	items[#items + 1] = params.item
 	return {count = #items}
@@ -31,7 +29,9 @@ func actionsPanel(t *testing.T) (http.Handler, string, *lua.LuaEngine) {
 	dashCache.Invalidate()
 	engine := lua.NewLuaEngine()
 	t.Cleanup(engine.Close)
-	if _, err := engine.Execute(`PluginSandbox:create("@jan/zakupy", {dashboards = {lista = {name = "Zakupy"}}})
+	if _, err := engine.Execute(`PluginSandbox:create("@jan/zakupy", {dashboards = {lista = {name = "Zakupy"}},
+		actions = {add = {allowed = true, description = {pl = "Dodaj", en = "Add"},
+			params = {item = {type = "string", required = true}, qty = {type = "number"}}}}})
 		local _, err = PluginSandbox:execute("@jan/zakupy", [==[` + actionsPlugin + `]==])
 		assert(err == nil, err)`); err != nil {
 		t.Fatal(err)

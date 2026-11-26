@@ -16,7 +16,7 @@ import (
 const reviewAppsPlugin = `
 local p = Plugin:new("zakupy", {})
 local items = { { id = 1, label = "Mleko" } }
-p:action("add", {description = "Dodaj", params = {item = {type = "string", required = true}}}, function(params)
+p:action("add", function(params)
 	items[#items + 1] = { id = #items + 1, label = params.item }
 	return #items
 end)
@@ -33,7 +33,8 @@ func reviewAppsServer(t *testing.T) (*Server, *lua.LuaEngine, string) {
 	t.Cleanup(func() { actionLimiter = saved })
 	engine := lua.NewLuaEngine()
 	t.Cleanup(engine.Close)
-	if _, err := engine.Execute(`PluginSandbox:create("@jan/zakupy", {dashboards = {lista = {name = "Zakupy"}}})
+	if _, err := engine.Execute(`PluginSandbox:create("@jan/zakupy", {dashboards = {lista = {name = "Zakupy"}},
+		actions = {add = {allowed = true, description = "Dodaj", params = {item = {type = "string", required = true}}}}})
 		local _, err = PluginSandbox:execute("@jan/zakupy", [==[` + reviewAppsPlugin + `]==])
 		assert(err == nil, err)`); err != nil {
 		t.Fatal(err)

@@ -26,7 +26,7 @@ func TestReviewHTTPOwnPortRefused(t *testing.T) {
 	otherURL, _ := localServer(t)
 	hm := NewHTTPManager()
 	hm.SetOwnPorts(func() []int { return []int{panelPort} })
-	hm.SetLAN("@x/api2", true, nil)
+	hm.SetLAN("@x/api2", true, nil, nil)
 	hm.SetInternet("@x/api2", plugins.InternetHosts{})
 	byName := strings.Replace(panelURL, "127.0.0.1", "localhost", 1)
 	for _, u := range []string{panelURL, byName} {
@@ -38,7 +38,7 @@ func TestReviewHTTPOwnPortRefused(t *testing.T) {
 		t.Errorf("another local port: %d %v", status, err)
 	}
 	// an API 1 plugin (lan in full, any internet host) is refused too
-	hm.SetLAN("@x/api1", true, nil)
+	hm.SetLAN("@x/api1", true, nil, nil)
 	if _, _, _, err := hm.Request("@x/api1", "GET", panelURL, nil, "", 5000, true, true); err == nil || !strings.Contains(err.Error(), "an address of this vclu") {
 		t.Errorf("api 1: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestReviewHTTPOwnPortRefused(t *testing.T) {
 // addresses are otherwise reachable.
 func TestReviewWSOwnPortRefused(t *testing.T) {
 	port := wsServer(t, echo)
-	engine := sandboxEngine(t, "@t/wsown", `{api = 2, lan = true, websocketLanPorts = {`+port+`}}`)
+	engine := sandboxEngine(t, "@t/wsown", `{api = 2, lan = true, lanPorts = {`+port+`}}`)
 	loopbackAllowed(engine)
 	engine.httpManager.ownAddr = ownAddr // this machine again, on the panel port only
 	n, _ := strconv.Atoi(port)
@@ -86,7 +86,7 @@ func TestReviewWSOwnPortRefused(t *testing.T) {
 func TestReviewHTTPLocalAddressForms(t *testing.T) {
 	_, port := localServer(t)
 	hm := NewHTTPManager()
-	hm.SetLAN("@x/f", false, nil)
+	hm.SetLAN("@x/f", false, nil, nil)
 	hm.SetInternet("@x/f", plugins.InternetHosts{"*"})
 	p := strconv.Itoa(port)
 	for _, u := range []string{
@@ -116,7 +116,7 @@ func TestReviewHTTPLANHostsFromSandbox(t *testing.T) {
 // this machine, IPv6 and names.
 func TestReviewUDPTargetForms(t *testing.T) {
 	pio := NewPluginIO()
-	pio.SetGrant("@t/u", pluginIOGrant{udp: true, broadcastPorts: []int{7000}})
+	pio.SetGrant("@t/u", pluginIOGrant{udp: true, udpPorts: []int{7000}, broadcastPorts: []int{7000}})
 	id, err := pio.OpenDeviceUDP("@t/u", 0)
 	if err != nil {
 		t.Fatal(err)
@@ -127,7 +127,7 @@ func TestReviewUDPTargetForms(t *testing.T) {
 		port    int
 		refusal string
 	}{
-		{"::ffff:255.255.255.255", 7001, "broadcastPorts"},
+		{"::ffff:255.255.255.255", 7001, "permissions.udp.broadcast"},
 		{"192.168.1.10", 0, "out of range"},
 		{"192.168.1.10", 65536, "out of range"},
 		{"0.0.0.0", 7000, "this vCLU"},
@@ -143,7 +143,7 @@ func TestReviewUDPTargetForms(t *testing.T) {
 			ip      string
 			port    int
 			refusal string
-		}{b, 7001, "broadcastPorts"})
+		}{b, 7001, "permissions.udp.broadcast"})
 	}
 	for _, c := range cases {
 		if err := pio.SendUDP(id, "@t/u", c.ip, c.port, []byte("x")); err == nil || !strings.Contains(err.Error(), c.refusal) {
@@ -179,7 +179,7 @@ func hostBroadcast() (string, bool) {
 // test: a socket or a port whose permission the new grant drops closes at once.
 func TestReviewHandlesClosedWhenGrantDrops(t *testing.T) {
 	pio := NewPluginIO()
-	pio.SetGrant("@t/g", pluginIOGrant{udp: true, grentonRaw: true})
+	pio.SetGrant("@t/g", pluginIOGrant{udp: true, udpPorts: []int{7000}, grentonRaw: true})
 	raw, err := pio.OpenUDP("@t/g", 0)
 	if err != nil {
 		t.Fatal(err)
@@ -189,7 +189,7 @@ func TestReviewHandlesClosedWhenGrantDrops(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pio.CloseAll()
-	pio.SetGrant("@t/g", pluginIOGrant{udp: true})
+	pio.SetGrant("@t/g", pluginIOGrant{udp: true, udpPorts: []int{7000}})
 	if err := pio.SendUDP(raw, "@t/g", "192.168.1.10", 1234, []byte("x")); err == nil {
 		t.Error("grenton_raw socket sends after the grant dropped it")
 	}
@@ -214,7 +214,7 @@ func TestReviewRawSendChecksGrant(t *testing.T) {
 	pio.mu.Lock()
 	pio.grants["@t/r"] = pluginIOGrant{}
 	pio.mu.Unlock()
-	if err := pio.SendUDP(raw, "@t/r", "192.168.1.10", 1234, []byte("x")); err == nil || !strings.Contains(err.Error(), "grenton_raw") {
+	if err := pio.SendUDP(raw, "@t/r", "192.168.1.10", 1234, []byte("x")); err == nil || !strings.Contains(err.Error(), `"clu"`) {
 		t.Errorf("send without grenton_raw: %v", err)
 	}
 }
@@ -236,7 +236,7 @@ func TestReviewTCPTargetForms(t *testing.T) {
 		{"192.168.1.10", 502, "modbus"},
 		{"192.168.1.10", 1883, "mqtt"},
 		{"192.168.1.10", 8883, "mqtt"},
-		{"192.168.1.10", 1234, "grenton_raw"},
+		{"192.168.1.10", 1234, "clu"},
 		{"192.168.1.10", 69, "tftp"},
 		{"192.168.1.10", 0, "out of range"},
 		{"192.168.1.10", 24, "not in plugin.json"},
@@ -261,7 +261,7 @@ func TestReviewTCPTargetForms(t *testing.T) {
 // test: a handle opened by one plugin is not usable under another plugin's id.
 func TestReviewHandlesBelongToTheirPlugin(t *testing.T) {
 	pio := NewPluginIO()
-	pio.SetGrant("@t/a", pluginIOGrant{udp: true})
+	pio.SetGrant("@t/a", pluginIOGrant{udp: true, udpPorts: []int{7000}})
 	id, err := pio.OpenDeviceUDP("@t/a", 0)
 	if err != nil {
 		t.Fatal(err)

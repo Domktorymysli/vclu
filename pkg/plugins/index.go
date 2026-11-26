@@ -90,16 +90,16 @@ func singlePluginIndex(repoURL string, manifestBody []byte) (*RepositoryIndex, e
 	}
 	return &RepositoryIndex{
 		Version:     1,
-		Name:        m.Name,
+		Name:        m.Name.In("pl"),
 		Namespace:   namespace,
-		Description: m.Description,
+		Description: m.Description.In("pl"),
 		Author:      m.Author,
 		URL:         repoURL,
 		Plugins: []PluginListing{{
 			ID:          shortID,
-			Name:        m.Name,
+			Name:        m.Name.In("pl"),
 			Version:     m.Version,
-			Description: m.Description,
+			Description: m.Description.In("pl"),
 			Author:      m.Author,
 			Categories:  m.Tags,
 		}},

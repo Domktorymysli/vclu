@@ -83,7 +83,7 @@ func TestReviewCluCheckProxyOfAnotherPlugin(t *testing.T) {
 		local s = Plugin.getPlugin("@t/raw"):get("dou")
 		return s.src:get(27)
 	`)
-	if !strings.Contains(e, "grenton_raw") {
+	if !strings.Contains(e, "clu permission") {
 		t.Errorf("read through the other plugin's proxy: %q", e)
 	}
 	mustLua(t, engine, `table.concat(__calls, ";")`, "")
@@ -149,7 +149,7 @@ func TestReviewCluCheckWaysIn(t *testing.T) {
 		"unpack":           `local t = { _:get("CLU2.DOU1") }; local o = unpack(t); return o:get(27)`,
 	} {
 		_, e := runPlugin(t, engine, "@t/a", code)
-		if !strings.Contains(e, "grenton_raw") {
+		if !strings.Contains(e, "clu permission") {
 			t.Errorf("%s: %q", what, e)
 		}
 	}

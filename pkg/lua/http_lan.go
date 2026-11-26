@@ -84,8 +84,26 @@ type dialPolicy struct {
 	own        func(netip.Addr) bool               // set: this machine's addresses refused (a plugin's WebSocket)
 	ownAddr    func(netip.Addr) bool               // set: on this machine, ownPorts refused (a plugin's HTTP)
 	ownPorts   func() []int                        // nil or returning nil: every port
-	lanPort    func(ip netip.Addr, port int) error // set: a local address only on the ports it allows (a plugin's WebSocket)
+	lanPort    func(ip netip.Addr, port int) error // set: a local address only on the ports it allows
+	// a plugin's lan.ports: with lanPortsListed only these local ports
+	lanPorts       []int
+	lanPortsListed bool
 }
+
+// pluginLANPort: a plugin's HTTP to a local address goes only to plugin.json's lan.ports (any
+// without the list), never to a port of another permission.
+func (p dialPolicy) pluginLANPort(_ netip.Addr, port int) error {
+	if perm, ok := lanPortOwners[port]; ok {
+		return fmt.Errorf("refused port %d: it belongs to the %s permission", port, perm)
+	}
+	if p.lanPortsListed && !slices.Contains(p.lanPorts, port) {
+		return fmt.Errorf("refused port %d: not in plugin.json's permissions.lan.ports", port)
+	}
+	return nil
+}
+
+// lanPortOwners: ports of protocols with a permission of their own.
+var lanPortOwners = map[int]string{1234: "clu", 69: "tftp", 502: "modbus", 1883: "mqtt", 8883: "mqtt"}
 
 func (p dialPolicy) notListed(host string) error {
 	return fmt.Errorf("%s is not on the host list of %s (permissions.internet)", host, p.plugin)

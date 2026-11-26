@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -64,7 +64,7 @@ func TestEffectivePermissions(t *testing.T) {
 	}
 	for _, c := range cases {
 		got, _, official, _ := l.effectivePermissions(c.id, PluginManifest{API: c.api, Permissions: c.declared})
-		if !reflect.DeepEqual(got, c.want) || official != c.official {
+		if !slices.Equal(got.Names(), c.want.Names()) || official != c.official {
 			t.Errorf("%s (api %d, declared %v): got %+v official=%v, want %+v official=%v", c.id, c.api, c.declared, got, official, c.want, c.official)
 		}
 	}
@@ -72,17 +72,17 @@ func TestEffectivePermissions(t *testing.T) {
 
 func TestManifestPermissionsParse(t *testing.T) {
 	var m PluginManifest
-	if err := json.Unmarshal([]byte(`{"id":"x","permissions":{"lan":true,"modbus":true}}`), &m); err != nil {
+	if err := json.Unmarshal([]byte(`{"id":"x","api":2,"permissions":{"lan":{"why":"devices"},"modbus":true}}`), &m); err != nil {
 		t.Fatal(err)
 	}
-	if m.Permissions == nil || !reflect.DeepEqual(*m.Permissions, Permissions{LAN: true, Modbus: true}) {
+	if m.Permissions == nil || strings.Join(m.Permissions.Names(), ",") != "lan,modbus" {
 		t.Errorf("got %+v", m.Permissions)
 	}
 	var empty PluginManifest
-	if err := json.Unmarshal([]byte(`{"id":"x","permissions":{}}`), &empty); err != nil {
+	if err := json.Unmarshal([]byte(`{"id":"x","api":2,"permissions":{}}`), &empty); err != nil {
 		t.Fatal(err)
 	}
-	if empty.Permissions == nil || !reflect.DeepEqual(*empty.Permissions, Permissions{}) {
+	if empty.Permissions == nil || len(empty.Permissions.Names()) != 0 {
 		t.Errorf("an empty declaration grants nothing and is not a missing one: %+v", empty.Permissions)
 	}
 }
@@ -143,7 +143,7 @@ func TestEffectivePermissionsAllowedByGrants(t *testing.T) {
 		{"@jan/not-installed", 2, Permissions{}}, // a configuration that lists plugins without it: nothing
 	}
 	for _, c := range cases {
-		if got, _, _, _ := l.effectivePermissions(c.id, PluginManifest{API: c.api, Permissions: lanMQTT}); !reflect.DeepEqual(got, c.want) {
+		if got, _, _, _ := l.effectivePermissions(c.id, PluginManifest{API: c.api, Permissions: lanMQTT}); !slices.Equal(got.Names(), c.want.Names()) {
 			t.Errorf("%s (api %d): got %+v, want %+v", c.id, c.api, got, c.want)
 		}
 	}
@@ -163,10 +163,10 @@ func TestRecordGrantsKeepsWhatTheFilesAskFor(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	writeManifest("1.0.0", `{"id":"shelly","version":"1.0.0","api":2,"permissions":{"lan":true}}`)
+	writeManifest("1.0.0", `{"id":"shelly","version":"1.0.0","api":2,"permissions":{"lan":{"why":"devices"}}}`)
 	l.recordGrants("@jan/shelly")
 
-	writeManifest("1.1.0", `{"id":"shelly","version":"1.1.0","api":2,"permissions":{"lan":true,"mqtt":true}}`)
+	writeManifest("1.1.0", `{"id":"shelly","version":"1.1.0","api":2,"permissions":{"lan":{"why":"devices"},"mqtt":{"why":"topics"}}}`)
 	l.recordGrants("@jan/shelly") // already recorded: not widened
 
 	mc, err := config.ReadMasterConfig(l.serverDir)
@@ -241,21 +241,21 @@ func TestGrantsJSONKeepsEmptyLists(t *testing.T) {
 	}
 }
 
-// grenton_raw, tftp and serial wait for the user: not on install, not for a plugin without
+// clu, tftp and serial wait for the user: not on install, not for a plugin without
 // grants, not from the files of one installed before grants.
 func TestSensitivePermissionsWaitForTheUser(t *testing.T) {
-	asked := Permissions{LAN: true, GrentonRaw: true, TFTP: true, Serial: true}
-	if g := asked.Grants(); g.LAN == nil || g.GrentonRaw != nil || g.TFTP != nil || g.Serial != nil {
+	asked := Permissions{LAN: true, CLU: true, TFTP: true, Serial: true}
+	if g := asked.Grants(); g.LAN == nil || g.CLU != nil || g.TFTP != nil || g.Serial != nil {
 		t.Errorf("install grants %+v, want lan only", g)
 	}
 	allowed, pending := asked.allowedBy(nil)
-	if !reflect.DeepEqual(allowed, Permissions{LAN: true}) || strings.Join(pending.Names(), ",") != "grenton_raw,tftp,serial" {
+	if strings.Join(allowed.Names(), ",") != "lan" || strings.Join(pending.Names(), ",") != "clu,tftp,serial" {
 		t.Errorf("without grants: allowed %+v, pending %v", allowed, pending.Names())
 	}
 	allowed, pending = asked.allowedBy(&config.PluginGrants{
-		LAN: &config.LANGrant{}, GrentonRaw: &config.HostsGrant{}, Serial: &config.SerialGrant{Ports: []string{"/dev/ttyUSB0"}},
+		LAN: &config.LANGrant{}, CLU: &config.CLUGrant{}, Serial: &config.SerialGrant{Ports: []string{"/dev/ttyUSB0"}},
 	})
-	if !reflect.DeepEqual(allowed, Permissions{LAN: true, GrentonRaw: true, Serial: true}) || strings.Join(pending.Names(), ",") != "tftp" {
+	if strings.Join(allowed.Names(), ",") != "lan,clu,serial" || strings.Join(pending.Names(), ",") != "tftp" {
 		t.Errorf("allowed by the user: %+v, pending %v", allowed, pending.Names())
 	}
 
@@ -265,7 +265,7 @@ func TestSensitivePermissionsWaitForTheUser(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "plugin.json"),
-		[]byte(`{"id":"rs","version":"1.0.0","api":2,"permissions":{"serial":true,"mqtt":true}}`), 0o644); err != nil {
+		[]byte(`{"id":"rs","version":"1.0.0","api":2,"permissions":{"serial":{"why":"port"},"mqtt":{"why":"topics"}}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	l.recordGrants("@jan/rs")
@@ -281,17 +281,17 @@ func TestSensitivePermissionsWaitForTheUser(t *testing.T) {
 // The hosts and ports of the new permissions reach the sandbox.
 func TestSensitivePermissionsLimits(t *testing.T) {
 	l := permissionsLoader(t, nil, []config.InstalledPlugin{{ID: "@jan/clu", Grants: &config.PluginGrants{
-		GrentonRaw: &config.HostsGrant{Hosts: []string{"192.168.1.10"}},
-		TFTP:       &config.HostsGrant{},
-		Serial:     &config.SerialGrant{Ports: []string{"/dev/ttyUSB0"}},
+		CLU:    &config.CLUGrant{Hosts: []string{"192.168.1.10"}},
+		TFTP:   &config.HostsGrant{},
+		Serial: &config.SerialGrant{Ports: []string{"/dev/ttyUSB0"}},
 	}}})
-	m := PluginManifest{API: 2, Permissions: &Permissions{GrentonRaw: true, TFTP: true, Serial: true}}
+	m := PluginManifest{API: 2, Permissions: &Permissions{CLU: true, TFTP: true, Serial: true}}
 	perms, limits, _, _ := l.effectivePermissions("@jan/clu", m)
-	if !reflect.DeepEqual(perms, *m.Permissions) {
+	if !slices.Equal(perms.Names(), m.Permissions.Names()) {
 		t.Errorf("permissions: %+v", perms)
 	}
 	data, _ := json.Marshal(limits)
-	if string(data) != `{"internetHosts":[],"grentonRawHosts":["192.168.1.10"],"serialPorts":["/dev/ttyUSB0"]}` {
+	if string(data) != `{"internetHosts":[],"cluHosts":["192.168.1.10"],"serialPorts":["/dev/ttyUSB0"]}` {
 		t.Errorf("limits: %s", data)
 	}
 	for _, g := range []config.PluginGrants{

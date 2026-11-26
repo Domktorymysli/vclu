@@ -516,7 +516,7 @@ func TestExamplePlugin_FullLifecycle(t *testing.T) {
 	if err := json.Unmarshal(manifestData, &manifest); err != nil {
 		t.Fatalf("step 1: invalid plugin.json: %v", err)
 	}
-	if manifest.Version != "2.1.0" || manifest.Name != "Example Plugin" {
+	if manifest.Version != "2.1.0" || manifest.Name.In("pl") != "Example Plugin" {
 		t.Errorf("step 1: manifest mismatch: %s v%s", manifest.Name, manifest.Version)
 	}
 

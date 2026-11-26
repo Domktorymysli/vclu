@@ -29,7 +29,7 @@ func TestPluginsAPIUpdateOnlyFromTheSameAddress(t *testing.T) {
 	v1.Store("1.0.0")
 	m1.Store(`{"id":"cloud","version":"1.0.0","api":2,"permissions":{}}`)
 	v2.Store("1.1.0")
-	m2.Store(`{"id":"cloud","version":"1.1.0","api":2,"permissions":{"internet":"*"}}`)
+	m2.Store(`{"id":"cloud","version":"1.1.0","api":2,"permissions":{"internet":{"hosts":["*"],"why":"any"}}}`)
 	first := pluginRepoServer(t, &v1, &m1)
 	other := pluginRepoServer(t, &v2, &m2)
 	dir := t.TempDir()

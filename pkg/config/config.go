@@ -343,9 +343,11 @@ type InstalledPlugin struct {
 	Grants      *PluginGrants          `json:"grants,omitempty"`      // What the user allowed; nil: what plugin.json asks for
 }
 
-// PluginGrants is what the user allowed a plugin. A plugin gets
-// what its plugin.json asks for and this allows; an update that asks for more waits for the user.
-// A permission is allowed when its field is set; its lists narrow it.
+// PluginGrants is what the user allowed a plugin, in the shape of plugin.json's permissions.
+// A plugin gets what plugin.json asks for and this allows; an update that asks for more
+// (a host, port, topic filter, action or permission) waits for the user. A permission is
+// allowed when its field is set; its lists narrow it, and nil lists of ports, topic filters
+// and actions are recorded from plugin.json the first time the plugin loads.
 type PluginGrants struct {
 	Internet *InternetGrant `json:"internet,omitempty"` // API 2; API 1 reaches any host
 	LAN      *LANGrant      `json:"lan,omitempty"`
@@ -353,11 +355,32 @@ type PluginGrants struct {
 	TCP      *HostsGrant    `json:"tcp,omitempty"` // TCP to local devices; Hosts narrow it
 	MQTT     *MQTTGrant     `json:"mqtt,omitempty"`
 	Modbus   *ModbusGrant   `json:"modbus,omitempty"`
-	// grenton_raw, tftp and serial reach CLUs, files on devices and the device on a port:
+	// clu, tftp and serial reach CLUs, files on devices and the device on a port:
 	// installing does not allow them, the user does
-	GrentonRaw *HostsGrant  `json:"grenton_raw,omitempty"`
-	TFTP       *HostsGrant  `json:"tftp,omitempty"`
-	Serial     *SerialGrant `json:"serial,omitempty"`
+	CLU    *CLUGrant    `json:"clu,omitempty"`
+	TFTP   *HostsGrant  `json:"tftp,omitempty"`
+	Serial *SerialGrant `json:"serial,omitempty"`
+	// Actions: the declared actions agents and voice may call; nil: not recorded yet
+	Actions *[]string `json:"actions,omitempty"`
+}
+
+// UnmarshalJSON also reads grants written before plugin.json's permissions became objects:
+// grenton_raw is clu, and port lists recorded for WebSockets or broadcasts only are recorded
+// again from plugin.json.
+func (g *PluginGrants) UnmarshalJSON(data []byte) error {
+	type plain PluginGrants
+	var v struct {
+		plain
+		GrentonRaw *HostsGrant `json:"grenton_raw,omitempty"`
+	}
+	if err := json.Unmarshal(data, &v); err != nil {
+		return err
+	}
+	*g = PluginGrants(v.plain)
+	if g.CLU == nil && v.GrentonRaw != nil {
+		g.CLU = &CLUGrant{Hosts: v.GrentonRaw.Hosts}
+	}
+	return nil
 }
 
 // InternetGrant: the internet hosts of the plugin's request the user allowed ("*" any);
@@ -367,29 +390,40 @@ type InternetGrant struct {
 }
 
 // LANGrant: Hosts are IP addresses or CIDR prefixes; without the list any local address.
+// Ports: the local ports its HTTP and WebSockets reach; AnyPort when plugin.json asks for any
+// and the user allowed that.
 type LANGrant struct {
-	Hosts []string `json:"hosts,omitzero"`
-	// local ports its WebSockets reach; nil (allowed before ports were recorded): plugin.json's
-	WebSocketPorts *[]int `json:"websocketPorts,omitempty"`
+	Hosts   []string `json:"hosts,omitzero"`
+	Ports   *[]int   `json:"ports,omitempty"`
+	AnyPort bool     `json:"anyPort,omitempty"`
 }
 
-// MQTTGrant: topic filters (+, #) the plugin may subscribe to and publish on; without a
-// list any topic, an empty list none.
+// MQTTGrant: topic filters (+, #) the plugin may subscribe to and publish on, within those
+// plugin.json declares; an empty list none.
 type MQTTGrant struct {
 	Subscribe []string `json:"subscribe,omitzero"`
 	Publish   []string `json:"publish,omitzero"`
 }
 
-type ModbusGrant struct{}
+// ModbusGrant: Hosts narrow the gateways the plugin reaches, as LANGrant's.
+type ModbusGrant struct {
+	Hosts []string `json:"hosts,omitzero"`
+}
 
 // HostsGrant: hosts (IP addresses or CIDR prefixes) of the local network the plugin may
-// reach; without the list any, never vCLU's own addresses.
+// reach; without the list any, never vclu's own addresses. Ports (udp and tcp) and Broadcast
+// (udp): those of plugin.json the user allowed.
 type HostsGrant struct {
-	Hosts []string `json:"hosts,omitzero"`
-	// udp: the broadcast ports allowed, tcp: the ports; a port plugin.json adds later waits
-	// for the user. Nil (allowed before ports were recorded): those plugin.json lists.
-	BroadcastPorts *[]int `json:"broadcastPorts,omitempty"`
-	Ports          *[]int `json:"ports,omitempty"`
+	Hosts     []string `json:"hosts,omitzero"`
+	Ports     *[]int   `json:"ports,omitempty"`
+	Broadcast *[]int   `json:"broadcast,omitempty"`
+}
+
+// CLUGrant: the CLUs a plugin with clu reaches; a list of hosts stops broadcasts unless
+// Discovery is set.
+type CLUGrant struct {
+	Hosts     []string `json:"hosts,omitzero"`
+	Discovery bool     `json:"discovery,omitempty"`
 }
 
 // SerialGrant: the ports the user assigned to the plugin; without one it opens none.

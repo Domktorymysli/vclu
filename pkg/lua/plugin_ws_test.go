@@ -100,7 +100,7 @@ func wsEngine(t *testing.T, id, perms string) *LuaEngine {
 // order, and the server closing it reaches onClose with its code and reason.
 func TestPluginWSEchoAndClose(t *testing.T) {
 	port := wsServer(t, echo)
-	engine := wsEngine(t, "@t/ws", `{api = 2, lan = true, websocketLanPorts = {`+port+`}}`)
+	engine := wsEngine(t, "@t/ws", `{api = 2, lan = true, lanPorts = {`+port+`}}`)
 	if _, e := runPlugin(t, engine, "@t/ws", `
 		local p = Plugin:new("ws")
 		p.got, p.events = "", ""
@@ -183,11 +183,11 @@ func TestPluginWSLAN(t *testing.T) {
 		want      string
 	}{
 		{"@t/nolan", `{api = 2}`, false, `needs "lan"`},
-		{"@t/lan", `{api = 2, lan = true, websocketLanPorts = {` + port + `}}`, false, "open"},
-		{"@t/noports", `{api = 2, lan = true}`, false, `not in plugin.json's "websocket"`},
-		{"@t/otherport", `{api = 2, lan = true, websocketLanPorts = {8123}}`, false, `not in plugin.json's "websocket"`},
-		{"@t/narrow", `{api = 2, lan = true, websocketLanPorts = {` + port + `}, limits = {lanHosts = {"192.168.9.0/24"}}}`, false, "not among the hosts"},
-		{"@t/own", `{api = 2, lan = true, websocketLanPorts = {` + port + `}}`, true, "an address of this vclu"},
+		{"@t/lan", `{api = 2, lan = true, lanPorts = {` + port + `}}`, false, "open"},
+		{"@t/anyport", `{api = 2, lan = true}`, false, "open"}, // lan without ports: any port
+		{"@t/otherport", `{api = 2, lan = true, lanPorts = {8123}}`, false, `permissions.lan.ports`},
+		{"@t/narrow", `{api = 2, lan = true, lanPorts = {` + port + `}, limits = {lanHosts = {"192.168.9.0/24"}}}`, false, "not among the hosts"},
+		{"@t/own", `{api = 2, lan = true, lanPorts = {` + port + `}}`, true, "an address of this vclu"},
 	}
 	for _, c := range cases {
 		engine := sandboxEngine(t, c.id, c.perms)
@@ -207,7 +207,7 @@ func TestPluginWSHeaders(t *testing.T) {
 		_ = c.WriteMessage(websocket.TextMessage, []byte(r.Header.Get("Authorization")+"|"+r.Header.Get("Origin")))
 		_, _, _ = c.ReadMessage()
 	})
-	engine := wsEngine(t, "@t/h", `{api = 2, lan = true, websocketLanPorts = {`+port+`}}`)
+	engine := wsEngine(t, "@t/h", `{api = 2, lan = true, lanPorts = {`+port+`}}`)
 	if _, e := runPlugin(t, engine, "@t/h", `
 		local p = Plugin:new("h")
 		local ws = assert(p:websocket("ws://127.0.0.1:`+port+`/", {headers = {Authorization = "Bearer t", Origin = "https://app"}}))
@@ -240,7 +240,7 @@ func TestPluginWSLimits(t *testing.T) {
 		time.Sleep(2 * time.Second)
 		c.Close()
 	})
-	engine := wsEngine(t, "@t/lim", `{api = 2, lan = true, websocketLanPorts = {`+big+`, `+strconv.Itoa(silent)+`}}`)
+	engine := wsEngine(t, "@t/lim", `{api = 2, lan = true, lanPorts = {`+big+`, `+strconv.Itoa(silent)+`}}`)
 	if _, e := runPlugin(t, engine, "@t/lim", `
 		local p = Plugin:new("lim")
 		local function watch(key, url, opts)
@@ -269,7 +269,7 @@ func TestPluginWSLimits(t *testing.T) {
 func TestPluginWSCloseReloadAndLimit(t *testing.T) {
 	var cc closeCodes
 	port := wsServer(t, cc.serve)
-	engine := wsEngine(t, "@t/c", `{api = 2, lan = true, websocketLanPorts = {`+port+`}}`)
+	engine := wsEngine(t, "@t/c", `{api = 2, lan = true, lanPorts = {`+port+`}}`)
 	if _, e := runPlugin(t, engine, "@t/c", `
 		local p = Plugin:new("c")
 		local ws = assert(p:websocket("ws://127.0.0.1:`+port+`/"))
@@ -307,7 +307,7 @@ func TestPluginWSCloseReloadAndLimit(t *testing.T) {
 func TestPluginWSGrantWithdrawn(t *testing.T) {
 	var cc closeCodes
 	port := wsServer(t, cc.serve)
-	engine := wsEngine(t, "@t/g", `{api = 2, lan = true, websocketLanPorts = {`+port+`}}`)
+	engine := wsEngine(t, "@t/g", `{api = 2, lan = true, lanPorts = {`+port+`}}`)
 	if _, e := runPlugin(t, engine, "@t/g", `
 		local p = Plugin:new("g")
 		p.ws = assert(p:websocket("ws://127.0.0.1:`+port+`/"))
@@ -354,7 +354,7 @@ func TestPluginWSGrantWithdrawn(t *testing.T) {
 // API 1 reaches what its HTTP does: any internet host, local ones.
 func TestPluginWSAPI1(t *testing.T) {
 	port := wsServer(t, echo)
-	engine := wsEngine(t, "@t/old", `{api = 1, lan = true, websocketLanPorts = {`+port+`}}`)
+	engine := wsEngine(t, "@t/old", `{api = 1, lan = true, lanPorts = {`+port+`}}`)
 	engine.httpManager.testResolve = map[string]string{"any.example.org": "127.0.0.1"}
 	if _, e := runPlugin(t, engine, "@t/old", `
 		local p = Plugin:new("old")
@@ -378,9 +378,9 @@ func TestPluginWSLANPorts(t *testing.T) {
 		taken     bool
 		want      string
 	}{
-		{"@t/listed", `{api = 2, lan = true, websocketLanPorts = {` + port + `}}`, false, "open"},
-		{"@t/mqtt", `{api = 2, lan = true, websocketLanPorts = {1883, ` + port + `}}`, false, "belongs to the mqtt permission"},
-		{"@t/broker", `{api = 2, lan = true, websocketLanPorts = {` + port + `}}`, true, "vclu uses it with the mqtt permission"},
+		{"@t/listed", `{api = 2, lan = true, lanPorts = {` + port + `}}`, false, "open"},
+		{"@t/mqtt", `{api = 2, lan = true, lanPorts = {1883, ` + port + `}}`, false, "belongs to the mqtt permission"},
+		{"@t/broker", `{api = 2, lan = true, lanPorts = {` + port + `}}`, true, "vclu uses it with the mqtt permission"},
 	}
 	for _, c := range cases {
 		engine := wsEngine(t, c.id, c.perms)

@@ -3,6 +3,7 @@ package plugins
 import (
 	"fmt"
 	"net/netip"
+	"slices"
 	"strings"
 
 	"github.com/Domktorymysli/vclu/pkg/config"
@@ -47,7 +48,7 @@ func validTopicFilter(f string) bool {
 // maxGrantList: entries in one list of a grant.
 const maxGrantList = 256
 
-// ValidateGrants checks the hosts and topic filters the user narrowed a plugin to.
+// ValidateGrants checks the hosts, ports and topic filters the user narrowed a plugin to.
 func ValidateGrants(g config.PluginGrants) error {
 	var lists [][]string
 	if g.Internet != nil {
@@ -59,13 +60,22 @@ func ValidateGrants(g config.PluginGrants) error {
 	if g.MQTT != nil {
 		lists = append(lists, g.MQTT.Subscribe, g.MQTT.Publish)
 	}
-	for _, h := range []*config.HostsGrant{g.UDP, g.TCP, g.GrentonRaw, g.TFTP} {
+	for _, h := range []*config.HostsGrant{g.UDP, g.TCP, g.TFTP} {
 		if h != nil {
 			lists = append(lists, h.Hosts)
 		}
 	}
+	if g.Modbus != nil {
+		lists = append(lists, g.Modbus.Hosts)
+	}
+	if g.CLU != nil {
+		lists = append(lists, g.CLU.Hosts)
+	}
 	if g.Serial != nil {
 		lists = append(lists, g.Serial.Ports)
+	}
+	if g.Actions != nil {
+		lists = append(lists, *g.Actions)
 	}
 	for _, l := range lists {
 		if len(l) > maxGrantList {
@@ -81,26 +91,36 @@ func ValidateGrants(g config.PluginGrants) error {
 		if _, err := ParseHosts(g.LAN.Hosts); err != nil {
 			return fmt.Errorf("lan hosts: %w", err)
 		}
-		if err := validPorts("lan", g.LAN.WebSocketPorts); err != nil {
+		if err := validPorts("lan", g.LAN.Ports); err != nil {
 			return err
 		}
 	}
-	for name, h := range map[string]*config.HostsGrant{"udp": g.UDP, "tcp": g.TCP, "grenton_raw": g.GrentonRaw, "tftp": g.TFTP} {
+	hosts := map[string][]string{}
+	for name, h := range map[string]*config.HostsGrant{"udp": g.UDP, "tcp": g.TCP, "tftp": g.TFTP} {
 		if h == nil {
 			continue
 		}
-		if _, err := ParseHosts(h.Hosts); err != nil {
-			return fmt.Errorf("%s hosts: %w", name, err)
-		}
-		for _, ports := range []*[]int{h.BroadcastPorts, h.Ports} {
+		hosts[name] = h.Hosts
+		for _, ports := range []*[]int{h.Broadcast, h.Ports} {
 			if err := validPorts(name, ports); err != nil {
 				return err
 			}
 		}
 	}
+	if g.Modbus != nil {
+		hosts["modbus"] = g.Modbus.Hosts
+	}
+	if g.CLU != nil {
+		hosts["clu"] = g.CLU.Hosts
+	}
+	for name, list := range hosts {
+		if _, err := ParseHosts(list); err != nil {
+			return fmt.Errorf("%s hosts: %w", name, err)
+		}
+	}
 	if g.Serial != nil {
 		for _, port := range g.Serial.Ports {
-			if !strings.HasPrefix(port, "/dev/") || strings.Contains(port, "..") {
+			if !strings.HasPrefix(port, "/dev/") || strings.Contains(port, "..") || len(port) > 128 {
 				return fmt.Errorf("serial: %q is not a device path such as /dev/ttyUSB0", port)
 			}
 		}
@@ -114,7 +134,67 @@ func ValidateGrants(g config.PluginGrants) error {
 			}
 		}
 	}
+	if g.Actions != nil {
+		for _, a := range *g.Actions {
+			if !ValidActionName(a) {
+				return fmt.Errorf("actions: %q is not an action name", a)
+			}
+		}
+	}
 	return nil
+}
+
+// WithinRequest drops from g what the plugin does not ask for: ports, topic filters and
+// actions are only ever narrowed by the user, never widened past plugin.json.
+func WithinRequest(g config.PluginGrants, requested Permissions) config.PluginGrants {
+	keep := func(granted *[]int, asked []int) *[]int {
+		if granted == nil {
+			return nil
+		}
+		out := []int{}
+		for _, p := range *granted {
+			if slices.Contains(asked, p) {
+				out = append(out, p)
+			}
+		}
+		return &out
+	}
+	if g.LAN != nil && requested.LANPorts != nil {
+		g.LAN.AnyPort = false
+		g.LAN.Ports = keep(g.LAN.Ports, requested.LANPorts)
+	}
+	if g.UDP != nil {
+		g.UDP.Ports, g.UDP.Broadcast = keep(g.UDP.Ports, requested.UDPPorts), keep(g.UDP.Broadcast, requested.BroadcastPorts)
+	}
+	if g.TCP != nil {
+		g.TCP.Ports = keep(g.TCP.Ports, requested.TCPPorts)
+	}
+	if g.MQTT != nil {
+		within := func(granted, asked []string) []string {
+			if granted == nil || asked == nil {
+				return granted
+			}
+			out := []string{}
+			for _, f := range granted {
+				if slices.ContainsFunc(asked, func(a string) bool { return filterCovers(a, f) }) {
+					out = append(out, f)
+				}
+			}
+			return out
+		}
+		g.MQTT.Subscribe = within(g.MQTT.Subscribe, requested.mqttAsk(requested.MQTTSubscribe))
+		g.MQTT.Publish = within(g.MQTT.Publish, requested.mqttAsk(requested.MQTTPublish))
+	}
+	if g.Actions != nil {
+		out := []string{}
+		for _, a := range *g.Actions {
+			if slices.Contains(requested.Actions, a) {
+				out = append(out, a)
+			}
+		}
+		g.Actions = &out
+	}
+	return g
 }
 
 // validPorts: a granted list of whole ports 1-65535.

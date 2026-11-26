@@ -101,7 +101,7 @@ func TestPluginsAPIInstallUpdateFromAnotherRepository(t *testing.T) {
 
 // An entry from before repositories were recorded gets the one its update comes from.
 func TestPluginsAPIInstallUpdateRecordsRepository(t *testing.T) {
-	got := updateFrom(t, `{"id":"shelly","version":"1.1.0","api":2,"permissions":{"lan":true},"files":["init.lua"]}`,
+	got := updateFrom(t, `{"id":"shelly","version":"1.1.0","api":2,"permissions":{"lan":{"why":"devices"}},"files":["init.lua"]}`,
 		config.InstalledPlugin{ID: "@jan/shelly", Version: "1.0.0", Enabled: true})
 	if got.Repository != "test" || got.Version != "1.1.0" {
 		t.Errorf("after the update: %+v", got)

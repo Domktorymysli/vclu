@@ -14,12 +14,15 @@ func appsHarness(t *testing.T) (*MCPServer, *mockAccessChecker, *lua.LuaEngine) 
 	t.Helper()
 	engine := lua.NewLuaEngine()
 	t.Cleanup(engine.Close)
-	if _, err := engine.Execute(`PluginSandbox:create("@jan/zakupy", nil)
+	if _, err := engine.Execute(`PluginSandbox:create("@jan/zakupy", {actions = {
+			add = {allowed = true, description = {pl = "Dodaj do listy", en = "Add to the list"}, params = {item = {type = "string", required = true}}},
+			on = {allowed = true, description = "x"},
+			clear_all = {allowed = true, confirm = true, description = "Clear"}}})
 		local _, err = PluginSandbox:execute("@jan/zakupy", [==[
 			local p = Plugin:new("zakupy", {})
 			local items = {}
-			p:action("add", {description = {pl = "Dodaj do listy", en = "Add to the list"},
-				params = {item = {type = "string", required = true}}}, function(params)
+			p:action("clear_all", function() return "cleared" end)
+			p:action("add", function(params)
 				items[#items + 1] = params.item
 				return {count = #items, items = items}
 			end)
@@ -107,7 +110,7 @@ func TestAppActionActsAsBot(t *testing.T) {
 		PluginSandbox.sandboxes["@jan/zakupy"].instance._sw = v
 		PluginSandbox:execute("@jan/zakupy", [==[
 			local p = Plugin.getPlugin("@jan/zakupy")
-			p:action("on", {description = "x"}, function() p._sw:switchOn() return true end)
+			p:action("on", function() p._sw:switchOn() return true end)
 		]==])`); err != nil {
 		t.Fatal(err)
 	}
@@ -129,5 +132,22 @@ func TestRuntimeSchemaListsAppActions(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Errorf("schema: no %s", want)
 		}
+	}
+}
+
+// An action plugin.json marks confirm runs only when the bot says the user agreed.
+func TestAppActionConfirm(t *testing.T) {
+	srv, _, _ := appsHarness(t)
+	res, _ := srv.handleAppAction(botCtx(), makeCallRequest(map[string]any{"plugin": "@jan/zakupy", "action": "clear_all"}))
+	if !res.IsError || !strings.Contains(extractText(t, res), "confirmation") {
+		t.Fatalf("without confirmed: %s", extractText(t, res))
+	}
+	res, _ = srv.handleAppAction(botCtx(), makeCallRequest(map[string]any{"plugin": "@jan/zakupy", "action": "clear_all", "confirmed": true}))
+	if res.IsError || !strings.Contains(extractText(t, res), "cleared") {
+		t.Fatalf("confirmed: %s", extractText(t, res))
+	}
+	list, _ := srv.handleAppActions(botCtx(), makeCallRequest(nil))
+	if !strings.Contains(extractText(t, list), `"confirm":true`) {
+		t.Errorf("list: %s", extractText(t, list))
 	}
 }

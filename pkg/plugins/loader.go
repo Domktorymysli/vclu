@@ -39,16 +39,15 @@ func (l *Loader) executeAsPlugin(pluginID, script string) (string, error) {
 	return l.luaExecutor.Execute(script)
 }
 
-// PluginManifest represents plugin.json structure
+// PluginManifest represents plugin.json structure (manifest.go reads it)
 type PluginManifest struct {
 	ID           string              `json:"id"`
-	Name         string              `json:"name"`
+	Name         LocalText           `json:"name"`
 	Version      string              `json:"version"`
-	Description  string              `json:"description"`
+	Description  LocalText           `json:"description"`
 	Author       string              `json:"author"`
 	Homepage     string              `json:"homepage,omitempty"`
 	License      string              `json:"license,omitempty"`
-	MinVCLU      string              `json:"minVcluVersion,omitempty"`
 	Tags         []string            `json:"tags,omitempty"`
 	Dependencies []string            `json:"dependencies,omitempty"`
 	ConfigSchema []ConfigFieldSchema `json:"configSchema,omitempty"`
@@ -56,12 +55,14 @@ type PluginManifest struct {
 	Files        []string            `json:"files,omitempty"` // Additional files to download (default: ["init.lua"])
 	API          int                 `json:"api,omitempty"`   // plugin API version; 0 = 1
 	Permissions  *Permissions        `json:"permissions,omitempty"`
-	UDP          *ManifestUDP        `json:"udp,omitempty"`       // broadcast ports, with the udp permission
-	TCP          *ManifestTCP        `json:"tcp,omitempty"`       // ports, with the tcp permission
-	WebSocket    *ManifestWebSocket  `json:"websocket,omitempty"` // local ports of WebSockets, with lan
-	Form         string              `json:"form,omitempty"`      // the wizard's form file, next to plugin.json
+	Requires     *ManifestRequires   `json:"requires,omitempty"`
+	Form         string              `json:"form,omitempty"` // the wizard's form file, next to plugin.json
 	// Dashboards the plugin builds with plugin:dashboard; access is the user's (dashboards.go)
 	Dashboards ManifestDashboards `json:"dashboards,omitempty"`
+	// Actions agents and voice call (plugin:action names one of them)
+	Actions ManifestActions `json:"actions,omitempty"`
+
+	unknownKeys []string
 }
 
 // PluginDoc represents a documentation file in plugin.json
@@ -304,12 +305,13 @@ var ErrChangedSincePreview = errors.New("changed since the confirmation")
 
 // Preview: what a plugin's version asks for, before it is installed.
 type Preview struct {
-	Requested      Permissions
-	Version        string
-	API            int   // the plugin API of that version
-	BroadcastPorts []int // with udp: where it may broadcast
-	TCPPorts       []int // with tcp: where it may connect
-	WebSocketPorts []int // with lan: the local ports its WebSockets reach
+	Requested Permissions
+	Version   string
+	API       int // the plugin API of that version
+	Actions   ManifestActions
+	// RequiresVclu: the vclu version it needs (">=X.Y.Z"); NeedsNewer when this one is older
+	RequiresVclu string
+	NeedsNewer   bool
 }
 
 // PreviewPermissions reads the plugin.json of the version the repository lists, from the
@@ -357,7 +359,12 @@ func (l *Loader) PreviewPermissions(repo config.PluginRepository, pluginID strin
 	if err != nil {
 		return Preview{}, err
 	}
-	return Preview{Requested: requestedPermissions(m), Version: listing.Version, API: manifestAPI(m), BroadcastPorts: m.BroadcastPorts(), TCPPorts: m.TCPPorts(), WebSocketPorts: m.WebSocketPorts()}, nil
+	pv := Preview{Requested: requestedPermissions(m), Version: listing.Version, API: manifestAPI(m), Actions: m.Actions}
+	if m.Requires != nil {
+		pv.RequiresVclu = m.Requires.Vclu
+	}
+	pv.NeedsNewer = m.checkRequires() != nil
+	return pv, nil
 }
 
 // downloadPlugin downloads the version the repository lists; with newerThan, only when that
@@ -848,14 +855,14 @@ func (l *Loader) LoadPlugin(pluginID string, pluginConfig map[string]interface{}
 			l.recordAPI(pluginID, api)
 		}
 	}
-	if err := manifest.checkUDP(); err != nil {
+	if err := manifest.checkRequires(); err != nil {
 		return fmt.Errorf("plugin %s: %w", pluginID, err)
 	}
-	if err := manifest.checkTCP(); err != nil {
+	if err := checkFormFile(localDir, manifest); err != nil {
 		return fmt.Errorf("plugin %s: %w", pluginID, err)
 	}
-	if err := manifest.checkWebSocket(); err != nil {
-		return fmt.Errorf("plugin %s: %w", pluginID, err)
+	if keys := manifest.UnknownKeys(); len(keys) > 0 {
+		log.Printf("[PLUGINS] %s: plugin.json has keys this vclu does not read: %s", pluginID, strings.Join(keys, ", "))
 	}
 
 	// 1. Create sandbox for the plugin
@@ -870,12 +877,23 @@ func (l *Loader) LoadPlugin(pluginID string, pluginConfig map[string]interface{}
 		dashboards[d.ID] = map[string]string{"name": d.Name.In("pl")}
 	}
 	dashJSON, _ := json.Marshal(dashboards)
-	// the ports the user allowed of those plugin.json lists
+	// the ports the user allowed of those plugin.json lists; lan's nil: any port
 	broadcastJSON, _ := json.Marshal(append([]int{}, perms.BroadcastPorts...))
+	udpJSON, _ := json.Marshal(append([]int{}, perms.UDPPorts...))
 	tcpJSON, _ := json.Marshal(append([]int{}, perms.TCPPorts...))
-	wsJSON, _ := json.Marshal(append([]int{}, perms.WebSocketPorts...))
-	createSandboxScript := fmt.Sprintf(`PluginSandbox:create(%s, {api = %d, lan = %t, udp = %t, tcp = %t, mqtt = %t, modbus = %t, grenton_raw = %t, tftp = %t, serial = %t, official = %t, limits = JSON:decode(%s), dashboards = JSON:decode(%s), udpBroadcastPorts = JSON:decode(%s), tcpPorts = JSON:decode(%s), websocketLanPorts = JSON:decode(%s)})`,
-		luastr.Quote(pluginID), api, perms.LAN, perms.UDP, perms.TCP, perms.MQTT, perms.Modbus, perms.GrentonRaw, perms.TFTP, perms.Serial, official, luastr.Quote(string(limitsJSON)), luastr.Quote(string(dashJSON)), luastr.Quote(string(broadcastJSON)), luastr.Quote(string(tcpJSON)), luastr.Quote(string(wsJSON)))
+	lanJSON := []byte("null")
+	if perms.LANPorts != nil {
+		lanJSON, _ = json.Marshal(perms.LANPorts)
+	}
+	// the declared actions: those the user allowed run, the others wait
+	actions := map[string]map[string]any{}
+	for _, a := range manifest.Actions {
+		actions[a.Name] = map[string]any{"description": a.Description, "params": a.Params, "confirm": a.Confirm,
+			"allowed": slices.Contains(perms.Actions, a.Name)}
+	}
+	actionsJSON, _ := json.Marshal(actions)
+	createSandboxScript := fmt.Sprintf(`PluginSandbox:create(%s, {api = %d, lan = %t, udp = %t, tcp = %t, mqtt = %t, modbus = %t, grenton_raw = %t, tftp = %t, serial = %t, official = %t, limits = JSON:decode(%s), dashboards = JSON:decode(%s), udpBroadcastPorts = JSON:decode(%s), udpPorts = JSON:decode(%s), tcpPorts = JSON:decode(%s), lanPorts = JSON:decode(%s), actions = JSON:decode(%s)})`,
+		luastr.Quote(pluginID), api, perms.LAN, perms.UDP, perms.TCP, perms.MQTT, perms.Modbus, perms.CLU, perms.TFTP, perms.Serial, official, luastr.Quote(string(limitsJSON)), luastr.Quote(string(dashJSON)), luastr.Quote(string(broadcastJSON)), luastr.Quote(string(udpJSON)), luastr.Quote(string(tcpJSON)), luastr.Quote(string(lanJSON)), luastr.Quote(string(actionsJSON)))
 	if _, err := l.luaExecutor.Execute(createSandboxScript); err != nil {
 		return fmt.Errorf("failed to create sandbox: %w", err)
 	}
@@ -935,7 +953,7 @@ func (l *Loader) LoadPlugin(pluginID string, pluginConfig map[string]interface{}
 	}
 	l.loadedMu.Unlock()
 
-	log.Printf("[PLUGINS] loaded %s v%s (%s)", manifest.Name, manifest.Version, pluginID)
+	log.Printf("[PLUGINS] loaded %s v%s (%s)", manifest.Name.In("pl"), manifest.Version, pluginID)
 	return nil
 }
 
@@ -1153,7 +1171,7 @@ func (l *Loader) UnloadPlugin(pluginID string) error {
 		l.luaExecutor.Execute(sandboxCleanupScript)
 	}
 
-	log.Printf("[PLUGINS] unloaded %s", plugin.Manifest.Name)
+	log.Printf("[PLUGINS] unloaded %s", plugin.Manifest.Name.In("pl"))
 	return nil
 }
 
@@ -1193,13 +1211,10 @@ func checkDownloadedManifest(path string) error {
 	} else if api < PluginAPIMin {
 		return fmt.Errorf("plugin API %d is not supported (this vclu runs %d to %d)", api, PluginAPIMin, PluginAPIMax)
 	}
-	if err := m.checkUDP(); err != nil {
+	if err := m.checkRequires(); err != nil {
 		return err
 	}
-	if err := m.checkWebSocket(); err != nil {
-		return err
-	}
-	return m.checkTCP()
+	return checkFormFile(filepath.Dir(path), m)
 }
 
 // checkAPIFloor: the manifest at path is on plugin API floor or higher.

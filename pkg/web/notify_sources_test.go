@@ -220,8 +220,8 @@ func pluginFiles(t *testing.T, dir, id, version, manifest string) {
 func TestPermissionNoticeAfterUpdate(t *testing.T) {
 	e, n := newNotifyEnv(t)
 	repo := manifestRepo(t, "shelly", "1.1.0",
-		`{"id":"shelly","version":"1.1.0","api":2,"permissions":{"lan":true,"mqtt":true},"files":["init.lua"]}`)
-	pluginFiles(t, e.dir, "@jan/shelly", "1.0.0", `{"id":"shelly","version":"1.0.0","api":2,"permissions":{"lan":true}}`)
+		`{"id":"shelly","version":"1.1.0","api":2,"permissions":{"lan":{"why":"devices"},"mqtt":{"why":"topics"}},"files":["init.lua"]}`)
+	pluginFiles(t, e.dir, "@jan/shelly", "1.0.0", `{"id":"shelly","version":"1.0.0","api":2,"permissions":{"lan":{"why":"devices"}}}`)
 	if err := writeTestConfig(e.dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
 		Repositories: []config.PluginRepository{{Name: "test", URL: repo.URL, Enabled: true}},
 		Installed:    []config.InstalledPlugin{{ID: "@jan/shelly", Version: "1.0.0", Enabled: true, Repository: "test"}},
@@ -261,7 +261,7 @@ func TestPermissionNoticeLists(t *testing.T) {
 	e, n := newNotifyEnv(t)
 	var installed []config.InstalledPlugin
 	for i, id := range []string{"@jan/e", "@jan/d", "@jan/c", "@jan/b", "@jan/a"} {
-		pluginFiles(t, e.dir, id, "1.0.0", `{"version":"1.0.0","api":2,"permissions":{"mqtt":true}}`)
+		pluginFiles(t, e.dir, id, "1.0.0", `{"version":"1.0.0","api":2,"permissions":{"mqtt":{"why":"topics"}}}`)
 		installed = append(installed, config.InstalledPlugin{ID: id, Version: "1.0.0", Enabled: i > 0, Grants: &config.PluginGrants{}})
 	}
 	if err := writeTestConfig(e.dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{Installed: installed}}); err != nil {

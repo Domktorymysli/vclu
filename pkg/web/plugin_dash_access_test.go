@@ -24,7 +24,7 @@ func dashWizardServer(t *testing.T) (*Server, string) {
 		t.Fatal(err)
 	}
 	for name, body := range map[string]string{
-		"plugin.json": `{"id": "clu", "version": "1.0.0", "api": 2,
+		"plugin.json": `{"id": "clu", "version": "1.0.0", "api": 2, "permissions": {},
 			"dashboards": [{"id": "lista", "name": {"pl": "Zakupy", "en": "Shopping"}, "description": "Lista"}]}`,
 		"init.lua":  "return {}",
 		".complete": "ok",
@@ -131,7 +131,7 @@ func TestPluginsAPIFormDashboardsWithoutForm(t *testing.T) {
 func TestPluginsAPIFormDashboardsNextToForm(t *testing.T) {
 	s, dir := wizardServer(t, nil)
 	pj := filepath.Join(dir, "plugins", "jan--clu", "1.0.0", "plugin.json")
-	_ = os.WriteFile(pj, []byte(`{"id": "clu", "version": "1.0.0", "api": 2, "form": "form.json",
+	_ = os.WriteFile(pj, []byte(`{"id": "clu", "version": "1.0.0", "api": 2, "permissions": {}, "form": "form.json",
 		"dashboards": [{"id": "lista", "name": "Lista"}]}`), 0o644)
 	if code, out := wizardCall(t, s, http.MethodPost, `{"dashboards": {"lista": {"auth": "off"}}}`, s.handlePluginsAPISaveForm); code != http.StatusOK {
 		t.Fatalf("save: %d %v", code, out)

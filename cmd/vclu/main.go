@@ -211,6 +211,7 @@ func main() {
 	})
 
 	webSrv.SetVersion(version)                          // Version shown in the sidebar
+	plugins.SetVcluVersion(version)                     // what plugin.json's requires.vclu is checked against
 	webSrv.SetCLUCommander(srv)                         // Wire up CLU commander for sending commands
 	webSrv.SetBrokerController(srv)                     // Wire up MQTT broker controller
 	webSrv.SetLuaReloader(srv)                          // Wire up Lua reloader for web editor

@@ -32,6 +32,9 @@ func installTestPlugin(t *testing.T, dir, id string, manifest map[string]interfa
 	t.Helper()
 	manifest["id"] = id
 	manifest["version"] = "1.0.0"
+	if _, ok := manifest["permissions"]; !ok && manifest["api"] == 2 {
+		manifest["permissions"] = map[string]any{} // plugin API 2 declares them, {} for none
+	}
 	raw, _ := json.Marshal(manifest)
 	dst := filepath.Join(dir, "plugins", strings.TrimPrefix(strings.ReplaceAll(id, "/", "--"), "@"), "1.0.0")
 	if err := os.MkdirAll(dst, 0o755); err != nil {
@@ -93,7 +96,7 @@ func TestPluginAPI2FollowsItsDeclaration(t *testing.T) {
 	}
 
 	dir = t.TempDir()
-	loader = installTestPlugin(t, dir, "@jan/v2", map[string]interface{}{"api": 2, "permissions": map[string]bool{"mqtt": true}}, `
+	loader = installTestPlugin(t, dir, "@jan/v2", map[string]interface{}{"api": 2, "permissions": map[string]any{"mqtt": map[string]string{"why": "topics"}}}, `
 		local plugin = Plugin:new("v2", {})
 		plugin:onInit(function()
 			plugin:mqttSubscribe("v2/set", function() end)

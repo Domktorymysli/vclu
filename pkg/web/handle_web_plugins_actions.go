@@ -38,7 +38,8 @@ func (s *Server) handlePluginsAPIActions(c *gin.Context) {
 }
 
 // handlePluginsAPICallAction runs a plugin's action with the JSON body as its params, as the
-// request's initiator: {result}, or {error} with 404 (no such action), 400 (params) or 422.
+// request's initiator: {result}, or {error} with 404 (no such action), 400 (params), 409 (it
+// asks for the user's confirmation: ?confirmed=true once the user agreed) or 422.
 func (s *Server) handlePluginsAPICallAction(c *gin.Context) {
 	if s.luaExecutor == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Lua engine not ready"})
@@ -61,7 +62,7 @@ func (s *Server) handlePluginsAPICallAction(c *gin.Context) {
 			return
 		}
 	}
-	script, err := plugins.CallActionScript(id, name, params)
+	script, err := plugins.CallActionScript(id, name, params, c.Query("confirmed") == "true")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -79,6 +80,8 @@ func (s *Server) handlePluginsAPICallAction(c *gin.Context) {
 			status = http.StatusNotFound
 		case "invalid":
 			status = http.StatusBadRequest
+		case "confirm":
+			status = http.StatusConflict
 		case "failed":
 			status = http.StatusUnprocessableEntity
 		}
