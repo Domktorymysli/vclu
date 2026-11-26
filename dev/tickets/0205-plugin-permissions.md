@@ -226,17 +226,24 @@ running: the manifest names the plugin API it is written for, and the stricter c
       load budget; modules keep the callback limit (`TestPluginBudget*`, `TestSuspendedPluginStaysOff`,
       `TestPluginsAPISuspendedPluginResumes`); the cost on a module's loop is not measurable
       (`BenchmarkPluginBudget`).
-- [ ] A plugin's HTTP to vclu's own port is refused, by its address or a name resolving to it,
-      also with a host list naming it; another port on the machine and a module's request pass
-      (`TestHTTPManagerPluginNotToOwnAddress`).
+- [ ] A plugin's HTTP and WebSocket to vclu's own ports are refused on every plugin API, by its
+      address in any form (127.x, localhost, 0.0.0.0, ::, ::1, ::ffff:127.0.0.1, an interface
+      address) or a name resolving to it, also with a host list naming it; another port on the
+      machine and a module's request pass (`TestHTTPManagerPluginNotToOwnAddress`,
+      `TestReviewHTTPOwnPortRefused`, `TestReviewWSOwnPortRefused`).
 - [ ] Installing records the `udp` and `tcp` ports in the grant; an update adding a port shows
       it waiting and the plugin reaches only the ports allowed before; allowing it gives it; a
       port plugin.json drops is not reached; an old grant records the listed ports at load
       (`TestPortsInTheGrant`, `TestPortsReachTheSandboxAndOldGrantsRecordThem`).
+- [ ] Installing grants only the hosts and ports the confirmation showed: files that ask for more
+      than the preview leave the rest waiting (`TestPluginsAPIInstallGrantsOnlyWhatWasSeen`,
+      `TestPortsSeenAtInstall`).
+- [ ] A permission taken away closes the plugin's handles that needed it (UDP, serial, TFTP, TCP,
+      WebSocket) (`TestReviewHandlesClosedWhenGrantDrops`, `TestReviewRawSendChecksGrant`).
 - [ ] `go test ./...` and `go test -race ./...` pass.
 - [ ] A changelog entry in `changelog.d/0205-plugin-permissions.md`.
 - [ ] `DEVELOPMENT.md` in `vclu-plugins` documents `permissions`, the event prefix and the id rule,
-      with the vCLU version that introduces them.
+      with the vclu version that introduces them.
 
 ## Contract impact
 Contract change in the plugin API (CONTRIBUTING.md), versioned: `api` and `permissions` (with the
