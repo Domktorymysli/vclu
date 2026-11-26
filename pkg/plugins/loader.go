@@ -102,6 +102,8 @@ type PluginListing struct {
 	Path        string   `json:"path"`
 	Categories  []string `json:"tags,omitempty"` // JSON: "tags" (category tags, not git tags)
 	GitTag      string   `json:"tag,omitempty"`  // JSON: "tag" (git tag for immutable download)
+	// SHA256: file name -> hex digest of each file the version downloads, plugin.json too
+	SHA256 map[string]string `json:"sha256,omitempty"`
 }
 
 // LockEntry represents a single plugin entry in the lock file
@@ -309,6 +311,8 @@ type Preview struct {
 	Version   string
 	API       int // the plugin API of that version
 	Actions   ManifestActions
+	// Dashboards: those plugin.json announces, shown before installing
+	Dashboards ManifestDashboards
 	// RequiresVclu: the vclu version it needs (">=X.Y.Z"); NeedsNewer when this one is older
 	RequiresVclu string
 	NeedsNewer   bool
@@ -321,10 +325,19 @@ func (l *Loader) PreviewPermissions(repo config.PluginRepository, pluginID strin
 	if !validPluginID(pluginID) {
 		return Preview{}, fmt.Errorf("invalid plugin id %q", pluginID)
 	}
-	_, shortId := parseFullId(pluginID)
+	namespace, shortId := parseFullId(pluginID)
 	index, err := l.FetchRepositoryIndex(repo)
 	if err != nil {
 		return Preview{}, fmt.Errorf("failed to fetch repository index: %w", err)
+	}
+	// a short id takes the namespace the repository gives, as installing does
+	if namespace == "" {
+		if namespace = index.Namespace; namespace == "" {
+			namespace = NamespaceFromName(repo.Name)
+		}
+	}
+	if !NamespaceAllowed(namespace, repo) {
+		return Preview{}, fmt.Errorf("@%s/%s from %s: %w", namespace, shortId, repo.Name, ErrReservedNamespace)
 	}
 	var listing *PluginListing
 	for i := range index.Plugins {
@@ -359,7 +372,7 @@ func (l *Loader) PreviewPermissions(repo config.PluginRepository, pluginID strin
 	if err != nil {
 		return Preview{}, err
 	}
-	pv := Preview{Requested: requestedPermissions(m), Version: listing.Version, API: manifestAPI(m), Actions: m.Actions}
+	pv := Preview{Requested: requestedPermissions(m), Version: listing.Version, API: manifestAPI(m), Actions: m.Actions, Dashboards: m.Dashboards}
 	if m.Requires != nil {
 		pv.RequiresVclu = m.Requires.Vclu
 	}
@@ -378,7 +391,10 @@ func (l *Loader) downloadPlugin(repo config.PluginRepository, pluginID, newerTha
 		return fmt.Errorf("invalid plugin id %q", pluginID)
 	}
 	// Parse fullId to get short id for repository lookup
-	_, shortId := parseFullId(pluginID)
+	namespace, shortId := parseFullId(pluginID)
+	if !NamespaceAllowed(namespace, repo) {
+		return fmt.Errorf("%s from %s: %w", pluginID, repo.Name, ErrReservedNamespace)
+	}
 
 	// Fetch repository index
 	index, err := l.FetchRepositoryIndex(repo)
@@ -435,7 +451,7 @@ func (l *Loader) downloadPlugin(repo config.PluginRepository, pluginID, newerTha
 
 	// Cache hit: immutable tag already downloaded from this repository
 	if listing.GitTag != "" {
-		if got, err := os.ReadFile(completeMarker); err == nil && string(got) == stamp {
+		if got, err := os.ReadFile(completeMarker); err == nil && string(got) == stamp && checkHashes(targetDir, *listing, repo) == nil {
 			if err := checkAPIFloor(pluginID, filepath.Join(targetDir, "plugin.json"), floor); err != nil {
 				return err
 			}
@@ -463,7 +479,8 @@ func (l *Loader) downloadPlugin(repo config.PluginRepository, pluginID, newerTha
 
 	// Try with git tag first, fallback to main on failure
 	baseURL := strings.TrimSuffix(resolver.RawFileURL(repo.URL, listing.GitTag, listing.Path), "/")
-	dlErr := l.downloadAllFiles(baseURL, tmpDir)
+	dlErr := l.downloadAllFiles(baseURL, tmpDir, listing.SHA256)
+	fromTag := dlErr == nil && listing.GitTag != ""
 	if dlErr != nil && listing.GitTag != "" {
 		log.Printf("[PLUGINS] WARNING: tag %s fetch failed (%v), retrying from main", listing.GitTag, dlErr)
 		os.RemoveAll(tmpDir)
@@ -471,11 +488,15 @@ func (l *Loader) downloadPlugin(repo config.PluginRepository, pluginID, newerTha
 			return fmt.Errorf("failed to create temp directory: %w", err)
 		}
 		baseURL = strings.TrimSuffix(resolver.RawFileURL(repo.URL, "", listing.Path), "/")
-		dlErr = l.downloadAllFiles(baseURL, tmpDir)
+		dlErr = l.downloadAllFiles(baseURL, tmpDir, listing.SHA256)
 	}
 	if dlErr != nil {
 		os.RemoveAll(tmpDir)
 		return fmt.Errorf("failed to download plugin: %w", dlErr)
+	}
+	if err := checkHashes(tmpDir, *listing, repo); err != nil {
+		_ = os.RemoveAll(tmpDir)
+		return fmt.Errorf("%s %s: %w", pluginID, listing.Version, err)
 	}
 	// A manifest this vclu cannot read, or one for a newer plugin API, would not load: the
 	// installed version stays
@@ -499,8 +520,8 @@ func (l *Loader) downloadPlugin(repo config.PluginRepository, pluginID, newerTha
 		return fmt.Errorf("failed to finalize download: %w", err)
 	}
 
-	// Mark as complete (only for tagged versions — untagged always re-download)
-	if listing.GitTag != "" {
+	// Mark as complete (only files of the tag: untagged and those from main always re-download)
+	if fromTag {
 		if err := os.WriteFile(completeMarker, []byte(stamp), 0644); err != nil {
 			log.Printf("[PLUGINS] WARNING: %s: no cache marker (%v), the next update downloads it again", pluginID, err)
 		}
@@ -525,7 +546,7 @@ const (
 )
 
 // downloadAllFiles downloads plugin.json and all files listed in the manifest
-func (l *Loader) downloadAllFiles(baseURL, localDir string) error {
+func (l *Loader) downloadAllFiles(baseURL, localDir string, sums map[string]string) error {
 	// 1. Download plugin.json (always required)
 	manifestURL := baseURL + "/plugin.json"
 	manifestPath := filepath.Join(localDir, "plugin.json")
@@ -533,10 +554,13 @@ func (l *Loader) downloadAllFiles(baseURL, localDir string) error {
 		return fmt.Errorf("failed to download plugin.json: %w", err)
 	}
 
-	// 2. Parse manifest to get file list
+	// 2. Parse manifest to get file list; with digests, only the plugin.json they name
 	manifestData, err := os.ReadFile(manifestPath)
 	if err != nil {
 		return fmt.Errorf("failed to read plugin.json: %w", err)
+	}
+	if sums != nil && !sumMatches(sums["plugin.json"], manifestData) {
+		return fmt.Errorf("%w: plugin.json", ErrHashMismatch)
 	}
 
 	var manifest PluginManifest
@@ -931,9 +955,15 @@ func (l *Loader) LoadPlugin(pluginID string, pluginConfig map[string]interface{}
 		return fmt.Errorf("failed to execute init.lua: %w", err)
 	}
 
-	// 4. Initialize plugin with config (triggers onInit callback)
-	initConfigScript := fmt.Sprintf(`Plugin.initFromConfig(%s, JSON:decode(%s))`,
-		luastr.Quote(pluginID), luastr.Quote(string(configJSON)))
+	// 4. Initialize plugin with config (triggers onInit callback); after an update it hears
+	// the version it was before, until an init succeeds
+	info := map[string]string{"version": manifest.Version}
+	if ok && inst.StartedVersion != "" && inst.StartedVersion != manifest.Version {
+		info["previousVersion"] = inst.StartedVersion
+	}
+	infoJSON, _ := json.Marshal(info)
+	initConfigScript := fmt.Sprintf(`Plugin.initFromConfig(%s, JSON:decode(%s), JSON:decode(%s))`,
+		luastr.Quote(pluginID), luastr.Quote(string(configJSON)), luastr.Quote(string(infoJSON)))
 	if _, err := l.executeAsPlugin(pluginID, initConfigScript); err != nil {
 		// Cleanup sandbox on failure
 		cleanupScript := fmt.Sprintf(`PluginSandbox:cleanup(%s)`, luastr.Quote(pluginID))
@@ -942,6 +972,9 @@ func (l *Loader) LoadPlugin(pluginID string, pluginConfig map[string]interface{}
 	}
 
 	_, _ = l.luaExecutor.Execute(fmt.Sprintf(`if __go_plugin_budget_loading then __go_plugin_budget_loading(%s, false) end`, luastr.Quote(pluginID)))
+	if ok && inst.StartedVersion != manifest.Version {
+		l.recordStarted(pluginID, manifest.Version)
+	}
 
 	// Store loaded plugin by fullId
 	l.loadedMu.Lock()

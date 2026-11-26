@@ -569,7 +569,7 @@ PluginsManager.prototype.install = function(id, repository) {
 /**
  * Show every permission, those the plugin asks for in green, and install on confirmation
  * @param {Object} preview - {version, api, downgradeFrom, needsNewer, requiresVclu, requested, internet, permissions, wide,
- *   warnings, actions, seen, all} from /api/plugins/preview
+ *   warnings, actions, dashboards, seen, all} from /api/plugins/preview
  */
 PluginsManager.prototype._confirmInstall = function(id, repository, preview) {
     var self = this;
@@ -619,6 +619,11 @@ PluginsManager.prototype._confirmInstall = function(id, repository, preview) {
             return '<li class="mb-1 small ms-3"><code>' + VCLU.esc(a.name) + '</code> ' + VCLU.esc(localText(a.description)) +
                    (a.confirm ? ' <span class="badge bg-info text-dark">' + VCLU.esc(pt('action_confirm')) + '</span>' : '') +
                    (isNew ? ' <span class="badge bg-warning text-dark">' + VCLU.esc(pt('new')) + '</span>' : '') + '</li>';
+        }).join('');
+    }
+    if ((preview.dashboards || []).length > 0) {
+        html += '<li class="mt-2 mb-1 fw-semibold">' + VCLU.esc(pt('dashboards_title')) + '</li>' + preview.dashboards.map(function(d) {
+            return '<li class="mb-1 small ms-3"><i class="bi bi-grid-1x2 me-1"></i>' + VCLU.esc(localText(d.name) || d.id) + '</li>';
         }).join('');
     }
     this.elements.installPermissions.innerHTML = html;

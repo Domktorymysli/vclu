@@ -268,6 +268,15 @@ func availablePlugins(ctx context.Context, mc *config.VCLUConfig, serverDir stri
 		if namespace == "" {
 			namespace = plugins.NamespaceFromName(repo.Name)
 		}
+		if !plugins.NamespaceAllowed(namespace, repo) {
+			errors = append(errors, fmt.Sprintf("%s: %v", repo.Name, plugins.ErrReservedNamespace))
+			continue
+		}
+		// a namespace no id can have ("VCLU", look-alike letters) is not shown as one
+		if !plugins.ValidPluginID("@" + namespace + "/x") {
+			errors = append(errors, fmt.Sprintf("%s: namespace %q is not valid", repo.Name, namespace))
+			continue
+		}
 		for _, p := range registry.Plugins {
 			a := availablePlugin{Meta: p, Repo: repo, FullID: fmt.Sprintf("@%s/%s", namespace, p.ID), Namespace: namespace}
 			inst, ok := installed[a.FullID]
@@ -395,6 +404,10 @@ func (s *Server) handlePluginsAPIPreview(c *gin.Context) {
 	if actions == nil {
 		actions = plugins.ManifestActions{}
 	}
+	dashboards := preview.Dashboards
+	if dashboards == nil {
+		dashboards = plugins.ManifestDashboards{}
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"version":       preview.Version,
 		"api":           preview.API,
@@ -408,6 +421,7 @@ func (s *Server) handlePluginsAPIPreview(c *gin.Context) {
 		"risky":         preview.Requested.Risky(),
 		"warnings":      preview.Requested.Warnings(),
 		"actions":       actions,
+		"dashboards":    dashboards,
 		"seen":          plugins.SeenOf(preview.Requested, preview.API), // sent back with the install
 		"all":           plugins.AllPermissions.Names(),
 	})
@@ -497,6 +511,10 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 
 	if !plugins.ValidPluginID(fullId) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid plugin id %q", fullId)})
+		return
+	}
+	if !plugins.NamespaceAllowed(namespace, *targetRepo) {
+		c.JSON(http.StatusForbidden, gin.H{"error": fmt.Sprintf("%s from %s: %v", fullId, targetRepo.Name, plugins.ErrReservedNamespace), "code": "reserved_namespace"})
 		return
 	}
 
@@ -783,18 +801,26 @@ func (s *Server) handlePluginsAPIPermissions(c *gin.Context) {
 		return
 	}
 
+	// never more than plugin.json asks for: without it nothing says what that is, and a grant
+	// saved in full would wait for a later version asking for it
+	if _, err := installedEntry(s.serverDir, pluginID); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Plugin not found"})
+		return
+	}
+	requested, err := plugins.NewLoader(s.serverDir).RequestedPermissions(pluginID)
+	if err != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("permissions not changed: the plugin's plugin.json cannot be read: %v", err)})
+		return
+	}
+	grants := plugins.WithinRequest(req, requested)
+
 	var installed config.InstalledPlugin
-	err := config.UpdateMasterConfig(s.serverDir, func(masterConfig *config.VCLUConfig) error {
+	err = config.UpdateMasterConfig(s.serverDir, func(masterConfig *config.VCLUConfig) error {
 		if masterConfig.Plugins == nil {
 			return errPluginNotFound
 		}
 		for i := range masterConfig.Plugins.Installed {
 			if masterConfig.Plugins.Installed[i].ID == pluginID {
-				// never more than plugin.json asks for: ports, topics and actions only narrow
-				grants := req
-				if requested, err := plugins.NewLoader(s.serverDir).RequestedPermissions(pluginID); err == nil {
-					grants = plugins.WithinRequest(req, requested)
-				}
 				masterConfig.Plugins.Installed[i].Grants = &grants
 				installed = masterConfig.Plugins.Installed[i]
 				return nil

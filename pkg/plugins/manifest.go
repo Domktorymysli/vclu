@@ -711,6 +711,12 @@ func (m *PluginManifest) UnmarshalJSON(data []byte) error {
 	}
 	var keys map[string]json.RawMessage
 	_ = json.Unmarshal(data, &keys)
+	// the API decides how the rest is read: written once, as "api", on any API
+	top := topKeys(data)
+	if n := countFunc(top, func(k string) bool { return strings.EqualFold(k, "api") }); n > 1 ||
+		n == 1 && !slices.Contains(top, "api") {
+		return fmt.Errorf(`plugin.json: "api" is written once, in lower case`)
+	}
 	api := manifestAPI(*m)
 	m.Permissions, m.Requires, m.unknownKeys = nil, nil, nil
 	for k := range keys {
@@ -751,6 +757,38 @@ func (m *PluginManifest) UnmarshalJSON(data []byte) error {
 	}
 	m.Permissions = &p
 	return m.checkText()
+}
+
+// topKeys: every key of the JSON object, twice if written twice; nil for anything else.
+func topKeys(v []byte) []string {
+	dec := json.NewDecoder(bytes.NewReader(v))
+	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+		return nil
+	}
+	var out []string
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			return out
+		}
+		key, _ := tok.(string)
+		var skip json.RawMessage
+		if err := dec.Decode(&skip); err != nil {
+			return out
+		}
+		out = append(out, key)
+	}
+	return out
+}
+
+func countFunc[T any](s []T, f func(T) bool) int {
+	n := 0
+	for _, v := range s {
+		if f(v) {
+			n++
+		}
+	}
+	return n
 }
 
 // checkText: the manifest's name and description as the panel shows them.

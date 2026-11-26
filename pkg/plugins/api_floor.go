@@ -82,12 +82,33 @@ func (l *Loader) recordAPI(pluginID string, api int) {
 	}
 }
 
+// recordStarted: the version whose init succeeded, the previousVersion of the next update.
+func (l *Loader) recordStarted(pluginID, version string) {
+	err := config.UpdateMasterConfig(l.serverDir, func(mc *config.VCLUConfig) error {
+		if mc.Plugins == nil {
+			return nil
+		}
+		for i := range mc.Plugins.Installed {
+			if inst := &mc.Plugins.Installed[i]; inst.ID == pluginID {
+				inst.StartedVersion = version
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		log.Printf("[PLUGINS] WARNING: started version of %s not recorded: %v", pluginID, err)
+	}
+}
+
 // pinOlderEntries: an entry from before addresses and APIs were recorded gets its repository's
-// address (unless its files came from another) and the API of its files on the first load.
+// address (unless its files came from another) and the API of its files on the first load; one
+// from before started versions were recorded, the version of its files (its next update then
+// tells onInit the version before it, even if it does not run before that).
 func (l *Loader) pinOlderEntries(mc *config.VCLUConfig) {
 	type pin struct {
-		url string
-		api int
+		url     string
+		api     int
+		started string
 	}
 	pins := map[string]pin{}
 	for _, inst := range mc.Plugins.Installed {
@@ -105,6 +126,11 @@ func (l *Loader) pinOlderEntries(mc *config.VCLUConfig) {
 		if inst.API == 0 {
 			if api, err := l.DiskAPI(inst.ID); err == nil && api > 0 {
 				p.api = api
+			}
+		}
+		if inst.StartedVersion == "" {
+			if m, err := l.diskManifest(inst.ID); err == nil && m.Version != "" {
+				p.started = m.Version
 			}
 		}
 		if p != (pin{}) {
@@ -129,6 +155,9 @@ func (l *Loader) pinOlderEntries(mc *config.VCLUConfig) {
 			}
 			if p.api > inst.API {
 				inst.API = p.api
+			}
+			if inst.StartedVersion == "" && p.started != "" {
+				inst.StartedVersion = p.started
 			}
 		}
 		return nil

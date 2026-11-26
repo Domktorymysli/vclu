@@ -1140,6 +1140,7 @@
       "warn_mqtt_internet": "Plugin czyta tematy MQTT i łączy się z internetem: może wysyłać dane z MQTT do: {0}.",
       "warn_clu_tftp": "Bezpośrednia komunikacja z CLU razem z TFTP to pełna kontrola nad CLU.",
       "warn_clu_internet": "Plugin z dostępem do CLU łączy się z internetem: może sterować domem z zewnątrz i wysłać jego konfigurację do: {0}.",
+      "dashboards_title": "Dashboardy, które doda plugin (dostęp ustawia Twój moduł):",
       "actions_title": "Akcje, które mogą wywołać asystenci głosowi i agenci:",
       "action_confirm": "z potwierdzeniem",
       "actions_waiting": "Nowe akcje czekają na zgodę: {0}.",

@@ -75,9 +75,11 @@ function Plugin:new(id, metadata)
 end
 
 --- Set initialization callback
--- @param callback function Function called when plugin is loaded with config
+-- @param callback function Called when the plugin is loaded: callback(config, info), info =
+--   { version, previousVersion }; previousVersion is set on the first start after an update,
+--   until an init succeeds (a place to move old settings or KV data)
 -- @return Plugin self for chaining
--- @usage plugin:onInit(function(config) print("Loaded with config:", config) end)
+-- @usage plugin:onInit(function(config, info) if info.previousVersion then migrate(info.previousVersion) end end)
 function Plugin:onInit(callback)
     self._initCallback = callback
     return self
@@ -94,10 +96,11 @@ end
 
 --- Initialize the plugin with config
 -- @param config table Configuration values from user
-function Plugin:init(config)
+-- @param info table { version, previousVersion } from the loader
+function Plugin:init(config, info)
     self.config = config or {}
     if self._initCallback then
-        self._initCallback(self.config)
+        self._initCallback(self.config, info or { version = self.version })
     end
 end
 
@@ -1179,14 +1182,14 @@ end
 
 -- Initialize plugin from config (called by Go loader)
 -- pluginId is the fullId (e.g., "@vclu/weather")
-function Plugin.initFromConfig(pluginId, config)
+function Plugin.initFromConfig(pluginId, config, info)
     local instance = Plugin.instances[pluginId]
     if instance and instance._sandbox and PluginSandbox then
         -- the loader logs and shows the error: without the plugin's secrets
-        local ok, err = pcall(instance.init, instance, config)
+        local ok, err = pcall(instance.init, instance, config, info)
         if not ok then error(PluginSandbox:mask(pluginId, tostring(err)), 0) end
     elseif instance then
-        instance:init(config)
+        instance:init(config, info)
     else
         Logger:warn("[PLUGIN] Cannot init unknown plugin: " .. pluginId)
     end

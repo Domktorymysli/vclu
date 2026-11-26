@@ -156,7 +156,7 @@ func TestPluginUDPReservedPortsAndFromPlugin(t *testing.T) {
 	io.SetGrant("@t/a", pluginIOGrant{grentonRaw: true})
 	reserved := freeUDPPort(t)
 	io.ReserveUDPPorts(reserved)
-	if _, err := io.OpenUDP("@t/a", reserved); err == nil || !strings.Contains(err.Error(), "vCLU's own") {
+	if _, err := io.OpenUDP("@t/a", reserved); err == nil || !strings.Contains(err.Error(), "free port") {
 		t.Errorf("reserved port: %v", err)
 	}
 	id, err := io.OpenUDP("@t/a", 0)
@@ -333,11 +333,10 @@ func TestPluginSerialOverPty(t *testing.T) {
 // The plugin's cleanup closes its sockets and ports: the port is free again.
 func TestPluginIOClosedOnCleanup(t *testing.T) {
 	_, path := openPty(t)
-	port := freeUDPPort(t)
 	engine := sandboxEngine(t, "@t/gone", `{api = 2, grenton_raw = true, serial = true, limits = {serialPorts = {"`+path+`"}}}`)
 	if _, e := runPlugin(t, engine, "@t/gone", `
 		local p = Plugin:new("gone")
-		assert(p:grentonSocket({port = `+strconv.Itoa(port)+`}))
+		assert(p:grentonSocket())
 		assert(p:serialOpen("`+path+`"))
 	`); e != "nil" {
 		t.Fatal(e)
@@ -345,6 +344,14 @@ func TestPluginIOClosedOnCleanup(t *testing.T) {
 	if n := openHandles(engine.PluginIO()); n != 2 {
 		t.Fatalf("%d handles open, want 2", n)
 	}
+	var port int
+	engine.PluginIO().mu.Lock()
+	for _, h := range engine.PluginIO().handles {
+		if h.conn != nil {
+			port = h.conn.LocalAddr().(*net.UDPAddr).Port
+		}
+	}
+	engine.PluginIO().mu.Unlock()
 	if _, err := engine.Execute(`PluginSandbox:cleanup("@t/gone")`); err != nil {
 		t.Fatal(err)
 	}

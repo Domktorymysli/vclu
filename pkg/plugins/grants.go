@@ -184,6 +184,9 @@ func WithinRequest(g config.PluginGrants, requested Permissions) config.PluginGr
 		}
 		g.MQTT.Subscribe = within(g.MQTT.Subscribe, requested.mqttAsk(requested.MQTTSubscribe))
 		g.MQTT.Publish = within(g.MQTT.Publish, requested.mqttAsk(requested.MQTTPublish))
+		// the user allows what plugin.json asks for now
+		g.MQTT.SubscribeAsked = topicsGrant(requested.mqttAsk(requested.MQTTSubscribe))
+		g.MQTT.PublishAsked = topicsGrant(requested.mqttAsk(requested.MQTTPublish))
 	}
 	if g.Actions != nil {
 		out := []string{}
@@ -194,6 +197,16 @@ func WithinRequest(g config.PluginGrants, requested Permissions) config.PluginGr
 		}
 		g.Actions = &out
 	}
+	// what the user allows now is the actions as plugin.json declares them, confirmation too
+	confirmed := []string{}
+	if g.Actions != nil {
+		for _, a := range *g.Actions {
+			if slices.Contains(requested.ConfirmActions, a) {
+				confirmed = append(confirmed, a)
+			}
+		}
+	}
+	g.ConfirmedActions = &confirmed
 	return g
 }
 

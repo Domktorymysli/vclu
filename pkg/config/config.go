@@ -337,10 +337,12 @@ type InstalledPlugin struct {
 	// RepositoryURL: that repository's address when installed; an update comes only from it
 	RepositoryURL string `json:"repositoryUrl,omitempty"`
 	// API: the plugin API of the installed version; an update never goes below it
-	API         int                    `json:"api,omitempty"`
-	InstalledAt string                 `json:"installedAt,omitempty"` // ISO timestamp
-	Config      map[string]interface{} `json:"config,omitempty"`      // Plugin-specific config (simple key-value)
-	Grants      *PluginGrants          `json:"grants,omitempty"`      // What the user allowed; nil: what plugin.json asks for
+	API int `json:"api,omitempty"`
+	// StartedVersion: the version whose init last succeeded; another one is onInit's previousVersion
+	StartedVersion string                 `json:"startedVersion,omitempty"`
+	InstalledAt    string                 `json:"installedAt,omitempty"` // ISO timestamp
+	Config         map[string]interface{} `json:"config,omitempty"`      // Plugin-specific config (simple key-value)
+	Grants         *PluginGrants          `json:"grants,omitempty"`      // What the user allowed; nil: what plugin.json asks for
 }
 
 // PluginGrants is what the user allowed a plugin, in the shape of plugin.json's permissions.
@@ -362,6 +364,8 @@ type PluginGrants struct {
 	Serial *SerialGrant `json:"serial,omitempty"`
 	// Actions: the declared actions agents and voice may call; nil: not recorded yet
 	Actions *[]string `json:"actions,omitempty"`
+	// ConfirmedActions: those allowed as asking for confirmation; an update dropping it waits
+	ConfirmedActions *[]string `json:"confirmedActions,omitempty"`
 }
 
 // UnmarshalJSON also reads grants written before plugin.json's permissions became objects:
@@ -412,6 +416,10 @@ type LANGrant struct {
 type MQTTGrant struct {
 	Subscribe []string `json:"subscribe,omitzero"`
 	Publish   []string `json:"publish,omitzero"`
+	// SubscribeAsked, PublishAsked: the filters plugin.json asked for when the user allowed
+	// them; an update asking past them waits. Nil: those granted.
+	SubscribeAsked []string `json:"subscribeAsked,omitzero"`
+	PublishAsked   []string `json:"publishAsked,omitzero"`
 }
 
 // ModbusGrant: Hosts narrow the gateways the plugin reaches, as LANGrant's.

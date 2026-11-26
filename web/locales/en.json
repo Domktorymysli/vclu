@@ -1140,6 +1140,7 @@
       "warn_mqtt_internet": "The plugin reads MQTT topics and reaches the internet: it can send data from MQTT to: {0}.",
       "warn_clu_tftp": "Direct communication with CLUs together with TFTP is full control of a CLU.",
       "warn_clu_internet": "A plugin with access to CLUs reaches the internet: it can control the house from outside and send its configuration to: {0}.",
+      "dashboards_title": "Dashboards the plugin adds (your module sets who can open them):",
       "actions_title": "Actions voice assistants and agents can call:",
       "action_confirm": "with confirmation",
       "actions_waiting": "New actions wait for your consent: {0}.",

@@ -80,9 +80,12 @@ type ioHandle struct {
 	// ws: the close frame the plugin asked for; 0 sends 1001 (going away: reload, unload)
 	wsCode   int
 	wsReason string
-	q        ioQueue
-	done     chan struct{}
-	once     sync.Once
+	// udp: who may answer, under PluginIO.mu: addresses it sent to, ports it broadcast to
+	peers map[netip.Addr]bool
+	bcast map[int]time.Time
+	q     ioQueue
+	done  chan struct{}
+	once  sync.Once
 }
 
 type ioEvent struct {
@@ -172,8 +175,15 @@ func (p *PluginIO) FromPlugin(addr *net.UDPAddr) bool {
 	}
 	p.mu.Lock()
 	at, ok := p.sent[addr.Port]
+	open := false
+	for _, h := range p.handles { // an open socket is the plugin's however long it waited
+		if h.conn != nil && h.conn.LocalAddr().(*net.UDPAddr).Port == addr.Port {
+			open = true
+			break
+		}
+	}
 	p.mu.Unlock()
-	if !ok || time.Since(at) > sentTTL {
+	if !open && (!ok || time.Since(at) > sentTTL) {
 		return false
 	}
 	ip, ok := netip.AddrFromSlice(addr.IP)
@@ -502,6 +512,10 @@ func (p *PluginIO) openUDP(plugin string, port int, perm string) (int, error) {
 	if port < 0 || port > 65535 {
 		return 0, fmt.Errorf("port %d out of range", port)
 	}
+	// a plugin does not listen: its socket takes a free port and hears only answers
+	if port != 0 {
+		return 0, fmt.Errorf("port %d: a plugin socket takes a free port, it does not listen on a chosen one", port)
+	}
 	h, err := p.add(plugin, "udp", func(g pluginIOGrant) error {
 		allowed, name := g.grentonRaw, "clu"
 		if perm == "udp" {
@@ -531,6 +545,7 @@ func (p *PluginIO) openUDP(plugin string, port int, perm string) (int, error) {
 	}
 	h.conn = conn
 	h.perm = perm
+	h.peers, h.bcast = map[netip.Addr]bool{}, map[int]time.Time{}
 	p.markSent(conn.LocalAddr().(*net.UDPAddr).Port)
 	p.mu.Unlock()
 	go p.pump(h)
@@ -544,6 +559,9 @@ func (p *PluginIO) openUDP(plugin string, port int, perm string) (int, error) {
 					h.q.push(ioEvent{err: err.Error()}, false)
 				}
 				return
+			}
+			if !p.answer(h, from) {
+				continue
 			}
 			h.q.push(ioEvent{data: bytes.Clone(buf[:n]), ip: from.IP.String(), port: from.Port}, false)
 		}
@@ -607,8 +625,41 @@ func (p *PluginIO) SendUDP(id int, plugin, host string, port int, data []byte) e
 		return err
 	}
 	_, err = h.conn.WriteToUDP(data, net.UDPAddrFromAddrPort(netip.AddrPortFrom(ip, uint16(port))))
+	if err == nil {
+		p.mu.Lock()
+		p.markSent(h.conn.LocalAddr().(*net.UDPAddr).Port)
+		if isBroadcast(ip) {
+			h.bcast[port] = time.Now()
+		} else if len(h.peers) < maxUDPPeers {
+			h.peers[ip] = true
+		}
+		p.mu.Unlock()
+	}
 	return err
 }
+
+// maxUDPPeers bounds the addresses one socket remembers; past it only those it has answer.
+const maxUDPPeers = 4096
+
+// answer: a datagram from an address the socket sent to, or from the port it broadcast to on
+// the local network; anything else is dropped, so a socket is not a listener.
+func (p *PluginIO) answer(h *ioHandle, from *net.UDPAddr) bool {
+	ip, ok := netip.AddrFromSlice(from.IP)
+	if !ok {
+		return false
+	}
+	ip = ip.Unmap()
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if h.peers[ip] {
+		return true
+	}
+	at, ok := h.bcast[from.Port]
+	return ok && time.Since(at) < broadcastAnswers && (isLocalAddr(ip) || onHostNetwork(ip))
+}
+
+// broadcastAnswers: how long after a broadcast answers to it are heard.
+const broadcastAnswers = time.Minute
 
 // --- cipher ---
 

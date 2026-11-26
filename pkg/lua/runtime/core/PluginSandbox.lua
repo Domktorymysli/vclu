@@ -286,11 +286,31 @@ end
 
 -- The values of the plugin's secrets become *** in what it logs; shorter than 4 characters
 -- they would mask ordinary words
+-- a short secret (a PIN) masked where it stands alone, not inside a longer word or number
+local function maskShort(v, secret)
+    local out, from = {}, 1
+    while true do
+        local i, j = v:find(secret, from, true)
+        if not i then break end
+        local before, after = v:sub(i - 1, i - 1), v:sub(j + 1, j + 1)
+        if before:match("%w") or after:match("%w") then
+            out[#out + 1] = v:sub(from, j)
+        else
+            out[#out + 1] = v:sub(from, i - 1) .. "***"
+        end
+        from = j + 1
+    end
+    out[#out + 1] = v:sub(from)
+    return table.concat(out)
+end
+
 local function maskSecrets(sandbox, v)
     if type(v) ~= "string" or not sandbox.secrets then return v end
     for _, secret in pairs(sandbox.secrets) do
         if type(secret) == "string" and #secret >= 4 then
             v = v:gsub(secret:gsub("[%^%$%(%)%%%.%[%]%*%+%-%?]", "%%%0"), "***")
+        elseif type(secret) == "string" and secret ~= "" then
+            v = maskShort(v, secret)
         end
     end
     return v

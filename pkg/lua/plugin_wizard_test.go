@@ -178,7 +178,8 @@ func TestWizardKeepsARequireTurnedOff(t *testing.T) {
 	}
 }
 
-// A secret the plugin logs, by mistake or in an error, is masked; a short one is not.
+// A secret the plugin logs, by mistake or in an error, is masked; a short one where it stands
+// alone, not inside a longer number.
 func TestPluginLogsMaskSecrets(t *testing.T) {
 	dir := t.TempDir()
 	loader := installTestPlugin(t, dir, "@jan/clu", map[string]interface{}{"api": 2, "form": "form.json"}, `
@@ -186,7 +187,7 @@ local plugin = Plugin:new("clu", {})
 plugin:onInit(function(cfg)
     local token = plugin:secret("token")
     Logger:info("logger " .. token)
-    plugin:log("warn", "log " .. token .. " " .. plugin:secret("pin"))
+    plugin:log("warn", "log " .. token .. " " .. plugin:secret("pin") .. " 2012 x12 12")
     plugin:logSafe("info", "safe", { t = token })
     print("print", token)
 end)
@@ -204,7 +205,7 @@ return plugin`, false)
 	if strings.Contains(out, "s3cr(e)t") {
 		t.Fatalf("a secret in the log:\n%s", out)
 	}
-	for _, want := range []string{"logger ***", "log *** 12", "print ***"} {
+	for _, want := range []string{"logger ***", "log *** *** 2012 x12 ***", "print ***"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("no %q in:\n%s", want, out)
 		}

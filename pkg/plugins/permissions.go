@@ -50,6 +50,7 @@ type Permissions struct {
 	MQTTSubscribe  []string // with mqtt: topic filters; nil (both) any topic
 	MQTTPublish    []string //
 	Actions        []string // the declared actions agents and voice may call
+	ConfirmActions []string // those of them that ask for confirmation
 	// Why: what the plugin says it needs a permission for, by its name
 	Why map[string]LocalText
 }
@@ -92,6 +93,11 @@ func requestedPermissions(manifest PluginManifest) Permissions {
 		p = manifest.Permissions.clone()
 	}
 	p.Actions = manifest.Actions.Names()
+	for _, a := range manifest.Actions {
+		if a.Confirm {
+			p.ConfirmActions = append(p.ConfirmActions, a.Name)
+		}
+	}
 	return p
 }
 
@@ -100,6 +106,7 @@ func (p Permissions) clone() Permissions {
 	c.Internet = slices.Clone(p.Internet)
 	c.LANPorts, c.UDPPorts, c.BroadcastPorts, c.TCPPorts = slices.Clone(p.LANPorts), slices.Clone(p.UDPPorts), slices.Clone(p.BroadcastPorts), slices.Clone(p.TCPPorts)
 	c.MQTTSubscribe, c.MQTTPublish, c.Actions = slices.Clone(p.MQTTSubscribe), slices.Clone(p.MQTTPublish), slices.Clone(p.Actions)
+	c.ConfirmActions = slices.Clone(p.ConfirmActions)
 	return c
 }
 
@@ -194,10 +201,12 @@ func splitStrings(asked []string, granted *[]string) (allowed, pending []string)
 	return allowed, pending
 }
 
-// splitTopics: the granted filters within the asked ones (the user may have narrowed them),
-// and the asked filters the grant does not touch at all (new in an update). Nil asked is any
-// topic ("#"); nil granted (not recorded yet) allows what is asked.
-func splitTopics(asked, granted []string) (allowed, pending []string) {
+// splitTopics: what both the asked and the granted filters allow, as filters (a granted one
+// within an asked one, or an asked one within a granted one: a narrower update keeps working),
+// and the asked filters past what the user consented to (new or wider in an update: they
+// wait; a filter the user narrowed does not). Nil asked is any topic ("#"); nil granted (not
+// recorded yet) allows what is asked; nil consented is the granted ones.
+func splitTopics(asked, granted, consented []string) (allowed, pending []string) {
 	ask := asked
 	if ask == nil {
 		ask = []string{"#"}
@@ -206,14 +215,26 @@ func splitTopics(asked, granted []string) (allowed, pending []string) {
 		return slices.Clone(asked), nil
 	}
 	allowed = []string{}
-	for _, g := range granted {
-		if slices.ContainsFunc(ask, func(a string) bool { return filterCovers(a, g) }) {
-			allowed = append(allowed, g)
+	add := func(f string) {
+		if !slices.Contains(allowed, f) {
+			allowed = append(allowed, f)
 		}
 	}
+	for _, g := range granted {
+		if slices.ContainsFunc(ask, func(a string) bool { return filterCovers(a, g) }) {
+			add(g)
+		}
+	}
+	if consented == nil {
+		consented = granted
+	}
 	for _, a := range ask {
+		if slices.ContainsFunc(granted, func(g string) bool { return filterCovers(g, a) }) {
+			add(a)
+		}
+		// past the consent, or meeting nothing the user left granted (it would run silently empty)
 		touched := slices.ContainsFunc(granted, func(g string) bool { return filterCovers(g, a) || filterCovers(a, g) })
-		if !touched {
+		if !touched || !slices.ContainsFunc(consented, func(c string) bool { return filterCovers(c, a) }) {
 			pending = append(pending, a)
 		}
 	}
@@ -291,8 +312,8 @@ func (p Permissions) allowedBy(g *config.PluginGrants) (allowed, pending Permiss
 	}
 	if allowed.MQTT {
 		var sub, pub []string
-		allowed.MQTTSubscribe, sub = splitTopics(p.mqttAsk(p.MQTTSubscribe), g.MQTT.Subscribe)
-		allowed.MQTTPublish, pub = splitTopics(p.mqttAsk(p.MQTTPublish), g.MQTT.Publish)
+		allowed.MQTTSubscribe, sub = splitTopics(p.mqttAsk(p.MQTTSubscribe), g.MQTT.Subscribe, g.MQTT.SubscribeAsked)
+		allowed.MQTTPublish, pub = splitTopics(p.mqttAsk(p.MQTTPublish), g.MQTT.Publish, g.MQTT.PublishAsked)
 		if len(sub) > 0 || len(pub) > 0 {
 			pending.MQTT, pending.MQTTSubscribe, pending.MQTTPublish = true, nonNilStrings(sub), nonNilStrings(pub)
 		}
@@ -300,6 +321,18 @@ func (p Permissions) allowedBy(g *config.PluginGrants) (allowed, pending Permiss
 		pending.MQTTSubscribe, pending.MQTTPublish = slices.Clone(p.MQTTSubscribe), slices.Clone(p.MQTTPublish)
 	}
 	allowed.Actions, pending.Actions = splitStrings(p.Actions, g.Actions)
+	// an action allowed with its confirmation and now without one waits for the user
+	if g.ConfirmedActions != nil {
+		kept := allowed.Actions[:0:0]
+		for _, a := range allowed.Actions {
+			if slices.Contains(*g.ConfirmedActions, a) && !slices.Contains(p.ConfirmActions, a) {
+				pending.Actions = append(pending.Actions, a)
+			} else {
+				kept = append(kept, a)
+			}
+		}
+		allowed.Actions = kept
+	}
 	// hosts allowed before keep working; a new one, or "*", waits
 	var granted InternetHosts
 	if g.Internet != nil {
@@ -352,13 +385,16 @@ func (p Permissions) Grants() *config.PluginGrants {
 		g.TCP = &config.HostsGrant{Ports: &ports}
 	}
 	if p.MQTT {
-		g.MQTT = &config.MQTTGrant{Subscribe: topicsGrant(p.mqttAsk(p.MQTTSubscribe)), Publish: topicsGrant(p.mqttAsk(p.MQTTPublish))}
+		sub, pub := topicsGrant(p.mqttAsk(p.MQTTSubscribe)), topicsGrant(p.mqttAsk(p.MQTTPublish))
+		g.MQTT = &config.MQTTGrant{Subscribe: sub, Publish: pub, SubscribeAsked: slices.Clone(sub), PublishAsked: slices.Clone(pub)}
 	}
 	if p.Modbus {
 		g.Modbus = &config.ModbusGrant{}
 	}
 	actions := append([]string{}, p.Actions...)
 	g.Actions = &actions
+	confirmed := append([]string{}, p.ConfirmActions...)
+	g.ConfirmedActions = &confirmed
 	return g
 }
 
@@ -626,8 +662,9 @@ func unpinned(requested Permissions, g *config.PluginGrants) bool {
 	return requested.LAN && g.LAN != nil && g.LAN.Ports == nil && !g.LAN.AnyPort ||
 		requested.UDP && g.UDP != nil && (g.UDP.Ports == nil || g.UDP.Broadcast == nil) ||
 		requested.TCP && g.TCP != nil && g.TCP.Ports == nil ||
-		requested.MQTT && g.MQTT != nil && (g.MQTT.Subscribe == nil || g.MQTT.Publish == nil) ||
-		g.Actions == nil
+		requested.MQTT && g.MQTT != nil && (g.MQTT.Subscribe == nil || g.MQTT.Publish == nil ||
+			g.MQTT.SubscribeAsked == nil || g.MQTT.PublishAsked == nil) ||
+		g.Actions == nil || g.ConfirmedActions == nil
 }
 
 // pinGrant: a grant from before its lists were recorded keeps what plugin.json asks for now,
@@ -667,9 +704,19 @@ func (l *Loader) pinGrant(pluginID string, requested Permissions, g *config.Plug
 				if ig.MQTT.Publish == nil {
 					ig.MQTT.Publish = full.MQTT.Publish
 				}
+				// what was consented to: what plugin.json asks for now, as for the lists above
+				if ig.MQTT.SubscribeAsked == nil {
+					ig.MQTT.SubscribeAsked = full.MQTT.SubscribeAsked
+				}
+				if ig.MQTT.PublishAsked == nil {
+					ig.MQTT.PublishAsked = full.MQTT.PublishAsked
+				}
 			}
 			if ig.Actions == nil {
 				ig.Actions = full.Actions
+			}
+			if ig.ConfirmedActions == nil {
+				ig.ConfirmedActions = full.ConfirmedActions
 			}
 		}
 		return nil
@@ -709,6 +756,14 @@ func (l *Loader) isOfficial(pluginID string) bool {
 // IsOfficialRepo: the default repository at the official URL.
 func IsOfficialRepo(repo config.PluginRepository) bool {
 	return repo.Default && sameRepoURL(repo.URL, config.OfficialPluginsRepoURL)
+}
+
+// ErrReservedNamespace: @vclu is the official repository's.
+var ErrReservedNamespace = errors.New("the namespace vclu is reserved for the official repository")
+
+// NamespaceAllowed: another repository listing @vclu would pass its plugins off as official ones.
+func NamespaceAllowed(namespace string, repo config.PluginRepository) bool {
+	return namespace != "vclu" || IsOfficialRepo(repo)
 }
 
 // FromRepository is whether repo may update the installed plugin: only the repository it came

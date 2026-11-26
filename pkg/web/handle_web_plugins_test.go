@@ -23,7 +23,7 @@ func TestPluginsAPIInstallUpdateKeepsConfig(t *testing.T) {
 	err := writeTestConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
 		Repositories: []config.PluginRepository{{Name: "test", URL: repo.URL, Enabled: true}},
 		Installed: []config.InstalledPlugin{{
-			ID: "@vclu/salda-recuperator", Version: "1.1.0", Enabled: false, Repository: "test",
+			ID: "@jan/salda-recuperator", Version: "1.1.0", Enabled: false, Repository: "test",
 			Config: map[string]interface{}{"host": "192.168.0.20"},
 		}},
 	}})
@@ -32,7 +32,7 @@ func TestPluginsAPIInstallUpdateKeepsConfig(t *testing.T) {
 	}
 	s := &Server{serverDir: dir}
 
-	if resp := postInstall(t, s, "salda-recuperator"); resp.Action != "updated" || resp.FullID != "@vclu/salda-recuperator" || resp.Version != "1.2.0" {
+	if resp := postInstall(t, s, "salda-recuperator"); resp.Action != "updated" || resp.FullID != "@jan/salda-recuperator" || resp.Version != "1.2.0" {
 		t.Fatalf("answer %+v", resp)
 	}
 
@@ -41,12 +41,12 @@ func TestPluginsAPIInstallUpdateKeepsConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	inst := cfg.Plugins.Installed
-	if len(inst) != 1 || inst[0].ID != "@vclu/salda-recuperator" || inst[0].Version != "1.2.0" ||
+	if len(inst) != 1 || inst[0].ID != "@jan/salda-recuperator" || inst[0].Version != "1.2.0" ||
 		inst[0].Enabled || inst[0].Config["host"] != "192.168.0.20" {
 		t.Errorf(".vclu.json plugins: %+v", inst)
 	}
 	// The update brings the files too, not only the version in the config (#112)
-	if _, err := os.Stat(filepath.Join(dir, "plugins", "vclu--salda-recuperator", "1.2.0", "init.lua")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, "plugins", "jan--salda-recuperator", "1.2.0", "init.lua")); err != nil {
 		t.Errorf("1.2.0 not on disk: %v", err)
 	}
 }
@@ -64,7 +64,7 @@ func TestPluginsAPIInstallUpdateFromAnotherRepository(t *testing.T) {
 			{Name: "test", URL: other.URL, Enabled: true},
 		},
 		Installed: []config.InstalledPlugin{{
-			ID: "@vclu/salda-recuperator", Version: "1.1.0", Enabled: true, Repository: "source",
+			ID: "@jan/salda-recuperator", Version: "1.1.0", Enabled: true, Repository: "source",
 			Grants: &config.PluginGrants{LAN: &config.LANGrant{Hosts: []string{"192.168.0.20"}}},
 		}},
 	}})
@@ -83,7 +83,7 @@ func TestPluginsAPIInstallUpdateFromAnotherRepository(t *testing.T) {
 		inst.Grants == nil || inst.Grants.LAN == nil || len(inst.Grants.LAN.Hosts) != 1 {
 		t.Errorf("after the refused update: %+v", inst)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "plugins", "vclu--salda-recuperator", "2.0.0")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, "plugins", "jan--salda-recuperator", "2.0.0")); !os.IsNotExist(err) {
 		t.Errorf("2.0.0 downloaded (%v)", err)
 	}
 
@@ -171,7 +171,7 @@ func TestPluginsAPIInstallUpdateCleansOlderOnly(t *testing.T) {
 	repo := pluginRepo(t, "salda-recuperator", "1.2.0", true)
 
 	dir := t.TempDir()
-	base := filepath.Join(dir, "plugins", "vclu--salda-recuperator")
+	base := filepath.Join(dir, "plugins", "jan--salda-recuperator")
 	for _, v := range []string{"1.1.0", "2.0.0"} {
 		if err := os.MkdirAll(filepath.Join(base, v), 0755); err != nil {
 			t.Fatal(err)
@@ -182,7 +182,7 @@ func TestPluginsAPIInstallUpdateCleansOlderOnly(t *testing.T) {
 	}
 	err := writeTestConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
 		Repositories: []config.PluginRepository{{Name: "test", URL: repo.URL, Enabled: true}},
-		Installed:    []config.InstalledPlugin{{ID: "@vclu/salda-recuperator", Version: "1.1.0", Enabled: true, Repository: "test"}},
+		Installed:    []config.InstalledPlugin{{ID: "@jan/salda-recuperator", Version: "1.1.0", Enabled: true, Repository: "test"}},
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -202,7 +202,7 @@ func TestPluginsAPIInstallUpdateDownloadFails(t *testing.T) {
 	repo := pluginRepo(t, "salda-recuperator", "1.2.0", false)
 
 	dir := t.TempDir()
-	installed := []config.InstalledPlugin{{ID: "@vclu/salda-recuperator", Version: "1.1.0", Enabled: true, Repository: "test"}}
+	installed := []config.InstalledPlugin{{ID: "@jan/salda-recuperator", Version: "1.1.0", Enabled: true, Repository: "test"}}
 	err := writeTestConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
 		Repositories: []config.PluginRepository{{Name: "test", URL: repo.URL, Enabled: true}},
 		Installed:    installed,
@@ -238,7 +238,7 @@ func pluginRepo(t *testing.T, id, version string, files bool) *httptest.Server {
 	repo := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/plugins.json":
-			_, _ = w.Write([]byte(`{"namespace":"vclu","plugins":[{"id":"` + id + `","version":"` + version +
+			_, _ = w.Write([]byte(`{"namespace":"jan","plugins":[{"id":"` + id + `","version":"` + version +
 				`","path":"plugins/` + id + `","tag":"` + id + `-v` + version + `"}]}`))
 		case files && r.URL.Path == "/plugins/"+id+"/plugin.json":
 			_, _ = w.Write([]byte(`{"id":"` + id + `","version":"` + version + `","files":["init.lua"]}`))
@@ -265,7 +265,7 @@ func TestPluginsAPIInstallAnswersVersion(t *testing.T) {
 	}
 	s := &Server{serverDir: dir}
 
-	if resp := postInstall(t, s, "solax"); resp.Action != "installed" || resp.FullID != "@vclu/solax" || resp.Version != "1.0.1" {
+	if resp := postInstall(t, s, "solax"); resp.Action != "installed" || resp.FullID != "@jan/solax" || resp.Version != "1.0.1" {
 		t.Fatalf("answer %+v", resp)
 	}
 }
@@ -311,9 +311,9 @@ func postInstall(t *testing.T, s *Server, id string) installAnswer {
 func TestPluginsAPIInstalledNeedsConfig(t *testing.T) {
 	dir := t.TempDir()
 	manifests := map[string]string{
-		"vclu--musiccast": `{"id":"musiccast","version":"0.1.1"}`,
-		"vclu--solax":     `{"id":"solax","version":"1.0.1","config":{"host":{"type":"string"}}}`,
-		"vclu--salda":     `{"id":"salda","version":"1.2.0","config":{"host":{"type":"string"}}}`,
+		"jan--musiccast": `{"id":"musiccast","version":"0.1.1"}`,
+		"jan--solax":     `{"id":"solax","version":"1.0.1","config":{"host":{"type":"string"}}}`,
+		"jan--salda":     `{"id":"salda","version":"1.2.0","config":{"host":{"type":"string"}}}`,
 	}
 	for name, manifest := range manifests {
 		pluginDir := filepath.Join(dir, "plugins", name, "1.0.0")
@@ -326,9 +326,9 @@ func TestPluginsAPIInstalledNeedsConfig(t *testing.T) {
 	}
 	err := writeTestConfig(dir, &config.VCLUConfig{Plugins: &config.VCLUPluginsConfig{
 		Installed: []config.InstalledPlugin{
-			{ID: "@vclu/musiccast", Version: "0.1.1", Enabled: true},
-			{ID: "@vclu/solax", Version: "1.0.1", Enabled: true},
-			{ID: "@vclu/salda", Version: "1.2.0", Enabled: true, Config: map[string]interface{}{"host": "192.168.0.20"}},
+			{ID: "@jan/musiccast", Version: "0.1.1", Enabled: true},
+			{ID: "@jan/solax", Version: "1.0.1", Enabled: true},
+			{ID: "@jan/salda", Version: "1.2.0", Enabled: true, Config: map[string]interface{}{"host": "192.168.0.20"}},
 		},
 	}})
 	if err != nil {
@@ -355,7 +355,7 @@ func TestPluginsAPIInstalledNeedsConfig(t *testing.T) {
 	for _, p := range resp.Installed {
 		got[p.ID] = p.NeedsConfig
 	}
-	want := map[string]bool{"@vclu/musiccast": false, "@vclu/solax": true, "@vclu/salda": false}
+	want := map[string]bool{"@jan/musiccast": false, "@jan/solax": true, "@jan/salda": false}
 	for id, needs := range want {
 		if v, ok := got[id]; !ok || v != needs {
 			t.Errorf("%s needsConfig = %v (listed %v), want %v", id, v, ok, needs)
