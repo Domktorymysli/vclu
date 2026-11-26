@@ -19,6 +19,7 @@ require("RemoteThermostat")
 require("RemotePanel")
 require("RemotePanelButton")
 require("RemoteGateAlarm")  -- a GATE Alarm's Satel and Jablotron objects
+require("RemoteGateModbus") -- a GATE MODBUS's registers
 
 -- Load virtual base class
 require("VirtualObject")
@@ -48,6 +49,7 @@ return {
     RemotePanel = RemotePanel,
     RemotePanelButton = RemotePanelButton,
     RemoteGateAlarm = RemoteGateAlarm,
+    RemoteGateModbus = RemoteGateModbus,
     VirtualObject = VirtualObject,
     VirtualSwitch = VirtualSwitch,
     VirtualDimmer = VirtualDimmer,

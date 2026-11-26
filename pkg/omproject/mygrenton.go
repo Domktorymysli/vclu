@@ -628,9 +628,11 @@ func (p *Project) inProject(clu, object, script string) error {
 			}
 			// a GATE Alarm's objects only on a GATE Alarm, as om.lua's parser takes them: on
 			// another CLU their features are not guarded (the panel's passwords)
-			alarm := omparser.CLUInfo{FwType: c.FwType, HwType: c.HwType}.IsGateAlarm()
+			info := omparser.CLUInfo{FwType: c.FwType, HwType: c.HwType}
+			alarm, modbus := info.IsGateAlarm(), info.IsGateModbus()
 			for _, o := range c.Peripherals {
-				if o.Class != 0 && (alarm || !omparser.ObjectClass(o.Class).IsGateAlarm()) {
+				class := omparser.ObjectClass(o.Class)
+				if o.Class != 0 && (alarm || !class.IsGateAlarm()) && (modbus || !class.IsModbus()) {
 					p.known[c.ID+"."+o.ID] = true
 				}
 			}
