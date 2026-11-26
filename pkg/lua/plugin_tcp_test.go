@@ -43,7 +43,7 @@ func tcpEngine(t *testing.T, id string, port int) *LuaEngine {
 // and the device closing it ends it with a reason.
 func TestPluginTCPEchoAndClose(t *testing.T) {
 	port := tcpServer(t, func(c net.Conn) {
-		defer c.Close()
+		defer func() { _ = c.Close() }()
 		buf := make([]byte, 64)
 		got := ""
 		for !strings.HasSuffix(got, "three\n") {
@@ -215,7 +215,7 @@ func TestPluginTCPClosedByReleaseAndGrant(t *testing.T) {
 func TestPluginTelnetLogin(t *testing.T) {
 	heard := make(chan []byte, 1)
 	port := tcpServer(t, func(c net.Conn) {
-		defer c.Close()
+		defer func() { _ = c.Close() }()
 		// WILL ECHO, DO TERMINAL-TYPE, a subnegotiation, then the banner and a prompt in pieces
 		_, _ = c.Write([]byte{255, 251, 1, 255})
 		time.Sleep(20 * time.Millisecond)

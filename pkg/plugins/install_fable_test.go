@@ -20,7 +20,7 @@ func repoOf(t *testing.T, id, version string, files map[string][]byte) *httptest
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/plugins.json" {
-			fmt.Fprintf(w, `{"namespace":"jan","plugins":[{"id":%q,"version":%q,"path":"plugins/%s"}]}`, id, version, id)
+			_, _ = fmt.Fprintf(w, `{"namespace":"jan","plugins":[{"id":%q,"version":%q,"path":"plugins/%s"}]}`, id, version, id)
 			return
 		}
 		body, ok := files[strings.TrimPrefix(r.URL.Path, "/plugins/"+id+"/")]

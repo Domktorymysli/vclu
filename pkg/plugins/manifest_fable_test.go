@@ -96,8 +96,8 @@ func TestFableDashboardsUnknownFieldRefused(t *testing.T) {
 func TestFableFormUnknownFieldKeyRefused(t *testing.T) {
 	dir := t.TempDir()
 	write := func(form string) {
-		os.WriteFile(filepath.Join(dir, "plugin.json"), []byte(`{"id": "x", "name": "X", "version": "1.0.0", "api": 2, "permissions": {}, "form": "form.json"}`), 0o644)
-		os.WriteFile(filepath.Join(dir, "form.json"), []byte(form), 0o644)
+		_ = os.WriteFile(filepath.Join(dir, "plugin.json"), []byte(`{"id": "x", "name": "X", "version": "1.0.0", "api": 2, "permissions": {}, "form": "form.json"}`), 0o644)
+		_ = os.WriteFile(filepath.Join(dir, "form.json"), []byte(form), 0o644)
 	}
 	write(`{"settings": {"host": {"type": "string", "pattern": "^[0-9.]+$"}}}`)
 	if _, _, err := ReadForm(dir); err == nil || !errors.Is(err, ErrNewerVclu) {
@@ -310,7 +310,7 @@ func TestFableMigrationPinsThenWaits(t *testing.T) {
 
 // Texts shown in the install dialog refuse format characters that change how they read.
 func TestPlainTextRefusesFormatCharacters(t *testing.T) {
-	for _, s := range []string{"Chmura‮Tuya", "a​b", "x⁦y"} {
+	for _, s := range []string{"Chmura\u202eTuya", "a\u200bb", "x\u2066y"} {
 		if plainText(s, 200) {
 			t.Errorf("%q accepted", s)
 		}

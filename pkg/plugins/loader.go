@@ -357,7 +357,7 @@ func (l *Loader) PreviewPermissions(repo config.PluginRepository, pluginID strin
 		if err != nil {
 			return m, err
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		if resp.StatusCode != http.StatusOK {
 			return m, fmt.Errorf("plugin.json: HTTP %d", resp.StatusCode)
 		}
@@ -1146,7 +1146,6 @@ func (l *Loader) syncFiles(pluginID string) (installed config.InstalledPlugin, s
 		if err := l.DownloadPlugin(*repo, installed.ID); err != nil {
 			return installed, true, fmt.Sprintf("%s: %v", installed.ID, err)
 		}
-		localDir = l.resolvePluginDir(installed.ID)
 		if installed.Grants == nil {
 			// as the panel's update without the old files: what the fetched files ask for waits
 			l.recordEmptyGrants(installed.ID)

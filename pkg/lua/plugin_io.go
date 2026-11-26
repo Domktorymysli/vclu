@@ -618,23 +618,22 @@ func (p *PluginIO) SendUDP(id int, plugin, host string, port int, data []byte) e
 		return fmt.Errorf("refused broadcast to port %d: only to the CLU port %d", port, grentonPort)
 	}
 	if isBroadcast(ip) {
-		if hosts != nil && !(h.perm != "udp" && g.cluDiscovery) {
+		if hosts != nil && (h.perm == "udp" || !g.cluDiscovery) {
 			return fmt.Errorf("refused broadcast: the plugin's settings allow only some hosts")
 		}
 	} else if err := p.checkTarget(ip, hosts); err != nil {
 		return err
 	}
-	_, err = h.conn.WriteToUDP(data, net.UDPAddrFromAddrPort(netip.AddrPortFrom(ip, uint16(port))))
-	if err == nil {
-		p.mu.Lock()
-		p.markSent(h.conn.LocalAddr().(*net.UDPAddr).Port)
-		if isBroadcast(ip) {
-			h.bcast[port] = time.Now()
-		} else if len(h.peers) < maxUDPPeers {
-			h.peers[ip] = true
-		}
-		p.mu.Unlock()
+	// who may answer is known before the datagram goes, or a quick answer would be dropped
+	p.mu.Lock()
+	p.markSent(h.conn.LocalAddr().(*net.UDPAddr).Port)
+	if isBroadcast(ip) {
+		h.bcast[port] = time.Now()
+	} else if len(h.peers) < maxUDPPeers {
+		h.peers[ip] = true
 	}
+	p.mu.Unlock()
+	_, err = h.conn.WriteToUDP(data, net.UDPAddrFromAddrPort(netip.AddrPortFrom(ip, uint16(port))))
 	return err
 }
 

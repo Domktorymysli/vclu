@@ -132,7 +132,7 @@ func TestWriteModuleCodeKeepsTheList(t *testing.T) {
 // What a plugin proposes is code the user reads in a diff: characters that hide or reorder
 // what is shown are refused.
 func TestModuleCodeRefusesHiddenCharacters(t *testing.T) {
-	for _, code := range []string{"x = 1 -- ‮)1(tixe.so‬", "a\x00", "a\x1b[2K", "a⁦b⁩", "a\vb", "a\fb"} {
+	for _, code := range []string{"x = 1 -- \u202e)1(tixe.so\u202c", "a\x00", "a\x1b[2K", "a\u2066b\u2069", "a\vb", "a\fb"} {
 		if err := checkModuleCode(code); err == nil {
 			t.Errorf("%q accepted", code)
 		}

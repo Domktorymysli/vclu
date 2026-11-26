@@ -314,7 +314,7 @@ func TestDashboardActionEndpointInputList(t *testing.T) {
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/dashboard/"+dash+"/action", strings.NewReader(body)))
 		var res map[string]interface{}
-		json.Unmarshal(w.Body.Bytes(), &res)
+		_ = json.Unmarshal(w.Body.Bytes(), &res)
 		return w.Code, res
 	}
 	got := func(k string) string {

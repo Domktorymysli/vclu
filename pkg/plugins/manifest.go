@@ -38,9 +38,6 @@ const (
 	maxManifestDesc   = 500
 )
 
-// cluPorts: the CLU's own ports, reached only with clu (1234) and tftp (69).
-var cluPorts = []int{1234, 69}
-
 // tcpReservedPorts: ports of protocols with a permission of their own.
 var tcpReservedPorts = map[int]string{1234: "clu", 69: "tftp", 502: "modbus", 1883: "mqtt", 8883: "mqtt"}
 

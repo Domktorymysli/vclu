@@ -27,7 +27,7 @@ func wsServer(t *testing.T, serve func(c *websocket.Conn, r *http.Request)) stri
 		if err != nil {
 			return
 		}
-		defer c.Close()
+		defer func() { _ = c.Close() }()
 		serve(c, r)
 	}))
 	t.Cleanup(srv.Close)
@@ -238,7 +238,7 @@ func TestPluginWSLimits(t *testing.T) {
 		buf := make([]byte, 1024)
 		_, _ = c.Read(buf)
 		time.Sleep(2 * time.Second)
-		c.Close()
+		_ = c.Close()
 	})
 	engine := wsEngine(t, "@t/lim", `{api = 2, lan = true, lanPorts = {`+big+`, `+strconv.Itoa(silent)+`}}`)
 	if _, e := runPlugin(t, engine, "@t/lim", `
