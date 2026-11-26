@@ -374,12 +374,17 @@ func (s *Server) handlePluginsAPIPreview(c *gin.Context) {
 			downgradeFrom = floor
 		}
 	}
+	// API 1 reaches any internet host outside the grants: the dialog shows it as "*"
+	requested, internet := preview.Requested.Names(), []string(preview.Requested.Internet)
+	if preview.API < 2 {
+		requested, internet = append([]string{"internet"}, requested...), []string{"*"}
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"version":        preview.Version,
 		"api":            preview.API,
 		"downgradeFrom":  downgradeFrom,
-		"requested":      nonNil(preview.Requested.Names()),
-		"internet":       nonNil([]string(preview.Requested.Internet)),
+		"requested":      nonNil(requested),
+		"internet":       nonNil(internet),
 		"broadcastPorts": append([]int{}, preview.BroadcastPorts...),
 		"tcpPorts":       append([]int{}, preview.TCPPorts...),
 		"websocketPorts": append([]int{}, preview.WebSocketPorts...),

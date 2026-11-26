@@ -243,6 +243,7 @@ PluginsManager.prototype._renderPluginCard = function(plugin, options) {
             return '<span class="badge ' + cls + ' me-1" title="' + VCLU.esc(title + ': ' + label) + '">' +
                    VCLU.esc(PERMISSION_SHORT[name] || name) + '</span>';
         }).join('') + '</p>';
+        if (plugin.api === 1) permsHtml += '<p class="mb-2 small text-danger">' + VCLU.esc(pt('api1_note')) + '</p>';
         // its time on the run loop, on average since it was loaded
         if (plugin.usage && enabled) {
             permsHtml += '<p class="mb-2 small text-body-secondary">' + VCLU.esc(pt('cpu', plugin.usage.cpuMsPerMin)) +
@@ -452,6 +453,7 @@ PluginsManager.prototype._renderInstalledPlugins = function() {
             websocketPorts: p.websocketPorts || [],
             pendingWebsocketPorts: p.pendingWebsocketPorts || [],
             usage: p.usage || null,
+            api: p.api || 0,
             updateAvailable: available.updateAvailable,
             sourceMoved: (self.availablePlugins || []).some(function(a) { return a.fullId === p.id && a.sourceMoved; }),
             availableVersion: available.version
@@ -599,6 +601,7 @@ PluginsManager.prototype._confirmInstall = function(id, repository, preview) {
     var notes = [];
     if (requested.length === 0) notes.push(pt('uses_none'));
     if (installed) notes.push(pt('update_keeps'));
+    if ((preview.api || 1) < 2) notes.push(pt('api1_note'));
     // a version on a lower plugin API would drop its limits: installed only from scratch
     var downgrade = installed && preview.downgradeFrom > 0;
     if (downgrade) notes = [pt('api_downgrade', preview.downgradeFrom, preview.api || 1)];

@@ -316,6 +316,7 @@
             save: '{{index .t "plugins.perm.save"}}',
             install: '{{index .t "plugins.perm.install"}}',
             update: '{{index .t "plugins.perm.update"}}',
+            api1_note: '{{index .t "plugins.perm.api1_note"}}',
             api_downgrade: '{{index .t "plugins.perm.api_downgrade"}}',
             source_moved: '{{index .t "plugins.perm.source_moved"}}',
             source_moved_title: '{{index .t "plugins.perm.source_moved_title"}}',
@@ -400,6 +401,7 @@
                 pendingTcpPorts: {{if .PendingTCPPorts}}{{.PendingTCPPorts | json}}{{else}}[]{{end}},
                 websocketPorts: {{if .WebSocketPorts}}{{.WebSocketPorts | json}}{{else}}[]{{end}},
                 pendingWebsocketPorts: {{if .PendingWebSocketPorts}}{{.PendingWebSocketPorts | json}}{{else}}[]{{end}},
+                api: {{.API}},
                 usage: {{if .Usage}}{{.Usage | json}}{{else}}null{{end}}
             };
         }
