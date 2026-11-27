@@ -1175,7 +1175,9 @@
                 var list = st.edit ? toIntervals(st.edit[day]) : (week[day] || []);
                 list.forEach(function(iv) {
                     var a = hmMin(iv.from), b = hmMin(iv.to);
-                    var seg = calEl('div', 'dash-cal-seg-v', b - a >= 60 ? String(iv.value) : '');
+                    // the label hides on a bar too narrow for it (CSS container query)
+                    var seg = calEl('div', 'dash-cal-seg-v');
+                    seg.appendChild(calEl('span', 'dash-sched-seg-t', String(iv.value)));
                     seg.style.left = (a / 1440 * 100) + '%';
                     seg.style.width = ((b - a) / 1440 * 100) + '%';
                     seg.style.setProperty('--seg', colorOf(iv.value));
@@ -1256,7 +1258,9 @@
             setValue(next === cur ? values[0] : next);
         }
 
+        // without a selection the fields are there but off, so a tap does not move the grid
         function timeField(edge) {
+            var off = !st.sel;
             var wrap = calEl('div', 'dash-sched-time');
             wrap.appendChild(calEl('span', 'dash-sched-edge', edge === 'from' ? T.schedFrom : T.schedTo));
             var less = button('dash-sched-nudge', '−', function() {
@@ -1266,7 +1270,7 @@
             var input = calEl('input', 'dash-sched-clock');
             input.type = 'time';
             input.step = 60;
-            input.value = st.sel[edge] === 1440 ? '00:00' : minHm(st.sel[edge]); // an end at 00:00 is midnight
+            if (!off) input.value = st.sel[edge] === 1440 ? '00:00' : minHm(st.sel[edge]); // an end at 00:00 is midnight
             input.setAttribute('aria-label', edge === 'from' ? T.schedFrom : T.schedTo);
             input.addEventListener('change', function() {
                 if (!input.value) return;
@@ -1277,6 +1281,7 @@
                 applyEdge(edge, Math.floor(st.sel[edge] / SCHED_STEP) * SCHED_STEP + SCHED_STEP);
             });
             more.setAttribute('aria-label', T.schedLater);
+            less.disabled = input.disabled = more.disabled = off;
             wrap.appendChild(less);
             wrap.appendChild(input);
             wrap.appendChild(more);
@@ -1288,18 +1293,20 @@
             palette.innerHTML = '';
             var d = st.data;
             if (!d) return;
-            if (!st.sel) {
-                selBox.appendChild(calEl('div', 'dash-sched-hint', T.schedTap));
-                return;
-            }
-            var v = valueOf(dayMinutes(st.sel.day)[st.sel.from]);
+            var sel = st.sel;
+            var v = sel ? valueOf(dayMinutes(sel.day)[sel.from]) : null;
+            // the line of the selection keeps its height when empty: a tap does not move the grid
             var head = calEl('div', 'dash-sched-selhead');
-            head.appendChild(calEl('span', 'dash-sched-selday', weekdayName(WEEK_DAYS.indexOf(st.sel.day))));
-            if (!st.edit) head.appendChild(calEl('span', 'dash-sched-range', minHm(st.sel.from) + ' – ' + hmEnd(st.sel.to)));
-            var tag = calEl('span', 'dash-sched-value', String(v));
-            var c = colorOf(v);
-            if (c) tag.style.setProperty('--seg', c); else tag.classList.add('neutral');
-            head.appendChild(tag);
+            if (sel) {
+                head.appendChild(calEl('span', 'dash-sched-selday', weekdayName(WEEK_DAYS.indexOf(sel.day))));
+                if (!st.edit) head.appendChild(calEl('span', 'dash-sched-range', minHm(sel.from) + ' – ' + hmEnd(sel.to)));
+                var tag = calEl('span', 'dash-sched-value', String(v));
+                var c = colorOf(v);
+                if (c) tag.style.setProperty('--seg', c); else tag.classList.add('neutral');
+                head.appendChild(tag);
+            } else if (st.edit) {
+                head.appendChild(calEl('span', 'dash-sched-hint', T.schedPick));
+            }
             selBox.appendChild(head);
             if (!st.edit) return;
 
@@ -1316,13 +1323,14 @@
                 var cx = colorOf(x);
                 if (cx) b.style.setProperty('--seg', cx);
                 else b.classList.add('neutral');
-                if (x === v) b.classList.add('active');
-                b.setAttribute('aria-pressed', x === v ? 'true' : 'false');
+                if (sel && x === v) b.classList.add('active');
+                b.setAttribute('aria-pressed', sel && x === v ? 'true' : 'false');
+                b.disabled = !sel;
                 palette.appendChild(b);
             });
-            if (st.sel.to - st.sel.from >= 2 * SCHED_STEP) {
-                palette.appendChild(button('dash-sched-swatch dash-sched-add', T.schedAdd, addStretch));
-            }
+            var add = button('dash-sched-swatch dash-sched-add', T.schedAdd, addStretch);
+            add.disabled = !sel || sel.to - sel.from < 2 * SCHED_STEP;
+            palette.appendChild(add);
             selBox.appendChild(palette);
         }
 
@@ -1396,6 +1404,16 @@
             drawSel();
         });
 
+        // when a window of the module applies besides the week: holidays, dates
+        function fixedWhen(f) {
+            var list = [].concat(f.every || f.date || f.dates || []);
+            return list.map(function(e) {
+                if (e === 'holiday') return T.schedHoliday;
+                var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(e));
+                return m ? +m[3] + '.' + m[2] + '.' + m[1] : String(e);
+            }).join(', ');
+        }
+
         function drawFoot() {
             foot.innerHTML = '';
             var d = st.data;
@@ -1404,9 +1422,13 @@
                 var fx = calEl('div', 'dash-sched-fixed');
                 fx.appendChild(calEl('span', 'dash-sched-fixed-title', T.schedFixed));
                 d.fixed.forEach(function(f) {
-                    var every = Array.isArray(f.every) ? f.every.join(', ') : (f.every || f.date || f.dates || '');
-                    var hours = Array.isArray(f.hours) ? f.hours.join('\u2013') : (f.hours || f.time || '');
-                    fx.appendChild(calEl('span', 'dash-sched-fixed-item', String(every) + (hours ? ' ' + hours : '') + ' \u2192 ' + f.value));
+                    var hours = Array.isArray(f.hours) ? f.hours.join(', ') : (f.hours || f.time || '');
+                    var item = calEl('span', 'dash-sched-fixed-item', fixedWhen(f) + (hours ? ' ' + String(hours).replace('-', '\u2013') : '') + ': ');
+                    var tag = calEl('span', 'dash-sched-value dash-sched-fixed-value', String(f.value));
+                    var c = colorOf(f.value);
+                    if (c) tag.style.setProperty('--seg', c); else tag.classList.add('neutral');
+                    item.appendChild(tag);
+                    fx.appendChild(item);
                 });
                 foot.appendChild(fx);
             }
