@@ -107,8 +107,8 @@ func TestCheckDashboardAccess(t *testing.T) {
 	}
 }
 
-// The generated block, run against a stub Plugin: what was saved reaches dashboardAccess as
-// data, whatever the name holds.
+// The generated block, run against a stub Plugin: what was saved reaches the chain as data,
+// whatever the name holds.
 func TestDashboardAccessCode(t *testing.T) {
 	nasty := `a"]] ..os.exit()--` + "\\" + `'` + "\"\n"
 	access := map[string]DashboardAccess{"lista": {Name: nasty, Auth: "pin", PIN: "1234", Remote: true, RemotePIN: true,

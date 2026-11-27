@@ -442,37 +442,6 @@ function Plugin:dashboard(id)
     return sandboxAPI(self, "dashboard").dashboard(id)
 end
 
---- Deprecated: Plugin.getPlugin(id):dashboard(id) with :name, :auth, :pin, :remote and :roles,
--- as on Dashboard.new. Kept so modules the wizard wrote before still run; logs a warning once.
-function Plugin:dashboardAccess(id, opts)
-    if type(self) ~= "table" or getmetatable(self) ~= Plugin then
-        error("dashboardAccess: call it on a plugin, Plugin.getPlugin(id):dashboardAccess(...)", 2)
-    end
-    -- a plugin's own code (its environment) never grants itself or another plugin anything
-    local env = getfenv and getfenv(2)
-    for _, sb in pairs((PluginSandbox and PluginSandbox.sandboxes) or {}) do
-        if env ~= nil and sb.environment == env then
-            error("dashboardAccess is the user's: a module grants access to a plugin's dashboards, not the plugin", 2)
-        end
-    end
-    local sandbox = self._sandbox
-    local declared = sandbox and sandbox.declaredDashboards or {}
-    if type(id) ~= "string" or not declared[id] then
-        error("dashboardAccess: " .. tostring(self.id) .. " declares no dashboard " .. tostring(id)
-            .. ' (plugin.json "dashboards")', 2)
-    end
-    local ok, err = Dashboard._grantPlugin(self.id, id, opts)
-    if not ok then error("dashboardAccess(" .. id .. "): " .. err, 2) end
-    Dashboard._warnedAccess = Dashboard._warnedAccess or {}
-    if not Dashboard._warnedAccess[self.id .. "/" .. id] then
-        Dashboard._warnedAccess[self.id .. "/" .. id] = true
-        Logger:getShared():warn("[DASHBOARD] " .. self.id .. ':dashboardAccess("' .. id .. '", {...}) is deprecated: '
-            .. 'write Plugin.getPlugin("' .. self.id .. '"):dashboard("' .. id .. '"):name(...):auth(...), as on Dashboard.new '
-            .. "(the plugin wizard writes it)")
-    end
-    return self
-end
-
 --- A named action agents and voice assistants call (HTTP POST /api/plugins/:id/actions/:name,
 -- MCP vclu_app_action). On API 2 the action is declared in plugin.json "actions" (description,
 -- params, confirm) and the code only binds it: plugin:action(name, fn). fn(params) gets the

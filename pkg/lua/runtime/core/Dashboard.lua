@@ -5492,19 +5492,6 @@ function Dashboard._applyAccess(b)
     b._remote = r and { pin = r.pin, roles = r.roles, poll = r.poll } or nil
 end
 
--- Plugin:dashboardAccess (deprecated): stores the grant for the plugin's declared dashboard and applies it
--- to the dashboard if built; true, or nil and why
-function Dashboard._grantPlugin(pluginId, id, opts)
-    local a, err = DashAccess.spec(opts)
-    if not a then return nil, err end
-    _dashboardAccess[pluginId] = _dashboardAccess[pluginId] or {}
-    _dashboardAccess[pluginId][id] = a
-    for _, d in pairs(_dashboards) do
-        if d._plugin == pluginId and d._pluginDash == id then Dashboard._applyAccess(d) end
-    end
-    return true
-end
-
 -- A module's builder for a plugin's declared dashboard (Plugin.getPlugin(id):dashboard(id)): the
 -- chain of Dashboard.new for who may open it; each call applies at once, no :build(). The widgets
 -- are the plugin's. A PIN asked for and not given keeps the dashboard closed until it is. Its state

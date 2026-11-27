@@ -492,7 +492,6 @@ local INSTANCE_PROTECTED = {
     id = true, shortId = true, namespace = true, _sandbox = true, _isPlugin = true, _exposedHandles = true,
     timers = true, subscriptions = true, init = true, cleanup = true, stats = true,
     getExposed = true, -- the user's module sets remote access on what it returns
-    dashboardAccess = true, -- a module's grant must reach the core, not the plugin's own function
     dashboard = true, -- in a module it is the access builder of the core (moduleFacade)
 }
 -- Called by the loader and the sandbox on the real instance, not by the plugin
@@ -575,11 +574,6 @@ local function instanceProxy(inner)
                 return f
             end
             if PLUGIN_STATIC[key] or INSTANCE_CORE_ONLY[key] then return nil end
-            if key == "dashboardAccess" then
-                return function()
-                    error("dashboardAccess is the user's: a module grants access to a plugin's dashboards, not the plugin", 2)
-                end
-            end
             local override = overrides[key]
             m = function(self, ...)
                 if self ~= proxy then
@@ -826,7 +820,7 @@ end
 local FACADE_FIELDS = { id = true, shortId = true, namespace = true, name = true, version = true,
     description = true, _isPlugin = true }
 -- the core's methods: "raw" results are the core's (expose handles), "handle" go through toModule
-local FACADE_CORE = { get = "handle", on = "handle", getExposed = "raw", dashboardAccess = "raw",
+local FACADE_CORE = { get = "handle", on = "handle", getExposed = "raw",
     listSensorsAndControls = "raw", stats = "raw" }
 
 -- A plugin's own code never grants a dashboard: no frame on the stack runs in a plugin's

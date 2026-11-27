@@ -48,8 +48,7 @@ the plugin's own choice in `_pluginOwn` and `Dashboard._applyAccess` sets `_name
 keeps the grant; a Lua reload starts empty and the module grants it again. The builder keeps its state in a
 closure (no fields to set or re-aim, `__newindex` refused): holding it is the grant, and a plugin never gets
 one (its own `dashboard` is the widget builder, another plugin's facade has none, arguments reach it read-only).
-Each call also refuses when any frame on the stack runs in a plugin's environment (`refuseFromPlugin`). `Plugin:dashboardAccess(id, opts)` is
-the deprecated table form, kept for modules written before; it warns once.
+Each call also refuses when any frame on the stack runs in a plugin's environment (`refuseFromPlugin`).
 
 The wizard shows a Dashboards step for a plugin that declares any (also without a form) and then always a
 Code step: the step is checked in Go (`CheckDashboardAccess`), kept in the config under `_dashboards` only to
@@ -94,7 +93,7 @@ change to the sandbox keeps them failing.
 ## What a module gets of a plugin (API 2)
 `PluginSandbox.moduleFacade` (PluginSandbox.lua): `Plugin.getPlugin(id)` and `_:get("@ns/id")` give a
 module the plugin's facade, never the instance: the plugin's own methods, the core's `get`, `on`,
-`getExposed`, `dashboardAccess`, `listSensorsAndControls`, `stats`, and `id`, `name`, `version`;
+`getExposed`, `dashboard` (the access chain), `listSensorsAndControls`, `stats`, and `id`, `name`, `version`;
 no other field of the instance (config, sandbox, KV store, timers, its own state; tests read those
 through `Plugin._lookup`), and `plugin:kvGet` and the like refuse. What crosses is
 the contract one Lua state per plugin keeps (pluginy-2.0 §12): numbers, strings, booleans and plain

@@ -176,9 +176,9 @@ func TestPluginDashboardAccessServed(t *testing.T) {
 	if code := page(); code != http.StatusFound {
 		t.Fatalf("the plugin's session: %d", code)
 	}
-	grant := func(opts string) {
+	grant := func(chain string) {
 		t.Helper()
-		if _, err := engine.Execute(`Plugin.getPlugin("@jan/zakupy"):dashboardAccess("lista", ` + opts + `)`); err != nil {
+		if _, err := engine.Execute(`Plugin.getPlugin("@jan/zakupy"):dashboard("lista")` + chain); err != nil {
 			t.Fatal(err)
 		}
 		dashCache.Invalidate()
@@ -186,7 +186,7 @@ func TestPluginDashboardAccessServed(t *testing.T) {
 		s.remoteRolesCache = nil
 		s.remoteRolesMu.Unlock()
 	}
-	grant(`{ auth = "public", remote = { roles = { "domownicy", "gosia" } } }`)
+	grant(`:auth("public"):remote():roles("domownicy", "gosia")`)
 	if code := page(); code != http.StatusOK {
 		t.Fatalf("public: %d", code)
 	}
@@ -196,7 +196,7 @@ func TestPluginDashboardAccessServed(t *testing.T) {
 	if roles := s.knownRoles(); !slices.Contains(roles, "gosia") || !slices.Contains(roles, "domownicy") {
 		t.Fatalf("known roles: %v", roles)
 	}
-	grant(`{ auth = "off" }`)
+	grant(`:auth("off")`)
 	if code := page(); code != http.StatusNotFound {
 		t.Fatalf("off: %d", code)
 	}
