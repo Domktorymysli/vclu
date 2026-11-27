@@ -183,7 +183,7 @@ PluginsManager.prototype._renderPluginCard = function(plugin, options) {
     var name = plugin.name || id;
     var version = plugin.version || '?';
     var description = plugin.description || '';
-    var author = plugin.author || 'Unknown';
+    var author = plugin.author || '';
     var repository = plugin.repository || '';
     var repoUrl = plugin.repoUrl || '';
     var tags = plugin.tags || [];
@@ -214,8 +214,7 @@ PluginsManager.prototype._renderPluginCard = function(plugin, options) {
         }
         var waitingAll = (plugin.pendingPermissions || []).concat(plugin.pendingActions || []);
         if (waitingAll.length > 0) {
-            statusBadge += ' <span class="badge bg-danger" title="' + VCLU.esc(pt('asks_for_title')) + '">' + VCLU.esc(pt('asks_for')) + ' ' +
-                           VCLU.esc(waitingAll.join(', ')) + '</span>';
+            statusBadge += ' ' + permChip('warning', 'bi-shield-exclamation', pt('waiting_consent'), pt('asks_for_title') + ': ' + waitingAll.join(', '));
         }
     }
 
@@ -357,9 +356,9 @@ PluginsManager.prototype._renderPluginCard = function(plugin, options) {
            ' <span class="small fw-normal text-body-secondary">v' + VCLU.esc(version) + '</span></h6>' +
            '<div class="text-end">' + statusBadge + '</div>' +
            '</div>' +
-           '<p class="card-text small text-body-secondary mb-2"><code>' + VCLU.esc(fullId) + '</code> · ' +
-           VCLU.esc(repository) + ' · ' + VCLU.esc(author) + '</p>' +
-           '<p class="card-text small mb-2 plugin-desc" title="' + VCLU.esc(description) + '">' + VCLU.esc(description) + '</p>' +
+           '<p class="card-text small text-body-secondary mb-2">' + ['<code>' + VCLU.esc(fullId) + '</code>']
+               .concat([repository, author].filter(Boolean).map(function(t) { return VCLU.esc(t); })).join(' · ') + '</p>' +
+           (description ? '<p class="card-text small mb-2 plugin-desc" title="' + VCLU.esc(description) + '">' + VCLU.esc(description) + '</p>' : '') +
            tagsHtml +
            permsHtml +
            '</div>' +

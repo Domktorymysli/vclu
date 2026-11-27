@@ -1169,7 +1169,8 @@
       "any_server_cap": "Any server",
       "mqtt_publishes_cap": "Publishes: {0}",
       "api1_short": "Old API: unrestricted",
-      "no_permissions": "No network or device access"
+      "no_permissions": "No network or device access",
+      "waiting_consent": "waits for consent"
     }
   }
 }
