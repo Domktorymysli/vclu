@@ -1175,7 +1175,7 @@
                 var list = st.edit ? toIntervals(st.edit[day]) : (week[day] || []);
                 list.forEach(function(iv) {
                     var a = hmMin(iv.from), b = hmMin(iv.to);
-                    var seg = calEl('div', 'dash-cal-seg-v', String(iv.value));
+                    var seg = calEl('div', 'dash-cal-seg-v', b - a >= 60 ? String(iv.value) : '');
                     seg.style.left = (a / 1440 * 100) + '%';
                     seg.style.width = ((b - a) / 1440 * 100) + '%';
                     seg.style.setProperty('--seg', colorOf(iv.value));
