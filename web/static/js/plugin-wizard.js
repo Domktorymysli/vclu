@@ -30,6 +30,9 @@
             appPin: 'Wymagaj PIN-u w aplikacji', roles: 'Kto widzi w aplikacji',
             rolesDesc: 'Role z chmury vclu po przecinku. Puste: wszyscy domownicy.', rolesKnown: 'Znane role:',
             badRole: 'Role: małe litery, cyfry, - i _', dashCode: 'Dostęp zapisuje się jako kod w module, w ostatnim kroku.',
+            login: 'Logowanie', loginDesc: 'Plugin loguje się do swojej usługi przez aplikację w telefonie.',
+            signIn: 'Zaloguj', signingIn: 'Czekam na potwierdzenie…', signedIn: 'Zalogowano',
+            scanQr: 'Zeskanuj kod w aplikacji', openLink: 'Otwórz link i wpisz kod',
         },
         en: {
             settings: 'Settings', devices: 'Devices', code: 'Code', save: 'Save', saved: 'Saved',
@@ -52,6 +55,9 @@
             appPin: 'Ask for the PIN in the app', roles: 'Who sees it in the app',
             rolesDesc: 'vclu cloud roles, comma separated. Empty: every member of the home.', rolesKnown: 'Known roles:',
             badRole: 'Roles: lower-case letters, digits, - and _', dashCode: 'Access is written as code in a module, in the last step.',
+            login: 'Sign-in', loginDesc: 'The plugin signs in to its service through an app on your phone.',
+            signIn: 'Sign in', signingIn: 'Waiting for you to confirm…', signedIn: 'Signed in',
+            scanQr: 'Scan the code in the app', openLink: 'Open the link and type the code',
         }
     };
     var t = T[lang] || T.en;
@@ -197,6 +203,7 @@
         // the last step saves on the way out: one step means "Save", several end with "Done"
         el.querySelector('[data-act="next"]').textContent = !last ? t.next : (this.steps.length === 1 ? t.save : t.done);
         this.error('');
+        if (this.loginCancel) this.loginCancel();
         this.body = el.querySelector('.wizard-step');
         this.body.onchange = null;
         if (step === 'settings') this.renderSettings();
@@ -417,7 +424,9 @@
             html += '<div class="' + cls + '" data-row="' + esc(name) + '">' +
                 '<label class="pw-label form-label" for="pw-' + esc(name) + '">' + label + '</label>' + input + desc + '</div>';
         });
+        if (this.data.login) html += this.loginHTML();
         this.body.innerHTML = html;
+        this.bindLogin();
         this.body.querySelectorAll('.pw-choice').forEach(function(b) {
             b.addEventListener('click', function() {
                 var row = b.closest('[data-row]');
@@ -445,6 +454,101 @@
         this.body.onchange = refresh;
         refresh();
         this.pristine = JSON.stringify(this.collectSettings(false));
+    };
+
+    // ---- sign-in (plugin:login) ----
+
+    Wizard.prototype.loginHTML = function() {
+        var body = '<button type="button" class="btn btn-primary" data-act="login"><i class="bi bi-qr-code me-1"></i>' + esc(t.signIn) + '</button>';
+        return '<div class="pw-field pw-login"><div class="pw-label">' + esc(t.login) + '</div>' +
+            '<div class="pw-desc mb-2">' + esc(t.loginDesc) + '</div>' + body + '<div class="pw-login-state mt-2"></div></div>';
+    };
+
+    Wizard.prototype.bindLogin = function() {
+        var self = this;
+        var b = this.body.querySelector('[data-act="login"]');
+        if (b) b.addEventListener('click', function() { self.login(); });
+    };
+
+    // starts the sign-in and shows what the plugin gives until it is done, fails or is cancelled
+    Wizard.prototype.login = function() {
+        var self = this;
+        var box = this.body.querySelector('.pw-login-state');
+        var button = this.body.querySelector('[data-act="login"]');
+        var modal = this.modal();
+        var req = null, timer = null;
+        var stop = function() {
+            if (timer) clearTimeout(timer);
+            timer = null;
+            if (button) button.disabled = false;
+        };
+        var cancel = function() {
+            if (req) fetch(self.base + '/login/' + encodeURIComponent(req), { method: 'DELETE' });
+            req = null;
+            self.loginCancel = null;
+            stop();
+            box.innerHTML = '';
+        };
+        var draw = function(r) {
+            var html = '';
+            if (r.qr) html += '<div class="small mb-1">' + esc(t.scanQr) + '</div><img class="pw-qr" alt="QR" src="' + esc(r.qr) + '">';
+            if (r.code) {
+                html += '<div class="small mb-1">' + esc(t.openLink) + '</div>';
+                if (r.url) html += '<div><a href="' + esc(r.url) + '" target="_blank" rel="noopener noreferrer">' + esc(r.url) + '</a></div>';
+                html += '<div class="pw-login-code fs-4 font-monospace">' + esc(r.code) + '</div>';
+            }
+            if (r.hint) html += '<div class="pw-desc">' + esc(r.hint) + '</div>';
+            html += '<div class="small text-muted mt-1"><span class="spinner-border spinner-border-sm me-1"></span>' + esc(t.signingIn) +
+                ' <button type="button" class="btn btn-link btn-sm" data-act="login-cancel">' + esc(t.cancel) + '</button></div>';
+            box.innerHTML = html;
+            box.querySelector('[data-act="login-cancel"]').addEventListener('click', cancel);
+        };
+        var poll = function() {
+            timer = null;
+            var mine = req;
+            api(self.base + '/login/' + encodeURIComponent(mine)).then(function(r) {
+                if (req !== mine) return; // cancelled while this poll was on its way
+                if (r.state === 'pending') {
+                    draw(r);
+                    timer = setTimeout(poll, 1500);
+                    return;
+                }
+                req = null;
+                self.loginCancel = null;
+                stop();
+                if (r.state === 'done') {
+                    box.innerHTML = '<div class="text-success"><i class="bi bi-check-circle me-1"></i>' + esc(t.signedIn) + '</div>';
+                } else {
+                    box.innerHTML = '';
+                    self.error(r.error || r.state);
+                }
+            }).catch(function(e) {
+                if (req !== mine) return;
+                req = null;
+                self.loginCancel = null;
+                stop();
+                self.error(e.message);
+            });
+        };
+        if (button) button.disabled = true;
+        this.error('');
+        box.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+        // leaving the step or closing the wizard ends the sign-in (show() and hide call this)
+        this.loginCancel = cancel;
+        modal.addEventListener('hide.bs.modal', function() { if (self.loginCancel === cancel) cancel(); }, { once: true });
+        api(this.base + '/login', { method: 'POST' }).then(function(r) {
+            if (self.loginCancel !== cancel) {
+                // the step was left while it was starting
+                fetch(self.base + '/login/' + encodeURIComponent(r.req), { method: 'DELETE' });
+                return;
+            }
+            req = r.req;
+            poll();
+        }).catch(function(e) {
+            stop();
+            box.innerHTML = '';
+            self.error(e.message);
+        });
     };
 
     Wizard.prototype.collectSettings = function(forShowIf) {

@@ -3,14 +3,17 @@ package web
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"rsc.io/qr"
 
 	"github.com/Domktorymysli/vclu/pkg/config"
 	"github.com/Domktorymysli/vclu/pkg/plugins"
@@ -22,6 +25,10 @@ type PluginWizard interface {
 	Discover(ctx context.Context, pluginID string) ([]map[string]any, []string, error)
 	ModuleCode(pluginID string) (string, error)
 	Dashboards(pluginID string) ([]plugins.ManifestDashboard, error)
+	HasLogin(pluginID string) bool
+	LoginStart(pluginID string) (string, error)
+	LoginPoll(pluginID, req string) (plugins.LoginState, error)
+	LoginCancel(pluginID, req string) error
 }
 
 func (s *Server) wizard(c *gin.Context) (PluginWizard, string, bool) {
@@ -81,6 +88,7 @@ func (s *Server) handlePluginsAPIForm(c *gin.Context) {
 		"running": s.pluginController.IsLoaded(id),
 		"enabled": entry.Enabled,
 		"module":  "modules/plugins/" + plugins.ModuleName(id) + ".lua",
+		"login":   w.HasLogin(id),
 	}
 	if len(dashboards) > 0 {
 		// declared dashboards, the step as saved and the roles to offer
@@ -339,6 +347,68 @@ func (s *Server) handlePluginsAPIDiscover(c *gin.Context) {
 		rows = []map[string]any{}
 	}
 	c.JSON(http.StatusOK, gin.H{"rows": rows, "dropped": dropped})
+}
+
+// handlePluginsAPILoginStart starts the plugin's sign-in (plugin:login).
+func (s *Server) handlePluginsAPILoginStart(c *gin.Context) {
+	w, id, ok := s.wizard(c)
+	if !ok {
+		return
+	}
+	req, err := w.LoginStart(id)
+	if errors.Is(err, plugins.ErrLoginRunning) {
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"req": req})
+}
+
+// handlePluginsAPILoginPoll returns the sign-in's state, its QR code as a PNG data URI.
+func (s *Server) handlePluginsAPILoginPoll(c *gin.Context) {
+	w, id, ok := s.wizard(c)
+	if !ok {
+		return
+	}
+	st, err := w.LoginPoll(id, c.Param("req"))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	resp := gin.H{"state": st.State}
+	if st.QR != "" {
+		code, err := qr.Encode(st.QR, qr.M)
+		if err != nil {
+			resp["state"], resp["error"] = "error", "the QR code cannot hold this text"
+			_ = w.LoginCancel(id, c.Param("req"))
+			c.JSON(http.StatusOK, resp)
+			return
+		}
+		code.Scale = 6
+		resp["qr"] = "data:image/png;base64," + base64.StdEncoding.EncodeToString(code.PNG())
+	}
+	for k, v := range map[string]string{"code": st.Code, "url": st.URL, "hint": st.Hint, "error": st.Error} {
+		if v != "" {
+			resp[k] = v
+		}
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+// handlePluginsAPILoginCancel ends the sign-in.
+func (s *Server) handlePluginsAPILoginCancel(c *gin.Context) {
+	w, id, ok := s.wizard(c)
+	if !ok {
+		return
+	}
+	if err := w.LoginCancel(id, c.Param("req")); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
 // codeHash covers the file on disk too: a module changed after the diff is not written over.

@@ -1111,6 +1111,7 @@ html, body {
 .pw-field .form-label { margin-bottom: 0.4rem; }
 .pw-desc { font-size: 0.82rem; color: var(--bs-secondary-color); margin-top: 0.35rem; }
 .pw-switch .pw-desc { margin-top: 0.15rem; }
+.pw-qr { width: 216px; height: 216px; padding: 8px; background: #fff; border-radius: 8px; image-rendering: pixelated; }
 /* fields under a switch: one line down from it, no gaps between them */
 .pw-nested { margin: 0 0 0 0.9rem; padding: 0 0 1.25rem 1rem; border-left: 2px solid var(--bs-border-color); }
 .pw-switch:not(.pw-nested) + .pw-nested { margin-top: -1.25rem; padding-top: 1.25rem; }
