@@ -51,27 +51,27 @@ type PluginIO struct {
 
 // pluginIOGrant: what the user allowed a plugin; nil host lists allow any local host.
 type pluginIOGrant struct {
-	grentonRaw, tftp bool
-	serial           bool
-	rawHosts         []netip.Prefix
-	tftpHosts        []netip.Prefix
-	serialPorts      []string
-	udp              bool
-	udpHosts         []netip.Prefix
-	udpPorts         []int // udp: the ports it sends to, from plugin.json
-	broadcastPorts   []int // udp: the ports it broadcasts to, among udpPorts
-	tcp              bool
-	tcpHosts         []netip.Prefix
-	tcpPorts         []int // tcp: from plugin.json
-	wsLANPorts       []int // WebSockets to local addresses: plugin.json's lan.ports, nil any
-	cluDiscovery     bool  // clu with rawHosts set: broadcasts to the CLU port all the same
+	clu, tftp      bool
+	serial         bool
+	cluHosts       []netip.Prefix
+	tftpHosts      []netip.Prefix
+	serialPorts    []string
+	udp            bool
+	udpHosts       []netip.Prefix
+	udpPorts       []int // udp: the ports it sends to, from plugin.json
+	broadcastPorts []int // udp: the ports it broadcasts to, among udpPorts
+	tcp            bool
+	tcpHosts       []netip.Prefix
+	tcpPorts       []int // tcp: from plugin.json
+	wsLANPorts     []int // WebSockets to local addresses: plugin.json's lan.ports, nil any
+	cluDiscovery   bool  // clu with cluHosts set: broadcasts to the CLU port all the same
 }
 
 type ioHandle struct {
 	id     int
 	plugin string
 	kind   string // "udp", "tcp", "ws", "serial", "tftp"
-	perm   string // udp: the permission it was opened under, "udp" or "grenton_raw"
+	perm   string // udp: the permission it was opened under, "udp" or "clu"
 	path   string // serial: resolved path
 	conn   *net.UDPConn
 	port   io.ReadWriteCloser
@@ -269,7 +269,7 @@ func handleAllowed(p *PluginIO, g pluginIOGrant, h *ioHandle) bool {
 	case "tcp":
 		return h.tcp == nil || p.tcpAllowed(g, h.tcp.remote) == nil
 	case "udp":
-		return h.perm == "" || (h.perm == "udp" && g.udp) || (h.perm == "grenton_raw" && g.grentonRaw)
+		return h.perm == "" || (h.perm == "udp" && g.udp) || (h.perm == "clu" && g.clu)
 	case "tftp":
 		return g.tftp
 	case "serial":
@@ -500,7 +500,7 @@ func callIO(L *lua.LState, h *ioHandle, e ioEvent) error {
 
 // OpenUDP binds a clu socket for the plugin, port 0 for any free one.
 func (p *PluginIO) OpenUDP(plugin string, port int) (int, error) {
-	return p.openUDP(plugin, port, "grenton_raw")
+	return p.openUDP(plugin, port, "clu")
 }
 
 // OpenDeviceUDP binds a udp socket: devices on the local network, not the CLU's ports.
@@ -517,7 +517,7 @@ func (p *PluginIO) openUDP(plugin string, port int, perm string) (int, error) {
 		return 0, fmt.Errorf("port %d: a plugin socket takes a free port, it does not listen on a chosen one", port)
 	}
 	h, err := p.add(plugin, "udp", func(g pluginIOGrant) error {
-		allowed, name := g.grentonRaw, "clu"
+		allowed, name := g.clu, "clu"
 		if perm == "udp" {
 			allowed, name = g.udp, "udp"
 		}
@@ -588,8 +588,8 @@ func (p *PluginIO) SendUDP(id int, plugin, host string, port int, data []byte) e
 	p.mu.Lock()
 	g, ownPort := p.grants[plugin], p.reserved[port]
 	p.mu.Unlock()
-	hosts := g.rawHosts
-	if h.perm != "udp" && !g.grentonRaw {
+	hosts := g.cluHosts
+	if h.perm != "udp" && !g.clu {
 		return needs(false, plugin, "clu")
 	}
 	if h.perm == "udp" {
@@ -841,8 +841,8 @@ func registerPluginIOFunctions(L *lua.LState, p *PluginIO) {
 	//   udp, udpHosts, broadcastPorts, tcp, tcpHosts, tcpPorts, lanPorts (nil any), udpPorts, cluDiscovery)
 	L.SetGlobal("__go_pluginio_grant", L.NewFunction(func(L *lua.LState) int {
 		id := L.CheckString(1)
-		g := pluginIOGrant{grentonRaw: L.ToBool(2), tftp: L.ToBool(3), serial: L.ToBool(4), udp: L.ToBool(8)}
-		g.rawHosts = hostsArg(L, 5, id)
+		g := pluginIOGrant{clu: L.ToBool(2), tftp: L.ToBool(3), serial: L.ToBool(4), udp: L.ToBool(8)}
+		g.cluHosts = hostsArg(L, 5, id)
 		g.tftpHosts = hostsArg(L, 6, id)
 		if t, ok := L.Get(7).(*lua.LTable); ok {
 			t.ForEach(func(_, v lua.LValue) { g.serialPorts = append(g.serialPorts, v.String()) })
@@ -889,10 +889,10 @@ func registerPluginIOFunctions(L *lua.LState, p *PluginIO) {
 		return 0
 	}))
 
-	// __go_pluginio_udp_open(pluginId, port, "udp"|"grenton_raw") -> id | nil, err
+	// __go_pluginio_udp_open(pluginId, port, "udp"|"clu") -> id | nil, err
 	L.SetGlobal("__go_pluginio_udp_open", L.NewFunction(func(L *lua.LState) int {
 		open := p.OpenUDP
-		if L.OptString(3, "grenton_raw") == "udp" {
+		if L.OptString(3, "clu") == "udp" {
 			open = p.OpenDeviceUDP
 		}
 		id, err := open(L.CheckString(1), L.OptInt(2, 0))

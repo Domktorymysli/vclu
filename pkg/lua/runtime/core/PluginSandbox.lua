@@ -492,7 +492,7 @@ local INSTANCE_PROTECTED = {
     id = true, shortId = true, namespace = true, _sandbox = true, _isPlugin = true, _exposedHandles = true,
     timers = true, subscriptions = true, init = true, cleanup = true, stats = true,
     getExposed = true, -- the user's module sets remote access on what it returns
-    dashboardAccess = true, -- a module's grant must reach the core, not the plugin's own function
+    dashboard = true, -- in a module it is the access builder of the core (moduleFacade)
 }
 -- Called by the loader and the sandbox on the real instance, not by the plugin
 local INSTANCE_CORE_ONLY = { init = true, cleanup = true }
@@ -574,11 +574,6 @@ local function instanceProxy(inner)
                 return f
             end
             if PLUGIN_STATIC[key] or INSTANCE_CORE_ONLY[key] then return nil end
-            if key == "dashboardAccess" then
-                return function()
-                    error("dashboardAccess is the user's: a module grants access to a plugin's dashboards, not the plugin", 2)
-                end
-            end
             local override = overrides[key]
             m = function(self, ...)
                 if self ~= proxy then
@@ -825,8 +820,35 @@ end
 local FACADE_FIELDS = { id = true, shortId = true, namespace = true, name = true, version = true,
     description = true, _isPlugin = true }
 -- the core's methods: "raw" results are the core's (expose handles), "handle" go through toModule
-local FACADE_CORE = { get = "handle", on = "handle", getExposed = "raw", dashboardAccess = "raw",
+local FACADE_CORE = { get = "handle", on = "handle", getExposed = "raw",
     listSensorsAndControls = "raw", stats = "raw" }
+
+-- A plugin's own code never grants a dashboard: no frame on the stack runs in a plugin's
+-- environment (every frame, so pcall or a callback in between hides none); level is the caller's
+local function refuseFromPlugin(level, where)
+    local envs = {}
+    for _, sb in pairs(PluginSandbox.sandboxes or {}) do
+        if sb.environment then envs[sb.environment] = true end
+    end
+    for i = 2, 200 do
+        local ok, env = pcall(getfenv, i + 1) -- +1: pcall's own frame
+        if not ok then break end
+        if envs[env] then
+            error(where .. ": who opens a plugin's dashboard is the user's: a module sets it, not a plugin", level + 1)
+        end
+    end
+end
+
+-- Plugin.getPlugin(id):dashboard(id) in a module: the access builder of a declared dashboard
+local function moduleDashboard(inner, id)
+    refuseFromPlugin(3, "dashboard")
+    local declared = inner._sandbox and inner._sandbox.declaredDashboards or {}
+    if type(id) ~= "string" or not declared[id] then
+        error(tostring(inner.id) .. ":dashboard: the plugin declares no dashboard " .. tostring(id)
+            .. ' (plugin.json "dashboards")', 3)
+    end
+    return Dashboard._accessBuilder(inner.id, id, function(where) refuseFromPlugin(4, where) end)
+end
 
 function PluginSandbox.moduleFacade(inner)
     local f = facadeOf[inner]
@@ -852,7 +874,12 @@ function PluginSandbox.moduleFacade(inner)
             local m
             local own = rawget(inner, key)
             local private = type(key) == "string" and key:sub(1, 1) == "_"
-            if type(own) == "function" and not private then
+            if key == "dashboard" then
+                m = function(self, id)
+                    asMethod(key, self)
+                    return moduleDashboard(inner, id)
+                end
+            elseif type(own) == "function" and not private then
                 m = function(self, ...)
                     asMethod(key, self)
                     return toModuleResults(inner, rawget(inner, key)(inner, toPluginArgs(inner, ...)))
@@ -933,7 +960,7 @@ local function coreError(e)
     return (tostring(e):gsub("^[^\n:]-%.lua:%d+: ", ""))
 end
 
--- Who may open a plugin's dashboard is the user's, granted from a module (Plugin:dashboardAccess)
+-- Who may open a plugin's dashboard is the user's, granted from a module (Plugin.getPlugin(id):dashboard(id))
 local DASH_USER = { pin = true, remote = true, roles = true }
 local DASH_PLUGIN_AUTH = { session = true, pin = true }
 
@@ -1006,9 +1033,9 @@ local function dashboardFacade(sandbox, raw, log)
     end
 
     local function userOnly(name)
-        local how = name == "pin" and 'pin = "1234"' or name == "roles" and "remote = { roles = {...} }" or "remote = true"
+        local how = name == "pin" and ':pin("1234")' or name == "roles" and ':remote():roles(...)' or ":remote()"
         error("dashboard:" .. name .. " is the user's to grant, not the plugin's: a module calls "
-            .. 'Plugin.getPlugin("' .. pluginId .. '"):dashboardAccess("' .. raw._pluginDash .. '", { ' .. how .. " })", 3)
+            .. 'Plugin.getPlugin("' .. pluginId .. '"):dashboard("' .. raw._pluginDash .. '")' .. how, 3)
     end
 
     -- auth and name are the plugin's defaults; what the user granted stays over them
@@ -1016,12 +1043,12 @@ local function dashboardFacade(sandbox, raw, log)
         if name == "auth" then
             if not DASH_PLUGIN_AUTH[v] then
                 error('dashboard:auth: a plugin sets "session" or "pin"; "public" and the app are the user\'s to grant '
-                    .. '(Plugin.getPlugin("' .. pluginId .. '"):dashboardAccess in a module)', 3)
+                    .. '(Plugin.getPlugin("' .. pluginId .. '"):dashboard(id):auth(...) in a module)', 3)
             end
             raw._pluginOwn.auth = v
         else
-            if type(v) ~= "string" or v == "" then error("dashboard:name: a name is a text", 3) end
-            raw._pluginOwn.name = v
+            if type(v) ~= "string" or v == "" then error("dashboard:" .. name .. ": a text", 3) end
+            raw._pluginOwn[name] = v
         end
         Dashboard._applyAccess(raw)
         return facades[target]
@@ -1039,7 +1066,7 @@ local function dashboardFacade(sandbox, raw, log)
                     if sandbox.dead then error("plugin " .. pluginId .. " is disabled", 2) end
                     if name == "build" then return finish() end
                     if DASH_USER[name] then userOnly(name) end
-                    if name == "auth" or name == "name" then
+                    if name == "auth" or name == "name" or name == "icon" then
                         local r = ownSetting(target, name, ...) -- no tail call: errors count the levels
                         return r
                     end
@@ -1220,7 +1247,7 @@ function PluginSandbox:create(pluginId, permissions)
         tcp = permissions.tcp == true,
         mqtt = permissions.mqtt == true,
         modbus = permissions.modbus == true,
-        grentonRaw = permissions.grenton_raw == true,
+        clu = permissions.clu == true,
         tftp = permissions.tftp == true,
         serial = permissions.serial == true,
     }
@@ -1234,7 +1261,7 @@ function PluginSandbox:create(pluginId, permissions)
         tcpHosts = list(limits.tcpHosts),
         mqttSubscribe = list(limits.mqttSubscribe),
         mqttPublish = list(limits.mqttPublish),
-        grentonRawHosts = list(limits.cluHosts),
+        cluHosts = list(limits.cluHosts),
         cluDiscovery = limits.cluDiscovery == true,
         modbusHosts = list(limits.modbusHosts),
         lanPorts = list(permissions.lanPorts), -- nil: any local port
@@ -1261,8 +1288,8 @@ function PluginSandbox:create(pluginId, permissions)
     if type(__go_pluginio_grant) == "function" then
         -- the ports of plugin.json's permissions: udp sends and broadcasts, tcp connects, lan's
         -- WebSockets reach (nil: any local port)
-        __go_pluginio_grant(pluginId, sandbox.permissions.grentonRaw, sandbox.permissions.tftp,
-            sandbox.permissions.serial, sandbox.limits.grentonRawHosts, sandbox.limits.tftpHosts,
+        __go_pluginio_grant(pluginId, sandbox.permissions.clu, sandbox.permissions.tftp,
+            sandbox.permissions.serial, sandbox.limits.cluHosts, sandbox.limits.tftpHosts,
             sandbox.limits.serialPorts, sandbox.permissions.udp, sandbox.limits.udpHosts,
             list(permissions.udpBroadcastPorts) or {}, sandbox.permissions.tcp, sandbox.limits.tcpHosts,
             list(permissions.tcpPorts) or {}, sandbox.limits.lanPorts, list(permissions.udpPorts) or {},
@@ -1573,13 +1600,13 @@ function PluginSandbox:buildAPI(sandbox)
 
     -- Frames to CLUs: their port, broadcast for discovery
     api.grentonSocket = function(opts)
-        requireIO("clu", "grentonRaw")
-        return udpSocket(opts, "grenton_raw")
+        requireIO("clu", "clu")
+        return udpSocket(opts, "clu")
     end
 
     -- The CLU cipher with a key and IV the plugin brings (raw or base64)
     api.grentonCipher = function(key, iv)
-        requireIO("clu", "grentonRaw")
+        requireIO("clu", "clu")
         key, iv = tostring(key), tostring(iv)
         local _, err = __go_pluginio_cipher(true, key, iv, "")
         if err then error(err, 2) end
@@ -1669,25 +1696,21 @@ function PluginSandbox:buildAPI(sandbox)
         end, alive)
     end
 
-    -- httpGet and httpPost stay for older plugins; plugin:httpRequest is the one to use
-    local function deprecated(name)
-        if sandbox.deprecatedLogged then return end
-        sandbox.deprecatedLogged = true
-        log:warn("[" .. pluginId .. "] plugin:" .. name .. " is deprecated: use plugin:httpRequest")
+    api.has = function(name)
+        if sandbox.apiVersion >= 2 and (name == "httpGet" or name == "httpPost") then return false end
+        return PluginHelpers.has(name)
     end
 
-    api.httpGet = function(url, callback)
-        deprecated("httpGet")
-        simpleRequest({ method = "GET", url = url }, callback)
-    end
-
-    api.has = function(name) return PluginHelpers.has(name) end
-
-    api.httpPost = function(url, data, callback)
-        deprecated("httpPost")
-        local opts = { method = "POST", url = url }
-        if type(data) == "table" then opts.json = data else opts.body = data end
-        simpleRequest(opts, callback)
+    -- httpGet and httpPost: plugin API 1 only; API 2 has plugin:httpRequest
+    if sandbox.apiVersion < 2 then
+        api.httpGet = function(url, callback)
+            simpleRequest({ method = "GET", url = url }, callback)
+        end
+        api.httpPost = function(url, data, callback)
+            local opts = { method = "POST", url = url }
+            if type(data) == "table" then opts.json = data else opts.body = data end
+            simpleRequest(opts, callback)
+        end
     end
 
     -- Logging helper
@@ -2211,7 +2234,7 @@ function PluginSandbox.checkCluRequest()
         return
     end
     local sandbox = PluginSandbox.sandboxes[id]
-    if not sandbox or sandbox.permissions.grentonRaw then return end
+    if not sandbox or sandbox.permissions.clu then return end
     if sandbox.apiVersion < 2 then
         if not sandbox.warnedCluRequest then
             sandbox.warnedCluRequest = true

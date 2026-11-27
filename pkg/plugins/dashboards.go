@@ -14,7 +14,7 @@ import (
 )
 
 // DashboardsKey: where the wizard keeps its dashboards step in a plugin's config, only to
-// fill the step again; what runs is the code it writes (Plugin:dashboardAccess).
+// fill the step again; what runs is the code it writes (Plugin.getPlugin(id):dashboard(id)).
 const DashboardsKey = "_dashboards"
 
 const (
@@ -88,7 +88,7 @@ func (t LocalText) In(lang string) string {
 func (t LocalText) each() []string { return []string{t.Text, t.PL, t.EN} }
 
 // ManifestDashboard: a dashboard the plugin declares in plugin.json; who may open it is the
-// user's to set (Plugin:dashboardAccess in a module, written by the wizard).
+// user's to set (Plugin.getPlugin(id):dashboard(id) in a module, written by the wizard).
 type ManifestDashboard struct {
 	ID          string     `json:"id"`
 	Name        LocalText  `json:"name"`
@@ -321,33 +321,32 @@ func DashboardAccessCode(pluginID string, declared []ManifestDashboard, access m
 	}
 	for _, id := range ids {
 		a := access[id]
-		parts := []string{"name = " + luastr.Quote(a.Name), "auth = " + luastr.Quote(a.Auth)}
+		// one method per line, as a module's own dashboard: the user and agents read and change this code
+		chain := []string{":name(" + luastr.Quote(a.Name) + ")", ":auth(" + luastr.Quote(a.Auth) + ")"}
 		if a.PIN != "" && dashPIN.MatchString(a.PIN) {
-			parts = append(parts, "pin = "+luastr.Quote(a.PIN))
+			chain = append(chain, ":pin("+luastr.Quote(a.PIN)+")")
 		}
 		if a.Auth != "off" && a.Remote {
+			chain = append(chain, fmt.Sprintf(":remote({ pin = %t })", a.RemotePIN))
 			roles := make([]string, 0, len(a.Roles))
 			for _, r := range a.Roles {
 				if dashRole.MatchString(r) {
 					roles = append(roles, luastr.Quote(r))
 				}
 			}
-			rl := "{}"
 			if len(roles) > 0 {
-				rl = "{ " + strings.Join(roles, ", ") + " }"
+				chain = append(chain, ":roles("+strings.Join(roles, ", ")+")")
 			}
-			parts = append(parts, fmt.Sprintf("remote = { pin = %t, roles = %s }", a.RemotePIN, rl))
 		}
-		// one option per line: the user and agents read and change this code
-		lines = append(lines, fmt.Sprintf("    %s:dashboardAccess(%s, {\n        %s,\n    })",
-			accessVar(pluginID), luastr.Quote(id), strings.Join(parts, ",\n        ")))
+		lines = append(lines, fmt.Sprintf("    %s:dashboard(%s)\n        %s",
+			accessVar(pluginID), luastr.Quote(id), strings.Join(chain, "\n        ")))
 	}
 	if len(lines) == 0 {
 		return ""
 	}
 	v := accessVar(pluginID)
 	return "-- Dostęp do dashboardów (kreator pluginu): auth \"session\", \"pin\", \"public\" albo \"off\";\n" +
-		"-- remote: w aplikacji vclu, roles z chmury (pusto: wszyscy domownicy). Zmieniaj śmiało.\n" +
+		"-- remote: w aplikacji vclu, roles z chmury (bez :roles: wszyscy domownicy). Zmieniaj śmiało.\n" +
 		"local " + v + " = Plugin.getPlugin(" + luastr.Quote(pluginID) + ")\n" +
 		"if " + v + " then\n" + strings.Join(lines, "\n") + "\nend\n"
 }

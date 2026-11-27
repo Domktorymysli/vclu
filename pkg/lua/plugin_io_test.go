@@ -69,7 +69,7 @@ func TestPluginIORefusedWithoutPermission(t *testing.T) {
 	}
 	io := engine.PluginIO()
 	if _, err := io.OpenUDP("@t/none", 0); err == nil {
-		t.Error("Go: socket without grenton_raw")
+		t.Error("Go: socket without clu")
 	}
 	if _, err := io.TFTP("@t/none", "192.168.1.10", 69, "a", nil, false); err == nil {
 		t.Error("Go: TFTP without tftp")
@@ -96,7 +96,7 @@ func TestPluginUDPEcho(t *testing.T) {
 			_, _ = echo.WriteToUDP(append([]byte("re:"), buf[:n]...), from)
 		}
 	}()
-	engine := sandboxEngine(t, "@t/raw", `{api = 2, grenton_raw = true}`)
+	engine := sandboxEngine(t, "@t/raw", `{api = 2, clu = true}`)
 	loopbackAllowed(engine)
 	port := echo.LocalAddr().(*net.UDPAddr).Port
 	if _, e := runPlugin(t, engine, "@t/raw", `
@@ -114,8 +114,8 @@ func TestPluginUDPEcho(t *testing.T) {
 // allowed hosts; a broadcast only to the CLU port and only without a host list.
 func TestPluginUDPTargets(t *testing.T) {
 	io := NewPluginIO()
-	io.SetGrant("@t/a", pluginIOGrant{grentonRaw: true})
-	io.SetGrant("@t/b", pluginIOGrant{grentonRaw: true, rawHosts: []netip.Prefix{netip.MustParsePrefix("192.168.7.0/24")}})
+	io.SetGrant("@t/a", pluginIOGrant{clu: true})
+	io.SetGrant("@t/b", pluginIOGrant{clu: true, cluHosts: []netip.Prefix{netip.MustParsePrefix("192.168.7.0/24")}})
 	a, err := io.OpenUDP("@t/a", 0)
 	if err != nil {
 		t.Fatal(err)
@@ -153,7 +153,7 @@ func TestPluginUDPTargets(t *testing.T) {
 // vCLU's own ports cannot be bound, and its listener knows a plugin's datagrams.
 func TestPluginUDPReservedPortsAndFromPlugin(t *testing.T) {
 	io := NewPluginIO()
-	io.SetGrant("@t/a", pluginIOGrant{grentonRaw: true})
+	io.SetGrant("@t/a", pluginIOGrant{clu: true})
 	reserved := freeUDPPort(t)
 	io.ReserveUDPPorts(reserved)
 	if _, err := io.OpenUDP("@t/a", reserved); err == nil || !strings.Contains(err.Error(), "free port") {
@@ -206,7 +206,7 @@ func TestPluginGrentonCipher(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine := sandboxEngine(t, "@t/raw", `{api = 2, grenton_raw = true}`)
+	engine := sandboxEngine(t, "@t/raw", `{api = 2, clu = true}`)
 	k64, iv64 := base64.StdEncoding.EncodeToString(key), base64.StdEncoding.EncodeToString(iv)
 	if _, e := runPlugin(t, engine, "@t/raw", `
 		local p = Plugin:new("raw")
@@ -333,7 +333,7 @@ func TestPluginSerialOverPty(t *testing.T) {
 // The plugin's cleanup closes its sockets and ports: the port is free again.
 func TestPluginIOClosedOnCleanup(t *testing.T) {
 	_, path := openPty(t)
-	engine := sandboxEngine(t, "@t/gone", `{api = 2, grenton_raw = true, serial = true, limits = {serialPorts = {"`+path+`"}}}`)
+	engine := sandboxEngine(t, "@t/gone", `{api = 2, clu = true, serial = true, limits = {serialPorts = {"`+path+`"}}}`)
 	if _, e := runPlugin(t, engine, "@t/gone", `
 		local p = Plugin:new("gone")
 		assert(p:grentonSocket())

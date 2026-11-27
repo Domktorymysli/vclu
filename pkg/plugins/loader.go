@@ -916,7 +916,7 @@ func (l *Loader) LoadPlugin(pluginID string, pluginConfig map[string]interface{}
 			"allowed": slices.Contains(perms.Actions, a.Name)}
 	}
 	actionsJSON, _ := json.Marshal(actions)
-	createSandboxScript := fmt.Sprintf(`PluginSandbox:create(%s, {api = %d, lan = %t, udp = %t, tcp = %t, mqtt = %t, modbus = %t, grenton_raw = %t, tftp = %t, serial = %t, official = %t, limits = JSON:decode(%s), dashboards = JSON:decode(%s), udpBroadcastPorts = JSON:decode(%s), udpPorts = JSON:decode(%s), tcpPorts = JSON:decode(%s), lanPorts = JSON:decode(%s), actions = JSON:decode(%s)})`,
+	createSandboxScript := fmt.Sprintf(`PluginSandbox:create(%s, {api = %d, lan = %t, udp = %t, tcp = %t, mqtt = %t, modbus = %t, clu = %t, tftp = %t, serial = %t, official = %t, limits = JSON:decode(%s), dashboards = JSON:decode(%s), udpBroadcastPorts = JSON:decode(%s), udpPorts = JSON:decode(%s), tcpPorts = JSON:decode(%s), lanPorts = JSON:decode(%s), actions = JSON:decode(%s)})`,
 		luastr.Quote(pluginID), api, perms.LAN, perms.UDP, perms.TCP, perms.MQTT, perms.Modbus, perms.CLU, perms.TFTP, perms.Serial, official, luastr.Quote(string(limitsJSON)), luastr.Quote(string(dashJSON)), luastr.Quote(string(broadcastJSON)), luastr.Quote(string(udpJSON)), luastr.Quote(string(tcpJSON)), luastr.Quote(string(lanJSON)), luastr.Quote(string(actionsJSON)))
 	if _, err := l.luaExecutor.Execute(createSandboxScript); err != nil {
 		return fmt.Errorf("failed to create sandbox: %w", err)

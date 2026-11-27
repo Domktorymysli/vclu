@@ -281,7 +281,7 @@ function Plugin:getObject(path)
     return nil
 end
 
---- Make an HTTP GET request
+--- Make an HTTP GET request (plugin API 1; API 2 uses plugin:httpRequest)
 -- Uses sandbox API if available for pcall protection
 -- @param url string URL to fetch
 -- @param callback function Callback with (response, error)
@@ -290,6 +290,9 @@ end
 -- end)
 function Plugin:httpGet(url, callback)
     if self._sandbox and self._sandbox.api then
+        if not self._sandbox.api.httpGet then
+            error("plugin:httpGet is plugin API 1: use plugin:httpRequest", 2)
+        end
         self._sandbox.api.httpGet(url, callback)
         return
     end
@@ -310,13 +313,16 @@ function Plugin:httpGet(url, callback)
     end
 end
 
---- Make an HTTP POST request
+--- Make an HTTP POST request (plugin API 1; API 2 uses plugin:httpRequest)
 -- Uses sandbox API if available for pcall protection
 -- @param url string URL to post to
 -- @param data table Data to send (will be JSON encoded)
 -- @param callback function Callback with (response, error)
 function Plugin:httpPost(url, data, callback)
     if self._sandbox and self._sandbox.api then
+        if not self._sandbox.api.httpPost then
+            error("plugin:httpPost is plugin API 1: use plugin:httpRequest", 2)
+        end
         self._sandbox.api.httpPost(url, data, callback)
         return
     end
@@ -428,40 +434,18 @@ end
 -- section, widgets, build). Its id is <shortId>_<id> ("-" as "_"), at /d/<that id>; auth is
 -- "session" unless set. Widgets reaching the house by name (area, floor, room, covers, calendar,
 -- schedule, chart, bars) are not available. Removed when the plugin stops.
--- @param id string Lower-case letters, digits and _
--- @return table DashboardBuilder
+-- In a module, Plugin.getPlugin(id):dashboard(id) is the same chain for who opens a dashboard
+-- the plugin declares in plugin.json "dashboards": name, icon, auth ("session", "pin", "public",
+-- "off": not served, not listed), pin, remote and roles, as on Dashboard.new; each call applies at
+-- once (no :build()), a new chain replaces the last, a Lua reload clears it. The widgets stay the
+-- plugin's; a plugin never sets this for itself or another plugin.
+-- @param id string Lower-case letters, digits and _ (in a module: the id in plugin.json "dashboards")
+-- @return table DashboardBuilder (in a module: the access chain)
 -- @usage plugin:dashboard("lista"):name("Zakupy"):section("Lista", "cart"):button("clear", "Wyczyść", "trash", function() items = {} end):build()
+-- @usage Plugin.getPlugin("@vclu/zakupy"):dashboard("lista"):name("Zakupy"):auth("public"):remote({ pin = false }):roles("domownicy")
+-- @api public
 function Plugin:dashboard(id)
     return sandboxAPI(self, "dashboard").dashboard(id)
-end
-
---- Who may open a dashboard the plugin declares in plugin.json "dashboards": called from a
--- module, never from a plugin. Overrides what the plugin set, now and whenever it builds the
--- dashboard again (a plugin reload keeps it); a Lua reload clears it, the module grants it again.
--- @param id string The id in plugin.json "dashboards"
--- @param opts table {name = text, auth = "session"|"pin"|"public"|"off" ("off": not served, not listed), pin = "1234" (for auth "pin" or remote.pin), remote = false|true|{pin = bool, roles = {"domownicy", ...} or function returning them}}
--- @usage Plugin.getPlugin("@vclu/zakupy"):dashboardAccess("lista", { name = "Zakupy", auth = "public", remote = { roles = { "domownicy" } } })
--- @api public
-function Plugin:dashboardAccess(id, opts)
-    if type(self) ~= "table" or getmetatable(self) ~= Plugin then
-        error("dashboardAccess: call it on a plugin, Plugin.getPlugin(id):dashboardAccess(...)", 2)
-    end
-    -- a plugin's own code (its environment) never grants itself or another plugin anything
-    local env = getfenv and getfenv(2)
-    for _, sb in pairs((PluginSandbox and PluginSandbox.sandboxes) or {}) do
-        if env ~= nil and sb.environment == env then
-            error("dashboardAccess is the user's: a module grants access to a plugin's dashboards, not the plugin", 2)
-        end
-    end
-    local sandbox = self._sandbox
-    local declared = sandbox and sandbox.declaredDashboards or {}
-    if type(id) ~= "string" or not declared[id] then
-        error("dashboardAccess: " .. tostring(self.id) .. " declares no dashboard " .. tostring(id)
-            .. ' (plugin.json "dashboards")', 2)
-    end
-    local ok, err = Dashboard._grantPlugin(self.id, id, opts)
-    if not ok then error("dashboardAccess(" .. id .. "): " .. err, 2) end
-    return self
 end
 
 --- A named action agents and voice assistants call (HTTP POST /api/plugins/:id/actions/:name,
@@ -1214,7 +1198,7 @@ function Plugin._lookup(pluginId)
 end
 
 -- Get a plugin by fullId or shortId. On plugin API 2 a module gets its facade: the plugin's
--- methods and the core's get, on, getExposed, dashboardAccess; values cross as copies,
+-- methods and the core's get, on, getExposed, dashboard (who opens it); values cross as copies,
 -- objects with functions as handles (PluginSandbox.moduleFacade).
 -- Note: Use Plugin.getPlugin() instead of Plugin.get() to avoid conflict with instance method
 function Plugin.getPlugin(pluginId)

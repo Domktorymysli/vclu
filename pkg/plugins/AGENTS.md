@@ -36,15 +36,19 @@ there; API 1 keeps any id. The declared name (Polish first) is the default name.
 
 Who may open a plugin's dashboard is the user's, not the plugin's (the plugin cannot widen its own access
 or another plugin's): from plugin code `:auth()` takes only `"session"` or `"pin"`, and `:pin()`, `:remote()`
-and `:roles()` (also on a section) are refused with a message naming `dashboardAccess`. A module grants it:
-`Plugin.getPlugin("@vclu/zakupy"):dashboardAccess("lista", {name, auth = "session"|"pin"|"public"|"off",
-pin = "1234", remote = false|true|{pin = bool, roles = {...}|fn}})`. `pin` (4 digits) is needed for auth
-`"pin"` or `remote.pin`; `"off"` is not served (404) and not listed. Errors point at the module's line. The
-grant lives in `_dashboardAccess[pluginId][declaredId]` (Dashboard.lua), out of a plugin's reach; the builder
-keeps the plugin's own choice in `_pluginOwn` and `Dashboard._applyAccess` sets `_name`, `_auth`, `_pin`,
+and `:roles()` (also on a section) are refused with a message naming the module's chain. A module grants it
+with the chain of `Dashboard.new`: `Plugin.getPlugin("@vclu/zakupy"):dashboard("lista"):name(...):icon(...)
+:auth("session"|"pin"|"public"|"off"):pin("1234"):remote({pin, poll}):roles(...)` (the facade's `dashboard`,
+`moduleDashboard` in PluginSandbox.lua, gives `Dashboard._accessBuilder`; widget methods are refused). Each
+call applies at once, a new chain replaces the last; a PIN asked for and not given keeps it closed (`"off"`)
+and logs an error. `"off"` is not served (404) and not listed. Errors point at the module's line. The grant
+lives in `_dashboardAccess[pluginId][declaredId]` (Dashboard.lua), out of a plugin's reach; the builder keeps
+the plugin's own choice in `_pluginOwn` and `Dashboard._applyAccess` sets `_name`, `_icon`, `_auth`, `_pin`,
 `_remote` and `_off` from both on build, on the plugin's later `:name`/`:auth` and on a grant. A plugin reload
-keeps the grant; a Lua reload starts empty and the module grants it again. `dashboardAccess` called from a
-plugin (its proxy, or any function in its environment) is refused.
+keeps the grant; a Lua reload starts empty and the module grants it again. The builder keeps its state in a
+closure (no fields to set or re-aim, `__newindex` refused): holding it is the grant, and a plugin never gets
+one (its own `dashboard` is the widget builder, another plugin's facade has none, arguments reach it read-only).
+Each call also refuses when any frame on the stack runs in a plugin's environment (`refuseFromPlugin`).
 
 The wizard shows a Dashboards step for a plugin that declares any (also without a form) and then always a
 Code step: the step is checked in Go (`CheckDashboardAccess`), kept in the config under `_dashboards` only to
@@ -89,7 +93,7 @@ change to the sandbox keeps them failing.
 ## What a module gets of a plugin (API 2)
 `PluginSandbox.moduleFacade` (PluginSandbox.lua): `Plugin.getPlugin(id)` and `_:get("@ns/id")` give a
 module the plugin's facade, never the instance: the plugin's own methods, the core's `get`, `on`,
-`getExposed`, `dashboardAccess`, `listSensorsAndControls`, `stats`, and `id`, `name`, `version`;
+`getExposed`, `dashboard` (the access chain), `listSensorsAndControls`, `stats`, and `id`, `name`, `version`;
 no other field of the instance (config, sandbox, KV store, timers, its own state; tests read those
 through `Plugin._lookup`), and `plugin:kvGet` and the like refuse. What crosses is
 the contract one Lua state per plugin keeps (pluginy-2.0 §12): numbers, strings, booleans and plain
@@ -127,8 +131,7 @@ Every object decodes with unknown fields refused (`decodeStrict`: a field spelle
 or written twice counts as unknown, in dashboards and the form file too); an unknown permission,
 field, action field or form field type refuses the plugin as `ErrNewerVclu` (at download and at
 load), so a plugin never runs with less than it was written for. `"permissions"` is required on API 2 (`{}` for none);
-top-level keys of earlier drafts (`udp`, `tcp`, `websocket`, `internetWhy`, `minVcluVersion`)
-refuse it with where they went. `requires.vclu` (`>=X.Y.Z`) is checked against `SetVcluVersion`.
+API 1's top-level `minVcluVersion` refuses it with where it went (`requires`). `requires.vclu` (`>=X.Y.Z`) is checked against `SetVcluVersion`.
 Actions are declared in `"actions"` (`ManifestActions`); `plugin:action(name, fn)` takes only a
 declared one and its `confirm` is enforced in `PluginSandbox:callAction` (`confirmed`). Names kept
 for later: `ReservedPermissions`.
@@ -161,8 +164,7 @@ lists at most 64. An update that asks for more runs without it, logs it and list
 `GET /api/plugins/installed` until `POST /api/plugins/:id/permissions` allows it (the plugins
 page: "Allow", or the shield button for the details).
 
-A grant takes the shape of the permissions (`config.PluginGrants`; older `grenton_raw`,
-`websocketPorts` and `broadcastPorts` are read and pinned again), is set when its key is present
+A grant takes the shape of the permissions (`config.PluginGrants`), is set when its key is present
 and can be narrowed, never past plugin.json (`WithinRequest`):
 `{"lan": {"hosts": ["192.168.1.20"], "ports": [80]}, "mqtt": {"subscribe": ["shelly/#"], "publish": []}, "modbus": {"hosts": ["192.168.0.9"]}, "clu": {"hosts": [...], "discovery": true}, "actions": ["add"]}`.
 No list allows any host or topic, an empty list none. Hosts are checked in the dialer after DNS
@@ -174,7 +176,7 @@ sandbox gives them only while `lan` (`mqtt`) is allowed in full, without lists. 
 another repository resets grants to what installing gives; without the old files nothing is
 allowed until the user does. `POST .../permissions` refuses unknown keys.
 
-`clu` (formerly `grenton_raw`), `tftp` and `serial` (#240) reach a CLU's commands, files on devices and the device
+`clu`, `tftp` and `serial` (#240) reach a CLU's commands, files on devices and the device
 on a port: `Grants()` leaves them out, so neither installing nor recording grants from the files
 allows them, only the user in the panel. Their grants are `{"clu": {"hosts": [...], "discovery": false},
 "tftp": {"hosts": [...]}, "serial": {"ports": ["/dev/ttyUSB0"]}}`; without `ports` the plugin

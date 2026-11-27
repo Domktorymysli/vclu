@@ -179,7 +179,7 @@ func hostBroadcast() (string, bool) {
 // test: a socket or a port whose permission the new grant drops closes at once.
 func TestReviewHandlesClosedWhenGrantDrops(t *testing.T) {
 	pio := NewPluginIO()
-	pio.SetGrant("@t/g", pluginIOGrant{udp: true, udpPorts: []int{7000}, grentonRaw: true})
+	pio.SetGrant("@t/g", pluginIOGrant{udp: true, udpPorts: []int{7000}, clu: true})
 	raw, err := pio.OpenUDP("@t/g", 0)
 	if err != nil {
 		t.Fatal(err)
@@ -191,7 +191,7 @@ func TestReviewHandlesClosedWhenGrantDrops(t *testing.T) {
 	defer pio.CloseAll()
 	pio.SetGrant("@t/g", pluginIOGrant{udp: true, udpPorts: []int{7000}})
 	if err := pio.SendUDP(raw, "@t/g", "192.168.1.10", 1234, []byte("x")); err == nil {
-		t.Error("grenton_raw socket sends after the grant dropped it")
+		t.Error("clu socket sends after the grant dropped it")
 	}
 	if _, err := pio.handle(dev, "@t/g"); err != nil {
 		t.Errorf("udp socket closed though udp stays: %v", err)
@@ -202,10 +202,10 @@ func TestReviewHandlesClosedWhenGrantDrops(t *testing.T) {
 	}
 }
 
-// test: a raw socket checks grenton_raw at each send, as a udp one checks udp.
+// test: a raw socket checks clu at each send, as a udp one checks udp.
 func TestReviewRawSendChecksGrant(t *testing.T) {
 	pio := NewPluginIO()
-	pio.SetGrant("@t/r", pluginIOGrant{grentonRaw: true})
+	pio.SetGrant("@t/r", pluginIOGrant{clu: true})
 	raw, err := pio.OpenUDP("@t/r", 0)
 	if err != nil {
 		t.Fatal(err)
@@ -215,7 +215,7 @@ func TestReviewRawSendChecksGrant(t *testing.T) {
 	pio.grants["@t/r"] = pluginIOGrant{}
 	pio.mu.Unlock()
 	if err := pio.SendUDP(raw, "@t/r", "192.168.1.10", 1234, []byte("x")); err == nil || !strings.Contains(err.Error(), `"clu"`) {
-		t.Errorf("send without grenton_raw: %v", err)
+		t.Errorf("send without clu: %v", err)
 	}
 }
 

@@ -56,20 +56,17 @@ func TestPluginDashboardMustBeDeclared(t *testing.T) {
 func TestPluginDashboardCannotWidenItself(t *testing.T) {
 	engine := accessEngine(t)
 	for what, code := range map[string]string{
-		"auth public":       `Plugin.getPlugin("@jan/zakupy-dom"):dashboard("a"):auth("public")`,
-		"auth other":        `Plugin.getPlugin("@jan/zakupy-dom"):dashboard("a"):auth("none")`,
-		"auth nil":          `Plugin.getPlugin("@jan/zakupy-dom"):dashboard("a"):auth()`,
-		"pin":               `Plugin.getPlugin("@jan/zakupy-dom"):dashboard("a"):pin("1234")`,
-		"remote":            `Plugin.getPlugin("@jan/zakupy-dom"):dashboard("a"):remote()`,
-		"remote false":      `Plugin.getPlugin("@jan/zakupy-dom"):dashboard("a"):remote(false)`,
-		"roles":             `Plugin.getPlugin("@jan/zakupy-dom"):dashboard("a"):roles("x")`,
-		"section remote":    `Plugin.getPlugin("@jan/zakupy-dom"):dashboard("a"):section("S"):remote()`,
-		"section roles":     `Plugin.getPlugin("@jan/zakupy-dom"):dashboard("a"):section("S"):roles("x")`,
-		"grant itself":      `Plugin.getPlugin("@jan/zakupy-dom"):dashboardAccess("lista", {auth = "public"})`,
-		"grant by field":    `local p = Plugin.getPlugin("@jan/zakupy-dom"); p.dashboardAccess(p, "lista", {auth = "public"})`,
-		"grant by class":    `Plugin.dashboardAccess(Plugin.getPlugin("@jan/zakupy-dom"), "lista", {auth = "public"})`,
-		"grant by registry": `_registry["@jan/zakupy-dom"]:dashboardAccess("lista", {auth = "public"})`,
-		"hijack the call":   `Plugin.getPlugin("@jan/zakupy-dom").dashboardAccess = function(_, _, o) __stolen = o end`,
+		"auth public":     `Plugin.getPlugin("@jan/zakupy-dom"):dashboard("a"):auth("public")`,
+		"auth other":      `Plugin.getPlugin("@jan/zakupy-dom"):dashboard("a"):auth("none")`,
+		"auth nil":        `Plugin.getPlugin("@jan/zakupy-dom"):dashboard("a"):auth()`,
+		"pin":             `Plugin.getPlugin("@jan/zakupy-dom"):dashboard("a"):pin("1234")`,
+		"remote":          `Plugin.getPlugin("@jan/zakupy-dom"):dashboard("a"):remote()`,
+		"remote false":    `Plugin.getPlugin("@jan/zakupy-dom"):dashboard("a"):remote(false)`,
+		"roles":           `Plugin.getPlugin("@jan/zakupy-dom"):dashboard("a"):roles("x")`,
+		"section remote":  `Plugin.getPlugin("@jan/zakupy-dom"):dashboard("a"):section("S"):remote()`,
+		"section roles":   `Plugin.getPlugin("@jan/zakupy-dom"):dashboard("a"):section("S"):roles("x")`,
+		"by registry":     `_registry["@jan/zakupy-dom"]:dashboard("lista"):auth("public")`,
+		"hijack the call": `Plugin.getPlugin("@jan/zakupy-dom").dashboard = function() return {} end`,
 	} {
 		r, e := runPlugin(t, engine, "@jan/zakupy-dom", code)
 		wantRefused(t, what, r, e)
@@ -78,7 +75,7 @@ func TestPluginDashboardCannotWidenItself(t *testing.T) {
 		}
 	}
 	_, e := runPlugin(t, engine, "@jan/zakupy-dom", `Plugin.getPlugin("@jan/zakupy-dom"):dashboard("a"):remote()`)
-	if !strings.Contains(e, `dashboardAccess("a"`) {
+	if !strings.Contains(e, `:dashboard("a"):remote()`) {
 		t.Errorf("the refusal says where the user grants it: %s", e)
 	}
 	mustLua(t, engine, `_dashboards["zakupy_dom_lista"]._auth`, "session")
@@ -87,22 +84,22 @@ func TestPluginDashboardCannotWidenItself(t *testing.T) {
 	// another plugin cannot grant itself access to this one's either
 	luaOut(t, engine, `PluginSandbox:create("@ola/inny", nil)`)
 	r, e := runPlugin(t, engine, "@ola/inny", `Plugin:new("inny", {})
-		Plugin.getPlugin("@jan/zakupy-dom"):dashboardAccess("lista", {auth = "public"})`)
+		Plugin.getPlugin("@jan/zakupy-dom"):dashboard("lista"):auth("public")`)
 	wantRefused(t, "another plugin", r, e)
 	mustLua(t, engine, `_dashboards["zakupy_dom_lista"]._auth`, "session")
 	mustLua(t, engine, `tostring(next(_dashboardAccess))`, "nil")
 
 	// the module's call still reaches the core: the plugin neither sees the PIN nor skips "off"
-	if e := module(t, engine, `Plugin.getPlugin("@jan/zakupy-dom"):dashboardAccess("lista", { auth = "pin", pin = "1234" })`); e != "" {
+	if e := module(t, engine, `Plugin.getPlugin("@jan/zakupy-dom"):dashboard("lista"):auth("pin"):pin("1234")`); e != "" {
 		t.Fatal(e)
 	}
-	mustLua(t, engine, `tostring(rawget(Plugin.instances["@jan/zakupy-dom"], "dashboardAccess")) .. _dashboards["zakupy_dom_lista"]._auth`, "nilpin")
+	mustLua(t, engine, `tostring(rawget(Plugin.instances["@jan/zakupy-dom"], "dashboard")) .. _dashboards["zakupy_dom_lista"]._auth`, "nilpin")
 }
 
 func TestPluginDashboardAccessFromModule(t *testing.T) {
 	engine := accessEngine(t)
-	if e := module(t, engine, `Plugin.getPlugin("@jan/zakupy-dom"):dashboardAccess("lista", {
-		name = "Kuchnia", auth = "public", remote = { pin = true, roles = { "domownicy", "gosia" } }, pin = "1234" })`); e != "" {
+	if e := module(t, engine, `Plugin.getPlugin("@jan/zakupy-dom"):dashboard("lista")
+		:name("Kuchnia"):auth("public"):pin("1234"):remote({ pin = true }):roles("domownicy", "gosia")`); e != "" {
 		t.Fatal(e)
 	}
 	// applied to the built dashboard at once
@@ -136,14 +133,14 @@ func TestPluginDashboardAccessFromModule(t *testing.T) {
 	mustLua(t, engine, `_dashboards["zakupy_dom_lista"]._auth`, "public")
 
 	// a grant replaces the previous one whole: what it leaves out is the plugin's again
-	module(t, engine, `Plugin.getPlugin("@jan/zakupy-dom"):dashboardAccess("lista", { auth = "pin", pin = "0000" })`)
+	module(t, engine, `Plugin.getPlugin("@jan/zakupy-dom"):dashboard("lista"):auth("pin"):pin("0000")`)
 	mustLua(t, engine, `_dashboards["zakupy_dom_lista"]._name .. " " .. tostring(_dashboards["zakupy_dom_lista"]._remote)`, "Zakupy nil")
 	if out := luaOut(t, engine, `Dashboard.API.remoteList()`); out != "[]" && out != "{}" {
 		t.Fatalf("no longer remote: %s", out)
 	}
 
 	// granted before the plugin builds: the build gets it
-	module(t, engine, `Plugin.getPlugin("@jan/zakupy-dom"):dashboardAccess("b", { auth = "public", remote = true })`)
+	module(t, engine, `Plugin.getPlugin("@jan/zakupy-dom"):dashboard("b"):auth("public"):remote()`)
 	runPlugin(t, engine, "@jan/zakupy-dom", `Plugin.getPlugin("@jan/zakupy-dom"):dashboard("b"):section("S"):build()`)
 	mustLua(t, engine, `_dashboards["zakupy_dom_b"]._auth`, "public")
 	if out := luaOut(t, engine, `Dashboard.API.remoteList()`); !strings.Contains(out, `"id":"zakupy_dom_b"`) || !strings.Contains(out, `"roles":[]`) && !strings.Contains(out, `"roles":{}`) {
@@ -151,7 +148,7 @@ func TestPluginDashboardAccessFromModule(t *testing.T) {
 	}
 
 	// roles from a function, as Dashboard's :roles
-	module(t, engine, `Plugin.getPlugin("@jan/zakupy-dom"):dashboardAccess("b", { remote = { roles = function() return { "sprzatanie" } end } })`)
+	module(t, engine, `Plugin.getPlugin("@jan/zakupy-dom"):dashboard("b"):remote():roles(function() return { "sprzatanie" } end)`)
 	if out := luaOut(t, engine, `Dashboard.API.remoteList()`); !strings.Contains(out, `"sprzatanie"`) {
 		t.Fatalf("roles from a function: %s", out)
 	}
@@ -159,7 +156,7 @@ func TestPluginDashboardAccessFromModule(t *testing.T) {
 
 func TestPluginDashboardAccessOff(t *testing.T) {
 	engine := accessEngine(t)
-	module(t, engine, `Plugin.getPlugin("@jan/zakupy-dom"):dashboardAccess("lista", { auth = "off", remote = true })`)
+	module(t, engine, `Plugin.getPlugin("@jan/zakupy-dom"):dashboard("lista"):auth("off"):remote()`)
 	if out := luaOut(t, engine, `Dashboard.API.getDefinition("zakupy_dom_lista")`); !strings.Contains(out, "not found") {
 		t.Fatalf("off is not served: %s", out)
 	}
@@ -177,7 +174,7 @@ func TestPluginDashboardAccessOff(t *testing.T) {
 	if e != "nil" {
 		t.Fatalf("rebuild while off: %s", e)
 	}
-	module(t, engine, `Plugin.getPlugin("@jan/zakupy-dom"):dashboardAccess("lista", { auth = "session" })`)
+	module(t, engine, `Plugin.getPlugin("@jan/zakupy-dom"):dashboard("lista"):auth("session")`)
 	if out := luaOut(t, engine, `Dashboard.API.getAuth("zakupy_dom_lista")`); !strings.Contains(out, `"auth":"session"`) {
 		t.Fatalf("on again: %s", out)
 	}
@@ -185,43 +182,38 @@ func TestPluginDashboardAccessOff(t *testing.T) {
 
 func TestPluginDashboardAccessValidation(t *testing.T) {
 	engine := accessEngine(t)
-	for what, c := range map[string]struct{ opts, want string }{
-		"undeclared":     {`"inna", {}`, "declares no dashboard inna"},
-		"not a string":   {`5, {}`, "declares no dashboard 5"},
-		"no opts":        {`"lista"`, "opts is a table"},
-		"unknown option": {`"lista", { roles = {"a"} }`, `unknown option "roles"`},
-		"auth":           {`"lista", { auth = "everyone" }`, `auth is "session"`},
-		"name type":      {`"lista", { name = 5 }`, "name is a text"},
-		"name empty":     {`"lista", { name = "" }`, "name is a text"},
-		"name long":      {`"lista", { name = string.rep("ż", 61) }`, "name is a text"},
-		"name newline":   {`"lista", { name = "a\nb" }`, "name is a text"},
-		"pin":            {`"lista", { auth = "pin", pin = "12a4" }`, "pin is a text of 4 digits"},
-		"pin number":     {`"lista", { auth = "pin", pin = 1234 }`, "pin is a text of 4 digits"},
-		"pin missing":    {`"lista", { auth = "pin" }`, "a PIN is asked for"},
-		"remote pin":     {`"lista", { remote = { pin = true } }`, "a PIN is asked for"},
-		"remote type":    {`"lista", { remote = "yes" }`, "remote is false, true"},
-		"remote option":  {`"lista", { remote = { poll = 1 } }`, `remote: unknown option "poll"`},
-		"role":           {`"lista", { remote = { roles = { "Gosia" } } }`, `invalid role "Gosia"`},
-		"role type":      {`"lista", { remote = { roles = "gosia" } }`, "remote.roles is a list"},
+	for what, c := range map[string]struct{ chain, want string }{
+		"undeclared":    {`dashboard("inna")`, "declares no dashboard inna"},
+		"not a string":  {`dashboard(5)`, "declares no dashboard 5"},
+		"auth":          {`dashboard("lista"):auth("everyone")`, `auth is "session"`},
+		"name type":     {`dashboard("lista"):name(5)`, "name is a text"},
+		"name empty":    {`dashboard("lista"):name("")`, "name is a text"},
+		"name long":     {`dashboard("lista"):name(string.rep("ż", 61))`, "name is a text"},
+		"name newline":  {`dashboard("lista"):name("a\nb")`, "name is a text"},
+		"pin":           {`dashboard("lista"):auth("pin"):pin("12a4")`, "pin is a text of 4 digits"},
+		"pin number":    {`dashboard("lista"):auth("pin"):pin(1234)`, "pin is a text of 4 digits"},
+		"remote type":   {`dashboard("lista"):remote("yes")`, "expects nothing, true, false or a table"},
+		"remote option": {`dashboard("lista"):remote({ x = 1 })`, `unknown option "x"`},
+		"role":          {`dashboard("lista"):remote():roles("Gosia")`, `invalid role "Gosia"`},
+		"roles first":   {`dashboard("lista"):roles("gosia")`, "call :remote() first"},
 	} {
 		e := module(t, engine, `
 			local p = Plugin.getPlugin("@jan/zakupy-dom")
-			p:dashboardAccess(`+c.opts+`)`)
+			p:`+c.chain)
 		if !strings.Contains(e, c.want) {
 			t.Errorf("%s: %q, want %q", what, e, c.want)
 		}
 		// the error names the module's line, not the core
-		if !strings.Contains(e, ":4:") || strings.Contains(e, "PluginAPI") || strings.Contains(e, "Dashboard.lua") {
+		if !strings.Contains(e, ":4:") || strings.Contains(e, "PluginAPI") || strings.Contains(e, "Dashboard.lua") || strings.Contains(e, "PluginSandbox") {
 			t.Errorf("%s: the error does not point at the module: %s", what, e)
 		}
 	}
-	mustLua(t, engine, `tostring(next(_dashboardAccess))`, "nil")
 	mustLua(t, engine, `_dashboards["zakupy_dom_lista"]._auth`, "session")
 }
 
 func TestPluginDashboardAccessClearedOnLuaReload(t *testing.T) {
 	engine := accessEngine(t)
-	module(t, engine, `Plugin.getPlugin("@jan/zakupy-dom"):dashboardAccess("lista", { auth = "public" })`)
+	module(t, engine, `Plugin.getPlugin("@jan/zakupy-dom"):dashboard("lista"):auth("public")`)
 	mustLua(t, engine, `_dashboards["zakupy_dom_lista"]._auth`, "public")
 	if err := engine.Reinitialize("CLU"); err != nil {
 		t.Fatal(err)

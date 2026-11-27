@@ -777,25 +777,20 @@ func (s *Server) handlePluginsAPISerialPorts(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ports": ports})
 }
 
-// strictGrants is config.PluginGrants without its UnmarshalJSON (which also reads older keys).
-type strictGrants config.PluginGrants
-
 // handlePluginsAPIPermissions sets what the user allows a plugin
 // and loads the plugin again with it. The plugin still gets only what its plugin.json asks for.
 func (s *Server) handlePluginsAPIPermissions(c *gin.Context) {
 	defer dashCache.Invalidate() // a plugin started or stopped brings or takes its dashboards
 	pluginID := c.Param("id")
 
-	// Unknown keys refused: {"lan": {"host": [...]}} would otherwise allow any host (the type
-	// without PluginGrants' reading of older keys, so the decoder checks every field)
-	var strict strictGrants
+	// Unknown keys refused: {"lan": {"host": [...]}} would otherwise allow any host
+	var req config.PluginGrants
 	dec := json.NewDecoder(c.Request.Body)
 	dec.DisallowUnknownFields()
-	if err := dec.Decode(&strict); err != nil {
+	if err := dec.Decode(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request: " + err.Error()})
 		return
 	}
-	req := config.PluginGrants(strict)
 	if err := plugins.ValidateGrants(req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

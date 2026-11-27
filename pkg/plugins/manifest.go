@@ -54,12 +54,8 @@ var knownManifestKeys = map[string]bool{
 	"actions": true, "exports": true, "factory": true, "profiles": true, "icon": true,
 }
 
-// movedManifestKeys: top-level keys of earlier drafts of plugin API 2, now inside permissions.
+// movedManifestKeys: top-level keys of plugin API 1 that plugin API 2 reads elsewhere.
 var movedManifestKeys = map[string]string{
-	"udp":            `"permissions": {"udp": {"ports": [...], "broadcast": [...]}}`,
-	"tcp":            `"permissions": {"tcp": {"ports": [...]}}`,
-	"websocket":      `"permissions": {"lan": {"ports": [...]}} (HTTP and WebSocket)`,
-	"internetWhy":    `"permissions": {"internet": {"hosts": [...], "why": "..."}}`,
 	"minVcluVersion": `"requires": {"vclu": ">=1.13.0"}`,
 }
 
@@ -281,8 +277,6 @@ func (p *Permissions) UnmarshalJSON(data []byte) error {
 			err = out.readMQTT(where, v)
 		case "modbus", "clu", "tftp", "serial":
 			err = out.readPlain(name, where, v)
-		case "grenton_raw":
-			err = fmt.Errorf(`%s: on plugin API 2 it is "clu": {"why": "..."}`, where)
 		default:
 			err = newerVclu(where)
 		}

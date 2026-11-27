@@ -166,7 +166,7 @@ func TestOfficialPluginsSmoke(t *testing.T) {
 					assert(lamp:get() == nil and plug:isOnline() == false, "tasmota: no reading yet")
 				end
 				local zakupy = assert(Plugin.getPlugin("@vclu/zakupy"), "@vclu/zakupy is published")
-				zakupy:dashboardAccess("lista", { name = "Zakupy", auth = "session" })
+				zakupy:dashboard("lista"):name("Zakupy"):auth("session")
 				local n = 0
 				for _ in pairs(ExposedObjects._objects or {}) do n = n + 1 end
 				return "factories ok, exposed=" .. n .. " rce:now=" .. tostring(now)

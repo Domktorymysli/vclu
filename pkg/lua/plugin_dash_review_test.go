@@ -37,7 +37,7 @@ func TestReviewPluginDashboardCameraNotRemote(t *testing.T) {
 		:image("f", "F", function() return "/api/camera/salon/snapshot" end):build()`); e != "nil" {
 		t.Fatal(e)
 	}
-	if e := module(t, engine, `Plugin.getPlugin("@jan/zakupy-dom"):dashboardAccess("b", { remote = true })`); e != "" {
+	if e := module(t, engine, `Plugin.getPlugin("@jan/zakupy-dom"):dashboard("b"):remote()`); e != "" {
 		t.Fatal(e)
 	}
 	for _, cam := range []string{"wejscie", "salon"} {
@@ -71,7 +71,7 @@ func TestReviewPluginListActions(t *testing.T) {
 			:build()`); e != "nil" {
 		t.Fatal(e)
 	}
-	module(t, engine, `Plugin.getPlugin("@jan/zakupy-dom"):dashboardAccess("b", { remote = true })`)
+	module(t, engine, `Plugin.getPlugin("@jan/zakupy-dom"):dashboard("b"):remote()`)
 	act := func(args string) string {
 		t.Helper()
 		return luaOut(t, engine, `Dashboard.API.executeAction("zakupy_dom_b", `+args+`)`)

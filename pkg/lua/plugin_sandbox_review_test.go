@@ -189,7 +189,7 @@ func TestReviewExecPluginStringMethodsReadOnly(t *testing.T) {
 	}
 }
 
-// A plugin without grenton_raw reading a remote CLU object: open question whether the read
+// A plugin without clu reading a remote CLU object: open question whether the read
 // may go to the CLU (any index, waiting for its answer)
 func TestReviewExecRemoteReadFromPlugin(t *testing.T) {
 	engine := sandboxEngine(t, "@t/a", "")
@@ -212,10 +212,10 @@ func TestReviewExecRemoteReadFromPlugin(t *testing.T) {
 	if _, e := runPlugin(t, engine, "@t/a", `return _:get("CLU2.DOU1"):getInfo()`); e != "nil" {
 		t.Errorf("getInfo: %s", e)
 	}
-	// with grenton_raw the request goes
-	mustLua(t, engine, `PluginSandbox:create("@t/raw", {api = 2, grenton_raw = true}) and "ok"`, "ok")
+	// with clu the request goes
+	mustLua(t, engine, `PluginSandbox:create("@t/raw", {api = 2, clu = true}) and "ok"`, "ok")
 	if _, e := runPlugin(t, engine, "@t/raw", `return _:get("CLU2.DOU1"):get(27)`); e != "nil" {
-		t.Errorf("grenton_raw: %s", e)
+		t.Errorf("clu: %s", e)
 	}
 	mustLua(t, engine, `table.concat(__calls, ";")`, "DOU1:get(27)")
 }

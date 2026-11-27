@@ -69,7 +69,7 @@ func TestManifestPermissions(t *testing.T) {
 		{`{"clu": true}`, `{"why": "..."}`},
 		{`{"tftp": {}}`, `{"why": "..."}`},
 		{`{"serial": {"why": "a meter on RS485"}}`, ""},
-		{`{"grenton_raw": true}`, `it is "clu"`},
+		{`{"grenton_raw": true}`, "needs a newer vclu"},
 		{`{"gpio": true}`, "needs a newer vclu"},
 		{`{"webhooks": {"why": "x"}}`, "needs a newer vclu"},
 		{`{"tcp": {"ports": [23], "listen": true}}`, "needs a newer vclu"},
@@ -132,17 +132,14 @@ func TestManifestPermissionsRead(t *testing.T) {
 	}
 }
 
-// The top of plugin.json: API 2 needs permissions; keys of earlier drafts point to their place;
+// The top of plugin.json: API 2 needs permissions; minVcluVersion (API 1) points to requires;
 // other unknown keys are noted for the log, "x-" ones are the author's; API 1 reads as before.
 func TestManifestTopLevel(t *testing.T) {
 	if _, err := readManifest(t, `{"id": "x", "api": 2}`); err == nil || !strings.Contains(err.Error(), `needs "permissions"`) {
 		t.Errorf("no permissions: %v", err)
 	}
-	for _, key := range []string{"udp", "tcp", "websocket", "internetWhy", "minVcluVersion"} {
-		_, err := readManifest(t, `{"id": "x", "api": 2, "permissions": {}, "`+key+`": {}}`)
-		if err == nil || !strings.Contains(err.Error(), "moved on plugin API 2") {
-			t.Errorf("%s: %v", key, err)
-		}
+	if _, err := readManifest(t, `{"id": "x", "api": 2, "permissions": {}, "minVcluVersion": "1.12.0"}`); err == nil || !strings.Contains(err.Error(), "moved on plugin API 2") {
+		t.Errorf("minVcluVersion: %v", err)
 	}
 	m, err := readManifest(t, `{"id": "x", "api": 2, "permissions": {}, "exports": {}, "x-mine": 1, "colour": "red"}`)
 	if err != nil {
@@ -248,7 +245,7 @@ func TestManifestFormFieldTypes(t *testing.T) {
 }
 
 // Install records what plugin.json asks for, never clu, tftp or serial; the names are the
-// manifest's, grenton_raw is gone.
+// manifest's.
 func TestPermissionNamesAndInstall(t *testing.T) {
 	p := Permissions{LAN: true, UDP: true, TCP: true, CLU: true, TFTP: true, Serial: true, UDPPorts: []int{7000}, BroadcastPorts: []int{}, TCPPorts: []int{23}}
 	if got := strings.Join(p.Names(), ","); got != "lan,udp,tcp,clu,tftp,serial" {
@@ -257,7 +254,7 @@ func TestPermissionNamesAndInstall(t *testing.T) {
 	if got := strings.Join(AllPermissions.Names(), ","); got != "internet,lan,udp,tcp,mqtt,modbus,clu,tftp,serial" {
 		t.Errorf("all %q", got)
 	}
-	g := AllPermissions.Only([]string{"lan", "clu", "tftp", "serial", "grenton_raw", "bogus"}).Grants()
+	g := AllPermissions.Only([]string{"lan", "clu", "tftp", "serial", "bogus"}).Grants()
 	if g.LAN == nil || !g.LAN.AnyPort || g.CLU != nil || g.TFTP != nil || g.Serial != nil || g.Internet != nil || g.TCP != nil {
 		t.Errorf("install grants %+v", g)
 	}
@@ -408,23 +405,6 @@ func TestLimitsFromTheGrant(t *testing.T) {
 	}
 }
 
-// Grants written before permissions became objects: grenton_raw is clu, broadcastPorts is
-// udp.broadcast; the WebSocket list has no counterpart and lan's ports are recorded again
-// from plugin.json.
-func TestOlderGrantsRead(t *testing.T) {
-	var g config.PluginGrants
-	if err := json.Unmarshal([]byte(`{"grenton_raw": {"hosts": ["192.168.0.10"]}, "lan": {"websocketPorts": []}, "udp": {"broadcastPorts": [7000]}}`), &g); err != nil {
-		t.Fatal(err)
-	}
-	if g.CLU == nil || !reflect.DeepEqual(g.CLU.Hosts, []string{"192.168.0.10"}) || g.LAN == nil || g.LAN.Ports != nil || g.UDP == nil || g.UDP.Broadcast == nil || !reflect.DeepEqual(*g.UDP.Broadcast, []int{7000}) {
-		t.Errorf("read: %+v %+v %+v", g.CLU, g.LAN, g.UDP)
-	}
-	data, _ := json.Marshal(g)
-	if strings.Contains(string(data), "grenton_raw") || !strings.Contains(string(data), `"clu"`) {
-		t.Errorf("written: %s", data)
-	}
-}
-
 // Installing grants only what the confirmation showed; the rest waits.
 func TestSeenAtInstall(t *testing.T) {
 	asks := Permissions{TCP: true, LAN: true, UDP: true, MQTT: true, TCPPorts: []int{22, 23}, LANPorts: []int{80, 8123},
@@ -456,14 +436,14 @@ func TestSeenAtInstall(t *testing.T) {
 	}
 }
 
-// Grants a vclu from before plugin.json's permissions became objects wrote (as on a test
-// installation): read, then pinned once to what the files ask for now, and kept from then on.
+// Grants without their lists recorded: pinned once to what the files ask for now, and kept
+// from then on.
 func TestGrantsMigratedOnFirstLoad(t *testing.T) {
 	dir := t.TempDir()
 	raw := `{"plugins": {"installed": [
-		{"id": "@vclu/tasmota", "version": "1.0.0", "enabled": true, "api": 2, "grants": {"lan": {"websocketPorts": []}}},
+		{"id": "@vclu/tasmota", "version": "1.0.0", "enabled": true, "api": 2, "grants": {"lan": {}}},
 		{"id": "@vclu/zakupy", "version": "1.0.0", "enabled": true, "api": 2, "grants": {}},
-		{"id": "@jan/clu", "version": "1.0.0", "enabled": true, "api": 2, "grants": {"grenton_raw": {"hosts": ["192.168.0.10"]}, "udp": {"broadcastPorts": [7000]}}}]}}`
+		{"id": "@jan/clu", "version": "1.0.0", "enabled": true, "api": 2, "grants": {"clu": {"hosts": ["192.168.0.10"]}, "udp": {}}}]}}`
 	if err := os.WriteFile(filepath.Join(dir, ".vclu.json"), []byte(raw), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -493,10 +473,6 @@ func TestGrantsMigratedOnFirstLoad(t *testing.T) {
 	if g := by["@jan/clu"]; g.CLU == nil || strings.Join(g.CLU.Hosts, ",") != "192.168.0.10" || g.UDP == nil ||
 		!reflect.DeepEqual(g.UDP.Ports, ports(7000)) || !reflect.DeepEqual(g.UDP.Broadcast, ports(7000)) {
 		t.Errorf("clu %+v udp %+v", g.CLU, g.UDP)
-	}
-	data, _ := os.ReadFile(filepath.Join(dir, ".vclu.json"))
-	if strings.Contains(string(data), "grenton_raw") || strings.Contains(string(data), "websocketPorts") || strings.Contains(string(data), "broadcastPorts") {
-		t.Errorf("older keys written back: %s", data)
 	}
 	// pinned: an update adding an action waits
 	zakupy.Actions = append(zakupy.Actions, ManifestAction{Name: "share"})

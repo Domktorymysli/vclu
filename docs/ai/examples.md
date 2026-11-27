@@ -197,20 +197,25 @@ EventBus:getShared():setTimeout(function()
 end, 5000)
 ```
 
-## Who opens a plugin's dashboard (dashboardAccess)
+## Who opens a plugin's dashboard
 
 A plugin builds its dashboards (declared in its plugin.json `"dashboards"`, see `vclu_runtime_schema`
-plugins[].dashboards) behind login; who else opens them is set in a module. The plugin wizard's
-Dashboards step writes this to `modules/plugins/<ns>__<id>.lua`; by hand it is the same call.
+plugins[].dashboards) behind login; who else opens them is set in a module, with the same chain as
+`Dashboard.new` (name, icon, auth, pin, remote, roles; no widgets, no `:build()`). The plugin wizard's
+Dashboards step writes this to `modules/plugins/<ns>__<id>.lua`; by hand it is the same code.
 
 ```lua
 local zakupy = Plugin.getPlugin("@vclu/zakupy")
 if zakupy then
     -- the kitchen tablet without login, the vclu app for two roles, with a PIN there
-    zakupy:dashboardAccess("lista", { name = "Zakupy", auth = "public", pin = "4321",
-        remote = { pin = true, roles = { "domownicy", "gosia" } } })
+    zakupy:dashboard("lista")
+        :name("Zakupy")
+        :auth("public")
+        :pin("4321")
+        :remote({ pin = true })
+        :roles("domownicy", "gosia")
 end
--- auth = "off": not served (404) and not listed
+-- :auth("off"): not served (404) and not listed; without :roles() every member sees it in the app
 ```
 
 ## Noisy sensor: reporting threshold

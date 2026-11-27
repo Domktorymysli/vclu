@@ -79,13 +79,13 @@ func TestReviewPluginDashboardNeedsSession(t *testing.T) {
 	}
 
 	// a module's grant opens it; "off" closes it for everyone
-	if _, err := engine.Execute(`Plugin.getPlugin("@jan/zakupy"):dashboardAccess("lista", { auth = "public" })`); err != nil {
+	if _, err := engine.Execute(`Plugin.getPlugin("@jan/zakupy"):dashboard("lista"):auth("public")`); err != nil {
 		t.Fatal(err)
 	}
 	if code, _ := reviewReq(s, http.MethodGet, "/api/dashboard/zakupy_lista", "", nil, ""); code != http.StatusOK {
 		t.Errorf("public: %d", code)
 	}
-	if _, err := engine.Execute(`Plugin.getPlugin("@jan/zakupy"):dashboardAccess("lista", { auth = "off" })`); err != nil {
+	if _, err := engine.Execute(`Plugin.getPlugin("@jan/zakupy"):dashboard("lista"):auth("off")`); err != nil {
 		t.Fatal(err)
 	}
 	for _, c := range []*http.Cookie{nil, sess} {
@@ -98,7 +98,7 @@ func TestReviewPluginDashboardNeedsSession(t *testing.T) {
 // An action's body is bounded before it is read.
 func TestReviewDashboardActionBodyCap(t *testing.T) {
 	s, engine, _ := reviewAppsServer(t)
-	if _, err := engine.Execute(`Plugin.getPlugin("@jan/zakupy"):dashboardAccess("lista", { auth = "public" })`); err != nil {
+	if _, err := engine.Execute(`Plugin.getPlugin("@jan/zakupy"):dashboard("lista"):auth("public")`); err != nil {
 		t.Fatal(err)
 	}
 	big := `{"widgetId":"ls","action":"add","value":"` + strings.Repeat("x", 70<<10) + `"}`

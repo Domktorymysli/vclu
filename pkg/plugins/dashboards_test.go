@@ -107,8 +107,8 @@ func TestCheckDashboardAccess(t *testing.T) {
 	}
 }
 
-// The generated block, run against a stub Plugin: what was saved reaches dashboardAccess as
-// data, whatever the name holds.
+// The generated block, run against a stub Plugin: what was saved reaches the chain as data,
+// whatever the name holds.
 func TestDashboardAccessCode(t *testing.T) {
 	nasty := `a"]] ..os.exit()--` + "\\" + `'` + "\"\n"
 	access := map[string]DashboardAccess{"lista": {Name: nasty, Auth: "pin", PIN: "1234", Remote: true, RemotePIN: true,
@@ -122,7 +122,17 @@ func TestDashboardAccessCode(t *testing.T) {
 	if err := L.DoString(`
 		calls = {}
 		Plugin = { getPlugin = function(id)
-			return { dashboardAccess = function(self, dash, opts) calls[#calls + 1] = { id = id, dash = dash, opts = opts } end }
+			local b = {}
+			for _, m in ipairs({ "name", "auth", "pin", "remote", "roles" }) do
+				b[m] = function(self, ...)
+					local opts = calls[#calls].opts
+					if m == "remote" then opts.remote = { pin = (...).pin, roles = {} }
+					elseif m == "roles" then opts.remote.roles = { ... }
+					else opts[m] = ... end
+					return self
+				end
+			end
+			return { dashboard = function(self, dash) calls[#calls + 1] = { id = id, dash = dash, opts = {} }; return b end }
 		end }
 		os = nil`); err != nil {
 		t.Fatal(err)
@@ -148,7 +158,7 @@ func TestDashboardAccessCode(t *testing.T) {
 
 	// off and session without the app say only that
 	code = DashboardAccessCode("@jan/end", declaredZakupy, map[string]DashboardAccess{"lista": {Name: "Z", Auth: "off", Remote: true}})
-	if !strings.Contains(code, `local plugin_end = Plugin.getPlugin("@jan/end")`) || !strings.Contains(code, "name = \"Z\",\n        auth = \"off\",\n    })") {
+	if !strings.Contains(code, `local plugin_end = Plugin.getPlugin("@jan/end")`) || !strings.Contains(code, "plugin_end:dashboard(\"lista\")\n        :name(\"Z\")\n        :auth(\"off\")\nend") {
 		t.Fatalf("off:\n%s", code)
 	}
 	if DashboardAccessCode("@jan/x", declaredZakupy, nil) != "" {
