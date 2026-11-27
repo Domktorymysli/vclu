@@ -1,0 +1,138 @@
+{
+  "id": "modbus-gateway",
+  "name": "Modbus Gateway",
+  "version": "2.1.0",
+  "description": "Fabryka bramek Modbus RTU po RS485-Ethernet (Waveshare RS485 TO ETH, USR, Elfin). Bramki deklarujesz w kodzie przez create(), wiec jedno vCLU obsluguje ich dowolnie wiele.",
+  "author": "tytus",
+  "license": "MIT",
+  "docs": [
+    {
+      "title": "Documentation",
+      "file": "README.md"
+    }
+  ],
+  "requires": {
+    "vclu": ">=1.1.0",
+    "modules": [
+      "modbus",
+      "timer",
+      "json"
+    ]
+  },
+  "factory": {
+    "method": "create",
+    "description": "Tworzy bramke. Wolaj raz na kazdy fizyczny mostek RS485-Ethernet.",
+    "options": {
+      "id": "Identyfikator bramki, domyslnie gw1, gw2... Daje sensor gateway_<id>_online.",
+      "host": "Adres IP bramki, wymagany.",
+      "port": "Port TCP bramki, domyslnie 502. Waveshare fabrycznie 4196.",
+      "interval": "Interwal odczytu w sekundach, domyslnie 30.",
+      "timeout": "Timeout pojedynczej transakcji w ms, domyslnie 2000.",
+      "devices": "Lista urzadzen. Wpis to sam adres Modbus albo obiekt { id, unit, name, profile, registers, fc }. Wymagany jest tylko unit 1-247.",
+      "autostart": "Czy od razu wystartowac poller, domyslnie true."
+    },
+    "example": "local modbus = Plugin.getPlugin(\"@vclu/modbus-gateway\")\nlocal garaz = modbus:create({\n  id = \"garaz\", host = \"192.168.0.9\", port = 4196,\n  devices = { { id = \"pralka\", unit = 3, name = \"Pralka\" } }\n})\nexpose(garaz:get(\"pralka_power\"), \"number\", { name = \"Pralka moc\", unit = \"W\" })"
+  },
+  "profiles": {
+    "sdm120": "Eastron SDM120 / VCX SDM120M",
+    "sdm220": "Eastron SDM220",
+    "sdm230": "Eastron SDM230"
+  },
+  "exports": {
+    "objects": {
+      "gateways": {
+        "type": "ModbusGatewayMap",
+        "description": "Stan kazdej utworzonej bramki (host, port, liczba urzadzen, ostatni odczyt)"
+      },
+      "devices": {
+        "type": "ModbusDeviceMap",
+        "description": "Stan i odczyty kazdego urzadzenia, plaska mapa po id urzadzenia"
+      }
+    },
+    "sensors": [
+      {
+        "id": "gateway_<gateway>_online",
+        "type": "binary_sensor",
+        "description": "Czy ktorekolwiek urzadzenie tej bramki odpowiedzialo"
+      },
+      {
+        "id": "<device>_voltage",
+        "type": "number",
+        "unit": "V",
+        "description": "Napiecie"
+      },
+      {
+        "id": "<device>_current",
+        "type": "number",
+        "unit": "A",
+        "description": "Prad"
+      },
+      {
+        "id": "<device>_power",
+        "type": "number",
+        "unit": "W",
+        "description": "Moc czynna"
+      },
+      {
+        "id": "<device>_apparent",
+        "type": "number",
+        "unit": "VA",
+        "description": "Moc pozorna"
+      },
+      {
+        "id": "<device>_reactive",
+        "type": "number",
+        "unit": "var",
+        "description": "Moc bierna"
+      },
+      {
+        "id": "<device>_pf",
+        "type": "number",
+        "description": "Wspolczynnik mocy"
+      },
+      {
+        "id": "<device>_frequency",
+        "type": "number",
+        "unit": "Hz",
+        "description": "Czestotliwosc sieci"
+      },
+      {
+        "id": "<device>_energy",
+        "type": "number",
+        "unit": "kWh",
+        "description": "Energia pobrana"
+      },
+      {
+        "id": "<device>_exported",
+        "type": "number",
+        "unit": "kWh",
+        "description": "Energia oddana"
+      },
+      {
+        "id": "<device>_total",
+        "type": "number",
+        "unit": "kWh",
+        "description": "Energia lacznie"
+      },
+      {
+        "id": "<device>_online",
+        "type": "binary_sensor",
+        "description": "Czy urzadzenie odpowiada"
+      }
+    ],
+    "events": [
+      {
+        "name": "modbus:updated",
+        "description": "Cykl odczytu bramki zakonczony powodzeniem"
+      },
+      {
+        "name": "modbus:error",
+        "description": "Zadne urzadzenie bramki nie odpowiedzialo"
+      },
+      {
+        "name": "modbus:device_offline",
+        "description": "Urzadzenie przestalo odpowiadac"
+      }
+    ]
+  }
+}

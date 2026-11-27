@@ -1,0 +1,46 @@
+{
+  "id": "example",
+  "name": "Example Plugin",
+  "version": "2.1.1",
+  "author": "vCLU Team",
+  "license": "MIT",
+  "description": "Przykładowy plugin pokazujący jak pisać własne pluginy dla vCLU z expose API",
+
+  "docs": [
+    { "title": "Getting Started", "file": "README.md" }
+  ],
+
+  "config": {
+    "greeting": {
+      "type": "string",
+      "default": "Hello",
+      "description": "Tekst powitania"
+    },
+    "interval": {
+      "type": "number",
+      "default": 60,
+      "min": 10,
+      "max": 3600,
+      "description": "Interwał w sekundach"
+    },
+    "enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "Czy plugin aktywny"
+    }
+  },
+
+  "exports": {
+    "sensors": [
+      { "id": "value", "type": "number", "description": "Aktualna wartość" },
+      { "id": "ready", "type": "sensor", "description": "Status gotowości (0/1)" }
+    ],
+    "controls": [
+      { "id": "target", "type": "number", "description": "Wartość docelowa (odczyt/zapis)" }
+    ],
+    "events": [
+      { "name": "example:updated", "description": "Dane zaktualizowane" },
+      { "name": "example:error", "description": "Błąd" }
+    ]
+  }
+}
