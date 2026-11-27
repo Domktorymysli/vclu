@@ -12,6 +12,8 @@ list and `plugin:moduleCode(fn(cfg, devices))` to propose the `create()` calls (
 writes them to `modules/plugins/<ns>__<id>.lua` only after the user saw the diff. Values are
 checked in Go (`form.go`) on save; secret fields go to `plugin_secrets.json`, never to the config,
 and reach only their plugin as `plugin:secret(name)`. A plugin's older `config` map is step 1.
+Uninstall keeps the module and comments out its require line with `-- off: plugin uninstalled`
+(`TurnOffModule`); installing again or the wizard turns it on, a line the user commented stays off.
 
 ## Secrets stay out of the registry
 A plugin keeps a secret from `plugin:secret` in a local variable. Never in a sensor, an exposed
@@ -150,7 +152,7 @@ the subdomains (not the domain itself), exact IP addresses, or `["*"]` (with `wh
 (and its hosts), any other needs the name on the list. A plugin with `lan` reaches house names
 without an internet list: one label or under `.local`, `.lan`, `.home`, `.home.arpa`, `.internal`,
 `.localdomain`, `.localhost` (`localName`); any other name off the list is refused before DNS.
-A Modbus gateway is an IP address or a house name too (`__go_plugin_house_host`). The grant is `{"internet": {"hosts": [...]}}`, the hosts the user
+On API 2 a Modbus gateway is an IP address or a house name too (`__go_plugin_house_host`). The grant is `{"internet": {"hosts": [...]}}`, the hosts the user
 allowed: a new host or `"*"` in an update waits (`pendingInternet`), the ones allowed before keep
 working.
 

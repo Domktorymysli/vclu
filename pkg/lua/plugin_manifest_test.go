@@ -71,6 +71,11 @@ func TestPluginModbusHouseHost(t *testing.T) {
 			t.Errorf("%s refused: %s", h, e)
 		}
 	}
+	// API 1 runs as before
+	engine = sandboxEngine(t, "@t/m1", `{api = 1, modbus = true}`)
+	if _, e := runPlugin(t, engine, "@t/m1", `Modbus.readHolding({host = "gw.example.com", address = 0, count = 1}, function() end)`); strings.Contains(e, "a gateway in the house") {
+		t.Errorf("API 1: %s", e)
+	}
 }
 
 // plugin:has answers what this vclu offers, never errors.

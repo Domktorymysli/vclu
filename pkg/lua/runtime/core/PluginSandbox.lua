@@ -1965,8 +1965,8 @@ function PluginSandbox:buildEnvironment(sandbox)
                 modbus[name] = function(opts, ...)
                     if sandbox.dead then error("plugin " .. pluginId .. " is disabled", 2) end
                     local host = type(opts) == "table" and opts.host or nil
-                    -- a gateway in the house: an IP address or a house name, never looked up outside
-                    if host ~= nil and (type(__go_plugin_house_host) ~= "function"
+                    -- a gateway in the house: an IP address or a house name, never looked up outside (API 2)
+                    if host ~= nil and sandbox.apiVersion >= 2 and (type(__go_plugin_house_host) ~= "function"
                         or not __go_plugin_house_host(tostring(host))) then
                         error("Modbus to " .. tostring(host) .. ": a gateway in the house by its IP address"
                             .. " or a house name (name.local, name.lan)", 2)
