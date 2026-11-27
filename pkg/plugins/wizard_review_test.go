@@ -139,6 +139,75 @@ func TestWriteModuleCodeKeepsTheList(t *testing.T) {
 	}
 }
 
+// Uninstalling turns the wizard's module off and keeps it; the wizard run again turns it on,
+// a line the user turned off stays off, another plugin's module is not touched.
+func TestTurnOffModule(t *testing.T) {
+	dir := t.TempDir()
+	list := filepath.Join(dir, "modules", "plugins", "init.lua")
+	read := func() string { b, _ := os.ReadFile(list); return string(b) }
+	for _, id := range []string{"@jan/a", "@jan/b", "@jan/c"} {
+		if err := WriteModuleCode(dir, id, "x = 1"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	text := strings.Replace(read(), `require("plugins/jan__c")`, `-- require("plugins/jan__c")`, 1)
+	if err := os.WriteFile(list, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if changed, err := TurnOffModule(dir, "@jan/a"); err != nil || !changed {
+		t.Fatal(changed, err)
+	}
+	if changed, err := TurnOffModule(dir, "@jan/c"); err != nil || changed {
+		t.Fatal(changed, err)
+	}
+	got := read()
+	if !strings.Contains(got, `-- require("plugins/jan__a")`+offMark) || !strings.Contains(got, "\n"+`require("plugins/jan__b")`) {
+		t.Errorf("after uninstalling a: %q", got)
+	}
+	if strings.Contains(got, `require("plugins/jan__c")`+offMark) {
+		t.Errorf("a line the user turned off was marked: %q", got)
+	}
+	if _, err := os.Stat(ModulePath(dir, "@jan/a")); err != nil {
+		t.Errorf("the module was not kept: %v", err)
+	}
+	if changed, err := TurnOffModule(dir, "@jan/none"); err != nil || changed {
+		t.Errorf("a plugin without a module: %v %v", changed, err)
+	}
+
+	// installed again: on without the wizard
+	if changed, err := TurnOnModule(dir, "@jan/a"); err != nil || !changed || strings.Contains(read(), offMark) {
+		t.Errorf("installed again: %v %v %q", changed, err, read())
+	}
+	if _, err := TurnOffModule(dir, "@jan/a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteModuleCode(dir, "@jan/a", "x = 2"); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteModuleCode(dir, "@jan/c", "x = 2"); err != nil {
+		t.Fatal(err)
+	}
+	got = read()
+	if strings.Contains(got, offMark) || strings.Count(got, `require("plugins/jan__a")`) != 1 || !strings.Contains(got, "\n"+`require("plugins/jan__a")`) {
+		t.Errorf("the wizard run again: %q", got)
+	}
+	if !strings.Contains(got, `-- require("plugins/jan__c")`) {
+		t.Errorf("the user's line was turned on: %q", got)
+	}
+
+	// the module file deleted by hand: its line goes off too, so it does not fail to load
+	if err := os.Remove(ModulePath(dir, "@jan/b")); err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := TurnOffModule(dir, "@jan/b"); err != nil || !changed {
+		t.Errorf("deleted module: %v %v %q", changed, err, read())
+	}
+	if _, err := os.Stat(list + ".tmp"); !os.IsNotExist(err) {
+		t.Errorf("temporary file left: %v", err)
+	}
+}
+
 // What a plugin proposes is code the user reads in a diff: characters that hide or reorder
 // what is shown are refused.
 func TestModuleCodeRefusesHiddenCharacters(t *testing.T) {

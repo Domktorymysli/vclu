@@ -58,6 +58,26 @@ func TestPluginModbusHosts(t *testing.T) {
 	}
 }
 
+// A gateway is reached by an IP address or a house name; another name is not looked up.
+func TestPluginModbusHouseHost(t *testing.T) {
+	engine := sandboxEngine(t, "@t/mh", `{api = 2, modbus = true}`)
+	for _, h := range []string{"6b6579.example.com", "gw.lan.example.com"} {
+		if _, e := runPlugin(t, engine, "@t/mh", `Modbus.readHolding({host = "`+h+`", address = 0, count = 1}, function() end)`); !strings.Contains(e, "a gateway in the house") {
+			t.Errorf("%s: %s", h, e)
+		}
+	}
+	for _, h := range []string{"192.168.0.9", "gateway.local", "sdm120"} {
+		if _, e := runPlugin(t, engine, "@t/mh", `Modbus.readHolding({host = "`+h+`", address = 0, count = 1}, function() end)`); strings.Contains(e, "a gateway in the house") {
+			t.Errorf("%s refused: %s", h, e)
+		}
+	}
+	// API 1 runs as before
+	engine = sandboxEngine(t, "@t/m1", `{api = 1, modbus = true}`)
+	if _, e := runPlugin(t, engine, "@t/m1", `Modbus.readHolding({host = "gw.example.com", address = 0, count = 1}, function() end)`); strings.Contains(e, "a gateway in the house") {
+		t.Errorf("API 1: %s", e)
+	}
+}
+
 // plugin:has answers what this vclu offers, never errors.
 func TestPluginHas(t *testing.T) {
 	engine := sandboxEngine(t, "@t/h", `{api = 2}`)

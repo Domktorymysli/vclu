@@ -155,7 +155,7 @@ running: the manifest names the plugin API it is written for, and the stricter c
 - [ ] A plugin with `"permissions": {}` gets `a local address needs "lan"` from `plugin:httpGet`
       on a LAN address and a refusal from an internet address; with `lan` and the host in
       `internet` both work.
-- [ ] A plugin without `mqtt` cannot subscribe or publish; without `modbus` `Modbus` is `nil`.
+- [ ] A plugin without `mqtt` cannot subscribe or publish; without `modbus` every use of `Modbus` raises an error that names the permission.
 - [ ] A plugin cannot change `string`, `table`, `math`, `Logger`, `JSON` or `Plugin` for anyone else;
       on API 2 the `HTTP`, `HttpClient` and `MQTT` globals are absent in the sandbox.
 - [ ] An object a plugin did not create is read-only, also through `pairs`, `next` and the keys

@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -174,6 +175,8 @@ func ModulePath(serverDir, pluginID string) string {
 // WriteModuleCode writes the plugin's module and the require lines that load it:
 // modules/plugins/init.lua requires each plugin's module, modules/init.lua requires plugins.
 func WriteModuleCode(serverDir, pluginID, code string) error {
+	moduleMu.Lock()
+	defer moduleMu.Unlock()
 	if !ValidPluginID(pluginID) || ModuleName(pluginID) == "init" { // init.lua is the list
 		return fmt.Errorf("invalid plugin id")
 	}
@@ -197,12 +200,98 @@ func WriteModuleCode(serverDir, pluginID, code string) error {
 	if err := os.WriteFile(ModulePath(serverDir, pluginID), []byte(ModuleText(pluginID, code)), 0o644); err != nil {
 		return err
 	}
-	line := fmt.Sprintf("require(%q)", "plugins/"+ModuleName(pluginID))
+	line := requireLine(pluginID)
+	if _, err := turnOnLine(filepath.Join(dir, "init.lua"), line); err != nil {
+		return err
+	}
 	if err := ensureLine(filepath.Join(dir, "init.lua"),
 		"-- Modules written by plugin wizards. Comment out a line to turn one off.\n", line); err != nil {
 		return err
 	}
 	return ensureLine(filepath.Join(serverDir, "modules", "init.lua"), "", `require("plugins")`)
+}
+
+func requireLine(pluginID string) string {
+	return fmt.Sprintf("require(%q)", "plugins/"+ModuleName(pluginID))
+}
+
+// offMark ends a require line turned off when its plugin was uninstalled; installing it again
+// or running its wizard turns it back on. A line the user turned off has no mark and stays off.
+const offMark = " -- off: plugin uninstalled"
+
+// moduleMu: one change at a time to the modules a wizard writes and their list.
+var moduleMu sync.Mutex
+
+// TurnOffModule comments out the require line of the plugin's wizard module, so the module,
+// kept as it is, does not load without its plugin; also when the file is gone. Nothing when
+// another plugin's wizard wrote the file. changed: the list was written.
+func TurnOffModule(serverDir, pluginID string) (changed bool, err error) {
+	if !ValidPluginID(pluginID) || ModuleName(pluginID) == "init" {
+		return false, nil
+	}
+	moduleMu.Lock()
+	defer moduleMu.Unlock()
+	path := ModulePath(serverDir, pluginID)
+	if owner := moduleOwner(path); owner != pluginID {
+		if _, err := os.Stat(path); owner != "" || !errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+	}
+	line := requireLine(pluginID)
+	return editLines(filepath.Join(serverDir, "modules", "plugins", "init.lua"), func(l string) (string, bool) {
+		return "-- " + line + offMark, strings.TrimSpace(l) == line
+	})
+}
+
+// TurnOnModule: the plugin's wizard module turned off at uninstall loads again (installing it again).
+func TurnOnModule(serverDir, pluginID string) (changed bool, err error) {
+	if !ValidPluginID(pluginID) || ModuleName(pluginID) == "init" {
+		return false, nil
+	}
+	moduleMu.Lock()
+	defer moduleMu.Unlock()
+	if moduleOwner(ModulePath(serverDir, pluginID)) != pluginID {
+		return false, nil
+	}
+	return turnOnLine(filepath.Join(serverDir, "modules", "plugins", "init.lua"), requireLine(pluginID))
+}
+
+// turnOnLine: a require line TurnOffModule commented out is plain again.
+func turnOnLine(path, line string) (bool, error) {
+	return editLines(path, func(l string) (string, bool) {
+		return line, strings.TrimSpace(l) == "-- "+line+offMark
+	})
+}
+
+// editLines writes the file with the lines match picks replaced, through a temporary file so a
+// reload never reads half of it; a missing file is left so.
+func editLines(path string, match func(string) (string, bool)) (bool, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	lines := strings.Split(string(data), "\n")
+	changed := false
+	for i, l := range lines {
+		if n, ok := match(strings.TrimSuffix(l, "\r")); ok {
+			lines[i], changed = n, true
+		}
+	}
+	if !changed {
+		return false, nil
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+		return false, err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return false, err
+	}
+	return true, nil
 }
 
 // ModuleText: the module file for the code a plugin proposes, with its header.

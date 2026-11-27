@@ -875,6 +875,15 @@ func registerPluginIOFunctions(L *lua.LState, p *PluginIO) {
 		return 1
 	}))
 
+	// __go_plugin_house_host(host) -> bool: an IP address or a house name (localName), for
+	// devices a plugin reaches by a name that must not be looked up outside the house
+	L.SetGlobal("__go_plugin_house_host", L.NewFunction(func(L *lua.LState) int {
+		host := L.CheckString(1)
+		_, err := netip.ParseAddr(host)
+		L.Push(lua.LBool(err == nil || localName(host)))
+		return 1
+	}))
+
 	// __go_pluginio_release(pluginId): on the plugin's cleanup
 	L.SetGlobal("__go_pluginio_release", L.NewFunction(func(L *lua.LState) int {
 		p.Release(L.CheckString(1))
