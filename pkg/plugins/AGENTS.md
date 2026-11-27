@@ -36,15 +36,19 @@ there; API 1 keeps any id. The declared name (Polish first) is the default name.
 
 Who may open a plugin's dashboard is the user's, not the plugin's (the plugin cannot widen its own access
 or another plugin's): from plugin code `:auth()` takes only `"session"` or `"pin"`, and `:pin()`, `:remote()`
-and `:roles()` (also on a section) are refused with a message naming `dashboardAccess`. A module grants it:
-`Plugin.getPlugin("@vclu/zakupy"):dashboardAccess("lista", {name, auth = "session"|"pin"|"public"|"off",
-pin = "1234", remote = false|true|{pin = bool, roles = {...}|fn}})`. `pin` (4 digits) is needed for auth
-`"pin"` or `remote.pin`; `"off"` is not served (404) and not listed. Errors point at the module's line. The
-grant lives in `_dashboardAccess[pluginId][declaredId]` (Dashboard.lua), out of a plugin's reach; the builder
-keeps the plugin's own choice in `_pluginOwn` and `Dashboard._applyAccess` sets `_name`, `_auth`, `_pin`,
+and `:roles()` (also on a section) are refused with a message naming the module's chain. A module grants it
+with the chain of `Dashboard.new`: `Plugin.getPlugin("@vclu/zakupy"):dashboard("lista"):name(...):icon(...)
+:auth("session"|"pin"|"public"|"off"):pin("1234"):remote({pin, poll}):roles(...)` (the facade's `dashboard`,
+`moduleDashboard` in PluginSandbox.lua, gives `Dashboard._accessBuilder`; widget methods are refused). Each
+call applies at once, a new chain replaces the last; a PIN asked for and not given keeps it closed (`"off"`)
+and logs an error. `"off"` is not served (404) and not listed. Errors point at the module's line. The grant
+lives in `_dashboardAccess[pluginId][declaredId]` (Dashboard.lua), out of a plugin's reach; the builder keeps
+the plugin's own choice in `_pluginOwn` and `Dashboard._applyAccess` sets `_name`, `_icon`, `_auth`, `_pin`,
 `_remote` and `_off` from both on build, on the plugin's later `:name`/`:auth` and on a grant. A plugin reload
-keeps the grant; a Lua reload starts empty and the module grants it again. `dashboardAccess` called from a
-plugin (its proxy, or any function in its environment) is refused.
+keeps the grant; a Lua reload starts empty and the module grants it again. The chain, or the builder itself,
+in a plugin's hands (its proxy, another plugin's facade, any function in its environment) is refused; the
+methods are called without tail calls, so the check sees the caller. `Plugin:dashboardAccess(id, opts)` is
+the deprecated table form, kept for modules written before; it warns once.
 
 The wizard shows a Dashboards step for a plugin that declares any (also without a form) and then always a
 Code step: the step is checked in Go (`CheckDashboardAccess`), kept in the config under `_dashboards` only to

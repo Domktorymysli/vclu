@@ -123,7 +123,7 @@ func TestPluginsAPIModuleCodeKeepsAnEditAfterTheDiff(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	code, shown := call(http.MethodGet, "", s.handlePluginsAPIModuleCode)
-	if code != http.StatusOK || !strings.Contains(shown["proposed"].(string), "dashboardAccess") {
+	if code != http.StatusOK || !strings.Contains(shown["proposed"].(string), `zakupy:dashboard("lista")`) {
 		t.Fatalf("module-code: %d %v", code, shown)
 	}
 	path := plugins.ModulePath(dir, "@jan/zakupy")
@@ -145,7 +145,7 @@ func TestPluginsAPIModuleCodeKeepsAnEditAfterTheDiff(t *testing.T) {
 	if code, out := call(http.MethodPost, string(hash), s.handlePluginsAPIWriteModuleCode); code != http.StatusOK {
 		t.Errorf("write: %d %v", code, out)
 	}
-	if b, _ := os.ReadFile(path); !strings.Contains(string(b), "dashboardAccess") {
+	if b, _ := os.ReadFile(path); !strings.Contains(string(b), `zakupy:dashboard("lista")`) {
 		t.Errorf("module: %q", b)
 	}
 }

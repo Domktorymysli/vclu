@@ -97,12 +97,12 @@ func TestPluginsAPIFormDashboardsWithoutForm(t *testing.T) {
 		t.Fatalf("module code: %d %v", code, out)
 	}
 	proposed := out["proposed"].(string)
-	want := `    clu:dashboardAccess("lista", {
-        name = "a\"]] ..os.exit()--",
-        auth = "public",
-        pin = "4321",
-        remote = { pin = true, roles = { "domownicy", "gosia" } },
-    })`
+	want := `    clu:dashboard("lista")
+        :name("a\"]] ..os.exit()--")
+        :auth("public")
+        :pin("4321")
+        :remote({ pin = true })
+        :roles("domownicy", "gosia")`
 	if !strings.Contains(proposed, want) || !strings.Contains(proposed, `local clu = Plugin.getPlugin("@jan/clu")`) {
 		t.Fatalf("proposed:\n%s", proposed)
 	}

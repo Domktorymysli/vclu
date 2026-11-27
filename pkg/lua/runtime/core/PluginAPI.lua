@@ -428,20 +428,22 @@ end
 -- section, widgets, build). Its id is <shortId>_<id> ("-" as "_"), at /d/<that id>; auth is
 -- "session" unless set. Widgets reaching the house by name (area, floor, room, covers, calendar,
 -- schedule, chart, bars) are not available. Removed when the plugin stops.
--- @param id string Lower-case letters, digits and _
--- @return table DashboardBuilder
+-- In a module, Plugin.getPlugin(id):dashboard(id) is the same chain for who opens a dashboard
+-- the plugin declares in plugin.json "dashboards": name, icon, auth ("session", "pin", "public",
+-- "off": not served, not listed), pin, remote and roles, as on Dashboard.new; each call applies at
+-- once (no :build()), a new chain replaces the last, a Lua reload clears it. The widgets stay the
+-- plugin's; a plugin never sets this for itself or another plugin.
+-- @param id string Lower-case letters, digits and _ (in a module: the id in plugin.json "dashboards")
+-- @return table DashboardBuilder (in a module: the access chain)
 -- @usage plugin:dashboard("lista"):name("Zakupy"):section("Lista", "cart"):button("clear", "Wyczyść", "trash", function() items = {} end):build()
+-- @usage Plugin.getPlugin("@vclu/zakupy"):dashboard("lista"):name("Zakupy"):auth("public"):remote({ pin = false }):roles("domownicy")
+-- @api public
 function Plugin:dashboard(id)
     return sandboxAPI(self, "dashboard").dashboard(id)
 end
 
---- Who may open a dashboard the plugin declares in plugin.json "dashboards": called from a
--- module, never from a plugin. Overrides what the plugin set, now and whenever it builds the
--- dashboard again (a plugin reload keeps it); a Lua reload clears it, the module grants it again.
--- @param id string The id in plugin.json "dashboards"
--- @param opts table {name = text, auth = "session"|"pin"|"public"|"off" ("off": not served, not listed), pin = "1234" (for auth "pin" or remote.pin), remote = false|true|{pin = bool, roles = {"domownicy", ...} or function returning them}}
--- @usage Plugin.getPlugin("@vclu/zakupy"):dashboardAccess("lista", { name = "Zakupy", auth = "public", remote = { roles = { "domownicy" } } })
--- @api public
+--- Deprecated: Plugin.getPlugin(id):dashboard(id) with :name, :auth, :pin, :remote and :roles,
+-- as on Dashboard.new. Kept so modules the wizard wrote before still run; logs a warning once.
 function Plugin:dashboardAccess(id, opts)
     if type(self) ~= "table" or getmetatable(self) ~= Plugin then
         error("dashboardAccess: call it on a plugin, Plugin.getPlugin(id):dashboardAccess(...)", 2)
@@ -461,6 +463,13 @@ function Plugin:dashboardAccess(id, opts)
     end
     local ok, err = Dashboard._grantPlugin(self.id, id, opts)
     if not ok then error("dashboardAccess(" .. id .. "): " .. err, 2) end
+    Dashboard._warnedAccess = Dashboard._warnedAccess or {}
+    if not Dashboard._warnedAccess[self.id .. "/" .. id] then
+        Dashboard._warnedAccess[self.id .. "/" .. id] = true
+        Logger:getShared():warn("[DASHBOARD] " .. self.id .. ':dashboardAccess("' .. id .. '", {...}) is deprecated: '
+            .. 'write Plugin.getPlugin("' .. self.id .. '"):dashboard("' .. id .. '"):name(...):auth(...), as on Dashboard.new '
+            .. "(the plugin wizard writes it)")
+    end
     return self
 end
 
@@ -1214,7 +1223,7 @@ function Plugin._lookup(pluginId)
 end
 
 -- Get a plugin by fullId or shortId. On plugin API 2 a module gets its facade: the plugin's
--- methods and the core's get, on, getExposed, dashboardAccess; values cross as copies,
+-- methods and the core's get, on, getExposed, dashboard (who opens it); values cross as copies,
 -- objects with functions as handles (PluginSandbox.moduleFacade).
 -- Note: Use Plugin.getPlugin() instead of Plugin.get() to avoid conflict with instance method
 function Plugin.getPlugin(pluginId)

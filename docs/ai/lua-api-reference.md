@@ -2546,15 +2546,16 @@ Publish state update for object
 
 ## PluginAPI
 
-### `Plugin:dashboardAccess(id, opts)`
+### `Plugin:dashboard(id) → table DashboardBuilder (in a module: the access chain)`
 
-Who may open a dashboard the plugin declares in plugin.json "dashboards": called from a module, never from a plugin. Overrides what the plugin set, now and whenever it builds the dashboard again (a plugin reload keeps it); a Lua reload clears it, the module grants it again.
+A dashboard of the plugin's own: the builder of Dashboard.new (name, icon, auth, poll, section, widgets, build). Its id is <shortId>_<id> ("-" as "_"), at /d/<that id>; auth is "session" unless set. Widgets reaching the house by name (area, floor, room, covers, calendar, schedule, chart, bars) are not available. Removed when the plugin stops. In a module, Plugin.getPlugin(id):dashboard(id) is the same chain for who opens a dashboard the plugin declares in plugin.json "dashboards": name, icon, auth ("session", "pin", "public", "off": not served, not listed), pin, remote and roles, as on Dashboard.new; each call applies at once (no :build()), a new chain replaces the last, a Lua reload clears it. The widgets stay the plugin's; a plugin never sets this for itself or another plugin.
 
-- `id` (string) — The id in plugin.json "dashboards"
-- `opts` (table) — {name = text, auth = "session"|"pin"|"public"|"off" ("off": not served, not listed), pin = "1234" (for auth "pin" or remote.pin), remote = false|true|{pin = bool, roles = {"domownicy", ...} or function returning them}}
+- `id` (string) — Lower-case letters, digits and _ (in a module: the id in plugin.json "dashboards")
+
+**Returns:** table DashboardBuilder (in a module: the access chain)
 
 ```lua
-Plugin.getPlugin("@vclu/zakupy"):dashboardAccess("lista", { name = "Zakupy", auth = "public", remote = { roles = { "domownicy" } } })
+Plugin.getPlugin("@vclu/zakupy"):dashboard("lista"):name("Zakupy"):auth("public"):remote({ pin = false }):roles("domownicy")
 ```
 
 ---

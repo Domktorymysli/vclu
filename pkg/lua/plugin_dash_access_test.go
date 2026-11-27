@@ -78,7 +78,7 @@ func TestPluginDashboardCannotWidenItself(t *testing.T) {
 		}
 	}
 	_, e := runPlugin(t, engine, "@jan/zakupy-dom", `Plugin.getPlugin("@jan/zakupy-dom"):dashboard("a"):remote()`)
-	if !strings.Contains(e, `dashboardAccess("a"`) {
+	if !strings.Contains(e, `:dashboard("a"):remote()`) {
 		t.Errorf("the refusal says where the user grants it: %s", e)
 	}
 	mustLua(t, engine, `_dashboards["zakupy_dom_lista"]._auth`, "session")
@@ -200,7 +200,7 @@ func TestPluginDashboardAccessValidation(t *testing.T) {
 		"pin missing":    {`"lista", { auth = "pin" }`, "a PIN is asked for"},
 		"remote pin":     {`"lista", { remote = { pin = true } }`, "a PIN is asked for"},
 		"remote type":    {`"lista", { remote = "yes" }`, "remote is false, true"},
-		"remote option":  {`"lista", { remote = { poll = 1 } }`, `remote: unknown option "poll"`},
+		"remote option":  {`"lista", { remote = { x = 1 } }`, `remote: unknown option "x"`},
 		"role":           {`"lista", { remote = { roles = { "Gosia" } } }`, `invalid role "Gosia"`},
 		"role type":      {`"lista", { remote = { roles = "gosia" } }`, "remote.roles is a list"},
 	} {

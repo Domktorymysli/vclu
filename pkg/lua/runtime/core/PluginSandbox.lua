@@ -493,6 +493,7 @@ local INSTANCE_PROTECTED = {
     timers = true, subscriptions = true, init = true, cleanup = true, stats = true,
     getExposed = true, -- the user's module sets remote access on what it returns
     dashboardAccess = true, -- a module's grant must reach the core, not the plugin's own function
+    dashboard = true, -- in a module it is the access builder of the core (moduleFacade)
 }
 -- Called by the loader and the sandbox on the real instance, not by the plugin
 local INSTANCE_CORE_ONLY = { init = true, cleanup = true }
@@ -828,6 +829,27 @@ local FACADE_FIELDS = { id = true, shortId = true, namespace = true, name = true
 local FACADE_CORE = { get = "handle", on = "handle", getExposed = "raw", dashboardAccess = "raw",
     listSensorsAndControls = "raw", stats = "raw" }
 
+-- A plugin's own code (its environment) at stack level never grants a dashboard
+local function refuseFromPlugin(level, where)
+    local env = getfenv and getfenv(level + 1)
+    for _, sb in pairs(PluginSandbox.sandboxes or {}) do
+        if env ~= nil and sb.environment == env then
+            error(where .. ": who opens a plugin's dashboard is the user's: a module sets it, not a plugin", level + 1)
+        end
+    end
+end
+
+-- Plugin.getPlugin(id):dashboard(id) in a module: the access builder of a declared dashboard
+local function moduleDashboard(inner, id)
+    refuseFromPlugin(3, "dashboard")
+    local declared = inner._sandbox and inner._sandbox.declaredDashboards or {}
+    if type(id) ~= "string" or not declared[id] then
+        error(tostring(inner.id) .. ":dashboard: the plugin declares no dashboard " .. tostring(id)
+            .. ' (plugin.json "dashboards")', 3)
+    end
+    return Dashboard._accessBuilder(inner.id, id, function(where) refuseFromPlugin(4, where) end)
+end
+
 function PluginSandbox.moduleFacade(inner)
     local f = facadeOf[inner]
     if f then return f end
@@ -852,7 +874,12 @@ function PluginSandbox.moduleFacade(inner)
             local m
             local own = rawget(inner, key)
             local private = type(key) == "string" and key:sub(1, 1) == "_"
-            if type(own) == "function" and not private then
+            if key == "dashboard" then
+                m = function(self, id)
+                    asMethod(key, self)
+                    return moduleDashboard(inner, id)
+                end
+            elseif type(own) == "function" and not private then
                 m = function(self, ...)
                     asMethod(key, self)
                     return toModuleResults(inner, rawget(inner, key)(inner, toPluginArgs(inner, ...)))
@@ -933,7 +960,7 @@ local function coreError(e)
     return (tostring(e):gsub("^[^\n:]-%.lua:%d+: ", ""))
 end
 
--- Who may open a plugin's dashboard is the user's, granted from a module (Plugin:dashboardAccess)
+-- Who may open a plugin's dashboard is the user's, granted from a module (Plugin.getPlugin(id):dashboard(id))
 local DASH_USER = { pin = true, remote = true, roles = true }
 local DASH_PLUGIN_AUTH = { session = true, pin = true }
 
@@ -1006,9 +1033,9 @@ local function dashboardFacade(sandbox, raw, log)
     end
 
     local function userOnly(name)
-        local how = name == "pin" and 'pin = "1234"' or name == "roles" and "remote = { roles = {...} }" or "remote = true"
+        local how = name == "pin" and ':pin("1234")' or name == "roles" and ':remote():roles(...)' or ":remote()"
         error("dashboard:" .. name .. " is the user's to grant, not the plugin's: a module calls "
-            .. 'Plugin.getPlugin("' .. pluginId .. '"):dashboardAccess("' .. raw._pluginDash .. '", { ' .. how .. " })", 3)
+            .. 'Plugin.getPlugin("' .. pluginId .. '"):dashboard("' .. raw._pluginDash .. '")' .. how, 3)
     end
 
     -- auth and name are the plugin's defaults; what the user granted stays over them
@@ -1016,7 +1043,7 @@ local function dashboardFacade(sandbox, raw, log)
         if name == "auth" then
             if not DASH_PLUGIN_AUTH[v] then
                 error('dashboard:auth: a plugin sets "session" or "pin"; "public" and the app are the user\'s to grant '
-                    .. '(Plugin.getPlugin("' .. pluginId .. '"):dashboardAccess in a module)', 3)
+                    .. '(Plugin.getPlugin("' .. pluginId .. '"):dashboard(id):auth(...) in a module)', 3)
             end
             raw._pluginOwn.auth = v
         else

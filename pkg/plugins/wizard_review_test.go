@@ -29,7 +29,17 @@ func TestDashboardAccessCodeRoundTripsHostileConfig(t *testing.T) {
 			ran = false
 			os = { exit = function() ran = true end }
 			local p = {}
-			function p:dashboardAccess(id, opts) calls[#calls + 1] = { id = id, opts = opts } end
+			local b = {}
+			for _, m in ipairs({ "name", "auth", "pin", "remote", "roles" }) do
+				b[m] = function(self, ...)
+					local opts = calls[#calls].opts
+					if m == "remote" then opts.remote = { pin = (...).pin, roles = {} }
+					elseif m == "roles" then opts.remote.roles = { ... }
+					else opts[m] = ... end
+					return self
+				end
+			end
+			function p:dashboard(id) calls[#calls + 1] = { id = id, opts = {} }; return b end
 			Plugin = { getPlugin = function(id) pluginId = id; return p end }`); err != nil {
 			t.Fatal(err)
 		}

@@ -480,7 +480,7 @@
         });
     };
 
-    // ---- dashboards: who may open them, written as code (Plugin:dashboardAccess) ----
+    // ---- dashboards: who may open them, written as code (Plugin.getPlugin(id):dashboard(id)) ----
 
     var AUTHS = ['session', 'pin', 'public', 'off'];
     var authLabel = { session: 'authSession', pin: 'authPin', public: 'authPublic', off: 'authOff' };
