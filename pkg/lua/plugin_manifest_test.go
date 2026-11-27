@@ -140,3 +140,19 @@ func TestPluginHTTPGetIsAPI1(t *testing.T) {
 		t.Errorf("API 1: %s / %s", r, e)
 	}
 }
+
+// A permission plugin.json asks for and the user left out says where to allow it; one it
+// does not ask for says to declare it.
+func TestPluginMissingPermissionSaysWhere(t *testing.T) {
+	engine := sandboxEngine(t, "@t/w", `{api = 1, lan = true, waiting = {"mqtt", "modbus"}}`)
+	for _, call := range []string{`Modbus.request({host = "192.168.0.9", fc = 4}, function() end)`,
+		`Plugin:new("w", {}):mqttSubscribe("a/b", function() end)`} {
+		if _, e := runPlugin(t, engine, "@t/w", call); !strings.Contains(e, "is not allowed for @t/w") || !strings.Contains(e, "plugins page") {
+			t.Errorf("%s: %s", call, e)
+		}
+	}
+	engine = sandboxEngine(t, "@t/d", `{api = 2}`)
+	if _, e := runPlugin(t, engine, "@t/d", `Modbus.request({host = "192.168.0.9", fc = 4}, function() end)`); !strings.Contains(e, `needs "modbus" in the permissions of @t/d's plugin.json`) {
+		t.Errorf("not declared: %s", e)
+	}
+}
