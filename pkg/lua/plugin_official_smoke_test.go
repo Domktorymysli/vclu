@@ -24,6 +24,19 @@ func TestOfficialPluginsSmoke(t *testing.T) {
 	if src == "" {
 		t.Skip("set VCLU_PLUGINS_DIR to the plugins directory of a vclu-plugins checkout")
 	}
+	smokePlugins(t, src, []string{"new-manifests", "old-manifests"}, true)
+}
+
+// Official plugins as people installed them with vclu 1.12, on plugin API 1 (testdata, never
+// updated; one for each part of API 1 that API 2 took away): they load, make their devices,
+// serve their sensors, unload and load again as before plugin API 2.
+func TestAPI1PluginsOfVclu112(t *testing.T) {
+	smokePlugins(t, filepath.Join("pkg", "lua", "testdata", "plugins-api1"), []string{"as-installed"}, false)
+}
+
+// smokePlugins runs the plugins in src through a load, their factories, an unload and a reload;
+// strict: every official plugin is there (a vclu-plugins checkout), else the ones present.
+func smokePlugins(t *testing.T, src string, modes []string, strict bool) {
 	entries, err := os.ReadDir(src)
 	if err != nil {
 		t.Fatal(err)
@@ -38,7 +51,7 @@ func TestOfficialPluginsSmoke(t *testing.T) {
 		"@vclu/frigate":           {"host": "10.255.255.12"},
 		"@vclu/sun-position":      {"latitude": 52.14, "longitude": 20.71},
 	}
-	for _, mode := range []string{"new-manifests", "old-manifests"} {
+	for _, mode := range modes {
 		t.Run(mode, func(t *testing.T) {
 			dir := t.TempDir()
 			engine := NewLuaEngine()
@@ -139,23 +152,36 @@ func TestOfficialPluginsSmoke(t *testing.T) {
 			if !strings.HasPrefix(out, fmt.Sprintf("%d ", len(ids))) {
 				t.Errorf("want %d instances", len(ids))
 			}
-			fact, err := engine.Execute(`
+			fact, err := engine.Execute(fmt.Sprintf("local strict = %v\n", strict) + `
+				-- a plugin of the set: required in a full checkout, skipped when this set has none
+				local function plugin(id)
+					local p = Plugin.getPlugin(id)
+					assert(p or not strict, id .. " is published")
+					return p
+				end
 				local modbus = Plugin.getPlugin("@vclu/modbus-gateway")
 				local gw = modbus:create({ id = "rozdzielnica", host = "10.255.255.9", port = 4196, interval = 30, timeout = 500,
 					devices = { { id = "ladowarka", unit = 1, name = "L", profile = "sdm120" } } })
 				assert(gw, "modbus create")
-				local amp = Plugin.getPlugin("@vclu/musiccast"):create({ id = "salon", ip = "10.255.255.159", name = "Amplituner" })
-				assert(amp, "musiccast create")
-				local rce = Plugin.getPlugin("@vclu/pse-rce"):create({ id = "rce" })
-				assert(rce, "rce create"); local now = rce:now()
+				local musiccast = plugin("@vclu/musiccast")
+				if musiccast then assert(musiccast:create({ id = "salon", ip = "10.255.255.159", name = "Amplituner" }), "musiccast create") end
+				local now
+				local pse = plugin("@vclu/pse-rce")
+				if pse then
+					local rce = pse:create({ id = "rce" })
+					assert(rce, "rce create"); now = rce:now()
+				end
 				-- the older switch plugin, in a checkout that still has it (not in the published index)
 				local sw = Plugin.getPlugin("@vclu/tasmota-switch")
 				if sw then assert(sw:create({ ip = "10.255.255.100", name = "Lampka" }), "tasmota-switch create") end
-				local inf = Plugin.getPlugin("@vclu/influx-metrics"):create({ url = "http://10.255.255.50:8086/write?db=vclu", interval = 60, tags = { host = "vclu" } })
-				assert(inf, "influx create"); inf:gauge("temperature", 22.5, { room = "salon" })
+				local influx = plugin("@vclu/influx-metrics")
+				if influx then
+					local inf = influx:create({ url = "http://10.255.255.50:8086/write?db=vclu", interval = 60, tags = { host = "vclu" } })
+					assert(inf, "influx create"); inf:gauge("temperature", 22.5, { room = "salon" })
+				end
 				-- module code of the READMEs: handles of the plugins' objects (API 2)
-				local tasmota = assert(Plugin.getPlugin("@vclu/tasmota"), "@vclu/tasmota is published")
-				do
+				local tasmota = plugin("@vclu/tasmota")
+				if tasmota then
 					local plug = tasmota:device({ ip = "10.255.255.101" })
 					local lamp = plug:relay(1)
 					expose(lamp, "light", { path = "tasmota.lampa", name = "Lampa", mqtt = false, homekit = false })
@@ -165,8 +191,8 @@ func TestOfficialPluginsSmoke(t *testing.T) {
 					lamp:onChange(function(v, old) end)
 					assert(lamp:get() == nil and plug:isOnline() == false, "tasmota: no reading yet")
 				end
-				local zakupy = assert(Plugin.getPlugin("@vclu/zakupy"), "@vclu/zakupy is published")
-				zakupy:dashboard("lista"):name("Zakupy"):auth("session")
+				local zakupy = plugin("@vclu/zakupy")
+				if zakupy then zakupy:dashboard("lista"):name("Zakupy"):auth("session") end
 				local n = 0
 				for _ in pairs(ExposedObjects._objects or {}) do n = n + 1 end
 				return "factories ok, exposed=" .. n .. " rce:now=" .. tostring(now)
