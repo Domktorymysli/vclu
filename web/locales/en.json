@@ -1149,7 +1149,27 @@
       "clu_discovery": "Finding CLUs on the network (broadcast), also with a host list",
       "any_port_waiting": "The update asks for access on any port.",
       "why": "Why: {0}",
-      "modbus_hosts": "Only these gateways (IP or prefix, one per line)"
+      "modbus_hosts": "Only these gateways (IP or prefix, one per line)",
+      "title_internet": "Internet",
+      "title_lan": "Local network",
+      "title_udp": "UDP",
+      "title_tcp": "TCP",
+      "title_mqtt": "MQTT",
+      "title_modbus": "Modbus",
+      "title_clu": "CLU",
+      "title_tftp": "TFTP",
+      "title_serial": "Serial port",
+      "desc_lan": "HTTP and WebSocket to devices in the house",
+      "desc_udp": "Packets to devices in the house (e.g. air conditioners)",
+      "desc_tcp": "Connections to devices in the house (e.g. telnet)",
+      "desc_clu": "Direct communication with CLUs",
+      "desc_tftp": "Files on devices on the network",
+      "not_using": "Does not use: {0}.",
+      "uses_none_of": "Uses none of the permissions ({0}).",
+      "any_server_cap": "Any server",
+      "mqtt_publishes_cap": "Publishes: {0}",
+      "api1_short": "Old API: unrestricted",
+      "no_permissions": "No network or device access"
     }
   }
 }

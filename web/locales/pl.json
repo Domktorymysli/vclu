@@ -1149,7 +1149,27 @@
       "clu_discovery": "Wyszukiwanie CLU w sieci (rozgłaszanie), także z listą hostów",
       "any_port_waiting": "Aktualizacja prosi o dostęp na dowolnym porcie.",
       "why": "Po co: {0}",
-      "modbus_hosts": "Tylko te bramki (IP lub prefiks, jeden w wierszu)"
+      "modbus_hosts": "Tylko te bramki (IP lub prefiks, jeden w wierszu)",
+      "title_internet": "Internet",
+      "title_lan": "Sieć lokalna",
+      "title_udp": "UDP",
+      "title_tcp": "TCP",
+      "title_mqtt": "MQTT",
+      "title_modbus": "Modbus",
+      "title_clu": "CLU",
+      "title_tftp": "TFTP",
+      "title_serial": "Port szeregowy",
+      "desc_lan": "HTTP i WebSocket do urządzeń w domu",
+      "desc_udp": "Pakiety do urządzeń w domu (np. klimatyzacja)",
+      "desc_tcp": "Połączenia z urządzeniami w domu (np. telnet)",
+      "desc_clu": "Bezpośrednia komunikacja z CLU",
+      "desc_tftp": "Pliki na urządzeniach w sieci",
+      "not_using": "Nie korzysta z: {0}.",
+      "uses_none_of": "Nie korzysta z żadnego uprawnienia ({0}).",
+      "any_server_cap": "Dowolny serwer",
+      "mqtt_publishes_cap": "Publikuje: {0}",
+      "api1_short": "Stare API: bez ograniczeń",
+      "no_permissions": "Bez dostępu do sieci i urządzeń"
     }
   }
 }

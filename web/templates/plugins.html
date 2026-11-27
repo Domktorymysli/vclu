@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="/static/css/dark-theme.css?v={{.v}}">
     <script src="/static/vendor/marked/marked.min.js"></script>
     <style>
+        .plugin-desc { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
         .markdown-body { line-height: 1.6; }
         .markdown-body h1, .markdown-body h2, .markdown-body h3 { margin-top: 1rem; margin-bottom: 0.5rem; }
         .markdown-body pre { background: var(--bg-tertiary); padding: 1rem; border-radius: 4px; overflow-x: auto; }
@@ -267,7 +268,7 @@
                 </div>
                 <div class="modal-body">
                     <p class="small mb-2">{{index .t "plugins.perm.install_intro"}}</p>
-                    <ul class="list-unstyled mb-2" id="installPermissions"></ul>
+                    <div id="installPermissions"></div>
                     <p class="small text-muted mb-0" id="installNote"></p>
                 </div>
                 <div class="modal-footer">
@@ -320,6 +321,26 @@
             new: '{{index .t "plugins.perm.new"}}',
             off_until_allowed: '{{index .t "plugins.perm.off_until_allowed"}}',
             uses_none: '{{index .t "plugins.perm.uses_none"}}',
+            title_internet: '{{index .t "plugins.perm.title_internet"}}',
+            title_lan: '{{index .t "plugins.perm.title_lan"}}',
+            title_udp: '{{index .t "plugins.perm.title_udp"}}',
+            title_tcp: '{{index .t "plugins.perm.title_tcp"}}',
+            title_mqtt: '{{index .t "plugins.perm.title_mqtt"}}',
+            title_modbus: '{{index .t "plugins.perm.title_modbus"}}',
+            title_clu: '{{index .t "plugins.perm.title_clu"}}',
+            title_tftp: '{{index .t "plugins.perm.title_tftp"}}',
+            title_serial: '{{index .t "plugins.perm.title_serial"}}',
+            desc_lan: '{{index .t "plugins.perm.desc_lan"}}',
+            desc_udp: '{{index .t "plugins.perm.desc_udp"}}',
+            desc_tcp: '{{index .t "plugins.perm.desc_tcp"}}',
+            desc_clu: '{{index .t "plugins.perm.desc_clu"}}',
+            desc_tftp: '{{index .t "plugins.perm.desc_tftp"}}',
+            not_using: '{{index .t "plugins.perm.not_using"}}',
+            uses_none_of: '{{index .t "plugins.perm.uses_none_of"}}',
+            any_server_cap: '{{index .t "plugins.perm.any_server_cap"}}',
+            mqtt_publishes_cap: '{{index .t "plugins.perm.mqtt_publishes_cap"}}',
+            api1_short: '{{index .t "plugins.perm.api1_short"}}',
+            no_permissions: '{{index .t "plugins.perm.no_permissions"}}',
             update_keeps: '{{index .t "plugins.perm.update_keeps"}}',
             api1_note: '{{index .t "plugins.perm.api1_note"}}',
             api_downgrade: '{{index .t "plugins.perm.api_downgrade"}}',
