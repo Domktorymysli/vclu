@@ -24,6 +24,22 @@ type barsSpec struct {
 	Zone    string `json:"zone"`
 	Error   string `json:"error"`
 	Status  int    `json:"status"`
+	// A source function's samples, given by Lua instead of a metric path
+	PathFn         bool       `json:"pathFn"`
+	PathSamples    sampleList `json:"pathSamples"`
+	CompareFn      bool       `json:"compareFn"`
+	CompareSamples sampleList `json:"compareSamples"`
+}
+
+// sampleList reads Lua's empty table, encoded as {}, as no samples.
+type sampleList []metrics.Sample
+
+func (l *sampleList) UnmarshalJSON(b []byte) error {
+	if string(b) == "{}" {
+		*l = nil
+		return nil
+	}
+	return json.Unmarshal(b, (*[]metrics.Sample)(l))
 }
 
 type barsBucket struct {
@@ -176,12 +192,22 @@ func (s *Server) barsSeries(spec barsSpec, now time.Time) (*barsResult, error) {
 		}
 		return append(old, s.metricsCollector.Query(path, upTo)...)
 	}
-	vals := metrics.Aggregate(samples(spec.Path), edges, spec.Agg)
+	keptDays := s.metricsCollector.RetainDays()
+	var vals []*float64
+	if spec.PathFn {
+		// the function keeps its own samples: no bucket is older than what is kept
+		vals = metrics.Aggregate(spec.PathSamples, edges, spec.Agg)
+		kept, keptDays = edges[0], int(now.Sub(edges[0]).Hours()/24)+1
+	} else {
+		vals = metrics.Aggregate(samples(spec.Path), edges, spec.Agg)
+	}
 	var cmp []*float64
-	if spec.Compare != "" {
+	if spec.CompareFn {
+		cmp = metrics.Aggregate(spec.CompareSamples, edges, spec.Agg)
+	} else if spec.Compare != "" {
 		cmp = metrics.Aggregate(samples(spec.Compare), edges, spec.Agg)
 	}
-	out := &barsResult{Bucket: spec.Bucket, Agg: spec.Agg, Zone: spec.Zone, Kept: s.metricsCollector.RetainDays(),
+	out := &barsResult{Bucket: spec.Bucket, Agg: spec.Agg, Zone: spec.Zone, Kept: keptDays,
 		Buckets: make([]barsBucket, len(vals))}
 	for i, v := range vals {
 		t := edges[i].In(loc)

@@ -16,7 +16,6 @@ func TestReviewPluginDashboardHouseWidgets(t *testing.T) {
 		"schedule":         `:section("S"):schedule("s", "S", "dom", "ogrzewanie")`,
 		"builder schedule": `:section("S"); d:schedule("s", "S", "dom", "ogrzewanie")`,
 		"chart":            `:section("S"):chart("c", "C", "temp:salon")`,
-		"bars":             `:section("S"):bars("b", "B", "energia:licznik")`,
 	} {
 		r, e := runPlugin(t, engine, "@jan/zakupy-dom", `local d = Plugin.getPlugin("@jan/zakupy-dom"):dashboard("a")
 			d`+code)
@@ -24,6 +23,52 @@ func TestReviewPluginDashboardHouseWidgets(t *testing.T) {
 		if e != "nil" && !strings.Contains(e, "not available in a plugin's dashboard") {
 			t.Errorf("%s: %s", what, e)
 		}
+	}
+}
+
+// Bars on a plugin's dashboard come from the plugin's own function: a metric path, as the
+// source or as compare, is refused on the builder and on a section.
+func TestReviewPluginDashboardBarsOwnSamples(t *testing.T) {
+	engine := accessEngine(t)
+	for what, code := range map[string]string{
+		"metric":         `:section("S"):bars("b", "B", "energia:licznik")`,
+		"builder metric": `:section("S"); d:bars("b", "B", "energia:licznik")`,
+		"compare metric": `:section("S"):bars("b", "B", function() return {} end, { compare = "energia:licznik" })`,
+	} {
+		r, e := runPlugin(t, engine, "@jan/zakupy-dom", `local d = Plugin.getPlugin("@jan/zakupy-dom"):dashboard("a")
+			d`+code)
+		wantRefused(t, what, r, e)
+		if e != "nil" && !strings.Contains(e, "takes a function returning its samples") {
+			t.Errorf("%s: %s", what, e)
+		}
+	}
+	if r, _ := runPlugin(t, engine, "@jan/zakupy-dom", `return Plugin.getPlugin("@jan/zakupy-dom"):has("widget:bars")`); r != "true" {
+		t.Errorf(`has("widget:bars") = %s`, r)
+	}
+	if _, e := runPlugin(t, engine, "@jan/zakupy-dom", `Plugin.getPlugin("@jan/zakupy-dom"):dashboard("b"):section("S")
+		:bars("b", "B", function() return { { t = 200, v = 2 }, { t = 100, v = 1 } } end,
+			{ range = "30d", bucket = "1d", agg = "sum", compare = function() return { { t = 100, v = 5 } } end })
+		:build()`); e != "nil" {
+		t.Fatal(e)
+	}
+	// opts changed after build() do not reach the widget
+	if _, e := runPlugin(t, engine, "@jan/zakupy-dom", `local o = { range = "30d" }
+		Plugin.getPlugin("@jan/zakupy-dom"):dashboard("x"):section("S"):bars("m", "M", function() return {} end, o):build()
+		o.compare = "energia:licznik"`); e != "nil" {
+		t.Fatal(e)
+	}
+	if out := luaOut(t, engine, `Dashboard.API.barsSpec("zakupy_dom_x", "m")`); strings.Contains(out, "energia") {
+		t.Errorf("compare swapped after build: %s", out)
+	}
+	// and a metric on a plugin's widget is not served, however it got there
+	mustExec(t, engine, `_dashboards["zakupy_dom_x"]._sections[1].widgets[1].opts.compare = "energia:licznik"`)
+	if out := luaOut(t, engine, `Dashboard.API.barsSpec("zakupy_dom_x", "m")`); !strings.Contains(out, `"status":403`) {
+		t.Errorf("metric on a plugin's bars: %s", out)
+	}
+	out := luaOut(t, engine, `Dashboard.API.barsSpec("zakupy_dom_b", "b")`)
+	if !strings.Contains(out, `"pathFn":true`) || !strings.Contains(out, `"compareFn":true`) ||
+		!strings.Contains(out, `"pathSamples":[{"t":100,"v":1},{"t":200,"v":2}]`) || strings.Contains(out, `"path":`) {
+		t.Errorf("spec: %s", out)
 	}
 }
 

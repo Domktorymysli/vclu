@@ -334,10 +334,13 @@ end
 
 local function barsWidget(id, label, metricPath, opts)
     local where = 'bars widget "' .. tostring(id) .. '"'
-    if type(metricPath) ~= 'string' or metricPath == '' then
-        error(where .. ': expected a metric path registered with metric()', 3)
+    if type(metricPath) ~= 'function' and (type(metricPath) ~= 'string' or metricPath == '') then
+        error(where .. ': expected a metric path registered with metric(), or a function returning samples', 3)
     end
-    opts = opts or {}
+    -- a copy: a caller changing its table after build() cannot swap a function for a metric
+    local given = opts or {}
+    opts = {}
+    for k, v in pairs(given) do opts[k] = v end
     for k in pairs(opts) do
         if not BARS_KEYS[k] then
             error(where .. ': unknown option "' .. tostring(k) .. '" (' .. quoted(BARS_KEYS) .. ')', 3)
@@ -358,8 +361,9 @@ local function barsWidget(id, label, metricPath, opts)
     end
     local agg = opts.agg or 'avg'
     if not BARS_AGG[agg] then error(where .. ': agg must be one of ' .. quoted(BARS_AGG), 3) end
-    if opts.compare ~= nil and (type(opts.compare) ~= 'string' or opts.compare == '') then
-        error(where .. ': compare expects a second metric path', 3)
+    local cmp = opts.compare
+    if cmp ~= nil and type(cmp) ~= 'function' and (type(cmp) ~= 'string' or cmp == '') then
+        error(where .. ': compare expects a second metric path, or a function returning samples', 3)
     end
     local d = opts.decimals
     if d ~= nil and (type(d) ~= 'number' or d % 1 ~= 0 or d < 0 or d > 6) then
@@ -2004,8 +2008,8 @@ end
 --- Add a bar chart of a metric to this section: one bar per hour, day, week or month of the house's zone.
 -- @param id string Unique widget identifier
 -- @param label string Display label (e.g., "Energia dziennie")
--- @param metricPath string Metric path registered via metric() (e.g., "energia:licznik"), or one vCLU writes itself (see chart)
--- @param opts table Optional: {range=string (a duration up to "366d"; default "7d"), bucket="1h"|"1d"|"1w"|"1mo" (weeks from Monday, calendar months; default "1h" below 2 days, "1d" up to 62, "1w" up to 182, else "1mo"; at most 744 bars), agg="avg"|"sum"|"max"|"min"|"delta" (default "avg", the mean of the samples; sum depends on the sampling interval; delta: what a growing counter such as a kWh meter added in each bar, a single bad reading or a reset adds nothing), unit=string ("B" or "B/h": bytes shown in KB, MB, GB or TB), decimals=0-6, color=string, compare=metricPath (a second bar beside each), compareLabel=string, visible=function()->bool, span=n, size=string, refresh=seconds (at least 30)}; samples are kept metrics.retentionDays (default 7) days, older ones come from the cloud for metrics with cloud = true
+-- @param metricPath string Metric path registered via metric() (e.g., "energia:licznik"), or one vCLU writes itself (see chart), or a function returning the samples itself: function() -> {{t = unix seconds, v = number}, ...} (any order, up to 10000, read when the page asks, kept as long as the function keeps them; e.g. a plugin's manual meter readings)
+-- @param opts table Optional: {range=string (a duration up to "366d"; default "7d"), bucket="1h"|"1d"|"1w"|"1mo" (weeks from Monday, calendar months; default "1h" below 2 days, "1d" up to 62, "1w" up to 182, else "1mo"; at most 744 bars), agg="avg"|"sum"|"max"|"min"|"delta" (default "avg", the mean of the samples; sum depends on the sampling interval; delta: what a growing counter such as a kWh meter added in each bar, a single bad reading or a reset adds nothing), unit=string ("B" or "B/h": bytes shown in KB, MB, GB or TB), decimals=0-6, color=string, compare=metricPath or function (a second bar beside each), compareLabel=string, visible=function()->bool, span=n, size=string, refresh=seconds (at least 30)}; samples are kept metrics.retentionDays (default 7) days, older ones come from the cloud for metrics with cloud = true
 -- @api public
 function SectionHandle:bars(id, label, metricPath, opts)
     self._builder:_addWidget(self._sectionIndex, barsWidget(id, label, metricPath, opts))
@@ -2921,8 +2925,8 @@ end
 --- Add a bar chart of a metric to the current section: one bar per hour, day, week or month of the house's zone.
 -- @param id string Unique widget identifier
 -- @param label string Display label (e.g., "Energia dziennie")
--- @param metricPath string Metric path registered via metric() (e.g., "energia:licznik"), or one vCLU writes itself (see chart)
--- @param opts table Optional: {range=string (a duration up to "366d"; default "7d"), bucket="1h"|"1d"|"1w"|"1mo" (weeks from Monday, calendar months; default "1h" below 2 days, "1d" up to 62, "1w" up to 182, else "1mo"; at most 744 bars), agg="avg"|"sum"|"max"|"min"|"delta" (default "avg", the mean of the samples; sum depends on the sampling interval; delta: what a growing counter such as a kWh meter added in each bar, a single bad reading or a reset adds nothing), unit=string ("B" or "B/h": bytes shown in KB, MB, GB or TB), decimals=0-6, color=string, compare=metricPath (a second bar beside each), compareLabel=string, visible=function()->bool, span=n, size=string, refresh=seconds (at least 30)}; samples are kept metrics.retentionDays (default 7) days, older ones come from the cloud for metrics with cloud = true
+-- @param metricPath string Metric path registered via metric() (e.g., "energia:licznik"), or one vCLU writes itself (see chart), or a function returning the samples itself: function() -> {{t = unix seconds, v = number}, ...} (any order, up to 10000, read when the page asks, kept as long as the function keeps them; e.g. a plugin's manual meter readings)
+-- @param opts table Optional: {range=string (a duration up to "366d"; default "7d"), bucket="1h"|"1d"|"1w"|"1mo" (weeks from Monday, calendar months; default "1h" below 2 days, "1d" up to 62, "1w" up to 182, else "1mo"; at most 744 bars), agg="avg"|"sum"|"max"|"min"|"delta" (default "avg", the mean of the samples; sum depends on the sampling interval; delta: what a growing counter such as a kWh meter added in each bar, a single bad reading or a reset adds nothing), unit=string ("B" or "B/h": bytes shown in KB, MB, GB or TB), decimals=0-6, color=string, compare=metricPath or function (a second bar beside each), compareLabel=string, visible=function()->bool, span=n, size=string, refresh=seconds (at least 30)}; samples are kept metrics.retentionDays (default 7) days, older ones come from the cloud for metrics with cloud = true
 -- @api public
 function DashboardBuilder:bars(id, label, metricPath, opts)
     if not self._currentSection then
@@ -3983,16 +3987,46 @@ function DashboardAPI.widgetHidden(id, widgetId, role)
 end
 
 function DashboardAPI.barsSpec(id, widgetId, role)
+    -- A bars source function's samples, sorted: {{t, v}, ...}, or nil, error
+    local function barsSamples(fn, where)
+        local ok, list = pcall(fn)
+        if not ok then return nil, tostring(list) end
+        if list == nil then return {} end
+        if type(list) ~= 'table' then return nil, where .. ': the function must return a list of {t, v}, got ' .. type(list) end
+        local out = {}
+        for i, smp in ipairs(list) do
+            local t, v = type(smp) == 'table' and smp.t, type(smp) == 'table' and smp.v
+            if type(t) ~= 'number' or t % 1 ~= 0 or type(v) ~= 'number' or v ~= v or v - v ~= 0 then
+                return nil, where .. ': sample ' .. i .. ' must be {t = unix seconds, v = number}'
+            end
+            if t > 1e11 then return nil, where .. ': sample ' .. i .. ': t is unix seconds, not milliseconds' end
+            if i > 10000 then return nil, where .. ': more than 10000 samples' end
+            out[i] = { t = t, v = v }
+        end
+        table.sort(out, function(a, b) return a.t < b.t end)
+        return out
+    end
     local dash = resolveFor(id, role)
     if not dash then return JSON.encode({ error = 'Dashboard not found', status = 404 }) end
     for _, sec in ipairs(dash._sections) do
         for _, w in ipairs(sec.widgets) do
             if w.id == widgetId and w.type == 'bars' then
                 if dashHidden(id, dash)[w] then return JSON.encode({ error = 'bars widget is hidden', status = 403 }) end
-                return JSON.encode({
-                    path = w.metricPath, compare = w.opts.compare, bucket = w.bucket,
-                    buckets = w.buckets, agg = w.agg, zone = __go_calendar_zone(),
-                })
+                local spec = { bucket = w.bucket, buckets = w.buckets, agg = w.agg, zone = __go_calendar_zone() }
+                -- a function gives its samples here; a metric path is read by the server
+                for key, src in pairs({ path = w.metricPath, compare = w.opts.compare }) do
+                    if type(src) == 'function' then
+                        local smp, err = barsSamples(src, 'section:bars("' .. tostring(w.id) .. '")')
+                        if not smp then return JSON.encode({ error = err, status = 500 }) end
+                        spec[key .. 'Samples'], spec[key .. 'Fn'] = smp, true
+                    elseif dash._plugin and src ~= nil then
+                        -- a plugin's bars come only from its own function
+                        return JSON.encode({ error = 'bars widget reads no metric on a plugin dashboard', status = 403 })
+                    else
+                        spec[key] = src
+                    end
+                end
+                return JSON.encode(spec)
             end
         end
     end

@@ -378,3 +378,59 @@ func TestDashboardChartFromTheCloud(t *testing.T) {
 		t.Errorf("%d points from %v", len(pts), pts[:min(3, len(pts))])
 	}
 }
+
+// A function gives the bars' samples itself, in any order and as old as it keeps them: the server
+// aggregates them like a metric's, compare included, and marks no bucket as not kept.
+func TestDashboardBarsFromAFunction(t *testing.T) {
+	day := time.Now().UTC().Truncate(24 * time.Hour)
+	_, r, _ := barsServer(t, fmt.Sprintf(`
+		datetime.setTimezone('UTC')
+		local d0 = %d
+		Dashboard.new('fn'):auth('public'):section('S','i')
+			:bars('gaz', 'Gaz', function()
+				return { { t = d0 + 43200, v = 2 }, { t = d0 - 30 * 86400 + 43200, v = 7 }, { t = d0 + 3600, v = 1.5 } }
+			end, { range = '40d', bucket = '1d', agg = 'sum', compare = function() return {} end })
+			:bars('zly', 'Zły', function() return { { t = 'wczoraj', v = 1 } } end, { range = '7d' })
+			:bars('blad', 'Błąd', function() error('nie ma odczytów') end, { range = '7d' })
+			:bars('pusty', 'Pusty', function() return nil end, { range = '7d' })
+			:bars('ms', 'Ms', function() return { { t = 1700000000000, v = 1 } } end, { range = '7d' })
+			:build()
+	`, day.Unix()))
+	get := func(widget string) (int, string) {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/dashboard/fn/bars?widget="+widget, nil))
+		return w.Code, w.Body.String()
+	}
+	code, body := get("gaz")
+	if code != 200 {
+		t.Fatalf("gaz: %d %s", code, body)
+	}
+	var res barsResult
+	if err := json.Unmarshal([]byte(body), &res); err != nil {
+		t.Fatal(err)
+	}
+	n := len(res.Buckets)
+	if n != 40 || res.Kept < 40 {
+		t.Fatalf("%d buckets, kept %d", n, res.Kept)
+	}
+	if v := res.Buckets[n-1].V; v == nil || *v != 3.5 {
+		t.Errorf("today = %v, want 3.5", v)
+	}
+	if v := res.Buckets[n-31].V; v == nil || *v != 7 {
+		t.Errorf("30 days ago = %v, want 7", v)
+	}
+	for i, b := range res.Buckets {
+		if b.Old || b.C != nil {
+			t.Errorf("bucket %d: old %v, compare %v", i, b.Old, b.C)
+		}
+	}
+	for widget, msg := range map[string]string{"zly": "sample 1 must be {t = unix seconds", "blad": "nie ma odczytów",
+		"ms": "not milliseconds"} {
+		if code, body := get(widget); code != 500 || !strings.Contains(body, msg) {
+			t.Errorf("%s: %d %s", widget, code, body)
+		}
+	}
+	if code, body := get("pusty"); code != 200 || !strings.Contains(body, `"v":null`) {
+		t.Errorf("pusty: %d %s", code, body)
+	}
+}
