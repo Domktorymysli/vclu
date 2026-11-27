@@ -5485,8 +5485,7 @@ function Dashboard._applyAccess(b)
     local off = a ~= nil and a.auth == 'off'
     b._off = off or nil
     b._name = (a and a.name) or own.name
-    if own.icon == nil then own.icon = b._icon or false end
-    b._icon = (a and a.icon) or own.icon or nil
+    b._icon = (a and a.icon) or own.icon or b._icon
     b._auth = (a and not off and a.auth) or own.auth
     b._pin = a and a.pin or nil
     local r = not off and a and a.remote
@@ -5508,113 +5507,111 @@ end
 
 -- A module's builder for a plugin's declared dashboard (Plugin.getPlugin(id):dashboard(id)): the
 -- chain of Dashboard.new for who may open it; each call applies at once, no :build(). The widgets
--- are the plugin's. A PIN asked for and not given keeps the dashboard closed until it is.
-DashAccess.builder = {}
+-- are the plugin's. A PIN asked for and not given keeps the dashboard closed until it is. Its state
+-- lives in the closure, not in fields: holding the builder is the grant, nothing on it to re-aim.
 DashAccess.METHODS = { name = true, icon = true, auth = true, pin = true, remote = true, roles = true }
 
-DashAccess.meta = {
-    __index = function(self, key)
-        if DashAccess.METHODS[key] then return DashAccess.builder[key] end
-        if DashboardBuilder[key] ~= nil then
-            return function()
-                error('dash:' .. tostring(key) .. ": a plugin's dashboard is built by the plugin; a module sets "
-                    .. 'only who opens it (name, icon, auth, pin, remote, roles)', 2)
-            end
-        end
-    end,
-}
+-- Stores the grant opts make and applies it; a PIN asked for and missing closes the dashboard
+function DashAccess.store(pluginId, id, opts)
+    local spec = DashAccess.spec(opts)
+    local closed = spec == nil
+    if closed then spec = { auth = 'off' } end
+    _dashboardAccess[pluginId] = _dashboardAccess[pluginId] or {}
+    _dashboardAccess[pluginId][id] = spec
+    for _, d in pairs(_dashboards) do
+        if d._plugin == pluginId and d._pluginDash == id then Dashboard._applyAccess(d) end
+    end
+    return spec, closed
+end
 
 function Dashboard._accessBuilder(pluginId, id, guard)
-    local a = setmetatable({ _plugin = pluginId, _id = id, _guard = guard, _opts = {} }, DashAccess.meta)
-    _dashboardAccess[pluginId] = _dashboardAccess[pluginId] or {}
-    DashAccess.apply(a, 'dashboard') -- a new chain is the whole grant, as Dashboard.new again
-    return a
-end
+    local opts, b = {}, {}
+    local spec, checking
 
--- Stores what the chain set so far; a PIN asked for and missing closes the dashboard ("off")
-function DashAccess.apply(self, where)
-    local spec, err = DashAccess.spec(self._opts)
-    if not spec then
-        if not err:find('PIN is asked', 1, true) then error(where .. ": " .. err, 4) end
-        spec = { auth = 'off' }
-        local pluginId, id = self._plugin, self._id
+    local function pinCheck()
         local defer = rawget(_G, 'after')
-        if not self._pinCheck and type(defer) == 'function' then
-            self._pinCheck = true
-            defer(0, function()
-                self._pinCheck = nil
-                local _, e = DashAccess.spec(self._opts)
-                if e and e:find('PIN is asked', 1, true) and _dashboardAccess[pluginId][id] == self._spec then
-                    Logger:getShared():error("[DASHBOARD] " .. pluginId .. " " .. id .. ': a PIN is asked for and not given '
-                        .. '(:pin("1234")): the dashboard stays closed')
+        if checking or type(defer) ~= 'function' then return end
+        checking = true
+        local mine = spec
+        defer(0, function()
+            checking = false
+            local now = _dashboardAccess[pluginId]
+            if now and now[id] == mine and spec == mine then
+                Logger:getShared():error("[DASHBOARD] " .. pluginId .. " " .. id .. ': a PIN is asked for and not given '
+                    .. '(:pin("1234")): the dashboard stays closed')
+            end
+        end)
+    end
+
+    -- levels: set 1, the method 2, its caller 3
+    local function set(self, key, where, v)
+        if self ~= b then error(where .. ': call it as a method, :' .. key .. '(...)', 3) end
+        guard(where)
+        local old = opts[key]
+        opts[key] = v
+        local _, err = DashAccess.spec(opts)
+        if err and not err:find('PIN is asked', 1, true) then
+            opts[key] = old -- a refused value leaves the chain as it was
+            error(where .. ': ' .. err, 3)
+        end
+        local closed
+        spec, closed = DashAccess.store(pluginId, id, opts)
+        if closed then pinCheck() end
+        return b
+    end
+
+    local methods = {}
+    function methods.name(self, s) local r = set(self, 'name', 'dash:name', s); return r end
+    function methods.icon(self, s) local r = set(self, 'icon', 'dash:icon', s); return r end
+    function methods.auth(self, s) local r = set(self, 'auth', 'dash:auth', s); return r end
+    function methods.pin(self, s) local r = set(self, 'pin', 'dash:pin', s); return r end
+    function methods.remote(self, r)
+        if self ~= b then error('dash:remote: call it as a method, :remote(...)', 2) end
+        if r == nil or r == true then r = {} end
+        if r ~= false then
+            if type(r) ~= 'table' then error('dash:remote: expects nothing, true, false or a table', 2) end
+            local copy = {}
+            for k, v in pairs(r) do
+                if k ~= 'pin' and k ~= 'poll' then error('dash:remote: unknown option "' .. tostring(k) .. '" (pin, poll)', 2) end
+                copy[k] = v
+            end
+            copy.roles = type(opts.remote) == 'table' and opts.remote.roles or nil
+            r = copy
+        end
+        local res = set(self, 'remote', 'dash:remote', r)
+        return res
+    end
+    function methods.roles(self, ...)
+        if self ~= b then error('dash:roles: call it as a method, :roles(...)', 2) end
+        if type(opts.remote) ~= 'table' then error('dash:roles: call :remote() first', 2) end
+        local list = { ... }
+        if #list == 0 then error('dash:roles: expects at least one role', 2) end
+        if type(list[1]) == 'function' then
+            if #list > 1 then error('dash:roles: expects role names or one function', 2) end
+            list = list[1]
+        end
+        local copy = {}
+        for k, v in pairs(opts.remote) do copy[k] = v end
+        copy.roles = list
+        local res = set(self, 'remote', 'dash:roles', copy)
+        return res
+    end
+
+    setmetatable(b, {
+        __index = function(_, key)
+            if methods[key] then return methods[key] end
+            if DashboardBuilder[key] ~= nil then
+                return function()
+                    error('dash:' .. tostring(key) .. ": a plugin's dashboard is built by the plugin; a module sets "
+                        .. 'only who opens it (name, icon, auth, pin, remote, roles)', 2)
                 end
-            end)
-        end
-    end
-    self._spec = spec
-    _dashboardAccess[self._plugin][self._id] = spec
-    for _, d in pairs(_dashboards) do
-        if d._plugin == self._plugin and d._pluginDash == self._id then Dashboard._applyAccess(d) end
-    end
-    return self
-end
-
-function DashAccess.set(self, key, where, v)
-    if getmetatable(self) ~= DashAccess.meta then error(where .. ': call it as a method, :' .. key .. '(...)', 3) end
-    self._guard(where)
-    local old = self._opts[key]
-    self._opts[key] = v
-    local _, err = DashAccess.spec(self._opts)
-    if err and not err:find('PIN is asked', 1, true) then
-        self._opts[key] = old -- a refused value leaves the chain as it was
-        error(where .. ': ' .. err, 3)
-    end
-    DashAccess.apply(self, where)
-    return self
-end
-
---- Name of the plugin's dashboard in the panel and the app.
-function DashAccess.builder:name(s) local r = DashAccess.set(self, 'name', 'dash:name', s); return r end
---- Bootstrap icon name.
-function DashAccess.builder:icon(s) local r = DashAccess.set(self, 'icon', 'dash:icon', s); return r end
---- "session", "pin", "public" or "off" (not served, not listed).
-function DashAccess.builder:auth(s) local r = DashAccess.set(self, 'auth', 'dash:auth', s); return r end
---- The PIN, 4 digits, for auth "pin" or remote {pin = true}.
-function DashAccess.builder:pin(s) local r = DashAccess.set(self, 'pin', 'dash:pin', s); return r end
-
---- In the vclu app through the cloud, as Dashboard.new's :remote(): false, nothing/true or {pin, poll}.
-function DashAccess.builder:remote(spec)
-    if spec == nil or spec == true then spec = {} end
-    if spec ~= false then
-        if type(spec) ~= 'table' then error('dash:remote: expects nothing, true, false or a table', 2) end
-        local r = {}
-        for k, v in pairs(spec) do
-            if k ~= 'pin' and k ~= 'poll' then error('dash:remote: unknown option "' .. tostring(k) .. '" (pin, poll)', 2) end
-            r[k] = v
-        end
-        local old = self._opts.remote
-        r.roles = type(old) == 'table' and old.roles or nil
-        spec = r
-    end
-    local res = DashAccess.set(self, 'remote', 'dash:remote', spec)
-    return res
-end
-
---- Roles from the cloud that see it in the app (after :remote()), or one function returning them.
-function DashAccess.builder:roles(...)
-    local r = self._opts and self._opts.remote
-    if type(r) ~= 'table' then error('dash:roles: call :remote() first', 2) end
-    local list = { ... }
-    if #list == 0 then error('dash:roles: expects at least one role', 2) end
-    if type(list[1]) == 'function' then
-        if #list > 1 then error('dash:roles: expects role names or one function', 2) end
-        list = list[1]
-    end
-    local copy = {}
-    for k, v in pairs(r) do copy[k] = v end
-    copy.roles = list
-    local res = DashAccess.set(self, 'remote', 'dash:roles', copy)
-    return res
+            end
+        end,
+        __newindex = function(_, key) error('dash: the builder has no field ' .. tostring(key) .. ' to set', 2) end,
+        __metatable = false,
+    })
+    spec = DashAccess.store(pluginId, id, opts) -- a new chain is the whole grant, as Dashboard.new again
+    return b
 end
 
 -- Attach API for Go calls

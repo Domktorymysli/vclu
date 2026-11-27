@@ -829,11 +829,17 @@ local FACADE_FIELDS = { id = true, shortId = true, namespace = true, name = true
 local FACADE_CORE = { get = "handle", on = "handle", getExposed = "raw", dashboardAccess = "raw",
     listSensorsAndControls = "raw", stats = "raw" }
 
--- A plugin's own code (its environment) at stack level never grants a dashboard
+-- A plugin's own code never grants a dashboard: no frame on the stack runs in a plugin's
+-- environment (every frame, so pcall or a callback in between hides none); level is the caller's
 local function refuseFromPlugin(level, where)
-    local env = getfenv and getfenv(level + 1)
+    local envs = {}
     for _, sb in pairs(PluginSandbox.sandboxes or {}) do
-        if env ~= nil and sb.environment == env then
+        if sb.environment then envs[sb.environment] = true end
+    end
+    for i = 2, 200 do
+        local ok, env = pcall(getfenv, i + 1) -- +1: pcall's own frame
+        if not ok then break end
+        if envs[env] then
             error(where .. ": who opens a plugin's dashboard is the user's: a module sets it, not a plugin", level + 1)
         end
     end
@@ -1047,8 +1053,8 @@ local function dashboardFacade(sandbox, raw, log)
             end
             raw._pluginOwn.auth = v
         else
-            if type(v) ~= "string" or v == "" then error("dashboard:name: a name is a text", 3) end
-            raw._pluginOwn.name = v
+            if type(v) ~= "string" or v == "" then error("dashboard:" .. name .. ": a text", 3) end
+            raw._pluginOwn[name] = v
         end
         Dashboard._applyAccess(raw)
         return facades[target]
@@ -1066,7 +1072,7 @@ local function dashboardFacade(sandbox, raw, log)
                     if sandbox.dead then error("plugin " .. pluginId .. " is disabled", 2) end
                     if name == "build" then return finish() end
                     if DASH_USER[name] then userOnly(name) end
-                    if name == "auth" or name == "name" then
+                    if name == "auth" or name == "name" or name == "icon" then
                         local r = ownSetting(target, name, ...) -- no tail call: errors count the levels
                         return r
                     end

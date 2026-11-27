@@ -45,9 +45,10 @@ and logs an error. `"off"` is not served (404) and not listed. Errors point at t
 lives in `_dashboardAccess[pluginId][declaredId]` (Dashboard.lua), out of a plugin's reach; the builder keeps
 the plugin's own choice in `_pluginOwn` and `Dashboard._applyAccess` sets `_name`, `_icon`, `_auth`, `_pin`,
 `_remote` and `_off` from both on build, on the plugin's later `:name`/`:auth` and on a grant. A plugin reload
-keeps the grant; a Lua reload starts empty and the module grants it again. The chain, or the builder itself,
-in a plugin's hands (its proxy, another plugin's facade, any function in its environment) is refused; the
-methods are called without tail calls, so the check sees the caller. `Plugin:dashboardAccess(id, opts)` is
+keeps the grant; a Lua reload starts empty and the module grants it again. The builder keeps its state in a
+closure (no fields to set or re-aim, `__newindex` refused): holding it is the grant, and a plugin never gets
+one (its own `dashboard` is the widget builder, another plugin's facade has none, arguments reach it read-only).
+Each call also refuses when any frame on the stack runs in a plugin's environment (`refuseFromPlugin`). `Plugin:dashboardAccess(id, opts)` is
 the deprecated table form, kept for modules written before; it warns once.
 
 The wizard shows a Dashboards step for a plugin that declares any (also without a form) and then always a
