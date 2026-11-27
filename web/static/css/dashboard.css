@@ -3189,6 +3189,9 @@ label.dash-list-body { cursor: pointer; }
 @container (max-width: 22px) { .dash-sched-seg-t { visibility: hidden; } }
 /* the handles and the hour over them reach out of the line */
 .dash-sched-line.editing { overflow: visible; }
+/* while editing, the selection itself is dragged to move the stretch */
+.dash-sched-line.editing .dash-sched-sel { pointer-events: auto; touch-action: none; cursor: grab; }
+.dash-widget-schedule.dragging .dash-sched-sel { cursor: grabbing; }
 .dash-widget-schedule.editing .dash-sched-grid { gap: 16px; padding-top: 6px; }
 .dash-sched-sel {
     position: absolute;
