@@ -3140,6 +3140,13 @@ label.dash-list-body { cursor: pointer; }
     gap: 10px;
 }
 .dash-widget-schedule:active { transform: none; }
+/* not lifted on hover like a tile: a tap on a bar would drop it back */
+@media (hover: hover) {
+    .dash-widget-schedule:hover {
+        transform: none;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.04);
+    }
+}
 .dash-sched-bar { grid-template-columns: 1fr auto; }
 .dash-sched-save { border-color: var(--dash-accent); color: var(--dash-accent); }
 .dash-sched-palette { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -3177,9 +3184,14 @@ label.dash-list-body { cursor: pointer; }
     background: rgba(255,255,255,0.04);
 }
 .dash-sched-line { cursor: pointer; }
-.dash-sched-line .dash-cal-seg-v { pointer-events: none; }
+.dash-sched-line .dash-cal-seg-v { pointer-events: none; container-type: inline-size; }
+.dash-sched-seg-t { display: block; overflow: hidden; white-space: nowrap; }
+@container (max-width: 22px) { .dash-sched-seg-t { visibility: hidden; } }
 /* the handles and the hour over them reach out of the line */
 .dash-sched-line.editing { overflow: visible; }
+/* while editing, the selection itself is dragged to move the stretch */
+.dash-sched-line.editing .dash-sched-sel { pointer-events: auto; touch-action: none; cursor: grab; }
+.dash-widget-schedule.dragging .dash-sched-sel { cursor: grabbing; }
 .dash-widget-schedule.editing .dash-sched-grid { gap: 16px; padding-top: 6px; }
 .dash-sched-sel {
     position: absolute;
@@ -3239,7 +3251,7 @@ label.dash-list-body { cursor: pointer; }
 }
 .dash-sched-selbox { display: flex; flex-direction: column; gap: 10px; }
 .dash-sched-hint { font-size: 0.8rem; color: rgba(255,255,255,0.55); }
-.dash-sched-selhead { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.dash-sched-selhead { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-height: 2.25rem; }
 .dash-sched-selday { font-size: 1.05rem; font-weight: 600; text-transform: capitalize; }
 .dash-sched-range { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 .dash-sched-value {
@@ -3278,7 +3290,9 @@ label.dash-list-body { cursor: pointer; }
 }
 .dash-sched-add { background: transparent; border: 2px dashed rgba(255,255,255,0.35); color: inherit; }
 .dash-sched-foot { display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem; color: rgba(255,255,255,0.55); }
-.dash-sched-fixed { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.dash-sched-fixed { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+.dash-sched-value.dash-sched-fixed-value { padding: 1px 8px; border-radius: 6px; font-size: inherit; font-weight: 600; }
+.dash-sched-swatch:disabled, .dash-sched-nudge:disabled, .dash-sched-clock:disabled { opacity: 0.4; cursor: default; }
 .dash-sched-fixed-title { font-weight: 600; }
 .dash-sched-note { font-style: italic; }
 
