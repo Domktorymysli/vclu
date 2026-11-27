@@ -951,9 +951,19 @@ end
 local function pack(...) return { n = select("#", ...), ... } end
 
 -- Widget methods that reach the house by name (areas, covers by path, the house calendar and
--- its schedules, metrics): a plugin's dashboard shows only what the plugin gives it
+-- its schedules, metrics): a plugin's dashboard shows only what the plugin gives it; bars only
+-- from the plugin's own function (barsOwn)
 local DASH_DENY = { new = true, area = true, floor = true, room = true, covers = true, calendar = true,
-    schedule = true, chart = true, bars = true }
+    schedule = true, chart = true }
+
+-- bars(id, label, source, opts) with a metric path reads the house's metrics: a plugin gives a function
+local function barsOwn(args)
+    local opts = args[4]
+    if type(args[3]) ~= "function" or (type(opts) == "table" and opts.compare ~= nil and type(opts.compare) ~= "function") then
+        error("dashboard:bars in a plugin takes a function returning its samples, not a metric path: "
+            .. "a metric reaches the house's data", 3)
+    end
+end
 
 -- An error raised in the core names the plugin's call, not the core's file
 local function coreError(e)
@@ -1071,6 +1081,7 @@ local function dashboardFacade(sandbox, raw, log)
                         return r
                     end
                     local args = pack(...)
+                    if name == "bars" then barsOwn(args) end
                     for i = 1, args.n do args[i] = wrapArg(args[i]) end
                     local res = pack(pcall(fn, target, unpackArgs(args, 1, args.n)))
                     if not res[1] then error(coreError(res[2]), 2) end

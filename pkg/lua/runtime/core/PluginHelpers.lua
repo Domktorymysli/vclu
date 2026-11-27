@@ -1526,7 +1526,8 @@ end
 -- MODULE EXPORT
 -- ============================================
 
--- What plugin:has answers: the permissions (and their fields) and form field types this vclu
+-- What plugin:has answers: the permissions (and their fields), form field types and dashboard
+-- widgets beyond the first plugin dashboards (widget:bars, from the plugin's function) this vclu
 -- reads; a method is any function of the Plugin class
 PluginHelpers.KNOWN = {
     ["permission:internet"] = true, ["permission:internet.hosts"] = true,
@@ -1537,6 +1538,7 @@ PluginHelpers.KNOWN = {
     ["permission:modbus"] = true, ["permission:clu"] = true, ["permission:tftp"] = true, ["permission:serial"] = true,
     ["form:string"] = true, ["form:number"] = true, ["form:boolean"] = true, ["form:enum"] = true,
     ["form:secret"] = true, ["form:host"] = true, ["form:object"] = true,
+    ["widget:bars"] = true,
 }
 
 --- Whether this vclu offers name to plugins (plugin:has); never errors
