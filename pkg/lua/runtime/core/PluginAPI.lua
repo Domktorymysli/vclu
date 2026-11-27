@@ -410,6 +410,18 @@ function Plugin:discover(fn)
     return self
 end
 
+--- Signs the user in from the wizard: fn(config, show, done). show{qr = text} or
+-- show{code = "ABCD-1234", url = "https://..."} (with an optional hint) shows it in the panel;
+-- done(secrets) saves them as the plugin's secrets, done(nil, err) shows err. Both return false
+-- once the sign-in is over (cancelled, timed out): stop polling then.
+-- @param fn function
+-- @usage plugin:login(function(cfg, show, done) show({qr = "..."}) ... done({token = t}) end)
+function Plugin:login(fn)
+    if type(fn) ~= "function" then error("login(fn): fn is a function", 2) end
+    self._login = fn
+    return self
+end
+
 --- Lua for a module from the saved devices (step 3): fn(config, devices) returns the code.
 -- The user sees a diff and confirms before vclu writes modules/plugins/<plugin>.lua.
 -- @param fn function

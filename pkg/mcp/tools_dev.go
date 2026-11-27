@@ -749,6 +749,10 @@ func (s *MCPServer) handleRuntimeSchema(ctx context.Context, _ mcplib.CallToolRe
 				"params = {p = {type = 'string'|'number'|'boolean', description, required}}, confirm}), at most 32, params checked (unknown refused, strings up to 1000 characters); " +
 				"confirm: true runs only once the user agreed (vclu_app_action confirmed); agents call them with vclu_app_actions / vclu_app_action, " +
 				"HTTP GET /api/plugins/actions, POST /api/plugins/:id/actions/:name. Both go when the plugin stops",
+			"login": "in a plugin (no permission): plugin:login(function(cfg, show, done) ... end) gives the wizard a Sign in button; " +
+				"show{qr = text} (≤1024 bytes, vclu draws the QR) or show{code = 'ABCD-1234', url = 'https://...'} (OAuth device code, RFC 8628), optional hint; " +
+				"a later show replaces it; done({name = 'text', ...}) saves up to 16 secrets, read with plugin:secret(name), never shown; done(nil, err) shows err; " +
+				"one at a time, 5 minutes, cancel or a stopped plugin ends it and later calls change nothing",
 			"pluginDashboards": "in a module (never a plugin), the chain of Dashboard.new for who opens a dashboard the plugin declares (plugins[].dashboards below): " +
 				"Plugin.getPlugin('@vclu/zakupy'):dashboard('lista'):name('Zakupy'):icon('cart'):auth('session'|'pin'|'public'|'off'):pin('1234')" +
 				":remote({pin = bool}):roles('domownicy', ...) — no widgets, no :build(); each call applies at once, a new chain replaces the last; " +

@@ -2325,6 +2325,141 @@ function PluginSandbox:forgetDiscover(reqId)
     self.discovered[reqId] = nil
 end
 
+-- ============================================
+-- Wizard: sign-in with a QR code or a device code (#288)
+-- ============================================
+
+-- one sign-in per plugin: {id, state = "pending"|"done"|"error", show, err, secrets, deadline}
+PluginSandbox.logins = {}
+PluginSandbox.LOGIN_SECONDS = 300
+
+local function shortText(v, max)
+    return type(v) == "string" and v ~= "" and #v <= max
+end
+
+-- what show() may put in the panel, as a plain copy; nil, why when it is not that
+local function checkShow(s)
+    if type(s) ~= "table" then return nil, "show takes a table {qr = text} or {code = ..., url = ...}" end
+    local out = {}
+    if s.qr ~= nil then
+        if not shortText(s.qr, 1024) then return nil, "show: qr is text of 1 to 1024 bytes" end
+        out.qr = s.qr
+    end
+    if s.code ~= nil then
+        if not shortText(s.code, 64) then return nil, "show: code is text of 1 to 64 bytes" end
+        out.code = s.code
+    end
+    if s.url ~= nil then
+        if not shortText(s.url, 2048) or s.url:sub(1, 8) ~= "https://" then return nil, "show: url is an https:// link" end
+        out.url = s.url
+    end
+    if s.hint ~= nil then
+        if not shortText(s.hint, 200) then return nil, "show: hint is text of 1 to 200 bytes" end
+        out.hint = s.hint
+    end
+    if not out.qr and not out.code then return nil, "show needs qr or code" end
+    return out
+end
+
+-- the secrets done() saves: string fields with plain names
+local function checkLoginSecrets(t)
+    if type(t) ~= "table" then return nil, "done takes a table of secrets" end
+    local out, n = {}, 0
+    for k, v in originalPairs(t) do
+        if type(k) ~= "string" or not k:match("^[%a_][%w_]*$") or #k > 64 then
+            return nil, "secret names are letters, digits and _ (at most 64)"
+        end
+        if not shortText(v, 8192) then return nil, "secret " .. k .. " is text of 1 to 8192 bytes" end
+        n = n + 1
+        out[k] = v
+    end
+    if n == 0 then return nil, "done gave no secrets" end
+    if n > 16 then return nil, "done gives at most 16 secrets" end
+    return out
+end
+
+-- the sign-in's plugin still runs in the sandbox it started in
+local function loginAlive(entry, pluginId)
+    local sandbox = PluginSandbox.sandboxes[pluginId]
+    return sandbox ~= nil and sandbox == entry.sandbox and not sandbox.dead
+end
+
+function PluginSandbox:hasLogin(pluginId)
+    local sandbox = self.sandboxes[pluginId]
+    local instance = sandbox and not sandbox.dead and sandbox.instance
+    return instance ~= nil and instance ~= false and type(rawget(instance, "_login")) == "function"
+end
+
+--- Starts the plugin's sign-in as reqId; "" when it runs, else why not
+function PluginSandbox:loginStart(pluginId, reqId)
+    local cur = self.logins[pluginId]
+    if cur and cur.state == "pending" and os.time() < cur.deadline and loginAlive(cur, pluginId) then
+        return "a sign-in is already running"
+    end
+    local instance, fn, err = wizardInstance(pluginId, "_login")
+    if not instance then return err end
+    local logins = self.logins
+    local entry = { id = reqId, state = "pending", deadline = os.time() + self.LOGIN_SECONDS,
+        sandbox = self.sandboxes[pluginId] }
+    logins[pluginId] = entry
+    -- after cancel, a timeout or done, the plugin's later calls change nothing
+    local function current()
+        return logins[pluginId] == entry and entry.state == "pending" and os.time() < entry.deadline
+            and loginAlive(entry, pluginId)
+    end
+    -- both answer whether the sign-in still runs, so the plugin knows when to stop its timers
+    local function show(s)
+        local v, e = checkShow(s)
+        if not v then error(e, 2) end
+        if not current() then return false end
+        entry.show = v
+        return true
+    end
+    local function done(secrets, e)
+        if not current() then return false end
+        if e ~= nil or secrets == nil then
+            entry.state = "error"
+            entry.err = maskSecrets(entry.sandbox, tostring(e or "the sign-in gave no result"))
+            return true
+        end
+        local v, bad = checkLoginSecrets(secrets)
+        if not v then
+            entry.state, entry.err = "error", bad
+            return true
+        end
+        entry.state, entry.secrets = "done", v
+        -- at once, so plugin:secret and the log mask have them before vclu saves them
+        local mine = entry.sandbox.secrets or {}
+        for k, x in originalPairs(v) do mine[k] = x end
+        entry.sandbox.secrets = mine
+        return true
+    end
+    local ok, e = pcall(fn, copyPlain(instance.config), show, done)
+    if not ok then done(nil, e) end
+    return ""
+end
+
+--- The sign-in's state as JSON {state, show, err, secrets}; a finished one is forgotten
+function PluginSandbox:loginPoll(pluginId, reqId)
+    local entry = self.logins[pluginId]
+    if not entry or entry.id ~= reqId then return JSON:encode({ state = "gone" }) end
+    if entry.state == "pending" and not loginAlive(entry, pluginId) then
+        entry.state, entry.err = "error", "the plugin stopped"
+    elseif entry.state == "pending" and os.time() >= entry.deadline then
+        entry.state, entry.err = "error", "the sign-in timed out"
+    end
+    if entry.state ~= "pending" then self.logins[pluginId] = nil end
+    return JSON:encode({ state = entry.state, show = entry.show, err = entry.err, secrets = entry.secrets })
+end
+
+function PluginSandbox:loginCancel(pluginId, reqId)
+    local entry = self.logins[pluginId]
+    if entry and entry.id == reqId then
+        entry.state = "cancelled"
+        self.logins[pluginId] = nil
+    end
+end
+
 --- The module code the plugin proposes for its saved devices, as JSON {code} or {err}
 function PluginSandbox:moduleCode(pluginId)
     local instance, fn, err = wizardInstance(pluginId, "_moduleCode")
