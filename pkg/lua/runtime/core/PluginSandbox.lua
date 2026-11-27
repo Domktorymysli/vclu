@@ -1190,6 +1190,16 @@ end
 -- @param pluginId string The full plugin ID (e.g., "@vclu/weather")
 -- @param permissions table|nil {api, lan, mqtt, modbus, official} from the loader; nil grants none
 -- @return table The created sandbox
+-- The error of a permission a plugin lacks: allowed by the user on the plugins page when
+-- plugin.json asks for it, declared in plugin.json when it does not.
+local function missingPermission(sandbox, pluginId, what, key)
+    if sandbox.waiting and sandbox.waiting[key] then
+        return what .. " is not allowed for " .. pluginId .. ": allow \"" .. key
+            .. "\" in the plugin's permissions on the plugins page"
+    end
+    return what .. " needs \"" .. key .. "\" in the permissions of " .. pluginId .. "'s plugin.json"
+end
+
 function PluginSandbox:create(pluginId, permissions)
     -- a plugin started again without a stop: its old timers, sockets and handlers go first
     if self.sandboxes[pluginId] then
@@ -1240,6 +1250,11 @@ function PluginSandbox:create(pluginId, permissions)
         for name, a in pairs(permissions.actions) do
             if type(name) == "string" and type(a) == "table" then sandbox.declaredActions[name] = a end
         end
+    end
+    -- permissions plugin.json asks for that the user has not allowed (their errors say where)
+    sandbox.waiting = {}
+    if type(permissions.waiting) == "table" then
+        for _, name in ipairs(permissions.waiting) do sandbox.waiting[tostring(name)] = true end
     end
     sandbox.permissions = {
         lan = permissions.lan == true,
@@ -1414,7 +1429,7 @@ function PluginSandbox:buildAPI(sandbox)
 
     local function requireMqtt()
         if not sandbox.permissions.mqtt then
-            error("MQTT needs \"mqtt\" in the permissions of " .. pluginId .. "'s plugin.json", 2)
+            error(missingPermission(sandbox, pluginId, "MQTT", "mqtt"), 2)
         end
     end
 
@@ -1467,8 +1482,7 @@ function PluginSandbox:buildAPI(sandbox)
     -- udp, tcp, clu, tftp and serial: handles live in Go, which checks the grant again
     local function requireIO(name, key)
         if not sandbox.permissions[key] then
-            error(name .. " needs \"" .. name .. "\" in the permissions of " .. pluginId
-                .. "'s plugin.json, allowed in the plugin's settings", 3)
+            error(missingPermission(sandbox, pluginId, name, key), 3)
         end
     end
 
@@ -1986,7 +2000,7 @@ function PluginSandbox:buildEnvironment(sandbox)
     else
         modbus = setmetatable({}, {
             __index = function()
-                error("Modbus needs \"modbus\" in the permissions of " .. pluginId .. "'s plugin.json", 2)
+                error(missingPermission(sandbox, pluginId, "Modbus", "modbus"), 2)
             end,
         })
     end
