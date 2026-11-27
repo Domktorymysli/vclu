@@ -17,11 +17,21 @@ import (
 // wsServer: a WebSocket server on 127.0.0.1 handing each connection to serve; its port.
 func wsServer(t *testing.T, serve func(c *websocket.Conn, r *http.Request)) string {
 	t.Helper()
+	return wsServerAfter(t, nil, serve)
+}
+
+// wsServerAfter: as wsServer, answering a handshake only once gate is closed (nil: at once),
+// so a test sees the connection before it opens however fast the machine is.
+func wsServerAfter(t *testing.T, gate <-chan struct{}, serve func(c *websocket.Conn, r *http.Request)) string {
+	t.Helper()
 	up := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }, Subprotocols: []string{"json"}}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if to := r.URL.Query().Get("to"); to != "" {
 			http.Redirect(w, r, to, http.StatusFound)
 			return
+		}
+		if gate != nil {
+			<-gate
 		}
 		c, err := up.Upgrade(w, r, nil)
 		if err != nil {
@@ -99,7 +109,9 @@ func wsEngine(t *testing.T, id, perms string) *LuaEngine {
 // A connection opens with the server's protocol, text and binary messages go both ways in
 // order, and the server closing it reaches onClose with its code and reason.
 func TestPluginWSEchoAndClose(t *testing.T) {
-	port := wsServer(t, echo)
+	// the handshake waits until the plugin tried to send before it, else a fast dial opens first
+	gate := make(chan struct{})
+	port := wsServerAfter(t, gate, echo)
 	engine := wsEngine(t, "@t/ws", `{api = 2, lan = true, lanPorts = {`+port+`}}`)
 	if _, e := runPlugin(t, engine, "@t/ws", `
 		local p = Plugin:new("ws")
@@ -117,8 +129,10 @@ func TestPluginWSEchoAndClose(t *testing.T) {
 		end)
 		ws:onClose(function(code, reason) p.events = p.events .. "close:" .. code .. ":" .. reason .. "," .. tostring(ws:isOpen()) end)
 	`); e != "nil" {
+		close(gate)
 		t.Fatal(e)
 	}
+	close(gate)
 	if got, _ := engine.Execute(`Plugin._lookup("@t/ws").early`); !strings.Contains(got, "not open yet") {
 		t.Errorf("send before open: %s", got)
 	}
