@@ -183,25 +183,23 @@ PluginsManager.prototype._renderPluginCard = function(plugin, options) {
     var name = plugin.name || id;
     var version = plugin.version || '?';
     var description = plugin.description || '';
-    var author = plugin.author || 'Unknown';
+    var author = plugin.author || '';
     var repository = plugin.repository || '';
     var repoUrl = plugin.repoUrl || '';
     var tags = plugin.tags || [];
     var enabled = plugin.enabled !== false;
 
-    // Tags
+    // Tags: quiet, they only help finding a plugin
     var tagsHtml = '';
     if (tags.length > 0) {
-        tagsHtml = '<p class="mb-2">' + tags.map(function(t) {
-            return '<span class="badge bg-secondary me-1">' + VCLU.esc(t) + '</span>';
-        }).join('') + '</p>';
+        tagsHtml = '<p class="small text-body-secondary mb-2">' + tags.map(function(t) { return '#' + VCLU.esc(t); }).join(' ') + '</p>';
     }
 
     // Status badge (for installed plugins)
     var statusBadge = '';
     if (options.isInstalled) {
         if (enabled) {
-            statusBadge = '<span class="badge bg-success">enabled</span>';
+            statusBadge = '<span class="small text-success text-nowrap"><i class="bi bi-circle-fill me-1" style="font-size:.5rem;vertical-align:middle"></i>enabled</span>';
         } else {
             statusBadge = '<span class="badge bg-warning text-dark">disabled</span>';
         }
@@ -216,47 +214,49 @@ PluginsManager.prototype._renderPluginCard = function(plugin, options) {
         }
         var waitingAll = (plugin.pendingPermissions || []).concat(plugin.pendingActions || []);
         if (waitingAll.length > 0) {
-            statusBadge += ' <span class="badge bg-danger" title="' + VCLU.esc(pt('asks_for_title')) + '">' + VCLU.esc(pt('asks_for')) + ' ' +
-                           VCLU.esc(waitingAll.join(', ')) + '</span>';
+            statusBadge += ' ' + permChip('warning', 'bi-shield-exclamation', pt('waiting_consent'), pt('asks_for_title') + ': ' + waitingAll.join(', '));
         }
     }
 
-    // Every permission, the ones the plugin uses in green (installed plugins only: the
-    // repository index does not say, the install confirmation reads it from plugin.json)
-    var permsHtml = '';
+    // Only what the plugin uses, as chips; one on the old API reaches everything anyway
+    var permsHtml = '', usageHtml = '';
     if (options.isInstalled) {
         var requested = plugin.requestedPermissions || [];
         var pending = plugin.pendingPermissions || [];
-        permsHtml = '<p class="mb-2 small">' + ALL_PERMISSIONS.map(function(name) {
-            var cls = 'bg-transparent border border-secondary text-body-secondary', title = pt('not_used');
-            if (name === 'internet') {
-                return internetBadge(plugin.internet || [], plugin.pendingInternet || []);
-            }
-            if (pending.indexOf(name) >= 0) {
-                cls = 'bg-warning text-dark'; title = pt('asked_not_allowed');
-            } else if (requested.indexOf(name) >= 0) {
-                cls = 'bg-success'; title = pt('allowed');
-            }
-            var perms = plugin.permissions || {};
-            var label = requested.indexOf(name) >= 0 ? permissionSentence(name, perms[name]) : (PERMISSION_LABELS[name] || name);
-            if ((plugin.wide || []).indexOf(name) >= 0) title += ' (' + pt('wide') + ')';
-            return '<span class="badge ' + cls + ' me-1" title="' + VCLU.esc(title + ': ' + label) + '">' +
-                   VCLU.esc(PERMISSION_SHORT[name] || name) + '</span>';
-        }).join('') + '</p>';
-        if ((plugin.actions || []).length > 0) {
-            permsHtml += '<p class="mb-2 small text-body-secondary">' + VCLU.esc(pt('actions_label')) + ': ' +
-                         plugin.actions.map(function(a) {
-                             var waits = (plugin.pendingActions || []).indexOf(a.name) >= 0;
-                             return '<span class="badge ' + (waits ? 'bg-warning text-dark' : 'bg-secondary') + ' me-1" title="' +
-                                    VCLU.esc(localText(a.description) + (a.confirm ? ' (' + pt('action_confirm') + ')' : '')) + '">' +
-                                    VCLU.esc(a.name) + '</span>';
-                         }).join('') + '</p>';
+        var chips = [];
+        if (plugin.api === 1) {
+            chips.push(permChip('danger', 'bi-unlock', pt('api1_short'), pt('api1_note')));
+        } else {
+            ALL_PERMISSIONS.forEach(function(name) {
+                if (name === 'internet') {
+                    var hosts = plugin.internet || [], waits = plugin.pendingInternet || [];
+                    if (waits.length) chips.push(permChip('warning', PERMISSION_ICONS.internet, pt('title_internet'), pt('asked_not_allowed') + ': ' + waits.join(', ')));
+                    else if (hosts.indexOf('*') >= 0) chips.push(permChip('warning', PERMISSION_ICONS.internet, pt('internet_any_short'), internetLabel(hosts) + ': ' + INTERNET_ANY_WARNING));
+                    else if (hosts.length) chips.push(permChip('secondary', PERMISSION_ICONS.internet, pt('title_internet'), internetLabel(hosts)));
+                    return;
+                }
+                if (requested.indexOf(name) < 0) return;
+                var perm = (plugin.permissions || {})[name];
+                if (pending.indexOf(name) >= 0) {
+                    chips.push(permChip('warning', PERMISSION_ICONS[name], pt('title_' + name), pt('asked_not_allowed') + ': ' + permissionSentence(name, perm)));
+                } else {
+                    var wide = (plugin.wide || []).indexOf(name) >= 0;
+                    chips.push(permChip(PERMISSION_WARNINGS[name] ? 'danger' : 'secondary', PERMISSION_ICONS[name], pt('title_' + name),
+                        pt('allowed') + (wide ? ' (' + pt('wide') + ')' : '') + ': ' + permissionSentence(name, perm)));
+                }
+            });
+            if (!chips.length) chips.push('<span class="small text-body-secondary">' + VCLU.esc(pt('no_permissions')) + '</span>');
         }
-        if (plugin.api === 1) permsHtml += '<p class="mb-2 small text-danger">' + VCLU.esc(pt('api1_note')) + '</p>';
+        (plugin.actions || []).forEach(function(a) {
+            var waits = (plugin.pendingActions || []).indexOf(a.name) >= 0;
+            chips.push(permChip(waits ? 'warning' : 'secondary', 'bi-lightning', a.name,
+                pt('actions_label') + ': ' + localText(a.description) + (a.confirm ? ' (' + pt('action_confirm') + ')' : '')));
+        });
+        permsHtml = '<div class="d-flex flex-wrap gap-1 mb-1">' + chips.join('') + '</div>';
         // its time on the run loop, on average since it was loaded
         if (plugin.usage && enabled) {
-            permsHtml += '<p class="mb-2 small text-body-secondary">' + VCLU.esc(pt('cpu', plugin.usage.cpuMsPerMin)) +
-                         (plugin.usage.overruns ? ' · ' + VCLU.esc(pt('overruns', plugin.usage.overruns)) : '') + '</p>';
+            usageHtml = '<span class="small text-body-secondary ms-1">' + VCLU.esc(pt('cpu', plugin.usage.cpuMsPerMin)) +
+                        (plugin.usage.overruns ? ' · ' + VCLU.esc(pt('overruns', plugin.usage.overruns)) : '') + '</span>';
         }
     }
 
@@ -353,18 +353,17 @@ PluginsManager.prototype._renderPluginCard = function(plugin, options) {
            '<div class="card-body">' +
            '<div class="d-flex justify-content-between align-items-start mb-2">' +
            '<h6 class="card-title mb-0">' + VCLU.esc(name) +
-           ' <span class="badge bg-secondary">v' + VCLU.esc(version) + '</span></h6>' +
-           statusBadge +
+           ' <span class="small fw-normal text-body-secondary">v' + VCLU.esc(version) + '</span></h6>' +
+           '<div class="text-end">' + statusBadge + '</div>' +
            '</div>' +
-           '<p class="card-text small mb-1"><code>' + VCLU.esc(fullId) + '</code></p>' +
-           '<p class="card-text small text-muted mb-1">Repository: ' + VCLU.esc(repository) + '</p>' +
-           '<p class="card-text small mb-2">' + VCLU.esc(description) + '</p>' +
-           '<p class="card-text small mb-2"><span class="text-muted">By:</span> ' + VCLU.esc(author) + '</p>' +
+           '<p class="card-text small text-body-secondary mb-2">' + ['<code>' + VCLU.esc(fullId) + '</code>']
+               .concat([repository, author].filter(Boolean).map(function(t) { return VCLU.esc(t); })).join(' · ') + '</p>' +
+           (description ? '<p class="card-text small mb-2 plugin-desc" title="' + VCLU.esc(description) + '">' + VCLU.esc(description) + '</p>' : '') +
            tagsHtml +
            permsHtml +
            '</div>' +
            '<div class="card-footer bg-transparent d-flex justify-content-between align-items-center">' +
-           '<div>' + linkBtns + '</div>' +
+           '<div class="d-flex align-items-center">' + linkBtns + usageHtml + '</div>' +
            '<div>' + actionBtns + '</div>' +
            '</div>' +
            '</div></div>';
@@ -584,52 +583,56 @@ PluginsManager.prototype._confirmInstall = function(id, repository, preview) {
     this.elements.installPluginName.textContent = (installed ? pt('update') : pt('install')) + ' ' + name + ' v' + (preview.version || '?');
     var asked = preview.permissions || {};
     var had = installed ? (installed.permissions || {}) : null;
-    var html = (preview.all || ALL_PERMISSIONS).map(function(perm) {
-        var asks = requested.indexOf(perm) >= 0;
-        var line = '<li class="mb-1 ' + (asks ? 'text-success fw-semibold' : 'text-muted') + '">' +
-                   '<i class="bi ' + (asks ? 'bi-check-circle-fill' : 'bi-circle') + ' me-1"></i>' +
-                   VCLU.esc(asks ? permissionSentence(perm, perm === 'internet' && (preview.api || 1) < 2 ? {hosts: ['*']} : asked[perm]) : (PERMISSION_LABELS[perm] || perm));
-        if (asks && (preview.wide || []).indexOf(perm) >= 0) {
-            line += ' <span class="badge bg-warning text-dark" title="' + VCLU.esc(pt('wide_title')) + '">' + VCLU.esc(pt('wide')) + '</span>';
-        }
-        if (asks && PERMISSION_WARNINGS[perm]) {
-            line += ' <span class="badge bg-danger" title="' + VCLU.esc(pt('risky_title')) + '">' + VCLU.esc(pt('risky')) + '</span>';
-        }
-        if (asks && had && asksMore(perm, asked[perm], had[perm], installed)) {
-            line += ' <span class="badge bg-warning text-dark">' + VCLU.esc(pt('new')) + '</span>';
-        }
-        if (asks && perm === 'internet' && (preview.internet || []).indexOf('*') >= 0) {
-            line += '<div class="small text-danger fw-normal ms-3"><i class="bi bi-exclamation-triangle"></i> ' +
-                    VCLU.esc(INTERNET_ANY_WARNING) + '</div>';
-        }
-        if (asks && PERMISSION_WARNINGS[perm]) {
-            line += '<div class="small text-danger fw-normal ms-3"><i class="bi bi-exclamation-triangle"></i> ' +
-                    VCLU.esc(PERMISSION_WARNINGS[perm] + ' ' + pt('off_until_allowed')) + '</div>';
-        }
-        return line + '</li>';
-    }).join('');
+    var all = preview.all || ALL_PERMISSIONS;
+    // only what the plugin asks for, one row each; the rest in one line under it
+    var rows = all.filter(function(perm) { return requested.indexOf(perm) >= 0; }).map(function(perm) {
+        var p = perm === 'internet' && (preview.api || 1) < 2 ? {hosts: ['*']} : (asked[perm] || {});
+        var badges = '';
+        if (had && asksMore(perm, p, had[perm], installed)) badges += permBadge('primary', pt('new'));
+        if ((preview.wide || []).indexOf(perm) >= 0) badges += permBadge('warning', pt('wide'), pt('wide_title'));
+        if (PERMISSION_WARNINGS[perm]) badges += permBadge('danger', pt('risky'), pt('risky_title'));
+        var why = localText(p.why);
+        return '<li class="list-group-item px-3 py-2 d-flex gap-3">' +
+               '<i class="bi ' + (PERMISSION_ICONS[perm] || 'bi-shield') + ' fs-5 text-body-secondary"></i>' +
+               '<div class="flex-grow-1">' +
+               '<div class="d-flex justify-content-between align-items-start gap-2">' +
+               '<span class="fw-semibold">' + VCLU.esc(pt('title_' + perm)) + '</span><span class="text-nowrap">' + badges + '</span></div>' +
+               '<div class="small">' + VCLU.esc(permissionScope(perm, p)) + '</div>' +
+               (why ? '<div class="small text-body-secondary">' + VCLU.esc(pt('why', why)) + '</div>' : '') +
+               (PERMISSION_WARNINGS[perm] ? '<div class="small text-danger-emphasis">' +
+                   VCLU.esc(PERMISSION_WARNINGS[perm] + ' ' + pt('off_until_allowed')) + '</div>' : '') +
+               '</div></li>';
+    });
+    var html = rows.length ? '<ul class="list-group mb-2">' + rows.join('') + '</ul>' : '';
+    var unused = all.filter(function(perm) { return requested.indexOf(perm) < 0; });
+    if (unused.length) {
+        html += '<p class="small text-body-secondary mb-2">' + VCLU.esc(pt(rows.length ? 'not_using' : 'uses_none_of',
+            unused.map(function(perm) { return pt('title_' + perm); }).join(', '))) + '</p>';
+    }
     // combinations: reading the house and reaching the internet, full control of a CLU
     var hosts = (preview.internet || []).indexOf('*') >= 0 ? pt('any_server') : (preview.internet || []).join(', ');
-    (preview.warnings || []).forEach(function(w) {
-        html += '<li class="mb-1 small text-danger"><i class="bi bi-exclamation-octagon me-1"></i>' + VCLU.esc(pt('warn_' + w, hosts)) + '</li>';
-    });
+    if ((preview.warnings || []).length > 0) {
+        html += '<div class="alert alert-warning small py-2 px-3 mb-2 d-flex gap-2"><i class="bi bi-exclamation-triangle"></i><div>' +
+            preview.warnings.map(function(w) { return VCLU.esc(pt('warn_' + w, hosts)); }).join('<br>') + '</div></div>';
+    }
     if ((preview.actions || []).length > 0) {
-        html += '<li class="mt-2 mb-1 fw-semibold">' + VCLU.esc(pt('actions_title')) + '</li>' + preview.actions.map(function(a) {
-            var isNew = installed && !(installed.actions || []).some(function(x) { return x.name === a.name; });
-            return '<li class="mb-1 small ms-3"><code>' + VCLU.esc(a.name) + '</code> ' + VCLU.esc(localText(a.description)) +
-                   (a.confirm ? ' <span class="badge bg-info text-dark">' + VCLU.esc(pt('action_confirm')) + '</span>' : '') +
-                   (isNew ? ' <span class="badge bg-warning text-dark">' + VCLU.esc(pt('new')) + '</span>' : '') + '</li>';
-        }).join('');
+        html += '<div class="small fw-semibold mt-3 mb-1">' + VCLU.esc(pt('actions_title')) + '</div><ul class="list-unstyled small mb-2">' +
+            preview.actions.map(function(a) {
+                var isNew = installed && !(installed.actions || []).some(function(x) { return x.name === a.name; });
+                return '<li class="mb-1"><code>' + VCLU.esc(a.name) + '</code> ' + VCLU.esc(localText(a.description)) +
+                       (a.confirm ? permBadge('secondary', pt('action_confirm')) : '') +
+                       (isNew ? permBadge('primary', pt('new')) : '') + '</li>';
+            }).join('') + '</ul>';
     }
     if ((preview.dashboards || []).length > 0) {
-        html += '<li class="mt-2 mb-1 fw-semibold">' + VCLU.esc(pt('dashboards_title')) + '</li>' + preview.dashboards.map(function(d) {
-            return '<li class="mb-1 small ms-3"><i class="bi bi-grid-1x2 me-1"></i>' + VCLU.esc(localText(d.name) || d.id) + '</li>';
-        }).join('');
+        html += '<div class="small fw-semibold mt-3 mb-1">' + VCLU.esc(pt('dashboards_title')) + '</div><ul class="list-unstyled small mb-2">' +
+            preview.dashboards.map(function(d) {
+                return '<li class="mb-1"><i class="bi bi-grid-1x2 me-1 text-body-secondary"></i>' + VCLU.esc(localText(d.name) || d.id) + '</li>';
+            }).join('') + '</ul>';
     }
     this.elements.installPermissions.innerHTML = html;
 
     var notes = [];
-    if (requested.length === 0) notes.push(pt('uses_none'));
     if (installed) notes.push(pt('update_keeps'));
     if ((preview.api || 1) < 2) notes.push(pt('api1_note'));
     // a version on a lower plugin API would drop its limits: installed only from scratch
@@ -848,18 +851,6 @@ var PERMISSION_LABELS = {
 
 var ALL_PERMISSIONS = ['internet', 'lan', 'udp', 'tcp', 'mqtt', 'modbus', 'clu', 'tftp', 'serial'];
 
-var PERMISSION_SHORT = {
-    internet: pt('label_internet'),
-    lan: pt('short_lan'),
-    udp: 'UDP',
-    tcp: 'TCP',
-    mqtt: 'MQTT',
-    modbus: 'Modbus',
-    clu: pt('short_clu'),
-    tftp: 'TFTP',
-    serial: pt('short_serial')
-};
-
 // Allowed only by the user, never on install
 var PERMISSION_WARNINGS = {
     clu: pt('warn_clu'),
@@ -876,6 +867,42 @@ function localText(t) {
     if (typeof t === 'string') return t;
     var lang = (window.PLUGINS_I18N && PLUGINS_I18N.lang) || 'pl';
     return t[lang] || t.pl || t.en || '';
+}
+
+var PERMISSION_ICONS = {
+    internet: 'bi-globe', lan: 'bi-house', udp: 'bi-broadcast', tcp: 'bi-terminal', mqtt: 'bi-chat-square-dots',
+    modbus: 'bi-diagram-3', clu: 'bi-cpu', tftp: 'bi-file-earmark-arrow-up', serial: 'bi-usb-plug'
+};
+
+// One badge style for the install dialog: new (primary), wide (warning), risky (danger)
+function permBadge(color, text, title) {
+    return ' <span class="badge rounded-pill bg-' + color + '-subtle text-' + color + '-emphasis border border-' + color + '-subtle fw-normal"' +
+           (title ? ' title="' + VCLU.esc(title) + '"' : '') + '>' + VCLU.esc(text) + '</span>';
+}
+
+// A permission on the plugin card: icon and short name, the details in the tooltip
+function permChip(color, icon, text, title) {
+    return '<span class="badge rounded-pill bg-' + color + '-subtle text-' + color + '-emphasis border border-' + color + '-subtle fw-normal"' +
+           ' title="' + VCLU.esc(title) + '"><i class="bi ' + icon + ' me-1"></i>' + VCLU.esc(text) + '</span>';
+}
+
+// What a permission reaches, as plugin.json declares it, without its name and why
+function permissionScope(name, perm) {
+    var parts = [];
+    var desc = pt('desc_' + name);
+    if (desc !== 'desc_' + name) parts.push(desc);
+    if (name === 'internet') {
+        parts.push((perm.hosts || []).indexOf('*') >= 0 ? pt('any_server_cap') : (perm.hosts || []).join(', '));
+    }
+    if (name === 'lan') parts.push(perm.ports ? pt('tcp_ports', perm.ports.join(', ')) : pt('lan_any_port'));
+    if (name === 'udp' || name === 'tcp') parts.push(pt('tcp_ports', (perm.ports || []).join(', ')));
+    if (name === 'udp' && perm.broadcast && perm.broadcast.length) parts.push(pt('udp_broadcast_to', perm.broadcast.join(', ')));
+    if (name === 'mqtt') {
+        if (!perm.subscribe && !perm.publish) parts.push(pt('mqtt_any'));
+        if (perm.subscribe && perm.subscribe.length) parts.push(pt('mqtt_reads', perm.subscribe.join(', ')));
+        if (perm.publish && perm.publish.length) parts.push(pt('mqtt_publishes_cap', perm.publish.join(', ')));
+    }
+    return parts.join(' · ');
 }
 
 // One sentence for a permission as plugin.json declares it (perm: its object), with why
@@ -970,20 +997,6 @@ function portsHtml(plugin, name) {
 function internetLabel(hosts) {
     if (hosts.indexOf('*') >= 0) return pt('internet_any');
     return pt('internet_connects_to', hosts.join(', '));
-}
-
-// The internet badge of an installed plugin: its hosts, "*" with a warning, none in grey
-function internetBadge(hosts, pending) {
-    var cls = 'bg-transparent border border-secondary text-body-secondary', title = pt('not_used') + ': ' + pt('label_internet');
-    if (pending.length > 0) {
-        cls = 'bg-warning text-dark'; title = pt('asked_not_allowed') + ': ' + pending.join(', ');
-    } else if (hosts.indexOf('*') >= 0) {
-        cls = 'bg-danger'; title = internetLabel(hosts) + ': ' + INTERNET_ANY_WARNING;
-    } else if (hosts.length > 0) {
-        cls = 'bg-success'; title = internetLabel(hosts);
-    }
-    var text = hosts.indexOf('*') >= 0 ? pt('internet_any_short') : pt('label_internet');
-    return '<span class="badge ' + cls + ' me-1" title="' + VCLU.esc(title) + '">' + VCLU.esc(text) + '</span>';
 }
 
 /**
