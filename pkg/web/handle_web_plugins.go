@@ -640,6 +640,11 @@ func (s *Server) handlePluginsAPIInstall(c *gin.Context) {
 		return
 	}
 
+	// installed again: the wizard's module turned off at uninstall loads at the next reload
+	if _, err := plugins.TurnOnModule(s.serverDir, fullId); err != nil {
+		log.Printf("[PLUGINS] %s: turning on the wizard's module: %v", fullId, err)
+	}
+
 	s.resolvePluginNotices()
 	c.JSON(http.StatusOK, gin.H{"success": true, "action": action, "fullId": fullId, "version": pluginMeta.Version})
 }
@@ -692,6 +697,14 @@ func (s *Server) handlePluginsAPIUninstall(c *gin.Context) {
 	}
 	if err := plugins.DeletePluginSecrets(s.serverDir, pluginID); err != nil {
 		log.Printf("[PLUGINS] %s: forgetting secrets: %v", pluginID, err)
+	}
+	// the wizard's module stays on disk, its require line commented out
+	if changed, err := plugins.TurnOffModule(s.serverDir, pluginID); err != nil {
+		log.Printf("[PLUGINS] %s: turning off the wizard's module: %v", pluginID, err)
+	} else if changed && s.luaReloader != nil {
+		if err := s.luaReloader.Reload(); err != nil {
+			log.Printf("[PLUGINS] %s: reload after turning off the wizard's module: %v", pluginID, err)
+		}
 	}
 	s.resolvePluginNotices()
 	c.JSON(http.StatusOK, gin.H{"success": true})

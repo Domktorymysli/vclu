@@ -110,8 +110,9 @@ func (p dialPolicy) notListed(host string) error {
 }
 
 // checkURL refuses, before DNS, an internet host not on the list: the URL of a request
-// and of every redirect. A name off the list may still be a device in the house for a
-// plugin with "lan"; the dialer decides that once the name is resolved.
+// and of every redirect. A name off the list passes only as a house name (localName) for a
+// plugin with "lan": a query for any other name would reach a DNS server outside the house.
+// The dialer decides on the address once the name is resolved.
 func (p dialPolicy) checkURL(u *url.URL) error {
 	if !p.restricted {
 		return nil
@@ -127,7 +128,25 @@ func (p dialPolicy) checkURL(u *url.URL) error {
 	if _, err := netip.ParseAddr(host); err == nil || p.noLAN || numericHost(host) {
 		return p.notListed(host)
 	}
+	if !localName(host) {
+		return fmt.Errorf("%w; a device in the house by its IP address or a house name (name.local, name.lan)", p.notListed(host))
+	}
 	return nil
+}
+
+// localSuffixes: names no public DNS zone answers for, so a query for one tells no outside server anything.
+var localSuffixes = []string{".local", ".lan", ".home", ".home.arpa", ".internal", ".localdomain", ".localhost"}
+
+// localName: a name of a device in the house: one label (shelly-1a2b) or under a local suffix.
+func localName(host string) bool {
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	if host == "" || strings.ContainsFunc(host, func(r rune) bool { return r >= 0x80 }) {
+		return false
+	}
+	if !strings.Contains(host, ".") {
+		return true
+	}
+	return slices.ContainsFunc(localSuffixes, func(s string) bool { return strings.HasSuffix(host, s) })
 }
 
 var numericHostRe = regexp.MustCompile(`(?i)^(0x[0-9a-f]*|[0-9]+)(\.(0x[0-9a-f]*|[0-9]+)){0,3}\.?$`)

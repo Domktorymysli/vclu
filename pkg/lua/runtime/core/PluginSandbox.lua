@@ -1964,10 +1964,16 @@ function PluginSandbox:buildEnvironment(sandbox)
             if type(f) == "function" and (name == "request" or name:match("^read") or name:match("^write")) then
                 modbus[name] = function(opts, ...)
                     if sandbox.dead then error("plugin " .. pluginId .. " is disabled", 2) end
+                    local host = type(opts) == "table" and opts.host or nil
+                    -- a gateway in the house: an IP address or a house name, never looked up outside
+                    if host ~= nil and (type(__go_plugin_house_host) ~= "function"
+                        or not __go_plugin_house_host(tostring(host))) then
+                        error("Modbus to " .. tostring(host) .. ": a gateway in the house by its IP address"
+                            .. " or a house name (name.local, name.lan)", 2)
+                    end
                     -- the gateways the user narrowed modbus to (grants): an IP address among them
                     local hosts = sandbox.limits.modbusHosts
                     if hosts and type(__go_plugin_hosts_allow) == "function" then
-                        local host = type(opts) == "table" and opts.host or nil
                         if not __go_plugin_hosts_allow(hosts, tostring(host)) then
                             error("Modbus to " .. tostring(host) .. ": not among the hosts allowed in "
                                 .. pluginId .. "'s settings", 2)

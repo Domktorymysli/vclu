@@ -147,8 +147,10 @@ declares, nothing without the field (`permissions.go`).
 the subdomains (not the domain itself), exact IP addresses, or `["*"]` (with `why`) for any host. A scheme, path, port, user or `*` elsewhere refuses the manifest at download and at load
 (`internet.go`). The URL's host name is checked before the request and on every redirect
 (`dialPolicy.checkURL`), and again in the dialer: an address that is local after DNS needs `lan`
-(and its hosts), any other needs the name on the list. A plugin with `lan` reaches local names
-without an internet list. The grant is `{"internet": {"hosts": [...]}}`, the hosts the user
+(and its hosts), any other needs the name on the list. A plugin with `lan` reaches house names
+without an internet list: one label or under `.local`, `.lan`, `.home`, `.home.arpa`, `.internal`,
+`.localdomain`, `.localhost` (`localName`); any other name off the list is refused before DNS.
+A Modbus gateway is an IP address or a house name too (`__go_plugin_house_host`). The grant is `{"internet": {"hosts": [...]}}`, the hosts the user
 allowed: a new host or `"*"` in an update waits (`pendingInternet`), the ones allowed before keep
 working.
 

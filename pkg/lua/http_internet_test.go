@@ -138,10 +138,53 @@ func TestHTTPManagerInternetAndLAN(t *testing.T) {
 	hm.SetLANAllowed("@x/foo", true)
 	hm.SetInternet("@x/foo", plugins.InternetHosts{})
 	byName := strings.Replace(srv.URL, "127.0.0.1", "localhost", 1)
-	for _, u := range []string{srv.URL, byName, listed} {
+	for _, u := range []string{srv.URL, byName} {
 		if status, _, _, err := hm.Request("@x/foo", "GET", u, nil, "", 5000, true, true); err != nil || status != 200 {
 			t.Errorf("%s with lan, no internet: %d %v", u, status, err)
 		}
+	}
+	// a public name is not looked up, even if a house DNS would give a local address
+	if _, _, _, err := hm.Request("@x/foo", "GET", listed, nil, "", 5000, true, true); err == nil || !strings.Contains(err.Error(), "not on the host list") {
+		t.Errorf("public name with lan, no internet: %v", err)
+	}
+}
+
+// With lan and without internet, only house names reach DNS: a query for any other name
+// would tell a server outside the house whatever the plugin put in it.
+func TestHTTPManagerLANNamesBeforeDNS(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("ok")) }))
+	defer srv.Close()
+	_, port, _ := net.SplitHostPort(strings.TrimPrefix(srv.URL, "http://"))
+	hm := NewHTTPManager()
+	hm.ownAddr = func(netip.Addr) bool { return false }
+	house := []string{"shelly-1a2b", "nas.local", "Drukarka.LAN", "router.home", "pc.home.arpa", "hub.internal", "box.localdomain", "app.localhost", "nas.local."}
+	public := []string{"6b6579.example.com", "x.lan.example.com", "pc.home.arpa.example.net", "evil.locals"}
+	hm.testResolve = map[string]string{}
+	for _, n := range append(append([]string{}, house...), public...) {
+		hm.testResolve[strings.ToLower(strings.TrimSuffix(n, "."))] = "127.0.0.1"
+	}
+	hm.SetLANAllowed("@x/foo", true)
+	hm.SetInternet("@x/foo", plugins.InternetHosts{"api.example.com"})
+
+	for _, n := range house {
+		u := "http://" + net.JoinHostPort(n, port) + "/"
+		if status, _, _, err := hm.Request("@x/foo", "GET", u, nil, "", 5000, true, true); err != nil || status != 200 {
+			t.Errorf("house name %s: %d %v", n, status, err)
+		}
+	}
+	for _, n := range public {
+		u := "http://" + net.JoinHostPort(n, port) + "/"
+		if _, _, _, err := hm.Request("@x/foo", "GET", u, nil, "", 5000, true, true); err == nil || !strings.Contains(err.Error(), "not on the host list") {
+			t.Errorf("public name %s: %v", n, err)
+		}
+	}
+	for _, n := range []string{"data\u3002attacker\u3002com", "attacker.com\u200b.local"} {
+		if localName(n) {
+			t.Errorf("localName(%q): a name outside ASCII", n)
+		}
+	}
+	if localName("") || localName(".") {
+		t.Errorf("an empty name is not a house name")
 	}
 }
 
