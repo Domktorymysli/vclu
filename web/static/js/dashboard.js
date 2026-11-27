@@ -1101,18 +1101,19 @@
     function renderSchedule(el, w, head) {
         el.style.cursor = 'default';
         if (!w.span) el.style.gridColumn = '1 / -1';
-        var st = { data: null, edit: null, brush: null, seq: 0, busy: false };
-        var SCHED_STEP = w.step || 30; // minutes one tap paints
+        var st = { data: null, edit: null, sel: null, seq: 0, busy: false };
+        var SCHED_STEP = w.step || 15; // minutes a handle or -/+ moves an end
 
         var bar = calEl('div', 'dash-cal-bar dash-sched-bar');
         bar.appendChild(head);
         var tools = calEl('div', 'dash-cal-tools');
         bar.appendChild(tools);
+        var selBox = calEl('div', 'dash-sched-selbox');
         var palette = calEl('div', 'dash-sched-palette');
         var grid = calEl('div', 'dash-sched-grid');
         var foot = calEl('div', 'dash-sched-foot');
         el.appendChild(bar);
-        el.appendChild(palette);
+        el.appendChild(selBox);
         el.appendChild(grid);
         el.appendChild(foot);
 
@@ -1157,31 +1158,8 @@
                 return;
             }
             if (d.edited) tools.appendChild(button('dash-cal-today', T.schedReset, function() { save('reset'); }));
-            tools.appendChild(button('dash-cal-today', T.schedCancel, function() { st.edit = null; draw(); }));
+            tools.appendChild(button('dash-cal-today', T.schedCancel, function() { st.edit = null; st.sel = null; draw(); }));
             tools.appendChild(button('dash-cal-today dash-sched-save', T.schedSave, function() { save('set'); }));
-        }
-
-        function drawPalette() {
-            palette.innerHTML = '';
-            palette.hidden = !st.edit;
-            if (!st.edit) return;
-            var d = st.data;
-            var values = (d.values || []).filter(function(v) { return v !== d.default; });
-            values.push(d.default);
-            values.forEach(function(v) {
-                var b = button('dash-sched-swatch', String(v), function() { st.brush = v; drawPalette(); });
-                var c = colorOf(v);
-                if (c) b.style.setProperty('--seg', c);
-                else b.classList.add('neutral');
-                if (st.brush === v) b.classList.add('active');
-                b.setAttribute('aria-pressed', st.brush === v ? 'true' : 'false');
-                palette.appendChild(b);
-            });
-        }
-
-        function paintAt(day, cell) {
-            var m = st.edit[day], v = st.brush === st.data.default ? undefined : st.brush;
-            for (var i = cell * SCHED_STEP; i < (cell + 1) * SCHED_STEP; i++) m[i] = v;
         }
 
         function drawGrid() {
@@ -1205,6 +1183,7 @@
                     line.appendChild(seg);
                 });
                 if (st.edit) line.classList.add('editing');
+                drawSelOn(line);
                 row.appendChild(line);
                 grid.appendChild(row);
             });
@@ -1220,31 +1199,201 @@
             grid.appendChild(ticks);
         }
 
-        // painting: a tap or a drag over the lines, with a mouse or a finger
-        var painting = false;
-        function cellAt(ev) {
-            var target = document.elementFromPoint(ev.clientX, ev.clientY);
-            var line = target && target.closest && target.closest('.dash-sched-line');
-            if (!line || !grid.contains(line)) return null;
-            var r = line.getBoundingClientRect();
-            var x = Math.min(Math.max(ev.clientX - r.left, 0), r.width - 0.01);
-            return { day: line.dataset.day, cell: Math.floor(x / r.width * (1440 / SCHED_STEP)) };
+        // ---- the selected stretch: tap a stretch to see its hours; while editing, move its ends
+        // with the handles, the -/+ buttons or the time fields, as one selects text ----
+        function dayMinutes(day) {
+            return st.edit ? st.edit[day] : toMinutes((st.data.week || {})[day]);
         }
-        function paintEvent(ev) {
-            var at = cellAt(ev);
-            if (!at) return;
-            paintAt(at.day, at.cell);
+        // the stretch of one value around minute m
+        function runAt(arr, m) {
+            var v = arr[m], a = m, b = m + 1;
+            while (a > 0 && arr[a - 1] === v) a--;
+            while (b < 1440 && arr[b] === v) b++;
+            return { from: a, to: b };
+        }
+        function valueOf(v) { return v === undefined ? st.data.default : v; }
+        function hmEnd(m) { return m === 1440 ? '24:00' : minHm(m); }
+        // moves one end of sel over base: the stretch grows into its neighbour, or gives the
+        // neighbour back what it leaves; the new day and selection
+        function moveEdge(base, sel, edge, m) {
+            var arr = base.slice(), i, v, other;
+            if (edge === 'from') {
+                m = Math.max(0, Math.min(m, sel.to - 1));
+                v = base[sel.from];
+                other = sel.from > 0 ? base[sel.from - 1] : undefined;
+                for (i = Math.min(m, sel.from); i < Math.max(m, sel.from); i++) arr[i] = m < sel.from ? v : other;
+                return { arr: arr, sel: { day: sel.day, from: m, to: sel.to } };
+            }
+            m = Math.min(1440, Math.max(m, sel.from + 1));
+            v = base[sel.to - 1];
+            other = sel.to < 1440 ? base[sel.to] : undefined;
+            for (i = Math.min(m, sel.to); i < Math.max(m, sel.to); i++) arr[i] = m > sel.to ? v : other;
+            return { arr: arr, sel: { day: sel.day, from: sel.from, to: m } };
+        }
+        function applyEdge(edge, m) {
+            var r = moveEdge(st.edit[st.sel.day], st.sel, edge, m);
+            st.edit[st.sel.day] = r.arr;
+            st.sel = r.sel;
+            drawGrid();
+            drawSel();
+        }
+        function setValue(v) {
+            var arr = st.edit[st.sel.day], stored = v === st.data.default ? undefined : v;
+            for (var i = st.sel.from; i < st.sel.to; i++) arr[i] = stored;
+            drawGrid();
+            drawSel();
+        }
+        // a new stretch in the middle of the selected one, of the next value
+        function addStretch() {
+            var sel = st.sel, len = sel.to - sel.from, step = SCHED_STEP;
+            if (len < 2 * step) return;
+            var size = Math.max(step, Math.min(60, Math.floor(len / 3 / step) * step));
+            var a = Math.round((sel.from + len / 2 - size / 2) / step) * step;
+            a = Math.max(sel.from, Math.min(a, sel.to - size));
+            var cur = valueOf(st.edit[sel.day][sel.from]), values = st.data.values || [];
+            var next = values[(values.indexOf(cur) + 1) % values.length];
+            st.sel = { day: sel.day, from: a, to: a + size };
+            setValue(next === cur ? values[0] : next);
+        }
+
+        function timeField(edge) {
+            var wrap = calEl('div', 'dash-sched-time');
+            wrap.appendChild(calEl('span', 'dash-sched-edge', edge === 'from' ? T.schedFrom : T.schedTo));
+            var less = button('dash-sched-nudge', '−', function() {
+                applyEdge(edge, Math.ceil(st.sel[edge] / SCHED_STEP) * SCHED_STEP - SCHED_STEP);
+            });
+            less.setAttribute('aria-label', T.schedEarlier);
+            var input = calEl('input', 'dash-sched-clock');
+            input.type = 'time';
+            input.step = 60;
+            input.value = st.sel[edge] === 1440 ? '00:00' : minHm(st.sel[edge]); // an end at 00:00 is midnight
+            input.setAttribute('aria-label', edge === 'from' ? T.schedFrom : T.schedTo);
+            input.addEventListener('change', function() {
+                if (!input.value) return;
+                var v = hmMin(input.value);
+                applyEdge(edge, edge === 'to' && v === 0 ? 1440 : v);
+            });
+            var more = button('dash-sched-nudge', '+', function() {
+                applyEdge(edge, Math.floor(st.sel[edge] / SCHED_STEP) * SCHED_STEP + SCHED_STEP);
+            });
+            more.setAttribute('aria-label', T.schedLater);
+            wrap.appendChild(less);
+            wrap.appendChild(input);
+            wrap.appendChild(more);
+            return wrap;
+        }
+
+        function drawSel() {
+            selBox.innerHTML = '';
+            palette.innerHTML = '';
+            var d = st.data;
+            if (!d) return;
+            if (!st.sel) {
+                selBox.appendChild(calEl('div', 'dash-sched-hint', T.schedTap));
+                return;
+            }
+            var v = valueOf(dayMinutes(st.sel.day)[st.sel.from]);
+            var head = calEl('div', 'dash-sched-selhead');
+            head.appendChild(calEl('span', 'dash-sched-selday', weekdayName(WEEK_DAYS.indexOf(st.sel.day))));
+            if (!st.edit) head.appendChild(calEl('span', 'dash-sched-range', minHm(st.sel.from) + ' – ' + hmEnd(st.sel.to)));
+            var tag = calEl('span', 'dash-sched-value', String(v));
+            var c = colorOf(v);
+            if (c) tag.style.setProperty('--seg', c); else tag.classList.add('neutral');
+            head.appendChild(tag);
+            selBox.appendChild(head);
+            if (!st.edit) return;
+
+            var times = calEl('div', 'dash-sched-times');
+            times.appendChild(timeField('from'));
+            times.appendChild(timeField('to'));
+            selBox.appendChild(times);
+
+            // the value of the selected stretch
+            var values = (d.values || []).filter(function(x) { return x !== d.default; });
+            values.push(d.default);
+            values.forEach(function(x) {
+                var b = button('dash-sched-swatch', String(x), function() { setValue(x); });
+                var cx = colorOf(x);
+                if (cx) b.style.setProperty('--seg', cx);
+                else b.classList.add('neutral');
+                if (x === v) b.classList.add('active');
+                b.setAttribute('aria-pressed', x === v ? 'true' : 'false');
+                palette.appendChild(b);
+            });
+            if (st.sel.to - st.sel.from >= 2 * SCHED_STEP) {
+                palette.appendChild(button('dash-sched-swatch dash-sched-add', T.schedAdd, addStretch));
+            }
+            selBox.appendChild(palette);
+        }
+
+        // the selection on its line: the outline, and while editing its two handles
+        function drawSelOn(line) {
+            if (!st.sel || line.dataset.day !== st.sel.day) return;
+            var box = calEl('div', 'dash-sched-sel');
+            box.style.left = (st.sel.from / 1440 * 100) + '%';
+            box.style.width = ((st.sel.to - st.sel.from) / 1440 * 100) + '%';
+            line.appendChild(box);
+            if (!st.edit) return;
+            ['from', 'to'].forEach(function(edge) {
+                var h = calEl('div', 'dash-sched-handle ' + edge);
+                h.style.left = (st.sel[edge] / 1440 * 100) + '%';
+                h.setAttribute('role', 'slider');
+                h.setAttribute('aria-label', edge === 'from' ? T.schedFrom : T.schedTo);
+                h.setAttribute('aria-valuetext', hmEnd(st.sel[edge]));
+                h.dataset.edge = edge;
+                line.appendChild(h);
+            });
+        }
+
+        // dragging a handle: the hour shows over the finger, in steps; the day is redrawn from
+        // where the drag began, so going back undoes
+        var drag = null;
+        grid.addEventListener('pointerdown', function(ev) {
+            var h = ev.target.closest && ev.target.closest('.dash-sched-handle');
+            if (!h || !st.edit || !st.sel) return;
+            ev.preventDefault();
+            drag = { edge: h.dataset.edge, base: st.edit[st.sel.day].slice(), sel: st.sel, id: ev.pointerId };
+            try { grid.setPointerCapture(ev.pointerId); } catch (e) { /* an older browser: the drag ends at the edge */ }
+            el.classList.add('dragging');
+        });
+        grid.addEventListener('pointermove', function(ev) {
+            if (!drag || ev.pointerId !== drag.id) return;
+            var line = grid.querySelector('.dash-sched-line[data-day="' + drag.sel.day + '"]');
+            if (!line) return;
+            var r = line.getBoundingClientRect();
+            var x = Math.min(Math.max(ev.clientX - r.left, 0), r.width);
+            var moved = moveEdge(drag.base, drag.sel, drag.edge, Math.round(x / r.width * 1440 / SCHED_STEP) * SCHED_STEP);
+            st.edit[drag.sel.day] = moved.arr;
+            st.sel = moved.sel;
+            drawGrid();
+            drawSel();
+            line = grid.querySelector('.dash-sched-line[data-day="' + st.sel.day + '"]');
+            var at = st.sel[drag.edge];
+            var tip = calEl('div', 'dash-sched-tip', hmEnd(at));
+            tip.style.left = (at / 1440 * 100) + '%';
+            line.appendChild(tip);
+        });
+        function endDrag(ev) {
+            if (!drag || ev.pointerId !== drag.id) return;
+            drag = null;
+            el.classList.remove('dragging');
             drawGrid();
         }
-        grid.addEventListener('pointerdown', function(ev) {
-            if (!st.edit) return;
-            painting = true;
-            ev.preventDefault();
-            paintEvent(ev);
-        });
-        grid.addEventListener('pointermove', function(ev) { if (painting && st.edit) paintEvent(ev); });
-        ['pointerup', 'pointercancel', 'pointerleave'].forEach(function(n) {
-            grid.addEventListener(n, function() { painting = false; });
+        grid.addEventListener('pointerup', endDrag);
+        grid.addEventListener('pointercancel', endDrag);
+
+        // a tap on a line selects the stretch under it (a click: scrolling the page selects nothing)
+        grid.addEventListener('click', function(ev) {
+            if (!st.data || drag || (ev.target.closest && ev.target.closest('.dash-sched-handle'))) return;
+            var line = ev.target.closest && ev.target.closest('.dash-sched-line');
+            if (!line || !grid.contains(line)) return;
+            var r = line.getBoundingClientRect();
+            var m = Math.min(1439, Math.max(0, Math.floor((ev.clientX - r.left) / r.width * 1440)));
+            var run = runAt(dayMinutes(line.dataset.day), m);
+            var same = st.sel && st.sel.day === line.dataset.day && st.sel.from === run.from && st.sel.to === run.to;
+            st.sel = same && !st.edit ? null : { day: line.dataset.day, from: run.from, to: run.to };
+            drawGrid();
+            drawSel();
         });
 
         function drawFoot() {
@@ -1268,7 +1417,7 @@
         function draw() {
             el.classList.toggle('editing', !!st.edit);
             drawTools();
-            drawPalette();
+            drawSel();
             drawGrid();
             drawFoot();
         }
@@ -1278,9 +1427,6 @@
             st.edit = {};
             WEEK_DAYS.forEach(function(day) { st.edit[day] = toMinutes((d.week || {})[day]); });
             st.base = d.version;
-            if (st.brush == null || (d.values || []).indexOf(st.brush) < 0) {
-                st.brush = (d.values || []).filter(function(v) { return v !== d.default; })[0];
-            }
             draw();
         }
 
@@ -1303,6 +1449,7 @@
                 if (r.status === 200 && r.data.success) {
                     VCLU.showToast(T.schedSaved, 'success');
                     st.edit = null;
+                    st.sel = null;
                     load();
                 } else if (r.status === 409) {
                     VCLU.showToast(T.schedConflict, 'warning');
