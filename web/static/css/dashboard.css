@@ -3140,6 +3140,13 @@ label.dash-list-body { cursor: pointer; }
     gap: 10px;
 }
 .dash-widget-schedule:active { transform: none; }
+/* not lifted on hover like a tile: a tap on a bar would drop it back */
+@media (hover: hover) {
+    .dash-widget-schedule:hover {
+        transform: none;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.04);
+    }
+}
 .dash-sched-bar { grid-template-columns: 1fr auto; }
 .dash-sched-save { border-color: var(--dash-accent); color: var(--dash-accent); }
 .dash-sched-palette { display: flex; flex-wrap: wrap; gap: 6px; }
