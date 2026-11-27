@@ -3157,7 +3157,6 @@ label.dash-list-body { cursor: pointer; }
 .dash-sched-swatch.neutral { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.7); }
 .dash-sched-swatch.active { border-color: var(--dash-text); }
 .dash-sched-grid { display: flex; flex-direction: column; gap: 5px; }
-.dash-widget-schedule.editing .dash-sched-grid { touch-action: none; } /* painting, not scrolling */
 .dash-sched-row {
     display: grid;
     grid-template-columns: 3em 1fr;
@@ -3177,12 +3176,107 @@ label.dash-list-body { cursor: pointer; }
     overflow: hidden;
     background: rgba(255,255,255,0.04);
 }
-.dash-sched-line.editing {
-    cursor: crosshair;
-    /* half-hour cells while painting */
-    background-image: repeating-linear-gradient(90deg, transparent 0, transparent calc(100% / 48 - 1px), rgba(255,255,255,0.06) calc(100% / 48 - 1px), rgba(255,255,255,0.06) calc(100% / 48));
-}
+.dash-sched-line { cursor: pointer; }
 .dash-sched-line .dash-cal-seg-v { pointer-events: none; }
+/* the handles and the hour over them reach out of the line */
+.dash-sched-line.editing { overflow: visible; }
+.dash-widget-schedule.editing .dash-sched-grid { gap: 16px; padding-top: 6px; }
+.dash-sched-sel {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    border: 2px solid var(--dash-text);
+    border-radius: 7px;
+    box-shadow: 0 0 0 2px rgba(0,0,0,0.35);
+    pointer-events: none;
+}
+.dash-sched-handle {
+    position: absolute;
+    top: -10px;
+    bottom: -12px;
+    width: 30px; /* the finger's target, outside the stretch, as text selection handles */
+    touch-action: none;
+    cursor: ew-resize;
+    z-index: 2;
+}
+.dash-sched-handle.from { transform: translateX(-100%); }
+.dash-sched-handle::before {
+    content: '';
+    position: absolute;
+    top: 10px;
+    bottom: 12px;
+    width: 4px;
+    border-radius: 2px;
+    background: var(--dash-text);
+}
+.dash-sched-handle.from::before { right: -2px; }
+.dash-sched-handle.to::before { left: -2px; }
+.dash-sched-handle::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    width: 20px;
+    height: 20px;
+    background: var(--dash-text);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+}
+.dash-sched-handle.from::after { right: 0; border-radius: 50% 0 50% 50%; }
+.dash-sched-handle.to::after { left: 0; border-radius: 0 50% 50% 50%; }
+.dash-sched-tip {
+    position: absolute;
+    bottom: calc(100% + 14px);
+    transform: translateX(-50%);
+    padding: 3px 10px;
+    border-radius: 8px;
+    font-size: 1.15rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--dash-bg, #000);
+    background: var(--dash-text);
+    pointer-events: none;
+    white-space: nowrap;
+    z-index: 3;
+}
+.dash-sched-selbox { display: flex; flex-direction: column; gap: 10px; }
+.dash-sched-hint { font-size: 0.8rem; color: rgba(255,255,255,0.55); }
+.dash-sched-selhead { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.dash-sched-selday { font-size: 1.05rem; font-weight: 600; text-transform: capitalize; }
+.dash-sched-range { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.dash-sched-value {
+    padding: 3px 12px;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 700;
+    color: rgba(255,255,255,0.95);
+    background: var(--seg);
+}
+.dash-sched-value.neutral { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.75); }
+.dash-sched-times { display: flex; flex-wrap: wrap; gap: 8px 20px; }
+.dash-sched-time { display: flex; align-items: center; gap: 6px; }
+.dash-sched-edge { min-width: 2.2em; font-size: 1rem; font-weight: 600; }
+.dash-sched-nudge {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.25);
+    background: rgba(255,255,255,0.06);
+    color: inherit;
+    font-size: 1.4rem;
+    font-weight: 700;
+    line-height: 1;
+}
+.dash-sched-clock {
+    min-height: 44px;
+    padding: 2px 8px;
+    border: 1px solid rgba(255,255,255,0.25);
+    border-radius: 8px;
+    background: transparent;
+    color: inherit;
+    font-size: 1.5rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+.dash-sched-add { background: transparent; border: 2px dashed rgba(255,255,255,0.35); color: inherit; }
 .dash-sched-foot { display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem; color: rgba(255,255,255,0.55); }
 .dash-sched-fixed { display: flex; flex-wrap: wrap; gap: 4px 10px; }
 .dash-sched-fixed-title { font-weight: 600; }
@@ -3389,6 +3483,11 @@ body.dash-room-open {
     .dash-cal-seg-v.neutral { background: color-mix(in srgb, var(--dash-text) 5%, transparent); }
     .dash-cal-seg-v.neutral { color: color-mix(in srgb, var(--dash-text) 55%, transparent); }
     .dash-cal-seg-v.neutral.now { background: color-mix(in srgb, var(--dash-text) 10%, transparent); }
+    .dash-sched-hint { color: color-mix(in srgb, var(--dash-text) 55%, transparent); }
+    .dash-sched-value.neutral { background: color-mix(in srgb, var(--dash-text) 10%, transparent); color: color-mix(in srgb, var(--dash-text) 75%, transparent); }
+    .dash-sched-nudge { border-color: color-mix(in srgb, var(--dash-text) 25%, transparent); background: color-mix(in srgb, var(--dash-text) 6%, transparent); }
+    .dash-sched-clock { border-color: color-mix(in srgb, var(--dash-text) 25%, transparent); }
+    .dash-sched-add { border-color: color-mix(in srgb, var(--dash-text) 35%, transparent); }
     .dash-cal-sched-axis span { color: color-mix(in srgb, var(--dash-text) 40%, transparent); }
     .dash-widget.dash-widget-player .dash-player .dash-player-art { background: color-mix(in srgb, var(--tile-c) 14%, transparent); }
     .dash-player-btn { background: color-mix(in srgb, var(--dash-text) 9%, transparent); }
