@@ -10,7 +10,7 @@ import (
 )
 
 // udp is its own permission: a device's datagram goes out and its answer comes back
-// without grenton_raw, and udp does not open grentonSocket.
+// without clu, and udp does not open grentonSocket.
 func TestPluginDeviceUDPEcho(t *testing.T) {
 	echo, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {
@@ -44,13 +44,13 @@ func TestPluginDeviceUDPEcho(t *testing.T) {
 		t.Errorf("grentonSocket with udp only: %s", e)
 	}
 	if _, err := engine.PluginIO().OpenUDP("@t/ac", 0); err == nil {
-		t.Error("Go: grenton_raw socket with udp only")
+		t.Error("Go: clu socket with udp only")
 	}
 }
 
-// Without udp there is no udp socket, in Lua and in Go, also with grenton_raw.
+// Without udp there is no udp socket, in Lua and in Go, also with clu.
 func TestPluginDeviceUDPRefusedWithoutPermission(t *testing.T) {
-	engine := sandboxEngine(t, "@t/raw", `{api = 2, lan = true, grenton_raw = true}`)
+	engine := sandboxEngine(t, "@t/raw", `{api = 2, lan = true, clu = true}`)
 	if _, e := runPlugin(t, engine, "@t/raw", `Plugin:new("n"):udpSocket()`); !strings.Contains(e, `needs "udp"`) {
 		t.Errorf("udpSocket without udp: %s", e)
 	}
@@ -68,8 +68,8 @@ func TestPluginDeviceUDPTargets(t *testing.T) {
 	io.SetGrant("@t/a", pluginIOGrant{udp: true, udpPorts: []int{7000}, broadcastPorts: []int{7000}})
 	io.SetGrant("@t/b", pluginIOGrant{udp: true, udpPorts: []int{7000}, broadcastPorts: []int{7000},
 		udpHosts: []netip.Prefix{netip.MustParsePrefix("192.168.7.0/24")}})
-	// grenton_raw too: its own socket keeps the CLU rules, the udp one does not get them
-	io.SetGrant("@t/c", pluginIOGrant{udp: true, udpPorts: []int{7000}, grentonRaw: true})
+	// clu too: its own socket keeps the CLU rules, the udp one does not get them
+	io.SetGrant("@t/c", pluginIOGrant{udp: true, udpPorts: []int{7000}, clu: true})
 	open := func(plugin string, raw bool) int {
 		t.Helper()
 		f := io.OpenDeviceUDP
@@ -114,7 +114,7 @@ func TestPluginDeviceUDPTargets(t *testing.T) {
 		t.Errorf("allowed host: %v", err)
 	}
 	if err := io.SendUDP(cRaw, "@t/c", "192.168.1.10", 1234, []byte("x")); !passedChecks(err) {
-		t.Errorf("grenton_raw to the CLU port: %v", err)
+		t.Errorf("clu to the CLU port: %v", err)
 	}
 	// a declared port passes the checks; the network may still not route a broadcast
 	if err := io.SendUDP(a, "@t/a", "255.255.255.255", 7000, []byte("x")); err != nil && strings.Contains(err.Error(), "refused") {

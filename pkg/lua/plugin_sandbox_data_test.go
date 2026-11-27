@@ -134,7 +134,7 @@ func TestPluginSandboxLANGuard(t *testing.T) {
 	for _, id := range []string{"@t/nolan", "@t/lan"} {
 		_, e := runPlugin(t, engine, id, `
 			local p = Plugin:new("x")
-			p:httpGet("`+ts.URL+`", function(resp, err)
+			p:httpRequest({ method = "GET", url = "`+ts.URL+`" }, function(resp, err)
 				p.result = tostring(err) .. "|" .. tostring(resp and resp.status)
 			end)
 		`)

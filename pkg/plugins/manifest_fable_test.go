@@ -159,46 +159,6 @@ func TestFableOfficialManifestsRead(t *testing.T) {
 	}
 }
 
-// Grants written by the previous vclu: udp's broadcastPorts narrowed where a plugin may
-// broadcast; the new field keeps it, so the first load does not record plugin.json's list
-// over the user's.
-func TestFableMigrationKeepsOldBroadcastPorts(t *testing.T) {
-	var g config.PluginGrants
-	if err := json.Unmarshal([]byte(`{"udp": {"hosts": ["192.168.1.0/24"], "broadcastPorts": []}}`), &g); err != nil {
-		t.Fatal(err)
-	}
-	if g.UDP == nil || g.UDP.Broadcast == nil || len(*g.UDP.Broadcast) != 0 {
-		t.Fatalf("broadcastPorts lost: %+v", g.UDP)
-	}
-	requested := Permissions{UDP: true, UDPPorts: []int{7000}, BroadcastPorts: []int{7000}}
-	allowed, pending := requested.allowedBy(&g)
-	if len(allowed.BroadcastPorts) != 0 || !slices.Equal(pending.BroadcastPorts, []int{7000}) {
-		t.Errorf("allowed %v pending %v", allowed.BroadcastPorts, pending.BroadcastPorts)
-	}
-	// the new name wins when both are written
-	if err := json.Unmarshal([]byte(`{"udp": {"broadcast": [7000], "broadcastPorts": []}}`), &g); err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Equal(*g.UDP.Broadcast, []int{7000}) {
-		t.Errorf("broadcast %v", *g.UDP.Broadcast)
-	}
-}
-
-// Pi 2's {"lan": {"websocketPorts": []}}: the old lan allowed HTTP on any port and WebSockets
-// on none; the new lan.ports [80] allows both on 80. Not the same set, so the first load
-// records plugin.json's ports: a design decision (a WebSocket on a port HTTP already reached).
-func TestFableMigrationWebsocketPortsDesign(t *testing.T) {
-	var g config.PluginGrants
-	if err := json.Unmarshal([]byte(`{"lan": {"websocketPorts": []}}`), &g); err != nil {
-		t.Fatal(err)
-	}
-	requested := Permissions{LAN: true, LANPorts: []int{80}}
-	if !unpinned(requested, &g) {
-		t.Fatal("not pinned from plugin.json")
-	}
-	t.Skip("design: websocketPorts [] becomes lan.ports from plugin.json (HTTP narrowed to them, WebSockets widened to them)")
-}
-
 // Grants the user saves never reach past plugin.json: hosts, ports, topic filters and
 // actions beyond it are dropped or ignored.
 func TestFableGrantsWithinManifest(t *testing.T) {
@@ -276,12 +236,11 @@ func TestFableManifestTexts(t *testing.T) {
 	}
 }
 
-// An install from before (Pi 2: lan recorded without ports, no actions recorded) loads a
-// plugin on the new manifest: the first load records plugin.json's ports and actions as
+// A grant without its lists recorded (lan without ports, no actions) loads a plugin: the first load records plugin.json's ports and actions as
 // allowed, the update after that waits for anything new.
 func TestFableMigrationPinsThenWaits(t *testing.T) {
 	var old config.PluginGrants
-	if err := json.Unmarshal([]byte(`{"lan": {"websocketPorts": []}}`), &old); err != nil {
+	if err := json.Unmarshal([]byte(`{"lan": {}}`), &old); err != nil {
 		t.Fatal(err)
 	}
 	l := permissionsLoader(t, nil, []config.InstalledPlugin{{ID: "@vclu/zakupy", Grants: &old}})

@@ -131,8 +131,7 @@ Every object decodes with unknown fields refused (`decodeStrict`: a field spelle
 or written twice counts as unknown, in dashboards and the form file too); an unknown permission,
 field, action field or form field type refuses the plugin as `ErrNewerVclu` (at download and at
 load), so a plugin never runs with less than it was written for. `"permissions"` is required on API 2 (`{}` for none);
-top-level keys of earlier drafts (`udp`, `tcp`, `websocket`, `internetWhy`, `minVcluVersion`)
-refuse it with where they went. `requires.vclu` (`>=X.Y.Z`) is checked against `SetVcluVersion`.
+API 1's top-level `minVcluVersion` refuses it with where it went (`requires`). `requires.vclu` (`>=X.Y.Z`) is checked against `SetVcluVersion`.
 Actions are declared in `"actions"` (`ManifestActions`); `plugin:action(name, fn)` takes only a
 declared one and its `confirm` is enforced in `PluginSandbox:callAction` (`confirmed`). Names kept
 for later: `ReservedPermissions`.
@@ -165,8 +164,7 @@ lists at most 64. An update that asks for more runs without it, logs it and list
 `GET /api/plugins/installed` until `POST /api/plugins/:id/permissions` allows it (the plugins
 page: "Allow", or the shield button for the details).
 
-A grant takes the shape of the permissions (`config.PluginGrants`; older `grenton_raw`,
-`websocketPorts` and `broadcastPorts` are read and pinned again), is set when its key is present
+A grant takes the shape of the permissions (`config.PluginGrants`), is set when its key is present
 and can be narrowed, never past plugin.json (`WithinRequest`):
 `{"lan": {"hosts": ["192.168.1.20"], "ports": [80]}, "mqtt": {"subscribe": ["shelly/#"], "publish": []}, "modbus": {"hosts": ["192.168.0.9"]}, "clu": {"hosts": [...], "discovery": true}, "actions": ["add"]}`.
 No list allows any host or topic, an empty list none. Hosts are checked in the dialer after DNS
@@ -178,7 +176,7 @@ sandbox gives them only while `lan` (`mqtt`) is allowed in full, without lists. 
 another repository resets grants to what installing gives; without the old files nothing is
 allowed until the user does. `POST .../permissions` refuses unknown keys.
 
-`clu` (formerly `grenton_raw`), `tftp` and `serial` (#240) reach a CLU's commands, files on devices and the device
+`clu`, `tftp` and `serial` (#240) reach a CLU's commands, files on devices and the device
 on a port: `Grants()` leaves them out, so neither installing nor recording grants from the files
 allows them, only the user in the panel. Their grants are `{"clu": {"hosts": [...], "discovery": false},
 "tftp": {"hosts": [...]}, "serial": {"ports": ["/dev/ttyUSB0"]}}`; without `ports` the plugin

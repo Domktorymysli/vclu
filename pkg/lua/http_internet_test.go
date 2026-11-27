@@ -169,8 +169,8 @@ func TestPluginSandboxInternetHosts(t *testing.T) {
 	for id, target := range cases {
 		if _, e := runPlugin(t, engine, id, `
 			local p = Plugin:new("x")
-			p:httpGet("`+target+`", function(resp, err) p.result = tostring(err) .. "|" .. tostring(resp and resp.status) end)
-			p:httpGet("`+other+`", function(resp, err) p.other = tostring(err) .. "|" end)
+			p:httpRequest({ method = "GET", url = "`+target+`" }, function(resp, err) p.result = tostring(err) .. "|" .. tostring(resp and resp.status) end)
+			p:httpRequest({ method = "GET", url = "`+other+`" }, function(resp, err) p.other = tostring(err) .. "|" end)
 		`); e != "nil" {
 			t.Fatalf("%s: %s", id, e)
 		}

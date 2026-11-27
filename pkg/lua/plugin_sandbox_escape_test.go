@@ -329,7 +329,7 @@ func TestPluginEscapeCLUCodeInjection(t *testing.T) {
 		wantRefused(t, what, r, e)
 	}
 	mustLua(t, engine, `tostring(__cmds[1])`, "nil")
-	// a read with an index asks the CLU: grenton_raw only (TestReviewExecRemoteReadFromPlugin)
+	// a read with an index asks the CLU: clu only (TestReviewExecRemoteReadFromPlugin)
 	if _, e := runPlugin(t, engine, "@t/a", `_:get("CLU1.DOU1"):get(0)`); !strings.Contains(e, "clu permission") {
 		t.Errorf("a read with an index: %s", e)
 	}

@@ -1247,7 +1247,7 @@ function PluginSandbox:create(pluginId, permissions)
         tcp = permissions.tcp == true,
         mqtt = permissions.mqtt == true,
         modbus = permissions.modbus == true,
-        grentonRaw = permissions.grenton_raw == true,
+        clu = permissions.clu == true,
         tftp = permissions.tftp == true,
         serial = permissions.serial == true,
     }
@@ -1261,7 +1261,7 @@ function PluginSandbox:create(pluginId, permissions)
         tcpHosts = list(limits.tcpHosts),
         mqttSubscribe = list(limits.mqttSubscribe),
         mqttPublish = list(limits.mqttPublish),
-        grentonRawHosts = list(limits.cluHosts),
+        cluHosts = list(limits.cluHosts),
         cluDiscovery = limits.cluDiscovery == true,
         modbusHosts = list(limits.modbusHosts),
         lanPorts = list(permissions.lanPorts), -- nil: any local port
@@ -1288,8 +1288,8 @@ function PluginSandbox:create(pluginId, permissions)
     if type(__go_pluginio_grant) == "function" then
         -- the ports of plugin.json's permissions: udp sends and broadcasts, tcp connects, lan's
         -- WebSockets reach (nil: any local port)
-        __go_pluginio_grant(pluginId, sandbox.permissions.grentonRaw, sandbox.permissions.tftp,
-            sandbox.permissions.serial, sandbox.limits.grentonRawHosts, sandbox.limits.tftpHosts,
+        __go_pluginio_grant(pluginId, sandbox.permissions.clu, sandbox.permissions.tftp,
+            sandbox.permissions.serial, sandbox.limits.cluHosts, sandbox.limits.tftpHosts,
             sandbox.limits.serialPorts, sandbox.permissions.udp, sandbox.limits.udpHosts,
             list(permissions.udpBroadcastPorts) or {}, sandbox.permissions.tcp, sandbox.limits.tcpHosts,
             list(permissions.tcpPorts) or {}, sandbox.limits.lanPorts, list(permissions.udpPorts) or {},
@@ -1600,13 +1600,13 @@ function PluginSandbox:buildAPI(sandbox)
 
     -- Frames to CLUs: their port, broadcast for discovery
     api.grentonSocket = function(opts)
-        requireIO("clu", "grentonRaw")
-        return udpSocket(opts, "grenton_raw")
+        requireIO("clu", "clu")
+        return udpSocket(opts, "clu")
     end
 
     -- The CLU cipher with a key and IV the plugin brings (raw or base64)
     api.grentonCipher = function(key, iv)
-        requireIO("clu", "grentonRaw")
+        requireIO("clu", "clu")
         key, iv = tostring(key), tostring(iv)
         local _, err = __go_pluginio_cipher(true, key, iv, "")
         if err then error(err, 2) end
@@ -1696,25 +1696,21 @@ function PluginSandbox:buildAPI(sandbox)
         end, alive)
     end
 
-    -- httpGet and httpPost stay for older plugins; plugin:httpRequest is the one to use
-    local function deprecated(name)
-        if sandbox.deprecatedLogged then return end
-        sandbox.deprecatedLogged = true
-        log:warn("[" .. pluginId .. "] plugin:" .. name .. " is deprecated: use plugin:httpRequest")
+    api.has = function(name)
+        if sandbox.apiVersion >= 2 and (name == "httpGet" or name == "httpPost") then return false end
+        return PluginHelpers.has(name)
     end
 
-    api.httpGet = function(url, callback)
-        deprecated("httpGet")
-        simpleRequest({ method = "GET", url = url }, callback)
-    end
-
-    api.has = function(name) return PluginHelpers.has(name) end
-
-    api.httpPost = function(url, data, callback)
-        deprecated("httpPost")
-        local opts = { method = "POST", url = url }
-        if type(data) == "table" then opts.json = data else opts.body = data end
-        simpleRequest(opts, callback)
+    -- httpGet and httpPost: plugin API 1 only; API 2 has plugin:httpRequest
+    if sandbox.apiVersion < 2 then
+        api.httpGet = function(url, callback)
+            simpleRequest({ method = "GET", url = url }, callback)
+        end
+        api.httpPost = function(url, data, callback)
+            local opts = { method = "POST", url = url }
+            if type(data) == "table" then opts.json = data else opts.body = data end
+            simpleRequest(opts, callback)
+        end
     end
 
     -- Logging helper
@@ -2238,7 +2234,7 @@ function PluginSandbox.checkCluRequest()
         return
     end
     local sandbox = PluginSandbox.sandboxes[id]
-    if not sandbox or sandbox.permissions.grentonRaw then return end
+    if not sandbox or sandbox.permissions.clu then return end
     if sandbox.apiVersion < 2 then
         if not sandbox.warnedCluRequest then
             sandbox.warnedCluRequest = true

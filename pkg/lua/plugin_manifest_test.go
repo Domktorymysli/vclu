@@ -65,12 +65,12 @@ func TestPluginHas(t *testing.T) {
 		local p = Plugin:new("h", {})
 		local out = {}
 		for _, n in ipairs({"websocket", "tcpConnect", "permission:udp.broadcast", "permission:clu", "form:host",
-			"permission:gpio", "form:colour", "nosuch", "_sandbox", "permission:grenton_raw"}) do
+			"permission:gpio", "form:colour", "nosuch", "_sandbox"}) do
 			out[#out + 1] = tostring(p:has(n))
 		end
 		out[#out + 1] = tostring(p:has(nil)) .. tostring(p:has(5))
 		return table.concat(out, ",")`)
-	if e != "nil" || r != "true,true,true,true,true,false,false,false,false,false,falsefalse" {
+	if e != "nil" || r != "true,true,true,true,true,false,false,false,false,falsefalse" {
 		t.Errorf("has: %s / %s", r, e)
 	}
 }
@@ -101,5 +101,22 @@ func TestPluginKVLimits(t *testing.T) {
 	// a module's store has no limits
 	if err := plugins.NewKVStoreManager(t.TempDir()).GetStore("module").Set("big", strings.Repeat("x", plugins.MaxPluginKVValue+1), false, 0); err != nil {
 		t.Errorf("module store: %v", err)
+	}
+}
+
+// httpGet and httpPost are plugin API 1: on API 2 they say what to use and has() denies them.
+func TestPluginHTTPGetIsAPI1(t *testing.T) {
+	engine := sandboxEngine(t, "@t/h2", `{api = 2}`)
+	r, e := runPlugin(t, engine, "@t/h2", `
+		local p = Plugin:new("h2", {})
+		local ok, err = pcall(function() p:httpGet("http://127.0.0.1/", function() end) end)
+		return tostring(ok) .. "|" .. tostring(p:has("httpGet")) .. tostring(p:has("httpPost")) .. "|" .. tostring(err)`)
+	if e != "nil" || !strings.HasPrefix(r, "false|falsefalse|") || !strings.Contains(r, "use plugin:httpRequest") {
+		t.Errorf("API 2: %s / %s", r, e)
+	}
+	old := sandboxEngine(t, "@t/h1", `{api = 1}`)
+	r, e = runPlugin(t, old, "@t/h1", `return tostring(Plugin:new("h1", {}):has("httpGet"))`)
+	if e != "nil" || r != "true" {
+		t.Errorf("API 1: %s / %s", r, e)
 	}
 }

@@ -281,7 +281,7 @@ function Plugin:getObject(path)
     return nil
 end
 
---- Make an HTTP GET request
+--- Make an HTTP GET request (plugin API 1; API 2 uses plugin:httpRequest)
 -- Uses sandbox API if available for pcall protection
 -- @param url string URL to fetch
 -- @param callback function Callback with (response, error)
@@ -290,6 +290,9 @@ end
 -- end)
 function Plugin:httpGet(url, callback)
     if self._sandbox and self._sandbox.api then
+        if not self._sandbox.api.httpGet then
+            error("plugin:httpGet is plugin API 1: use plugin:httpRequest", 2)
+        end
         self._sandbox.api.httpGet(url, callback)
         return
     end
@@ -310,13 +313,16 @@ function Plugin:httpGet(url, callback)
     end
 end
 
---- Make an HTTP POST request
+--- Make an HTTP POST request (plugin API 1; API 2 uses plugin:httpRequest)
 -- Uses sandbox API if available for pcall protection
 -- @param url string URL to post to
 -- @param data table Data to send (will be JSON encoded)
 -- @param callback function Callback with (response, error)
 function Plugin:httpPost(url, data, callback)
     if self._sandbox and self._sandbox.api then
+        if not self._sandbox.api.httpPost then
+            error("plugin:httpPost is plugin API 1: use plugin:httpRequest", 2)
+        end
         self._sandbox.api.httpPost(url, data, callback)
         return
     end

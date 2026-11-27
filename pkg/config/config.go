@@ -368,34 +368,6 @@ type PluginGrants struct {
 	ConfirmedActions *[]string `json:"confirmedActions,omitempty"`
 }
 
-// UnmarshalJSON also reads grants written before plugin.json's permissions became objects:
-// grenton_raw is clu, and port lists recorded for WebSockets or broadcasts only are recorded
-// again from plugin.json.
-func (g *PluginGrants) UnmarshalJSON(data []byte) error {
-	type plain PluginGrants
-	var v struct {
-		plain
-		GrentonRaw *HostsGrant `json:"grenton_raw,omitempty"`
-	}
-	if err := json.Unmarshal(data, &v); err != nil {
-		return err
-	}
-	*g = PluginGrants(v.plain)
-	if g.CLU == nil && v.GrentonRaw != nil {
-		g.CLU = &CLUGrant{Hosts: v.GrentonRaw.Hosts}
-	}
-	// udp.broadcastPorts: where the user let it broadcast, now udp.broadcast
-	var old struct {
-		UDP *struct {
-			BroadcastPorts *[]int `json:"broadcastPorts"`
-		} `json:"udp"`
-	}
-	if g.UDP != nil && g.UDP.Broadcast == nil && json.Unmarshal(data, &old) == nil && old.UDP != nil && old.UDP.BroadcastPorts != nil {
-		g.UDP.Broadcast = old.UDP.BroadcastPorts
-	}
-	return nil
-}
-
 // InternetGrant: the internet hosts of the plugin's request the user allowed ("*" any);
 // a host the plugin asks for beyond them waits for the user.
 type InternetGrant struct {

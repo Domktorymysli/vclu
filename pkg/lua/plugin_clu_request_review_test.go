@@ -71,7 +71,7 @@ func TestReviewCluCheckModuleTailCallFromPluginEvent(t *testing.T) {
 // A proxy another plugin holds is read as the plugin that reaches it, not as its first owner.
 func TestReviewCluCheckProxyOfAnotherPlugin(t *testing.T) {
 	engine := cluEngine(t)
-	mustLua(t, engine, `PluginSandbox:create("@t/raw", {api = 2, grenton_raw = true}) and "ok"`, "ok")
+	mustLua(t, engine, `PluginSandbox:create("@t/raw", {api = 2, clu = true}) and "ok"`, "ok")
 	if _, e := runPlugin(t, engine, "@t/raw", `
 		local p = Plugin:new("raw", {name = "Raw"})
 		local s = p:sensor("dou", function() return 1 end)
