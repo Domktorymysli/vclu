@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.13.0 (2026-11-28)
+## v1.13.1 (2026-11-28)
 
 ### English
 
@@ -28,7 +28,7 @@
 - No false MQTT warnings at start ([#256](https://github.com/Domktorymysli/vclu/pull/256)).
 - Small ones: WebSocket library with the GO-2026-6278 fix, `plugin:mqttPublish` works, clearer message about a missing permission ([#272](https://github.com/Domktorymysli/vclu/pull/272)).
 
-Full list: https://github.com/Domktorymysli/vclu/compare/v1.12.0...v1.13.0
+Full list: https://github.com/Domktorymysli/vclu/compare/v1.12.0...v1.13.1
 
 ### Po polsku
 
@@ -56,7 +56,7 @@ Full list: https://github.com/Domktorymysli/vclu/compare/v1.12.0...v1.13.0
 - Bez fałszywych ostrzeżeń MQTT przy starcie ([#256](https://github.com/Domktorymysli/vclu/pull/256)).
 - Drobne: biblioteka WebSocket z poprawką GO-2026-6278, działający `plugin:mqttPublish`, czytelniejszy komunikat o brakującym uprawnieniu ([#272](https://github.com/Domktorymysli/vclu/pull/272)).
 
-Pełna lista: https://github.com/Domktorymysli/vclu/compare/v1.12.0...v1.13.0
+Pełna lista: https://github.com/Domktorymysli/vclu/compare/v1.12.0...v1.13.1
 
 ## v1.12.0 (2026-11-21)
 
