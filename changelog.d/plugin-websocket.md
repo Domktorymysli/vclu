@@ -1,3 +1,0 @@
-### Plugins
-
-- **WebSocket client for plugins** - `plugin:websocket(url, {headers, protocols, timeout})` connects to a `ws://` or `wss://` server and answers through `onOpen`, `onMessage` (text or binary), `onClose` (code and reason), with `send`, `close(code, reason)` and `isOpen`, for services that push changes (Tuya's message service, Shelly Gen2, Home Assistant). No new permission: it reaches what the plugin's HTTP reaches, internet hosts on its `permissions.internet` list and local ones with `lan`, on its ports and hosts, never this vclu. A message is at most 1 MiB; a narrowed or withdrawn `lan` or internet list closes open connections. The plugin reconnects on its own, with a timer.

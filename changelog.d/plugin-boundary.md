@@ -1,3 +1,0 @@
-### Plugins
-
-- **What your modules get of a plugin** - on plugin API 2, `Plugin.getPlugin(id)` gives a module the plugin's methods and `get`, `on`, `getExposed`, `dashboard` (who opens its dashboards), and its id, name and version, no other field. Tables go both ways as copies, the plugin's objects (a Tasmota relay, a MusicCast device) as handles you call methods on, and a function of yours the plugin calls runs right after it. Code from the plugins' READMEs works as before; a module that set fields on a plugin's object or relied on a callback running inside the plugin's call needs a change. A plugin's own timers are its own: use `EventBus:getShared():setTimeout` in a module.
