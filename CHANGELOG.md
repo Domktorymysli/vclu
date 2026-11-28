@@ -1,5 +1,63 @@
 # Changelog
 
+## v1.13.0 (2026-11-28)
+
+### English
+
+**Highlights:** plugins 2.0: permissions that control what a plugin connects to. Every plugin is closed in its own box, with its permissions in plain sight. Also: schedules edited from a dashboard and the app, and a notification bell.
+
+**Before you update**
+- Old plugins keep working. Official plugins have new versions, update them on the plugins page and confirm their permissions ([#205](https://github.com/Domktorymysli/vclu/issues/205)).
+- A plugin with capitals in its id won't load. Uninstall it and install it again ([#205](https://github.com/Domktorymysli/vclu/issues/205)).
+
+**New**
+- Plugin permissions. A plugin declares which servers, devices and MQTT topics it connects to. You see them at install, and an update that wants more waits for "Allow" ([#205](https://github.com/Domktorymysli/vclu/issues/205)).
+- A plugin can be limited to chosen addresses and topics. Each one runs in its own sandbox ([#206](https://github.com/Domktorymysli/vclu/pull/206)).
+- Plugin wizard (prototype). Settings, finding devices in the house, and a preview of the module code changes before saving ([#247](https://github.com/Domktorymysli/vclu/issues/247)).
+- A plugin can have its own dashboard and actions you run from the app or through an agent ([#206](https://github.com/Domktorymysli/vclu/pull/206)).
+- New protocols for plugins: UDP, TCP, telnet, WebSocket, serial port and talking to a CLU directly. Plus `Crypto` (AES, HMAC, SHA) in plugins and modules ([#240](https://github.com/Domktorymysli/vclu/issues/240), [#257](https://github.com/Domktorymysli/vclu/issues/257)).
+- Schedules edited from a dashboard and the app. Select a stretch, move its ends or the whole stretch, change the value ([#268](https://github.com/Domktorymysli/vclu/issues/268)).
+- Notification bell: new version, plugin updates, modules that don't load, failed logins ([#248](https://github.com/Domktorymysli/vclu/issues/248)).
+- GATE MODBUS from the OM import. Objects become devices, not yet checked on a real GATE MODBUS ([#278](https://github.com/Domktorymysli/vclu/issues/278)).
+- After 5 failed logins you have to wait a moment. Start page sections can be folded ([#255](https://github.com/Domktorymysli/vclu/pull/255)).
+- Security record and SBOMs with every release ([#261](https://github.com/Domktorymysli/vclu/issues/261)).
+
+**Fixes**
+- Readable statistics charts in the light theme, thanks @osieckiAdam ([#280](https://github.com/Domktorymysli/vclu/pull/280)).
+- Alarms, locks and gates shared to the cloud by the agent stay behind a PIN ([#274](https://github.com/Domktorymysli/vclu/issues/274)).
+- No false MQTT warnings at start ([#256](https://github.com/Domktorymysli/vclu/pull/256)).
+- Small ones: WebSocket library with the GO-2026-6278 fix, `plugin:mqttPublish` works, clearer message about a missing permission ([#272](https://github.com/Domktorymysli/vclu/pull/272)).
+
+Full list: https://github.com/Domktorymysli/vclu/compare/v1.12.0...v1.13.0
+
+### Po polsku
+
+**Najważniejsze:** pluginy 2.0: uprawnienia, które pozwalają kontrolować, z czym łączy się plugin. Każdy plugin jest zamknięty we własnym pudełku z widocznymi uprawnieniami. Do tego edycja harmonogramów z dashboardu i aplikacji oraz dzwonek z powiadomieniami.
+
+**Przed aktualizacją**
+- Stare pluginy działają dalej. Oficjalne mają nowe wersje, warto je zaktualizować na stronie pluginów i potwierdzić uprawnienia ([#205](https://github.com/Domktorymysli/vclu/issues/205)).
+- Plugin z wielkimi literami w identyfikatorze się nie załaduje. Trzeba go odinstalować i zainstalować jeszcze raz ([#205](https://github.com/Domktorymysli/vclu/issues/205)).
+
+**Nowe**
+- Uprawnienia pluginów. Plugin deklaruje, z jakimi serwerami, urządzeniami i tematami MQTT się łączy. Widać to przy instalacji, a aktualizacja, która chce więcej, czeka na „Zezwól” ([#205](https://github.com/Domktorymysli/vclu/issues/205)).
+- Plugin można ograniczyć do wybranych adresów i tematów. Każdy działa we własnej piaskownicy ([#206](https://github.com/Domktorymysli/vclu/pull/206)).
+- Kreator pluginu (prototyp). Ustawienia, wyszukiwanie urządzeń w domu i podgląd zmian w kodzie modułu przed zapisem ([#247](https://github.com/Domktorymysli/vclu/issues/247)).
+- Plugin może mieć własny dashboard i akcje, które da się wywołać z aplikacji albo przez agenta ([#206](https://github.com/Domktorymysli/vclu/pull/206)).
+- Nowe protokoły w pluginach: UDP, TCP, telnet, WebSocket, port szeregowy i bezpośrednia komunikacja z CLU. Do tego `Crypto` (AES, HMAC, SHA) w pluginach i modułach ([#240](https://github.com/Domktorymysli/vclu/issues/240), [#257](https://github.com/Domktorymysli/vclu/issues/257)).
+- Edycja harmonogramów z dashboardu i aplikacji. Zaznaczasz odcinek, przesuwasz końce albo cały odcinek i zmieniasz wartość ([#268](https://github.com/Domktorymysli/vclu/issues/268)).
+- Dzwonek z powiadomieniami: nowa wersja, aktualizacje pluginów, moduły, które się nie ładują, nieudane logowania ([#248](https://github.com/Domktorymysli/vclu/issues/248)).
+- Import GATE MODBUS z OM. Obiekty stają się urządzeniami, jeszcze niesprawdzone na prawdziwym GATE MODBUS ([#278](https://github.com/Domktorymysli/vclu/issues/278)).
+- Po 5 nieudanych logowaniach trzeba chwilę odczekać. Sekcje strony startowej można zwijać ([#255](https://github.com/Domktorymysli/vclu/pull/255)).
+- Rekord bezpieczeństwa i SBOM-y przy każdym wydaniu ([#261](https://github.com/Domktorymysli/vclu/issues/261)).
+
+**Poprawki**
+- Czytelne wykresy statystyk w jasnym motywie, dzięki @osieckiAdam ([#280](https://github.com/Domktorymysli/vclu/pull/280)).
+- Alarmy, zamki i bramy udostępnione przez agenta w chmurze zostają za PIN-em ([#274](https://github.com/Domktorymysli/vclu/issues/274)).
+- Bez fałszywych ostrzeżeń MQTT przy starcie ([#256](https://github.com/Domktorymysli/vclu/pull/256)).
+- Drobne: biblioteka WebSocket z poprawką GO-2026-6278, działający `plugin:mqttPublish`, czytelniejszy komunikat o brakującym uprawnieniu ([#272](https://github.com/Domktorymysli/vclu/pull/272)).
+
+Pełna lista: https://github.com/Domktorymysli/vclu/compare/v1.12.0...v1.13.0
+
 ## v1.12.0 (2026-11-21)
 
 ### English

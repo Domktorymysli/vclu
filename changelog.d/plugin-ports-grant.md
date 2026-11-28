@@ -1,3 +1,0 @@
-### Plugins
-
-- **What an update adds waits for your permission** - installing records the hosts, ports (`lan`, `udp`, `tcp`), MQTT topic filters and actions the confirmation showed; what the downloaded files ask for beyond that waits. An update that adds a port, a topic filter or an action, or asks for any port or topic, shows it on the plugins page as waiting, and the plugin keeps what was allowed before until you allow the rest. You can narrow a grant on the plugins page, never past what the plugin declares. A plugin installed earlier gets its current lists recorded on the next load, and grants from before (`grenton_raw`, WebSocket or broadcast ports) are read and written in the new shape.
