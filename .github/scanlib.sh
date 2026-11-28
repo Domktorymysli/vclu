@@ -6,7 +6,7 @@
 scan_raw() {
   [ -n "${SCAN_OUT:-}" ] || return 0
   mkdir -p "$SCAN_OUT"
-  echo "$SCAN_OUT/$(echo "$1" | tr -c 'A-Za-z0-9._-\n' '_')"
+  echo "$SCAN_OUT/$(echo "$1" | tr -c 'A-Za-z0-9._\n-' '_')"
 }
 
 # scan_result <scanner> <version> <target> <pass|fail> <raw file> <findings> <accepted> [<extra json>]
